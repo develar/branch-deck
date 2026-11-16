@@ -100,13 +100,17 @@ fn only_their_one_writer_writes_the_files_of_a_lease_and_only_the_modules_of_the
   );
 }
 
+/// The names of the directory of the lease beside its literal: the one constant of the directory of the state
+/// (`git_ops::lease_slot::STATE_DIR`) and its path in a git directory (`state_dir`)
+const DIRECTORY_NAMES: &[&str] = &["STATE_DIR", "state_dir"];
+
 /// The lines of `sources` but the writer's that name a file of the lease (`LEAVES`) in a source that names the
-/// directory of the lease (`branch-deck` in a line of code, which only a literal can hold), however the path is put
-/// together
+/// directory of the lease (`branch-deck` in a line of code, which only a literal can hold, or `DIRECTORY_NAMES`),
+/// however the path is put together
 fn leaves_beside_the_lease_dir(sources: &[(String, String)]) -> Vec<String> {
   let mut report = Vec::new();
   for (path, text) in sources.iter().filter(|(path, _)| path != WRITER) {
-    if !code_lines(text).any(|(_, line)| line.contains("branch-deck")) {
+    if !code_lines(text).any(|(_, line)| line.contains("branch-deck") || DIRECTORY_NAMES.iter().any(|name| names(line, name))) {
       continue;
     }
     for (number, line) in code_lines(text).filter(|(_, line)| LEAVES.iter().any(|leaf| line.contains(leaf))) {
@@ -124,6 +128,8 @@ fn a_path_of_a_file_of_a_lease_built_at_run_time_is_found() {
   assert_eq!(found("let state = git_dir.join(\"branch-deck\").join(\"landed.json\");"), 1);
   assert_eq!(found("const MARK: &str = concat!(\"branch-deck/\", \"synced\");"), 1);
   assert_eq!(found("let dir = format!(\"{git_dir}/branch-deck\");\nlet mark = dir.join(\"synced.d\");"), 1);
+  assert_eq!(found("let state = git_dir.join(STATE_DIR).join(\"landed.json\");"), 1, "the constant of the directory");
+  assert_eq!(found("let mark = state_dir(&git_dir).join(\"synced.d\");"), 1, "the path of the directory");
   assert_eq!(found("let lock = git_dir.join(\"branch-deck\").join(\"stamp\");"), 0, "another file of the directory");
   assert_eq!(found("ops.part(changes.synced.is_some(), \"synced\", &view.synced);"), 0, "no directory of the lease");
 }

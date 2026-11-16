@@ -10,6 +10,7 @@ use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, go
 use bd_core::context::Environment;
 use domain_types::worktree_epoch::WorktreeEpoch;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use lease_pool::epoch::worktree_epoch;
 use lease_pool::landed_work::{LandedCommit, Proof};
 use lease_pool::lease::GetStep;
@@ -85,7 +86,7 @@ impl Fixture {
 
   /// `$GIT_COMMON_DIR/branch-deck/leases.json`
   pub(crate) fn state_file(&self) -> PathBuf {
-    self.repo.path().join(".git/branch-deck/leases.json")
+    self.repo.path().join(".git").join(STATE_DIR).join("leases.json")
   }
 }
 
@@ -492,13 +493,13 @@ fn a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_direc
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   // what a lease leaves, named here apart from the list the return goes by, so a file the list lacks fails
-  let lease_files = ["branch-deck/synced.d", "branch-deck/synced", "branch-deck/landed.json"];
+  let lease_files = ["synced.d", "synced", "landed.json"].map(|file| format!("{STATE_DIR}/{file}"));
   let leave = || {
-    for file in lease_files {
+    for file in &lease_files {
       let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);
       let at = Path::new(at.trim());
       std::fs::create_dir_all(at.parent().unwrap()).unwrap();
-      if file == "branch-deck/synced.d" {
+      if file.ends_with("/synced.d") {
         std::fs::create_dir_all(at).unwrap();
         std::fs::write(at.join("prefix"), PREFIX).unwrap();
       } else {
@@ -513,7 +514,7 @@ fn a_new_lease_of_a_slot_inherits_nothing_the_lease_before_left_in_its_git_direc
         let at = slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", file]);
         Path::new(at.trim()).exists()
       })
-      .map(|file| (*file).to_owned())
+      .cloned()
       .collect::<Vec<_>>()
   };
   leave();
@@ -827,7 +828,7 @@ fn a_clone_that_fails_falls_back_to_a_checkout() {
 /// The trash of the pool of `fixture` is empty, and the log `text` has `freed.1` lines `freed.0`, one per slot a command
 /// freed, each before the line `deleted` of the delete of their trash: the command deleted it once every slot was free
 pub(crate) fn assert_trash_deleted_once_free(fixture: &Fixture, text: &str, freed: (&str, usize), deleted: &str) {
-  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  let trash = fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
   assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0, "the trash is empty");
   let lines: Vec<usize> = text.match_indices(freed.0).map(|(at, _)| at).collect();
   let deleted = text.find(deleted).unwrap_or_else(|| panic!("no {deleted:?} in {text}"));
@@ -1697,7 +1698,7 @@ impl ShrinkFixture {
   /// `brd lease get` on `volume`, each step told to `progress`
   fn get_reporting(&self, volume: Volume, progress: &(dyn Fn(GetStep) + Sync)) -> anyhow::Result<lease_pool::lease::LeaseGot> {
     // what the shrink or the eviction moved into the trash still takes its space, as on a volume, until it is deleted
-    let trash = self.fixture.repo.path().join(".git/branch-deck/trash");
+    let trash = self.fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
     let space = |_: &Path| {
       let gone = |path: fn(&str) -> PathBuf, in_trash: &str| (self.slots.iter().filter(|slot| !path(slot).exists()).count() as u64).saturating_sub(files_named(&trash, in_trash));
       Some(lease_pool::free_space::VolumeSpace {
@@ -1824,7 +1825,7 @@ fn a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots
     ]
   );
   // what the rules moved into the trash is deleted
-  let trash = shrink.fixture.repo.path().join(".git/branch-deck/trash");
+  let trash = shrink.fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
   assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0);
 }
 
@@ -1894,7 +1895,7 @@ fn a_shrink_stops_inside_the_delete_of_a_slot_once_the_volume_has_the_target() {
     std::fs::write(unit_dir.join(format!("f{file}")), "x").unwrap();
   }
   let output = files_below(&unit_dir);
-  let trash = shrink.fixture.repo.path().join(".git/branch-deck/trash");
+  let trash = shrink.fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
   // 99 GiB, and 1 GiB more for each 30 files of it deleted: the 110 of the minimum and its margin once 330 are gone
   let space = |_: &Path| {
     let deleted = output - files_below(&unit_dir) - files_below(&trash);
@@ -2771,7 +2772,7 @@ pub(crate) fn trash_of_a_run(fixture: &Fixture, gone: bool) -> PathBuf {
     (std::process::id(), sync_utils::process_scan::process_started(std::process::id()), "running")
   };
   let started = started.unwrap_or(1);
-  let dir = fixture.repo.path().join(".git/branch-deck/trash").join(format!("{pid}-{started}-{name}"));
+  let dir = fixture.repo.path().join(".git").join(STATE_DIR).join("trash").join(format!("{pid}-{started}-{name}"));
   std::fs::create_dir_all(dir.join("0")).unwrap();
   std::fs::write(dir.join("0").join("out.bin"), vec![1; 1 << 20]).unwrap();
   dir

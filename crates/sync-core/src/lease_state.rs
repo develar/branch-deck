@@ -28,7 +28,7 @@ use tracing::{debug, warn};
 
 /// The directory of the files of the lease in the git directory of a worktree, as `rev-parse --git-path` names it: a
 /// linked worktree has its own
-pub const LEASE_DIR: &str = "branch-deck";
+pub const LEASE_DIR: &str = git_ops::lease_slot::STATE_DIR;
 
 /// How long a write or a forget waits for another process that holds the lock of the lease: the other one writes a
 /// small file or removes three

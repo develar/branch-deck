@@ -6,6 +6,7 @@
 use crate::baseline::{BaselineUpstream, fetch_baseline};
 use crate::transfer_progress::TransferProgress;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::LockHolder;
 use pretty_assertions::assert_eq;
 use std::fs;
@@ -201,7 +202,7 @@ fn a_fetch_after_a_killed_holder_fetches_at_once() {
   let remote = Remote::new(SERVE);
   remote.upload_pack.release();
   let git = GitCommandExecutor::new();
-  let common_dir = PathBuf::from(remote.clone.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])).join("branch-deck");
+  let common_dir = PathBuf::from(remote.clone.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])).join(STATE_DIR);
   fs::create_dir_all(&common_dir).unwrap();
   let record = common_dir.join("fetch.lock.holder");
   let killed = LockHolder {

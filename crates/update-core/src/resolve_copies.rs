@@ -9,6 +9,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::{STATE_DIR, state_dir};
 use git_ops::revs::git_common_dir;
 use git_ops::update_resolve::{ConflictFile, EditCopy, ResolveError, RoundConflict, RoundObjects, SessionState, list_sessions};
 use std::fs;
@@ -31,11 +32,14 @@ pub enum Materialize {
   All,
 }
 
+/// The directory of the copies of the sessions in `STATE_DIR` of the git dir of a worktree
+const RESOLVE_DIR: &str = "resolve";
+
 /// The directory of a session's copies: its `--dir`, else `branch-deck/resolve` in the git dir of its worktree
 pub fn session_root(state: &SessionState) -> PathBuf {
   match &state.dir {
     Some(dir) => PathBuf::from(dir),
-    None => Path::new(&state.git_dir).join("branch-deck").join("resolve"),
+    None => state_dir(Path::new(&state.git_dir)).join(RESOLVE_DIR),
   }
 }
 
@@ -54,7 +58,7 @@ pub fn copy_path(root: &Path, round: u32, side: &str, file: &ConflictFile) -> Pa
 fn real_dir(state: &SessionState, components: &[&str]) -> Option<PathBuf> {
   let (mut path, mut chain): (PathBuf, Vec<&str>) = match &state.dir {
     Some(dir) => (PathBuf::from(dir), Vec::new()),
-    None => (PathBuf::from(&state.git_dir), vec!["branch-deck", "resolve"]),
+    None => (PathBuf::from(&state.git_dir), vec![STATE_DIR, RESOLVE_DIR]),
   };
   chain.extend_from_slice(components);
   let is_dir = |path: &Path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir());

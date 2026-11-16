@@ -7,15 +7,18 @@
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
 use git_ops::host_client::{Scan, apply_patch, commit_count, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
+use git_ops::lease_slot::state_dir;
 use git_ops::revs::{repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};
 
-/// The directory of the run records and the patches, in the git directory of a checkout
-const RUNS_DIR: &str = "branch-deck/host/runs";
-/// The directory of the pack files, in the git directory of a checkout
-const PACKS_DIR: &str = "branch-deck/host/packs";
+/// The directory of the files of the runs in `STATE_DIR` of the git directory of a checkout
+const HOST_DIR: &str = "host";
+/// The directory of the run records and the patches, in `HOST_DIR`
+const RUNS_DIR: &str = "runs";
+/// The directory of the pack files, in `HOST_DIR`
+const PACKS_DIR: &str = "packs";
 
 /// The commit that a run ships, and what the client asks the host about
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -81,7 +84,12 @@ impl Checkout {
 
   /// `branch-deck/host/runs` of the git directory: the run records and the patches
   pub(crate) fn runs_dir(&self) -> PathBuf {
-    self.git_dir.join(RUNS_DIR)
+    self.host_dir().join(RUNS_DIR)
+  }
+
+  /// `branch-deck/host` of the git directory
+  fn host_dir(&self) -> PathBuf {
+    state_dir(&self.git_dir).join(HOST_DIR)
   }
 
   /// The name of the repository: the directory of its main checkout
@@ -118,7 +126,7 @@ impl Checkout {
   /// The thin pack of `commit` against the commits of `have`, into a private file of `branch-deck/host/packs`. `stop`
   /// kills git, and it sends the keepalives of the connection of the pack too. A stop answers `interrupted`
   pub(crate) fn pack(&self, commit: &str, have: &[String], stop: &dyn Fn() -> bool) -> Result<Pack, Refusal> {
-    let dir = self.git_dir.join(PACKS_DIR);
+    let dir = self.host_dir().join(PACKS_DIR);
     let packed = pack_commit_until(&self.git, &self.top_level, commit, have, &dir, &mut |_| {}, stop).map_err(|error| {
       if error.downcast_ref::<StoppedCommand>() == Some(&StoppedCommand::Cancelled) {
         Refusal::new(Code::Interrupted, "Ctrl+C stopped the build of the pack")

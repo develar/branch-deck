@@ -40,6 +40,7 @@ use bd_rewrite::squash_command::{SquashArgs, squash};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 #[cfg(unix)]
 use lease_pool::host_slots::{HostSlotsParams, LendAnswer, LendRequest, ShrinkOutcome, SlotCheckout, checkout, fill, give_back, give_back_run, lend, shrink, snapshot_run};
 use lease_pool::lease::{GetStep, Pool, canonical_path};
@@ -1328,7 +1329,7 @@ fn idle_landed_lease() -> (TestRepo, tempfile::TempDir, bd_core::context::Enviro
   repo.create_commit("(peer) Add p", "p.txt", "p\n");
   let (exit_code, picked) = run_in(&repo, &["pick", "--from", &slot_text]);
   assert_eq!(exit_code, 0, "{picked}");
-  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &canonical_path(&slot));
+  make_lease_idle(&repo.path().join(".git").join(STATE_DIR).join("leases.json"), &canonical_path(&slot));
   let context = LeaseContext::resolve(&environment, None).unwrap();
   (repo, home, environment, context)
 }
@@ -1390,7 +1391,7 @@ fn idle_lease_with_a_change(repo: &TestRepo, environment: &bd_core::context::Env
   let slot = leased_slot(environment);
   std::fs::write(slot.join("left.txt"), "left\n").unwrap();
   let slot = canonical_path(&slot);
-  make_lease_idle(&repo.path().join(".git/branch-deck/leases.json"), &slot);
+  make_lease_idle(&repo.path().join(".git").join(STATE_DIR).join("leases.json"), &slot);
   slot
 }
 

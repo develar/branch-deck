@@ -11,6 +11,7 @@ use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, slot_path, states};
 use crate::takeover_test::landed_lease;
 use bd_cli::fixture_test::{assert_error, canonical, git, gone_process, make_lease_idle};
+use git_ops::lease_slot::STATE_DIR;
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
@@ -123,7 +124,7 @@ fn table(fixture: &Fixture) -> HostSlots {
 
 /// `$GIT_COMMON_DIR/branch-deck/host-slots.json`
 fn table_file(fixture: &Fixture) -> PathBuf {
-  fixture.repo.path().join(".git/branch-deck/host-slots.json")
+  fixture.repo.path().join(".git").join(STATE_DIR).join("host-slots.json")
 }
 
 /// Rewrite the table as a process that crashed, or time, would have left it: by a rename, as brd writes it, so a bd

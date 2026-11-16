@@ -4,6 +4,7 @@ use crate::fixture_test::writable_state;
 use crate::fixture_test::{git, repo_with_commits, run_in, write};
 use clap::CommandFactory;
 use domain_types::error::ErrorCode;
+use git_ops::lease_slot::object_cache_dir;
 use std::collections::{BTreeMap, BTreeSet};
 use test_utils::history::HistoryCommit;
 
@@ -372,7 +373,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
   std::fs::write(plan.path(), serde_json::json!({ "branches": { "b": [change] } }).to_string()).unwrap();
 
   let before = writable_state(&repo);
-  let cache = repo.path().join(".git/branch-deck/cache");
+  let cache = object_cache_dir(&repo.path().join(".git"));
   let commands = [
     &["status"][..],
     &["status", "--stats"],

@@ -1,4 +1,5 @@
 use bd_cli::fixture_test::{assert_error, canonical, git, hold_the_lock, run_in, write};
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -100,7 +101,7 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "");
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("edited\tshared.txt"));
   assert!(!Path::new(&edit_of(&round, "shared.txt")).exists(), "the copies are removed");
-  assert!(!clone.path().join(".git/branch-deck/resolve").exists());
+  assert!(!clone.path().join(".git").join(STATE_DIR).join("resolve").exists());
 
   // the undo of the update takes it back
   let (exit_code, undo) = run_in(&clone, &["undo", done["undo_token"].as_str().unwrap()]);
@@ -548,7 +549,7 @@ fn a_rewritten_head_makes_the_session_stale_and_abort_removes_it() {
   assert_eq!((exit_code, &aborted["worktree"], &aborted["round"]), (0, &json!("main"), &json!(1)), "{aborted}");
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/", "refs/notes/"]), "", "no session ref, no notes");
   assert!(!Path::new(&edit_of(&round, "shared.txt")).exists());
-  assert!(!clone.path().join(".git/branch-deck/resolve").exists());
+  assert!(!clone.path().join(".git").join(STATE_DIR).join("resolve").exists());
   let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
   assert_error(&output, exit_code, (2, "no_session"));
 }

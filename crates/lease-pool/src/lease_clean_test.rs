@@ -1,6 +1,7 @@
 use crate::lease::Pool;
 use crate::lease_clean::{CleanMode, CleanRule, Removed, Trash, apply_clean_rules, describe_size, holds_gone_runs, parse_clean_rules, remove_measured_until};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 #[cfg(unix)]
@@ -626,7 +627,7 @@ fn the_sweep_deletes_the_read_only_trash_of_a_gone_run() {
 #[test]
 fn trash_bytes_measure_each_run_with_the_shared_walk() {
   let root = tempfile::tempdir().unwrap();
-  let trash = root.path().join("branch-deck/trash");
+  let trash = root.path().join(STATE_DIR).join("trash");
   let first = trash.join("first");
   let second = trash.join("second");
   std::fs::create_dir_all(&first).unwrap();

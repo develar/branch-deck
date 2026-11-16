@@ -3,6 +3,7 @@ use crate::lease_notes::{
   NOTES_LINK, all_notes, close_notes, expire_notes, expire_pool_notes, expires_at, note_files, notes_dir, now_seconds, open_notes, read_notes, record_path, seam,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ impl Pool {
     let (slot, git_common_dir) = (dir.path().join("1/repo"), dir.path().join("repo/.git"));
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::create_dir_all(&git_common_dir).unwrap();
-    let root = git_common_dir.join("branch-deck/notes");
+    let root = git_common_dir.join(STATE_DIR).join("notes");
     Self {
       _dir: dir,
       slot,
@@ -213,12 +214,12 @@ fn no_notes_expire_where_the_state_of_the_pool_cannot_be_read() {
   let mut record = read_notes(&pool.root, &lease.id).unwrap().record;
   record.leased_at = 1;
   std::fs::write(record_path(&pool.root, &lease.id), serde_json::to_vec(&record).unwrap()).unwrap();
-  std::fs::write(pool.git_common_dir.join("branch-deck/leases.json"), "not the state").unwrap();
+  std::fs::write(pool.git_common_dir.join(STATE_DIR).join("leases.json"), "not the state").unwrap();
 
   assert_eq!(expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir), Vec::new());
 
   assert!(dir.is_dir() && read_notes(&pool.root, &lease.id).is_some(), "the notes stay");
-  std::fs::remove_file(pool.git_common_dir.join("branch-deck/leases.json")).unwrap();
+  std::fs::remove_file(pool.git_common_dir.join(STATE_DIR).join("leases.json")).unwrap();
   assert_eq!(
     expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir).len(),
     1,

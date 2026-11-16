@@ -3,8 +3,9 @@ use bd_cli::fixture_test::{
   MANAGER_TEST, commit_all, commit_override_of_overload, git, numbered_lines, repo_on_baseline, repo_with_baseline, repo_with_commits, repo_with_subjects, run_in, write,
 };
 use domain_types::error::ErrorCode;
+use git_ops::lease_slot::object_cache_dir;
 use git_ops::revs::short_id;
-use object_cache::cache::ObjectCache;
+use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
@@ -216,13 +217,13 @@ fn cached_output_equals_uncached() {
   write(&repo, "Cargo.lock", "b\n");
   write(&repo, "image.bin", [0u8, 1]);
   let second = commit_all(&repo, "(second) Change it", 1_700_000_200);
-  let cache_dir = repo.path().join(".git/branch-deck/cache");
+  let cache_dir = object_cache_dir(&repo.path().join(".git"));
 
   let (_, uncached) = run_in(&repo, &["--no-cache", "commits", "--files"]);
   assert!(!cache_dir.exists(), "--no-cache creates no cache");
   let (_, cold) = run_in(&repo, &["commits", "--files"]);
   assert!(cache_dir.join("data.mdb").exists());
-  let cached = ObjectCache::open(&repo.path().join(".git")).get_commit_diffs(&[first, second]);
+  let cached = ObjectCache::open_dir(&cache_dir, &CacheConfig::default()).get_commit_diffs(&[first, second]);
   assert_eq!(cached.len(), 2, "the cold run filled the cache");
   let (_, warm) = run_in(&repo, &["commits", "--files"]);
   assert_eq!(cold, uncached);

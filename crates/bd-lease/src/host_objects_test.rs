@@ -5,6 +5,7 @@ use crate::host_slots_test::{context, host_fixture, lend_to, params};
 use crate::lease_test::Fixture;
 use bd_cli::fixture_test::git;
 use git_ops::host_objects::Stored;
+use git_ops::lease_slot::STATE_DIR;
 use lease_pool::host_refs::{HostRef, IngestedPack, have, ingest};
 use lease_pool::host_runs::reclaim_all;
 use lease_pool::host_slots::{LendAnswer, fill, give_back_run};
@@ -103,7 +104,7 @@ fn reclaim_deletes_the_refs_that_no_run_needs() {
   let params = params(&fixture, &context);
   assert!(matches!(lend_to(&params, "waiting", None), LendAnswer::Queued(_)), "no slot is filled");
 
-  let file = fixture.repo.path().join(".git/branch-deck/host-refs.json");
+  let file = fixture.repo.path().join(".git").join(STATE_DIR).join("host-refs.json");
   let mut refs: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
   let now_ms = u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()).unwrap();
   let hours_ago = |hours: u64| json!(now_ms - hours * 3_600_000);

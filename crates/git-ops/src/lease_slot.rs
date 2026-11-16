@@ -97,15 +97,30 @@ impl UntrackedFiles {
 /// status of the pool counts as a change, also where `info/exclude` lost the line that ignores it
 pub const NOTES_LINK: &str = "notes.local";
 
-/// The directory of the state of Branch Deck in `$GIT_COMMON_DIR`: the pool, its locks, the notes of the leases
+/// The directory of the state of Branch Deck in `$GIT_COMMON_DIR`: the pool, its locks, the notes of the leases, the
+/// object cache, the operations registry; and in the git directory of a worktree, the files of its lease and the copies
+/// of its resolve sessions. The one name of it: every path of the state is built from this
 pub const STATE_DIR: &str = "branch-deck";
+
+/// The directory of the object cache in `STATE_DIR` of `$GIT_COMMON_DIR`, shared by every worktree of the repository
+const OBJECT_CACHE_DIR: &str = "cache";
+
+/// `STATE_DIR` in `git_dir`: `$GIT_COMMON_DIR/branch-deck`, or the git directory of a worktree for its own files
+pub fn state_dir(git_dir: &Path) -> PathBuf {
+  git_dir.join(STATE_DIR)
+}
+
+/// The object cache of the repository of `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/cache`
+pub fn object_cache_dir(git_common_dir: &Path) -> PathBuf {
+  state_dir(git_common_dir).join(OBJECT_CACHE_DIR)
+}
 
 /// The directory of the notes of the leases in `STATE_DIR`, one directory per lease named by its id
 pub const LEASE_NOTES_DIR: &str = "notes";
 
 /// The notes of the leases of the repository of `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/notes`
 pub fn lease_notes_root(git_common_dir: &Path) -> PathBuf {
-  git_common_dir.join(STATE_DIR).join(LEASE_NOTES_DIR)
+  state_dir(git_common_dir).join(LEASE_NOTES_DIR)
 }
 
 /// Whether `link` is a link to the notes of a lease of the repository of `git_common_dir`, as `NOTES_LINK` of a slot is:

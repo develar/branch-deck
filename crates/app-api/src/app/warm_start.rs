@@ -10,8 +10,8 @@
 
 use crate::context::AppContext;
 use domain_types::session::CachedModel;
-use git_ops::lease_slot::linked_worktree;
-use object_cache::cache::ObjectCache;
+use git_ops::lease_slot::{linked_worktree, object_cache_dir};
+use object_cache::cache::{CacheConfig, ObjectCache};
 use repository_model::warm_start::{CachedSession, read_frame};
 use std::path::{Path, PathBuf};
 use sync_utils::span::in_current_span;
@@ -50,7 +50,7 @@ fn project_frame(repository_path: &str) -> Option<CachedSession> {
     debug!("The files name no git directory of the project");
     return None;
   };
-  read_frame(&ObjectCache::open(&git_common_dir), repository_path)
+  read_frame(&ObjectCache::open_dir(&object_cache_dir(&git_common_dir), &CacheConfig::default()), repository_path)
 }
 
 /// `$GIT_COMMON_DIR` of the worktree whose top level is `worktree`, without a git process: its `.git` directory, or the

@@ -397,7 +397,7 @@ fn a_return_deletes_through_the_trash_and_what_a_gone_run_left_there() {
   let path = path_of(&fixture.get(&[]));
   file(Path::new(&path), "tests/results/trace.zip", 16384);
   // the trash of a return whose process is gone: no process has the pid 0 with the start time 1
-  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  let trash = fixture.repo.path().join(".git").join(git_ops::lease_slot::STATE_DIR).join("trash");
   file(&trash, "0-1-gone/0/trace.zip", 8192);
   assert!(fixture.status()["trash_bytes"].as_u64().unwrap() > 0);
   let returned = fixture.give_back(&path);

@@ -1,4 +1,5 @@
 use super::*;
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use std::time::SystemTime;
 
@@ -7,7 +8,7 @@ use std::time::SystemTime;
 #[test]
 fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   let base = tempfile::tempdir().unwrap();
-  let files = RunFiles::new(&base.path().join(".git/branch-deck/host/runs")).unwrap();
+  let files = RunFiles::new(&base.path().join(".git").join(STATE_DIR).join("host/runs")).unwrap();
   assert!(files.dir().is_dir(), "{}", files.dir().display());
   {
     use std::os::unix::fs::PermissionsExt;

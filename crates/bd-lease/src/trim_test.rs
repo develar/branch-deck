@@ -9,6 +9,7 @@ use crate::lease_command::LeaseContext;
 use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, path_of, slot_path, states};
 use bd_cli::fixture_test::{assert_error, canonical, git, repo_on_baseline, run_json};
+use git_ops::lease_slot::STATE_DIR;
 use lease_pool::lease_clean::describe_size;
 use pool_disk::step::DiskStep;
 use pretty_assertions::assert_eq;
@@ -128,7 +129,7 @@ fn a_trim_deletes_the_free_slots_past_the_limit_returned_longest_ago_first_with_
     assert!(trim.base(kept).join("DO_NOT_BUILD_HERE").is_file(), "{kept}");
   }
   // the trash of the run is empty and gone
-  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  let trash = fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
   assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0);
   // the kept slot is leased as before
   assert_eq!(path_of(&fixture.get(&["--holder", "after"])), *third);

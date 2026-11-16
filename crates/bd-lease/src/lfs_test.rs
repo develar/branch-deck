@@ -9,6 +9,7 @@ use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get
 use crate::lease_test::{Fixture, path_of};
 use bd_core::context::Environment;
 use bd_core::error::CliError;
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::io::Write;
@@ -43,7 +44,7 @@ impl LfsPool {
     let directory = tempfile::tempdir().unwrap();
     let log = shell_path(&directory.path().join("log"));
     let fail = shell_path(&directory.path().join("fail"));
-    let state = shell_path(&repo.path().join(".git").join("branch-deck"));
+    let state = shell_path(&repo.path().join(".git").join(STATE_DIR));
     let held = format!("held=; for lock in clones worktrees leases; do [ -f '{state}/'$lock'.lock.holder' ] && held=\"$held $lock\"; done");
     let smudge = fake_executable(directory.path(), "smudge", &format!("{held}\necho \"smudge$held\" >> '{log}'\nexec cat"));
     let git = fake_executable(

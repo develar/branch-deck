@@ -3,6 +3,7 @@
 
 use crate::lease_test::{Fixture, path_of, slot_path};
 use bd_cli::fixture_test::canonical;
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -23,7 +24,7 @@ fn notes(fixture: &Fixture, cwd: &Path, args: &[&str]) -> Vec<Value> {
 
 /// The record of the notes of `lease_id`, beside their directory
 fn record_file(fixture: &Fixture, lease_id: &str) -> PathBuf {
-  fixture.repo.path().join(".git/branch-deck/notes").join(format!("{lease_id}.json"))
+  fixture.repo.path().join(".git").join(STATE_DIR).join("notes").join(format!("{lease_id}.json"))
 }
 
 /// The get links `notes.local` of its worktree to the notes of the lease, outside the worktree, and names them; the
@@ -36,7 +37,7 @@ fn the_notes_of_a_lease_outlive_its_return_and_the_next_holder_of_the_slot_start
   let got = fixture.get(&["--holder", "lane-1"]);
   let (slot, lease_id) = (path_of(&got), got["lease_id"].as_str().unwrap().to_string());
   let dir = notes_of(&got);
-  assert_eq!(dir, canonical(&fixture.repo.path().join(".git/branch-deck/notes").join(&lease_id)));
+  assert_eq!(dir, canonical(&fixture.repo.path().join(".git").join(STATE_DIR).join("notes").join(&lease_id)));
   assert!(got["next"].as_array().unwrap().contains(&json!(format!("brd lease notes --lease-id {lease_id}"))), "{got}");
   std::fs::create_dir_all(Path::new(&slot).join("notes.local/logs")).unwrap();
   std::fs::write(Path::new(&slot).join("notes.local/logs/gate.log"), "green\n").unwrap();

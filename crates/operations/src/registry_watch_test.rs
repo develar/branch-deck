@@ -8,6 +8,7 @@ use domain_types::fixtures::land_intent;
 use domain_types::operation::{Origin, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::session::ViewPatch;
+use git_ops::lease_slot::STATE_DIR;
 use notify::event::{EventKind, Flag, ModifyKind};
 use pretty_assertions::assert_eq;
 use repository_model::session::{OneClock, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone};
@@ -60,7 +61,7 @@ async fn watched(host: Arc<dyn SessionHost>, common_dir: &Path, config: WatchCon
 /// The journal of the registry of `common_dir` with one more line, as an operation of `bd` that ended writes it
 fn journal_line(common_dir: &Path) {
   use std::io::Write as _;
-  let path = crate::journal::journal_path_in(&common_dir.join("branch-deck"));
+  let path = crate::journal::journal_path_in(&common_dir.join(STATE_DIR));
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();
   let mut journal = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
   writeln!(journal, "{{}}").unwrap();
@@ -267,11 +268,11 @@ async fn an_event_of_any_name_of_the_directory_reads_the_registry_and_syncs_for_
   // `brd sync` marked the worktree synced after the session opened: any sync for a stamp runs from now
   host.marked.store(true, std::sync::atomic::Ordering::SeqCst);
   let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
-  let dir = WatchedDir::new(&directory.path().join("branch-deck"));
+  let dir = WatchedDir::new(&directory.path().join(STATE_DIR));
 
   file.insert_of_another_process(record("bd-docs", &agent(&child), &safe_push("docs"), unix_now())).unwrap();
   assert_eq!(view_operations(registry.sessions(), &key).await.len(), 1, "nothing reads without an event");
-  woken(&wake, &dir, &Ok(modified(&directory.path().join("branch-deck/.operations.json.tmpX4"))));
+  woken(&wake, &dir, &Ok(modified(&directory.path().join(STATE_DIR).join(".operations.json.tmpX4"))));
   let missing = "the event read no registry";
   after_patches(&registry, &key, &mut patched, missing, |operations| operations.len() == 2).await;
   assert_eq!(wake.stamps(), 0, "the stamp is as it was: the look asked no sync");

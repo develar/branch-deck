@@ -1,5 +1,6 @@
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::object_cache_dir;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use tempfile::TempDir;
@@ -90,7 +91,7 @@ fn object_cache_lives_in_the_common_dir_of_the_repository() {
 
   let initialized = counted.processes();
   assert!(counted.object_cache_is_enabled());
-  assert!(counted.repository.path().join(".git/branch-deck/cache").is_dir());
+  assert!(object_cache_dir(&counted.repository.path().join(".git")).is_dir());
   let resolved = counted.processes();
   assert!(resolved > initialized, "the first call asks git for the common dir");
   // remembered: the second call runs no git (counted, because Windows refuses to delete the open cache under `.git`)
@@ -108,7 +109,7 @@ fn a_cache_without_object_caches_opens_none() {
   let counted = Counted::new(RepositoryStateCache::without_object_caches());
 
   assert!(!counted.object_cache_is_enabled());
-  assert!(!counted.repository.path().join(".git/branch-deck/cache").exists());
+  assert!(!object_cache_dir(&counted.repository.path().join(".git")).exists());
 }
 
 /// A forgotten repository is resolved again: nothing of it is kept, its object cache neither

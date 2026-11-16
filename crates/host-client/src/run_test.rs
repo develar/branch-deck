@@ -1,5 +1,6 @@
 use super::*;
 use crate::testkit::{ALIAS, AgentStop, FakeProcesses, Hello, Said, Setup, calm};
+use git_ops::lease_slot::STATE_DIR;
 use host_link::channel::{Channel, Frame};
 use host_link::proto::{FileKind, Piece, is_run_id};
 use pretty_assertions::assert_eq;
@@ -344,7 +345,7 @@ fn a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order() {
   );
   assert_eq!(outcome.facts.phases[3].ms, 25_100);
   let record: serde_json::Value =
-    serde_json::from_str(&std::fs::read_to_string(setup.repo.path().join(format!(".git/branch-deck/host/runs/{}.json", run_of(&outcome)))).unwrap()).unwrap();
+    serde_json::from_str(&std::fs::read_to_string(setup.repo.path().join(format!(".git/{STATE_DIR}/host/runs/{}.json", run_of(&outcome)))).unwrap()).unwrap();
   assert_eq!(record, serde_json::json!({"commit": head, "fetch": ["out/bt-runs"], "outputs": [], "changes": false}));
 }
 
@@ -775,7 +776,7 @@ fn apply_brings_the_changes_back_all_or_nothing() {
   assert_eq!(std::fs::read_to_string(setup.repo.path().join("a.txt")).unwrap(), "a formatted\n");
   assert_eq!(setup.repo.git(&["diff", "--cached", "--name-only"]), "", "the index stays");
   let root = std::fs::canonicalize(setup.repo.path()).unwrap();
-  let patch = root.join(format!(".git/branch-deck/host/runs/{}.patch", run_of(&outcome)));
+  let patch = root.join(format!(".git/{STATE_DIR}/host/runs/{}.patch", run_of(&outcome)));
   assert_eq!(std::fs::read_to_string(&patch).unwrap(), PATCH);
   // the line names the patch as git names the git directory: on Windows with `/` and `\` both
   let named = said

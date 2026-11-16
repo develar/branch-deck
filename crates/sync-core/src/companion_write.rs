@@ -25,14 +25,15 @@ use crate::config_snapshot::ConfigSnapshot;
 use crate::repository_config::{PRIMARY_CONFIG_KEY, companion_problem, run_config_write};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::state_dir;
 use git_ops::revs::git_common_dir;
 use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{debug, instrument, warn};
 
-/// The lock of the companion operations of a repository, in its common git directory
-pub(crate) const COMPANION_LOCK: &str = "branch-deck/companions.lock";
+/// The lock of the companion operations of a repository, in `STATE_DIR` of its common git directory
+pub(crate) const COMPANION_LOCK: &str = "companions.lock";
 
 /// How long a write waits for another that holds a companion lock: the other one reads and writes two configs
 const COMPANION_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -249,7 +250,7 @@ fn lock_companions(git: &GitCommandExecutor, repositories: &[Option<&str>], on_w
   dirs.dedup();
   let mut locks = Vec::with_capacity(dirs.len());
   for dir in dirs {
-    let path = dir.join(COMPANION_LOCK);
+    let path = state_dir(&dir).join(COMPANION_LOCK);
     if let Some(parent) = path.parent() {
       std::fs::create_dir_all(parent)?;
     }

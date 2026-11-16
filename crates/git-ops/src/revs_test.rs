@@ -193,11 +193,12 @@ fn the_known_directories_give_the_paths_git_names_without_a_process() {
     let read = GitCommandExecutor::new();
     let git = with_dirs_of(&read, path).unwrap();
     let dirs = known_dirs(&git, path).unwrap().clone();
+    let landed = format!("{}/landed.json", crate::lease_slot::STATE_DIR);
     for name in [
       "index",
       "index.lock",
       "FETCH_HEAD",
-      "branch-deck/landed.json",
+      landed.as_str(),
       "rebase-merge",
       "rebase-apply",
       "MERGE_HEAD",

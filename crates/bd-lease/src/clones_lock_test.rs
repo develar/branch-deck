@@ -12,6 +12,7 @@ use bd_cli::fixture_test::{git, run_json};
 use bd_core::error::CliError;
 #[cfg(unix)]
 use domain_types::error::ErrorCode;
+use git_ops::lease_slot::STATE_DIR;
 #[cfg(unix)]
 use lease_pool::lease::AddingSlot;
 use lease_pool::lease::{CloneHolder, GetStep, LeaseState, Pool, canonical_path};
@@ -476,7 +477,7 @@ fn a_killed_holder_frees_the_clones_lock_with_its_process() {
   assert!(got["waited_for_clone_ms"].is_u64(), "{got}");
   assert_eq!(kinds(&steps), [&["reserve", "wait", "reserve adding"][..], new_slot_steps()].concat());
   assert!(
-    !Path::new(&common_dir).join("branch-deck/clones.lock.holder").exists(),
+    !Path::new(&common_dir).join(STATE_DIR).join("clones.lock.holder").exists(),
     "the record of the killed holder is gone"
   );
 }

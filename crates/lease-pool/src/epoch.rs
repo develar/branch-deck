@@ -15,7 +15,7 @@
 
 use crate::lease::POOL_FILE;
 use domain_types::worktree_epoch::WorktreeEpoch;
-use git_ops::lease_slot::STATE_DIR;
+use git_ops::lease_slot::state_dir;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -130,7 +130,7 @@ fn read_linked(worktree: &Path, dot_git: &[u8]) -> Result<Option<Linked>, Unread
     return Ok(None);
   }
   Ok(Some(Linked {
-    pool_file: common.join(STATE_DIR).join(POOL_FILE),
+    pool_file: state_dir(&common).join(POOL_FILE),
     path: display_path(&std::fs::canonicalize(worktree)?),
   }))
 }

@@ -2,6 +2,7 @@ use crate::lease_state::{LeaseGuard, LeasePaths, forget_lease_state, forget_leas
 use crate::sync::{SyncOptions, sync_branches};
 use crate::synced_mark::synced_before;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use test_utils::git_test_utils::{TestRepo, append_config};
@@ -14,23 +15,22 @@ fn every_file_of_the_lease_goes_and_the_locks_stay() {
   let repo = TestRepo::new();
   let git_dir = repo.path().join(".git");
   // named here apart from the list of the module, so a file the list lacks fails
-  let lease_files = ["branch-deck/synced.d", "branch-deck/synced", "branch-deck/landed.json"];
-  for file in lease_files {
-    let path = git_dir.join(file);
+  let lease_files = ["synced.d", "synced", "landed.json"].map(|file| git_dir.join(STATE_DIR).join(file));
+  for path in &lease_files {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    if file == "branch-deck/synced.d" {
-      std::fs::create_dir_all(&path).unwrap();
+    if path.ends_with("synced.d") {
+      std::fs::create_dir_all(path).unwrap();
       std::fs::write(path.join("prefix"), "test").unwrap();
     } else {
-      std::fs::write(&path, "of the lease before").unwrap();
+      std::fs::write(path, "of the lease before").unwrap();
     }
   }
-  let lock = git_dir.join("branch-deck/landed.lock");
+  let lock = git_dir.join(STATE_DIR).join("landed.lock");
   std::fs::write(&lock, "").unwrap();
 
   forget_lease_state(repo.path()).unwrap();
-  for file in lease_files {
-    assert!(!git_dir.join(file).exists(), "{file} of the lease before");
+  for path in &lease_files {
+    assert!(!path.exists(), "{} of the lease before", path.display());
   }
   assert!(lock.exists(), "a lock stays");
   forget_lease_state(repo.path()).unwrap();

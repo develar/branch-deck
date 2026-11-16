@@ -1,6 +1,7 @@
 use super::*;
 use crate::record::RunFiles;
 use crate::testkit::{ALIAS, FakeProcesses, Setup, calm};
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 
 fn fetch() -> Vec<String> {
@@ -44,7 +45,7 @@ fn agent_of_one_run() -> Setup {
 
 /// The run files of the checkout of `setup`
 fn run_files(setup: &Setup) -> RunFiles {
-  RunFiles::new(&setup.repo.path().join(".git/branch-deck/host/runs")).unwrap()
+  RunFiles::new(&setup.repo.path().join(".git").join(STATE_DIR).join("host/runs")).unwrap()
 }
 
 /// Fetches the run `1-1` with `record`, in the checkout of `setup` that `local` changes first
@@ -281,7 +282,7 @@ fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
 fn a_relative_link_to_the_notes_of_a_lease_takes_no_write() {
   let (fetched, setup) = fetch_into_notes(|root, _| {
     std::env::set_current_dir(root).unwrap();
-    std::os::unix::fs::symlink(".git/branch-deck/notes/lease-1", root.join("notes.local")).unwrap();
+    std::os::unix::fs::symlink(format!(".git/{STATE_DIR}/notes/lease-1"), root.join("notes.local")).unwrap();
   });
   let refusal = fetched.unwrap_err();
   assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);

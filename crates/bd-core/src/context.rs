@@ -8,12 +8,13 @@ use domain_types::settings::{AppSettings, PrefixSource};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
+use git_ops::lease_slot::object_cache_dir;
 use git_ops::revs::{current_branch, repository_dirs, with_repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use lease_pool::epoch::lease_guard;
-use object_cache::cache::{CacheConfig, ObjectCache, cache_dir};
+use object_cache::cache::{CacheConfig, ObjectCache};
 use operations::registry_file::ProcessRegistry;
 use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
@@ -402,7 +403,7 @@ impl RepoContext {
       .cache
       .get_or_init(|| {
         if self.use_cache {
-          ObjectCache::open_dir(&cache_dir(&self.git_common_dir), &self.cache_config)
+          ObjectCache::open_dir(&object_cache_dir(&self.git_common_dir), &self.cache_config)
         } else {
           ObjectCache::disabled()
         }

@@ -4,6 +4,7 @@ use domain_types::SyncEvent;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateKind, UpdateState};
 use git_ops::landed_pairing::{LandedDrop, LandedProof};
+use git_ops::lease_slot::STATE_DIR;
 use git_ops::update_branch::{CheckPurpose, LandedLookup, check_update};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -60,7 +61,7 @@ fn landing(repo: &TestRepo) -> Vec<String> {
 
 /// The files of the lease of the worktree of `repo`, where git names `branch-deck`
 fn lease_of(repo: &TestRepo) -> LeasePaths {
-  LeasePaths::in_dir(repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]).into())
+  LeasePaths::in_dir(repo.git(&["rev-parse", "--path-format=absolute", "--git-path", STATE_DIR]).into())
 }
 
 /// What the check inside a sync records: the undismissed report

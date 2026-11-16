@@ -15,6 +15,7 @@ use crate::baseline::BaselineUpstream;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::state_dir;
 use git_ops::revs::{git_common_dir, is_ancestor, resolve_commit};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, RepositoryLock, lock_as_another_process_for, lock_file_while_held_for};
 use serde::{Deserialize, Serialize};
@@ -100,7 +101,7 @@ pub(crate) fn take_fetch_turn(
   on_progress: &mut dyn FnMut(TransferProgress),
   canceled: &dyn Fn() -> bool,
 ) -> Result<FetchTurn> {
-  let dir = Path::new(&git_common_dir(git_executor, repo_path)?).join("branch-deck");
+  let dir = state_dir(Path::new(&git_common_dir(git_executor, repo_path)?));
   std::fs::create_dir_all(&dir).with_context(|| format!("Cannot create {}", dir.display()))?;
   let tracking_ref = upstream.tracking_ref.as_str();
   // the tip of the tracking ref and the time when a holder that fetches it was first seen; none while no such holder was
@@ -159,7 +160,7 @@ pub(crate) fn take_fetch_turn(
 /// # Errors
 /// A lock held already, a directory that can't be made
 pub fn hold_fetch_as_another_process(git_common_dir: &Path, tracking_ref: &str, command: &str) -> Result<RepositoryLock> {
-  let dir = git_common_dir.join("branch-deck");
+  let dir = state_dir(git_common_dir);
   std::fs::create_dir_all(&dir).with_context(|| format!("Cannot create {}", dir.display()))?;
   lock_as_another_process_for(dir.join(FETCH_LOCK), command, Some(tracking_ref))
 }

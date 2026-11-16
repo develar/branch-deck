@@ -1,8 +1,9 @@
 use domain_types::issue_navigation::IssueNavigationConfig;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::object_cache_dir;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use moka::sync::Cache;
-use object_cache::cache::ObjectCache;
+use object_cache::cache::{CacheConfig, ObjectCache};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -146,7 +147,7 @@ impl RepositoryStateCache {
       debug!("no git common dir, the object cache is disabled");
       return ObjectCache::disabled();
     };
-    let cache = ObjectCache::open(Path::new(&dirs.git_common_dir));
+    let cache = ObjectCache::open_dir(&object_cache_dir(Path::new(&dirs.git_common_dir)), &CacheConfig::default());
     object_caches.insert(repository_path.to_string(), cache.clone());
     cache
   }

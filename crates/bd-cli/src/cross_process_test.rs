@@ -17,6 +17,7 @@ use domain_types::patronus::{LandingAllowances, PatronusPushMode};
 use domain_types::rewrite::RewriteIntent;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, SyncReason, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::lock_repository_as_another_process;
 use operations::events::NoEvents;
 use operations::land_execute::Accepted;
@@ -453,7 +454,7 @@ fn a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder()
 #[test_log::test]
 fn bd_moves_the_stamp_of_its_repository_after_a_mutation_only() {
   let space = Space::new(&["(auth) Add auth"]);
-  let stamp = space.repo.path().join(".git/branch-deck/stamp");
+  let stamp = space.repo.path().join(".git").join(STATE_DIR).join("stamp");
   let read = |path: &Path| std::fs::read_to_string(path).ok();
   for args in [&["status"][..], &["fold", "--dry-run"], &["describe", "nothing", "--title", "T"]] {
     let _ = run_in(&space.repo, args);

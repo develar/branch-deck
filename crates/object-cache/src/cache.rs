@@ -285,11 +285,6 @@ pub(crate) fn hashed_key(version: u32, hash: &[u8; 32]) -> Vec<u8> {
   [version.to_be_bytes().as_slice(), hash].concat()
 }
 
-/// `$GIT_COMMON_DIR/branch-deck/cache`: shared by all worktrees of a repository
-pub fn cache_dir(git_common_dir: &Path) -> PathBuf {
-  git_common_dir.join("branch-deck").join("cache")
-}
-
 /// The environments of a cache and the table of each store in its environment
 struct Inner {
   /// By `Environment`, in the order of `ENVIRONMENTS`; None for one that could not be opened, whose stores miss
@@ -310,12 +305,7 @@ impl ObjectCache {
     Self::default()
   }
 
-  /// The cache of the repository whose common git directory is `git_common_dir`, with the default config
-  pub fn open(git_common_dir: &Path) -> Self {
-    Self::open_dir(&cache_dir(git_common_dir), &CacheConfig::default())
-  }
-
-  /// The cache in `dir`; disabled if it can't be opened
+  /// The cache in `dir` (of a repository: `git_ops::lease_slot::object_cache_dir`); disabled if it can't be opened
   pub fn open_dir(dir: &Path, config: &CacheConfig) -> Self {
     match open_inner(dir, config) {
       Ok(inner) => Self { inner: Some(Arc::new(inner)) },

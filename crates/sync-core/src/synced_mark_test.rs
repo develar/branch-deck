@@ -3,6 +3,7 @@ use crate::lease_state::LeasePaths;
 use crate::sync::{SyncOptions, sync_branches};
 use crate::synced_mark::{mark_synced, synced_before};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::{lock_as_another_process, lock_file};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -152,7 +153,7 @@ fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
 /// The files of the lease as the sync writes them in the worktree `dir`: where git names `branch-deck`
 /// (`RepoFacts::lease`)
 fn mark_of(dir: &std::path::Path) -> LeasePaths {
-  LeasePaths::in_dir(git_in(dir, &["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]).into())
+  LeasePaths::in_dir(git_in(dir, &["rev-parse", "--path-format=absolute", "--git-path", STATE_DIR]).into())
 }
 
 /// The files of the lease of the main worktree of `repo`

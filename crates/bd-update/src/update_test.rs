@@ -4,6 +4,7 @@ use bd_cli::fixture_test::{LockSpanGit, subcommand};
 use bd_cli::fixture_test::{
   PREFIX, TestChild, assert_error, assert_refused_during, environment, git, hold_the_lock, print_child_answer, run_in, run_json, start_cherry_pick, write,
 };
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -284,7 +285,7 @@ fn dry_run_neither_fetches_nor_writes() {
   assert_eq!(output["upstream_head"], json!(git_ops::revs::short_id(&fetched)));
   assert_eq!((output.get("undo_token"), output.get("replayed")), (None, None));
   assert_eq!(state(&clone), before);
-  assert!(!clone.path().join(".git/branch-deck/landed.json").exists());
+  assert!(!clone.path().join(".git").join(STATE_DIR).join("landed.json").exists());
 
   // --no-fetch updates onto the fetched state, not the newer upstream
   let (exit_code, output) = run_in(&clone, &["update", "--no-fetch"]);

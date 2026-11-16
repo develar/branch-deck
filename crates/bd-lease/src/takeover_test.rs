@@ -4,6 +4,7 @@
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states, trash_of_a_run};
 use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, make_lease_idle, run_in};
 use bd_core::bd_command::shell_word;
+use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -472,7 +473,7 @@ fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
 
 /// The mark of a sync in the git directory of `path` (`synced_mark`), as a sync in the slot leaves it
 pub(crate) fn mark_synced_in(path: &str) {
-  let mark = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", "branch-deck"]);
+  let mark = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", STATE_DIR]);
   sync_core::synced_mark::mark_synced(
     &sync_core::lease_state::LeaseGuard::any(),
     &sync_core::lease_state::LeasePaths::in_dir(mark.trim().into()),

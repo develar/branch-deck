@@ -9,6 +9,7 @@ use domain_types::SyncEvent;
 use domain_types::error::ErrorCode;
 use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{
   BranchSwitched, CheckPurpose, HeadAttached, LandedLookup, NotAnUpdate, PENDING_UPDATE_PREFIX, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state,
@@ -1560,7 +1561,7 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
     1,
     "still detached"
   );
-  assert!(!repo.path().join(".git/branch-deck/landed.json").exists(), "nothing reached the baseline");
+  assert!(!repo.path().join(".git").join(STATE_DIR).join("landed.json").exists(), "nothing reached the baseline");
 
   let token = UpdateUndoToken {
     previous_head: own.clone(),

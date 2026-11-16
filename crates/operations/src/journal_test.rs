@@ -12,6 +12,7 @@ use domain_types::landing::{PlannedEffect, StartRoute};
 use domain_types::operation::{EffectRecord, EffectStatus, JournalEntry, JournalTransition, OperationEvent, OperationResult, OperationStats, Outcome};
 use domain_types::patronus::PatronusPushMode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use lease_pool::lease::{Pool, Slot, canonical_path};
 use pretty_assertions::assert_eq;
 use repository_model::session::SessionKey;
@@ -118,7 +119,7 @@ async fn an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what
     (BTreeMap::from([("rev-parse".to_string(), 1)]), 1)
   );
   // a line of another version of Branch Deck
-  let path = common.path().join("branch-deck").join("journal.jsonl");
+  let path = common.path().join(STATE_DIR).join("journal.jsonl");
   let foreign = format!("{{\"endedAt\":{},\"kind\":\"newer\"}}", unix_now());
   std::fs::write(&path, format!("{}{foreign}\n", std::fs::read_to_string(&path).unwrap())).unwrap();
 

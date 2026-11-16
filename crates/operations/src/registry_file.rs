@@ -48,7 +48,7 @@ use tracing::{debug, warn};
 /// The schema of the file this version reads and writes
 pub const SCHEMA: u32 = 1;
 /// The directory of the registry in `$GIT_COMMON_DIR`
-const DIRECTORY: &str = "branch-deck";
+const DIRECTORY: &str = git_ops::lease_slot::STATE_DIR;
 /// The name of the registry file in its directory
 pub(crate) const FILE: &str = "operations.json";
 const LOCK: &str = "operations.lock";

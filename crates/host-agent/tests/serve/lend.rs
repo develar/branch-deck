@@ -5,6 +5,7 @@
 
 use super::{ALL_PHASES, Agent, World, events, eventually, write_script};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::STATE_DIR;
 use git_ops::revs::repository_dirs;
 use history_rewrite::repository_lock::lock_file;
 use host_link::proto::{Reply, Request, Stream};
@@ -29,7 +30,7 @@ fn now_ms() -> u64 {
 
 /// Changes the lend table of `repo` under its lock, as another process of the host would
 fn edit_table(repo: &TestRepo, edit: impl FnOnce(&mut Value)) {
-  let dir = repo.path().join(".git/branch-deck");
+  let dir = repo.path().join(".git").join(STATE_DIR);
   fs::create_dir_all(&dir).expect("the state directory");
   let _lock = lock_file(dir.join("host-slots.lock"), Duration::from_secs(30), &|| {}).expect("the lock of the lend table");
   let file = dir.join("host-slots.json");
@@ -213,7 +214,7 @@ fn the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill() {
 #[test]
 fn a_failed_lend_refuses_the_run_with_lease_failed() {
   let world = World::new(1, &[]);
-  let table = world.repo.path().join(".git/branch-deck/host-slots.json");
+  let table = world.repo.path().join(".git").join(STATE_DIR).join("host-slots.json");
   fs::create_dir_all(table.parent().expect("a parent")).expect("the state directory");
   fs::write(&table, "{ the table is broken").expect("a broken table");
   let agent = world.serve();

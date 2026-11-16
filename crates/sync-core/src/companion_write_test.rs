@@ -2,6 +2,7 @@ use crate::companion_write::{COMPANION_LOCK, Written, companion_of_write, unlink
 use crate::companions::companions_test::{main_worktree as main, snapshot};
 use crate::regroup_test::path;
 use crate::repository_config::read_repository_config;
+use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::{RepositoryLock, lock_as_another_process};
 use pretty_assertions::assert_eq;
 use std::sync::mpsc;
@@ -11,7 +12,7 @@ use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 /// The companion lock of `repo` as another process (`brd companion`) holds it
 fn held_by_another_process(repo: &TestRepo) -> RepositoryLock {
-  let dir = repo.path().join(".git").join(COMPANION_LOCK);
+  let dir = repo.path().join(".git").join(STATE_DIR).join(COMPANION_LOCK);
   std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
   lock_as_another_process(dir, "brd companion add").unwrap()
 }

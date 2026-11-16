@@ -5,7 +5,7 @@
 //! it changed
 
 use anyhow::{Context, Result, anyhow};
-use git_ops::lease_slot::STATE_DIR;
+use git_ops::lease_slot::state_dir;
 use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -26,7 +26,7 @@ impl StateFile {
   /// The file `file` with the lock `lock` in `branch-deck/` of `git_common_dir`
   pub fn new(git_common_dir: &Path, file: &'static str, lock: &'static str, what: &'static str) -> Self {
     Self {
-      dir: git_common_dir.join(STATE_DIR),
+      dir: state_dir(git_common_dir),
       file,
       lock,
       what,
