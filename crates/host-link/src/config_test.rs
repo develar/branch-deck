@@ -1,4 +1,6 @@
-use super::{ConfigError, EnvValue, ReadError, RepoConfig, Step, is_inner_path, parse_branchdeck, read_commit_config};
+use super::{
+  ConfigError, EnvValue, PNPM_FLAG_OPTIONS, PNPM_OPTIONS_CHECKED_WITH, PNPM_VALUE_OPTIONS, ReadError, RepoConfig, Step, is_inner_path, parse_branchdeck, read_commit_config,
+};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::convert::Infallible;
@@ -267,6 +269,13 @@ fn the_host_table_of_this_repository_parses() {
     "npx playwright install webkit",
     "pnpm -C . test:unit",
     "pnpm --filter branch-deck lint:specs",
+    // a flag of pnpm before a light script: its first argument is no script
+    "pnpm --silent test:unit e2e-pins",
+    "pnpm --if-present test:unit e2e",
+    "pnpm --color test:unit e2e",
+    "pnpm --silent test:unit test",
+    "pnpm --silent test:unit lint",
+    "pnpm --no-bail test:unit perf:diff",
   ] {
     assert!(!heavy(line), "{line}");
   }
@@ -360,6 +369,25 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
     ("pnpm --silent e2e", Some("pnpm e2e*")),
     // an option with its value after `=` takes no next word: `e2e` is an argument of `test:unit`
     ("pnpm --color=always test:unit e2e", None),
+    // a flag of pnpm and a `--no-…` take no next word either: the first argument of the script is no script
+    ("pnpm --silent test:unit e2e-pins", None),
+    ("pnpm --if-present test:unit e2e", None),
+    ("pnpm --color test:unit e2e", None),
+    ("pnpm --no-bail test:unit e2e", None),
+    ("pnpm --stream -r test:unit", None),
+    // `--` ends the options and takes no value
+    ("pnpm -- test:unit e2e", None),
+    // the global flags of pnpm 12.18.0 and the flags of its `run` take no value either
+    ("pnpm --yes test:unit e2e", None),
+    ("pnpm run --dry-run test:unit e2e", None),
+    ("pnpm run --json test:unit e2e", None),
+    ("pnpm --registry https://x e2e", Some("pnpm e2e*")),
+    // the value options of pnpm 12.18.0 take the next word, `--no-proxy` among them, and an unknown long option is read
+    // also as a setting with a value
+    ("pnpm --no-proxy localhost e2e", Some("pnpm e2e*")),
+    ("pnpm --env-file .env.test e2e", Some("pnpm e2e*")),
+    ("pnpm --strict-ssl false e2e", Some("pnpm e2e*")),
+    ("pnpm --sequential --dry-run --json test:unit e2e", None),
   ] {
     assert_eq!(entry(line), expected.map(str::to_owned), "{line}");
   }
@@ -370,4 +398,25 @@ fn a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runn
     entries_of(&["pnpm exec playwright test*"])("pnpm exec playwright test"),
     Some("pnpm exec playwright test*".to_owned())
   );
+}
+
+/// The tables of the options of pnpm were checked against the help of the pnpm of this repository: an update of
+/// `packageManager` fails here until they are checked again and `PNPM_OPTIONS_CHECKED_WITH` follows
+#[test]
+fn the_options_of_pnpm_were_checked_against_the_pnpm_of_package_json() {
+  let package: serde_json::Value = serde_json::from_str(include_str!("../../../package.json")).expect("package.json");
+  let manager = package["packageManager"].as_str().expect("packageManager");
+  assert_eq!(
+    manager.strip_prefix("pnpm@"),
+    Some(PNPM_OPTIONS_CHECKED_WITH),
+    "check `pnpm --help`, `pnpm run --help` and `pnpm exec --help` of {manager} against PNPM_VALUE_OPTIONS and PNPM_FLAG_OPTIONS"
+  );
+}
+
+/// No option of pnpm is both a flag and an option with a value: one that two versions read otherwise stays out of both
+#[test]
+fn no_option_of_pnpm_is_a_flag_and_takes_a_value() {
+  let both: Vec<&&str> = PNPM_FLAG_OPTIONS.iter().filter(|flag| PNPM_VALUE_OPTIONS.contains(flag)).collect();
+  assert_eq!(both, Vec::<&&str>::new());
+  assert!(PNPM_FLAG_OPTIONS.iter().chain(&PNPM_VALUE_OPTIONS).all(|option| option.starts_with('-')));
 }

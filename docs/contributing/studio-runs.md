@@ -44,8 +44,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A pattern
   matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
   `npx -y`, `npx -p @playwright/test`, `pnpm playwright`, a runner or the binary by its path), `pnpm e2e*` also
-  `pnpm -C web e2e`, `--dir`, `--filter`, a setting of `.npmrc` with its value (`--registry <url>`) and pnpm by its
-  path. A shell
+  `pnpm -C web e2e`, `--dir`, `--filter`, `--registry <url>` and pnpm by its path, while a flag of pnpm takes no value
+  (`pnpm --silent test:unit e2e` stays light): the value options and the flags are those of pnpm 12.18.0 and pnpm 10
+  (`PNPM_VALUE_OPTIONS`, `PNPM_FLAG_OPTIONS` of `crates/host-link/src/config.rs`). A shell
   that wraps a command counts by what it runs: `zsh -c 'pnpm install; pnpm e2e > e2e.log 2>&1'`, `bash -lc`,
   `env FOO=1 zsh -c`, a shell in it, a substitution `"$(…)"`, and a script file of the shipped working tree
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell or that has no first line `#!`, `. ./lib.sh`)

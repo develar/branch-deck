@@ -2028,8 +2028,9 @@ its `-c` script, a shell in it, a script of the working tree read once, 64 at mo
   `/usr/local/bin/npx playwright test`, `pnpm exec playwright test`, `pnpm playwright test`, a path of the binary,
   `pnpm -C web e2e`, `pnpm --dir=web e2e`, `pnpm --filter app -r e2e`, `pnpm --loglevel error e2e`,
   `pnpm --registry https://registry.example e2e` and `/opt/homebrew/bin/pnpm -C . e2e` are heavy runs
-- **AND** `npx playwright install webkit` and `pnpm -C web test:unit` are not, and `pnpm exec playwright test*`, written
-  with its runner, still matches `pnpm exec playwright test`
+- **AND** `npx playwright install webkit`, `pnpm -C web test:unit` and `pnpm --silent test:unit e2e-pins`, whose flag
+  takes no value, are not, and `pnpm exec playwright test*`, written with its runner, still matches
+  `pnpm exec playwright test`
   [@test] crates/host-link/src/config_test.rs (`a_command_is_matched_by_what_it_runs_without_the_options_of_pnpm_and_the_runner_of_playwright`, `the_host_table_of_this_repository_parses`)
 
 #### Scenario: A shell that wraps a heavy command

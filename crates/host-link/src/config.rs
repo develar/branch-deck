@@ -87,21 +87,77 @@ impl RepoConfig {
   }
 }
 
-/// The options of pnpm that name a value in the next word (`-C web`), before its script: every option of the CLI of pnpm
-/// that its documentation gives a value (`--loglevel <level>`, `--filter <selector>`); the others are flags
-const PNPM_VALUE_OPTIONS: [&str; 11] = [
+/// The version of pnpm whose help `PNPM_VALUE_OPTIONS` and `PNPM_FLAG_OPTIONS` were checked against, by
+/// `pnpm --help`, `pnpm run --help` and `pnpm exec --help`. A test holds it equal to the `packageManager` of
+/// package.json, so an update of pnpm fails it until the two tables are checked again
+#[cfg(test)]
+pub(crate) const PNPM_OPTIONS_CHECKED_WITH: &str = "12.18.0";
+
+/// The options of pnpm that name a value in the next word (`-C web`, `--filter app`), before its script: each option
+/// with a `<VALUE>` in the help of pnpm `PNPM_OPTIONS_CHECKED_WITH`, and the run options of pnpm 10
+/// (<https://pnpm.io/10.x/cli/run>), as a repository of a host may run an older pnpm: `--resume-from <package_name>`.
+/// No option is a flag in one of the two and takes a value in the other; one that did would stay out of both tables,
+/// so `may_be_setting` reads it both ways and the reading that makes the run heavy counts
+pub(crate) const PNPM_VALUE_OPTIONS: [&str; 21] = [
   "-C",
   "--dir",
-  "--filter",
+  "--env-file",
+  "--store-dir",
+  "--state-dir",
+  "--npmrc-auth-file",
+  "--userconfig",
+  "--workspace-packages",
+  "--registry",
+  "--https-proxy",
+  "--http-proxy",
+  "--no-proxy",
+  "--reporter",
+  "--loglevel",
   "-F",
+  "--filter",
   "--filter-prod",
   "--test-pattern",
   "--changed-files-ignore-pattern",
-  "--reporter",
-  "--loglevel",
   "--workspace-concurrency",
   "--resume-from",
 ];
+
+/// The long options of pnpm that take no value, before its script, from the same sources: each option of pnpm
+/// `PNPM_OPTIONS_CHECKED_WITH` without a `<VALUE>` (`--color[=<COLOR>]` takes one only after `=`), and `--silent`,
+/// `--report-summary` and `--reporter-hide-prefix` of pnpm 10. Each other `--no-…` is a flag too, as `--no-progress` and `--no-sort` are; the
+/// one with a value, `--no-proxy <NO_PROXY>`, is in `PNPM_VALUE_OPTIONS`
+pub(crate) const PNPM_FLAG_OPTIONS: [&str; 23] = [
+  "--version",
+  "--yes",
+  "--help",
+  "--ignore-workspace",
+  "--color",
+  "--stream",
+  "--aggregate-output",
+  "--use-stderr",
+  "--recursive",
+  "--workspace-root",
+  "--include-workspace-root",
+  "--fail-if-no-match",
+  "--sort",
+  "--reverse",
+  "--parallel",
+  "--if-present",
+  "--sequential",
+  "--dry-run",
+  "--json",
+  "--shell-mode",
+  "--silent",
+  "--report-summary",
+  "--reporter-hide-prefix",
+];
+
+/// Whether `word` can be a setting of `.npmrc` for pnpm with its value in the next word (`--strict-ssl false` of an older
+/// pnpm): a long option without `=` that neither `PNPM_VALUE_OPTIONS` nor `PNPM_FLAG_OPTIONS` names and that is no
+/// `--no-…`
+fn may_be_setting(word: &str) -> bool {
+  word.starts_with("--") && word.len() > 2 && !word.contains('=') && !word.starts_with("--no-") && !PNPM_FLAG_OPTIONS.contains(&word)
+}
 
 /// The programs and the words that run a package binary for the next word: `npx playwright`, `pnpm exec playwright`
 const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
@@ -110,9 +166,9 @@ const RUNNERS: [&str; 6] = ["npx", "bunx", "yarn", "pnpm", "exec", "dlx"];
 /// is written: without a leading `env` and the assignments after it; `pnpm` (or a path of it) without its options before
 /// its script (`-C web`, `--dir=web`, `--filter app`, `-r`), so `pnpm -C web e2e` is `pnpm e2e`; and a run of
 /// `playwright test` by any runner (`npx`, `pnpm exec`, `pnpm`, a path of either or of the binary, with their options
-/// and the values of those) as `playwright test …`. A long option of pnpm that `PNPM_VALUE_OPTIONS` lacks can be a
-/// setting of `.npmrc` with its value in the next word (`--registry https://…`), so the line where it takes one counts
-/// too. Beside them the line as written, without the `env` and the assignments alone, so a pattern written with its
+/// and the values of those) as `playwright test …`. A long option of pnpm that neither its value options nor its flags
+/// name can be a setting of `.npmrc` with its value in the next word (`--registry https://…`), so the line where it
+/// takes one counts too. Beside them the line as written, without the `env` and the assignments alone, so a pattern written with its
 /// runner (`pnpm exec playwright test*`) matches too
 fn heavy_lines(command: &[String]) -> Vec<String> {
   let mut words = command;
@@ -131,8 +187,8 @@ fn heavy_lines(command: &[String]) -> Vec<String> {
   lines
 }
 
-/// The line of what `words` run (`heavy_lines`); `settings` reads each long option of pnpm without `=` that
-/// `PNPM_VALUE_OPTIONS` lacks as one with a value
+/// The line of what `words` run (`heavy_lines`); `settings` reads each option of pnpm that `may_be_setting` as one with
+/// a value
 fn run_line(words: &[String], settings: bool) -> String {
   let mut line: Vec<&str> = Vec::with_capacity(words.len());
   let mut rest = words.iter().map(String::as_str);
@@ -143,7 +199,7 @@ fn run_line(words: &[String], settings: bool) -> String {
     if pnpm {
       // its options before its script, and before the script of its `run` or the binary of its `exec`
       while let Some(word) = rest.next() {
-        if PNPM_VALUE_OPTIONS.contains(&word) || (settings && word.starts_with("--") && !word.contains('=')) {
+        if PNPM_VALUE_OPTIONS.contains(&word) || (settings && may_be_setting(word)) {
           rest.next();
         } else if !word.starts_with('-') {
           line.push(word);
