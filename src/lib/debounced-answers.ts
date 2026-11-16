@@ -7,8 +7,12 @@ export interface Answers<T> {
   readonly reset: string
   readonly byInput: ReadonlyMap<string, T>
   readonly latest: T | undefined
-  /** The input whose latest answer is not kept: no answer is pending for it, though none is known */
-  readonly unkept: string | null
+  /**
+   * The answer not kept, with its input: no answer is pending for that input, though none is known, and it is the
+   * answer of that input until one of the same input is kept. A kept answer of another input (a slower window of the
+   * debounce that ends after it) leaves it
+   */
+  readonly unkept: { readonly input: string; readonly answer: T } | null
 }
 
 export function noAnswers<T>(reset: string, latest: T | undefined): Answers<T> {
@@ -24,11 +28,11 @@ export function withAnswer<T>(answers: Answers<T>, reset: string, input: string,
     return answers
   }
   if (!kept) {
-    return { ...answers, latest: answer, unkept: input }
+    return { ...answers, latest: answer, unkept: { input, answer } }
   }
   const byInput = new Map(answers.byInput)
   byInput.set(input, answer)
-  return { reset, byInput, latest: answer, unkept: null }
+  return { reset, byInput, latest: answer, unkept: answers.unkept?.input === input ? null : answers.unkept }
 }
 
 /** The kept answer of `input` for `reset`; undefined when it was never asked, failed or `reset` changed */
@@ -36,7 +40,20 @@ export function keptAnswer<T>(answers: Answers<T>, reset: string, input: string 
   return input === null || answers.reset !== reset ? undefined : answers.byInput.get(input)
 }
 
-/** Whether the answer of `input` is still to come: neither kept nor the latest one that was not kept */
+/** The answer not kept of `input` for `reset`, if its latest one was not kept */
+function unkeptAnswer<T>(answers: Answers<T>, reset: string, input: string | null): T | undefined {
+  return input !== null && answers.reset === reset && answers.unkept?.input === input ? answers.unkept.answer : undefined
+}
+
+/**
+ * The answer shown for `input`: its kept one, else the one not kept of it, else the latest of an earlier input while it
+ * is asked; undefined before any
+ */
+export function shownAnswer<T>(answers: Answers<T>, reset: string, input: string | null): T | undefined {
+  return keptAnswer(answers, reset, input) ?? unkeptAnswer(answers, reset, input) ?? answers.latest
+}
+
+/** Whether the answer of `input` is still to come: neither kept nor one not kept of it */
 export function isPending<T>(answers: Answers<T>, reset: string, input: string | null): boolean {
-  return input !== null && keptAnswer(answers, reset, input) === undefined && !(answers.reset === reset && answers.unkept === input)
+  return input !== null && keptAnswer(answers, reset, input) === undefined && unkeptAnswer(answers, reset, input) === undefined
 }

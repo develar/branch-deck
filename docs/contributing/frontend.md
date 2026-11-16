@@ -151,6 +151,9 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
 
 ## Pitfalls
 
+- **An effect event runs only in an effect or its callback**: a `useEffectEvent` function called in a `setState`
+  updater runs in the render, as React applies updaters there, and throws (#440, every form of a branch name failed
+  so); decide in the callback and pass the value into the updater (`useDebouncedRead`).
 - **React Compiler and store reads**: a function that reads stores with `getState()`, called in the render body beside
   `useStore`, is memoized on its arguments and shows a stale value. The value must come out of a selector, or be an
   argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);

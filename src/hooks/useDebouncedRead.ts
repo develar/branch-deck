@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useState } from "react"
 import pDebounce from "p-debounce"
-import { isPending, keptAnswer, noAnswers, withAnswer } from "@/lib/debounced-answers"
+import { isPending, keptAnswer, noAnswers, shownAnswer, withAnswer } from "@/lib/debounced-answers"
 import type { Answers } from "@/lib/debounced-answers"
 
 /** How long the typing pauses before Rust is asked */
@@ -62,5 +62,5 @@ export function useDebouncedRead<T>(input: string | null, ask: (input: string) =
     setAnswers(previous => withAnswer(previous, reset, input, answer, kept))
     return answer
   }
-  return { answer: answered ?? answers.latest, pending: isPending(answers, reset, input), settled }
+  return { answer: shownAnswer(answers, reset, input), pending: isPending(answers, reset, input), settled }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { isPending, keptAnswer, noAnswers, withAnswer } from "@/lib/debounced-answers"
+import { isPending, keptAnswer, noAnswers, shownAnswer, withAnswer } from "@/lib/debounced-answers"
 
 type Answer = { status: "ok"; data: string } | { status: "error"; error: string }
 
@@ -27,6 +27,19 @@ describe("the answers of a debounced read", () => {
     const again = withAnswer(answers, "", "foo", ok("valid"), keep(ok("valid")))
     expect(keptAnswer(again, "", "foo")).toEqual(ok("valid"))
     expect(again.unkept).toBeNull()
+  })
+
+  it("keeps the failure of an input when a slower window of another input ends after it with a kept answer", () => {
+    // the window of "fo" is slow, that of "foo" fails first, then "fo" answers
+    const failedFoo = withAnswer(noAnswers<Answer>("", undefined), "", "foo", failed, keep(failed))
+    const answers = withAnswer(failedFoo, "", "fo", ok("valid"), keep(ok("valid")))
+    expect(isPending(answers, "", "foo")).toBe(false)
+    expect(shownAnswer(answers, "", "foo")).toEqual(failed)
+    expect(shownAnswer(answers, "", "fo")).toEqual(ok("valid"))
+    // a kept answer of "foo" itself ends its failure
+    const kept = withAnswer(answers, "", "foo", ok("valid"), keep(ok("valid")))
+    expect(kept.unkept).toBeNull()
+    expect(shownAnswer(kept, "", "foo")).toEqual(ok("valid"))
   })
 
   it("drops an answer asked for another reset, and a new reset knows nothing but the latest", () => {

@@ -64,6 +64,7 @@ export function useBranchNameValidation(branchName: string, rules: BranchNameRul
     // a name the answer is not for yet is no name to submit
     isValid: shown.isValid && !read.pending,
     pending: read.pending,
+    // the answer shown for the name as typed now (`shownAnswer`): its failure, not one of another name
     checkFailed: branchName !== "" && !read.pending && read.answer?.status === "error",
     settled: async () => (branchName === "" ? NOTHING_TYPED : checked(await read.settled())),
   }
