@@ -261,6 +261,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     // the hover alone: the description it opens tints the button by `aria-expanded`, so Escape closes it, and it opens
     // again only with a move of the pointer (`hoverOpensOnMove`)
     await push.hover()
+    await expect(push).toHaveAttribute("aria-expanded", "true")
     await page.keyboard.press("Escape")
     await expect(push).toHaveAttribute("aria-expanded", "false")
     expect(await look()).toEqual({ ...rest, hovered: true })
