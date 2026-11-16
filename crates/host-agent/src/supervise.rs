@@ -41,7 +41,8 @@
 //! gives the turn back, or its ticket leaves the queue; a killed supervisor holds no turn, since the next heavy run
 //! takes the turn of a gone holder. No signal cuts the give-back. Its lines, as every line after `exit.json`, go to
 //! `supervisor.log` and with the id of the run to the log of the agent, the stdout that `serve` gives the supervisor
-//! (`log::supervisor_after_end`): a client forgets the run once it ended, and its directory goes.
+//! (`log::supervisor_after_end`), and so does a panic (`log::panics_reach_the_agent_log`): a client forgets the run once
+//! it ended, and its directory goes.
 //!
 //! The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, 1 s
@@ -52,7 +53,7 @@
 
 use crate::files::{FILE_MODE, open_private, private_dir, remove_entry, try_flock};
 use crate::home::Home;
-use crate::log::{supervisor, supervisor_after_end};
+use crate::log::{panics_reach_the_agent_log, supervisor, supervisor_after_end};
 use crate::login_env::LoginEnv;
 use crate::prepare::Prepared;
 use crate::repo::Repository;
@@ -135,10 +136,11 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
     Ok(code) => ExitRecord::Code { code },
     Err(refusal) => ExitRecord::refused(&refusal),
   };
+  let id = run_dir.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
   if let Err(error) = run.write_exit(&exit) {
-    let id = run_dir.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     supervisor_after_end(&id, &format!("cannot write the end of {}: {error}", run_dir.display()));
   }
+  panics_reach_the_agent_log(&id);
   drop(lock);
   if let Some(spec) = spec {
     give_back(home, repo, &spec);
