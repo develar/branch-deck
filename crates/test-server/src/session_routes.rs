@@ -419,8 +419,15 @@ impl FactSources for TestFactSources {
     Box::pin(async move { vec![None; asks.len()] })
   }
 
+  /// Held as the other reads of the repository are: the fetch is a git in its worktree, which its deletion waits for;
+  /// a repository already gone fetches nothing
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
-    self.services.fetch_moved_remotes(key, asks)
+    Box::pin(async move {
+      let Ok(_command) = self.state().and_then(|state| holding(&state, key)) else {
+        return;
+      };
+      self.services.fetch_moved_remotes(key, asks).await;
+    })
   }
 
   /// Held and failed as `get_auth_status` of a window without a session is (`TestHost::before_auth_status`)

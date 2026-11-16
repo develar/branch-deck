@@ -121,14 +121,20 @@ pub fn create_test_app() -> Router {
 /// The app of the E2E server: the templates of its build come from their cache, or build in the background while it
 /// serves (`templates.rs`)
 pub fn create_test_app_with_state() -> (Router, Arc<AppState>) {
-  create_app_and_state(true)
+  create_app_and_state(true, git_executor::git_command_executor::GitCommandExecutor::new())
 }
 
 /// The app of a route test: a template is built when a repository is first made of it, in the temporary directory of the
 /// test. A test asks for one or two of the templates, and nextest runs each test in a process of its own, which would
 /// build all of them
 pub fn create_route_test_app_with_state() -> (Router, Arc<AppState>) {
-  create_app_and_state(false)
+  create_app_and_state(false, git_executor::git_command_executor::GitCommandExecutor::new())
+}
+
+/// The app of a route test whose every git, its sessions' and its commands', is `git`'s (`WrappedGit`)
+#[cfg(test)]
+pub(crate) fn create_route_test_app_with_git(git: git_executor::git_command_executor::GitCommandExecutor) -> (Router, Arc<AppState>) {
+  create_app_and_state(false, git)
 }
 
 /// Where the app of the E2E server records its operations: the registry of the `$GIT_COMMON_DIR` of each worktree, one
@@ -171,12 +177,11 @@ pub fn registry_now(clocks: &state::WorktreeClocks, worktree: &str) -> u32 {
   epoch.saturating_add(elapsed)
 }
 
-fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
+fn create_app_and_state(all_templates: bool, git_executor: git_executor::git_command_executor::GitCommandExecutor) -> (Router, Arc<AppState>) {
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
   tracing::info!("Test root directory created at: {:?}", test_root_dir.path());
 
-  let git_executor = git_executor::git_command_executor::GitCommandExecutor::new();
   let fallback_templates = test_root_dir.path().join("templates");
   let templates = if all_templates {
     let git_version = git_executor.get_info().map_or_default(|info| info.version.clone());
@@ -1036,8 +1041,8 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
   })))
 }
 
-/// How long a deletion waits for the commands still running for the repository: a sync of a loaded machine takes tens of
-/// seconds after its test failed; a command that takes longer is stuck
+/// How long a deletion waits for the commands and the sessions still running for the repository: a sync of a loaded
+/// machine takes tens of seconds after its test failed; a command or a run that takes longer is stuck
 const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Forgets the repository, so no new command starts for it, and answers: its files go in the background
@@ -1055,10 +1060,11 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   repo.context.forget_windows();
   // the event stream of each page ends: a page that outlived its test hears nothing more
   repo.events.close();
-  state.sessions.close_worktree(&repo.path);
-  for slot in &slots {
-    state.sessions.close_worktree(slot);
-  }
+  // its sessions and those of its slots close now; the files go once each ended, its syncs' git with it
+  let sessions_ended: Vec<_> = std::iter::once(repo.path.as_str())
+    .chain(slots.iter().map(String::as_str))
+    .map(|worktree| state.sessions.close_worktree_ended(worktree))
+    .collect();
   state.session_clocks.forget(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {
@@ -1066,15 +1072,18 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
     // and an answer the test held at a fake until it is released
     host.release_all_answers();
   }
-  tokio::spawn(remove_repository(state, id, repo).in_current_span());
+  tokio::spawn(remove_repository(state, id, repo, sessions_ended).in_current_span());
   Ok(StatusCode::ACCEPTED)
 }
 
 /// Releases the repository lock the test of a deleted repository left held, then waits for the commands still running
-/// for it (`hold_repository`) and for the computation of its landing needs (its session holds the repository while it
-/// runs, `TestSessionEnvironment::landing_needs`), then deletes its files (`fs_retry`: on Windows a process whose
-/// current directory is in them, or a scanner with a file open, blocks the removal until it lets go)
-async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
+/// for it (`hold_repository`), for the reads of its facts (`TestFactSources`: the computation of its landing needs,
+/// the fetch of its moved remotes) and for its closed sessions (`sessions_ended`: a sync that a Fetch or an update that
+/// applied nothing asked and let go, or the one of an open or a focus, runs git in its worktree until it ends), then
+/// deletes its files (`fs_retry`: on Windows a process whose current directory is in them, or a scanner with a file
+/// open, blocks the removal until it lets go). A git that outlived the files paid a removed working directory, which
+/// on macOS reads the entries of the parent for every `getcwd` and seconds of a large `$TMPDIR`
+async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository, sessions_ended: Vec<impl Future<Output = ()>>) {
   // the lock first (`hold_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
   drop(repo.held_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
@@ -1084,9 +1093,14 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if let Some(operation) = operation {
     operation.end();
   }
-  let no_commands = tokio::time::timeout(DELETE_WAIT, repo.in_flight.close()).await;
-  if no_commands.is_err() {
-    tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
+  let sessions = async {
+    for ended in sessions_ended {
+      ended.await;
+    }
+  };
+  let ended = tokio::time::timeout(DELETE_WAIT, async { tokio::join!(repo.in_flight.close(), sessions) }).await;
+  if ended.is_err() {
+    tracing::warn!(id, "Commands or sessions of the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }
   // the git directories and the GitHub repository the commands kept of it
   state.repository_state.forget(&repo.path);

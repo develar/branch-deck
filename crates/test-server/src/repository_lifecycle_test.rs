@@ -1,5 +1,7 @@
 use crate::session_routes::TestSessionEnvironment;
-use crate::test_support::{Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{
+  Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_with_git, start_test_server_with_state, sync,
+};
 use pretty_assertions::assert_eq;
 use repository_model::runtime::SessionEnvironment;
 use repository_model::session::SessionKey;
@@ -130,6 +132,46 @@ async fn deleting_a_repository_waits_for_the_landing_needs_its_session_computes(
   delete_repository(&client, addr, &id, &path).await;
   let needs = computed.await.unwrap();
   assert!(needs.is_ok(), "the computation ran while its repository was there: {needs:?}");
+}
+
+/// The deletion at the end of a test removes the files only once the sessions of the repository ended: a sync that a
+/// Fetch asks and lets go (`fetch_run`), as an update that applied nothing does, runs git in the worktree held by no
+/// command, and a git whose directory went pays a removed working directory (on macOS every `getcwd` reads the entries
+/// of the parent: seconds beside a large `$TMPDIR`). Here every git of the worktree is slow and says as it ends whether
+/// its directory is still there
+#[tokio::test]
+async fn deleting_a_repository_leaves_no_git_running_in_its_directory() {
+  // `{dir}/slow` holds the name of the worktree's directory once the test made it; a git elsewhere runs as it is
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(concat!(
+    "*) [ -f '{dir}/slow' ] || exec git \"$@\"; here=$(pwd -P); case \"$here\" in *\"/$(cat '{dir}/slow')\"*) ;; *) exec git \"$@\";; esac; ",
+    "echo \"start $$\" >> '{dir}/log'; sleep 0.2; git \"$@\"; code=$?; ",
+    "if [ -d \"$here\" ]; then echo \"end $$\" >> '{dir}/log'; else echo \"gone $$ $here\" >> '{dir}/log'; fi; exit $code;;"
+  ));
+  let (addr, state) = start_test_server_with_git(wrapped.executor().clone()).await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let name = std::path::Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
+  std::fs::write(wrapped.directory().join("slow"), name).unwrap();
+  let log = || std::fs::read_to_string(wrapped.directory().join("log")).unwrap_or_default();
+
+  let key = SessionKey {
+    worktree: path.clone(),
+    prefix: "user-name".to_string(),
+  };
+  drop(state.sessions.sync(&key, domain_types::session::SyncReason::AfterRewrite));
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while !log().contains("start ") {
+    assert!(Instant::now() < deadline, "the sync ran no git in the worktree");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+
+  delete_repository(&client, addr, &id, &path).await;
+  let log = log();
+  let count = |what: &str| log.lines().filter(|line| line.starts_with(what)).count();
+  assert!(
+    count("gone ") == 0 && count("start ") == count("end "),
+    "a git ran on past the removal of its directory:\n{log}"
+  );
 }
 
 /// A test that ended while it held the repository lock (`holdRepositoryLock`) has it released with the deletion,

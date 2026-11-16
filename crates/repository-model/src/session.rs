@@ -977,8 +977,18 @@ impl Sessions {
   /// `close_worktree`, then waits until each session it closed ended and saved its last frame (`warm_start`), as the
   /// next start of the app reads it: the E2E server's quit of the app
   pub async fn close_worktree_saved(&self, worktree: &str) {
-    for saved in self.close(worktree) {
-      let _ = saved.await;
+    self.close_worktree_ended(worktree).await;
+  }
+
+  /// `close_worktree` now, answering what resolves once each session it closed ended: the actor ends only when the runs
+  /// in flight let go of its mailbox, so every git of its syncs ended too, and its last frame is saved. The E2E server's
+  /// deletion of a test repository removes the files only then
+  pub fn close_worktree_ended(&self, worktree: &str) -> impl Future<Output = ()> + Send + 'static {
+    let saved = self.close(worktree);
+    async move {
+      for saved in saved {
+        let _ = saved.await;
+      }
     }
   }
 

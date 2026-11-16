@@ -531,11 +531,15 @@ State isolation:
   repository while the command runs, in a task of its own: closing a page aborts its requests and drops their
   handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
   `delete_repository` forgets the repository and answers at once; in the background it waits for the running commands
-  (120 s at most: a sync of a loaded machine still runs tens of seconds after its test failed) and for the computation
-  of the landing needs its session runs, which holds the repository as a command does
-  (`TestSessionEnvironment::landing_needs`), releases the
+  (120 s at most: a sync of a loaded machine still runs tens of seconds after its test failed), for the reads of the
+  facts of its session that run git or hold its repository (the landing needs, `TestSessionEnvironment::landing_needs`,
+  and the fetch of the moved remotes, each held as a command is), and for the sessions it closed to end
+  (`Sessions::close_worktree_ended`: an actor ends once its runs let go of its mailbox, so a sync that a Fetch or an
+  update that applied nothing asked and let go has ended its git too), releases the
   repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it), then deletes
-  the files. Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
+  the files. A git that outlived them ran in a removed working directory, where every `getcwd` of macOS reads the
+  entries of the parent, seconds beside a large `$TMPDIR`
+  (`deleting_a_repository_leaves_no_git_running_in_its_directory`). Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
   landing needs ("not a git repository", "bad object", "Unable to read current working directory"); and a wait of 10 s
   in the cleanup was too short under load (`repository_lifecycle_test.rs`). The deletion waits only for the commands
   of a named repository, so a route test names it too: every command of one goes through `test_support::command`

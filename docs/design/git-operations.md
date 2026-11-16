@@ -5573,7 +5573,8 @@ fails its send, so a window's subscriptions end with the window (`Destroyed`, `A
 each page load of it (a reload, `forget_page`), and a subscription is kept for the page the call of its command saw
 before it awaited anything (`Call`, `WindowSubscriptions`): one that answers after that page went away ends at once; the
 app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the windows and the sessions of a
-test repository when it deletes it (`forget_windows`, `Sessions::close_worktree`, which drops the subscribers at once). The main window has
+test repository when it deletes it (`forget_windows`, `Sessions::close_worktree_ended`, which drops the subscribers at once
+and answers once each session ended, its runs with it; the files go only then). The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; at start
 holding the seed of the warm start, `adoptCachedModel`; a switch of the repository or of its prefix is another
 subscription, and the session of a changed prefix syncs as it opens, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync, when the
