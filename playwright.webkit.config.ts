@@ -14,6 +14,7 @@ export default defineConfig({
   ...base,
   projects: [{ name: "webkit", use: { ...devices["Desktop Safari"] } }],
   testMatch: [
+    "welcome-card/welcome-card.spec.ts",
     "move-commits/**/*.spec.ts",
     "parked-branches/**/*.spec.ts",
     "declared-needs/**/*.spec.ts",

@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { CircleHelpIcon, GitBranchIcon } from "lucide-react"
+import { CircleHelpIcon, FolderSearchIcon, GitBranchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -8,7 +8,8 @@ import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp
 import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
-import { useSessionFailure } from "@/stores/repository"
+import { hasFolderDialog } from "@/lib/title-bar"
+import { browseRepository, useSessionFailure } from "@/stores/repository"
 import { setGlobalUserBranchPrefix } from "@/stores/settings/appSettings"
 
 interface WelcomeCardProps {
@@ -21,6 +22,7 @@ interface WelcomeCardProps {
 
 export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
   const [helpOpen, setHelpOpen] = useState(false)
+  const repositoryHelpId = useId()
   return (
     <div>
       <Card data-testid="welcome-card">
@@ -40,9 +42,29 @@ export function WelcomeCard({ hasRepository }: WelcomeCardProps) {
           </p>
 
           <div className="flex flex-col gap-3">
-            {!hasRepository && (
+            {!hasRepository && hasFolderDialog && (
+              <Button
+                variant="outline"
+                className="h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal"
+                aria-label="Select a Git Repository…"
+                aria-describedby={repositoryHelpId}
+                data-testid="welcome-step"
+                onClick={() => void browseRepository()}
+              >
+                <StepNumber number={1} />
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="font-medium">Select a Git Repository…</span>
+                  <span id={repositoryHelpId} className="text-sm text-muted-foreground">
+                    Browse to a local Git repository.
+                  </span>
+                </span>
+                <FolderSearchIcon data-icon="inline-end" />
+              </Button>
+            )}
+
+            {!hasRepository && !hasFolderDialog && (
               <Step number={1} title="Select a Git repository">
-                <p className="text-sm text-muted-foreground">Pick it in the repository selector above, or browse for it with the folder button.</p>
+                <p className="text-sm text-muted-foreground">Choose a repository in the repository selector above.</p>
               </Step>
             )}
 
@@ -130,14 +152,20 @@ function Step({ number, title, children }: { number: number; title: string; chil
   return (
     <div className="flex gap-3" data-testid="welcome-step">
       <div className="mt-0.5 shrink-0">
-        <div className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
-          {number}
-        </div>
+        <StepNumber number={number} />
       </div>
       <div className="flex flex-1 flex-col gap-2">
         <h4 className="font-medium">{title}</h4>
         {children}
       </div>
     </div>
+  )
+}
+
+function StepNumber({ number }: { number: number }) {
+  return (
+    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+      {number}
+    </span>
   )
 }

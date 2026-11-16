@@ -64,6 +64,10 @@ flowchart TD
 - **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
   (`bg-background border-input`) read as fields on an island and on the canvas.
 
+The first-run repository step inside the welcome island is a full-width outline button: its number, title, description
+and folder icon form one target. The border makes the action visible before hover; the shared button supplies hover,
+pressed and keyboard-focus feedback. Hosts without a folder dialog keep an informational step.
+
 ### Palette
 
 `src/index.css` holds the IntelliJ Islands values (`ManyIslandsLight.theme.json`, `ManyIslandsDark.theme.json`), each

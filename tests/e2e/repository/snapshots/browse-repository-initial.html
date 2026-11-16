@@ -51,21 +51,20 @@
                             Work on one branch, get a real Git branch per feature. Select a repository to start:
                           </p>
                           <div class="flex flex-col gap-3">
-                            <div class="flex gap-3" data-testid="welcome-step">
-                              <div class="mt-0.5 shrink-0">
-                                <div class="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
-                                  1
-                                </div>
-                              </div>
-                              <div class="flex flex-1 flex-col gap-2">
-                                <h4 class="font-medium">
-                                  Select a Git repository
-                                </h4>
-                                <p class="text-sm text-muted-foreground">
-                                  Pick it in the repository selector above, or browse for it with the folder button.
-                                </p>
-                              </div>
-                            </div>
+                            <button aria-describedby="[ID]" aria-label="Select a Git Repository…" class="group/button inline-flex shrink-0 items-center rounded-2xl border bg-clip-padding text-sm transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 h-auto w-full cursor-pointer justify-start gap-3 p-3 text-left whitespace-normal" data-slot="button" data-testid="welcome-step" tabindex="0" type="button">
+                              <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary" data-testid="welcome-step-number">
+                                1
+                              </span>
+                              <span class="flex min-w-0 flex-1 flex-col gap-1">
+                                <span class="font-medium">
+                                  Select a Git Repository…
+                                </span>
+                                <span class="text-sm text-muted-foreground" id="[ID]">
+                                  Browse to a local Git repository.
+                                </span>
+                              </span>
+                              <svg aria-hidden="true" class="lucide lucide-folder-search" data-icon="inline-end" />
+                            </button>
                           </div>
                           <p class="text-sm text-muted-foreground">
                             Once you select a repository, you can sync your branches and start organizing your commits.
