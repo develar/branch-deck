@@ -63,6 +63,8 @@ pub(crate) struct Caches {
   /// By robot id, of finished robots: the problems of every severity as Patronus answered them, which the details of
   /// the robot and its failure read too
   pub(crate) problems: Cache<String, std::sync::Arc<[crate::client::ProblemDto]>>,
+  /// By robot id: the problems requests in flight, one for the details of its card and the read ahead that ask at once
+  pub(crate) problem_reads: sync_utils::single_flight::SingleFlight<String, Result<std::sync::Arc<[crate::client::ProblemDto]>, PatronusError>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
   /// By robot id: its progress of the new API (`robots/progress`), kept as a build's is
@@ -80,6 +82,7 @@ impl Caches {
       reviews: Cache::builder().max_capacity(500).support_invalidation_closures().build(),
       merge_requests: Cache::new(500),
       problems: Cache::new(1_000),
+      problem_reads: sync_utils::single_flight::SingleFlight::default(),
       build_progress: Cache::new(500),
       robot_progress: Cache::new(200),
       failed_builds: Cache::new(50),

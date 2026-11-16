@@ -128,18 +128,25 @@ impl PatronusService {
     }
     let token = self.action_token()?;
     let client = self.client();
-    // the problems of a finished robot the session read ahead (`robot_problems`) are not asked again
-    let known = self.caches.problems.get(robot_id);
-    let (robot, checks, problems) = tokio::join!(client.get_robot(&token.value, robot_id), client.get_teamcity_checks(&token.value, robot_id), async {
-      match &known {
-        Some(problems) => Ok(Arc::clone(problems)),
-        None => client.get_problems(&token.value, robot_id).await.map(Arc::from),
-      }
-    },);
+    let (robot, checks, problems) = tokio::join!(
+      client.get_robot(&token.value, robot_id),
+      client.get_teamcity_checks(&token.value, robot_id),
+      self.problems_of(&token.value, robot_id),
+    );
     let robot = self.settle(robot, &token.stamp).map_err(availability_message)?;
     let checks = checks.ok();
+    let finished = parse_status(&robot.status).is_finished();
     // the checks and the problems are extras: the details show without them
-    let raw_problems: Arc<[ProblemDto]> = problems.unwrap_or_else(|_| Arc::from([]));
+    let problems_read = problems.is_ok();
+    let raw_problems: Arc<[ProblemDto]> = match problems {
+      Ok(problems) => {
+        if finished {
+          self.keep_problems(robot_id, &problems);
+        }
+        problems
+      }
+      Err(_) => Arc::from([]),
+    };
     let (problems, failing) = split_problems(raw_problems.to_vec());
     let details = CachedDetails {
       robot,
@@ -149,11 +156,31 @@ impl PatronusService {
       raw_checks: checks.map(Arc::from),
       raw_problems,
     };
-    if known.is_none() && parse_status(&details.robot.status).is_finished() {
-      self.caches.problems.insert(robot_id.to_string(), Arc::clone(&details.raw_problems));
+    // details without their problems are not kept: the next read asks them again
+    if problems_read {
+      self.caches.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     }
-    self.caches.details.insert(robot_id.to_string(), (Instant::now(), details.clone()));
     Ok(details)
+  }
+
+  /// The problems of every severity of the robot `robot_id`: of a finished robot those kept in this process (the read
+  /// ahead or its details asked them once), else asked of Patronus in one request for every caller that asks while it
+  /// runs (the details of its card and the read ahead of a robot that just failed)
+  async fn problems_of(&self, token: &str, robot_id: &str) -> Result<Arc<[ProblemDto]>, PatronusError> {
+    if let Some(problems) = self.caches.problems.get(robot_id) {
+      return Ok(problems);
+    }
+    let client = self.client();
+    self
+      .caches
+      .problem_reads
+      .run(robot_id.to_string(), || async { client.get_problems(token, robot_id).await.map(Arc::from) })
+      .await
+  }
+
+  /// Keeps the problems Patronus answered of the finished robot `robot_id` for this process; the first answer stays
+  fn keep_problems(&self, robot_id: &str, problems: &Arc<[ProblemDto]>) {
+    self.caches.problems.get_with(robot_id.to_string(), || Arc::clone(problems));
   }
 
   /// The estimate of the CI for the running checks of a running robot: with `new_api` what Patronus folded for the robot
@@ -365,16 +392,16 @@ impl PatronusService {
   }
 
   /// The error problems of a finished robot, asked once per process (the chip names a missing review, the card shows
-  /// them): the details of the robot take them from the same cache, and fill it
+  /// them), and again only after a failure: the details of the robot share the request and the problems kept
   #[instrument(skip(self))]
   pub async fn robot_problems(&self, robot_id: &str) -> Result<Vec<PatronusProblem>, ActionError> {
     if let Some(problems) = self.caches.problems.get(robot_id) {
       return Ok(split_problems(problems.to_vec()).0);
     }
     let token = self.token(true).map_err(|result| availability_message(result.availability))?;
-    let response = self.client().get_problems(&token.value, robot_id).await;
-    let problems: Arc<[ProblemDto]> = self.settle(response, &token.stamp).map_err(availability_message)?.into();
-    self.caches.problems.insert(robot_id.to_string(), Arc::clone(&problems));
+    let response = self.problems_of(&token.value, robot_id).await;
+    let problems = self.settle(response, &token.stamp).map_err(availability_message)?;
+    self.keep_problems(robot_id, &problems);
     Ok(split_problems(problems.to_vec()).0)
   }
 

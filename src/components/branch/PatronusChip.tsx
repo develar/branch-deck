@@ -222,21 +222,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
 
       <ReviewCommitNotice text={notice} outdated={chip.outdated} testId="patronus" />
 
-      {reasonFirst && <RobotProblems problems={problems} />}
-
-      {needsReview && (
-        <p className="text-xs text-warning" data-testid="patronus-needs-review">
-          {robot.pullRequest == null ? (
-            "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in."
-          ) : (
-            <>
-              {"The code owners did not approve the changes in pull request "}
-              <PullRequestLink pullRequest={robot.pullRequest} />
-              {". Restart once they approve: the restart counts the approvals the pull request has by then."}
-            </>
-          )}
-        </p>
-      )}
+      {reasonFirst && <RobotReason problems={problems} needsReview={needsReview} robot={robot} />}
 
       {/*
         what the details of the robot tell comes a frame or more after the card opened, when the session read them (and
@@ -254,7 +240,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             ) : null
           }
         />
-        {(profileName !== null || progress !== null || details?.checks != null || (!reasonFirst && problems.length > 0) || problemsUnknown !== null) && (
+        {(profileName !== null || progress !== null || details?.checks != null || (!reasonFirst && (problems.length > 0 || needsReview)) || problemsUnknown !== null) && (
           <div className="flex flex-col gap-3" data-testid="patronus-late-details">
             {(profileName !== null || progress !== null || details?.checks != null) && (
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
@@ -285,7 +271,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
                 )}
               </dl>
             )}
-            {!reasonFirst && <RobotProblems problems={problems} />}
+            {!reasonFirst && <RobotReason problems={problems} needsReview={needsReview} robot={robot} />}
 
             {/* why it failed is still to come or Patronus didn't give it: the restart and the prompts wait, and say why here */}
             {problemsUnknown !== null && (
@@ -303,20 +289,37 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
   )
 }
 
-/** The problems of severity error of a robot, why it failed or will fail; nothing without one */
-function RobotProblems({ problems }: { problems: readonly PatronusProblem[] }) {
-  if (problems.length === 0) {
-    return null
-  }
+/**
+ * Why a robot failed or will fail: its problems of severity error, and how to go on when it failed for missing
+ * approvals (`needsReview`, of the same answer of the session); nothing without either
+ */
+function RobotReason({ problems, needsReview, robot }: { problems: readonly PatronusProblem[]; needsReview: boolean; robot: PatronusRobot }) {
   return (
-    <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
-      {problems.map(problem => (
-        <li key={problem.title} className="flex items-start gap-1.5">
-          <CircleXIcon className="mt-px size-3.5 shrink-0" />
-          {problem.title}
-        </li>
-      ))}
-    </ul>
+    <>
+      {problems.length > 0 && (
+        <ul className="flex flex-col gap-1 text-xs text-destructive" data-testid="patronus-problems">
+          {problems.map(problem => (
+            <li key={problem.title} className="flex items-start gap-1.5">
+              <CircleXIcon className="mt-px size-3.5 shrink-0" />
+              {problem.title}
+            </li>
+          ))}
+        </ul>
+      )}
+      {needsReview && (
+        <p className="text-xs text-warning" data-testid="patronus-needs-review">
+          {robot.pullRequest == null ? (
+            "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in."
+          ) : (
+            <>
+              {"The code owners did not approve the changes in pull request "}
+              <PullRequestLink pullRequest={robot.pullRequest} />
+              {". Restart once they approve: the restart counts the approvals the pull request has by then."}
+            </>
+          )}
+        </p>
+      )}
+    </>
   )
 }
 

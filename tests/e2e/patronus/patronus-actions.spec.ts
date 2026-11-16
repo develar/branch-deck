@@ -243,7 +243,8 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
   await expect(problems).toHaveText("Changes require review approval")
   await expect(card.getByTestId("patronus-checks")).toHaveCount(0)
   const button = card.getByTestId("safe-push-button")
-  // the reason, then what to do about it
+  // the reason, then what to do about it: not among the details that came late
+  await expect(card.getByTestId("patronus-late-details").getByTestId("patronus-problems")).toHaveCount(0)
   expect((await boxOf(problems)).y, "the problems stand above Safe Push").toBeLessThan((await boxOf(button)).y)
   await button.hover()
   const before = await boxOf(button)
@@ -252,6 +253,44 @@ async function expectReasonFirstAndSafePushStaysAsRobotDetailsCome(
   expect(await boxOf(button)).toEqual(before)
   await expect(card).toBeVisible()
   expect((await repo.getPatronusLog()).requests.problems, "the card asked no problems again").toEqual(asked)
+}
+
+/**
+ * The card of ABC-123 (a robot of pull request #7 that failed for missing approvals: its card offers Restart) opened
+ * `height` px high while why it failed is still to come, held at the fake from the start: the pointer on Restart, the
+ * problems and the notice of the review come past the actions, among the late details, and Restart keeps its box
+ */
+async function expectRestartStaysAsTheReasonComesLate(
+  page: Page,
+  setupRepo: Parameters<typeof setupRobots>[1],
+  syncAndWaitForBranches: Parameters<typeof setupRobots>[2],
+  height: number,
+): Promise<void> {
+  await page.setViewportSize({ width: 960, height })
+  const failed = { ...FAILED, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } }
+  const repo = await setupRepo("issue_links", {
+    patronus: availableRobots(failed),
+    patronusDetails: missingApprovals(FAILED.id),
+    remoteAnswers: { hold: ["robotProblems"] },
+  })
+  await syncAndWaitForBranches()
+  const robot = chip(page, "ABC-123")
+  await expect(robot).toHaveText("Failed")
+  await repo.arrival("robotProblems")
+  const card = await hoverStatusChip(page, robot, "patronus-popover")
+  await animationsEnded(card)
+  await expect(card.getByTestId("patronus-problems-unknown")).toBeVisible()
+  await expect(card.getByTestId("patronus-needs-review")).toHaveCount(0)
+  const button = card.getByRole("button", { name: "Restart Safe Push" })
+  await button.hover()
+  const before = await boxOf(button)
+  await repo.holdRemoteAnswers({ release: ["robotProblems"] })
+  const late = card.getByTestId("patronus-late-details")
+  await expect(late.getByTestId("patronus-needs-review")).toHaveText(/^The code owners did not approve the changes in pull request #7\./)
+  await expect(late.getByTestId("patronus-problems")).toHaveText("Changes require review approval")
+  await expect(robot).toHaveText("Needs review")
+  expect(await boxOf(button)).toEqual(before)
+  await expect(card).toBeVisible()
 }
 
 /** The pointer leaves the card for its chip: the card stays open and stands where an open of it puts it */
@@ -514,6 +553,24 @@ test.describe("Patronus actions", () => {
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await expectReasonFirstAndSafePushStaysAsRobotDetailsCome(page, setupRepo, syncAndWaitForBranches, 420)
+    },
+  )
+
+  // why a robot failed that comes after its card opened (its read held) comes past the actions, with the notice of the
+  // review it brings, so it moves no action either
+  test(
+    "should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 700 px high",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectRestartStaysAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 700)
+    },
+  )
+
+  test(
+    "should keep Restart of the robot card under the pointer as why the robot failed comes after the card opened, 420 px high",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await expectRestartStaysAsTheReasonComesLate(page, setupRepo, syncAndWaitForBranches, 420)
     },
   )
 

@@ -301,7 +301,7 @@ async fn details_of_a_finished_robot_are_asked_once() {
 }
 
 /// The card of a failed robot asks Patronus for its robot and its checks, not again for the problems the session read
-/// ahead of it (`robot_problems`); the details read first fill them for the read ahead, its failure reads them too
+/// ahead of it (`robot_problems`), and neither does its failure; the details read first fill them for the read ahead
 #[tokio::test]
 async fn the_card_of_a_failed_robot_asks_no_problems_again() {
   let (fake, client) = start_fake().await;
@@ -315,13 +315,53 @@ async fn the_card_of_a_failed_robot_asks_no_problems_again() {
     (fake.detail_calls.load(Ordering::SeqCst), fake.checks_calls.lock().unwrap().clone()),
     (1, vec!["finished".to_string()])
   );
-  service.robot_failure("me", "finished").await.unwrap();
-  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished"]);
+
+  // the failure of a robot whose problems only the read ahead asked
+  service.robot_problems("finished-failure").await.unwrap();
+  let failure = service.robot_failure("me", "finished-failure").await.unwrap();
+  assert_eq!(
+    failure.problems.iter().map(|problem| problem.title.as_str()).collect::<Vec<_>>(),
+    ["Changes require review approval"]
+  );
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-failure"]);
 
   // the details first: the read ahead takes their problems
   service.robot_details("me", "finished-other", false).await.unwrap();
   assert_eq!(service.robot_problems("finished-other").await.unwrap(), read);
-  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-other"]);
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished", "finished-failure", "finished-other"]);
+}
+
+/// The details and the read ahead of a robot that just failed ask its problems at once: one request for both
+#[tokio::test]
+async fn the_details_and_the_read_ahead_of_a_failed_robot_ask_its_problems_once() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let gate = fake.hold("GET", "/app/rest/v1/robots/*/problems");
+  let release = async {
+    gate.arrived().await;
+    tokio::task::yield_now().await;
+    gate.open();
+  };
+  let (details, read, ()) = tokio::join!(service.robot_details("me", "finished", false), service.robot_problems("finished"), release);
+  assert_eq!(details.unwrap().problems, read.unwrap());
+  assert_eq!(*fake.problem_calls.lock().unwrap(), ["finished"]);
+}
+
+/// Problems Patronus did not give the details are no answer: the details are not kept, and the read ahead asks Patronus
+/// and has them; a reopen of the card asks the details again with the problems kept
+#[tokio::test]
+async fn problems_the_details_could_not_read_are_asked_again() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  fake.set_failing("GET", "/app/rest/v1/robots/*/problems", true);
+  assert_eq!(service.robot_details("me", "finished", false).await.unwrap().problems, Vec::new());
+  fake.set_failing("GET", "/app/rest/v1/robots/*/problems", false);
+  let asked = fake.problem_calls.lock().unwrap().len();
+  let read = service.robot_problems("finished").await.unwrap();
+  assert_eq!(read.iter().map(|problem| problem.title.as_str()).collect::<Vec<_>>(), ["Changes require review approval"]);
+  assert_eq!(fake.problem_calls.lock().unwrap().len(), asked + 1);
+  assert_eq!(service.robot_details("me", "finished", false).await.unwrap().problems, read);
+  assert_eq!((fake.detail_calls.load(Ordering::SeqCst), fake.problem_calls.lock().unwrap().len()), (2, asked + 1));
 }
 
 #[tokio::test]

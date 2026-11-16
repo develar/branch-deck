@@ -6,3 +6,6 @@
 - [x] 1.4 The card shows the reason known as it opened above the actions; what comes late stays past them.
 - [x] 1.5 Rust test: the card of a failed robot asks no problems again; E2E: the reason above Safe Push as the card opens,
   no problems asked again, Safe Push keeps its box as the held checks come, 700 and 420 px high.
+- [x] 1.6 Review: only an answer of the problems is kept (never overwritten, the details without them not kept), one
+  request for the details and the read ahead (`single_flight`), the notice of a missing review placed with the problems;
+  E2E: Restart keeps its box as why the robot failed comes after the card opened, 700 and 420 px high.
