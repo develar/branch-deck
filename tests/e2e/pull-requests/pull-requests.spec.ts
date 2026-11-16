@@ -438,7 +438,7 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 905).url])
   })
 
-  test("should offer a new pull request beside a merged one that did not land the branch, and refuse one beside an open one, alike in the menu, the dialog and the backend", async ({
+  test("should refuse a new pull request beside a merged one that landed the branch, offer one beside a merged one that did not land it, and refuse one beside an open one, alike in the menu, the dialog and the backend", async ({
     page,
     repo,
   }) => {

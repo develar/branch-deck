@@ -1502,7 +1502,7 @@ of it landed, as Rust's next step says); any other MUST let a new one repeat it.
 - **THEN** while #763 landed feature-db, its menu offers Open Pull Request #763 in the place of Create and its plan is refused `pullRequestMerged`
 - **AND** once #763 is of a commit the branch is no longer at, feature-db offers Create Pull Request… beside Open Pull Request #763, its dialog says nothing against it, its plan has no blocker
 - **AND** JIRA-456 offers Open Pull Request #760 in the place of Create, and its creation is refused before a push: "Nothing was pushed or created: JIRA-456 has the open pull request #760: Open Pull Request shows it" (`plan_changed`), GitHub gets no creation
-  [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should offer a new pull request beside a merged one that did not land the branch, and refuse one beside an open one, alike in the menu, the dialog and the backend`)
+  [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should refuse a new pull request beside a merged one that landed the branch, offer one beside a merged one that did not land it, and refuse one beside an open one, alike in the menu, the dialog and the backend`)
 
 ### Requirement: Creating a pull request: A disabled Create always says why
 
