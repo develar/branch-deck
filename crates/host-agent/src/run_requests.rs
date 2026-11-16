@@ -7,7 +7,7 @@
 
 use crate::files::append_private;
 use crate::log::log;
-use crate::run::{ExitRecord, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events};
+use crate::run::{ExitRecord, KEPT_FORGOTTEN, KeptLog, LogCut, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events_in};
 use crate::serve::{Agent, check_affinity};
 use crate::watch::Watch;
 use crate::{cleanup, sys, tuning};
@@ -19,7 +19,7 @@ use host_link::refusal::{Code, Refusal};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::os::fd::{AsFd, AsRawFd, RawFd};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -97,13 +97,29 @@ impl Agent {
   }
 
   /// Sends the events of the run from `offset`, a heartbeat while the run is quiet, and its end: the phases, then the
-  /// exit code or the refusal
+  /// exit code or the refusal. The follow reads the log that it opened: a forget that cuts the log meanwhile renames
+  /// another file over it. Offsets are those of the log before a cut, so a client that follows again goes on where it
+  /// was: a follow of the cut log maps `offset` into it and each end out of it (`LogCut`)
   pub(crate) fn follow(&self, channel: &mut Channel, run: &str, offset: u64) -> Result<(), LinkError> {
     let run = match self.runs().get(run) {
       Ok(run) => run,
       Err(refusal) => return channel.send(&Reply::of_refusal(&refusal)),
     };
-    match is_line_start(&run.events_path(), offset) {
+    let opened = File::open(run.events_path()).and_then(|file| {
+      let ino = file.metadata()?.ino();
+      // read after the open: a forget records its cut before the rename, so a cut log has its record
+      let cut = match run.kept_log()? {
+        Some(KeptLog::Cut(cut)) if cut.ino == ino => Some(cut),
+        _ => None,
+      };
+      Ok((file, cut))
+    });
+    let (mut log, cut) = match opened {
+      Ok(opened) => opened,
+      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))),
+    };
+    let offset = cut.map_or(offset, |cut| cut.into_cut(offset));
+    match is_line_start(&mut log, offset) {
       Ok(true) => {}
       Ok(false) => return channel.send(&Reply::refused(Code::BadRequest, format!("the offset {offset} is not the start of a line of the log"))),
       Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))),
@@ -118,7 +134,7 @@ impl Agent {
       scope.spawn(in_current_span(|| shared.beat(tuning::heartbeat(), started_ms)));
       // the heartbeat thread ends on every way out of the follow, a panic too, so the scope never waits for it
       let _finish = Finish(&shared);
-      follow_to_end(&run, offset, &shared, &mut watch)
+      follow_to_end(&run, LogReader { file: log, cut }, offset, &shared, &mut watch)
     })
   }
 
@@ -160,6 +176,9 @@ impl Agent {
       Ok(None) => return channel.send(&Reply::refused(Code::BadRequest, format!("the run {run_id} goes on; fetch its files after its end"))),
       Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))),
     }
+    if run.is_forgotten() {
+      return channel.send(&Reply::refused(Code::BadRequest, format!("the run {run_id} was forgotten: its files are gone")));
+    }
     let files = match run_files(&run) {
       Ok(files) => files,
       Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the stage: {error}"))),
@@ -190,9 +209,11 @@ impl Agent {
     channel.send(&Reply::Fetched { files: count, bytes })
   }
 
-  /// Removes an ended run and its stage
+  /// Forgets an ended run (`RunDir::forget`): its files go, and its end and the tail of its log stay, among the last
+  /// `KEPT_FORGOTTEN` forgotten runs. A second forget answers that it was forgotten already
   pub(crate) fn forget(&self, run_id: &str) -> Result<Reply, Refusal> {
-    let run = self.runs().get(run_id)?;
+    let runs = self.runs();
+    let run = runs.get(run_id)?;
     run.end_if_lost();
     let ended = run
       .exit()
@@ -200,9 +221,23 @@ impl Agent {
     if ended.is_none() {
       return Err(Refusal::new(Code::BadRequest, format!("the run {run_id} goes on; cancel it first")));
     }
-    fs_retry::remove_dir_all(run.path()).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove the run {run_id}: {error}")))?;
+    let again = run.is_forgotten();
+    // a second forget finishes one that was cut short, and changes nothing after one that is done
+    run
+      .forget()
+      .map_err(|error| Refusal::new(Code::AgentError, format!("cannot forget the run {run_id}: {error}")))?;
+    if again {
+      return Ok(Reply::Done {
+        message: format!("the run {run_id} was forgotten already"),
+      });
+    }
+    for removed in runs.remove_forgotten_past(KEPT_FORGOTTEN) {
+      log(&format!("removed the run {removed}, past the last {KEPT_FORGOTTEN} forgotten runs"));
+    }
     Ok(Reply::Done {
-      message: format!("forgot the run {run_id}"),
+      message: format!(
+        "forgot the run {run_id}: its files are gone, and the agent keeps its end and the tail of its log among the last {KEPT_FORGOTTEN} forgotten runs, for a day at most"
+      ),
     })
   }
 
@@ -218,8 +253,15 @@ impl Agent {
   }
 }
 
-/// The loop of a follow: it reads the run files and sends what is new, until the end of the run
-fn follow_to_end(run: &RunDir, offset: u64, channel: &FollowChannel<'_>, watch: &mut Watch) -> Result<(), LinkError> {
+/// The log that a follow opened, and its cut when it is the cut log of a forgotten run
+struct LogReader {
+  file: File,
+  cut: Option<LogCut>,
+}
+
+/// The loop of a follow: it reads the run files and sends what is new, until the end of the run. `offset` is one of
+/// `log`, each end that it sends one of the log before a cut
+fn follow_to_end(run: &RunDir, mut log: LogReader, offset: u64, channel: &FollowChannel<'_>, watch: &mut Watch) -> Result<(), LinkError> {
   let hold = tuning::follow_hold();
   let mut offset = offset;
   loop {
@@ -234,7 +276,7 @@ fn follow_to_end(run: &RunDir, offset: u64, channel: &FollowChannel<'_>, watch: 
       Ok(ended) => ended,
       Err(error) => return channel.send(&[Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))]),
     };
-    let events = match read_events(&run.events_path(), offset, FOLLOW_READ) {
+    let events = match read_events_in(&mut log.file, &run.events_path(), offset, FOLLOW_READ) {
       Ok(events) => events,
       Err(error) => return channel.send(&[Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))]),
     };
@@ -245,7 +287,7 @@ fn follow_to_end(run: &RunDir, offset: u64, channel: &FollowChannel<'_>, watch: 
         .map(|(event, end)| Reply::Output {
           stream: event.stream,
           piece: event.piece,
-          end,
+          end: log.cut.map_or(end, |cut| cut.out_of_cut(end)),
         })
         .collect();
       channel.send(&replies)?;

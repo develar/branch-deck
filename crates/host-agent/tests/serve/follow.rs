@@ -191,3 +191,74 @@ fn a_fetch_of_many_small_files_takes_few_tls_records() {
   let fetched = records.load(Ordering::SeqCst) - before;
   assert!(fetched <= 10, "the fetch took {fetched} TLS records");
 }
+
+/// The lines of the stdout of `pieces`, each with the offset after it
+fn stdout_lines(pieces: &[(Stream, Piece, u64)]) -> Vec<(String, u64)> {
+  pieces
+    .iter()
+    .filter(|(stream, _, _)| *stream == Stream::Stdout)
+    .map(|(_, piece, end)| (piece.text.clone(), *end))
+    .collect()
+}
+
+/// A forget cuts a log of more than 1 MiB and renames the cut log over it. A follow that opened the log before reads it
+/// whole with its offsets; a follow again from an offset of that follow goes on where it was, past the cut with the same
+/// offsets, and from inside the part that went at the note of the agent, which says that bytes are missing, as a follow
+/// from the start does
+#[test]
+fn a_follow_across_the_forget_that_cuts_the_log_keeps_its_bytes_and_its_offsets() {
+  let world = World::new(1, &[]);
+  let hold = world.home.path().join("hold");
+  let agent = world.serve_with(&[("BD_HOST_TEST_HEARTBEAT_MS", "100"), ("BD_HOST_TEST_FOLLOW_HOLD", hold.to_str().expect("a text path"))]);
+  agent.start(world.spec("30-1", "seq 1 60000"));
+  let whole = stdout_lines(&agent.pieces_from("30-1", 0));
+  let numbers: Vec<String> = (1..=60_000).map(|n: u32| n.to_string()).collect();
+  assert_eq!(whole.iter().map(|(line, _)| line.clone()).collect::<Vec<_>>(), numbers);
+
+  // a follow that opened the log, held before its first read while the forget cuts the log
+  fs::write(&hold, "").expect("the hold");
+  let mut channel = agent.ask(&Request::Follow {
+    run: "30-1".to_owned(),
+    offset: 0,
+  });
+  assert!(matches!(channel.recv::<Reply>(), Ok(Reply::Heartbeat { .. })), "the follow opened the log");
+  assert!(matches!(agent.reply(&Request::Forget { run: "30-1".to_owned() }), Reply::Done { .. }));
+  assert!(fs::metadata(world.run_dir("30-1").join("events.log")).expect("the cut log").len() < 2 << 20);
+  sync_utils::fs_retry::remove_file(&hold).expect("the hold released");
+  let mut live = Vec::new();
+  loop {
+    match channel.recv::<Reply>().expect("a reply") {
+      Reply::Output {
+        stream: Stream::Stdout,
+        piece,
+        end,
+      } => live.push((piece.text, end)),
+      Reply::Output { .. } | Reply::Heartbeat { .. } | Reply::Phases { .. } => {}
+      Reply::Exit { code } => {
+        assert_eq!(code, 0);
+        break;
+      }
+      other => panic!("{other:?}"),
+    }
+  }
+  assert_eq!(live, whole, "the follow read the log that it opened, whole");
+
+  // again from an offset past the cut: the same lines with the same offsets
+  let at = whole.len() - 1000;
+  assert_eq!(stdout_lines(&agent.pieces_from("30-1", whole[at - 1].1)), whole[at..]);
+  // again from an offset in the part that went: the note first, its end past that offset, then the kept lines with their
+  // offsets
+  let resumed = agent.pieces_from("30-1", whole[9].1);
+  assert!(
+    resumed[0].1.text.starts_with("brd-host: the run was forgotten, and its log keeps its last 1024 KiB"),
+    "{:?}",
+    resumed[0]
+  );
+  assert!(resumed[0].2 > whole[9].1, "the end of the note is past the offset of the client");
+  let kept = stdout_lines(&resumed);
+  let first = whole.iter().position(|line| *line == kept[0]).expect("the first kept line is a line of the run");
+  assert!(first > 10, "the start went: {}", kept[0].0);
+  assert_eq!(kept, whole[first..]);
+  // from the start: the same
+  assert_eq!(agent.pieces_from("30-1", 0), resumed);
+}

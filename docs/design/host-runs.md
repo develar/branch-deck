@@ -116,6 +116,32 @@ host run one at a time, whatever their repository, and the other runs go as befo
 - **`brd-host runs`** names the holder and each waiting run with their times, the first thing an agent reads before
   it starts a heavy run.
 
+### The finished runs
+
+A client forgets its run once it saw the end and every file came, so before 2026-11-16 a run left the host at its
+end: `brd-host runs` showed only what ran now, and `brd-host follow` of a run a minute old answered `unknown_run`. A
+forget now keeps the run without its files: the stage, the outputs and the changes go, the log keeps its last 1 MiB
+from the start of an event (`KEPT_LOG`, after a line of the agent that says how many bytes went), and the spec, the end
+and the phases stay. So `brd-host runs` lists the finished runs with their exit, start and duration
+(`RunInfo::ended_ms`, `forgotten`), and a follow answers the tail of the output and the exit.
+- **On disk, not in memory**: a run is its directory, and an upgrade or a restart of `serve` (several a day while
+  the agent changes) must not lose the runs that a person looks for afterwards; the runs that go on live there already.
+- **The bound**: the last 100 forgotten runs by their end (`KEPT_FORGOTTEN`), each for at most the day that an ended
+  run has always had (`KEEP`), so at most 100 MiB of logs. A forget removes the runs past the count at once, and the
+  hourly cleanup removes them by age. A run that ended and that nobody forgot keeps its files for its day, as before:
+  its client may still fetch them, and its line says `its files kept`.
+- **A forget cut short**: `forgotten` comes first, as the intent, so a run never looks unforgotten with half its files
+  gone; the next forget or the hourly cleanup goes on from where it stopped, and the cut is recorded in `forgotten`
+  before the cut log (`events.log.cut`) is renamed over `events.log`, so a retry cuts once. A forget holds the flock
+  of `forget.lock` for its whole time, so a request and the cleanup never cut one log at once (the cleanup skips a run
+  whose forget goes on), and a record of another inode than the log's is repaired.
+- **The offsets of a cut log** stay those of the log before the cut: a follow reads the log that it opened, so one
+  that began before the rename reads the old file to its end, and a follow of the cut log (told by the inode that
+  `forgotten` records) maps the offset of a client into it and each end out of it. A client that follows again goes
+  on where it was; from inside the part that went, at the note, so the reader learns that bytes are missing.
+- **The end of a lost run** is the time the agent saw the loss, not the end of the run, so its `RunInfo` has no
+  `ended_ms` and its line no `took`.
+
 ### The process model
 
 - **`serve`** is the agent. launchd starts it (`com.jetbrains.brd-host`, `KeepAlive`, `AbandonProcessGroup`). It
@@ -126,8 +152,8 @@ host run one at a time, whatever their repository, and the other runs go as befo
   the slot back on every way out. A restart of `serve` does not stop it. A cancel sends SIGINT to the process group of
   the command, SIGINT again a second later to each process of the group that started as it came, and SIGKILL after
   120 s (decision 9). Its stderr is `supervisor.log` of the run, its stdout the log of `serve`. A client forgets a run
-  once it ended, and its directory goes while the slot is still given back, so the lines after `exit.json` (the
-  give-back, a quarantine, the heavy turn, their failures) go to the log of the agent too, with the id of the run.
+  once it ended and never reads `supervisor.log`, so the lines after `exit.json` (the give-back, a quarantine, the
+  heavy turn, their failures) go to the log of the agent too, with the id of the run.
   launchd never rotates that log: a run adds its start line and a few lines of its give-back, and a flood from a host
   of the network one line a minute (`tally`).
 - **The keeper** is a thread of `serve`. It wakes once a minute and when a run names a repository. It brings the git

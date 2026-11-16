@@ -1,8 +1,12 @@
 //! The steps of a run and their durations (openspec/specs/cli/host/spec.md, "The report of a run"): `pack` and `upload` of the
 //! client, the steps of the host from `Reply::Phases` (`git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`,
-//! `stage`), then `fetch` and `total` of the client. A run that ends early has only the steps up to its last one
+//! `stage`), then `fetch` and `total` of the client. A run that ends early has only the steps up to its last one. And one
+//! run of `brd-host runs` for a person (`run_line`)
 
-use host_link::proto::Phase;
+use host_link::proto::{Phase, RunInfo};
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 /// The steps of a run that a list shows: each step of 0.1 s or more
@@ -30,6 +34,45 @@ pub fn duration_text(ms: u64) -> String {
     0..3600 => format!("{}m{:02}s", seconds / 60, seconds % 60),
     _ => format!("{}h{:02}m{:02}s", seconds / 3600, seconds / 60 % 60, seconds % 60),
   }
+}
+
+/// The lines of the runs of `brd-host runs`, each start in the time zone of the system (`run_line`)
+pub fn run_lines(runs: &[RunInfo]) -> Vec<String> {
+  let zone = TimeZone::system();
+  runs.iter().map(|run| run_line(run, &zone)).collect()
+}
+
+/// One run of `brd-host runs`: its id, its state with its start in `zone` (and for a finished run its exit and how long
+/// it took), its affinity, its commit, its command, and the steps of 0.1 s or more. A finished run that its client did
+/// not forget still has its files on the host: `brd-host fetch` copies them
+///
+/// `1-1  running, started 2026-11-16 14:02:11  checkout-…  86551e413c53  cargo test`
+/// `1-1  finished, exit 0, started 2026-11-16 14:02:11, took 13m21s  checkout-…  86551e413c53  cargo test  (command 13m20s)`
+pub fn run_line(run: &RunInfo, zone: &TimeZone) -> String {
+  let started = Timestamp::from_millisecond(i64::try_from(run.started_ms).unwrap_or(i64::MAX)).map_or_else(
+    |_| "at an unknown time".to_owned(),
+    |at| at.to_zoned(zone.clone()).strftime("%Y-%m-%d %H:%M:%S").to_string(),
+  );
+  let mut state = match run.exit {
+    None => format!("running, started {started}"),
+    Some(code) => format!("finished, exit {code}, started {started}"),
+  };
+  if let Some(ended) = run.ended_ms {
+    let _ = write!(state, ", took {}", duration_text(ended.saturating_sub(run.started_ms)));
+  }
+  if run.exit.is_some() && !run.forgotten {
+    state.push_str(", its files kept");
+  }
+  let mut line = format!("{}  {state}  {}  {}  {}", run.run, run.affinity, short_id(&run.commit), run.command.join(" "));
+  let phases = phases_short(&run.phases);
+  if !phases.is_empty() {
+    let _ = write!(line, "  ({phases})");
+  }
+  line
+}
+
+fn short_id(id: &str) -> &str {
+  id.get(..12).unwrap_or(id)
 }
 
 /// One step and its duration

@@ -113,9 +113,10 @@ pub enum Request {
   Cancel { run: String },
   /// The files that the run staged. Replies: `Reply::File` each followed by its bytes, then `Reply::Fetched`
   Fetch { run: String },
-  /// Removes a run and its stage. Reply: `Reply::Done`
+  /// Forgets an ended run: its stage, its outputs and its changes go, and the agent keeps its end and the tail of its log
+  /// for `Request::Runs` and `Request::Follow`. Reply: `Reply::Done`
   Forget { run: String },
-  /// The runs that the agent keeps. Reply: `Reply::Runs`
+  /// The runs that the agent keeps, the forgotten ones too. Reply: `Reply::Runs`
   Runs,
   /// The lend table of each repository that the agent served. Reply: `Reply::Slots`
   Slots,
@@ -396,6 +397,9 @@ pub struct RunInfo {
   pub commit: String,
   pub command: Vec<String>,
   pub started_ms: u64,
+  /// The end of the run, as epoch milliseconds; `None` while it goes on, and from an older agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub ended_ms: Option<u64>,
   /// `None` while the run goes on
   pub exit: Option<i32>,
   /// The steps that have ended so far
@@ -404,6 +408,10 @@ pub struct RunInfo {
   /// The `fetch` directories of `RunSpec`
   #[serde(default)]
   pub fetch: Vec<String>,
+  /// A client forgot the run (`Request::Forget`): its files are gone, and the agent keeps its end and the tail of its
+  /// log
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub forgotten: bool,
 }
 
 /// The lend table of one repository of the host

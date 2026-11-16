@@ -29,6 +29,8 @@ serde_json.workspace = true
 schemars.workspace = true
 # the fetch: `O_NOFOLLOW` of the open of a part
 libc = "0.2.191"
+# the start of a run of `brd-host runs` in the time zone of the client (`phases::run_line`)
+jiff = { workspace = true, features = ["tz-system"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 pretty_assertions.workspace = true

@@ -1,7 +1,8 @@
 //! The lines of the log: the stderr of `serve`, which launchd writes to `~/Library/Logs/brd-host.log`, and the stderr of a
 //! supervisor, which `serve` points at `supervisor.log` of its run. `serve` gives a supervisor its own stderr as the
 //! stdout, so the lines of a supervisor after the end of its run reach the log of the agent too: a client forgets the
-//! run once it ended, and its directory goes with `supervisor.log`. So does a panic after the end
+//! run once it ended and never reads `supervisor.log`, and the run goes from the host a day later. So does a panic
+//! after the end
 //! (`panics_reach_the_agent_log`). A `serve` by hand whose stderr is a pipe that nothing reads holds such a line at a
 //! full pipe, as it holds its own lines; under launchd the log is a file
 

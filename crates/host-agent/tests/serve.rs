@@ -465,7 +465,37 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
     other => panic!("{other:?}"),
   }
   assert!(matches!(agent.reply(&Request::Forget { run: "1-1".to_owned() }), Reply::Done { .. }));
-  assert!(!world.run_dir("1-1").exists());
+  assert!(!world.run_dir("1-1").join("stage").exists(), "the files of the forgotten run are gone");
+  forgotten_run_answers_its_end(&agent, "1-1", 3, &["out"]);
+}
+
+/// A forgotten run stays in the runs, finished with its end, a follow answers its output and its exit, a fetch refuses
+/// (its files are gone), and a second forget answers that it was forgotten already
+fn forgotten_run_answers_its_end(agent: &Agent<'_>, run: &str, code: i32, stdout: &[&str]) {
+  match agent.reply(&Request::Runs) {
+    Reply::Runs { runs, .. } => {
+      let kept = runs
+        .iter()
+        .find(|kept| kept.run == run)
+        .unwrap_or_else(|| panic!("the forgotten run {run} is listed: {runs:?}"));
+      assert_eq!((kept.exit, kept.forgotten), (Some(code), true), "{kept:?}");
+      assert!(kept.ended_ms.is_some_and(|ended| ended >= kept.started_ms), "{kept:?}");
+    }
+    other => panic!("{other:?}"),
+  }
+  let followed = agent.follow(run);
+  assert_eq!(followed.end, Reply::Exit { code }, "{}", agent.dump(run));
+  assert_eq!(followed.of(Stream::Stdout), stdout);
+  assert!(
+    matches!(agent.reply(&Request::Fetch { run: run.to_owned() }), Reply::Refused { code, message } if code == "bad_request" && message.contains("was forgotten")),
+    "a fetch of a forgotten run"
+  );
+  assert_eq!(
+    agent.reply(&Request::Forget { run: run.to_owned() }),
+    Reply::Done {
+      message: format!("the run {run} was forgotten already"),
+    }
+  );
 }
 
 #[test]
@@ -504,8 +534,8 @@ fn a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back() {
   );
 }
 
-/// `brd-host run` forgets its run as soon as it ended, so the directory and `supervisor.log` go while the supervisor still
-/// gives the slot back: its lines reach the log of the agent with the id of the run
+/// `brd-host run` forgets its run as soon as it ended, while the supervisor still gives the slot back: its lines reach
+/// the log of the agent with the id of the run, as a client never reads `supervisor.log`
 #[test]
 fn the_give_back_of_a_forgotten_run_writes_its_lines_to_the_log_of_the_agent() {
   let world = World::new(1, &[]);
@@ -513,7 +543,7 @@ fn the_give_back_of_a_forgotten_run_writes_its_lines_to_the_log_of_the_agent() {
   agent.start(world.spec("2-2", "echo done"));
   assert_eq!(agent.follow("2-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("2-2"));
   assert!(matches!(agent.reply(&Request::Forget { run: "2-2".to_owned() }), Reply::Done { .. }));
-  assert!(!world.run_dir("2-2").exists());
+  assert!(world.run_dir("2-2").join("forgotten").exists());
   eventually("the give-back line of the forgotten run in the log of the agent", || {
     world.serve_log().contains("brd-host supervise 2-2: gave back the slot ")
   });

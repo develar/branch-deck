@@ -11,7 +11,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use host_client::host::AgentInfo;
 use host_client::interrupt;
-use host_client::phases::{phases_line, phases_short};
+use host_client::phases::{phases_line, run_lines};
 use host_client::process::{Call, OsProcesses, Processes};
 use host_client::report::{HelloRefusal, HelloReport, REPORT_SCHEMA, RunReport, command_exit_code};
 use host_client::run::{RunOptions, RunRequest};
@@ -71,9 +71,9 @@ enum Command {
     #[arg(long = "fetch", value_name = "DIR")]
     fetch: Vec<String>,
   },
-  /// Removes a run and its files on the host
+  /// Removes the files of an ended run on the host, which keeps its end and the tail of its log
   Forget { alias: String, run: String },
-  /// Lists the runs that the agent keeps, each with the steps of the host that took 0.1 s or more
+  /// Lists the runs that the agent keeps, the finished ones too, each with the steps of the host that took 0.1 s or more
   Runs {
     alias: String,
     #[arg(long)]
@@ -498,8 +498,8 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       if host.runs.is_empty() {
         out.line(&format!("no runs on {alias}"));
       }
-      for run in &host.runs {
-        out.line(&run_line(run));
+      for line in run_lines(&host.runs) {
+        out.line(&line);
       }
       match &host.heavy {
         Some(heavy) => host_agent::turn::lines(heavy)?.iter().for_each(|line| out.line(line)),
@@ -860,17 +860,6 @@ fn upgraded_text(alias: &str, upgraded: &Upgraded) -> String {
       format!("upgraded brd-host on {alias} from {previous} to {} over the link\n{answers}", short(&upgraded.sha256))
     }
   }
-}
-
-/// One run of `brd-host runs`: its id, its state, its affinity, its commit, its command, and the steps of 0.1 s or more
-fn run_line(run: &RunInfo) -> String {
-  let state = run.exit.map_or_else(|| "running".to_owned(), |code| format!("exit {code}"));
-  let mut line = format!("{}  {state}  {}  {}  {}", run.run, run.affinity, short(&run.commit), run.command.join(" "));
-  let phases = phases_short(&run.phases);
-  if !phases.is_empty() {
-    let _ = write!(line, "  ({phases})");
-  }
-  line
 }
 
 fn short(id: &str) -> &str {

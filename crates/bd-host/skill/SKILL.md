@@ -147,7 +147,12 @@ command that follows the run.
 - `brd-host fetch <host> <run> [--fetch <dir>]` copies the files of a run whose copy failed (`fetch_failed`). Run it in
   the checkout of the run: the record of the run there says which files come. Without the record, only `--fetch`
   directories come.
-- `brd-host forget <host> <run>` removes a run and its files on the host. The host keeps an ended run for 24 h.
+- `brd-host forget <host> <run>` removes the files of an ended run on the host; `run` does it at the end of each run.
+  The host keeps the end and the last 1 MiB of the log of the last 100 forgotten runs, each a day at most, and an ended
+  run that nobody forgot with its files for a day.
+- `brd-host runs <host>` lists the runs that go on and the finished ones: `finished, exit N, started <time>, took
+  <duration>`. `brd-host follow <host> <run>` of a finished run shows what the host keeps of its log and exits with its
+  exit code.
 
 ## The host slots
 

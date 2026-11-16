@@ -1,5 +1,5 @@
 //! The files of a run (openspec/specs/cli/host/spec.md, "The fetch, the outputs and the changes"): `Fetch` copies them into the
-//! local checkout, and `Forget` removes the run on the agent.
+//! local checkout, and `Forget` removes the files of the run on the agent, which keeps its end and the tail of its log.
 //!
 //! Each file goes to `<name>.bd-host-part` first, and only a file of the size that the agent named takes its name. So a
 //! cut connection leaves no file that looks whole. A stream writes at most the size that the agent named, and the rest
@@ -77,7 +77,7 @@ impl Client<'_> {
     Ok(fetched.files)
   }
 
-  /// Removes a run and its stage on the agent
+  /// Forgets a run on the agent: its files go, and the agent keeps its end and the tail of its log
   pub fn forget(&self, alias: &str, run: &str) -> Result<String, Refusal> {
     let mut host = self.host(alias)?;
     self.forget_on(&mut host, run)

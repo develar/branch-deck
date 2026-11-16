@@ -1,4 +1,6 @@
-//! The hourly cleanup of `serve`: it ends each run that lost its supervisor and removes each run a day after its end. It
+//! The hourly cleanup of `serve`: it ends each run that lost its supervisor, finishes each forget that was cut short,
+//! removes each run a day after its end and each forgotten run past the last `KEPT_FORGOTTEN` (a forget removes them
+//! too). It
 //! also keeps the repository list of the packs and the runs, from which the keeper of the host slots and
 //! `Request::Slots` start. Branch Deck owns the refs of the packs and the git maintenance: the give-back of a run
 //! deletes its ref, the keeper deletes a ref that no run uses, and an ingest and a give-back start the deferred
@@ -6,7 +8,7 @@
 
 use crate::files::{private_dir, write_private};
 use crate::home::Home;
-use crate::run::Runs;
+use crate::run::{KEPT_FORGOTTEN, Runs};
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
@@ -23,7 +25,20 @@ pub(crate) fn clean(home: &Home, now: SystemTime) -> Vec<String> {
     .filter(|run| run.end_if_lost())
     .map(|run| format!("ended the run {}, which lost its supervisor", run.path().display()))
     .collect();
+  // a forget that was cut short goes on from where it stopped, one that is done changes nothing, and one that goes on
+  // in a request keeps its run till the next round
+  for run in runs.list().iter().filter(|run| run.is_forgotten()) {
+    if let Err(error) = run.try_forget() {
+      lines.push(format!("cannot finish the forget of the run {}: {error}", run.path().display()));
+    }
+  }
   lines.extend(runs.remove_expired(now).into_iter().map(|run| format!("removed the run {run}, which ended a day ago")));
+  lines.extend(
+    runs
+      .remove_forgotten_past(KEPT_FORGOTTEN)
+      .into_iter()
+      .map(|run| format!("removed the run {run}, past the last {KEPT_FORGOTTEN} forgotten runs")),
+  );
   lines
 }
 

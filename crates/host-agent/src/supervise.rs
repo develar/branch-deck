@@ -42,7 +42,7 @@
 //! takes the turn of a gone holder. No signal cuts the give-back. Its lines, as every line after `exit.json`, go to
 //! `supervisor.log` and with the id of the run to the log of the agent, the stdout that `serve` gives the supervisor
 //! (`log::supervisor_after_end`), and so does a panic (`log::panics_reach_the_agent_log`): a client forgets the run once
-//! it ended, and its directory goes.
+//! it ended and never reads `supervisor.log`.
 //!
 //! The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, 1 s
@@ -128,7 +128,7 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
       return;
     }
   };
-  // read before `exit.json`: once it exists, a client can forget the run and its directory goes
+  // read before `exit.json`: once it exists, a client can forget the run, and the run can go past the kept ones
   let spec = run.spec().ok();
   let mut repo = None;
   let outcome = run_to_end(home, &run, &mut repo);

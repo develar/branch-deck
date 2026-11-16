@@ -138,6 +138,202 @@ fn a_run_that_ended_a_day_ago_is_removed() {
   assert_eq!(runs.list().len(), 1, "a run that goes on stays");
 }
 
+/// A forget keeps the run: its stage, its outputs and its changes go, its spec, its end and its log stay, and the runs
+/// list it as forgotten with its end
+#[test]
+fn a_forgotten_run_keeps_its_end_and_its_log_and_its_files_go() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let runs = Runs::new(dir.path().join("runs"));
+  let (run, lock) = runs.create(&spec("1-1")).expect("created");
+  let log = EventLog::open(&run.events_path()).expect("opened");
+  log.line(Stream::Stdout, "out");
+  log.close();
+  fs::create_dir_all(run.stage_path().join("out/bt-runs")).expect("the stage");
+  fs::write(run.stage_path().join("out/bt-runs/report.txt"), "r").expect("a staged file");
+  fs::create_dir_all(run.outputs_path()).expect("the outputs");
+  run.write_output_roots(&["target/nextest".to_owned()]).expect("the output roots");
+  fs::write(run.changes_path(), "diff").expect("the changes");
+  run.write_exit(&ExitRecord::Code { code: 3 }).expect("written");
+  drop(lock);
+  assert!(!run.info().expect("the info").forgotten);
+
+  run.forget().expect("forgotten");
+  for gone in [run.stage_path(), run.outputs_path(), run.path().join("outputs.json"), run.changes_path()] {
+    assert!(!gone.exists(), "{} is gone", gone.display());
+  }
+  let info = run.info().expect("the info");
+  assert_eq!((info.exit, info.forgotten), (Some(3), true));
+  assert!(info.ended_ms.is_some_and(|ended| ended >= info.started_ms), "{info:?}");
+  let events: Vec<String> = read_events(&run.events_path(), 0, 1024)
+    .expect("the log")
+    .into_iter()
+    .map(|(event, _)| event.piece.text)
+    .collect();
+  assert_eq!(events, ["out"], "a short log stays whole");
+}
+
+/// The log of a forgotten run keeps its tail from the start of an event, after a line of the agent that says how much
+/// of the log went, and the cut maps the offsets of the log before it; one within the limit stays whole
+#[test]
+fn the_log_of_a_forgotten_run_keeps_its_tail_from_the_start_of_an_event() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let path = dir.path().join("events.log");
+  let cut_path = dir.path().join("events.log.cut");
+  let log = EventLog::open(&path).expect("opened");
+  for line in ["first", "second", "third"] {
+    log.line(Stream::Stdout, line);
+  }
+  log.close();
+  let before = read_events(&path, 0, 4096).expect("the log");
+  let (second_end, third_end) = (before[1].1, before[2].1);
+  let third = third_end - second_end;
+  // the tail starts inside the second event, so only the third stays
+  let KeptLog::Cut(cut) = cut_log(&path, &cut_path, third + 5).expect("cut") else {
+    panic!("a log longer than the limit is cut");
+  };
+  assert_eq!(cut.gone, second_end);
+  assert_eq!(fs::read(&path).expect("the log").len() as u64, third_end, "the log stays until the rename");
+  let events: Vec<(Stream, String, u64)> = read_events(&cut_path, 0, 4096)
+    .expect("the cut log")
+    .into_iter()
+    .map(|(event, end)| (event.stream, event.piece.text, cut.out_of_cut(end)))
+    .collect();
+  assert_eq!(
+    events,
+    [
+      (
+        Stream::Stderr,
+        format!("brd-host: the run was forgotten, and its log keeps its last 0 KiB: the first {second_end} bytes of its log are gone"),
+        second_end
+      ),
+      (Stream::Stdout, "third".to_owned(), third_end),
+    ],
+    "each end is the one of the log before the cut"
+  );
+  assert_eq!(cut.ino, fs::metadata(&cut_path).expect("the cut log").ino());
+  // an offset of the log before the cut: 0 and the part that went at the note, the start of the tail right after it
+  assert_eq!([cut.into_cut(0), cut.into_cut(before[0].1), cut.into_cut(second_end)], [0, 0, cut.note]);
+  assert_eq!(cut.into_cut(third_end), cut.note + third);
+  assert_eq!(cut_log(&path, &cut_path, third_end).expect("a log within the limit"), KeptLog::Whole);
+}
+
+/// The run `1-1` in `dir` with a log of 60 000 events, more than [`KEPT_LOG`], and its flock
+fn run_with_a_long_log(dir: &Path) -> (RunDir, File) {
+  let (run, lock) = Runs::new(dir.join("runs")).create(&spec("1-1")).expect("created");
+  let log = EventLog::open(&run.events_path()).expect("opened");
+  for line in 0..60_000 {
+    log.line(Stream::Stdout, &line.to_string());
+  }
+  log.close();
+  (run, lock)
+}
+
+/// A forget cut short (its marker written, its files and its log as they were, or its cut log recorded and not renamed
+/// yet) is a forgotten run, and the next forget finishes it; a third changes nothing
+#[test]
+fn a_forget_cut_short_is_finished_by_the_next_one() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let (run, _lock) = run_with_a_long_log(dir.path());
+  fs::create_dir_all(run.stage_path()).expect("the stage");
+  fs::write(run.stage_path().join("a.txt"), "a").expect("a staged file");
+  run.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
+  // the intent of a forget that stopped right after it
+  fs::write(run.path().join(FORGOTTEN), "{}").expect("the marker");
+  assert!(run.is_forgotten() && run.info().expect("the info").forgotten);
+  assert_eq!(run.kept_log().expect("the marker"), None);
+
+  // a forget that stopped after the record of its cut, before the rename
+  let kept = cut_log(&run.events_path(), &run.path().join(CUT_LOG), KEPT_LOG).expect("cut");
+  run.write_forgotten(Forgotten { log: Some(kept) }).expect("recorded");
+  run.forget().expect("finished");
+  assert!(!run.stage_path().exists() && !run.path().join(CUT_LOG).exists());
+  assert_eq!(run.kept_log().expect("the marker"), Some(kept));
+  let KeptLog::Cut(cut) = kept else { panic!("a log of 60 000 events is cut") };
+  assert_eq!(fs::metadata(run.events_path()).expect("the log").ino(), cut.ino, "the cut log is the log");
+  let size = fs::metadata(run.events_path()).expect("the log").len();
+  assert!(size <= KEPT_LOG + cut.note, "{size}");
+
+  run.forget().expect("forgotten again");
+  assert_eq!(fs::metadata(run.events_path()).expect("the log").len(), size, "a log is cut once");
+  assert_eq!(run.kept_log().expect("the marker"), Some(kept));
+
+  // a record of another inode, as two forgets at once of a build before the flock left it, is repaired
+  run
+    .write_forgotten(Forgotten {
+      log: Some(KeptLog::Cut(LogCut { ino: cut.ino + 1, ..cut })),
+    })
+    .expect("a record of another inode");
+  run.forget().expect("repaired");
+  assert_eq!(run.kept_log().expect("the marker"), Some(kept));
+}
+
+/// Two forgets of one run at once cut its log once, and the record names the inode of the log: a forget holds the flock
+/// of the run for its whole time, so the cleanup skips a run whose forget goes on, and a second request waits for it
+#[test]
+fn two_forgets_of_one_run_at_once_cut_its_log_once_and_the_record_names_the_log() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let (run, _lock) = run_with_a_long_log(dir.path());
+  run.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
+  let (reached, at_cut) = std::sync::mpsc::channel();
+  let (go, held) = std::sync::mpsc::channel();
+  seam::hold_after_cut(reached, held);
+  let first = std::thread::spawn({
+    let run = run.clone();
+    move || run.forget()
+  });
+  at_cut.recv().expect("the first forget wrote its cut log");
+  assert!(!run.try_forget().expect("the cleanup"), "the cleanup skips a run whose forget goes on");
+  let second = std::thread::spawn({
+    let run = run.clone();
+    move || run.forget()
+  });
+  go.send(()).expect("the first forget goes on");
+  first.join().expect("the first forget").expect("forgotten");
+  second.join().expect("the second forget").expect("forgotten again");
+  let Some(KeptLog::Cut(cut)) = run.kept_log().expect("the marker") else {
+    panic!("a log of 60 000 events is cut");
+  };
+  assert_eq!(cut.ino, fs::metadata(run.events_path()).expect("the log").ino(), "the record names the log");
+  assert!(!run.path().join(CUT_LOG).exists());
+}
+
+/// A run that lost its supervisor has no time of its end: the agent wrote it when it saw the loss
+#[test]
+fn a_lost_run_has_no_time_of_its_end() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let runs = Runs::new(dir.path().join("runs"));
+  let (run, lock) = runs.create(&spec("1-1")).expect("created");
+  drop(lock);
+  assert!(run.end_if_lost());
+  let info = run.info().expect("the info");
+  assert_eq!((info.exit, info.ended_ms), (Some(REFUSED_EXIT), None));
+}
+
+/// The agent keeps the last forgotten runs by their end; a run that ended and that nobody forgot stays
+#[test]
+fn the_forgotten_runs_past_the_latest_by_their_end_go() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let runs = Runs::new(dir.path().join("runs"));
+  let now = SystemTime::now();
+  // the ids sort against the order of their ends
+  for (id, ended_ago, forgotten) in [("1-1", 1, true), ("1-2", 3, true), ("1-3", 2, true), ("1-4", 9, false)] {
+    let (run, _lock) = runs.create(&spec(id)).expect("created");
+    run.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
+    if forgotten {
+      run.forget().expect("forgotten");
+    }
+    File::options()
+      .write(true)
+      .open(run.path().join(EXIT))
+      .and_then(|file| file.set_modified(now - Duration::from_secs(ended_ago * 60)))
+      .expect("the end");
+  }
+  assert_eq!(runs.remove_forgotten_past(2), ["1-2"]);
+  let left: Vec<String> = runs.list().iter().map(run_id).collect();
+  assert_eq!(left, ["1-1", "1-3", "1-4"]);
+  assert_eq!(runs.remove_forgotten_past(2), Vec::<String>::new());
+}
+
 #[test]
 fn the_log_gives_complete_events_with_their_end_offsets() {
   let dir = tempfile::tempdir().expect("a temporary directory");
@@ -155,9 +351,10 @@ fn the_log_gives_complete_events_with_their_end_offsets() {
     }
   );
   let first_end = events[0].1;
-  assert!(is_line_start(&path, first_end).expect("checked"));
-  assert!(!is_line_start(&path, first_end - 1).expect("checked"));
-  assert!(!is_line_start(&path, events[1].1 + 1).expect("checked"));
+  let mut file = File::open(&path).expect("the log");
+  assert!(is_line_start(&mut file, first_end).expect("checked"));
+  assert!(!is_line_start(&mut file, first_end - 1).expect("checked"));
+  assert!(!is_line_start(&mut file, events[1].1 + 1).expect("checked"));
   let rest = read_events(&path, first_end, 1 << 20).expect("read");
   assert_eq!(rest.len(), 1);
   assert_eq!(rest[0].0.piece.text, "two \"quoted\"");

@@ -27,9 +27,9 @@
 //!    run, stops the follow, and refuses with the code of the pack.
 //! 5. After the pack, a thread syncs the base of the next packs (`base`).
 //! 6. Copies the staged files of the `fetch` directories, the outputs and the changes into the local checkout (`Fetch`),
-//!    then removes the run on the agent (`Forget`). The fetch takes only what the run record asked for. The client
-//!    removes the run only when it saw the end of the run and every file came. Otherwise the run stays on the agent,
-//!    and the client names `brd-host fetch` and `brd-host forget`.
+//!    then forgets the run on the agent (`Forget`: its files go, its end and the tail of its log stay). The fetch takes
+//!    only what the run record asked for. The client forgets the run only when it saw the end of the run and every file
+//!    came. Otherwise the run keeps its files on the agent, and the client names `brd-host fetch` and `brd-host forget`.
 //! 7. Waits for the base sync. With `RunOptions::apply`, it applies the patch of the changes of the command to the
 //!    working tree (the files only, not the index). Then it answers the steps of the run with their durations.
 //!
@@ -553,7 +553,7 @@ impl Client<'_> {
   }
 
   /// Follows a started run to its end, then copies the files that `record` asks for, with the changes to `patch`, and
-  /// removes the run on the host. A run that the agent refused is removed too, and its failure carries how far it came
+  /// forgets the run on the host. A run that the agent refused is forgotten too, and its failure carries how far it came
   /// and the steps of the host. A run that vanished on the host after it started (`unknown_run`) may have run its
   /// command, so its exit is 255, and a caller never runs the command a second time
   fn follow_and_fetch(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path, watch: &Watch) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
@@ -590,7 +590,7 @@ impl Client<'_> {
       }
       Err(refusal) => {
         let message = format!(
-          "cannot copy the files of the run {run} from {alias}: {}. The run stays on {alias}: `brd-host fetch {alias} {run}` in this checkout copies its files again, and `brd-host forget {alias} {run}` removes it",
+          "cannot copy the files of the run {run} from {alias}: {}. The run keeps its files on {alias}: `brd-host fetch {alias} {run}` in this checkout copies them again, and `brd-host forget {alias} {run}` removes them",
           refusal.message
         );
         let code = if refusal.code == Code::FetchFailed || is_link(&refusal) {
@@ -756,7 +756,7 @@ impl Client<'_> {
   fn forget_or_say(&self, host: &mut Host, run: &str) {
     if let Err(refusal) = self.forget_on(host, run) {
       (self.say)(&format!(
-        "brd-host: cannot remove the run {run} on {}: {}. `brd-host forget {} {run}` removes it",
+        "brd-host: cannot forget the run {run} on {}: {}. `brd-host forget {} {run}` removes its files",
         host.alias(),
         refusal.message,
         host.alias()

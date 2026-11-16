@@ -171,6 +171,28 @@ fn the_phases_of_a_run_and_a_run_info_without_them_parse() {
   assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), phases);
   let info: RunInfo = serde_json::from_str(r#"{"run":"1-2","affinity":"a","commit":"c","command":["true"],"started_ms":1,"exit":null}"#).expect("an info");
   assert_eq!((info.phases.len(), info.fetch.len()), (0, 0));
+  assert_eq!((info.ended_ms, info.forgotten), (None, false), "an older agent sends no end and no forget");
+}
+
+/// The end and the forget of a kept run are optional fields within the schema: a run that goes on sends neither, and a
+/// forgotten run both
+#[test]
+fn the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema() {
+  let going = r#"{"run":"1-2","affinity":"a","commit":"c","command":["true"],"started_ms":1,"exit":null,"phases":[],"fetch":[]}"#;
+  let info: RunInfo = serde_json::from_str(going).expect("an info");
+  assert_eq!(serde_json::to_string(&info).expect("json"), going);
+  let forgotten = RunInfo {
+    ended_ms: Some(5),
+    exit: Some(0),
+    forgotten: true,
+    ..info
+  };
+  let json = serde_json::to_string(&forgotten).expect("json");
+  assert_eq!(
+    json,
+    r#"{"run":"1-2","affinity":"a","commit":"c","command":["true"],"started_ms":1,"ended_ms":5,"exit":0,"phases":[],"fetch":[],"forgotten":true}"#
+  );
+  assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), forgotten);
 }
 
 #[test]

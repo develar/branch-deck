@@ -39,3 +39,40 @@ fn the_phases_are_the_steps_of_both_ends_in_their_order() {
   assert_eq!(phases_short(&[step("pack_wait", 99)]), "");
   assert_eq!(phase("fetch", Duration::from_millis(1500)), step("fetch", 1500));
 }
+
+fn run_info(exit: Option<i32>, ended_ms: Option<u64>, forgotten: bool) -> RunInfo {
+  RunInfo {
+    run: "1794817711000-42".to_owned(),
+    affinity: "checkout-0123456789ab".to_owned(),
+    commit: "86551e413c53".repeat(3),
+    command: vec!["cargo".to_owned(), "test".to_owned()],
+    // 2026-11-16 08:28:31 UTC
+    started_ms: 1_794_817_711_000,
+    ended_ms,
+    exit,
+    phases: vec![step("slot", 50), step("command", 801_000)],
+    fetch: Vec::new(),
+    forgotten,
+  }
+}
+
+/// A run of `brd-host runs` says whether it runs or finished, its start in the zone of the client, and for a finished
+/// run its exit, how long it took, and whether its files are still on the host
+#[test]
+fn a_run_line_says_its_state_its_start_and_how_long_a_finished_run_took() {
+  let utc = TimeZone::UTC;
+  assert_eq!(
+    run_line(&run_info(None, None, false), &utc),
+    "1794817711000-42  running, started 2026-11-16 08:28:31  checkout-0123456789ab  86551e413c53  cargo test  (command 13m21s)"
+  );
+  assert_eq!(
+    run_line(&run_info(Some(0), Some(1_794_817_711_000 + 801_400), true), &utc),
+    "1794817711000-42  finished, exit 0, started 2026-11-16 08:28:31, took 13m21s  checkout-0123456789ab  86551e413c53  cargo test  (command 13m21s)"
+  );
+  assert_eq!(
+    run_line(&run_info(Some(3), Some(1_794_817_711_000 + 4_000), false), &utc),
+    "1794817711000-42  finished, exit 3, started 2026-11-16 08:28:31, took 4.0s, its files kept  checkout-0123456789ab  86551e413c53  cargo test  (command 13m21s)"
+  );
+  // an older agent sends no end
+  assert!(run_line(&run_info(Some(0), None, true), &utc).contains("finished, exit 0, started 2026-11-16 08:28:31  checkout-"));
+}

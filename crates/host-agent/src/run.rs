@@ -16,18 +16,33 @@
 //! | `outputs.json` | the outputs in `outputs/`, as a JSON array of their paths |
 //! | `changes.patch` | the changes that the command made to the files of the slot, for `git apply` |
 //! | `supervisor.log` | the stderr of the supervisor, such as a panic; the log of the agent has its lines after `exit.json` |
+//! | `forgotten` | written first by a forget, its intent: the client has the end and the files of the run; once the log is kept, how ([`KeptLog`]) |
+//! | `events.log.cut` | the cut log of a forget before its rename over `events.log` |
+//! | `forget.lock` | the flock of a forget for its whole time, so two forgets of a run (a request, the cleanup) never cut its log at once |
 //!
 //! The supervisor writes the last event before `exit.json`, so a reader that sees `exit.json` and then reads the log to
 //! its end has every event. A run is alive while a process holds the flock of `lock`. A run that is not alive and has no
 //! `exit.json` lost its supervisor, and [`RunDir::end_if_lost`] ends it. The directory has the mode 0700, and each file
-//! the mode 0600
+//! the mode 0600.
+//!
+//! A forget keeps a run: its files go (the stage, the outputs, the changes), its log keeps its last [`KEPT_LOG`] bytes,
+//! and its spec, its end and its phases stay, so `Request::Runs` lists it and `Request::Follow` answers its end. The
+//! agent keeps the last [`KEPT_FORGOTTEN`] forgotten runs by their end, each at most [`KEEP`]. They live on disk: an
+//! upgrade or a restart of the agent keeps them, as it keeps the runs that go on.
+//!
+//! A forget writes `forgotten` first, so a forget cut short is a forgotten run whose removal the next forget or the
+//! hourly cleanup finishes ([`RunDir::forget`] goes on from where it stopped). The cut log goes to `events.log.cut`,
+//! `forgotten` records the cut with the inode of that file, and a rename puts it over `events.log`. Offsets stay those
+//! of the log before the cut: a follow that opened the log before the rename reads that file to its end, and a follow
+//! of the cut log maps an offset in and each end out ([`LogCut`])
 
-use crate::files::{append_private, open_private, private_dir, try_flock, try_flock_shared, write_private};
+use crate::files::{append_private, open_private, private_dir, remove_entry, try_flock, try_flock_shared, write_private};
 use host_link::proto::{Phase, Piece, RunInfo, RunSpec, Stream, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -46,6 +61,9 @@ const STAGE: &str = "stage";
 const OUTPUTS: &str = "outputs";
 const OUTPUT_ROOTS: &str = "outputs.json";
 const CHANGES: &str = "changes.patch";
+const FORGOTTEN: &str = "forgotten";
+const CUT_LOG: &str = "events.log.cut";
+const FORGET_LOCK: &str = "forget.lock";
 pub(crate) const SUPERVISOR_LOG: &str = "supervisor.log";
 
 /// The most bytes of one event. A longer line becomes several events, so each reply stays far below the message limit
@@ -54,6 +72,14 @@ pub(crate) const MAX_EVENT_BYTES: usize = 64 * 1024;
 
 /// How long the agent keeps a run after its end
 pub(crate) const KEEP: Duration = Duration::from_hours(24);
+
+/// The most bytes of the log that a forgotten run keeps, its tail from the start of an event: the summary and the
+/// failures at the end of a test run fit, and the last [`KEPT_FORGOTTEN`] runs hold at most 100 MiB of logs
+pub(crate) const KEPT_LOG: u64 = 1024 * 1024;
+
+/// The most forgotten runs that the agent keeps, the latest by their end: a day of runs of a busy host (each `brd-host
+/// run` forgets its run at its end) stays within [`KEPT_LOG`] times this
+pub(crate) const KEPT_FORGOTTEN: usize = 100;
 
 /// The exit code that [`RunInfo::exit`] gives a run that ended with a refusal. A client also exits with it
 pub(crate) const REFUSED_EXIT: i32 = 255;
@@ -81,6 +107,52 @@ struct ExitFile {
   end: ExitRecord,
   #[serde(default)]
   phases: Vec<Phase>,
+  /// The agent wrote the end of a run that lost its supervisor ([`RunDir::end_if_lost`]): the time of `exit.json` is
+  /// when that was seen, not the end of the run
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  lost: bool,
+}
+
+/// The content of `forgotten`: how the log of the forgotten run is kept, once it is
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Forgotten {
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  log: Option<KeptLog>,
+}
+
+/// How a forget kept the log of a run
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum KeptLog {
+  /// Whole: it had at most [`KEPT_LOG`] bytes
+  Whole,
+  Cut(LogCut),
+}
+
+/// The cut of the log of a forgotten run: its first `gone` bytes went, and a note of the agent of `note` bytes starts
+/// the cut log. An offset of a client is one of the log before the cut, the one that a follow before the cut saw
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct LogCut {
+  pub(crate) gone: u64,
+  pub(crate) note: u64,
+  /// The inode of the cut log, so a follow tells it from the log before the cut that it may have open
+  pub(crate) ino: u64,
+}
+
+impl LogCut {
+  /// The offset in the cut log of `offset` of the log before the cut. An offset in the part that went goes on at the
+  /// note, so the reader learns that bytes are missing: the end of the note maps out to `gone`, past its offset. Such
+  /// an offset cannot be checked as the start of a line of the log before the cut, whose bytes are gone. `gone` itself
+  /// was the start of the kept tail, and goes on right after the note
+  pub(crate) const fn into_cut(self, offset: u64) -> u64 {
+    if offset < self.gone { 0 } else { offset - self.gone + self.note }
+  }
+
+  /// The offset in the log before the cut of the end `end` of an event of the cut log: the note ends where the tail
+  /// starts
+  pub(crate) const fn out_of_cut(self, end: u64) -> u64 {
+    end.saturating_sub(self.note) + self.gone
+  }
 }
 
 /// The refusal of a run as `exit.json` keeps it. The code is the name, so a file stays readable for a later build
@@ -176,20 +248,19 @@ impl RunDir {
 
   fn exit_file(&self) -> io::Result<Option<ExitFile>> {
     let path = self.path.join(EXIT);
-    match fs::read(&path) {
-      Ok(text) => serde_json::from_slice(&text)
-        .map(Some)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {error}", path.display()))),
-      Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-      Err(error) => Err(error),
-    }
+    read_if_there(&path)?.map(|text| parse_json(&path, &text)).transpose()
   }
 
   /// Writes `exit.json` with the phases of `phases.json`
   pub(crate) fn write_exit(&self, exit: &ExitRecord) -> io::Result<()> {
+    self.write_exit_file(exit, false)
+  }
+
+  fn write_exit_file(&self, exit: &ExitRecord, lost: bool) -> io::Result<()> {
     let file = ExitFile {
       end: exit.clone(),
       phases: self.running_phases(),
+      lost,
     };
     let json = serde_json::to_vec(&file).map_err(io::Error::other)?;
     write_private(&self.path.join(EXIT), &json)
@@ -263,7 +334,7 @@ impl RunDir {
       return false;
     }
     let lost = Refusal::new(Code::AgentError, "the supervisor of the run ended without an exit code");
-    self.write_exit(&ExitRecord::refused(&lost)).is_ok()
+    self.write_exit_file(&ExitRecord::refused(&lost), true).is_ok()
   }
 
   /// The start of the run, as epoch milliseconds
@@ -276,10 +347,13 @@ impl RunDir {
     fs::metadata(self.path.join(EXIT)).and_then(|metadata| metadata.modified()).ok()
   }
 
-  /// The run for `Reply::Runs`: the phases of `exit.json` after the end, else of `phases.json`
+  /// The run for `Reply::Runs`: the phases of `exit.json` after the end, else of `phases.json`. A run that lost its
+  /// supervisor has no time of its end: the agent saw the loss later
   pub(crate) fn info(&self) -> io::Result<RunInfo> {
     let spec = self.spec()?;
-    let ended = self.exit_with_phases()?;
+    let file = self.exit_file()?;
+    let lost = file.as_ref().is_some_and(|file| file.lost);
+    let ended = file.map(|file| (file.end, file.phases));
     Ok(RunInfo {
       run: spec.run,
       affinity: spec.affinity,
@@ -287,10 +361,151 @@ impl RunDir {
       command: spec.command,
       fetch: spec.fetch,
       started_ms: self.started_ms(),
+      ended_ms: ended.as_ref().filter(|_| !lost).and_then(|_| self.ended()).map(epoch_ms),
       exit: ended.as_ref().map(|(end, _)| end.code()),
       phases: ended.map_or_else(|| self.running_phases(), |(_, phases)| phases),
+      forgotten: self.is_forgotten(),
     })
   }
+
+  /// Whether a client forgot the run, or a forget began: the client has its end and its files
+  pub(crate) fn is_forgotten(&self) -> bool {
+    self.path.join(FORGOTTEN).exists()
+  }
+
+  /// How the forget kept the log of the run; `None` before a forget kept it
+  pub(crate) fn kept_log(&self) -> io::Result<Option<KeptLog>> {
+    Ok(self.forgotten()?.and_then(|forgotten| forgotten.log))
+  }
+
+  fn forgotten(&self) -> io::Result<Option<Forgotten>> {
+    let path = self.path.join(FORGOTTEN);
+    // an empty file is a marker without the record of the log
+    read_if_there(&path)?
+      .map(|text| if text.is_empty() { Ok(Forgotten::default()) } else { parse_json(&path, &text) })
+      .transpose()
+  }
+
+  fn write_forgotten(&self, forgotten: Forgotten) -> io::Result<()> {
+    let json = serde_json::to_vec(&forgotten).map_err(io::Error::other)?;
+    write_private(&self.path.join(FORGOTTEN), &json)
+  }
+
+  /// Forgets an ended run, or finishes a forget that was cut short: `forgotten` first, as the intent, then its stage,
+  /// its outputs and its changes go, its log keeps its last `KEPT_LOG` bytes (`events.log.cut`, recorded in
+  /// `forgotten`, then renamed over `events.log`), and its spec, its end and its phases stay. Each step that is done
+  /// stays done, so a second forget changes nothing
+  ///
+  /// A forget holds the flock of `forget.lock` for its whole time, so two forgets of one run never cut its log at once:
+  /// both would write a cut log, and the record could name the one that the other renamed over
+  pub(crate) fn forget(&self) -> io::Result<()> {
+    let lock = open_private(&self.path.join(FORGET_LOCK))?;
+    lock.lock()?;
+    self.forget_locked()
+  }
+
+  /// `forget`, unless another forget of the run holds its flock: answers whether it forgot. The cleanup takes the next
+  /// run then, and finishes this one at its next round if the other was cut short
+  pub(crate) fn try_forget(&self) -> io::Result<bool> {
+    let lock = open_private(&self.path.join(FORGET_LOCK))?;
+    match lock.try_lock() {
+      Ok(()) => self.forget_locked().map(|()| true),
+      Err(fs::TryLockError::WouldBlock) => Ok(false),
+      Err(fs::TryLockError::Error(error)) => Err(error),
+    }
+  }
+
+  fn forget_locked(&self) -> io::Result<()> {
+    let mut forgotten = if let Some(forgotten) = self.forgotten()? {
+      forgotten
+    } else {
+      self.write_forgotten(Forgotten::default())?;
+      Forgotten::default()
+    };
+    for name in [STAGE, OUTPUTS, OUTPUT_ROOTS, CHANGES] {
+      remove_entry(&self.path.join(name))?;
+    }
+    let cut_path = self.path.join(CUT_LOG);
+    match forgotten.log {
+      None => {
+        // the log is the one before the cut: a cut log comes only after its record
+        let kept = cut_log(&self.events_path(), &cut_path, KEPT_LOG)?;
+        #[cfg(test)]
+        seam::after_cut();
+        forgotten.log = Some(kept);
+        self.write_forgotten(forgotten)?;
+        if matches!(kept, KeptLog::Cut(_)) {
+          fs_retry::rename(&cut_path, self.events_path())?;
+        }
+      }
+      // recorded, and not renamed yet
+      Some(KeptLog::Cut(_)) if cut_path.exists() => fs_retry::rename(&cut_path, self.events_path())?,
+      Some(_) => {}
+    }
+    // the record names the inode of the log: one of another inode (two forgets at once of a build before the flock) is
+    // repaired, as both cut the same log before the cut alike and only the inode differs
+    if let Some(KeptLog::Cut(cut)) = forgotten.log {
+      let ino = fs::metadata(self.events_path())?.ino();
+      if ino != cut.ino {
+        self.write_forgotten(Forgotten {
+          log: Some(KeptLog::Cut(LogCut { ino, ..cut })),
+        })?;
+      }
+    }
+    Ok(())
+  }
+}
+
+/// The bytes of the file at `path`, or `None` when it is missing
+fn read_if_there(path: &Path) -> io::Result<Option<Vec<u8>>> {
+  match fs::read(path) {
+    Ok(text) => Ok(Some(text)),
+    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+    Err(error) => Err(error),
+  }
+}
+
+/// The JSON `text` of the file at `path`
+fn parse_json<T: serde::de::DeserializeOwned>(path: &Path, text: &[u8]) -> io::Result<T> {
+  serde_json::from_slice(text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {error}", path.display())))
+}
+
+/// Writes the last `keep` bytes of the log at `path` from the start of an event to `cut_path`, after an event of the
+/// agent that says how many bytes of the log went, and answers the cut with the inode of `cut_path`. A log of at most
+/// `keep` bytes stays whole, and nothing is written
+fn cut_log(path: &Path, cut_path: &Path, keep: u64) -> io::Result<KeptLog> {
+  let size = fs::metadata(path)?.len();
+  if size <= keep {
+    return Ok(KeptLog::Whole);
+  }
+  let mut file = File::open(path)?;
+  file.seek(SeekFrom::Start(size - keep))?;
+  let mut tail = Vec::new();
+  file.take(keep).read_to_end(&mut tail)?;
+  // the bytes up to the first line end belong to an event that starts before the tail
+  let start = tail.iter().position(|&byte| byte == b'\n').map_or(tail.len(), |at| at + 1);
+  let gone = size - keep + start as u64;
+  let note = Event {
+    stream: Stream::Stderr,
+    piece: Piece::of(
+      format!(
+        "brd-host: the run was forgotten, and its log keeps its last {} KiB: the first {gone} bytes of its log are gone",
+        keep / 1024
+      )
+      .as_bytes(),
+      false,
+    ),
+  };
+  let mut kept = serde_json::to_vec(&note).map_err(io::Error::other)?;
+  kept.push(b'\n');
+  let note = kept.len() as u64;
+  kept.extend_from_slice(&tail[start..]);
+  write_private(cut_path, &kept)?;
+  Ok(KeptLog::Cut(LogCut {
+    gone,
+    note,
+    ino: fs::metadata(cut_path)?.ino(),
+  }))
 }
 
 /// The parent of the run directories
@@ -370,17 +585,39 @@ impl Runs {
     runs.into_iter().map(RunDir::new).collect()
   }
 
+  /// Removes each forgotten run past the latest `keep` by their end. Answers the ids of the removed runs
+  pub(crate) fn remove_forgotten_past(&self, keep: usize) -> Vec<String> {
+    let mut forgotten: Vec<(SystemTime, RunDir)> = self
+      .list()
+      .into_iter()
+      .filter(RunDir::is_forgotten)
+      .map(|run| (run.ended().unwrap_or(UNIX_EPOCH), run))
+      .collect();
+    forgotten.sort_by_key(|(ended, _)| std::cmp::Reverse(*ended));
+    forgotten
+      .into_iter()
+      .skip(keep)
+      .filter(|(_, run)| fs_retry::remove_dir_all(run.path()).is_ok())
+      .map(|(_, run)| run_id(&run))
+      .collect()
+  }
+
   /// Removes each run that ended [`KEEP`] or more before `now`. Answers the ids of the removed runs
   pub(crate) fn remove_expired(&self, now: SystemTime) -> Vec<String> {
     let mut removed = Vec::new();
     for run in self.list() {
       let expired = run.ended().is_some_and(|ended| now.duration_since(ended).is_ok_and(|age| age >= KEEP));
       if expired && fs_retry::remove_dir_all(run.path()).is_ok() {
-        removed.push(run.path().file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()));
+        removed.push(run_id(&run));
       }
     }
     removed
   }
+}
+
+/// The id of a run: the name of its directory
+fn run_id(run: &RunDir) -> String {
+  run.path().file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned())
 }
 
 /// Who writes a piece into `events.log`: the agent, or one pipe of a process of the run
@@ -500,8 +737,14 @@ pub(crate) fn char_cut(bytes: &[u8]) -> usize {
 
 /// The complete events of `events.log` from the byte offset `offset`, each with the offset after it. A line without its
 /// end is left for a later read. At most about `limit` bytes are read
+#[cfg(test)]
 pub(crate) fn read_events(path: &Path, offset: u64, limit: usize) -> io::Result<Vec<(Event, u64)>> {
-  let mut file = File::open(path)?;
+  read_events_in(&mut File::open(path)?, path, offset, limit)
+}
+
+/// `read_events` of the open log `file` at `path`: a follow reads the log that it opened, so the rename of a cut log
+/// over it changes none of its bytes
+pub(crate) fn read_events_in(file: &mut File, path: &Path, offset: u64, limit: usize) -> io::Result<Vec<(Event, u64)>> {
   file.seek(SeekFrom::Start(offset))?;
   let mut bytes = Vec::new();
   file.take(limit as u64).read_to_end(&mut bytes)?;
@@ -528,11 +771,10 @@ pub(crate) fn read_events(path: &Path, offset: u64, limit: usize) -> io::Result<
 }
 
 /// Whether `offset` is the start of a line of `events.log`: 0, or the offset after a line end, within the file
-pub(crate) fn is_line_start(path: &Path, offset: u64) -> io::Result<bool> {
+pub(crate) fn is_line_start(file: &mut File, offset: u64) -> io::Result<bool> {
   if offset == 0 {
     return Ok(true);
   }
-  let mut file = File::open(path)?;
   if offset > file.metadata()?.len() {
     return Ok(false);
   }
@@ -544,6 +786,28 @@ pub(crate) fn is_line_start(path: &Path, offset: u64) -> io::Result<bool> {
 
 pub(crate) fn epoch_ms(time: SystemTime) -> u64 {
   time.duration_since(UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The seam of the tests: a forget that waits after its cut until the test lets it go on
+#[cfg(test)]
+pub(crate) mod seam {
+  use std::sync::mpsc::{Receiver, Sender};
+  use std::sync::{Mutex, PoisonError};
+
+  static HOLD: Mutex<Option<(Sender<()>, Receiver<()>)>> = Mutex::new(None);
+
+  /// The next forget says `reached` after its cut, and goes on once `go` gets a message
+  pub(crate) fn hold_after_cut(reached: Sender<()>, go: Receiver<()>) {
+    *HOLD.lock().unwrap_or_else(PoisonError::into_inner) = Some((reached, go));
+  }
+
+  pub(super) fn after_cut() {
+    let held = HOLD.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some((reached, go)) = held {
+      let _ = reached.send(());
+      let _ = go.recv();
+    }
+  }
 }
 
 #[cfg(test)]

@@ -384,7 +384,7 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert_eq!(listed["runs"][0]["exit"], Value::Null, "{listed}");
   assert_eq!(listed["heavy"], json!({ "schema": 1, "queue": [] }), "a run that is not heavy takes no turn: {listed}");
   let text_runs = world.bd_host(&["runs", ALIAS]);
-  assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running  checkout-")), "{}", text(&text_runs.stdout));
+  assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running, started ")), "{}", text(&text_runs.stdout));
   assert!(text(&text_runs.stdout).ends_with("\nheavy turn: free\n"), "{}", text(&text_runs.stdout));
 
   let fetch = world.bd_host(&["fetch", ALIAS, &id, "--fetch", "out"]);
@@ -405,13 +405,21 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
     fs::read_dir(&run_dir).map_or_default(|entries| entries.flatten().map(|entry| entry.file_name()).collect::<Vec<_>>())
   );
 
-  // the run saw its end and forgot itself on the host
+  // the run saw its end and forgot itself on the host, which keeps its end: a follow answers it, a forget says so, and
+  // the runs list it as finished
   let follow = world.bd_host(&["follow", ALIAS, &id]);
-  assert_eq!(follow.status.code(), Some(255));
-  assert!(text(&follow.stderr).contains("brd-host: unknown_run: "), "{}", text(&follow.stderr));
+  assert_eq!(follow.status.code(), Some(130), "{}", text(&follow.stderr));
+  assert_eq!(text(&follow.stdout), "started\n", "the output of the forgotten run");
   let forget = world.bd_host(&["forget", ALIAS, &id]);
-  assert_eq!(forget.status.code(), Some(255));
-  assert_eq!(text(&world.bd_host(&["runs", ALIAS]).stdout), "no runs on local\nheavy turn: free\n");
+  assert_eq!(forget.status.code(), Some(0), "{}", text(&forget.stderr));
+  assert_eq!(text(&forget.stdout), format!("the run {id} was forgotten already\n"));
+  let finished = text(&world.bd_host(&["runs", ALIAS]).stdout);
+  assert!(finished.starts_with(&format!("{id}  finished, exit 130, started ")), "{finished}");
+  assert!(finished.contains(", took ") && !finished.contains("its files kept"), "{finished}");
+  let unknown = world.bd_host(&["follow", ALIAS, "1-1"]);
+  assert_eq!(unknown.status.code(), Some(255));
+  assert!(text(&unknown.stderr).contains("brd-host: unknown_run: "), "{}", text(&unknown.stderr));
+  assert_eq!(world.bd_host(&["forget", ALIAS, "1-1"]).status.code(), Some(255));
 
   let hello = world.bd_host(&["hello", ALIAS, "--json"]);
   assert_eq!(hello.status.code(), Some(0), "{}", text(&hello.stderr));

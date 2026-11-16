@@ -3139,6 +3139,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "host-link",
+ "jiff",
  "libc",
  "pretty_assertions",
  "schemars 1.2.3",
