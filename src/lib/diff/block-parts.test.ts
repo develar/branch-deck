@@ -38,6 +38,35 @@ function seeded(start: number): (below: number) => number {
   }
 }
 
+/**
+ * What the rounds of a property test found wrong, each named by its round: one assertion at the end of the test, not
+ * one per line of each round (thousands of `expect`s, whose cost a loaded machine multiplies past the timeout)
+ */
+class Problems {
+  readonly found: string[] = []
+
+  /** `what` names the problem where `holds` is false; it is made only then */
+  check(holds: boolean, what: () => string): void {
+    if (!holds) {
+      this.found.push(what())
+    }
+  }
+
+  /** Each line of `from` to `to` shows once in `shown`, and no other line */
+  once(shown: Map<number, number>, from: number, to: number, what: () => string): void {
+    let holds = shown.size === to - from
+    for (let line = from; holds && line < to; line++) {
+      holds = shown.get(line) === 1
+    }
+    this.check(holds, () => `${what()}: ${JSON.stringify([...shown].toSorted((a, b) => a[0] - b[0]))}, lines ${from}..${to} once`)
+  }
+
+  /** None, the first problems said */
+  expectNone(): void {
+    expect(this.found.slice(0, 10), `${this.found.length} problems`).toEqual([])
+  }
+}
+
 /** The marks of a block that has runs alone */
 const ofRuns = (runs: LineRun[]): BlockMarks => ({ ...NO_MARKS, runs })
 
@@ -420,6 +449,7 @@ describe("the ends of the moves of a block", () => {
     const random = seeded(20261111)
     // what the rounds held, so the test says when its marks stop being what it is about
     const held = { sources: 0, destinations: 0, overlapping: 0, runs: 0 }
+    const problems = new Problems()
     for (let round = 0; round < 600; round++) {
       const one = block(10, 10 + random(9), 10, 10 + random(9), { inlinePairs: random(3) === 0 })
       const runs = Array.from({ length: random(3) }, () => {
@@ -461,27 +491,22 @@ describe("the ends of the moves of a block", () => {
               }
             }
           }
-          const context = `round ${round} ${mode} ${open.length === 0 ? "closed" : "open"}`
-          expect(
-            [...shown[OLD]!].toSorted((a, b) => a[0] - b[0]),
-            context,
-          ).toEqual(Array.from({ length: one.oldEnd - one.oldStart }, (_, at) => [one.oldStart + at, 1]))
-          expect(
-            [...shown[NEW]!].toSorted((a, b) => a[0] - b[0]),
-            context,
-          ).toEqual(Array.from({ length: one.newEnd - one.newStart }, (_, at) => [one.newStart + at, 1]))
+          const context = () => `round ${round} ${mode} ${open.length === 0 ? "closed" : "open"}`
+          problems.once(shown[OLD]!, one.oldStart, one.oldEnd, () => `${context()} old`)
+          problems.once(shown[NEW]!, one.newStart, one.newEnd, () => `${context()} new`)
           // and the row of each line is where it shows, or the note that stands for it
           for (let line = one.oldStart; line < one.oldEnd; line++) {
             const value = partsRow(parts, partsRowOfLine(parts, OLD, line))
-            expect(value.kind === "note" ? value.lines[OLD]![0] <= line && line < value.lines[OLD]![1] : value.lines[OLD] === line, `${context} old ${line}`).toBe(true)
+            problems.check(value.kind === "note" ? value.lines[OLD]![0] <= line && line < value.lines[OLD]![1] : value.lines[OLD] === line, () => `${context()} old ${line}`)
           }
           for (let line = one.newStart; line < one.newEnd; line++) {
             const value = partsRow(parts, partsRowOfLine(parts, NEW, line))
-            expect(value.kind !== "note" && value.lines[NEW] === line, `${context} new ${line}`).toBe(true)
+            problems.check(value.kind !== "note" && value.lines[NEW] === line, () => `${context()} new ${line}`)
           }
         }
       }
     }
+    problems.expectNone()
     // the rounds held blocks with ends of each side, ends that overlap, and ends beside runs
     expect([held.sources > 50, held.destinations > 50, held.overlapping > 10, held.runs > 10], JSON.stringify(held)).toEqual([true, true, true, true])
   })
@@ -820,6 +845,7 @@ describe("the notes of the renames of a diff", () => {
     const random = seeded(20261112)
     // what the rounds held, so the test says when its marks stop being what it is about
     const held = { cut: 0, apart: 0, quiet: 0 }
+    const problems = new Problems()
     for (let round = 0; round < 600; round++) {
       const [oldCount, newCount] = [1 + random(7), 1 + random(7)]
       const one = block(10, 10 + oldCount, 10, 10 + newCount, { inlinePairs: oldCount === newCount && random(2) === 0 })
@@ -871,24 +897,22 @@ describe("the notes of the renames of a diff", () => {
               }
             }
           }
-          const context = `round ${round} ${mode} ${open.length === 0 ? "closed" : "open"}`
+          const context = () => `round ${round} ${mode} ${open.length === 0 ? "closed" : "open"}`
           held.cut += noteRow > 0 ? 1 : 0
           held.quiet += once > 0 ? 1 : 0
           // one note, and every new line once
-          expect(noteRow, context).toBeGreaterThanOrEqual(0)
-          expect(
-            [...shown[NEW]!].toSorted((a, b) => a[0] - b[0]),
-            context,
-          ).toEqual(Array.from({ length: newCount }, (_, at) => [10 + at, 1]))
+          problems.check(noteRow >= 0, () => `${context()} has no note`)
+          problems.once(shown[NEW]!, 10, 10 + newCount, () => `${context()} new`)
           // every old line once, but the lines of a quiet run that Inline shows by its new lines
           const hidden = (line: number) => once > 0 && runs.some(it => it.oldStart <= line && line < it.oldEnd)
           for (let line = 10; line < 10 + oldCount; line++) {
-            expect(shown[OLD]!.get(line) ?? 0, `${context} old ${line}`).toBe(hidden(line) ? 0 : 1)
+            const times = shown[OLD]!.get(line) ?? 0
+            problems.check(times === (hidden(line) ? 0 : 1), () => `${context()} old ${line} shows ${times} times`)
           }
           // the row of a new line is where it shows, and the note is the row right above the new line of its site
           for (let line = 10; line < 10 + newCount; line++) {
             const value = partsRow(parts, partsRowOfLine(parts, NEW, line))
-            expect(value.kind !== "note" && value.lines[NEW] === line, `${context} new ${line}`).toBe(true)
+            problems.check(value.kind !== "note" && value.lines[NEW] === line, () => `${context()} new ${line}`)
           }
           // the first new line under the note is the new line of its site: no other new line stands between them
           const site = [...notes.byBlock.values()][0]!.lines
@@ -896,10 +920,12 @@ describe("the notes of the renames of a diff", () => {
           while (under < parts.rowCount && partsRow(parts, under).lines[NEW] == null) {
             under++
           }
-          expect(under < parts.rowCount ? partsRow(parts, under).lines[NEW] : null, `${context} under the note`).toBe(site[1])
+          const first = under < parts.rowCount ? partsRow(parts, under).lines[NEW] : null
+          problems.check(first === site[1], () => `${context()} under the note: ${JSON.stringify(first)}, the site ${JSON.stringify(site[1])}`)
         }
       }
     }
+    problems.expectNone()
     // the rounds held notes inside the lines of a block, names on two lines of no pair, and lines shown once
     expect([held.cut > 100, held.apart > 20, held.quiet > 50], JSON.stringify(held)).toEqual([true, true, true])
   })
