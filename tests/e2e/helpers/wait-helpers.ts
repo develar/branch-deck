@@ -85,34 +85,37 @@ export interface HeldSizeReports {
 
 /**
  * Holds the reports of every `ResizeObserver` of the page on the elements of the test id `testId` until `release`, as a
- * page under load gets the first report of a size after a key: what the page does before it. Call it before the page
- * loads (an init script)
+ * page under load gets the first report of a size after a key: what the page does before it. `release` delivers the held
+ * ones and lets every later one through, as the other holds do. Call it before the page loads (an init script)
  */
 export async function holdSizeReports(page: Page, testId: string): Promise<HeldSizeReports> {
   await page.addInitScript(id => {
-    const held: (() => void)[] = []
-    Object.assign(window, { __heldSizeReports: held })
+    const hold = { held: [] as (() => void)[], released: false }
+    Object.assign(window, { __heldSizeReports: hold })
     const Engine = globalThis.ResizeObserver
     globalThis.ResizeObserver = class extends Engine {
       constructor(callback: ResizeObserverCallback) {
         super((entries, observer) => {
-          const kept = entries.filter(entry => entry.target.getAttribute("data-testid") === id)
+          const kept = hold.released ? [] : entries.filter(entry => entry.target.getAttribute("data-testid") === id)
           const rest = entries.filter(entry => !kept.includes(entry))
           if (rest.length > 0) {
             callback(rest, observer)
           }
           if (kept.length > 0) {
-            held.push(() => callback(kept, observer))
+            hold.held.push(() => callback(kept, observer))
           }
         })
       }
     }
   }, testId)
+  type Hold = { __heldSizeReports: { held: (() => void)[]; released: boolean } }
   return {
-    held: () => page.evaluate(() => (window as unknown as { __heldSizeReports: unknown[] }).__heldSizeReports.length),
+    held: () => page.evaluate(() => (window as unknown as Hold).__heldSizeReports.held.length),
     release: () =>
       page.evaluate(() => {
-        for (const deliver of (window as unknown as { __heldSizeReports: (() => void)[] }).__heldSizeReports.splice(0)) {
+        const hold = (window as unknown as Hold).__heldSizeReports
+        hold.released = true
+        for (const deliver of hold.held.splice(0)) {
           deliver()
         }
       }),

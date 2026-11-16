@@ -547,7 +547,7 @@ test.describe("The marks of a diff in the review window", () => {
   // the zoom of the app is the page zoom of the webview, which WebKit lays out as a zoom of the root: there the computed
   // style says a size before the floor of the report
   test(
-    "the diffs read as they mount the size their observer reports, at a zoom of 110% too: its first report changes no size of theirs",
+    "the diffs read as they mount the size their observer reports, at a zoom of 110% too: its first report changes no size of theirs, a later one does",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await page.addInitScript(() =>
@@ -569,6 +569,10 @@ test.describe("The marks of a diff in the review window", () => {
       await sizes.release()
       await resizeReportsDelivered(page)
       expect((await renderCounts(page))["diff-view-size"], "the first report says the size the view read").toBeUndefined()
+      // released, the reports come: a resize reaches the view, which lays its diffs out again
+      const viewport = page.viewportSize()!
+      await page.setViewportSize({ width: viewport.width, height: viewport.height - 40 })
+      await expect.poll(async () => (await renderCounts(page))["diff-view-size"] ?? 0).toBeGreaterThan(0)
     },
   )
 
