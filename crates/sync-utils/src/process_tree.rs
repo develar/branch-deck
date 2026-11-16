@@ -26,7 +26,9 @@
 //! delay that past the next scan), until a pass finds nothing new (at most `MAX_PASSES`). The first round never
 //! settles: the kill goes on until a later round finds nothing new, no process failed to halt (the child among them)
 //! and every scan read the list (at most `MAX_ROUNDS` rounds); then it `SIGKILL`s them all from the bottom up: a process
-//! only once each of its children has exited (a zombie, which its stopped parent keeps, or gone), and the children of
+//! only once each of its children has exited (a zombie, which its stopped parent keeps, or gone; on macOS read by
+//! `sysctl`, as libproc tells nothing of a process already from the start of its exit, before the kernel gave its
+//! children away: `process_scan::exited`), and the children of
 //! the child before the caller kills the child. Until then every process found stays stopped and alive, so whatever a
 //! round missed, at any depth (a process the scan did not list, the late child of one that did not halt within the
 //! wait), is still below a process that is there, and the next round finds it; a kill whose rounds or waits ran out

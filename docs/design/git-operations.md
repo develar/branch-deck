@@ -546,7 +546,11 @@ processes); the scan runs whatever the waits did. Only a freezer would hold a gi
 The usual tree takes four scans, a git without children three. A kill whose rounds
 or waits ran out kills what it found without waiting and logs that a process may outlive it. So git dies last: a
 stopped process that outlived its parent would go to launchd or init alive, and on macOS the exits of such processes
-made the kernel send SIGHUP to the process group that git shares with the caller, the caller too. The list of the
+made the kernel send SIGHUP to the process group that git shares with the caller, the caller too. A process counts as
+exited only once its exit ended: on macOS libproc describes a process no more from the start of its exit, while the
+kernel has yet to give its children to launchd, so the kill reads `sysctl(KERN_PROC_PID)`, which lists it until it is
+a zombie (`process_scan::exited`); a parent killed in that window sent the SIGHUP in about one kill in ten under a
+launchd job (`CI`'s macOS runners). The list of the
 processes is read whole: on macOS one that fills its buffer (a churn of processes between the count and the list) is
 read again into twice the room. A signal goes only to
 a process that still has the

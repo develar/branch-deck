@@ -479,9 +479,16 @@ pub fn halted(pid: u32) -> Option<bool> {
 
 /// Whether the process that had `pid` and started at `started` has exited: it is gone, another process has the pid now,
 /// or it is a zombie, which waits only for its parent to reap it and whose start neither platform tells (`is_running`).
-/// Unlike `halted`, false for a stopped process
+/// Unlike `halted`, false for a stopped process, and on macOS false for one that is still exiting: libproc describes a
+/// process no more from the start of its exit, while the kernel has yet to give its children to launchd and to count
+/// its process group again, so a kill of its parent then (`process_tree`) made the group of the caller orphaned with a
+/// stopped member, and macOS sent it SIGHUP (`platform::exited`)
 #[cfg(unix)]
 pub fn exited(pid: u32, started: u64) -> bool {
+  #[cfg(target_os = "macos")]
+  if let Some(exited) = platform::exited(pid, started) {
+    return exited;
+  }
   !is_running(pid, Some(started))
 }
 
@@ -801,6 +808,32 @@ mod platform {
 
   const fn start_time(info: &libc::proc_bsdinfo) -> u64 {
     info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+  }
+
+  /// The size of `struct kinfo_proc` of `sys/sysctl.h` on 64-bit macOS, which libc does not declare: its `kp_proc`
+  /// (`struct extern_proc` of `sys/proc.h`) begins with the start of the process (`p_starttime`, a `timeval`) and has
+  /// its state (`p_stat`) at byte 36
+  const KINFO_PROC_SIZE: usize = 648;
+  const P_STAT_OFFSET: usize = 36;
+
+  /// Whether the process that had `pid` and started at `started` has exited, from `sysctl(KERN_PROC_PID)`, which also
+  /// lists a process in its exit and a zombie: a zombie (`SZOMB`) or a process of another start has, one in its exit has
+  /// not. libproc describes neither (`bsd_info`): it ends at the start of the exit, before the kernel has given the
+  /// children of the process to launchd, a window that a probe of 300 kills of a child of a stopped parent saw in 296.
+  /// `None` where the call fails or lists no process (gone, or hidden by a sandbox): the caller asks libproc then
+  pub(super) fn exited(pid: u32, started: u64) -> Option<bool> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, c_int::try_from(pid).ok()?];
+    let mut info = [0u64; KINFO_PROC_SIZE / size_of::<u64>()];
+    let mut size: libc::size_t = KINFO_PROC_SIZE;
+    // SAFETY: the buffer holds `size` bytes, aligned for the struct, which the call writes at most, then the size it wrote
+    if unsafe { libc::sysctl(mib.as_mut_ptr(), 4, info.as_mut_ptr().cast(), &raw mut size, std::ptr::null_mut(), 0) } != 0 || size != KINFO_PROC_SIZE {
+      return None;
+    }
+    let bytes: Vec<u8> = info.iter().flat_map(|word| word.to_ne_bytes()).collect();
+    let seconds = u64::from_ne_bytes(bytes[0..8].try_into().ok()?);
+    let micros = u64::from(u32::from_ne_bytes(bytes[8..12].try_into().ok()?));
+    let zombie = u32::from(bytes[P_STAT_OFFSET]) == libc::SZOMB;
+    Some(zombie || seconds * 1_000_000 + micros != started)
   }
 
   /// The arguments of `pid` from `sysctl(KERN_PROCARGS2)`: `argc`, the executable path, padding, then `argc` strings,

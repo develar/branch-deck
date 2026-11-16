@@ -335,6 +335,43 @@ fn a_process_is_halted_once_it_stopped_and_never_while_it_runs() {
   assert_eq!(halted(child.id()), None);
 }
 
+/// A child killed under its stopped parent has exited only as the zombie it ends as: libproc describes it no more from
+/// the start of its exit, while the kernel still has to give its children away, and a kill of the parent then sent
+/// SIGHUP to the group of the caller (`process_tree`). The kernel lists it as a zombie the moment `exited` says so (the
+/// parent is a `sleep`, which never reaps it; a shell in `wait` would reap it even stopped, as its call returns), and
+/// once the parent is reaped it is gone and stays exited
+#[cfg(target_os = "macos")]
+#[test]
+fn a_killed_child_of_a_stopped_parent_has_exited_only_as_its_zombie() {
+  use crate::process_scan::{descendants, exited, kill, stop};
+  use std::time::{Duration, Instant};
+  let mut parent = std::process::Command::new("sh").args(["-c", "sleep 60 & exec sleep 61"]).spawn().unwrap();
+  let parent_started = process_started(parent.id()).unwrap();
+  let deadline = Instant::now() + Duration::from_mins(1);
+  let child = loop {
+    if let Some(child) = descendants(parent.id(), parent_started).unwrap().into_iter().next() {
+      break child;
+    }
+    assert!(Instant::now() < deadline, "the sleep of the shell did not start");
+    std::thread::sleep(Duration::from_millis(1));
+  };
+  assert!(stop(parent.id(), parent_started));
+  assert!(!exited(child.pid, child.started), "the sleep runs");
+  assert!(kill(child.pid, child.started));
+  while !exited(child.pid, child.started) {
+    assert!(Instant::now() < deadline, "the killed sleep did not exit");
+    std::thread::yield_now();
+  }
+  assert_eq!(
+    super::platform::exited(child.pid, child.started),
+    Some(true),
+    "the kernel lists the sleep as a zombie of its stopped parent"
+  );
+  parent.kill().unwrap();
+  parent.wait().unwrap();
+  assert!(exited(child.pid, child.started), "gone with its parent");
+}
+
 /// The host is named, the same on every call: the operations registry tells the records of this host by it
 #[test]
 fn the_host_of_this_process_has_a_name() {
