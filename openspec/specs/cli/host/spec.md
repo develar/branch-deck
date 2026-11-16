@@ -2029,7 +2029,8 @@ keys of this build, and that a later Branch Deck may know it with the updates of
 `heavy` of `[host]` MUST be a list of patterns, none empty. A pattern MUST match a command's words joined by one space,
 whole, `*` any characters, the rest literal: as written after a leading `env` and `NAME=value` words, or by what it
 runs (`pnpm` without its options, `playwright test` by any runner). A shell MUST count as itself and by what it runs:
-its `-c` script, a shell in it, a script of the working tree read once, 64 at most. One it cannot read is heavy.
+its `-c` script, a shell in it, a script of the working tree read once, 64 at most, `$0` as the shell sets it. One
+it cannot read is heavy.
 
 #### Scenario: The patterns of heavy
 - **WHEN** `heavy` is `["cargo nextest run*--workspace*", "pnpm e2e*", "pnpm test"]`
@@ -2066,6 +2067,21 @@ its `-c` script, a shell in it, a script of the working tree read once, 64 at mo
   or a shell is nested deeper than four shells
 - **THEN** the run is heavy, and its line says `by its script `<path>`, which brd-host cannot read for `heavy` of [host]`
   [@test] crates/host-link/src/heavy_test.rs (`a_script_file_the_checkout_cannot_give_makes_the_run_heavy`, `a_script_file_is_read_from_the_working_tree_inside_it_and_within_its_size`)
+
+#### Scenario: A script that runs itself again
+- **WHEN** a text of the working tree without a first line `#!`, a polyglot wrapper, runs itself again under bash with
+  `exec /bin/bash "$0" "$@"` (also `"${0}"`, or `exec bash $0` of a script with `#!/bin/sh`), and no pattern names it
+  or a command in it
+- **THEN** the run is no heavy run: that `$0` is the file itself, read already
+- **AND** a pattern that names the wrapper (`./tools/wrapper.cmd*--lane*`), a heavy command in it (`pnpm e2e`) and a
+  shell in it whose script the client cannot read (`exec /bin/bash "$root/bazel.cmd"`) still make the run heavy
+- **AND** the `$0` of a script of `-c` is the word after that script, as a shell sets it: `bash -c 'bash "$0"'
+  tools/e2e.cmd` in the file runs `tools/e2e.cmd`, `bash -c 'exec bash "$0"' "$0"` the file again, and without a word
+  `$0` is the name of the shell
+- **AND** a `$0` that is no script of a shell (`echo "$0"`) changes nothing, a sourced file has the `$0` of the script
+  that sources it, a `$0` ends with its script (`bash -c './tools/wrapper.cmd; bash "$0"'`), and a `$0` that names no
+  file (the name of a shell, `bash $0` as the command of the run) is a script that the client cannot read
+  [@test] crates/host-link/src/heavy_test.rs (`dollar_zero_in_a_script_file_is_the_file_itself`)
 
 #### Scenario: A pattern that names the wrapper
 - **WHEN** `heavy` names the wrapper, `./probe/run.sh*`, `zsh -c *` or `./node_modules/.bin/playwright test*`, and what

@@ -57,7 +57,10 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   (`zsh probe/run.sh`, `./probe/run.sh` whose first line names a shell or that has no first line `#!`, `. ./lib.sh`)
   are heavy when any command in them
   is (`brd-host: a heavy run by `pnpm e2e*` of [host] in its script`); a shell's script file that the client cannot
-  read from the working tree (outside of it, absent, over 256 KiB) counts as heavy. Before 2026-11-15 a wrapper went
+  read from the working tree (outside of it, absent, over 256 KiB) counts as heavy. A polyglot wrapper that runs
+  itself again under bash (`exec /bin/bash "$0" "$@"`) adds nothing: `$0` of a script file is that file and `$0` of a
+  `-c` script the word after it, while a `$0` that names no file (the name of the shell, `$0` of the command itself)
+  is a script the client cannot read. Before 2026-11-15 a wrapper went
   beside the run that held the turn. The wrapper itself counts too: a pattern that names it (`./probe/run.sh*`) matches.
   Each script is read once a run, 64 at most, past which, as past four nested shells or scripts, a script counts as
   heavy. `eval`, `xargs`, `sudo`, `$'…'`, `caffeinate` and a script by its path after a `cd` (`cd scripts &&

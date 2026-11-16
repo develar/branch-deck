@@ -178,6 +178,74 @@ fn a_script_file_the_checkout_cannot_give_makes_the_run_heavy() {
   );
 }
 
+/// A polyglot wrapper that runs itself again under bash (`exec /bin/bash "$0" "$@"`) runs no other script: `$0`,
+/// `"$0"`, `${0}` in a script file is that file, expanded already, and in a sourced file the script that sources it.
+/// The wrapper stays a run of what it names and of what it runs. `$0` outside the place of the script is a word. In the
+/// script of `-c` it is the word after that script (the `$0` around it for `"$0"`), and without one the name of the
+/// shell, which no more names a file than `$0` of the command of the run: a script that cannot be read
+#[test]
+fn dollar_zero_in_a_script_file_is_the_file_itself() {
+  let mut config = config();
+  config.heavy.get_or_insert_default().push("./tools/wrapper.cmd*--lane*".to_owned());
+  // the sh half of a file that cmd.exe runs too, without a first line `#!`
+  let polyglot = |again: &str, rest: &str| format!(":<<\"::CMDLITERAL\"\n@ECHO OFF\nGOTO :CMDSCRIPT\n::CMDLITERAL\n[ -z \"$BASH_VERSION\" ] && {again}\n{rest}exit\n:CMDSCRIPT\n");
+  let again = "exec /bin/bash \"$0\" \"$@\"";
+  let tree = |path: &str| -> Option<String> {
+    match path {
+      "tools/wrapper.cmd" => Some(polyglot(again, "exec \"$resolved\" \"$@\"\n")),
+      "tools/braces.cmd" => Some(polyglot("exec /bin/bash \"${0}\" \"$@\"", "")),
+      "tools/bare.sh" => Some("#!/bin/sh\nexec bash $0 \"$@\"\n".to_owned()),
+      "tools/e2e.cmd" => Some(polyglot(again, "pnpm e2e\n")),
+      "tools/runner.cmd" => Some(polyglot(again, "exec /bin/bash \"$root/bazel.cmd\" run //build:tests\n")),
+      "tools/argument.cmd" => Some("bash -c 'echo started' \"$0\"\necho \"$0\"\nbash -x \"$0\"\n".to_owned()),
+      "tools/outer.sh" => Some("#!/bin/zsh\n. tools/inner.sh\n".to_owned()),
+      "tools/inner.sh" => Some(format!("{again}\n")),
+      // the `$0` of `-c` is the word after its script, not the file around it
+      "tools/argzero.sh" => Some("#!/bin/sh\nbash -c 'bash \"$0\"' tools/e2e.cmd\n".to_owned()),
+      "tools/argzero-exec.sh" => Some("#!/bin/sh\nexec bash -c 'exec bash \"$0\" \"$@\"' tools/e2e.cmd x\n".to_owned()),
+      "tools/no-argzero.sh" => Some("#!/bin/sh\nbash -c 'bash \"$0\"'\n".to_owned()),
+      "tools/after-c.sh" => Some(format!("#!/bin/sh\nbash -c 'true' tools/e2e.cmd\n{again}\n")),
+      "tools/own-argzero.sh" => Some("#!/bin/sh\nexec bash -c 'set -e; exec bash \"$0\" \"$@\"' \"$0\" \"$@\"\n".to_owned()),
+      _ => None,
+    }
+  };
+  let reason = |line: &[&str]| config.heavy_reason(&words(line), &tree);
+  let unread = |path: &str| Some(format!("its script `{path}`, which brd-host cannot read for `heavy` of [host]"));
+  for (line, expected) in [
+    (&["./tools/wrapper.cmd", "--module", "m"][..], None),
+    (&["zsh", "-c", "./tools/wrapper.cmd --module m; echo $?"][..], None),
+    (&["./tools/braces.cmd"][..], None),
+    (&["./tools/bare.sh"][..], None),
+    // the wrapper that a pattern names, and what the wrapper runs
+    (&["./tools/wrapper.cmd", "--lane", "fast"][..], Some("`./tools/wrapper.cmd*--lane*` of [host]".to_owned())),
+    (
+      &["zsh", "-c", "./tools/wrapper.cmd --lane fast"][..],
+      Some("`./tools/wrapper.cmd*--lane*` of [host] in its script".to_owned()),
+    ),
+    (&["./tools/e2e.cmd"][..], Some("`pnpm e2e*` of [host] in its script".to_owned())),
+    // another script of a shell that the client cannot read
+    (&["./tools/runner.cmd"][..], unread("$root/bazel.cmd")),
+    // an argument of `-c`, a word of `echo`, and the script after an option of the shell
+    (&["./tools/argument.cmd"][..], None),
+    // a sourced file has the `$0` of the script that sources it
+    (&["zsh", "tools/outer.sh"][..], None),
+    (&["zsh", "-c", ". tools/inner.sh"][..], unread("$0")),
+    // the script of `-c` names its `$0` by the word after it, the `$0` around it by `"$0"`, and none without a word
+    (&["./tools/argzero.sh"][..], Some("`pnpm e2e*` of [host] in its script".to_owned())),
+    (&["./tools/argzero-exec.sh"][..], Some("`pnpm e2e*` of [host] in its script".to_owned())),
+    (&["./tools/own-argzero.sh"][..], None),
+    (&["./tools/no-argzero.sh"][..], unread("$0")),
+    // the `$0` of `-c` ends with its script: the file around it names itself again
+    (&["./tools/after-c.sh"][..], None),
+    (&["zsh", "-c", again][..], unread("$0")),
+    (&["bash", "$0"][..], unread("$0")),
+    // the `$0` of a file ends with the file: the next command of the script around it is the shell's own
+    (&["bash", "-c", "./tools/wrapper.cmd; bash \"$0\""][..], unread("$0")),
+  ] {
+    assert_eq!(reason(line), expected, "{line:?}");
+  }
+}
+
 /// The script splits at the separators of the shell outside quotes, into words without their quotes; a redirection and
 /// its target are no words, a comment ends its line, a backslash escapes one character and joins a line to the next
 #[test]

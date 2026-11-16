@@ -9,7 +9,11 @@
 //! comes before what it runs, so a pattern that names the wrapper matches; each path is read once a classification and
 //! expanded once, `MAX_READS` paths at most, past which a script counts as heavy. A file run by its path that is no
 //! script (a binary of the tree, a script of another interpreter) and a file sourced from outside the tree (`source
-//! ~/.cargo/env`) run nothing that counts.
+//! ~/.cargo/env`) run nothing that counts. `$0` (`${0}`) as the script of a shell names what the shell names: in a
+//! script file that file, which a polyglot wrapper runs again under bash (`exec /bin/bash "$0" "$@"`) and which adds
+//! nothing, as a file is expanded once; in a sourced file the `$0` of the script that sources it; in the script of `-c`
+//! the word after that script, as a shell sets it, the `$0` around it for `"$0"`, and the name of the shell without
+//! one. The name of a shell and the command of the run name no file: there `$0` is a script that cannot be read.
 //!
 //! The script is split as a shell splits it, as far as a heavy command shows: at `;`, `&`, `&&`, `|`, `||`, a newline,
 //! `(`, `)`, a backquote and `$(`, outside quotes, and the substitutions in double quotes (`"$(pnpm e2e)"`) are scripts
@@ -59,6 +63,7 @@ pub fn commands_of(words: &[String], read: &dyn Fn(&str) -> Option<String>) -> V
     read,
     texts: std::collections::HashMap::new(),
     expanded: std::collections::HashSet::new(),
+    dollar_zero: Vec::new(),
     ran: Vec::new(),
   };
   reading.collect(words.to_vec(), 0);
@@ -72,6 +77,10 @@ struct Reading<'a> {
   texts: std::collections::HashMap<String, Option<String>>,
   /// The paths whose script was expanded, once whatever runs it again
   expanded: std::collections::HashSet<String>,
+  /// What `$0` names in the scripts that are being expanded, the innermost last: a script file of a shell or run by its
+  /// path is itself, the script of `-c` the word after it, `None` the name of a shell; a sourced file keeps the `$0` of
+  /// the script that sources it
+  dollar_zero: Vec<Option<String>>,
   ran: Vec<Ran>,
 }
 
@@ -96,8 +105,17 @@ impl Reading<'_> {
     });
     match shell_input(&words) {
       // past the depth a shell may run anything: not read, it counts as heavy
-      Some(ShellInput::Script(_) | ShellInput::File(_)) if depth >= MAX_DEPTH => self.ran.push(Ran::Unread(words.join(" "))),
-      Some(ShellInput::Script(text)) => self.script(&text, depth),
+      Some(ShellInput::Script(..) | ShellInput::File(_)) if depth >= MAX_DEPTH => self.ran.push(Ran::Unread(words.join(" "))),
+      Some(ShellInput::Script(text, arg0)) => {
+        let named = match arg0.as_deref() {
+          Some("$0" | "${0}") => self.dollar_zero.last().cloned().flatten(),
+          Some(word) => Some(word.to_owned()),
+          None => None,
+        };
+        self.dollar_zero.push(named);
+        self.script(&text, depth);
+        self.dollar_zero.pop();
+      }
       Some(ShellInput::File(path)) => self.file(&path, FileKind::Shell, depth),
       Some(ShellInput::Nothing) => {}
       None => {
@@ -124,6 +142,12 @@ impl Reading<'_> {
   /// The commands of the script file at `path`, once a classification: a file read before adds nothing. A file of a
   /// shell that cannot be read, a script past the reads or past the depth may run anything and is [`Ran::Unread`]
   fn file(&mut self, path: &str, kind: FileKind, depth: usize) {
+    // a script file that starts itself again: `exec /bin/bash "$0" "$@"`
+    let path = match self.dollar_zero.last() {
+      Some(Some(own)) if matches!(path, "$0" | "${0}") => own.clone(),
+      _ => path.to_owned(),
+    };
+    let path = path.as_str();
     let inner = inner_script_path(path).to_owned();
     let text = if let Some(text) = self.texts.get(&inner) {
       text.clone()
@@ -153,8 +177,15 @@ impl Reading<'_> {
       // a script on the limit of the depth is not read
       Some(_) if depth >= MAX_DEPTH => self.ran.push(Ran::Unread(path.to_owned())),
       Some(text) => {
-        self.expanded.insert(inner);
+        self.expanded.insert(inner.clone());
+        let own = kind != FileKind::Sourced;
+        if own {
+          self.dollar_zero.push(Some(inner));
+        }
         self.script(&text, depth);
+        if own {
+          self.dollar_zero.pop();
+        }
       }
     }
   }
@@ -177,8 +208,8 @@ fn runs_a_shell(text: &str) -> bool {
 
 /// What a shell runs
 enum ShellInput {
-  /// The script of `-c`
-  Script(String),
+  /// The script of `-c` and the word after it, which the shell sets as `$0`
+  Script(String, Option<String>),
   /// A script file, the first word after its options
   File(String),
   /// Nothing that a run gives it: an interactive shell, `-s` reading its input
@@ -211,12 +242,16 @@ fn shell_input(words: &[String]) -> Option<ShellInput> {
         rest.next();
       }
     } else {
-      return Some(if script { ShellInput::Script(word.clone()) } else { ShellInput::File(word.clone()) });
+      return Some(if script {
+        ShellInput::Script(word.clone(), rest.next().cloned())
+      } else {
+        ShellInput::File(word.clone())
+      });
     }
   }
   // the words after `--`
   match rest.next() {
-    Some(word) if script => Some(ShellInput::Script(word.clone())),
+    Some(word) if script => Some(ShellInput::Script(word.clone(), rest.next().cloned())),
     Some(word) if !stdin => Some(ShellInput::File(word.clone())),
     _ => Some(ShellInput::Nothing),
   }
