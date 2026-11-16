@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jetbrains.com/air/air-app.schema.json",
   "title": "The file of an app of the IDE, ~/.air/apps/<id>.yaml",
-  "description": "The static part of one app: what the IDE registers before the process of the app starts. The registry of air-apps reads the YAML file as JSON and checks it with this schema. A reader ignores a key that it does not know, so the schema allows additional properties. A file whose format has another major is refused with the reason unsupportedFormat.",
+  "description": "The static part of one app: what the IDE registers before the process of the app starts. The registry of air-apps reads the YAML file as JSON and checks it with this schema. A reader ignores a key that it does not know, so the schema allows additional properties. A file that parses and whose format has another major is refused with the reason unsupportedFormat.",
   "type": "object",
   "required": ["format", "id", "name", "server", "views"],
   "properties": {

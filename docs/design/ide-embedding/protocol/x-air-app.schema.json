@@ -294,6 +294,7 @@
           "default": "info"
         },
         "actions": {
+          "description": "The actions of the notification. air-ide keeps their runs, so a click runs one of them. The runs of the actions that it shows hold at most 65536 bytes as JSON text together: it drops an action past them with a warning, as one that it cannot run.",
           "type": "array",
           "items": {
             "type": "object",
@@ -2896,6 +2897,27 @@
               }
             }
           }
+        },
+        {
+          "type": "object",
+          "description": "A click on the action at the index action of the notification that x-air-ide/appNotify numbered notification. air-ide runs the run that it kept of that action, the open of a view or the call of a tool with the origin action, never a run of the IDE. It keeps the runs of the last 32 notifications of the app while the consent covers the fingerprint that it covered then, also across a restart of the process. A number that it does not keep is refused with unknownNotification, an index past the actions with unknownAction, a tool that tools/list of the app does not name for the app, or one of the prefix air_, with unknownTool, and the call of a tool also with noConsent and notStarted.",
+          "required": ["type", "app", "notification", "action"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appNotificationRun"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "notification": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "action": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       ]
     },
@@ -3143,6 +3165,11 @@
                   },
                   "app": {
                     "$ref": "#/$defs/AppId"
+                  },
+                  "notificationId": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of a notification with an action, by which the IDE runs an action of it, x-air-ide/appNotificationRun. air-ide sends only the actions that it can run, and a notification without one has no number."
                   },
                   "notification": {
                     "$ref": "#/$defs/Notify"
