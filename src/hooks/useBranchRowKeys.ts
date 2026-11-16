@@ -73,8 +73,9 @@ export function reviewBranchRow(name: string): void {
 }
 
 /**
- * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too) or on
- * the table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
+ * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too, a
+ * disabled one included, on which Base UI cancels only Enter and Space: patches/@base-ui__react@1.9.0.patch) or on the
+ * table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
  * ← collapses it or moves to the branch it is nested under, Enter on the row itself toggles it, P pushes it, S opens
  * its Safe Push popover, D opens its review window, O opens its pull request, M opens "Move to…" for it: P, D, O and M
  * as the items of the branch menu they are the hints of (`selectRowItem`). A handled key is `preventDefault`ed.

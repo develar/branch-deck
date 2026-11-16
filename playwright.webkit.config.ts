@@ -50,6 +50,7 @@ export default defineConfig({
     "resize-loops/resize-loops.spec.ts",
     "repository/title-bar.spec.ts",
     "settings/settings.spec.ts",
+    "activity/activity.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],
   ignoreSnapshots: true,

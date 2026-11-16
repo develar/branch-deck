@@ -3,7 +3,8 @@
 // that keeps it a field on the canvas (the translucent `muted` would show the canvas through it)
 // local customisation: a disabled button kept focusable (`focusableWhenDisabled`: `aria-disabled`, no `disabled`, so its
 // tooltip opens) is dimmed unless it is busy (`aria-busy`: its spinner says it); it takes no hover and no press by the
-// `hover` and `active` variants of src/index.css
+// `hover` and `active` variants of src/index.css. Its keys but Enter and Space reach the handlers around it: Base UI
+// cancelled them all, which patches/@base-ui__react@1.9.0.patch changes, not this file
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"

@@ -134,8 +134,8 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   "The following patches were not used" while a patch is keyed to a version the lockfile no longer has, and with "error
   applying hunk" when a hunk no longer fits. Port the patch onto the new version by its header (a new key and file),
   run its tests, or drop it once a release fixes the bug.
-- **Now**: `@base-ui/react@1.9.0`, a popup that went took the open delay of its trigger's hover
-  ([Pitfalls](#pitfalls)).
+- **Now**: `@base-ui/react@1.9.0`, a popup that went took the open delay of its trigger's hover, a flushSync of a toast
+  in the delivery of its observers, and a disabled button that cancelled every key ([Pitfalls](#pitfalls)).
 
 ## Pitfalls
 
@@ -207,6 +207,12 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   it shows, a loaded machine ends an exit late. `patches/@base-ui__react@1.9.0.patch` leaves the timers to the trigger
   ([Patched Dependencies](#patched-dependencies)); the tests of "Hover back over a trigger whose popup closed"
   (`branch-row-layout.spec.ts`) fail without it.
+- **A disabled button cancelled every key** (Base UI 1.9): `useFocusableWhenDisabled` keeps a disabled button focusable
+  and cancelled every key on it but Tab, and a handler around it skips a key someone took (`event.defaultPrevented`):
+  the keys of a branch row stopped at its disabled Safe Push or push, Escape of a sub-window at a disabled button.
+  `patches/@base-ui__react@1.9.0.patch` cancels only Enter and Space on a disabled button, every key but Tab on a
+  disabled field; a handler around a button checks `defaultPrevented` as before. Tested in `foreign-operation.spec.ts`,
+  `repository-lock.spec.ts` and `activity.spec.ts`, in both engines.
 - **A flushSync in the delivery of a ResizeObserver** renders every update pending then, which can resize other observed
   elements after their reports, and WebKit renders a commit of React that waited in a microtask after the callback in
   that same rendering update: a ResizeObserver loop. Toast.Content of Base UI 1.9 set the height of its toast so; the

@@ -21,7 +21,7 @@ import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit 
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { waitForStorePersistence, expectClosed, holdNextAnswer } from "../helpers/wait-helpers"
+import { waitForStorePersistence, expectClosed, holdNextAnswer, openTooltip, recordCommand } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
 // origin/master, the update rebases cleanly / conflicts in src/app.txt. `landed_upstream`: a robot pushed feature-auth
@@ -265,6 +265,31 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(window.getByTestId("activity-clear")).toBeDisabled()
     await activityButton(page).click()
     await expect(activityPanel(page).getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
+  })
+
+  // Base UI cancels the keys of a disabled button that stays focusable, but Enter and Space no more (the patch of
+  // @base-ui/react): Escape reaches the window from it
+  testWithIssueLinks("should close on Escape from its disabled Clear Log once its tooltip closed, which Enter does not press", { tag: "@webkit" }, async ({ page }) => {
+    const window = await openActivityWindow(page)
+    await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
+    const clear = window.getByTestId("activity-clear")
+    await expect(clear).toHaveAttribute("aria-disabled", "true")
+    await clear.focus()
+    await expect(clear).toBeFocused()
+    // a press asks the main window to clear the log (`clear_activity`): Enter makes none
+    const clears = await recordCommand(page, "clear_activity")
+    await window.keyboard.press("Enter")
+    // the focus after a key opens its tooltip: the first Escape closes it, the window stays
+    await expect(openTooltip(window)).toHaveText("Forget the whole log of the repository, whatever the filter shows")
+    await window.keyboard.press("Escape")
+    await expectClosed(openTooltip(window))
+    await expect(window.getByTestId("activity-empty")).toBeVisible()
+    expect(await windowCalls(window)).not.toContain("close")
+    expect(clears).toEqual([])
+    // the next one closes the window
+    await expect(clear).toBeFocused()
+    await window.keyboard.press("Escape")
+    await expect.poll(() => windowCalls(window)).toContain("close")
   })
 })
 

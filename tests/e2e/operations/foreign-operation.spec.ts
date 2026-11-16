@@ -164,6 +164,45 @@ test.describe("Operations of another process of the repository", () => {
     },
   )
 
+  // Base UI cancels the keys of a disabled button that stays focusable, but Enter and Space no more (the patch of
+  // @base-ui/react): the keys of the row reach it from the disabled Safe Push of its slot, which presses nothing
+  test(
+    "should take the keys of the row from its disabled Safe Push: the arrows move to the rows beside, S says why it can't start, Enter presses nothing",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+      // the second row: a row above it and one below
+      await expect(page.getByTestId("branch-row")).toHaveCount(7)
+      expect(await page.getByTestId("branch-row").evaluateAll(rows => rows.slice(0, 3).map(row => row.getAttribute("data-branch-name")))).toEqual([
+        "JIRA-456",
+        "ABC-123",
+        "feature-docs",
+      ])
+      const agent = await repo.setForeignOperation(safePushOf("ABC-123"))
+      const slot = slotSafePush(page, "ABC-123")
+      await expect(slot).toHaveText("bd: Safe Push of ABC-123…")
+      await expect(slot).toHaveAttribute("aria-disabled", "true")
+
+      // Enter and Space press nothing: no popover, no start, the focus stays
+      await slot.focus()
+      await page.keyboard.press("Enter")
+      await page.keyboard.press(" ")
+      // S says why it can't start, and opens no popover
+      await page.keyboard.press("s")
+      await expect(toastWith(page, "Safe Push of ABC-123 can't start")).toContainText(`\`bd\` (pid ${agent!.pid}) runs the Safe Push of ABC-123`)
+      await expectClosed(safePushPopover(page))
+      await expect(slot).toBeFocused()
+      expect((await repo.getPatronusLog()).starts).toEqual([])
+
+      // the arrows move to the rows beside
+      await page.keyboard.press("ArrowDown")
+      await expect(findBranchRow(page, "feature-docs")).toBeFocused()
+      await slot.focus()
+      await page.keyboard.press("ArrowUp")
+      await expect(findBranchRow(page, "JIRA-456")).toBeFocused()
+    },
+  )
+
   test("should open the pull request of a comment start whose answer was lost", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     const url = `https://github.com/${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}/pull/7`

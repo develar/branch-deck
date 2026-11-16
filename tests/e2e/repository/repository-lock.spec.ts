@@ -268,6 +268,56 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
   })
 
+  // Base UI cancels the keys of a disabled button that stays focusable, but Enter and Space no more (the patch of
+  // @base-ui/react): the keys of the row reach it from its busy push, which presses nothing
+  test(
+    "should take the keys of the row from a push waiting for the lock: the arrows move to the rows beside, P says whom it waits for, Enter pushes nothing",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("issue_links")
+      await syncAndWaitForBranches()
+      // a row above it and one below
+      expect(await page.getByTestId("branch-row").evaluateAll(rows => rows.slice(2, 5).map(row => row.getAttribute("data-branch-name")))).toEqual([
+        "feature-docs",
+        "feature-db",
+        "feature-ui",
+      ])
+      const pushes = await recordCommand(page, "execute")
+      await repo.holdRepositoryLock(true)
+      const push = getPushButton(findBranchRow(page, "feature-db"))
+      await push.click()
+      await expect(push).toHaveAttribute("aria-busy", "true")
+      await expect(push).toHaveAttribute("aria-disabled", "true")
+      // its hover says whom it waits for: so does P then
+      await push.hover()
+      await expect(page.getByTestId("push-description").getByTestId("push-progress")).toContainText(WAITING)
+      await page.mouse.move(0, 0)
+      await expectClosed(page.getByTestId("push-description"))
+
+      // Enter and Space press nothing, P says whom the push waits for
+      await push.focus()
+      await page.keyboard.press("Enter")
+      await page.keyboard.press(" ")
+      await page.keyboard.press("p")
+      await expect(page.locator("[data-slot=toast]", { hasText: /Waiting for `[^`]+` \(pid \d+/ })).toBeVisible()
+      await expect(push).toBeFocused()
+      expect(pushes).toHaveLength(1)
+
+      // the arrows move to the rows beside
+      await page.keyboard.press("ArrowDown")
+      await expect(findBranchRow(page, "feature-ui")).toBeFocused()
+      await push.focus()
+      await page.keyboard.press("ArrowUp")
+      await expect(findBranchRow(page, "feature-docs")).toBeFocused()
+
+      // the one push it waited for goes once the holder is done
+      await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
+      await expectPushedToast(page, "feature-db")
+      expect(await remotePushes(repo)).toEqual([["feature-db"]])
+      expect(pushes).toHaveLength(1)
+    },
+  )
+
   test("should sync while another process holds the repository lock, and push once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()

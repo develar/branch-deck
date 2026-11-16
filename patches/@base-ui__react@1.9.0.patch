@@ -32,6 +32,19 @@ E2E test "should stack the toasts of two checks for updates" (tests/e2e/reposito
 review-requests.spec.ts "should not Safe Push a pull request that got commits since the user reviewed it" under a
 throttled CPU (`E2E_RO_TRACE=1 E2E_CPU_THROTTLE=6`).
 
+The third bug: useFocusableWhenDisabled cancels every key but Tab on a disabled element it keeps focusable
+(`event.preventDefault()`), and a handler around it skips a key someone took: the keys of a branch row from its
+disabled Safe Push or push (BranchTableCard), Escape of a sub-window (src/lib/sub-window.ts), the keys of the previews
+and the reviews stopped at any disabled button. What the cancel is for stays: Enter and Space would press the button (a
+native one fires a click, Space scrolls the page under a `role="button"`), and a disabled field (ToolbarInput) takes no
+typing. The fix, in both builds: a disabled button cancels only Enter and Space, a disabled input, textarea or editable
+element every key but Tab, as before. Re-port it onto a new version where useFocusableWhenDisabled still cancels every
+key but Tab, and check it with the E2E tests "should take the keys of the row from its disabled Safe Push"
+(tests/e2e/operations/foreign-operation.spec.ts), "should take the keys of the row from a push waiting for the lock"
+(tests/e2e/repository/repository-lock.spec.ts) and "should close on Escape from its disabled Clear Log"
+(tests/e2e/activity/activity.spec.ts), in Chromium and WebKit: they fail without the patch. Drop it once a release
+cancels only the keys that press a disabled button.
+
 diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.js b/floating-ui-react/hooks/useHoverFloatingInteraction.js
 index 82b9c1fd40ca2e21814de831eb0e6ebb51649db0..22313fcd4e23eb7c3b94f846a832c49ff03bd48f 100644
 --- a/floating-ui-react/hooks/useHoverFloatingInteraction.js
@@ -167,3 +180,39 @@ diff --git a/toast/content/ToastContent.mjs b/toast/content/ToastContent.mjs
        resizeObserver.disconnect();
        mutationObserver.disconnect();
      };
+diff --git a/utils/useFocusableWhenDisabled.js b/utils/useFocusableWhenDisabled.js
+index 0ddc0f0b0..791208668 100644
+--- a/utils/useFocusableWhenDisabled.js
++++ b/utils/useFocusableWhenDisabled.js
+@@ -23,8 +23,12 @@ function useFocusableWhenDisabled(parameters) {
+   const props = React.useMemo(() => {
+     const additionalProps = {
+       // allow Tabbing away from focusableWhenDisabled elements
++      // Branch Deck: a disabled button takes only the keys that would press it (Enter, and Space, which also scrolls the
++      // page under a `role="button"`), the others reach the handlers around it; a disabled field takes no typing
+       onKeyDown(event) {
+-        if (disabled && focusableWhenDisabled && event.key !== 'Tab') {
++        const element = event.currentTarget;
++        const isField = element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
++        if (disabled && focusableWhenDisabled && event.key !== 'Tab' && (isField || event.key === 'Enter' || event.key === ' ')) {
+           event.preventDefault();
+         }
+       }
+diff --git a/utils/useFocusableWhenDisabled.mjs b/utils/useFocusableWhenDisabled.mjs
+index 6e1a47be7..24b708606 100644
+--- a/utils/useFocusableWhenDisabled.mjs
++++ b/utils/useFocusableWhenDisabled.mjs
+@@ -17,8 +17,12 @@ export function useFocusableWhenDisabled(parameters) {
+   const props = React.useMemo(() => {
+     const additionalProps = {
+       // allow Tabbing away from focusableWhenDisabled elements
++      // Branch Deck: a disabled button takes only the keys that would press it (Enter, and Space, which also scrolls the
++      // page under a `role="button"`), the others reach the handlers around it; a disabled field takes no typing
+       onKeyDown(event) {
+-        if (disabled && focusableWhenDisabled && event.key !== 'Tab') {
++        const element = event.currentTarget;
++        const isField = element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
++        if (disabled && focusableWhenDisabled && event.key !== 'Tab' && (isField || event.key === 'Enter' || event.key === ' ')) {
+           event.preventDefault();
+         }
+       }
