@@ -32,7 +32,7 @@ use domain_types::next_step::NextStep;
 use domain_types::operation::Plan;
 use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
-use domain_types::session::{Demand, stack_readiness_key};
+use domain_types::session::{Demand, SyncState, SyncStep, stack_readiness_key};
 use domain_types::stack::BranchStack;
 use domain_types::{ProgressReporter, SyncEvent};
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -49,7 +49,7 @@ use repository_model::table::TableState;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeSet, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::github_repository::GitHubRepository;
@@ -99,6 +99,9 @@ struct Case {
   expect: Option<Expect>,
   /// What `bd` answers instead, only beside an `asymmetry`
   bd: Option<BdExpect>,
+  /// `given` as the file has it, for the message of a case that answers otherwise
+  #[serde(skip)]
+  given_text: String,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1313,21 +1316,23 @@ impl AppSession<'_> {
 }
 
 /// Folds the events of a sync into the table of a session up to its grouping, then nothing: the table of a sync that
-/// runs, past its grouping, before it built the branches
+/// runs, past its grouping, before it built the branches. The sync sends from more than one thread (the update check
+/// of the baseline sends `BaselineStatus` from the blocking pool while the grouping goes on), so an event is folded
+/// only while the table, under its lock, still says the sync groups: `BranchesGrouped` moves it to `Building`, and no
+/// event after it is folded, a late `BaselineStatus` neither. A mark of its own, tested outside the lock and stored
+/// after each event, was cleared by an event beside the grouping, and the table took the rest of the sync, its end too
+/// (`row-1-syncing` answered row 11 once in 30 runs under load)
 #[derive(Clone)]
 struct UntilGrouped {
   table: Arc<Mutex<TableState>>,
-  grouped: Arc<AtomicBool>,
 }
 
 impl ProgressReporter for UntilGrouped {
   fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
-    if self.grouped.load(Ordering::SeqCst) {
-      return Ok(());
+    let mut table = self.table.lock().map_err(|e| anyhow::anyhow!("the table of the sync is poisoned: {e}"))?;
+    if matches!(table.sync(), SyncState::Running { step: SyncStep::Grouping }) {
+      table.apply(event);
     }
-    let grouping = matches!(event, SyncEvent::BranchesGrouped { .. });
-    self.table.lock().map_err(|e| anyhow::anyhow!("the table of the sync is poisoned: {e}"))?.apply(event);
-    self.grouped.store(grouping, Ordering::SeqCst);
     Ok(())
   }
 }
@@ -1344,10 +1349,7 @@ impl Situation {
       commit_all(&self.space.repo, &format!("({}) Sync {}", given.branch, given.branch), 1_700_009_500);
       let table = Arc::new(Mutex::new(std::mem::take(&mut session.state)));
       table.lock().unwrap().begin_sync();
-      let reporter = UntilGrouped {
-        table: Arc::clone(&table),
-        grouped: Arc::new(AtomicBool::new(false)),
-      };
+      let reporter = UntilGrouped { table: Arc::clone(&table) };
       let options = SyncOptions {
         object_cache: context.cache(),
         config: Some(context.config().unwrap()),
@@ -1593,36 +1595,68 @@ fn cases() -> Vec<Case> {
     .iter()
     .flat_map(|file| {
       let text = std::fs::read_to_string(file).unwrap();
-      serde_json::from_str::<Vec<Case>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()))
+      let values = serde_json::from_str::<Vec<Value>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+      values
+        .into_iter()
+        .map(|value| {
+          let given_text = value.get("given").map_or_else(|| "none".to_string(), Value::to_string);
+          let id = value.get("id").map_or_else(|| "a case without its id".to_string(), Value::to_string);
+          let case = serde_json::from_value::<Case>(value).unwrap_or_else(|e| panic!("{}, {id}: {e}", file.display()));
+          Case { given_text, ..case }
+        })
+        .collect::<Vec<_>>()
     })
     .collect()
 }
 
-/// Every case of `group`, each in its own repository on its own thread, built once for both sides: one message names
-/// every case that answers otherwise
+/// The failures of each case of `cases`, in their order, a panic of a case among them. The cases run in at most one
+/// thread per core, each taking the next case once it ended: each thread of a case starts its runtime and dozens of
+/// gits, and 38 of them at once beside the other test processes made a git process cost several times its time
+fn answers(cases: &[&Case]) -> Vec<Vec<String>> {
+  let next = AtomicUsize::new(0);
+  let answers: Vec<Mutex<Vec<String>>> = cases.iter().map(|_| Mutex::new(Vec::new())).collect();
+  let threads = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get).min(cases.len());
+  std::thread::scope(|scope| {
+    for _ in 0..threads {
+      scope.spawn(|| {
+        loop {
+          let index = next.fetch_add(1, Ordering::SeqCst);
+          let Some(case) = cases.get(index) else {
+            break;
+          };
+          let failures = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| answer(case))).unwrap_or_else(|panic| {
+            let message = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(ToString::to_string));
+            vec![format!("{}: panicked: {} — {}", case.id, message.unwrap_or_default(), case.title)]
+          });
+          *answers[index].lock().unwrap() = failures;
+        }
+      });
+    }
+  });
+  answers.into_iter().map(|answer| answer.into_inner().unwrap()).collect()
+}
+
+/// Every case of `group`, each in its own repository, built once for both sides: one message names every case that
+/// answers otherwise, with its `given`
 fn assert_group(group: &str) {
   let cases = cases();
   let unknown: Vec<&str> = cases.iter().map(|case| case.group.as_str()).filter(|known| !GROUPS.contains(known)).collect();
   assert!(unknown.is_empty(), "groups without their test: {unknown:?}");
   let of_group: Vec<&Case> = cases.iter().filter(|case| case.group == group).collect();
   assert!(!of_group.is_empty(), "no case of {group}");
-  let failures: Vec<String> = std::thread::scope(|scope| {
-    #[expect(clippy::needless_collect, reason = "every case starts before the first is joined")]
-    let running: Vec<_> = of_group.iter().map(|case| (case.id.as_str(), scope.spawn(|| answer(case)))).collect();
-    running
-      .into_iter()
-      .flat_map(|(id, thread)| {
-        thread.join().unwrap_or_else(|panic| {
-          let message = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(ToString::to_string));
-          vec![format!("{id}: panicked: {}", message.unwrap_or_default())]
-        })
-      })
-      .collect()
-  });
+  let failing: Vec<(Vec<String>, &&Case)> = answers(&of_group).into_iter().zip(&of_group).filter(|(failures, _)| !failures.is_empty()).collect();
+  let count = failing.len();
+  let failures: Vec<String> = failing
+    .into_iter()
+    .flat_map(|(mut failures, case)| {
+      // the situation of the case, so its message is enough to make it again
+      failures.push(format!("{}: given {}", case.id, case.given_text));
+      failures
+    })
+    .collect();
   assert!(
     failures.is_empty(),
-    "{} of {} cases of {group} answer otherwise:\n{}",
-    failures.len(),
+    "{count} of {} cases of {group} answer otherwise:\n{}",
     of_group.len(),
     failures.join("\n")
   );
