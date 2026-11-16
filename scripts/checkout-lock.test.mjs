@@ -172,3 +172,39 @@ test("on Windows a call another process holds is tried again for about a second;
   assert.throws(() => retryWhileShared(failing("EPERM", 1), { windows: false, sleep }), { code: "EPERM" })
   assert.deepEqual(waits, [])
 })
+
+test("a takeover a start took after the read of a dead one goes back in its place, and the start that moved it aside refuses", () => {
+  const { dir, lock } = setup()
+  const takeover = `${lock}.takeover`
+  writeFileSync(lock, "999")
+  writeFileSync(takeover, "998")
+  const running = new Set([1001, 1002])
+  // as 1001 reads the takeover of 998, which ended in it, 1002 drops it and takes its own
+  const isAlive = pid => {
+    if (pid === 998 && readFileSync(takeover, "utf8") === "998") {
+      rmSync(takeover)
+      writeFileSync(takeover, "1002")
+    }
+    return running.has(pid)
+  }
+  assert.throws(() => takeCheckoutLock(lock, 1001, { isAlive }), /Another pnpm e2e runs in this checkout \(pid 1002\)/)
+  assert.equal(readFileSync(takeover, "utf8"), "1002", "the takeover of 1002 is in its place")
+  assert.deepEqual(readdirSync(dir).sort(), ["e2e-run.lock", "e2e-run.lock.takeover"])
+})
+
+test("a start leaves the takeover it finds another's as it ends its own", () => {
+  const { dir, lock, isAlive } = setup()
+  const takeover = `${lock}.takeover`
+  writeFileSync(lock, "999")
+  // while 1001 holds the takeover, the takeover becomes 1002's (the window after a start that ended in it)
+  takeCheckoutLock(lock, 1001, {
+    isAlive,
+    inTakeover: () => {
+      rmSync(takeover)
+      writeFileSync(takeover, "1002")
+    },
+  })
+  assert.equal(readFileSync(lock, "utf8"), "1001")
+  assert.equal(readFileSync(takeover, "utf8"), "1002", "the takeover of 1002 stays")
+  assert.deepEqual(readdirSync(dir).sort(), ["e2e-run.lock", "e2e-run.lock.takeover"])
+})
