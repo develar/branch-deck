@@ -846,7 +846,7 @@ string) and a failure of the IPC (an `Error`) as its `internal` error in their w
 
 #### Scenario: The call of a command fails
 - **WHEN** Tauri refuses the call, or its IPC fails: the read of the Safe Push statistics, the check of a typed branch name, the stop of the watch of an Air session
-- **THEN** the command answers its `internal` error in the words of the failure, the log has one warning "Cannot run <command>" (none for an error the command answered), the read ends with it, a typed name says why and its submit asks the check again, and the page has no unhandled rejection
+- **THEN** the command answers its `internal` error in the words of the failure, the log has one warning "Cannot run <command>" (none for an error the command answered), the read ends with it, the submit of a typed name stays open and asks the check again; one that fails again is refused, and the field says why; and the page has no unhandled rejection
   [@test] src/lib/api-error.test.ts (`resolves a refusal of Tauri (a string: an unknown command, an ACL refusal, invalid arguments) to an internal error`, `resolves a failure of the IPC (an Error: a fetch of the E2E bridge, the Air shim) to an internal error, never a rejection`, `resolves to the ApiError it answered, which the backend logged: no warning of the page`, `answers a failure of no words with words of its own, never an empty message`)
   [@test] src/stores/robot-stats.test.ts (`ends a read whose IPC failed with its error, never a rejection of the page: the entry stops loading and says it`)
   [@test] src/presenters/branch-name.test.ts (`says a check whose call failed and marks the name invalid, so no form submits a name nobody checked`)

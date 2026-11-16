@@ -500,7 +500,7 @@ typing waits for the answer of the name as typed.
 #### Scenario: The answers of a typed name
 - **WHEN** the typing of a name pauses
 - **THEN** Rust answers what it is: empty, valid, too short, invalid characters, a `/` where only a branch name goes, a name the grouper would rename
-- **AND** the field words the answer
+- **AND** the field says nothing of the answer until a submit is refused (Enter or the button, for an answer that is no valid name or a check that failed again); from then on it words each answer as the typing goes
   [@test] crates/domain-types/src/branch_names_test.rs (`a_typed_name_is_what_the_grouping_keeps_as_it_is`)
   [@test] tests/e2e/inline-branch-creator/inline-branch-creator.spec.ts (`should validate branch name format`)
 
