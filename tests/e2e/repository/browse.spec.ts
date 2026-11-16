@@ -26,7 +26,7 @@ async function testBrowseRepository(
 
   // First run (no repository, no recent projects): the welcome card asks for the repository, it renders shortly after
   // the header
-  await expect(page.getByTestId("welcome-card").getByRole("heading", { name: "Select a Git repository" })).toBeVisible()
+  await expect(page.getByTestId("welcome-card").getByRole("button", { name: "Select a Git Repository…" })).toBeVisible()
   // the work on its way is of a selected repository, as Activity is: no landing indicator in the header yet
   const header = page.getByTestId("configuration-header")
   await expect(header.getByTestId("sync-button")).toBeVisible()
