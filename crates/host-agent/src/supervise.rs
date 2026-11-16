@@ -101,10 +101,10 @@ const POLL: Duration = Duration::from_millis(100);
 const PACK_RECHECK: Duration = Duration::from_secs(1);
 
 /// How long the supervisor reads the pipes of a command group that has ended. A daemon can keep them open
-const DRAIN: Duration = Duration::from_secs(5);
+pub(crate) const DRAIN: Duration = Duration::from_secs(5);
 
 /// How long the supervisor waits for the command after SIGKILL
-const KILL_WAIT: Duration = Duration::from_secs(10);
+pub(crate) const KILL_WAIT: Duration = Duration::from_secs(10);
 
 /// The exit code of a run that a cancel ended before its command started: 128 plus SIGINT
 const INTERRUPTED: i32 = 128 + libc::SIGINT;

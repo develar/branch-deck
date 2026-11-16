@@ -121,8 +121,13 @@ machine.
   `crates/bd-host/tests/cli.rs` ended while a supervisor still gave back, and a run left going looped on in the slot of
   the removed home for its 60 s. Their `World` drops through `host_agent::teardown::settle_runs`: a cancel to each run
   that goes on, then a wait until no process outside the test's session names the home in an argument or works in the
-  home or the repository; at 1 min it kills what is left and fails the test
-  (`the_end_of_a_test_leaves_no_process_of_its_runs`).
+  home or the repository; at 1 min (`SETTLE`) it kills what is left and fails the test
+  (`the_end_of_a_test_leaves_no_process_of_its_runs`). A cancel must end a command within that minute: the agent of a
+  process test has a grace of 20 s before its SIGKILL (`PROCESS_TEST_ENV`, 120 s on a host), so the longest way of a
+  cancelled command to its end, with the end of its group and the drain of its pipes, is about 41 s; and the gate loop of
+  the tests (`wait_for`, 60 s, as long as the waits of the tests that read its holder) traps SIGINT, as bash drops a
+  SIGINT that comes as its `sleep` ends by itself. With no trap and the grace of a host, a dropped SIGINT let the command
+  run to its end at the teardown's deadline, and the test failed at 63 s.
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one

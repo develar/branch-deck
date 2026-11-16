@@ -1,6 +1,7 @@
-use super::{named_forms, processes_of};
+use super::{SETTLE, named_forms, processes_of};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan};
 
 /// A process of a scan with `argv`, working in `cwd`
@@ -53,4 +54,22 @@ fn a_process_of_a_home_names_it_or_works_in_it() {
   let dirs = [given.as_path(), repo.as_path()];
   let pids: Vec<u32> = processes_of(&scan, &named_forms(&given), &dirs).iter().map(|process| process.pid).collect();
   assert_eq!(pids, [10, 11, 12, 13]);
+}
+
+/// The cancel of a teardown ends every command of a process test within its `SETTLE`: the longest way of a cancelled
+/// command to its end (the grace of `PROCESS_TEST_ENV` before the SIGKILL, the wait for the command after it, the end
+/// of what it left in its group: a settle, the wait after SIGTERM and a settle after SIGKILL, and the drain of its
+/// pipes), about 41 s, comes within three quarters of it, so the scan and the give-back have the rest. With the grace
+/// of a host (120 s) a command that a SIGINT did not end outlived the teardown, which killed it and failed the test
+/// (`the_end_of_a_test_leaves_no_process_of_its_runs`, 63 s)
+#[test]
+fn the_grace_of_a_process_test_ends_a_cancelled_command_within_the_settle_of_its_teardown() {
+  let grace = crate::serve::PROCESS_TEST_ENV
+    .iter()
+    .find(|(name, _)| *name == "BD_HOST_TEST_GRACE_MS")
+    .map(|(_, ms)| Duration::from_millis(ms.parse().expect("milliseconds")))
+    .expect("the process tests set the grace");
+  let end_group = crate::tuning::group_settle() + crate::tuning::group_term_wait() + crate::tuning::group_settle();
+  let longest = grace + crate::supervise::KILL_WAIT + end_group + crate::supervise::DRAIN;
+  assert!(longest <= SETTLE * 3 / 4, "{longest:?} against {SETTLE:?}");
 }

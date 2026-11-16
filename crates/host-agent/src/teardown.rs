@@ -18,7 +18,7 @@ const LOOK_EVERY: Duration = Duration::from_millis(50);
 const COMMAND_LINE: usize = 160;
 
 /// How long the end of a test waits for the processes of its runs
-const SETTLE: Duration = Duration::from_mins(1);
+pub(crate) const SETTLE: Duration = Duration::from_mins(1);
 
 /// The drop of the fixture of a process test, before its home and its repository go: asks each run of `home` without
 /// `exit.json` to stop (its `cancel` file, which its supervisor polls), then waits until no process outside the session

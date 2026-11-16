@@ -153,8 +153,10 @@ pub fn spawn_on_loopback(mut command: std::process::Command, port: u16, args: &[
 /// that wakes every 500 ms, the git of the developer as the git of the host, so no Homebrew runs, and deadlines of a
 /// handshake and of the check of a staged binary that no loaded run reaches: the 3 s of a host cut the handshakes of a
 /// client process that a loaded test run held back, the 10 s the check of a debug build, and the test of the
-/// handshake deadline sets its own
-pub const PROCESS_TEST_ENV: [(&str, &str); 7] = [
+/// handshake deadline sets its own. The grace of a cancel is 20 s, not 120 s: the teardown of a test cancels each run
+/// that goes on and waits up to its `SETTLE` (60 s), so a command that a SIGINT does not end still gets its SIGKILL
+/// within it (`teardown_test`)
+pub const PROCESS_TEST_ENV: [(&str, &str); 8] = [
   ("GIT_CONFIG_NOSYSTEM", "1"),
   ("BD_HOST_TEST_SHELL", "none"),
   ("BD_HOST_TEST_CAFFEINATE", "none"),
@@ -162,6 +164,7 @@ pub const PROCESS_TEST_ENV: [(&str, &str); 7] = [
   ("BD_TEST_HOST_MIN_VERSION", "2.0.0"),
   ("BD_HOST_TEST_HANDSHAKE_MS", "60000"),
   ("BD_HOST_TEST_SELF_CHECK_MS", "60000"),
+  ("BD_HOST_TEST_GRACE_MS", "20000"),
 ];
 
 /// Listens on `bind:port` and serves each connection. Prints one JSON line with the address and the fingerprint on `out`

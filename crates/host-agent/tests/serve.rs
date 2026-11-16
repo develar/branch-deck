@@ -344,9 +344,16 @@ fn eventually(what: &str, done: impl Fn() -> bool) {
   }
 }
 
-/// A shell loop that waits until the file `gate` exists, up to 60 s, so a failed test leaves no command behind
+/// A shell loop that waits until the file `gate` exists, up to 60 s, so a failed test leaves no command behind, and a
+/// test that waits for a state up to its own 60 s (`eventually`) finds the holder of a slot or of the heavy turn still
+/// holding. The trap ends it at a SIGINT of a cancel, so the cancel of the teardown takes it at once: without one,
+/// `/bin/sh` (bash) drops a SIGINT that comes as its `sleep` ends by itself, as a SIGINT to the group often does at 20
+/// sleeps a second, and the loop goes on to its end; the grace of `PROCESS_TEST_ENV` bounds even that
 fn wait_for(gate: &Path) -> String {
-  format!("i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done", gate.display())
+  format!(
+    "trap 'exit 130' INT; i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done",
+    gate.display()
+  )
 }
 
 /// The text of `events.log` of a run, or nothing
@@ -604,8 +611,8 @@ fn a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command() {
 }
 
 /// The end of a test waits for the supervisor of each run: one that ended still gives its slot back after `exit.json`,
-/// and one that goes on gets a cancel. Without the wait the command of the second run looped on for its 60 s in the
-/// slot of a removed home
+/// and one that goes on gets a cancel, which ends it (130), not the end of its gate loop. Without the wait the command
+/// of the second run looped on for its 60 s in the slot of a removed home
 #[test]
 fn the_end_of_a_test_leaves_no_process_of_its_runs() {
   let world = World::new(2, &[]);
@@ -621,12 +628,20 @@ fn the_end_of_a_test_leaves_no_process_of_its_runs() {
   // the gate never opens: only the cancel of the end of the test stops the command before its 60 s
   let gate = world.home.path().join("gate");
   let command_pid = world.home.path().join("command.pid");
-  agent.start(world.spec("6-2", &format!("echo $$ > '{}'; echo ready; {}", command_pid.display(), wait_for(&gate))));
+  // the trap comes first, so no SIGINT meets the shell without it
+  agent.start(world.spec(
+    "6-2",
+    &format!("trap 'exit 130' INT; echo $$ > '{}'; echo ready; {}", command_pid.display(), wait_for(&gate)),
+  ));
   agent.follow_until("6-2", "ready");
   let going = start_of(&agent.supervisor_pid("6-2"));
   let command = start_of(fs::read_to_string(&command_pid).expect("the pid of the command").trim());
   assert!(going.1.is_some() && command.1.is_some(), "the second run goes on: {going:?}, {command:?}");
   drop(agent);
+  // the teardown of the world, here while its home is there to read the end of the cancelled run
+  settle_runs(world.home.path(), &[world.repo.path()]);
+  let exit = fs::read_to_string(world.run_dir("6-2").join("exit.json")).expect("the end of the cancelled run");
+  assert_eq!(serde_json::from_str::<serde_json::Value>(&exit).expect("JSON")["code"], 130, "the cancel ended it: {exit}");
   drop(world);
   for (pid, started) in [ended, going, command] {
     assert!(
