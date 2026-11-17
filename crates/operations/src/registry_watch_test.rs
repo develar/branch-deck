@@ -67,13 +67,18 @@ fn journal_line(common_dir: &Path) {
   writeln!(journal, "{{}}").unwrap();
 }
 
-/// The sessions of an idle host and a listener of the journals, whose calls the receiver hears
-fn sessions_hearing_journals() -> (Arc<Sessions>, crate::registry::JournalListener, mpsc::UnboundedReceiver<()>) {
-  let sessions = Arc::new(Sessions::new(
+/// The sessions of an idle host on a clock of its own
+fn idle_sessions() -> Arc<Sessions> {
+  Arc::new(Sessions::new(
     tokio::runtime::Handle::current(),
     Arc::new(IdleHost::default()),
     Arc::new(OneClock(Arc::new(TestClock::new()))),
-  ));
+  ))
+}
+
+/// The sessions of an idle host and a listener of the journals, whose calls the receiver hears
+fn sessions_hearing_journals() -> (Arc<Sessions>, crate::registry::JournalListener, mpsc::UnboundedReceiver<()>) {
+  let sessions = idle_sessions();
   let (told, heard) = mpsc::unbounded_channel();
   let listener: crate::registry::JournalListener = Arc::new(move |_keys: &[SessionKey]| told.send(()).unwrap());
   (sessions, listener, heard)
@@ -428,6 +433,14 @@ async fn looks_past(wake: &Wake, taken: u64) {
   waited.unwrap_or_else(|_elapsed| panic!("no look finished within {DEADLINE:?}"));
 }
 
+/// An event of `leases.json`, another file of the state directory of `common_dir`, woke `wake`, and its look finished
+async fn look_of_another_file(wake: &Wake, common_dir: &Path) {
+  let state_dir = common_dir.join(STATE_DIR);
+  let taken = wake.looks_taken();
+  woken(wake, &WatchedDir::new(&state_dir), &Ok(modified(&state_dir.join("leases.json"))));
+  looks_past(wake, taken).await;
+}
+
 /// One look asked of the watch of the session of `key`, and taken
 async fn look_once(registry: &Registry, key: &SessionKey, wake: &Wake) {
   let taken = wake.looks_taken();
@@ -513,17 +526,15 @@ async fn a_look_reads_the_registry_only_once_it_changed_a_session_joined_or_its_
   assert_eq!(wake.reads(), 1, "the subscription read the registry");
 
   look_once(&registry, &key, &wake).await;
-  let state_dir = directory.path().join(STATE_DIR);
-  let taken = wake.looks_taken();
-  woken(&wake, &WatchedDir::new(&state_dir), &Ok(modified(&state_dir.join("leases.json"))));
-  looks_past(&wake, taken).await;
+  look_of_another_file(&wake, directory.path()).await;
   assert_eq!(wake.reads(), 1, "a look of the registry as it was reads nothing, at an event of another file too");
 
   // the record of another id, of the same size, renamed over the file with the time of the file before
+  let state_dir = directory.path().join(STATE_DIR);
   let path = state_dir.join("operations.json");
   let before = std::fs::read_to_string(&path).unwrap();
   let written = before.replace(r#""id": "bd""#, r#""id": "bx""#);
-  assert_ne!(written, before, "the record of bd in {before}");
+  assert_ne!(written, before, "the record of the process of the CLI in {before}");
   let temporary = state_dir.join(".operations.json.tmp-test");
   std::fs::write(&temporary, &written).unwrap();
   let time = std::fs::metadata(&path).unwrap().modified().unwrap();
@@ -587,10 +598,7 @@ async fn a_change_no_stat_tells_shows_a_recheck_after_the_last_read_though_a_loo
   // the process of the record ended, and an event of another file of the directory came before the read is due
   drop(child);
   tokio::time::advance(dir_watch::RECHECK * 9 / 10).await;
-  let state_dir = directory.path().join(STATE_DIR);
-  let taken = wake.looks_taken();
-  woken(&wake, &WatchedDir::new(&state_dir), &Ok(modified(&state_dir.join("leases.json"))));
-  looks_past(&wake, taken).await;
+  look_of_another_file(&wake, directory.path()).await;
   assert_eq!(wake.reads(), 1, "the look of the event, within a RECHECK of the read, read nothing");
 
   let missing = "no read dropped the record of the process that ended";
@@ -636,11 +644,7 @@ async fn a_read_before_the_session_opened_records_nothing_as_given_so_the_subscr
   let directory = tempfile::tempdir().unwrap();
   let registry = ProcessRegistry::of(directory.path()).unflushed();
   let child = bd_runs_auth(&registry);
-  let sessions = Arc::new(Sessions::new(
-    tokio::runtime::Handle::current(),
-    Arc::new(IdleHost::default()),
-    Arc::new(OneClock(Arc::new(TestClock::new()))),
-  ));
+  let sessions = idle_sessions();
   let watches = Watches::new(None, GIVEN_EVENTS);
   let key = session("user");
   let _watch = watches.watch(&sessions, &registry, &key);
@@ -661,6 +665,6 @@ async fn a_read_before_the_session_opened_records_nothing_as_given_so_the_subscr
     }
   })
   .await;
-  shown.unwrap_or_else(|_elapsed| panic!("the read of the subscription showed no operation of bd within {DEADLINE:?}"));
+  shown.unwrap_or_else(|_elapsed| panic!("the read of the subscription showed no operation of the CLI within {DEADLINE:?}"));
   drop(child);
 }
