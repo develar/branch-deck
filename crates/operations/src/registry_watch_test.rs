@@ -340,6 +340,8 @@ fn an_event_that_may_be_a_change_of_the_directory_asks_for_a_look() {
 /// the registry alone)
 #[tokio::test(flavor = "multi_thread")]
 async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
+  // no read is due by the age of the last one: the focus reads of itself
+  seam::freeze();
   let directory = tempfile::tempdir().unwrap();
   let (sessions, listener, mut heard) = sessions_hearing_journals();
   let dir = directory.path().to_path_buf();
@@ -353,6 +355,8 @@ async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
   // the first look of the subscription, whose stats came before its patch
   after_patches(&registry, &key, &mut patched, "the subscription read no registry", |operations| operations.len() == 1).await;
 
+  looks_past(&wake, 0).await;
+  let reads = wake.reads();
   journal_line(directory.path());
   touch_stamp(directory.path());
   registry.reread(&key).await;
@@ -361,6 +365,7 @@ async fn a_focus_looks_at_the_journal_and_the_stamp_too() {
     .unwrap_or_else(|_elapsed| panic!("the focus told no change of the journal within {DEADLINE:?}"))
     .unwrap();
   assert_eq!(wake.stamps(), 1, "the focus asked the syncs of the stamp");
+  assert_eq!(wake.reads(), reads + 1, "the focus read the registry, whose stat is as it was");
   drop(child);
 }
 
@@ -483,5 +488,179 @@ async fn a_stat_error_other_than_not_found_keeps_the_sessions_and_the_next_look_
     operations.len() == 1
   })
   .await;
+  drop(child);
+}
+
+/// A look stats the registry and reads it only when its stat changed since the last look (`Fingerprints`), when a
+/// session joined the watch, or once its last read is a `RECHECK` old: a look of the file as it was, and one of an event
+/// of another file of the directory (the leases, a lock), read nothing. A write renamed over the file is a change though
+/// its size and its time are as they were (its file id is new); a session that joins reads the file the watch read
+/// before; and the read a `RECHECK` on finds that the process of a record ended, though the file is as it was
+#[tokio::test(flavor = "multi_thread")]
+async fn a_look_reads_the_registry_only_once_it_changed_a_session_joined_or_its_last_read_is_a_recheck_old() {
+  // the age of the last read is what the test moves the clock by, however slow the runner is
+  seam::freeze();
+  let WhileBdRuns {
+    directory,
+    child,
+    registry,
+    key,
+    mut patched,
+    ..
+  } = watched_while_bd_runs(GIVEN_EVENTS).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  looks_past(&wake, 0).await;
+  assert_eq!(wake.reads(), 1, "the subscription read the registry");
+
+  look_once(&registry, &key, &wake).await;
+  let state_dir = directory.path().join(STATE_DIR);
+  let taken = wake.looks_taken();
+  woken(&wake, &WatchedDir::new(&state_dir), &Ok(modified(&state_dir.join("leases.json"))));
+  looks_past(&wake, taken).await;
+  assert_eq!(wake.reads(), 1, "a look of the registry as it was reads nothing, at an event of another file too");
+
+  // the record of another id, of the same size, renamed over the file with the time of the file before
+  let path = state_dir.join("operations.json");
+  let before = std::fs::read_to_string(&path).unwrap();
+  let written = before.replace(r#""id": "bd""#, r#""id": "bx""#);
+  assert_ne!(written, before, "the record of bd in {before}");
+  let temporary = state_dir.join(".operations.json.tmp-test");
+  std::fs::write(&temporary, &written).unwrap();
+  let time = std::fs::metadata(&path).unwrap().modified().unwrap();
+  std::fs::File::options().write(true).open(&temporary).unwrap().set_modified(time).unwrap();
+  sync_utils::fs_retry::rename(&temporary, &path).unwrap();
+  look_once(&registry, &key, &wake).await;
+  assert_eq!(wake.reads(), 2, "a rename over the registry is a change, whatever its size and its time");
+  let missing = "the look of the renamed registry read no record";
+  after_patches(&registry, &key, &mut patched, missing, |operations| {
+    operations.iter().any(|operation| operation.id == id("bx"))
+  })
+  .await;
+
+  // a window of another worktree of the prefix joins the watch: its session shows the record from its first read
+  let joined = SessionKey {
+    worktree: "/another/worktree".to_string(),
+    ..key.clone()
+  };
+  let (patches, mut joined_patched) = mpsc::unbounded_channel();
+  let taken = wake.looks_taken();
+  registry.subscribe(&joined, Box::new(Window(patches)), None).await.unwrap();
+  let missing = "the session that joined the watch read no registry";
+  after_patches(&registry, &joined, &mut joined_patched, missing, |operations| operations.len() == 1).await;
+  looks_past(&wake, taken).await;
+  assert_eq!(wake.reads(), 3, "the session that joined read the registry as it was");
+
+  // the process of the record ended and left the file as it was: a read a `RECHECK` after the last one tells it
+  drop(child);
+  look_once(&registry, &key, &wake).await;
+  assert_eq!(wake.reads(), 3, "a look of the registry as it was reads nothing within a RECHECK of the last read");
+  seam::advance(dir_watch::RECHECK);
+  look_once(&registry, &key, &wake).await;
+  assert_eq!(wake.reads(), 4, "a look a RECHECK after the last read reads the registry");
+  let missing = "the read a RECHECK on kept the record of a process that ended";
+  after_patches(&registry, &key, &mut patched, missing, <[RunningOperation]>::is_empty).await;
+}
+
+/// A change no stat tells (the process of a record ended, its file as it was) shows at most a `RECHECK` after the last
+/// read, also when the look of an event came between and read nothing: the wait for the next look ends when the read is
+/// due, not a `RECHECK` after the last look (a read at 0, an event at 1.8 s, the next look at 3.8 s). The clock of the
+/// runtime is paused, so the time the record left is the time of the timers, however slow the runner is
+#[tokio::test(start_paused = true)]
+async fn a_change_no_stat_tells_shows_a_recheck_after_the_last_read_though_a_look_of_an_event_came_between() {
+  let config = WatchConfig {
+    recheck: Some(dir_watch::RECHECK),
+    events: false,
+  };
+  let WhileBdRuns {
+    directory,
+    child,
+    registry,
+    key,
+    mut patched,
+    ..
+  } = watched_while_bd_runs(config).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  looks_past(&wake, 0).await;
+  let read = tokio::time::Instant::now();
+  assert_eq!(wake.reads(), 1, "the subscription read the registry");
+
+  // the process of the record ended, and an event of another file of the directory came before the read is due
+  drop(child);
+  tokio::time::advance(dir_watch::RECHECK * 9 / 10).await;
+  let state_dir = directory.path().join(STATE_DIR);
+  let taken = wake.looks_taken();
+  woken(&wake, &WatchedDir::new(&state_dir), &Ok(modified(&state_dir.join("leases.json"))));
+  looks_past(&wake, taken).await;
+  assert_eq!(wake.reads(), 1, "the look of the event, within a RECHECK of the read, read nothing");
+
+  let missing = "no read dropped the record of the process that ended";
+  after_patches(&registry, &key, &mut patched, missing, <[RunningOperation]>::is_empty).await;
+  let left = read.elapsed();
+  assert!(left <= dir_watch::RECHECK, "the record of the process that ended left {left:?} after the last read");
+}
+
+/// A read of the registry that failed is taken again at the next look, though the stat it followed is the last one:
+/// the record written before it shows then, with no change of the file and no read due by the age of the last one
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_of_the_registry_that_failed_is_taken_again_at_the_next_look() {
+  seam::freeze();
+  let WhileBdRuns {
+    file,
+    child,
+    registry,
+    key,
+    mut patched,
+    directory: _directory,
+    ..
+  } = watched_while_bd_runs(GIVEN_EVENTS).await;
+  let wake = registry.watch_wake(&key).await.expect("the window watches the registry");
+  looks_past(&wake, 0).await;
+
+  file.insert_of_another_process(record("bd-docs", &agent(&child), &safe_push("docs"), unix_now())).unwrap();
+  seam::script_reads(&[std::io::ErrorKind::PermissionDenied]);
+  look_once(&registry, &key, &wake).await;
+  assert_eq!((wake.reads(), view_operations(registry.sessions(), &key).await.len()), (2, 1), "the read failed");
+
+  look_once(&registry, &key, &wake).await;
+  assert_eq!(wake.reads(), 3, "the look after the failed read read the registry again");
+  let missing = "the look after the failed read showed nothing of it";
+  after_patches(&registry, &key, &mut patched, missing, |operations| operations.len() == 2).await;
+}
+
+/// A read that finds the operations of another process before the session of the window that watches is open (the
+/// watch starts before the subscription opens the session) gives them to no session and records none as given, so the
+/// read the subscription asks gives them once the session is open, though the file is as the first read found it
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_before_the_session_opened_records_nothing_as_given_so_the_subscription_shows_it() {
+  seam::freeze();
+  let directory = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
+  let child = bd_runs_auth(&registry);
+  let sessions = Arc::new(Sessions::new(
+    tokio::runtime::Handle::current(),
+    Arc::new(IdleHost::default()),
+    Arc::new(OneClock(Arc::new(TestClock::new()))),
+  ));
+  let watches = Watches::new(None, GIVEN_EVENTS);
+  let key = session("user");
+  let _watch = watches.watch(&sessions, &registry, &key);
+  let wake = watches.wake_of(&registry).expect("the watch of the registry");
+  wake.look();
+  looks_past(&wake, 0).await;
+  assert_eq!(wake.reads(), 1, "the look before the session opened read the registry");
+
+  let (patches, mut patched) = mpsc::unbounded_channel();
+  sessions.subscribe_from(&key, Box::new(Window(patches)), None).await.unwrap();
+  watches.read(&registry);
+  let shown = tokio::time::timeout(DEADLINE, async {
+    loop {
+      if view_operations(&sessions, &key).await.len() == 1 {
+        return;
+      }
+      patched.recv().await.unwrap();
+    }
+  })
+  .await;
+  shown.unwrap_or_else(|_elapsed| panic!("the read of the subscription showed no operation of bd within {DEADLINE:?}"));
   drop(child);
 }

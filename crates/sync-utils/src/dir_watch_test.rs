@@ -1,8 +1,10 @@
 use crate::dir_watch::{Fingerprints, Wake, WatchedDir, watch_from_with};
 use notify::Event;
-use notify::event::{EventKind, Flag, ModifyKind};
+use notify::event::{AccessKind, AccessMode, EventKind, Flag, ModifyKind};
 use pretty_assertions::assert_eq;
 use std::path::Path;
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::{Duration, Instant};
 
 /// An event of the system that names `paths`
 fn event(paths: &[&Path]) -> Event {
@@ -35,6 +37,101 @@ fn an_event_names_its_files_and_anything_else_of_the_directory_wakes_for_all() {
   }
   assert_eq!(watched.wake_of(&Ok(event(&[&dir.path().join("notes/lease/log")])), &NAMES), Wake::None);
   assert!(Wake::Any.names(2) && Wake::Named(0b10).names(1) && !Wake::Named(0b10).names(0) && !Wake::None.wakes());
+}
+
+/// An open, a read or a close without a write of a file of the directory changes nothing and wakes no waiter: inotify
+/// tells every open (`IN_OPEN`), the read of the waiter itself too, which would else ask a look of it, whose read asks
+/// the next, for ever. A close after a write (`IN_CLOSE_WRITE`) names its file, and a lost event wakes for all
+#[test]
+fn an_open_a_read_or_a_close_without_a_write_wakes_no_waiter() {
+  let dir = tempfile::tempdir().unwrap();
+  let watched = WatchedDir::new(dir.path());
+  let registry = dir.path().join("operations.json");
+  let of = |kind: EventKind, path: &Path| Ok(Event::new(kind).add_path(path.to_path_buf()));
+
+  for nothing in [
+    AccessKind::Open(AccessMode::Any),
+    AccessKind::Read,
+    AccessKind::Close(AccessMode::Read),
+    AccessKind::Close(AccessMode::Execute),
+  ] {
+    assert_eq!(watched.wake_of(&of(EventKind::Access(nothing), &registry), &NAMES), Wake::None, "{nothing:?}");
+    assert_eq!(
+      watched.wake_of(&of(EventKind::Access(nothing), &dir.path().join("operations.lock")), &NAMES),
+      Wake::None,
+      "{nothing:?}"
+    );
+  }
+  assert_eq!(
+    watched.wake_of(&of(EventKind::Access(AccessKind::Close(AccessMode::Write)), &registry), &NAMES),
+    Wake::Named(0b1)
+  );
+  assert_eq!(watched.wake_of(&of(EventKind::Access(AccessKind::Any), &registry), &NAMES), Wake::Named(0b1));
+  let lost = Event::new(EventKind::Access(AccessKind::Open(AccessMode::Any))).add_path(registry).set_flag(Flag::Rescan);
+  assert_eq!(watched.wake_of(&Ok(lost), &NAMES), Wake::Any);
+}
+
+/// The names of the files `event` names
+fn names_of(event: &notify::Result<Event>) -> Vec<String> {
+  event.as_ref().map_or_default(|event| {
+    event
+      .paths
+      .iter()
+      .filter_map(|path| path.file_name())
+      .map(|name| name.to_string_lossy().into_owned())
+      .collect()
+  })
+}
+
+/// The watch of the system: the reads of a file of the directory wake no waiter, whatever it tells of them (inotify an
+/// open each, `IN_OPEN`; `FSEvents` and `ReadDirectoryChangesW` nothing), and a file renamed in after them, whose
+/// events come after theirs (inotify keeps the order), wakes. The reads begin once the stream told a write of its own
+/// (a probe): `FSEvents` drops the changes of its first moments. Its wait ends at a deadline with "no watch event" where
+/// the watch of the system runs behind the writes
+#[test]
+fn the_reads_of_a_file_of_the_directory_wake_no_waiter_on_the_watch_of_the_system() {
+  let dir = tempfile::tempdir().unwrap();
+  let registry = dir.path().join("operations.json");
+  std::fs::write(&registry, "{}").unwrap();
+  let (sender, events) = std::sync::mpsc::channel();
+  let _watcher = crate::dir_watch::watch(dir.path(), sender).unwrap();
+  let watched = WatchedDir::new(dir.path());
+  let deadline = Instant::now() + Duration::from_secs(30);
+  let no_event = || -> ! { panic!("no watch event within 30 s: the watch of the system runs behind the writes") };
+  let probe = dir.path().join("probe");
+  'live: loop {
+    std::fs::write(&probe, "a write the stream tells once it runs").unwrap();
+    loop {
+      match events.recv_timeout(Duration::from_millis(100)) {
+        Ok(event) if names_of(&event).iter().any(|name| name == "probe") => break 'live,
+        Ok(_) => {}
+        Err(RecvTimeoutError::Timeout) if Instant::now() < deadline => continue 'live,
+        Err(_) => no_event(),
+      }
+    }
+  }
+
+  for _ in 0..3 {
+    std::fs::read(&registry).unwrap();
+  }
+  let temporary = dir.path().join(".anchor.tmp");
+  std::fs::write(&temporary, "the change after the reads").unwrap();
+  crate::fs_retry::rename(&temporary, dir.path().join("anchor")).unwrap();
+  let mut of_reads = 0;
+  loop {
+    let event = events.recv_timeout(deadline.saturating_duration_since(Instant::now())).unwrap_or_else(|_| no_event());
+    let names = names_of(&event);
+    if names.iter().any(|name| name == "anchor" || name == ".anchor.tmp") {
+      assert!(watched.wake_of(&event, &NAMES).wakes(), "the file renamed in wakes: {event:?}");
+      break;
+    }
+    // the probe, told late, and the directory itself: no file of the reads
+    if names.iter().any(|name| name == "operations.json") {
+      of_reads += 1;
+      assert_eq!(watched.wake_of(&event, &NAMES), Wake::None, "an event of a read: {event:?}");
+    }
+  }
+  assert_eq!(of_reads > 0, cfg!(target_os = "linux"), "only inotify tells the reads of a file: {of_reads} events of them");
 }
 
 /// `FSEvents` names the real path of the directory (`/private/var/…` for `/var/…` on macOS): an event of it names the

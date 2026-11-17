@@ -318,16 +318,19 @@ impl Registry {
     };
     let watch = self.watches.watch(&self.sessions, &registry, key);
     let subscribed = self.sessions.subscribe_from(key, Box::new(Watching { subscriber, _watch: watch }), have).await;
-    // the session is open now: the first read shows in it
-    self.watches.look(&registry);
+    // the session is open now: the first read shows in it, also when the watch read the file before as it is now
+    self.watches.read(&registry);
     subscribed
   }
 
   /// Looks at the operations registry, the stamp and the journal of the repository of the session of `key` at once, when
-  /// a window watches it: a window of it gained the focus (until 2026-11-15 a focus read the registry alone, and a
-  /// journal whose event was lost told Activity nothing)
+  /// a window watches it, and reads the registry whatever its stat (`Wake::read`): a window of it gained the focus, and
+  /// shows the registry as it is now, whether the processes of its records still run (until 2026-11-15 a focus read the
+  /// registry alone, and a journal whose event was lost told Activity nothing)
   pub async fn reread(&self, key: &SessionKey) {
-    self.look(key).await;
+    if let Some(registry) = self.files.registry_of(key).await {
+      self.watches.read(&registry);
+    }
   }
 
   /// Looks at the registry, the stamp and the journal of the repository of the session of `key` at once, as an event of

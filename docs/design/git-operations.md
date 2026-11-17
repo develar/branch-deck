@@ -4437,7 +4437,24 @@ names of its files anywhere else):
   `$GIT_COMMON_DIR/branch-deck` is watched (`sync_utils::dir_watch`: FSEvents, inotify, `ReadDirectoryChangesW`; one
   watch per repository for all its sessions, no git process). An event is a hint ([A watch is a
   hint](async-patterns.md#a-watch-is-a-hint)): any event of the directory, and every 2 s without one, is a look of the
-  task of the repository, which applies one read at a time. A look reads `operations.json` again without the lock: the records of the other processes that hold what they hold
+  task of the repository, which applies one read at a time. A look stats `operations.json`, the stamp and the journal
+  (`Fingerprints`: the size, the time and the file id, which the rename of every write changes) and reads
+  `operations.json` again without the lock when its stat changed since the last look, at the first look, at the one
+  of a session that joins the watch or of a focus (`Wake::read`), after a read that failed, and once the last read is
+  2 s old (`WatchConfig::recheck`: which records hold depends on whether their processes still run and on the age of
+  their heartbeats, and a stat may miss a change where the system gives a file id again at once, as ext4 reuses an
+  inode); the wait for the next look ends when that read is due at the latest, so a look of an event that read nothing
+  never puts it off (`a_change_no_stat_tells_shows_a_recheck_after_the_last_read_though_a_look_of_an_event_came_between`).
+  A session is given what a read found only once the change reached its actor (`Watches::given`), so one that opens
+  after a read of the watch gets it from the read of its subscription
+  (`a_read_before_the_session_opened_records_nothing_as_given_so_the_subscription_shows_it`). Until 2026-11-17 every
+  look read it, and every write of another file of the directory read and applied the registry again: a full E2E run
+  (1255 tests, 240 s, 14 watches at a time) read it 12 984 times, once per look, for 71 186 events of the watchers, most
+  of them of the holder files of the locks beside it (`lease.lock.holder` 40 %, `operations.lock.holder` 16 %: each
+  written by a rename at the lock and removed at its release) and of `landed.json` (11 %), the registry itself 13 %. Now
+  such an event costs four stats: the same run read it 3 448 times in 15 726 looks
+  (`a_look_reads_the_registry_only_once_it_changed_a_session_joined_or_its_last_read_is_a_recheck_old`). In a read,
+  the records of the other processes that hold what they hold
   (alive, or `unknown`) of the branch prefix of each session, of any worktree, become its operations of other processes
   (`OperationPatch::Foreign`, `Origin::OtherProcess { tool, pid }`), in place of the ones read before. The rows show them
   ("brd: Safe Push of auth…", the pid on hover), and a start of their row says why it can't start before any IPC; any
@@ -4447,11 +4464,13 @@ names of its files anywhere else):
   or tells Activity of the journal only when its stat changed since the last look (`Fingerprints`). An event of a name
   the watch does not know (the temporary file of a rename over the registry, which may come as its only event), of the
   directory itself, a lost event (`need_rescan`: the queue of FSEvents or inotify overflowed) and an error are a look
-  too (`an_event_that_may_be_a_change_of_the_directory_asks_for_a_look`). Until 2026-11-15 only an event of a known name
-  or a lost event woke the task, and a window under an overloaded fseventsd showed another process's operations and
-  synced for a stamp only at a focus. A window of the session that gains the focus looks at once (`set_window_focus`:
-  the registry, the stamp and the journal), as does each admission of the app, which wrote the file; a watch the system
-  refused leaves the looks. When the looks in a row that find the git directory of the repository missing (`NotFound`)
+  too (`an_event_that_may_be_a_change_of_the_directory_asks_for_a_look`); an open, a read or a close without a write is
+  none (`an_open_a_read_or_a_close_without_a_write_wakes_no_waiter`): inotify tells every open of a file of the
+  directory, the read of the look itself too, which on Linux asked the next look, for ever. Until 2026-11-15 only an
+  event of a known name or a lost event woke the task, and a window under an overloaded fseventsd showed another
+  process's operations and synced for a stamp only at a focus. A window of the session that gains the focus looks at
+  once and reads the registry (`set_window_focus`: the registry, the stamp and the journal), as does each admission of
+  the app, which wrote the file; a watch the system refused leaves the looks. When the looks in a row that find the git directory of the repository missing (`NotFound`)
   span 2 s from the first of them (`GONE_SPAN`, a `RECHECK`: the repository was deleted, while an external disk or a
   share away for a moment is back at the next look, and the burst of events of a volume that unmounts brings two looks
   within milliseconds), the watch closes the sessions that watch it (`Sessions::close_worktree`) instead of syncing, a

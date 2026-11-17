@@ -6,7 +6,9 @@
 //!   event that names the directory or no file at all (`need_rescan`: `MUST_SCAN_SUBDIRS`), and a rename over a file may
 //!   come as an event of its temporary name only (`write_atomically`). Such an event, an event of any name of the
 //!   directory that the waiter does not look at, and an error of the watcher are `Wake::Any`: any of its files may have
-//!   changed, and the waiter looks at each (`Fingerprints`).
+//!   changed, and the waiter looks at each (`Fingerprints`). An open, a read or a close without a write (inotify tells
+//!   every open of a file of the directory, whoever opened it, the read of the waiter itself too) changes nothing and
+//!   wakes no waiter: a waiter that reads a file at a look would else look again at its own read, and again, for ever.
 //! - **A look of its own is the guarantee.** A waiter looks again at least every `RECHECK` without an event: with
 //!   fseventsd at 100 % CPU a watch told no change of a file for 28 s and more, and a wait for its event hung.
 //!
@@ -15,14 +17,16 @@
 //! `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, and a
 //! first look after the watcher could take that change as where it starts.
 
-use notify::{Event, EventHandler, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{AccessKind, AccessMode};
+use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// How often a waiter on a watch looks again without an event. A look of the operations registry with its stamp and
-/// journal (a read of `operations.json` with three records, two stats) took 0.14 ms at a load of 64 (2026-11-15), less
-/// than 0.01 % of a core every 2 s, while an operation of another process or a stamp of `brd` shows within 2 s even when
-/// the watch tells nothing
+/// journal that reads the registry too (a read of `operations.json` with three records, then two stats; since
+/// 2026-11-17 four stats, and the read only when it is due) took 0.14 ms at a load of 64 (2026-11-15), less than
+/// 0.01 % of a core every 2 s, while an operation of another process or a stamp of `brd` shows within 2 s even when the
+/// watch tells nothing
 pub const RECHECK: Duration = Duration::from_secs(2);
 
 /// The most files a waiter looks at in one directory: a bit each in `Wake::Named` and `Fingerprints::look`
@@ -105,13 +109,17 @@ impl WatchedDir {
 
   /// What `event` tells of the files `names` of the directory (at most `MAX_FILES`): those it names; any of them for an
   /// error, a lost event (`need_rescan`), an event without a path or of the directory itself, and an event of another
-  /// name of the directory (a temporary file renamed over one of them, a file the waiter does not know)
+  /// name of the directory (a temporary file renamed over one of them, a file the waiter does not know); none for an
+  /// open, a read or a close without a write (`changes_nothing`)
   #[must_use]
   pub fn wake_of(&self, event: &notify::Result<Event>, names: &[&str]) -> Wake {
     debug_assert!(names.len() <= MAX_FILES, "{} names", names.len());
     let Ok(event) = event else { return Wake::Any };
     if event.need_rescan() || event.paths.is_empty() {
       return Wake::Any;
+    }
+    if changes_nothing(event.kind) {
+      return Wake::None;
     }
     let mut bits = 0_u64;
     for path in &event.paths {
@@ -128,6 +136,16 @@ impl WatchedDir {
     }
     if bits == 0 { Wake::None } else { Wake::Named(bits) }
   }
+}
+
+/// Whether an event of `kind` changes no file: an open, a read, a close without a write, which inotify tells of every
+/// file of the directory (`IN_OPEN`), the reads of the waiter itself too. A close after a write (`IN_CLOSE_WRITE`) and an
+/// access of a kind it does not say are a change
+const fn changes_nothing(kind: EventKind) -> bool {
+  matches!(
+    kind,
+    EventKind::Access(AccessKind::Open(_) | AccessKind::Read | AccessKind::Close(AccessMode::Read | AccessMode::Execute))
+  )
 }
 
 /// The non-recursive watch of `dir` (made when missing), which gives each event to `handler`; an error when the system

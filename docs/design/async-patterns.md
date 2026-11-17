@@ -220,7 +220,9 @@ watches):
    and coalesces events under load and tells it as `MUST_SCAN_SUBDIRS` (`need_rescan`) or as an event of the directory
    itself, and a rename over a file (`write_atomically`) may come as an event of its temporary name only. Such an
    event, an event of any name of the directory the waiter does not know, and an error of the watcher wake for every
-   file the waiter looks at (`WatchedDir::wake_of`, `Wake::Any`); an event below the directory wakes none.
+   file the waiter looks at (`WatchedDir::wake_of`, `Wake::Any`); an event below the directory wakes none, and so does
+   an open, a read or a close without a write: inotify tells every open of a file of the directory (`IN_OPEN`), the
+   read of the waiter itself too, so a waiter that reads a file at a look would look again at its own read, for ever.
 2. **Every wait on a watch has a bounded look of its own.** The waiter takes its first look before the watcher starts
    (`dir_watch::watch_from`, whose test holds the order, and the only source of `Fingerprints`, so no waiter can take a
    first look after its watcher):
@@ -228,9 +230,10 @@ watches):
    moments without telling it (a write 25 ms after the start, 3 of 40 rounds on notify 8.2.1), which the next look then
    finds. It looks again at least every `dir_watch::RECHECK` (2 s) without an event, and at once at a focus of a
    window, and acts on what a stat says changed since its last look (`Fingerprints`), whatever woke it:
-   a look of the registry with its stamp and journal is one read of `operations.json` and two stats, 0.14 ms at a load
-   of 64, so a window of each watched repository shows an operation of another process or syncs for a stamp of `brd`
-   within 2 s with no event at all.
+   a look of the registry with its stamp and journal is four stats, with a read of `operations.json` when its stat
+   changed or its last read is 2 s old (0.14 ms with the read at a load of 64), so a window of each watched repository
+   shows an operation of another process or syncs for a stamp of `brd` within 2 s with no event at all, and an event
+   of another file of the directory reads nothing.
 
 A test of a watch says which path it tests: the guarantee with a watch that tells nothing (`WatchConfig { events:
 false }`, looks every 50 ms), the reaction to an event with events it gives itself (no look, no event of the system),
@@ -239,7 +242,7 @@ and one test of the events of the system, which fails in seconds with "no watch 
 
 | Watch | Rule 1 | Rule 2 | Since 2026-11-15 |
 |---|---|---|---|
-| `operations::registry_watch`: `operations.json`, the stamp, the journal | a lost event yes, an event of another name or of the directory no | none: a focus or an admission read the registry alone, a stamp waited for a focus, a journal for its next change | both rules: a look every 2 s and at a focus, the first before the watcher, any event a look |
+| `operations::registry_watch`: `operations.json`, the stamp, the journal | a lost event yes, an event of another name or of the directory no | none: a focus or an admission read the registry alone, a stamp waited for a focus, a journal for its next change | both rules: a look every 2 s and at a focus, the first before the watcher, any event a look; since 2026-11-17 a look reads the registry only when its stat changed, a session joined, a focus asked, a read failed or its last read is 2 s old, and the next look comes when that read is due at the latest |
 | `app_settings::watch`: `settings.json`, `repository-state.json` | a lost event yes, another name no | none: the next save of the writer | both rules: the writer looks every 2 s while nothing is due; no window at the start, as it reads both files once its watch started |
 | `lease_pool::host_slots::TableWake`: the table of the host slots, the heavy turn | an error yes, a lost event and another name no (the rename of `heavy.json` came as its temporary file only) | yes: a look every 5 s (`WAIT_RECHECK`, `host_turn::RECHECK`) | rule 1; no window at the start, as each look reads the table |
 | `host-agent` `watch::Watch`: `events.log` and the directory of a run (kqueue) | a vnode event of a named file: no rescan, no fseventsd | yes: each wait ends at its timeout, then the follow reads the files | none |

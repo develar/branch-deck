@@ -5,7 +5,9 @@
 //!
 //! - a change of `operations.json` reads it again, and the records of the other processes that hold what they hold
 //!   (`registry_file::others`) of the branch prefix of each session become its operations of other processes
-//!   (`OperationPatch::Foreign`, `Origin::OtherProcess`): the rows show "bd: Safe Push of auth…";
+//!   (`OperationPatch::Foreign`, `Origin::OtherProcess`): the rows show "bd: Safe Push of auth…". It is read again a
+//!   `RECHECK` after the last read whatever the file: which records hold depends on whether their processes still run
+//!   and on the age of their heartbeats too;
 //! - a change of `stamp`, which `bd` touches after every mutation (`touch_stamp`), asks each session for a sync that runs
 //!   when the inputs changed (`SyncReason::Stamp`): the regroup of an agent shows within a second, without a focus;
 //! - a change of `journal.jsonl` (an operation of this process or of another ended) tells the listener of the journal
@@ -14,18 +16,22 @@
 //! An event is a hint, never the guarantee (`sync_utils::dir_watch`, docs/design/async-patterns.md, "A watch is a
 //! hint"): with fseventsd at 100 % CPU the watch told no change of the file for 28 s and more. So the task of a
 //! repository looks at the three files on every event of the directory and at least every `dir_watch::RECHECK` without
-//! one: it reads the registry, and syncs for the stamp and tells of the journal when its stat changed since its last
-//! look (`Fingerprints`). An event of any name of the directory, of the directory itself, a lost event (`need_rescan`:
-//! the queue of `FSEvents` or inotify overflowed) and an error of the watcher are a look too: a rename over a file may
-//! come as an event of its temporary name only. A window that gains the focus looks at once (`Registry::reread`), and so
-//! does each admission of an operation into the file, which writes it. The first look is taken before the watcher
-//! starts: `FSEvents` registers a stream after `FSEventStreamStart` returned and from "now", so it drops a change of its
-//! first moments without telling it (a write 25 ms after the start, 3 of 40 rounds on notify 8.2.1), which the first
-//! look of the task then finds.
+//! one: a look stats them, reads the registry, syncs for the stamp and tells of the journal when its stat changed since
+//! the last look (`Fingerprints`: the size, the time and the file id, which the rename of every write of each changes),
+//! and reads the registry also when a session joined the watch or a window gained the focus, after a read that failed,
+//! and once its last read is a `RECHECK` old: the wait for the next look ends then at the latest. An event of any
+//! name of the directory, of the directory itself, a lost event (`need_rescan`: the queue of `FSEvents` or inotify
+//! overflowed) and an error of the watcher are a look too: a rename over a file may come as an event of its temporary
+//! name only. So the events of the other files of the directory (the leases, the landed commits, the lock files) and of
+//! the stamp and the journal cost a look of stats, never a read of the registry. A window that gains the focus looks at
+//! once (`Registry::reread`), and so does each admission of an operation into the file, which writes it. The first look
+//! is taken before the watcher starts: `FSEvents` registers a stream after `FSEventStreamStart` returned and from
+//! "now", so it drops a change of its first moments without telling it (a write 25 ms after the start, 3 of 40 rounds on
+//! notify 8.2.1), which the first look of the task then finds.
 //!
 //! One task per repository reads the file and applies what it read, one read at a time, so a session never shows an older
 //! read after a newer one; the events that come while it reads are one read after it. The watch runs no git process: a
-//! look is one read of the registry and two stats.
+//! look is four stats (the git directory and the three files), and a read of the registry when it is due.
 
 use crate::registry::JournalListener;
 use crate::registry_file::{ProcessRegistry, Record};
@@ -49,12 +55,13 @@ use tracing::{Instrument, debug, warn};
 /// The name of the stamp in the directory of the registry
 const STAMP: &str = "stamp";
 
-/// The files of the directory of the registry that a look reads: the registry, the stamp, the journal
+/// The files of the directory of the registry whose stat a look compares: the registry, the stamp, the journal
 const NAMES: [&str; 3] = [crate::registry_file::FILE, STAMP, crate::journal::FILE];
 
-/// The stamp and the journal in the `Fingerprints` of a look, a bit each
-const STAMP_CHANGED: u64 = 0b01;
-const JOURNAL_CHANGED: u64 = 0b10;
+/// The registry, the stamp and the journal in the `Fingerprints` of a look, a bit each, in the order of `NAMES`
+const REGISTRY_CHANGED: u64 = 0b001;
+const STAMP_CHANGED: u64 = 0b010;
+const JOURNAL_CHANGED: u64 = 0b100;
 
 /// The time the looks in a row that find the git directory of the repository missing must span before its sessions
 /// close, from the first of them, so two looks at least: a volume that was away for a moment (an external disk, a
@@ -85,9 +92,11 @@ fn common_dir_state(common_dir: &Path) -> CommonDir {
   }
 }
 
-/// The clock of the looks that find the git directory missing (`GONE_SPAN`); a test stops it and moves it on (`seam`)
+/// The clock of the looks: the span of the looks that find the git directory missing (`GONE_SPAN`) and when a read of
+/// the registry is due, the clock of the runtime, whose timers end the waits of the task (a test pauses it); a test
+/// stops it and moves it on (`seam`)
 fn now() -> Instant {
-  let now = Instant::now();
+  let now = tokio::time::Instant::now().into_std();
   #[cfg(test)]
   let now = seam::clock(now);
   now
@@ -148,6 +157,8 @@ impl LookCounts {
 pub(crate) struct Wake {
   notify: Notify,
   look: AtomicBool,
+  /// The next look reads the registry whatever its stat (`Wake::read`)
+  read: AtomicBool,
   /// The looks that found the stamp changed and asked the syncs of the sessions, counted before the read of the
   /// registry of the same look: a test that saw the patch of that read sees the count of that look
   stamps: std::sync::atomic::AtomicU64,
@@ -169,6 +180,20 @@ impl Wake {
     self.notify.notify_one();
   }
 
+  /// A look that reads the registry whatever its stat: a session joined the watch, and shows the operations of the
+  /// other processes from that read, as the file may be as the last read found it; a window gained the focus, and shows
+  /// the registry as it is now
+  pub(crate) fn read(&self) {
+    self.read.store(true, Ordering::SeqCst);
+    self.look();
+  }
+
+  /// How many looks read the registry
+  #[cfg(test)]
+  pub(crate) fn reads(&self) -> u64 {
+    self.reads.load(Ordering::SeqCst)
+  }
+
   /// A look finished: one of the clock when `tick`
   fn took(&self, tick: bool) {
     if tick {
@@ -184,7 +209,7 @@ impl Wake {
       events: self.events.load(Ordering::Relaxed),
       looks: self.looks.load(Ordering::SeqCst),
       ticks: self.ticks.load(Ordering::Relaxed),
-      reads: self.reads.load(Ordering::Relaxed),
+      reads: self.reads.load(Ordering::SeqCst),
     }
   }
 
@@ -293,6 +318,14 @@ impl Watches {
     }
   }
 
+  /// A look at the files of `registry` that reads the registry whatever its stat (`Wake::read`): a session
+  /// subscribed, a window gained the focus
+  pub(crate) fn read(&self, registry: &ProcessRegistry) {
+    if let Some(watch) = self.lock().get(registry) {
+      watch.wake.read();
+    }
+  }
+
   /// The wake of the watch of `registry`, which a test of the events gives its events to
   #[cfg(test)]
   pub(crate) fn wake_of(&self, registry: &ProcessRegistry) -> Option<Arc<Wake>> {
@@ -304,22 +337,30 @@ impl Watches {
     self.lock().get(registry).map_or_default(|watch| watch.keys.keys().cloned().collect())
   }
 
-  /// The sessions that watch `registry` whose operations of other processes `foreign` changes (each the ones of its
-  /// branch prefix), with those operations, which they are given from now on
+  /// The sessions that watch `registry` whose operations of other processes `foreign` changes from what they were given
+  /// (each the ones of its branch prefix), with those operations; `given` records what reached a session
   fn changed(&self, registry: &ProcessRegistry, foreign: impl Fn(&SessionKey) -> Vec<RunningOperation>) -> Vec<(SessionKey, Vec<RunningOperation>)> {
-    let mut watches = self.lock();
-    let Some(watch) = watches.get_mut(registry) else {
+    let watches = self.lock();
+    let Some(watch) = watches.get(registry) else {
       return Vec::new();
     };
     let mut changed = Vec::new();
-    for (key, watching) in &mut watch.keys {
+    for (key, watching) in &watch.keys {
       let now = foreign(key);
       if now != watching.shown {
-        watching.shown.clone_from(&now);
         changed.push((key.clone(), now));
       }
     }
     changed
+  }
+
+  /// The session of `key` was given `operations` (the change reached its actor), which a read from now compares with: a
+  /// read that found no session (one that watches before its subscription opened it) records nothing, so the next read
+  /// gives them again
+  fn given(&self, registry: &ProcessRegistry, key: &SessionKey, operations: Vec<RunningOperation>) {
+    if let Some(watching) = self.lock().get_mut(registry).and_then(|watch| watch.keys.get_mut(key)) {
+      watching.shown = operations;
+    }
   }
 
   fn unwatch(&self, registry: &ProcessRegistry, key: &SessionKey) {
@@ -358,8 +399,9 @@ impl Drop for SessionWatch {
 }
 
 /// The watch of `registry` and its task: the events of the watcher wake the task, which reads and applies; a watch the
-/// system refuses leaves the task to the reads that are asked (`Watches::reread`). The task logs in the span
-/// `registry_watch`, a root as the span of an actor: it serves the sessions of the repository, no one operation
+/// system refuses leaves the task to its own looks and the ones asked (`Watches::look`, `Watches::read`). The task
+/// logs in the span `registry_watch`, a root as the span of an actor: it serves the sessions of the repository, no one
+/// operation
 fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches) -> RepositoryWatch {
   let wake = Arc::new(Wake::default());
   let config = watches.config;
@@ -411,17 +453,19 @@ pub(crate) fn woken(wake: &Wake, dir: &WatchedDir, event: &notify::Result<Event>
   }
 }
 
-/// The files of the directory `dir` of a registry whose stat a look compares: the stamp and the journal, in the order of
-/// `STAMP_CHANGED` and `JOURNAL_CHANGED` (the registry is read at every look)
+/// The files of the directory `dir` of a registry whose stat a look compares: the registry, the stamp and the journal,
+/// in the order of `NAMES` and of `REGISTRY_CHANGED`, `STAMP_CHANGED` and `JOURNAL_CHANGED`
 fn watched_paths(dir: &Path) -> Vec<PathBuf> {
-  vec![dir.join(STAMP), crate::journal::journal_path_in(dir)]
+  NAMES.iter().map(|name| dir.join(name)).collect()
 }
 
 /// The task of the watch of `registry`: each look asked, and one every `recheck` without one, reads the registry, asks
 /// the syncs of a stamp and tells of the journal when their stat changed since the last look (`fingerprints`, the first
-/// taken before the watcher started). Once the looks in a row that find the git directory of the repository missing span
-/// `GONE_SPAN`, a look closes the sessions that watch it instead (`Sessions::close_worktree`); another error of its stat
-/// leaves them, told once
+/// taken before the watcher started); it reads the registry also at its first look, at a look a session or a focus
+/// asked (`Wake::read`), at the look after a read that failed, and once its last read is `recheck` old (`RECHECK`
+/// without one). Once the looks in a row that find the git directory of the repository missing span `GONE_SPAN`, a look
+/// closes the sessions that watch it instead (`Sessions::close_worktree`); another error of its stat leaves them, told
+/// once
 async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watches, wake: Arc<Wake>, fingerprints: Fingerprints, recheck: Option<Duration>) {
   let dir = registry.dir().to_path_buf();
   // shared with the look of each round on the blocking pool, so a look that fails keeps the last one
@@ -429,9 +473,21 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
   // when the first of the looks in a row that found the git directory missing looked, and whether the last look could
   // not tell (told once)
   let (mut missing, mut unreadable): (Option<Instant>, bool) = (None, false);
+  // the age of the last read at which a look reads the registry again though its stat is as it was: the records the
+  // sessions show depend on whether their processes still run and on the age of their heartbeats, not on the file
+  // alone (`registry_file::others`), and a stat may miss a change (a file id the system gives again at once, as ext4
+  // reuses an inode, within the tick of the file times; a file id of 0); so a window shows that within a `RECHECK`
+  let reread = recheck.unwrap_or(dir_watch::RECHECK);
+  // when a read of the registry is due whatever its stat: none at first, after a read that failed and while the git
+  // directory is away, so the next look that finds the files reads it (the sessions open without the operations of the
+  // other processes)
+  let mut read_due: Option<Instant> = None;
   loop {
     let ticked = if let Some(every) = recheck {
-      tokio::time::timeout(every, wake.notify.notified()).await.is_err()
+      // the next look comes when the read is due at the latest, whatever the looks since the last read did: a look of
+      // an event that read nothing would else put it off, a change no stat tells shown up to two `recheck` late
+      let wait = read_due.map_or(every, |due| every.min(due.saturating_duration_since(now())));
+      tokio::time::timeout(wait, wake.notify.notified()).await.is_err()
     } else {
       wake.notify.notified().await;
       false
@@ -474,6 +530,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
             sessions.close_worktree(&key.worktree);
           }
         }
+        read_due = None;
         wake.took(!asked);
         continue;
       }
@@ -483,6 +540,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
           warn!(registry = %dir.display(), %error, "the git directory of the repository can't be read: its sessions stay, the next look asks again");
           unreadable = true;
         }
+        read_due = None;
         wake.took(!asked);
         continue;
       }
@@ -494,8 +552,15 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
         drop(sessions.sync(&key, SyncReason::Stamp));
       }
     }
-    show(&sessions, &registry, &watches).await;
-    wake.reads.fetch_add(1, Ordering::Relaxed);
+    // a read asked counts only once the files are there: a session that joined while they were away reads at the next
+    // look that finds them
+    let asked_read = wake.read.swap(false, Ordering::SeqCst);
+    let at = now();
+    if changed & REGISTRY_CHANGED != 0 || asked_read || read_due.is_none_or(|due| at >= due) {
+      // a read that failed is due again at the next look: the stat it followed is the last one now
+      read_due = show(&sessions, &registry, &watches).await.then(|| at + reread);
+      wake.reads.fetch_add(1, Ordering::SeqCst);
+    }
     if changed & JOURNAL_CHANGED != 0 {
       watches.journaled(&registry);
     }
@@ -504,23 +569,37 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
 }
 
 /// Reads the records of the other processes of `registry` and gives each session that watches it those of its branch
-/// prefix, when they changed
-async fn show(sessions: &Sessions, registry: &ProcessRegistry, watches: &Watches) {
+/// prefix, when they changed since what reached it (`Watches::given`); whether it read them
+async fn show(sessions: &Sessions, registry: &ProcessRegistry, watches: &Watches) -> bool {
   let read = registry.clone();
-  let records = match tokio::task::spawn_blocking(in_current_span(move || read.of_other_processes())).await {
+  let records = match tokio::task::spawn_blocking(in_current_span(move || read_records(&read))).await {
     Ok(Ok(records)) => records,
     Ok(Err(error)) => {
       warn!("cannot read the operations registry: {error}");
-      return;
+      return false;
     }
     Err(error) => {
       warn!("the read of the operations registry failed: {error}");
-      return;
+      return false;
     }
   };
   for (key, foreign) in watches.changed(registry, |key| of_prefix(&records, &key.prefix)) {
-    drop(sessions.apply(&key, move |state| state.apply_operation(OperationPatch::Foreign(foreign))));
+    let given = foreign.clone();
+    if sessions.apply(&key, move |state| state.apply_operation(OperationPatch::Foreign(foreign))).is_sent() {
+      watches.given(registry, &key, given);
+    }
   }
+  true
+}
+
+/// The records of the other processes of `registry` (`ProcessRegistry::of_other_processes`); a test scripts a failure
+/// of the read (`seam`)
+fn read_records(registry: &ProcessRegistry) -> std::io::Result<Vec<Record>> {
+  #[cfg(test)]
+  if let Some(kind) = seam::next_read() {
+    return Err(std::io::Error::from(kind));
+  }
+  registry.of_other_processes()
 }
 
 /// The operations of `records` that a session of `prefix` shows: the ones of its prefix in any worktree, whose
@@ -540,6 +619,16 @@ pub(crate) mod seam {
   use std::time::{Duration, Instant};
 
   static STATS: Mutex<VecDeque<ErrorKind>> = Mutex::new(VecDeque::new());
+  static READS: Mutex<VecDeque<ErrorKind>> = Mutex::new(VecDeque::new());
+
+  /// The next reads of the registry fail with `kinds`, one each, then read the file
+  pub(crate) fn script_reads(kinds: &[ErrorKind]) {
+    READS.lock().unwrap_or_else(PoisonError::into_inner).extend(kinds);
+  }
+
+  pub(super) fn next_read() -> Option<ErrorKind> {
+    READS.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
+  }
 
   /// The next looks find the git directory failing with `kinds`, one each, then as it is
   pub(crate) fn script_stats(kinds: &[ErrorKind]) {
