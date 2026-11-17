@@ -59,7 +59,8 @@ per rule and links here.
 ## The crates of psi-syntax
 
 `code-symbols` (the summaries, the highlighting, the navigation and the bindings of the names the marks ask),
-`code-tokens`, `line-diff`, `diff-marks`, `spec-syntax`, `js-syntax` (with `tsconfig`) and the parsers below them are
+`code-tokens`, `line-diff`, `diff-marks`, `spec-syntax`, `js-syntax` (with `tsconfig`), `bazel-build` (the targets of
+a Bazel build file and their labels) and the parsers below them are
 accio's `psi-syntax/crates/`, which accio's `accio diff` reads too. Branch Deck links them from develar/psi-syntax, the
 public mirror of accio's `psi-syntax/`, at one revision: the `rev` of their lines of `[workspace.dependencies]` in the
 root `Cargo.toml`, the same as `file_diffs::PSI_SYNTAX_REVISION` (`the_psi_syntax_revision_is_the_one_cargo_builds`
@@ -73,7 +74,7 @@ repository, so a change of one is never an edit here:
    ```bash
    accio=~/projects/accio   # or the lease of accio that holds the change
    patches=()
-   for crate in code-symbols code-tokens csharp-syntax diff-marks java-syntax js-syntax kotlin-syntax line-diff \
+   for crate in bazel-build code-symbols code-tokens csharp-syntax diff-marks java-syntax js-syntax kotlin-syntax line-diff \
      psi-builder rust-syntax spec-syntax starlark-syntax; do
      patches+=(--config "patch.\"https://github.com/develar/psi-syntax\".$crate.path=\"$accio/psi-syntax/crates/$crate\"")
    done

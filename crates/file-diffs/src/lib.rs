@@ -36,7 +36,7 @@ mod worktree;
 /// keyed by it (`code_tokens::tokens_version`), `line-diff` and `diff-marks`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`). A new revision makes the stored diffs (`file_diff`) and
 /// summaries (`blob_summary`) again; the highlighting is kept in memory only
-pub const PSI_SYNTAX_REVISION: &str = "a26787b231d3321689a1171a9a0ee38424067336";
+pub const PSI_SYNTAX_REVISION: &str = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9";
 
 /// The version of the summaries of this build (`code_symbols::extract::extractor_version` of `PSI_SYNTAX_REVISION`): the
 /// one the `blob_summary` store is read and written by, so a summary of other rules or other parsers is made again

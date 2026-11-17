@@ -89,18 +89,20 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 axum = "0.8.9"
 
 # The crates of psi-syntax: the parsers, the tokens, the comparison and the marks of a diff, the summaries, the
-# highlighting and the navigation of a file (`code-symbols`), the reader of the specs. One revision of
-# develar/psi-syntax, the public mirror of accio's `psi-syntax/`, for all of them, named here alone
+# highlighting and the navigation of a file (`code-symbols`), the reader of the specs, the reader of a Bazel build file
+# (`bazel-build`). One revision of develar/psi-syntax, the public mirror of accio's `psi-syntax/`, for all of them,
+# named here alone
 # (`file_diffs::PSI_SYNTAX_REVISION` is the same, `the_psi_syntax_revision_is_the_one_cargo_builds` checks Cargo.lock
 # against it): a change of one of them is a commit of accio, then the mirror, then this revision, which makes the
 # stored diffs and summaries again (docs/contributing/rust-rules.md#the-crates-of-psi-syntax). The parsers come through
 # `code-symbols` and `code-tokens`, each with every language (its default features)
-code-symbols = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
-code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
-diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
-js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
-spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "a26787b231d3321689a1171a9a0ee38424067336" }
+bazel-build = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+code-symbols = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
+spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b38b33006e7eed59fa433f3516b6e6c9" }
 # The LMDB environment of the object cache, shared with accio (decision 2026-11-09-lmdb-env-in-psi-syntax of accio), at
 # a revision of its own: it moves apart from the one above, which keys the cached summaries, so a fix of the
 # environment makes no summary again

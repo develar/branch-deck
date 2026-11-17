@@ -51,4 +51,11 @@ fn the_reason_reads_as_words() {
   );
   assert_eq!(GeneratedBy::Name { name: GeneratedName::LockFile }.describe(), "its name: a lock file");
   assert_eq!(GeneratedBy::Attribute.describe(), "its git attributes: linguist-generated or -diff");
+  assert_eq!(
+    GeneratedBy::Region {
+      name: "auto-generated section `build a.b`".to_string()
+    }
+    .describe(),
+    "its region \"auto-generated section `build a.b`\", which a tool writes"
+  );
 }

@@ -6,24 +6,31 @@
 //!   directory, and not in `.idea`, whose root is `idea-plugin`: its `depends`, its `dependencies` `plugin` and
 //!   `module`, its `content` `module`), a `Cargo.toml` (`dependencies`, `dev-dependencies`, `build-dependencies`, the
 //!   same tables of each `target`, and `workspace.dependencies`) and a `package.json` (`dependencies`,
-//!   `devDependencies`, `peerDependencies`). Each is read before the first commit that changes it and after the last.
+//!   `devDependencies`, `peerDependencies`) and a Bazel `BUILD` or `BUILD.bazel` (the labels each named target writes
+//!   by attribute, read by psi-syntax's `bazel_build`, which accio reads too, of the targets outside the regions a tool
+//!   writes, `diff_marks::regions`: those the `*.iml` they are generated from names). Each is read before the first
+//!   commit that changes it and after the last.
 //! - **An entry** has a kind, a name, a version (`Cargo.toml`, `package.json`), a scope and its section. Before and
 //!   after, the entries of one kind and name pair first by their section, then in their order. A pair is `Changed`
 //!   when its version or its scope differs; the rest are `Added` or `Removed`.
 //! - **The module** of a manifest is the name of an `*.iml`, the `id` of a plugin descriptor (else the name of the
 //!   file), the `package.name` of a `Cargo.toml` or the `name` of a `package.json`, else the name of its directory. A
 //!   `Cargo.toml` or `package.json` at the root of the repository without a name, a workspace, is the module `(root)`:
-//!   no crate or package name has parentheses.
+//!   no crate or package name has parentheses. A `BUILD` file is the module of its directory, and one whose targets all
+//!   stand in the regions a tool writes is no manifest.
 //! - **A new manifest** is a `NewModule` entry `Added`, a deleted one a `NewModule` entry `Removed`.
 //! - **The state** of a manifest tells `files::mechanical_kind` whether only its dependencies changed: its parsed form
 //!   without the entries (the remainder) is the same, and each entry of a pair is the same but for its version and
 //!   scope (`Entry::form`). A version bump together with a new feature of a crate is a `Changed` entry, and the
 //!   manifest changed beside its dependencies. A manifest that a side does not parse (no text, a syntax error) has no
-//!   change and is `Unparsed`.
+//!   change and is `Unparsed`, and so is a `BUILD` file with a statement the reader cannot read or a label it computes:
+//!   its labels may be more. The remainder of a `BUILD` file is `bazel_build::remainder`, its tokens without the
+//!   arguments that write labels alone.
 //! - **The text** comes with the text of the hunks (`manifest_blobs`): from the memory of the diffs, else in the batch
 //!   of the summaries.
 
 use crate::files::ChangedFile;
+use diff_marks::regions::generated_regions;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use serde::Serialize;
@@ -49,6 +56,8 @@ pub enum DependencyKind {
   Crate,
   /// A package of a `package.json`
   Package,
+  /// A label a target of a Bazel `BUILD` file writes, as written (`//platform/util`, `@lib//:kotlin-stdlib`, `:x`)
+  Target,
 }
 
 /// Where a dependency is used
@@ -144,9 +153,11 @@ enum Format {
   PluginXml,
   Cargo,
   Npm,
+  Bazel,
 }
 
-/// A manifest whose dependency entries the plan reads: a module file, a plugin descriptor, `Cargo.toml`, `package.json`
+/// A manifest whose dependency entries the plan reads: a module file, a plugin descriptor, `Cargo.toml`, `package.json`,
+/// a Bazel `BUILD` file
 pub(crate) fn is_manifest(path: &str) -> bool {
   format_of(path).is_some()
 }
@@ -154,6 +165,9 @@ pub(crate) fn is_manifest(path: &str) -> bool {
 /// The format of the manifest at `path`, by its name; a plugin descriptor is known by its root only
 fn format_of(path: &str) -> Option<Format> {
   let name = path.rsplit('/').next().unwrap_or(path);
+  if BAZEL_BUILD_FILES.contains(&name) {
+    return Some(Format::Bazel);
+  }
   let (_, extension) = name.rsplit_once('.')?;
   if extension.eq_ignore_ascii_case("iml") {
     Some(Format::Iml)
@@ -166,6 +180,15 @@ fn format_of(path: &str) -> Option<Format> {
   } else {
     None
   }
+}
+
+/// The names of a Bazel `BUILD` file
+const BAZEL_BUILD_FILES: [&str; 2] = ["BUILD.bazel", "BUILD"];
+
+/// Whether `path` is a Bazel `BUILD` file, whose remainder holds its `load` lines: a change of them alone is
+/// `importsOnly`, not a change beside its labels
+pub(crate) fn is_bazel_build(path: &str) -> bool {
+  format_of(path) == Some(Format::Bazel)
 }
 
 /// Whether the file at `path` can be a plugin descriptor by its path, which only its root tells for sure: what
@@ -216,6 +239,8 @@ enum Rest {
   Xml(String),
   Toml(toml::Table),
   Json(serde_json::Value),
+  /// The tokens of a `BUILD` file without the arguments that write labels alone (`bazel_build::remainder`)
+  Starlark(Vec<u8>),
 }
 
 /// A parsed manifest
@@ -401,7 +426,50 @@ fn parse(format: Format, path: &str, text: &str) -> Parsed {
     Format::PluginXml => parse_plugin(path, text),
     Format::Cargo => parse_cargo(path, text),
     Format::Npm => parse_npm(path, text),
+    Format::Bazel => parse_bazel(path, text),
   }
+}
+
+/// The labels the targets of the Bazel `BUILD` file at `path` write, of those outside the regions a tool writes (the
+/// `*.iml` they are generated from names their entries); `NotManifest` when every target stands in such a region,
+/// `Unparsed` for a statement the reader cannot read or a label a target computes, which may be more labels
+fn parse_bazel(path: &str, text: &str) -> Parsed {
+  let file = bazel_build::read(text.as_bytes());
+  let lines: Vec<&str> = text.split('\n').collect();
+  let regions = generated_regions(&lines);
+  let written = |target: &bazel_build::Target| !regions.iter().any(|region| region.holds(target.line.saturating_sub(1)));
+  let targets: Vec<&bazel_build::Target> = file.targets.iter().filter(|target| written(target)).collect();
+  if !regions.is_empty() && targets.is_empty() {
+    return Parsed::NotManifest;
+  }
+  if file.partial || targets.iter().any(|target| target.unknown.is_some()) {
+    return Parsed::Unparsed;
+  }
+  let entries = targets
+    .iter()
+    .flat_map(|target| {
+      let owner = target.name.as_deref().unwrap_or(&target.kind);
+      target.labels.iter().map(move |dep| Entry {
+        kind: DependencyKind::Target,
+        name: dep.label.clone(),
+        version: None,
+        scope: if target.test {
+          DependencyScope::Test
+        } else if matches!(dep.attr.as_str(), "runtime_deps" | "data") {
+          DependencyScope::Runtime
+        } else {
+          DependencyScope::Main
+        },
+        section: format!("{owner}.{}", dep.attr),
+        form: dep.label.clone(),
+      })
+    })
+    .collect();
+  Parsed::Manifest(Manifest {
+    module: directory_name(path).to_string(),
+    entries,
+    rest: Rest::Starlark(bazel_build::remainder(text.as_bytes())),
+  })
 }
 
 /// The name of the file at `path` without its last extension

@@ -92,7 +92,7 @@ fn media_range(repo: &TestRepo, players: usize, tests: Vec<(String, String)>, li
     "gui/media/src/b/Flags.kt".to_string(),
     "package b\n\nimport s.Flag\n\nclass Flags(val flag: Flag)\n".to_string(),
   ));
-  files.push(("gui/media/BUILD.bazel".to_string(), "# media\n".to_string()));
+  files.push(("gui/media/BUILD.bazel".to_string(), crate::test_support::generated_build("media")));
   files.push(("shared/src/s/Flag.kt".to_string(), "package s\n\nclass Flag(val on: Boolean)\n".to_string()));
   files.push(("spec/player.spec.md".to_string(), "# Player\n\nThe chat plays a video in its card.\n".to_string()));
   if list {
@@ -131,7 +131,7 @@ fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and
           vec!["Player0.kt", "Player1.kt", "Player2.kt", "Player3.kt", "Player4.kt", "Player5.kt", "Flag.kt", "Flags.kt"],
           vec!["PlayerTest0.kt", "PlayerTest1.kt"]
         ),
-        (GroupKind::Mechanical, String::new(), vec![], vec!["BUILD.bazel", "module-list.txt"], vec![]),
+        (GroupKind::Mechanical, String::new(), vec![], vec!["module-list.txt", "BUILD.bazel"], vec![]),
       ]
     ]
   );
@@ -478,7 +478,7 @@ fn the_modules_template_reads_as_its_contract_its_modules_and_its_wiring() {
         GroupKind::Mechanical,
         String::new(),
         vec![],
-        vec!["modules.xml", "plugin.xml", "BUILD.bazel", "intellij.player.view.gui.media.iml", "module-list.txt"],
+        vec!["modules.xml", "plugin.xml", "intellij.player.view.gui.media.iml", "module-list.txt", "BUILD.bazel"],
         vec![]
       ),
     ]

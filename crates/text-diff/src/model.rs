@@ -254,6 +254,9 @@ pub enum RunKind {
   Comments,
   /// The same code but for a renamed name
   Renamed,
+  /// Lines between the markers of a region a tool writes, on both sides (`diff_marks::regions`): read where their
+  /// source is; a side may have no lines
+  Generated,
 }
 
 /// `len` lines that moved from `old_start` of the old text to `new_start` of the new one (0-based): old line
@@ -556,7 +559,14 @@ mirror_enum!(
 );
 mirror_enum!(LineEndKind = line_diff::text::LineEndKind { Lf, Crlf, Cr, Mixed });
 mirror_enum!(BlockKind = line_diff::model::BlockKind { Changed, WhitespaceOnly, Ignored });
-mirror_enum!(RunKind = line_diff::model::RunKind { Formatting, Comments, Renamed });
+mirror_enum!(
+  RunKind = line_diff::model::RunKind {
+    Formatting,
+    Comments,
+    Renamed,
+    Generated
+  }
+);
 mirror!(LineEnds = line_diff::model::LineEnds { old: into, new: into, only: same });
 mirror!(FinalNewline = line_diff::model::FinalNewline { old: same, new: same });
 mirror!(EmptyLastLine = line_diff::model::EmptyLastLine { old: same, new: same });

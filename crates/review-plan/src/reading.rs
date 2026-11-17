@@ -143,6 +143,7 @@ fn proofs_of(diff: &TextDiff, reading: &DiffReading, status: FileStatus) -> Vec<
       RunKind::Formatting => QuietProof::Formatting,
       RunKind::Comments => QuietProof::Comments,
       RunKind::Renamed => QuietProof::Renames,
+      RunKind::Generated => QuietProof::Generated,
     })
     .collect();
   if !marks.moves.is_empty() {

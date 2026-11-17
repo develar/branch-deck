@@ -11,6 +11,7 @@ const PROOF_WORDS: Record<QuietProof, string> = {
   formatting: "formatting",
   comments: "comments",
   renames: "renamed names",
+  generated: "generated sections",
   imports: "imports",
   moves: "moves",
   renamedFiles: "moved files",

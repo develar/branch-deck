@@ -690,6 +690,22 @@
   content: "" / "renamed only";
 }
 
+[data-run="generated"] > .dv-code::before {
+  content: "" / "generated section";
+}
+
+[data-cell="inserted"][data-run="generated"] > .dv-code::before {
+  content: "" / "inserted, generated section";
+}
+
+[data-cell="deleted"][data-run="generated"] > .dv-code::before {
+  content: "" / "deleted, generated section";
+}
+
+[data-cell="modified"][data-run="generated"] > .dv-code::before {
+  content: "" / "modified, generated section";
+}
+
 [data-cell="inserted"][data-run="renamed"] > .dv-code::before {
   content: "" / "inserted, renamed only";
 }

@@ -441,3 +441,76 @@ fn since_the_review_an_unchanged_commit_between_two_of_one_manifest_adds_no_entr
     ]
   );
 }
+
+/// A Bazel package a person writes: a library, its test and a binary
+const BAZEL_APP: &str = r#"load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+
+jvm_library(
+    name = "app",
+    srcs = glob(["src/**/*.kt"]),
+    deps = [
+        "//platform/util",
+    ],
+    runtime_deps = ["@lib//:slf4j"],
+)
+
+jvm_test(
+    name = "app_test",
+    deps = [":app"],
+)
+"#;
+
+/// The labels each target of a `BUILD` file writes by attribute are its entries, of the kind `target`, by the scope of
+/// the target and its attribute; a list the file computes leaves it unparsed, a file whose targets stand in the
+/// regions a tool writes is no manifest, a new `BUILD` file is a new module
+#[test]
+fn the_labels_of_the_targets_of_a_bazel_build_file_are_its_dependency_changes() {
+  let generated =
+    "### auto-generated section `build intellij.gen` start\njvm_library(\n    name = \"gen\",\n    deps = [],\n)\n### auto-generated section `build intellij.gen` end\n";
+  let computed = BAZEL_APP.replace("runtime_deps = [\"@lib//:slf4j\"]", "runtime_deps = [Label(SLF4J)]");
+  let plan = plan_of_change(
+    &[("app/BUILD.bazel", BAZEL_APP), ("computed/BUILD.bazel", &computed), ("gen/BUILD.bazel", generated)],
+    &[
+      (
+        "app/BUILD.bazel",
+        Some(
+          &BAZEL_APP
+            .replace("        \"//platform/util\",\n", "        \"//platform/util\",\n        \"//platform/core\",\n")
+            .replace("    runtime_deps = [\"@lib//:slf4j\"],\n", "")
+            .replace("deps = [\":app\"]", "deps = [\":app\", \"@lib//:junit\"]"),
+        ),
+      ),
+      (
+        "computed/BUILD.bazel",
+        Some(&computed.replace("        \"//platform/util\",\n", "        \"//platform/core\",\n")),
+      ),
+      ("gen/BUILD.bazel", Some(&generated.replace("deps = []", "deps = [\"//platform/util\"]"))),
+      ("tool/BUILD", Some("rust_binary(name = \"tool\")\n")),
+    ],
+  );
+  let app = "app/BUILD.bazel";
+  assert_eq!(
+    plan.dependencies,
+    [
+      change(app, "app", DependencyKind::Target, "//platform/core", DependencyChangeKind::Added),
+      DependencyChange {
+        scope: DependencyScope::Test,
+        ..change(app, "app", DependencyKind::Target, "@lib//:junit", DependencyChangeKind::Added)
+      },
+      DependencyChange {
+        scope: DependencyScope::Runtime,
+        ..change(app, "app", DependencyKind::Target, "@lib//:slf4j", DependencyChangeKind::Removed)
+      },
+      change("tool/BUILD", "tool", DependencyKind::NewModule, "tool", DependencyChangeKind::Added),
+    ]
+  );
+  assert_eq!(
+    mechanical(&plan),
+    [
+      ("app/BUILD.bazel", Some(MechanicalKind::BuildModel)),
+      ("computed/BUILD.bazel", None),
+      ("gen/BUILD.bazel", Some(MechanicalKind::Generated)),
+      ("tool/BUILD", None),
+    ]
+  );
+}

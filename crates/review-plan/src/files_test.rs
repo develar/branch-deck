@@ -396,7 +396,7 @@ fn a_csharp_using_directive_is_an_import_and_a_using_statement_code() {
     "    using (var reader = Read()) { }",
     "    using Stream other = Open();",
   ];
-  assert_eq!(crate::files::import_lines(&lines), [true, true, true, true, false, false, false]);
+  assert_eq!(crate::files::import_lines(&lines, false), [true, true, true, true, false, false, false]);
 }
 
 const STORE_TS: &str = "import {\n  load,\n  save,\n} from \"./io\"\n\nexport const store = { load, save }\n";
@@ -950,4 +950,92 @@ fn a_file_generated_by_its_name_or_attributes_reads_no_blob() {
   assert_eq!(hunk_blobs(&files, &known), ["a1", "a2"]);
   // in tree order: the directories first
   assert_eq!(header_blobs(&files, &known), ["a2", "n1"]);
+}
+
+/// A generated Bazel package: a `load` and a section a tool writes from the `*.iml` of the module
+const GENERATED_BUILD: &str = r#"load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.a` start
+jvm_library(
+    name = "a",
+    srcs = glob(["src/**/*.kt"]),
+    deps = [
+        "//platform/util",
+    ],
+)
+### auto-generated section `build intellij.a` end
+"#;
+
+/// A Bazel package a person writes: a binary of its own rule and a flag
+const HAND_BUILD: &str = r#"load("//build/rust-tools:defs.bzl", "rust_tool_binary")
+
+rust_tool_binary(
+    name = "tool",
+    edition = "2024",
+    deps = [
+        "//build/crates/fscopy",
+        "@ddt//:regex",
+    ],
+)
+"#;
+
+/// A Bazel `BUILD` file is mechanical by its content, never by its name: `Generated` when its change lies in the
+/// sections a tool writes, `ImportsOnly` when only its `load` lines changed, `BuildModel` when only the dependency
+/// lists of its targets did; a new target, a change beside a section, a deletion and a computed dependency list are
+/// real work
+#[test]
+fn a_bazel_build_file_is_mechanical_by_its_content_not_its_name() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add packages",
+    &[
+      ("gen/BUILD.bazel", GENERATED_BUILD),
+      ("mixed/BUILD.bazel", GENERATED_BUILD),
+      ("hand/BUILD.bazel", HAND_BUILD),
+      ("loads/BUILD.bazel", HAND_BUILD),
+      ("target/BUILD", HAND_BUILD),
+      ("computed/BUILD.bazel", &HAND_BUILD.replace("deps = [", "deps = DEPS + [")),
+      ("gone/BUILD.bazel", HAND_BUILD),
+    ],
+  );
+  let added_dep = |text: &str| text.replace("        \"//platform/util\",\n", "        \"//platform/util\",\n        \"//platform/core\",\n");
+  repo.create_commit_with_files(
+    "Change packages",
+    &[
+      ("gen/BUILD.bazel", &added_dep(GENERATED_BUILD)),
+      ("mixed/BUILD.bazel", &format!("{}\nexports_files([\"spec.md\"])\n", added_dep(GENERATED_BUILD))),
+      (
+        "hand/BUILD.bazel",
+        &HAND_BUILD.replace("        \"@ddt//:regex\",\n", "        \"@ddt//:regex\",\n        \"//build/crates/checkout-files\",\n"),
+      ),
+      (
+        "loads/BUILD.bazel",
+        &HAND_BUILD.replace("\"rust_tool_binary\")", "\"optimized_binary\", \"rust_tool_binary\")"),
+      ),
+      ("target/BUILD", &format!("{HAND_BUILD}\nrust_tool_binary(\n    name = \"other\",\n)\n")),
+      (
+        "computed/BUILD.bazel",
+        &HAND_BUILD
+          .replace("deps = [", "deps = DEPS + [")
+          .replace("        \"@ddt//:regex\",\n", "        \"@ddt//:regex\",\n        \"//build/crates/checkout-files\",\n"),
+      ),
+    ],
+  );
+  repo.git(&["rm", "-q", "gone/BUILD.bazel"]);
+  let head = repo.commit_with(&["-m", "Remove a package"], &[]);
+  let region = Some(GeneratedBy::Region {
+    name: "auto-generated section `build intellij.a`".to_string(),
+  });
+  assert_eq!(
+    generated_facts(&repo, &base, &head),
+    [
+      ("computed/BUILD.bazel".to_string(), None, None),
+      ("gen/BUILD.bazel".to_string(), Some(MechanicalKind::Generated), region),
+      ("gone/BUILD.bazel".to_string(), None, None),
+      ("hand/BUILD.bazel".to_string(), Some(MechanicalKind::BuildModel), None),
+      ("loads/BUILD.bazel".to_string(), Some(MechanicalKind::ImportsOnly), None),
+      ("mixed/BUILD.bazel".to_string(), None, None),
+      ("target/BUILD".to_string(), None, None),
+    ]
+  );
 }

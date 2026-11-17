@@ -52,7 +52,7 @@ fn the_mark_stats_of_a_commit_count_each_kind_and_print_a_sample_of_their_lines(
     (&json!(1), &json!({ "kotlin": 1 }), &json!(true))
   );
   // the kinds a reader passes, and the thresholds the moves were read under
-  assert_eq!(output["quiet_kinds"], json!(["formatting", "renamed"]));
+  assert_eq!(output["quiet_kinds"], json!(["formatting", "renamed", "generated"]));
   assert_eq!(
     output["limits"],
     json!({ "min_move_chars": 24, "max_edited_lines": [1, 3], "min_across_chars": 48, "min_across_lines": 2 })

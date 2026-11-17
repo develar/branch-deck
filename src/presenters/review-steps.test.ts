@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StepGroup } from "@/lib/bindings"
+import type { Concern, FileFacts, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StepGroup } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import {
@@ -411,14 +411,14 @@ describe("the groups of a large step", () => {
     ])
   })
 
-  it("names the mechanical group Wiring while it holds the build model alone, else Mechanical, its hover saying what such a group holds: moved declarations too", () => {
+  it("names the mechanical group Wiring while it holds the build model alone, a build file generated in its regions too, else Mechanical, its hover saying what such a group holds: moved declarations too", () => {
     const stops: [string, string][] = [
       ["new:gui/src/Embed.kt", "gui/src/Embed.kt"],
       ["mechanical:buildModel", "gui/BUILD.bazel"],
       ["mechanical:moved", "gui/src/Store.kt"],
     ]
     const modules = [moduleShape("gui", "gui")]
-    const files = [fileFacts("gui/src/Embed.kt", 0), { ...fileFacts("gui/BUILD.bazel", 0), mechanical: "buildModel" as const }, fileFacts("gui/src/Store.kt", 0)]
+    const files: FileFacts[] = [fileFacts("gui/src/Embed.kt", 0), { ...fileFacts("gui/BUILD.bazel", 0), mechanical: "buildModel" }, fileFacts("gui/src/Store.kt", 0)]
     const groupsOf = (end: number) => {
       const groups: StepGroup[] = [stepGroup("module", 0, [0, 1, 1]), stepGroup("mechanical", null, [1, end, end])]
       const step = reviewStep("a", [stepCommit("Embed a player")], stops.slice(0, end), {}, { groups })
@@ -426,6 +426,10 @@ describe("the groups of a large step", () => {
       return chapter!.groups.map(group => [group.name, group.hover, group.paths])
     }
     expect(groupsOf(2)[1]).toEqual(["Wiring", "The build files and the lists of modules of the step", ["gui/BUILD.bazel"]])
+    // the BUILD.bazel a generator writes from the iml of the module wires it in as well
+    files[1] = { ...fileFacts("gui/BUILD.bazel", 0), mechanical: "generated" as const, generated: { kind: "region" as const, name: "auto-generated section `build gui`" } }
+    expect(groupsOf(2)[1]).toEqual(["Wiring", "The build files and the lists of modules of the step", ["gui/BUILD.bazel"]])
+    files[1] = { ...fileFacts("gui/BUILD.bazel", 0), mechanical: "buildModel" as const }
     // a declaration that moved is of a unit, never the kind of its file: the group is no wiring with it
     expect(groupsOf(3)[1]).toEqual([
       "Mechanical",

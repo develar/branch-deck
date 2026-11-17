@@ -11,6 +11,7 @@ targets:
   - psi-syntax:crates/line-diff/src/inline.rs
   - psi-syntax:crates/line-diff/src/lcs/diff.rs
   - psi-syntax:crates/diff-marks/src/marks.rs
+  - psi-syntax:crates/diff-marks/src/regions.rs
   - psi-syntax:crates/diff-marks/src/marks_runs.rs
   - psi-syntax:crates/diff-marks/src/marks_joined.rs
   - psi-syntax:crates/diff-marks/src/marks_renames.rs
@@ -1194,6 +1195,33 @@ the same pair in another subject has the marks of its pair alone.
 - **WHEN** the pair of a report that a subject marked with the name its store declares is the one file of another commit
 - **THEN** it has the marks of its pair there, from memory, without a blob read
   [@test] crates/file-diffs/src/service_test.rs (`the_marks_of_the_subject_follow_the_contents_or_come_with_them_from_the_caches`)
+
+### Requirement: Generated: Lines inside a region a tool writes are a quiet run
+
+The lines a change made strictly between the markers of a region a tool writes MUST be a quiet run of the kind
+`generated` (`diff_marks::regions`): the part of a block inside a region of one name on both sides, a side of no lines
+too, with no grammar needed. A marker MUST never be in a run, and a run of another kind that meets one MUST be dropped
+whole.
+
+#### Scenario: A line added inside a section of a BUILD file
+- **WHEN** a change adds a dependency to the section `### auto-generated section \`build a.b\` start` … `end` of a `BUILD.bazel`
+- **THEN** the line is a quiet run of the kind `generated`, and its block has no start
+  [@test] psi-syntax:crates/diff-marks/src/regions_test.rs (`a_line_added_inside_a_region_is_a_quiet_run_and_its_block_has_no_start`, `an_insertion_is_inside_a_region_between_its_markers`)
+
+#### Scenario: The markers
+- **WHEN** a text holds comment lines (`#`, `//`, `<!-- -->`) whose words hold `generated` (`auto-generated`, `@generated`) and that end with `start`, `begin` or `end`, an unclosed start, an end without a start, or nested starts
+- **THEN** only a start paired with the nearest end of the same text makes a region, named by the text between its comment leader and its last word
+  [@test] psi-syntax:crates/diff-marks/src/regions_test.rs (`a_marker_is_a_comment_line_that_says_generated_and_ends_with_start_or_end`, `an_unclosed_start_an_end_without_a_start_and_nested_starts_make_no_region`, `a_line_that_is_no_marker_makes_no_region_and_lines_end_as_the_diff_ends_them`)
+
+#### Scenario: What stays to read
+- **WHEN** a change also edits a line a person wrote outside the region, crosses a marker, or has the region on one side alone or under another name
+- **THEN** the line outside keeps the start of its block, only the lines inside the region are a run, and a region on one side alone or renamed has none
+  [@test] psi-syntax:crates/diff-marks/src/regions_test.rs (`a_hand_written_line_outside_a_region_keeps_the_start_of_its_block`, `a_block_across_a_marker_runs_only_its_lines_inside_the_region`, `a_region_on_one_side_alone_or_renamed_has_no_run`)
+
+#### Scenario: Another run inside a region
+- **WHEN** a run of formatting or of another kind meets a run of generated lines, or the pair has no grammar
+- **THEN** the run of generated lines takes the lines, the other run is dropped whole, and a pair of no grammar has the run too
+  [@test] psi-syntax:crates/diff-marks/src/regions_test.rs (`a_run_of_generated_lines_takes_the_lines_of_a_run_of_formatting`, `a_run_that_meets_a_run_of_generated_lines_is_dropped_whole`, `a_pair_without_a_grammar_has_the_runs_of_its_generated_lines`)
 
 ### Requirement: Never marked: A side of no lines, blank lines alone and a block the policy cut off
 

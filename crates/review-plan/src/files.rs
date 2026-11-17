@@ -7,11 +7,14 @@
 //! - **Mechanical**, by name or by the text of every hunk of every commit that changes the file, as `ImportChangeFilter`
 //!   of `CoRT` and `detectReformatting` of `SmartCommit` do: `Generated` for a
 //!   file nobody writes by hand (`generated-files`: a lock file, a minified file or a source map by its name, the
-//!   attributes of the head of the range, or the header a tool wrote into it; `generated_of`), `BuildModel`
-//!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, another `*.lock`, `.idea/modules.xml`)
-//!   and for a manifest whose parsed form changed only in its dependency entries (a plugin descriptor, `Cargo.toml`,
-//!   `package.json`: `dependencies::ManifestState`). A manifest that does not parse, or that changed beside its
-//!   dependencies, is no `BuildModel` (an `*.iml` that parses is one by name). `ModuleList` for a file of no language
+//!   attributes of the head of the range, or the header a tool wrote into it; `generated_of`), or a file a person writes
+//!   whose change lies inside the regions a tool writes into it (every line it removes or adds between the markers of
+//!   a region of one name on its side, `diff_marks::regions`: the sections a generator keeps in a Bazel `BUILD` file;
+//!   `region_of`), `BuildModel` for a file of the build model by its name (`*.iml`, another `*.lock`,
+//!   `.idea/modules.xml`) and for a manifest whose parsed form changed only in its dependency entries (a plugin
+//!   descriptor, `Cargo.toml`, `package.json`, a Bazel `BUILD` file: `dependencies::ManifestState`). A manifest that
+//!   does not parse, or that changed beside its dependencies, is no `BuildModel` (an `*.iml` that parses is one by
+//!   name); a `BUILD` file is one by its content alone, as most of them hold targets a person writes. `ModuleList` for a file of no language
 //!   whose every line the commits add or remove names whole a module they add or delete (the directory of its build
 //!   file, the name of its `*.iml`): the list of module directories a tool regenerates, the wiring of that module. Else each change a pure rename
 //!   (status `R`, no line added or removed), or each of its hunks a change of whitespace alone, a wrapped or joined
@@ -23,10 +26,12 @@
 //!   with an `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust `use a::{` block
 //!   or a TypeScript `import {` over several lines counts whole; a bracket in a string or a comment counts not, and a
 //!   statement that a `;`, the next import line or the end of the text ends with its brackets open counts as its first
-//!   line only. The lines are read in the whole blob, so a hunk inside such a block is an import hunk too. One import
+//!   line only. In a Starlark file a `load(` line starts one too, the import of Bazel. The lines are read in the whole
+//!   blob, so a hunk inside such a block is an import hunk too. One import
 //!   hunk makes the file `ImportsOnly`, else one whitespace hunk `Whitespace`. A file without text (binary, too large, an
 //!   added one) is only mechanical by name. A deleted file is real work, its author's decision, unless it is generated
-//!   (by the header of the blob its deletion removed too) or of the build model by its name.
+//!   (by the header of the blob its deletion removed too) or of the build model by its name: a deleted `BUILD` file
+//!   deletes a package.
 //! - **Repeated edits**: never of a generated file, whose edit its tool made; the key of a hunk is the text of its
 //!   removed and of its added lines without whitespace; a
 //!   hunk of whitespace alone has none, nor one without a line of 10 or more characters. A key of 3 or more files
@@ -46,11 +51,12 @@
 //!   header either: such a file starts collapsed for its size anyway.
 
 use crate::api::{ApiChange, ApiChangeKind};
-use crate::dependencies::ManifestState;
+use crate::dependencies::{ManifestState, is_bazel_build};
 use crate::links::{FileLink, LinkState};
 use crate::whitespace::TextTokens;
-use code_symbols::language::language_of;
+use code_symbols::language::{Language, language_of};
 use code_tokens::indentation_matters;
+use diff_marks::regions::{GeneratedRegion, generated_regions, region_of as region_of_line};
 use file_diffs::service::compare_tree_paths;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::header::{HEADER_BYTES, generated_header};
@@ -69,8 +75,8 @@ use trial_check::diff_scan::CommitDiff;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum MechanicalKind {
-  /// A file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`), or a
-  /// plugin descriptor, `Cargo.toml` or `package.json` that changed only in its dependency entries
+  /// A file of the build model (`*.iml`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`), or a plugin descriptor,
+  /// `Cargo.toml`, `package.json` or Bazel `BUILD` file that changed only in its dependency entries
   BuildModel,
   /// A list of modules: a file of no language whose every line the commits add or remove names a module they add or
   /// delete (its directory or the name of its `*.iml`), as a generated list of the module directories does
@@ -298,18 +304,27 @@ pub fn subject_stem(path: &str) -> String {
   stem_of(path).to_lowercase()
 }
 
-/// The names of the files of the build model, beside `*.iml` and `*.lock` (the lock files of `generated-files` are
-/// `Generated`)
-const BUILD_MODEL_NAMES: [&str; 2] = ["BUILD", "BUILD.bazel"];
-
-/// Whether `path` is a file of the build model by its name
+/// Whether `path` is a file of the build model by its name: an `*.iml`, a `*.lock` (the lock files of
+/// `generated-files` are `Generated`), `.idea/modules.xml`. A Bazel `BUILD` file is none: most hold targets a person
+/// writes, so its content says what it is (`dependencies`, `region_of`)
 pub fn is_build_model(path: &str) -> bool {
   let name = path.rsplit('/').next().unwrap_or(path);
   let extension = name.rsplit_once('.').map(|(_, extension)| extension);
   extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml") || extension.eq_ignore_ascii_case("lock"))
-    || BUILD_MODEL_NAMES.contains(&name)
     || path == ".idea/modules.xml"
     || path.ends_with("/.idea/modules.xml")
+}
+
+/// The changes of `file` its kind is read from, each but a rename with no line added or removed; `None` when one of
+/// them has no text of its hunks (`has_hunk_text`)
+fn changes_with_text<'a>(file: &ChangedFile<'a>) -> Option<Vec<&'a FileChange>> {
+  let changes: Vec<&FileChange> = file
+    .changes
+    .iter()
+    .copied()
+    .filter(|change| !(change.status == 'R' && change.additions == 0 && change.deletions == 0))
+    .collect();
+  changes.iter().all(|change| has_hunk_text(file, change)).then_some(changes)
 }
 
 /// The changes whose hunks are read as text: a modification or a rename with lines, of a file not mechanical by name
@@ -367,12 +382,73 @@ pub(crate) fn generated_of(files: &[ChangedFile<'_>], known: &[Option<GeneratedB
     .zip(known)
     .map(|(file, known)| {
       known.clone().or_else(|| {
-        let text = texts.get(header_blob(file)?)?;
-        let head = &text[..text.floor_char_boundary(HEADER_BYTES)];
-        generated_header(file.path, head).map(|line| GeneratedBy::Header { line })
+        let header = texts.get(header_blob(file)?).and_then(|text| {
+          let head = &text[..text.floor_char_boundary(HEADER_BYTES)];
+          generated_header(file.path, head)
+        });
+        header
+          .map(|line| GeneratedBy::Header { line })
+          .or_else(|| region_of(file, texts).map(|name| GeneratedBy::Region { name }))
       })
     })
     .collect()
+}
+
+/// The name of the first region a tool writes (`diff_marks::regions`) when the change of `file` is the tool's: each hunk
+/// of each change lies between the markers of a region of one name on both sides (a hunk of a side of no lines where
+/// such a region holds that place: after its start marker, up to its end marker), or removes and adds only blank lines
+/// and import statements (`import_lines`: the `load` lines of a Bazel file, which its generator keeps too), one hunk
+/// of a region at least; of a file the commits add or delete, its text (`header_blob`) holds such a region and, outside
+/// its regions and their markers, only those lines. `None` without the text of every side, and for a hunk that touches
+/// a marker of a file still there: a region that comes, goes or changes its name is read
+fn region_of(file: &ChangedFile<'_>, texts: &HashMap<String, String>) -> Option<String> {
+  let starlark = language_of(file.path) == Some(Language::Starlark);
+  if file.deleted || file.before.is_none() {
+    let lines = TextLines::of(texts.get(header_blob(file)?)?);
+    let lines = lines.all();
+    let regions = generated_regions(lines);
+    let imports = import_lines(lines, starlark);
+    let outside_only_imports = (0..lines.len()).all(|index| {
+      let line = u32::try_from(index).unwrap_or(u32::MAX);
+      lines[index].trim().is_empty() || imports[index] || regions.iter().any(|region| region.start <= line && line <= region.end)
+    });
+    return regions.first().filter(|_| outside_only_imports).map(|region| region.name.clone());
+  }
+  let mut first: Option<String> = None;
+  for change in changes_with_text(file)? {
+    let lines = |blob: Option<&str>| -> Option<TextLines<'_>> { Some(TextLines::of(texts.get(blob?)?)) };
+    let (old, new) = (lines(change.old_blob.as_deref())?, lines(change.new_blob.as_deref())?);
+    let (old, new) = (old.all(), new.all());
+    let (old_regions, new_regions) = (generated_regions(old), generated_regions(new));
+    let (old_imports, new_imports) = (import_lines(old, starlark), import_lines(new, starlark));
+    for hunk in &change.hunks {
+      let (old_lines, new_lines) = hunk_ranges(hunk);
+      let names = region_holding(&old_regions, old_lines.clone()).zip(region_holding(&new_regions, new_lines.clone()));
+      if let Some((_, new_name)) = names.filter(|(old_name, new_name)| old_name == new_name) {
+        first.get_or_insert_with(|| new_name.to_string());
+        continue;
+      }
+      let imports_only = |side: &[&str], imports: &[bool], mut lines: Range<u32>| {
+        lines.all(|line| imports.get(line as usize).copied().unwrap_or(false) || side.get(line as usize).is_some_and(|text| text.trim().is_empty()))
+      };
+      if !(imports_only(old, &old_imports, old_lines) && imports_only(new, &new_imports, new_lines)) {
+        return None;
+      }
+    }
+  }
+  first
+}
+
+/// The name of the region of `regions` that holds every line of `lines` (from 0, the end excluded) strictly between its
+/// markers, or, of a side of no lines, the place between two lines (`lines.start`) after its start marker and up to
+/// its end marker
+fn region_holding(regions: &[GeneratedRegion], lines: Range<u32>) -> Option<&str> {
+  let region = if lines.is_empty() {
+    regions.iter().find(|region| region.start < lines.start && lines.start <= region.end)?
+  } else {
+    region_of_line(regions, lines.start).filter(|region| region.holds(lines.end - 1))?
+  };
+  Some(&region.name)
 }
 
 /// The text of one hunk
@@ -398,7 +474,8 @@ fn hunk_lines<'t>(change: &FileChange, texts: &'t HashMap<String, String>) -> Op
   let lines = |blob: Option<&str>| -> Option<TextLines<'t>> { Some(TextLines::of(texts.get(blob?)?)) };
   let (old, new) = (lines(change.old_blob.as_deref())?, lines(change.new_blob.as_deref())?);
   let (old, new) = (old.all(), new.all());
-  let (old_imports, new_imports) = (import_lines(old), import_lines(new));
+  let starlark = language_of(&change.path) == Some(Language::Starlark);
+  let (old_imports, new_imports) = (import_lines(old, starlark), import_lines(new, starlark));
   let hunk_text = |hunk: &Hunk| {
     let old_range = line_range(hunk.old_start, hunk.old_lines, old.len());
     let new_range = line_range(hunk.new_start, hunk.new_lines, new.len());
@@ -425,9 +502,13 @@ pub(crate) fn without_whitespace(lines: &[&str]) -> String {
   lines.iter().flat_map(|line| line.chars()).filter(|char| !char.is_whitespace()).collect()
 }
 
-/// The first line of an import statement: `import` (Kotlin, Java, TypeScript), `use` (Rust), `package`, or a C#
-/// `using` directive or `namespace` (`is_using_directive`); a `pub use` re-exports, so it is no import
-fn is_import(line: &str) -> bool {
+/// The first line of an import statement: `import` (Kotlin, Java, TypeScript), `use` (Rust), `package`, a C# `using`
+/// directive or `namespace` (`is_using_directive`), and in a Starlark file (`starlark`) a `load(` at the start of its
+/// line, a statement of the top level; a `pub use` re-exports, so it is no import
+fn is_import(line: &str, starlark: bool) -> bool {
+  if starlark {
+    return line.starts_with("load(");
+  }
   let line = line.trim_start();
   ["import ", "import{", "use ", "package ", "namespace "].iter().any(|keyword| line.starts_with(keyword)) || is_using_directive(line)
 }
@@ -498,16 +579,16 @@ fn code_brackets(line: &str) -> (i32, bool) {
   (balance, last == ';')
 }
 
-/// Per line of `lines`, whether it is of an import statement: its first line (`is_import`) and the lines up to the
+/// Per line of `lines` (of a Starlark file: `starlark`), whether it is of an import statement: its first line (`is_import`) and the lines up to the
 /// one that closes the brackets it opens, so a Rust `use a::{` block or a TypeScript `import {` over several lines
 /// counts whole. A bracket in a string or a comment counts not (`code_brackets`). A statement that a `;`, the next
 /// import line or the end of the text ends with its brackets open counts as its first line only
-pub(crate) fn import_lines(lines: &[&str]) -> Vec<bool> {
+pub(crate) fn import_lines(lines: &[&str], starlark: bool) -> Vec<bool> {
   let mut imports = vec![false; lines.len()];
   // the first line of the statement whose brackets are open, and their depth
   let mut open: Option<(usize, i32)> = None;
   for (index, line) in lines.iter().enumerate() {
-    let starts = is_import(line);
+    let starts = is_import(line, starlark);
     if let Some((first, _)) = open.filter(|_| starts) {
       imports[first + 1..index].fill(false);
       open = None;
@@ -576,7 +657,8 @@ pub(crate) fn mechanical_kind(
   match manifest {
     Some(ManifestState::Unparsed) => return None,
     Some(ManifestState::DependenciesOnly) => return Some(MechanicalKind::BuildModel),
-    Some(ManifestState::Other) if !is_build_model(file.path) => return None,
+    // a `BUILD` file whose `load` lines changed beside its labels is read by its hunks: imports alone
+    Some(ManifestState::Other) if !is_build_model(file.path) && !is_bazel_build(file.path) => return None,
     _ => {}
   }
   if is_build_model(file.path) {
@@ -585,13 +667,7 @@ pub(crate) fn mechanical_kind(
   let source = language_of(file.path).is_some();
   let indented = indentation_matters(file.path);
   let mut kinds: HashSet<HunkKind> = HashSet::new();
-  for change in &file.changes {
-    if change.status == 'R' && change.additions == 0 && change.deletions == 0 {
-      continue;
-    }
-    if !has_hunk_text(file, change) {
-      return None;
-    }
+  for change in changes_with_text(file)? {
     let sides = tokens.sides(
       change.old_path.as_deref().unwrap_or(&change.path),
       change.old_blob.as_deref(),

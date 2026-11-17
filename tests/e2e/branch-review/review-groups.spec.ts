@@ -100,7 +100,7 @@ test.describe("Review groups", () => {
       await expect(media.getByTestId("review-group-also")).toHaveText("also shared/code")
       await expect(media).toHaveAttribute("aria-description", "New module, also shared/code, 13 files, +146 −2")
       await expect(media.getByTestId("review-group-name")).toHaveAttribute("title", `${ROOT}/view.gui.media`)
-      await expect(row("2 · play the media embeds of the chat inline")).toHaveAttribute("aria-description", /^27 files, \+212 −4, commit [0-9a-f]+, \+1 dep$/)
+      await expect(row("2 · play the media embeds of the chat inline")).toHaveAttribute("aria-description", /^27 files, \+214 −4, commit [0-9a-f]+, \+1 dep$/)
       // a file by its name, then its directory below what the files of its module share there, a file of the small module
       // by that module; a file of the contract by its whole directory
       const directory = (path: string) => row(path).getByTestId("file-label-directory")
@@ -176,19 +176,19 @@ test.describe("Review groups", () => {
 
       // the plan of git: the large step lists its files, its build files and its list of modules folded at its end; the
       // reader folds the step
-      await expect(row("Build files (4)")).toHaveAttribute("aria-expanded", "false")
+      await expect(row("Build files (3)")).toHaveAttribute("aria-expanded", "false")
       await expect(row("Module lists (1)")).toHaveAttribute("aria-expanded", "false")
       await expect(row(`${ROOT}/AGENTS.md`)).toBeVisible()
       await expect(row("view.gui")).toHaveCount(0)
       await large.getByTestId("tree-row-chevron").click()
       await expect(large).toHaveAttribute("aria-expanded", "false")
-      await expect(row("Build files (4)")).toHaveCount(0)
+      await expect(row("Build files (3)")).toHaveCount(0)
 
       // the modules answer: the step stays folded; opened, it is cut into its groups, the build files under the wiring,
       // which starts folded
       await repo.holdRemoteAnswers({ release: ["modules"] })
       await answered
-      await expect(large).toHaveAttribute("aria-description", /^27 files, \+212 −4, commit [0-9a-f]+, \+1 dep$/)
+      await expect(large).toHaveAttribute("aria-description", /^27 files, \+214 −4, commit [0-9a-f]+, \+1 dep$/)
       await expect(large).toHaveAttribute("aria-expanded", "false")
       await large.getByTestId("tree-row-chevron").click()
       await expect(row("view.gui.media")).toHaveAttribute("aria-expanded", "true")

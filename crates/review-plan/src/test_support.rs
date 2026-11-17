@@ -235,6 +235,14 @@ impl<F: Fn(&str, &[String], &str) -> anyhow::Result<Option<ModulesAnswer>> + Sen
   }
 }
 
+/// The `BUILD.bazel` of the JPS module `module` as a generator writes it from its `*.iml` (IntelliJ's): a `load` and
+/// the targets in the section the generator keeps, so its change is the generator's
+pub(crate) fn generated_build(module: &str) -> String {
+  format!(
+    "load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\")\n\n### auto-generated section `build {module}` start\njvm_library(\n    name = \"{module}\",\n    srcs = glob([\"src/**/*.kt\"]),\n)\n### auto-generated section `build {module}` end\n"
+  )
+}
+
 /// The module `gui` with a box, then a commit that adds the module `media` and gives the box a player of it: the base
 /// and the head
 pub(crate) fn add_media(repo: &TestRepo) -> (String, String) {
@@ -243,7 +251,7 @@ pub(crate) fn add_media(repo: &TestRepo) -> (String, String) {
     "Play media in the GUI",
     &[
       ("gui/src/Box.kt", "class Box(val player: Player)\n"),
-      ("media/BUILD.bazel", "# media\n"),
+      ("media/BUILD.bazel", &generated_build("media")),
       ("media/src/Player.kt", "class Player\n"),
     ],
   );

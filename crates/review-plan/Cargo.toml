@@ -35,7 +35,9 @@ generated-files = { path = "../generated-files" }
 sync-utils = { path = "../sync-utils" }
 # the blocks of a body that changed since the review (`lcs::diff::build_changes`)
 line-diff.workspace = true
-# the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
+# the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`; the
+# labels of the targets of a Bazel `BUILD` file, read as accio reads them
+bazel-build.workspace = true
 quick-xml = "0.42"
 toml = "1.2"
 serde_json.workspace = true

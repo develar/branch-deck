@@ -576,6 +576,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "bazel-build"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+dependencies = [
+ "starlark-syntax",
+]
+
+[[package]]
 name = "bd-cli"
 version = "0.1.0"
 dependencies = [
@@ -1348,7 +1356,7 @@ dependencies = [
 [[package]]
 name = "code-symbols"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "code-tokens",
  "csharp-syntax",
@@ -1366,7 +1374,7 @@ dependencies = [
 [[package]]
 name = "code-tokens"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "csharp-syntax",
  "java-syntax",
@@ -1683,7 +1691,7 @@ dependencies = [
 [[package]]
 name = "csharp-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "psi-builder",
 ]
@@ -1917,7 +1925,7 @@ checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 [[package]]
 name = "diff-marks"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "code-tokens",
  "line-diff",
@@ -3638,7 +3646,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "psi-builder",
 ]
@@ -3813,7 +3821,7 @@ checksum = "a037eddb7d28de1d0fc42411f501b53b75838d313908078d6698d064f3029b24"
 [[package]]
 name = "js-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "memchr",
  "oxc_allocator",
@@ -3882,7 +3890,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "psi-builder",
 ]
@@ -4001,7 +4009,7 @@ dependencies = [
 [[package]]
 name = "line-diff"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "fixedbitset",
  "icu_properties",
@@ -5628,7 +5636,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 
 [[package]]
 name = "pxfm"
@@ -6095,6 +6103,7 @@ name = "review-plan"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bazel-build",
  "code-symbols",
  "code-tokens",
  "diff-marks",
@@ -6191,7 +6200,7 @@ dependencies = [
 [[package]]
 name = "rust-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "memchr",
  "psi-builder",
@@ -6899,7 +6908,7 @@ dependencies = [
 [[package]]
 name = "spec-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 
 [[package]]
 name = "specta"
@@ -6961,7 +6970,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "starlark-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=a26787b231d3321689a1171a9a0ee38424067336#a26787b231d3321689a1171a9a0ee38424067336"
+source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
 dependencies = [
  "psi-builder",
 ]

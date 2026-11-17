@@ -143,14 +143,23 @@ const NO_GROUPS: readonly ChapterGroup[] = []
 const WIRING: ReadonlySet<MechanicalKind> = new Set(["buildModel", "moduleList"])
 
 /**
+ * The paths of the files of `plan` that wire modules in: of the build model, a list of modules, and a build file whose
+ * change lies in the regions its generator writes (`GeneratedBy` `region`), as the generated `BUILD.bazel` of a module
+ */
+function wiringPaths(plan: { readonly files?: readonly FileFacts[] }): ReadonlySet<string> {
+  return new Set((plan.files ?? []).filter(file => (file.mechanical !== null && WIRING.has(file.mechanical)) || file.generated?.kind === "region").map(file => file.path))
+}
+
+/**
  * The groups of `step` (`ChapterGroup`): a file in the group of its first stop, a mechanical file (`mechanical`) in the
- * mechanical group; a group that lists no file left out. The mechanical group is "Wiring" while its files are the build
- * model and the lists of modules, else "Mechanical"
+ * mechanical group; a group that lists no file left out. The mechanical group is "Wiring" while its files wire modules
+ * in (`wiring`), else "Mechanical"
  */
 function chapterGroups(
   step: ReviewStep,
   modules: readonly ModuleShape[],
   mechanical: ReadonlyMap<string, MechanicalKind>,
+  wiring: ReadonlySet<string>,
   moduleOf: ReadonlyMap<string, number>,
   folderOf: ReadonlyMap<string, string>,
 ): readonly ChapterGroup[] {
@@ -174,7 +183,7 @@ function chapterGroups(
       }
     }
     if (paths.length > 0) {
-      const words = groupWords(group.kind, group.module === null ? undefined : modules[group.module], group.folder, paths, mechanical)
+      const words = groupWords(group.kind, group.module === null ? undefined : modules[group.module], group.folder, paths, wiring)
       const directories =
         words.root === null
           ? paths.map(() => null)
@@ -190,16 +199,13 @@ function groupWords(
   module: ModuleShape | undefined,
   folder: string | null,
   paths: readonly string[],
-  mechanical: ReadonlyMap<string, MechanicalKind>,
+  wiringPaths: ReadonlySet<string>,
 ): Pick<ChapterGroup, "kind" | "name" | "code" | "hover" | "state" | "root"> {
   if (kind === "contract") {
     return { kind, name: "Contract", code: false, hover: "The specs and the docs the step changes", state: null, root: null }
   }
   if (kind === "mechanical") {
-    const wiring = paths.every(path => {
-      const of = mechanical.get(path)
-      return of !== undefined && WIRING.has(of)
-    })
+    const wiring = paths.every(path => wiringPaths.has(path))
     return wiring
       ? { kind, name: "Wiring", code: false, hover: "The build files and the lists of modules of the step", state: null, root: null }
       : {
@@ -251,6 +257,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   const modules = plan.modules ?? []
   const mechanical = new Map((plan.files ?? []).flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const])))
+  const wiring = wiringPaths(plan)
   const moduleOf = new Map((plan.files ?? []).flatMap(file => (file.module === null ? [] : [[file.path, file.module] as const])))
   const folderOf = new Map((plan.files ?? []).map(file => [file.path, file.folder] as const))
   // of the steps of a message, a concern may be a step in part: its files are those of the step
@@ -317,7 +324,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
         parts,
         paths: step.paths,
         elsewhere: step.elsewhere,
-        groups: chapterGroups(step, modules, mechanical, moduleOf, folderOf),
+        groups: chapterGroups(step, modules, mechanical, wiring, moduleOf, folderOf),
       }
     }
     // Rust titles a step by the commit that starts it, as its author wrote it
@@ -338,7 +345,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
       parts,
       paths: step.paths,
       elsewhere: step.elsewhere,
-      groups: chapterGroups(step, modules, mechanical, moduleOf, folderOf),
+      groups: chapterGroups(step, modules, mechanical, wiring, moduleOf, folderOf),
     }
   })
 }

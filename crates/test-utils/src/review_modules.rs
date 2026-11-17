@@ -3,7 +3,7 @@
 //! IntelliJ plugin, in two commits with bodies after the baseline. The first gives an embed of the module `view.gui`
 //! the extension of its file; the second adds the module `view.gui.media`:
 //!
-//! - its `*.iml`, its `BUILD.bazel` and its content module descriptor with a service and a registry key, the content
+//! - its `*.iml`, its `BUILD.bazel` (its targets in the section a generator writes from the `*.iml`, as in IntelliJ) and its content module descriptor with a service and a registry key, the content
 //!   entry in `plugin.xml`, its line of `.idea/modules.xml` and of the generated `build/module-list.txt`;
 //! - nine classes in two packages that use the classes of `view.gui` the same commit changes, and two tests;
 //! - five other changed classes of `view.gui`, a changed test and four new texts of its bundle;
@@ -260,7 +260,7 @@ fn bazel(module: &str, name: &str, deps: &[&str]) -> String {
     list
   });
   format!(
-    "load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\", \"jvm_test\")\n\njvm_library(\n  name = \"{name}\",\n  module_name = \"{module}\",\n  srcs = glob([\"src/**/*.kt\"], allow_empty = True),\n  resources = glob([\"resources/**/*\"], allow_empty = True),\n  deps = [\n    \"@lib//:kotlin-stdlib\",\n{deps}  ],\n)\n\njvm_test(\n  name = \"{name}_test\",\n  srcs = glob([\"testSrc/**/*.kt\"], allow_empty = True),\n  associates = [\":{name}\"],\n)\n"
+    "load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\", \"jvm_test\")\n\n### auto-generated section `build {module}` start\njvm_library(\n  name = \"{name}\",\n  module_name = \"{module}\",\n  srcs = glob([\"src/**/*.kt\"], allow_empty = True),\n  resources = glob([\"resources/**/*\"], allow_empty = True),\n  deps = [\n    \"@lib//:kotlin-stdlib\",\n{deps}  ],\n)\n\njvm_test(\n  name = \"{name}_test\",\n  srcs = glob([\"testSrc/**/*.kt\"], allow_empty = True),\n  associates = [\":{name}\"],\n)\n### auto-generated section `build {module}` end\n"
   )
 }
 

@@ -156,6 +156,8 @@ pub struct MarkCounts {
   pub formatting: RunCounts,
   pub comments: RunCounts,
   pub renamed: RunCounts,
+  /// The lines between the markers of a region a tool writes
+  pub generated: RunCounts,
   pub moves: MoveCounts,
   /// With other thresholds asked: what the search under them finds beside the moves of the views
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,7 +436,7 @@ pub fn mark_stats_with(context: &RepoContext, args: &MarkStatsArgs, index: Optio
     subjects_of,
     model_version: MODEL_VERSION,
     marks: !args.no_marks,
-    quiet_kinds: [RunKind::Formatting, RunKind::Comments, RunKind::Renamed]
+    quiet_kinds: [RunKind::Formatting, RunKind::Comments, RunKind::Renamed, RunKind::Generated]
       .into_iter()
       .filter(|kind| is_quiet(*kind))
       .map(run_name)
@@ -488,6 +490,7 @@ const fn run_name(kind: RunKind) -> &'static str {
     RunKind::Formatting => "formatting",
     RunKind::Comments => "comments",
     RunKind::Renamed => "renamed",
+    RunKind::Generated => "generated",
   }
 }
 
@@ -634,6 +637,7 @@ fn count_file(counts: &mut MarkCounts, diff: &Values, text: Option<&MeasuredText
       RunKind::Formatting => &mut counts.formatting,
       RunKind::Comments => &mut counts.comments,
       RunKind::Renamed => &mut counts.renamed,
+      RunKind::Generated => &mut counts.generated,
     };
     runs.runs += 1;
     runs.quiet += usize::from(run.quiet);
@@ -995,6 +999,7 @@ fn sample_file(sampler: &mut Sampler, subject: &str, measured: &MeasuredSubject,
       RunKind::Renamed if confirmed(number) => "renamedConfirmed",
       RunKind::Renamed if *proven => "renamedProven",
       RunKind::Renamed => "renamedLabel",
+      RunKind::Generated => "generated",
     };
     sampler.offer(kind, || {
       let note = format!("quiet: {}, proven: {proven}{}", run.quiet, names_in(run, marks.renames.iter().chain(used_renames(diff))));

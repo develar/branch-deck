@@ -461,20 +461,27 @@ pub(crate) fn review_concerns(
       }
     }
   }
-  // a consequence follows the largest concern of its cause: a generated file of the files its header names, a build file
+  // a consequence follows the largest concern of its cause: a generated file of the files its header names, of the file
+  // a region a tool writes names by its stem (the `*.iml` of the module of a section of a `BUILD` file), a build file
   // of the code of its module that a link between modules now joins or no longer joins to another module, a file of
   // imports alone of the declarations its import lines name
   let roots: Vec<usize> = (0..nodes.len()).map(|node| components.root(node)).collect();
   let mut followers_of: BTreeMap<usize, Vec<(usize, &str)>> = BTreeMap::new();
+  // the root each follower went to, by its path, and the regions a tool writes, which follow their source last: the
+  // `*.iml` they are generated from is often a follower itself, of the code that needs its new dependency
+  let mut root_of_follower: HashMap<&str, usize> = HashMap::new();
+  let mut regions: Vec<(&Node<'_>, String)> = Vec::new();
   for Follower { kind, node: follower } in &followers {
     let path = follower.path;
     let cause: Vec<usize> = match kind {
-      MechanicalKind::Generated => {
-        let Some(GeneratedBy::Header { line }) = file_of.get(path).and_then(|&place| generated.get(place)).cloned().flatten() else {
+      MechanicalKind::Generated => match file_of.get(path).and_then(|&place| generated.get(place)).cloned().flatten() {
+        Some(GeneratedBy::Header { line }) => (0..nodes.len()).filter(|&node| names_path(&line, nodes[node].path)).collect(),
+        Some(GeneratedBy::Region { name }) => {
+          regions.push((follower, name));
           continue;
-        };
-        (0..nodes.len()).filter(|&node| names_path(&line, nodes[node].path)).collect()
-      }
+        }
+        _ => continue,
+      },
       MechanicalKind::BuildModel => {
         let module = path.rsplit_once('/').map_or("", |(directory, _)| directory);
         let across: HashSet<&str> = links
@@ -503,6 +510,21 @@ pub(crate) fn review_concerns(
     };
     if let Some(root) = largest(&nodes, &roots, cause.into_iter()) {
       followers_of.entry(root).or_default().push((follower.unit, path));
+      root_of_follower.insert(path, root);
+    }
+  }
+  for (follower, name) in regions {
+    let root = largest(&nodes, &roots, (0..nodes.len()).filter(|&node| names_stem(&name, nodes[node].path))).or_else(|| {
+      let mut named: Vec<(&str, usize)> = root_of_follower
+        .iter()
+        .filter(|(path, _)| names_stem(&name, path))
+        .map(|(path, root)| (*path, *root))
+        .collect();
+      named.sort_unstable();
+      named.first().map(|(_, root)| *root)
+    });
+    if let Some(root) = root {
+      followers_of.entry(root).or_default().push((follower.unit, follower.path));
     }
   }
   assemble(units, &nodes, &mut components, (&joins, &pairs), &rare, &followers_of)
@@ -1002,6 +1024,18 @@ fn names_path(line: &str, path: &str) -> bool {
     .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '`' | '"' | '\''))
     .map(|word| word.trim_end_matches(['.', ':']))
     .any(|word| word == path)
+}
+
+/// Whether the `name` of a region a tool writes names the changed file `path` by its name without its extension, a
+/// word of its own: the module `a.b` of the section `build a.b` is the file `a.b.iml` it is generated from
+fn names_stem(name: &str, path: &str) -> bool {
+  let file = path.rsplit('/').next().unwrap_or(path);
+  let Some((stem, _)) = file.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()) else {
+    return false;
+  };
+  name
+    .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '`' | '"' | '\''))
+    .any(|word| word == stem)
 }
 
 /// The concerns of the components of more than one node, in the order of their first unit, and the rest last

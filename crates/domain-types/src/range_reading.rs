@@ -93,6 +93,8 @@ pub enum QuietProof {
   Comments,
   /// A quiet run of the kind `Renamed`, or a run the index confirmed
   Renames,
+  /// A quiet run of the kind `Generated`: lines between the markers of a region a tool writes
+  Generated,
   /// A block of the imports alone, which a review with its plan passes
   Imports,
   /// Lines that moved inside their file without a change (`LineMove`): their old lines are passed

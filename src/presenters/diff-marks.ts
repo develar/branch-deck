@@ -19,6 +19,7 @@ const RUN_WORDS: Readonly<Record<RunKind, string>> = {
   formatting: "Formatting only",
   comments: "Comments only",
   renamed: "Renamed only",
+  generated: "Generated section",
 }
 
 /**

@@ -390,6 +390,21 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
   }
 }
 
+/// The module of the review whose root is the package a Bazel label names (`//a/b:c`, `@repo//a/b`), by its directory:
+/// the root that is it or ends with it, when one alone does (a label is relative to the root of its Bazel module, which
+/// a review does not read); `None` for a label of its own package (`:c`) or of a package of no module of the review
+fn module_of_label(label: &str, place: &HashMap<&str, usize>) -> Option<usize> {
+  let (_, package) = label.split_once("//")?;
+  let package = package.split_once(':').map_or(package, |(package, _)| package);
+  if package.is_empty() {
+    return None;
+  }
+  let suffix = format!("/{package}");
+  let mut found = place.iter().filter(|(root, _)| **root == package || root.ends_with(&suffix)).map(|(_, &module)| module);
+  let module = found.next()?;
+  found.all(|other| other == module).then_some(module)
+}
+
 /// `uses`, `used_by`, `content_of` and `new_dependencies` of every module
 fn add_uses(shapes: &mut [ModuleShape], place: &HashMap<&str, usize>, input: &ModulesInput<'_>, root_of: &dyn Fn(&str) -> String) {
   let modules = shapes.len();
@@ -411,14 +426,18 @@ fn add_uses(shapes: &mut [ModuleShape], place: &HashMap<&str, usize>, input: &Mo
     let Some(&owner) = place.get(root_of(&change.manifest).as_str()) else {
       continue;
     };
-    let named = by_name.get(change.name.as_str()).copied();
+    let named = if change.kind == DependencyKind::Target {
+      module_of_label(&change.name, place)
+    } else {
+      by_name.get(change.name.as_str()).copied()
+    };
     match change.kind {
       DependencyKind::NewModule => {}
       DependencyKind::Content => match named {
         Some(module) => content[module].push(change.module.clone()),
         None => external[owner].push(u32::try_from(index).unwrap_or(u32::MAX)),
       },
-      DependencyKind::Module | DependencyKind::Library | DependencyKind::Plugin | DependencyKind::Crate | DependencyKind::Package => match named {
+      DependencyKind::Module | DependencyKind::Library | DependencyKind::Plugin | DependencyKind::Crate | DependencyKind::Package | DependencyKind::Target => match named {
         Some(module) if module != owner => {
           declared.insert((owner, module));
         }
@@ -433,10 +452,12 @@ fn add_uses(shapes: &mut [ModuleShape], place: &HashMap<&str, usize>, input: &Mo
       continue;
     };
     for (kind, name) in &manifest.entries {
-      if matches!(kind, DependencyKind::Module | DependencyKind::Crate | DependencyKind::Package)
-        && let Some(&module) = by_name.get(name.as_str())
-        && module != owner
-      {
+      let named = match kind {
+        DependencyKind::Module | DependencyKind::Crate | DependencyKind::Package => by_name.get(name.as_str()).copied(),
+        DependencyKind::Target => module_of_label(name, place),
+        _ => None,
+      };
+      if let Some(module) = named.filter(|&module| module != owner) {
         declared.insert((owner, module));
       }
     }

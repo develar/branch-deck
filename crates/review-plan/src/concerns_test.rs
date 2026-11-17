@@ -514,6 +514,20 @@ fn a_source_and_its_generated_copies_are_named_by_the_file() {
   assert_eq!(plan.concerns[0].change, ConcernChange::Mixed);
 }
 
+/// A user of the module `app`, before and after it keeps a store of the module `store`
+const USER: &str = "package a\n\nclass User(val name: String)\n";
+const USER_OF_STORE: &str = "package a\n\nimport b.Store\n\nclass User(val name: String, val store: Store)\n";
+const STORE: &str = "package b\n\nclass Store\n";
+
+/// The plan of `base..` a commit of `repo` that gives the user of `app` a store of `store`, with the `build` files of
+/// `app` that declare it
+fn keep_the_user_in_the_store(repo: &TestRepo, base: &str, build: &[(&str, &str)]) -> ReviewPlan {
+  let mut files = build.to_vec();
+  files.extend([("app/src/a/User.kt", USER_OF_STORE), ("store/src/b/Store.kt", STORE)]);
+  let head = repo.create_commit_with_files("Keep the user in the store", &files);
+  plan_of_range(repo, base, &head)
+}
+
 /// A build file whose change is mechanical follows the concern of the code of its module that a link now joins to
 /// another module: the new dependency is a consequence of the code that needs it
 #[test]
@@ -522,20 +536,12 @@ fn a_build_file_follows_the_code_of_its_module_that_needs_another_module() {
   let base = repo.create_commit_with_files(
     "Add",
     &[
-      ("app/BUILD.bazel", "# app\n"),
-      ("store/BUILD.bazel", "# store\n"),
-      ("app/src/a/User.kt", "package a\n\nclass User(val name: String)\n"),
+      ("app/BUILD.bazel", "kt_jvm_library(\n    name = \"app\",\n    deps = [],\n)\n"),
+      ("store/BUILD.bazel", "kt_jvm_library(name = \"store\")\n"),
+      ("app/src/a/User.kt", USER),
     ],
   );
-  let head = repo.create_commit_with_files(
-    "Keep the user in the store",
-    &[
-      ("app/BUILD.bazel", "# app\ndeps = [\"//store\"]\n"),
-      ("app/src/a/User.kt", "package a\n\nimport b.Store\n\nclass User(val name: String, val store: Store)\n"),
-      ("store/src/b/Store.kt", "package b\n\nclass Store\n"),
-    ],
-  );
-  let plan = plan_of_range(&repo, &base, &head);
+  let plan = keep_the_user_in_the_store(&repo, &base, &[("app/BUILD.bazel", "kt_jvm_library(\n    name = \"app\",\n    deps = [\"//store\"],\n)\n")]);
   assert_eq!(concerns(&plan)[0].1, ["app/src/a/User.kt", "app/BUILD.bazel"], "{:#?}", plan.concerns);
 }
 
@@ -556,4 +562,39 @@ fn a_file_of_imports_alone_follows_the_declaration_it_imports() {
   );
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(concerns(&plan), [(declaration("fresh"), vec!["src/a/Api.kt", "src/c/Other.kt"])], "{:#?}", plan.files);
+}
+
+/// The section a generator writes into the `BUILD.bazel` of a module from its `*.iml` follows the `*.iml`, which follows
+/// the code that needs the new dependency
+#[test]
+fn a_section_a_tool_writes_follows_the_concern_of_the_iml_it_is_generated_from() {
+  let build = |deps: &str| {
+    format!(
+      "load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\")\n\n### auto-generated section `build intellij.app` start\njvm_library(\n    name = \"app\",\n    module_name = \"intellij.app\",\n    deps = [{deps}],\n)\n### auto-generated section `build intellij.app` end\n"
+    )
+  };
+  let iml = |entries: &str| {
+    format!(
+      "<module type=\"JAVA_MODULE\">\n  <component name=\"NewModuleRootManager\">\n    <orderEntry type=\"sourceFolder\" forTests=\"false\" />\n{entries}  </component>\n</module>\n"
+    )
+  };
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("app/BUILD.bazel", &build("")),
+      ("app/intellij.app.iml", &iml("")),
+      ("store/BUILD.bazel", "kt_jvm_library(name = \"store\")\n"),
+      ("app/src/a/User.kt", USER),
+    ],
+  );
+  let build = build("\"//store\"");
+  let iml = iml("    <orderEntry type=\"module\" module-name=\"intellij.store\" />\n");
+  let plan = keep_the_user_in_the_store(&repo, &base, &[("app/BUILD.bazel", &build), ("app/intellij.app.iml", &iml)]);
+  assert_eq!(
+    concerns(&plan)[0].1,
+    ["app/src/a/User.kt", "app/intellij.app.iml", "app/BUILD.bazel"],
+    "{:#?}",
+    plan.concerns
+  );
 }
