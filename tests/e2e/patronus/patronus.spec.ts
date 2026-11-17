@@ -5,7 +5,7 @@ import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, restOnBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { expectColumnAligned } from "../helpers/column-helpers"
+import { expectRowTracksInPlace } from "../helpers/column-helpers"
 import { resetIpc, settledInvokes, withoutAppTimers } from "../helpers/ipc-helpers"
 import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
@@ -101,9 +101,9 @@ test.describe("Patronus chip", () => {
     await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
     await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push", exact: true })).toBeEnabled()
     await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-step", "safePush")
-    // the steps and "⋯" stand in their columns in every row, whatever the row shows before them
-    await expectColumnAligned(page.getByTestId("next-step-slot"))
-    await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
+    // the steps and "⋯" stand in their columns in every row, whatever the row shows before them, and every state reads
+    // in its track, none over the next one
+    await expectRowTracksInPlace(page)
   })
 
   test("should restart a failed robot from its row, the state staying in the Status cell", async ({ page, repo }) => {

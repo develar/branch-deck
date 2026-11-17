@@ -25,9 +25,10 @@ import { useBranchRobot } from "@/stores/patronus"
 
 /**
  * The robot reads as the status text it replaces: `text-sm`, its icon where the status dot is; the hover underline and
- * the details of a chip stay
+ * the details of a chip stay. It shrinks to its track: a finished robot's label truncates under the cap of the track
+ * and never paints over the pull request chip after it
  */
-const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
+const ROW_ROBOT = "h-6 min-w-0 gap-2 px-0 text-sm"
 
 /**
  * The first column of the Status cell of a branch row, what happens to the branch, as Rust decides it (`RowStatus`,
@@ -161,8 +162,9 @@ export function RunningRowRobot({ branchName, robot, chip, stackPath = true, sta
   const rest = failing ? ` · ${chip.label}` : progress.eta === null ? null : ` · ${progress.eta}`
   return (
     // as wide as "59m · ~1h 59m" while it runs, so its time ticks without moving the columns; a robot past its usual
-    // time ("55m · usually ~40m") widens its column once
-    <div className={cn("relative flex", titleBar === undefined ? "min-w-[13ch]" : "min-w-0")}>
+    // time ("55m · usually ~40m") widens its column once: a live value, which the cap of the state track leaves whole
+    // (`data-live-width`)
+    <div className={cn("relative flex", titleBar === undefined ? "min-w-[13ch]" : "min-w-0")} data-live-width={titleBar === undefined || undefined}>
       <RobotStatusChip
         branchName={branchName}
         robot={robot}

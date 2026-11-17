@@ -33,13 +33,14 @@ export const TRACK_ITEM_CLASS: Readonly<Record<BranchTrack, string>> = {
 }
 
 /**
- * The caps of the tracks whose text truncates: the status text and the robot, what lands the branch, the step; a step
- * with actions beside its slot (a start whose answer was lost, a wait for the lock) is as wide as they are, as buttons
- * don't truncate
+ * The caps of the tracks whose text truncates: the status text and a finished robot, what lands the branch, the step; a
+ * running robot is a live value (`data-live-width`), read whole, so its track widens for it ("1h 57m · usually
+ * ~1h 39m"); a step with actions beside its slot (a start whose answer was lost, a wait for the lock) is as wide as they
+ * are, as buttons don't truncate
  */
 export const TRACK_CONTENT_CLASS: Readonly<Record<BranchTrack, string>> = {
   commits: "",
-  state: "max-w-40",
+  state: "max-w-40 has-[[data-live-width]]:max-w-none",
   pr: "",
   landed: "max-w-48",
   push: "",

@@ -2,8 +2,9 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells, getMoreButton, getPushButton } from "../helpers/branch-helpers"
-import { expectColumnAligned } from "../helpers/column-helpers"
+import { expectRowTracksInPlace, trackOverlaps } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { expectPushedToast, holdRemotePushes } from "../helpers/push-helpers"
 import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -68,8 +69,7 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     // and a 10rem step
     const actions = getBranchCells(findBranchRow(page, "JIRA-456")).actions
     await expect.poll(async () => (await actions.boundingBox())!.width).toBeLessThan(12.75 * 16)
-    await expectColumnAligned(page.getByTestId("next-step-slot"))
-    await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
+    await expectRowTracksInPlace(page)
   })
 
   // the row stands at its end, and so do the items of its Actions, also narrower than the head "Actions": at its start
@@ -93,6 +93,26 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     await expect.poll(() => trackWidth(page, "push")).toBe(0)
     await resizeReportsDelivered(page)
     expect(await more.boundingBox()).toEqual(before)
+  })
+
+  test("widens the Status column for a robot past its usual time, which paints over no chip beside it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the page's clock is at 2024-01-02 10:00Z; two Safe Pushes of 1h 39m this week, JIRA-456 started 1h 57m ago and
+    // has a pull request: "1h 57m · usually ~1h 39m" is wider than the cap of the status text
+    const now = 1704189600
+    const history = ["a", "b"].map(id =>
+      robot(`old-${id}`, `old-${id}`, { status: "success", sourceRevision: "0".repeat(40), startTime: now - 86400, finishTime: now - 86400 + 99 * 60 }),
+    )
+    await setupRepo("issue_links", {
+      patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: now - 117 * 60 }), ...history),
+      pullRequests: availablePullRequests(pullRequest("JIRA-456", 1873)),
+    })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "JIRA-456")
+    await expect(row.getByTestId("robot-time")).toHaveText("1h 57m · usually ~1h 39m")
+    await expect(row.getByTestId("pull-request-chip")).toBeVisible()
+    // the time is read whole, and the pull request chip stands after it, in every row
+    await expect.poll(() => trackOverlaps(page.getByTestId("branch-row"))).toEqual([])
+    expect(await row.getByTestId("robot-time").evaluate(text => text.scrollWidth > text.clientWidth)).toBe(false)
   })
 
   test("fits every label of a step in its column, so none truncates", async ({ page, setupRepo, syncAndWaitForBranches }) => {

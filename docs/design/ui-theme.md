@@ -620,7 +620,8 @@ shows.
   768px no subject had its 6rem (9 of 20 runs of `column-widths.spec.ts` in Chromium under a load of 70 on the Mac
   Studio, 2026-10-30; none in WebKit, which times its frames otherwise). `data-wide` comes from the reports of the root
   alone, so it is right in the first frame and after each report.
-- **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
+- **Live values hold their own width**: a running robot is at least `13ch` and never under the cap of its track
+  (`data-live-width`: "1h 57m · usually ~1h 39m" painted over the pull request chip under `max-w-40`), the compact push `min-w-16` (`⟳ 100%`),
   Push with Children of a row the widest it gets while it pushes (`⟳ 100% with children`, invisible in its cell),
   the Safe Push of a slot its width at rest while its start runs, so
   a tick of a time or a percent changes no column. A label that changes in place is `WidestLabel`
