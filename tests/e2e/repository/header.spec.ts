@@ -238,7 +238,11 @@ test.describe("Repository selector", () => {
     const options = page.getByRole("listbox").getByRole("option")
     await expect(options).toHaveCount(31)
     const add = page.getByRole("button", { name: "Add Repository…", exact: true })
-    await expect(options.first()).toBeInViewport({ ratio: 1 })
+    // An option is as wide as the list, whose width is fractional (267.44 px), and WebKit cuts the scrollport of the list
+    // at a whole pixel (267 px): such an option is never whole there. 0.99 still fails a cut of a third of a pixel of its
+    // 32 px height, so the option shows its whole height
+    const wholeHeight = { ratio: 0.99 }
+    await expect(options.first()).toBeInViewport(wholeHeight)
     await expect(options.last()).not.toBeInViewport()
     await expect(add).toBeInViewport({ ratio: 1 })
     const footerBox = await boxOf(add)
@@ -247,7 +251,7 @@ test.describe("Repository selector", () => {
     await add.click({ trial: true })
     await page.keyboard.press("End")
     await expect(options.last()).toBeFocused()
-    await expect(options.last()).toBeInViewport({ ratio: 1 })
+    await expect(options.last()).toBeInViewport(wholeHeight)
     await expect(options.first()).not.toBeInViewport()
     await expect(add).toBeInViewport({ ratio: 1 })
     expect(await boxOf(add)).toEqual(footerBox)
