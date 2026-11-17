@@ -106,7 +106,7 @@ spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "0558f3c9b3
 # The LMDB environment of the object cache, shared with accio (decision 2026-11-09-lmdb-env-in-psi-syntax of accio), at
 # a revision of its own: it moves apart from the one above, which keys the cached summaries, so a fix of the
 # environment makes no summary again
-lmdb-env = { git = "https://github.com/develar/psi-syntax", rev = "abef29d0987c61fb86efbbd2eb6f297ed6c1c0b0" }
+lmdb-env = { git = "https://github.com/develar/psi-syntax", rev = "b99998ac6b69807bc6079efc6d2d9b3816b40884" }
 
 # Error types
 thiserror = "2.0.21"
