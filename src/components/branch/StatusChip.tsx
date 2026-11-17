@@ -72,7 +72,14 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
       >
         {children}
       </PopoverTrigger>
-      <PopoverContent {...held.placement} className="w-80 gap-3 p-3" data-testid={detailsTestId} data-hang={held.hang} {...held.popupProps}>
+      <PopoverContent
+        {...held.placement}
+        className="w-80 gap-3 p-3 data-pinned:absolute data-pinned:bottom-0 data-pinned:left-0"
+        data-testid={detailsTestId}
+        data-hang={held.hang}
+        data-pinned={held.pinnedBottom || undefined}
+        {...held.popupProps}
+      >
         {details}
       </PopoverContent>
     </Root>
@@ -149,12 +156,15 @@ function pinOf(popup: HTMLElement, chip: DOMRect): Pin | undefined {
  * goes in it changes its size on its other edge only: no control between moves. `hang` (`data-hang` of the popup) is
  * the edge the details hang by, which their content keeps its actions next to (docs/contributing/frontend.md, "What
  * comes late beside a hovered control"). Once the pointer left the card and no press lasts, the card is placed by its
- * chip again. The anchor changes, not `disableAnchorTracking` of the positioner: Base UI 1.9 arms the tracking of an
- * anchor again only for a new anchor (floating-ui keeps `whileElementsMounted` in a ref), never for a change of that prop
+ * chip again. The anchor and `disableAnchorTracking` of the positioner change together, at the pin and at the unpin:
+ * Base UI 1.9 applies that prop only with a new anchor (floating-ui reads `whileElementsMounted` from a ref when the
+ * reference changes), so the new anchor is what makes it take; the prop alone would change nothing
  */
 function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
-  placement: Pick<ComponentProps<typeof PopoverContent>, "anchor" | "side" | "align" | "sideOffset" | "collisionAvoidance">
+  placement: Pick<ComponentProps<typeof PopoverContent>, "anchor" | "side" | "align" | "sideOffset" | "collisionAvoidance" | "disableAnchorTracking">
   hang: "top" | "bottom" | undefined
+  /** Pinned by its bottom edge: the popup stands at the bottom of its positioner */
+  pinnedBottom: boolean
   popupProps: Pick<ComponentProps<"div">, "onPointerEnter" | "onPointerLeave" | "onPointerDown" | "ref">
   reset: () => void
 } {
@@ -165,10 +175,16 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
   const inside = useRef(false)
   const pressing = useRef(false)
   const pinned = useRef(false)
+  const popupElement = useRef<HTMLElement | null>(null)
+  const unpin = () => {
+    pinned.current = false
+    popupElement.current?.parentElement?.style.removeProperty("width")
+    popupElement.current?.parentElement?.style.removeProperty("height")
+    setPin(undefined)
+  }
   const release = () => {
     if (!inside.current && !pressing.current) {
-      pinned.current = false
-      setPin(undefined)
+      unpin()
     }
   }
   const measure = (popup: HTMLElement) => {
@@ -186,8 +202,12 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
       align: pin?.align ?? "start",
       sideOffset: SIDE_OFFSET,
       collisionAvoidance: pin === undefined ? undefined : PINNED_COLLISIONS,
+      // nor placed again as it grows: with the new anchor of the pin Base UI arms its tracking again, here without it, so
+      // nothing but the pin and the margin below says where the card stands
+      disableAnchorTracking: pin !== undefined,
     },
     hang: pin?.hang ?? placedHang,
+    pinnedBottom: pin?.hang === "bottom",
     popupProps: {
       // the edge they hang by, measured once placed and whenever their positioner places them anew: as their size
       // changes, as they move without a change of size (a scroll of the table, rows above, a resize of the window: the
@@ -196,6 +216,7 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
         if (popup === null) {
           return
         }
+        popupElement.current = popup
         const now = () => measure(popup)
         const frame = requestAnimationFrame(now)
         const sizes = observeSize(now)
@@ -218,6 +239,15 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
           const next = pinOf(event.currentTarget, chip)
           if (next !== undefined) {
             pinned.current = true
+            // a card pinned by its bottom edge keeps it in the layout: its positioner, placed once more for the pin and no
+            // more while pinned, keeps its box, and the popup stands at its bottom (`data-pinned`), so what it gains or
+            // loses it gains or loses above, in the same frame
+            const positioner = event.currentTarget.parentElement
+            if (next.hang === "bottom" && positioner !== null) {
+              const { width, height } = positioner.getBoundingClientRect()
+              positioner.style.width = `${width}px`
+              positioner.style.height = `${height}px`
+            }
             setPin(next)
           }
         }
@@ -245,8 +275,7 @@ function useHeldAnchor(trigger: RefObject<HTMLElement | null>): {
     reset: () => {
       inside.current = false
       pressing.current = false
-      pinned.current = false
-      setPin(undefined)
+      unpin()
       // the next open measures its own edge
       setPlacedHang(undefined)
     },

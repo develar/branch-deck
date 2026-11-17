@@ -1,4 +1,4 @@
-// local customisation: `anchor`, `collisionPadding` and `collisionAvoidance` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
+// local customisation: `anchor`, `collisionPadding`, `collisionAvoidance` and `disableAnchorTracking` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
 // `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups), `lazy` on
 // `Popover`: the root mounts at the first hover or focus of its trigger, a plain element until then (`useLazyRoot`), and
 // the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`); a popover closes when its view of the
@@ -65,11 +65,12 @@ function PopoverContent({
   anchor,
   collisionPadding,
   collisionAvoidance,
+  disableAnchorTracking,
   container,
   children,
   ...props
 }: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding" | "collisionAvoidance"> &
+  Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding" | "collisionAvoidance" | "disableAnchorTracking"> &
   Pick<PopoverPrimitive.Portal.Props, "container">) {
   // the content of a lazy root that is not mounted yet
   if (React.use(LazyRootContext)?.armed === false) {
@@ -86,6 +87,7 @@ function PopoverContent({
         anchor={anchor}
         collisionPadding={collisionPadding}
         collisionAvoidance={collisionAvoidance}
+        disableAnchorTracking={disableAnchorTracking}
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup

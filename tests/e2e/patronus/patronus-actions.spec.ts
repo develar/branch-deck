@@ -1323,8 +1323,9 @@ test.describe("Patronus actions", () => {
     }
 
     test("should restart it from its details: canceled first, then started again on the commit it tested", async ({ page }) => {
-      // the clock of the page held half an hour after the start of the test: the robot started 14 h 30 min before
-      await page.clock.pauseAt(new Date("2024-01-02T10:30:00Z"))
+      // the time of the page fixed half an hour after the start of the test, its timers running: the robot started 14 h
+      // 30 min before
+      await page.clock.setFixedTime(new Date("2024-01-02T10:30:00Z"))
       const popover = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
       const restart = popover.getByRole("button", { name: "Restart Safe Push", exact: true })
       await expect(restart).toHaveAttribute("data-action", "restart-robot")
