@@ -8,7 +8,7 @@ import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { formatKbds } from "@/lib/menu"
 import { describeSyncStep } from "@/lib/sync-step"
 import { viewVersionKey } from "@/model/store"
-import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync, useStaleNeeds } from "@/stores/branch-sync"
 
 const SYNC_KBD = formatKbds(["mod", "r"])
 
@@ -22,6 +22,7 @@ export function SyncButton() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncCount = useBranchSync(state => state.syncCount)
   const viewVersion = useBranchSync(state => viewVersionKey(state.viewVersion))
+  const staleNeeds = useStaleNeeds()
   const syncError = useBranchSync(state => state.syncError)
   const syncStep = useBranchSync(state => state.syncStep)
   const { canSync, reason } = useSyncAvailability()
@@ -55,6 +56,10 @@ export function SyncButton() {
             data-sync-count={syncCount}
             // the version of the session's view: a test waits for the patch of a sync by its change
             data-view-version={viewVersion ?? undefined}
+            // `stale` while the landing needs of tips a sync moved are computed, the steps on the needs before (no word of
+            // the page says it; none else, so the snapshots of the page stay as they were); a test waits for the fresh
+            // ones before it reads a step
+            data-landing-needs={staleNeeds ? "stale" : undefined}
             onClick={() => void syncBranches("manual")}
           />
         }

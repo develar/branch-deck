@@ -15,8 +15,9 @@ use crate::warm_start::{CachedSession, FRAME_SCHEMA, frame_of};
 use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
-use domain_types::landing::{BaselinePush, LandedBy, LandingFix, LandingRefusal, StackCommit};
+use domain_types::landing::{BaselinePush, FactWait, LandFact, LandedBy, LandingFix, LandingRefusal, StackCommit};
 use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, LocalGitHub, RouteGate};
+use domain_types::next_step::{NextStep, StepBlocker, StepRow};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
 use domain_types::reason::Reason;
@@ -784,6 +785,8 @@ struct HostFacts {
   needs: Mutex<Needs>,
   computed: Mutex<Vec<HashSet<String>>>,
   fails_view: Mutex<bool>,
+  /// Where the next computation of the landing needs waits until the test lets it go (`Gate`)
+  needs_gate: Mutex<Option<GateSide>>,
 }
 
 impl SessionEnvironment for TestEnvironment {
@@ -838,6 +841,10 @@ impl SessionEnvironment for TestEnvironment {
   }
 
   fn landing_needs(&self, _key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
+    let gate = self.facts.needs_gate.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(gate) = gate {
+      gate.pass();
+    }
     self.facts.computed.lock().unwrap_or_else(PoisonError::into_inner).push(landed.clone());
     Ok(self.facts.needs.lock().unwrap_or_else(PoisonError::into_inner).clone())
   }
@@ -2523,6 +2530,57 @@ async fn the_session_derives_the_patronus_view_and_its_landing_needs_once_patron
   list_robots(&sessions, &key, vec![running]).await;
   assert_eq!(snapshot(&sessions, &key).await.patronus, part, "the same robots derive nothing again");
   assert_eq!(facts.computed.lock().unwrap().len(), 1, "nor compute the needs again");
+}
+
+/// A sync that moved a tip on the same baseline keeps the needs of the tips before while the new ones are computed (the
+/// part `Stale`): flow still needs util and util nothing, so no patch carries another step of either, and the default
+/// start of flow waits for the fresh needs meanwhile; their answer makes them fresh, the step as it was
+#[tokio::test]
+async fn a_sync_that_moved_a_tip_keeps_the_steps_of_the_needs_before_and_its_start_waits_for_the_new_ones() {
+  let facts = Arc::new(HostFacts::default());
+  let (repo, sessions, key) = util_and_flow(&facts).await;
+  list_robots(&sessions, &key, Vec::new()).await;
+  let answered = view_when(&sessions, &key, |view| view.patronus.landing_needs == FactState::Fresh).await;
+  assert_eq!(answered.next_steps["flow"].step.row, StepRow::OnePrime, "flow needs util");
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+
+  let mut gate = Gate::arm(&facts.needs_gate);
+  repo.create_commit("(flow) Start twice with controlUrl", "flow-twice.txt", "twice");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  gate.arrived().await;
+  let stale = view_when(&sessions, &key, |view| view.patronus.landing_needs == FactState::Stale { reason: None }).await;
+  for name in ["flow", "util"] {
+    assert_eq!(stale.next_steps[name].step, answered.next_steps[name].step, "{name} keeps its step");
+  }
+  let needs = FactWait {
+    fact: LandFact::LandingNeeds,
+    failed: None,
+  };
+  assert!(
+    stale.lands["flow"].safe_push.waits.contains(&needs),
+    "its start waits for the fresh needs: {:?}",
+    stale.lands["flow"]
+  );
+
+  gate.go();
+  let fresh = view_when(&sessions, &key, |view| view.patronus.landing_needs == FactState::Fresh).await;
+  assert_eq!(fresh.next_steps["flow"].step, answered.next_steps["flow"].step);
+  assert!(!fresh.lands["flow"].safe_push.waits.contains(&needs), "{:?}", fresh.lands["flow"]);
+  let patches = window.take();
+  // flow, which the sync rebuilds, says its sync meanwhile (row 1, `Syncing`): that is the sync's, not the needs'; no
+  // patch carries a wait for the needs or another step of the needs, and util, whose tip stayed, gets no patch at all
+  let other: Vec<_> = patches
+    .iter()
+    .filter_map(|patch| patch.changes.next_steps.get("flow"))
+    .map(|view| &view.step)
+    .filter(|step| **step != answered.next_steps["flow"].step && !(step.row == StepRow::One && step.safe_push == Some(StepBlocker::Syncing)))
+    .collect();
+  assert_eq!(other, Vec::<&NextStep>::new(), "no patch of another step of flow");
+  assert!(
+    patches.iter().all(|patch| !patch.changes.next_steps.contains_key("util")),
+    "util: no patch of its next step"
+  );
 }
 
 /// A view the host can't derive is `Unavailable` with why, never an empty view; the next answer of Patronus derives it

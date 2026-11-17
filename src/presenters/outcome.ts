@@ -13,6 +13,7 @@ import type {
   Intent,
   LandingAllowances,
   LandingFix,
+  LandingRefusal,
   Outcome,
   PatronusPushMode,
   PatronusRobot,
@@ -65,8 +66,18 @@ export type LandToast =
 
 /** What refused a start before its first effect, as its toast says it */
 export type LandRefusal =
-  /** The landing gate: the fix of the first refusal and Start Anyway, the same start with the overrides */
-  | { readonly kind: "landing"; readonly title: string; readonly reason: string; readonly fix: LandingFix | null; readonly anyway: LandingAllowances }
+  /**
+   * The landing gate: the fix of the first refusal and Start Anyway, the same start with the overrides of these refusals,
+   * which lift them only
+   */
+  | {
+      readonly kind: "landing"
+      readonly title: string
+      readonly reason: string
+      readonly fix: LandingFix | null
+      readonly anyway: LandingAllowances
+      readonly refusals: readonly LandingRefusal[]
+    }
   /** Patronus can't rebase what lands onto the newest target: Update Project resolves it locally */
   | { readonly kind: "target"; readonly title: string; readonly error: ApiError }
   /** What the plan was decided on changed before its first effect: "Start Safe Push" plans it again */

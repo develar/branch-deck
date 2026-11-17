@@ -169,11 +169,13 @@ flowchart LR
    object kept while it says the same (`useRowPart(name, "landing", step => step?.status, sameJson)`: the status of a
    row, the hold of a branch, the blocker of its push, the node of a row, the item of Push with Children of a root, the
    fixes of a stack problem, the step a status says the wait of, of a row and of an island header, `useBranchStepWait`
-   and `useStackStepWait`; one kept answer per subscriber, `useBranchSyncEntry`). The next step of every branch waits
-   for the landing needs after each sync that moved a tip and then has them, two patches of every step, which render
-   the step of each row (`NextStepSlot`, which reads the whole step) and its node, whose hover words that step, and
-   neither the row, its status cell nor an island (`part-field-read` of `pnpm lint:arch`, which catches only a field
-   read inline off the answer). What reads the nodes of many rows (the
+   and `useStackStepWait`; one kept answer per subscriber, `useBranchSyncEntry`). After a sync that moved tips on the same
+   baseline the next step of every branch keeps the landing needs of the tips before while the new ones are computed
+   ([Next Step](../../openspec/specs/branch/next-step/spec.md#requirement-facts-without-an-answer-the-needs-of-tips-that-moved-stand-until-the-new-ones-come)),
+   so no step whose needs stay is patched: the sync renders the step of the branch it changed alone (`NextStepSlot`,
+   which reads the whole step), and neither another row, a status cell nor an island (`part-field-read` of `pnpm
+   lint:arch`, which catches only a field read inline off the answer); until 2026-11-17 every step waited and came
+   back, two patches of every step after each such sync. What reads the nodes of many rows (the
    filter chips, the states of a stack, the landing overview) counts their kinds without the words (`getNodeKindNow`)
    and words only the nodes it lists.
 
@@ -494,6 +496,13 @@ branch, while the cell inside it (`RowStatusCell`) read the status off the whole
 row; it counts the cell now (`oneBranchSyncStatuses`), and the cell keeps the status and the words of what landed the
 branch while they say the same: in turns without the kept answers and with them (run 1794907311904-89399, three runs
 each), `oneBranchSyncStatuses` 131, 1, 131, 1 in Chromium and in WebKit alike, the rows 1 in all.
+
+Since #237 (2026-11-17) the patches of the needs went too: while the session computes the landing needs of tips a sync
+moved on the same baseline, each branch keeps the answer of the tips before
+([Next Step](../../openspec/specs/branch/next-step/spec.md#requirement-facts-without-an-answer-the-needs-of-tips-that-moved-stand-until-the-new-ones-come)),
+so a step whose needs stay gets no patch, and a start waits for the fresh needs in its decision, not in the step. The
+sync of one more commit on one branch renders the step of that branch alone (`oneBranchSyncSteps` of `perf:table`,
+`row-renders.spec.ts` with Patronus: `step:docs`), where every step rendered before.
 
 Since s15-5 the column registry writes the widths of the columns less often. The first sync had cost more task time than
 the tree of s0a while its script was less (784 / 769 ms against 616 / 646 ms in [Итог

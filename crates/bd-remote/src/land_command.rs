@@ -378,6 +378,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
       bypass_rules: args.bypass_rules,
       ..LandingAllowances::default()
     },
+    anyway: None,
   };
   // the plan of the app's start over what was read: the rules of the target it waits for are read next, then it is
   // decided again

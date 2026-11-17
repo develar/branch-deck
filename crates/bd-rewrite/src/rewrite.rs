@@ -267,6 +267,7 @@ pub fn restack(context: &RepoContext, args: &RestackArgs) -> Result<RewriteOutpu
     branch_name: args.branch.clone(),
     parent: args.parent.clone(),
     witness: asked_on(args.rewrite.expect_head.as_deref()),
+    fixes: None,
   };
   rewrite_stack(
     context,
@@ -284,6 +285,7 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
   let intent = RewriteIntent::Unstack {
     branch_name: args.branch.clone(),
     witness: asked_on(args.rewrite.expect_head.as_deref()),
+    fixes: None,
   };
   rewrite_stack(context, "unstack", intent, &args.rewrite, Restack::Off { leaf: &args.branch })
 }

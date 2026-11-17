@@ -136,6 +136,7 @@ describe("presentLandRefusal", () => {
         "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of the whole lane-run stack fails. Stack lane-run on stills-codec to land it too.",
       fix: MISSING.fix,
       anyway: { allowDangling: false, allowMissing: true, allowUnlanded: false },
+      refusals: [MISSING],
     })
     const conflict = apiError("target_conflict", "Nothing was pushed or started: auth conflicts with the newest target in a.txt")
     expect(presentLandRefusal(conflict, "dryRun", "auth")).toEqual({ kind: "target", title: "Cannot start the Dry Run of auth", error: conflict })

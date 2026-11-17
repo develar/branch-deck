@@ -306,6 +306,7 @@ fn safe_push_of(branch: &str) -> Intent {
     without_approvals: false,
     create_pull_request: false,
     allow: LandingAllowances::default(),
+    anyway: None,
   })
 }
 
@@ -566,6 +567,7 @@ async fn unstack_of_beta(app: &App) -> Intent {
   Intent::Rewrite(Box::new(RewriteIntent::Unstack {
     branch_name: "beta".to_string(),
     witness,
+    fixes: None,
   }))
 }
 

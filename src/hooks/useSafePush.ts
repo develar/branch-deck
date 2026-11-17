@@ -6,7 +6,21 @@ import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { runLandingFix } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
-import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
+import type {
+  ApiError,
+  Confirmation,
+  Land,
+  LandingAllowances,
+  LandingRefusal,
+  LandProfiles,
+  OperationEvent,
+  OperationId,
+  Outcome,
+  PatronusProfile,
+  PatronusRobot,
+  Plan,
+  ReviewReadiness,
+} from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -15,6 +29,8 @@ import { formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { pushForAction, pushWholeStack } from "@/lib/push-run"
+import { sameJson } from "@/lib/record"
+import { repositoryName } from "@/lib/repository-config"
 import { getRobotActionItemsNow } from "@/lib/robot-items"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import type { ToastActionProps } from "@/lib/toast-message"
@@ -24,7 +40,7 @@ import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import { executeIntent } from "@/model/intents"
 import { getRowPart } from "@/model/store"
 import type { LandPrompt } from "@/presenters/land"
-import { presentLand, startRouteOf } from "@/presenters/land"
+import { acceptedOf, presentLand, startRouteOf } from "@/presenters/land"
 import { formatLandingFix } from "@/presenters/landing"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
@@ -37,7 +53,6 @@ import {
   getLands,
   getStackBranch,
   getStackBranchOf,
-  getStackIslandRoots,
   getStackNotBuilt,
   isForkingRoot,
   mainLineOf,
@@ -61,8 +76,9 @@ import { getRepositorySwitchReason, getSelectedRepositoryPath, isSelectedReposit
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { readRobotDetails } from "@/stores/robot-details"
-import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
-import { getLandRun, openSafePushPopover, safePushStore, setLandAsking, setLandProgress } from "@/stores/safe-push"
+import type { SafePushAsk, SafePushMode, SafePushPlacement, StartPlace } from "@/stores/safe-push"
+import { getLandRun, openSafePushPopover, safePushStore, setLandAsking, setLandProgress, startPlaceOf } from "@/stores/safe-push"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
 import { runUpdateProjectOf, tellFollowingUpdate } from "@/stores/update-project"
 
@@ -229,18 +245,41 @@ export function landOf(branchName: string, request: Omit<SafePushRequest, "place
   }
 }
 
+/** The press a start `land` is of, `landOf` the other way: its mode, its profile, a start without the approvals */
+function requestOf(land: Land): SafePushRequest {
+  const { profile } = land
+  return {
+    mode: land.mode === "dryRun" ? "dryRun" : "rebaseAutosquash",
+    via: "click",
+    ...(profile.kind === "none" ? { profileId: null } : profile.kind === "id" ? { profileId: profile.id } : {}),
+    ...(land.withoutApprovals === true && { bypassReview: true }),
+  }
+}
+
+/** The popover of the start `request` of `branchName`, at `placement` */
+function askOf(branchName: string, request: Omit<SafePushRequest, "placement">, placement: SafePushPlacement): SafePushAsk {
+  return {
+    branchName,
+    mode: request.mode,
+    placement,
+    ...(request.profileId !== undefined && { profileId: request.profileId }),
+    ...(request.bypassReview === true && { bypassReview: true }),
+  }
+}
+
 /** The start of the default intent (the default profile, with review): the view carries its decision (`RepositoryView.lands`) */
 function isDefaultAsk(request: Omit<SafePushRequest, "placement">): boolean {
   return request.profileId === undefined && request.bypassReview !== true
 }
 
 /** The plan the session answers of the start `request` of `branchName` (`prepare`); null without an answer */
-export async function prepareStart(branchName: string, request: Omit<SafePushRequest, "placement">): Promise<Plan | null> {
-  const repositoryPath = getSelectedRepositoryPath()
-  if (repositoryPath === null) {
-    return null
-  }
-  const result = await commands.prepare({ repositoryPath, intent: { kind: "land", ...landOf(branchName, request) } })
+export function prepareStart(branchName: string, request: Omit<SafePushRequest, "placement">): Promise<Plan | null> {
+  return prepareLand(getSelectedRepositoryPath(), landOf(branchName, request))
+}
+
+/** The plan the session of `repositoryPath` answers of the start `land` (`prepare`); null without an answer */
+async function prepareLand(repositoryPath: string, land: Land): Promise<Plan | null> {
+  const result = await commands.prepare({ repositoryPath, intent: { kind: "land", ...land } })
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
@@ -352,20 +391,94 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   }
 }
 
+/** A press settled (`settleSafePush`): its read (null: the view has no subject of it), or ended by another repository */
+type Settled = { readonly kind: "read"; readonly read: SafePushRead | null } | { readonly kind: "switched" }
+
 /**
- * The start of a click, planned again on every change until its plan waits for nothing (`prepare`): the session answers
- * every fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends.
- * The rules come with the listing that has the approval: the session reads them then. A fact may come while the plan is
- * asked, its patch ahead of the plan that still waits for it: `askUntilSettled` asks again then
+ * The start `land` of a press, planned again on every change until its plan waits for nothing (`prepare`): the session
+ * answers every fact it waits for (the review it is asked at once, the rules, the profiles, the landing needs of tips a
+ * sync moved), a failure too, so the wait ends. The rules come with the listing that has the approval: the session reads
+ * them then. A fact may come while the plan is asked, its patch ahead of the plan that still waits for it:
+ * `askUntilSettled` asks again then. It is planned in `repositoryPath`, the repository of the press, and read over the
+ * table the window shows: once another repository opens, the wait ends (`switched`), also when the first one shows
+ * again before the end, which the press says
  */
-async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
-  // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
-  await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
-  return askUntilSettled(
-    async () => readSafePush(branchName, ask, await prepareStart(branchName, ask)),
-    read => read === null || read.prompt.kind !== "wait",
-    [branchSyncStore, reviewReadinessStore, pullRequestsStore, patronusStore],
-  )
+async function settleSafePush(branchName: string, request: Omit<SafePushRequest, "placement">, land: Land, repositoryPath: string): Promise<Settled> {
+  // the recent projects, whose first one is the selected repository
+  let switched = !isSelectedRepository(repositoryPath)
+  const unsubscribe = repositorySettingsStore.subscribe(() => {
+    switched ||= !isSelectedRepository(repositoryPath)
+  })
+  try {
+    // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
+    await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
+    return await askUntilSettled<Settled>(
+      async () => {
+        const plan = switched ? null : await prepareLand(repositoryPath, land)
+        return switched ? { kind: "switched" } : { kind: "read", read: readSafePush(branchName, request, plan) }
+      },
+      settled => settled.kind === "switched" || settled.read === null || settled.read.prompt.kind !== "wait",
+      [repositorySettingsStore, branchSyncStore, reviewReadinessStore, pullRequestsStore, patronusStore],
+    )
+  } finally {
+    unsubscribe()
+  }
+}
+
+/**
+ * A press of the start `land` (`ask.branchName`, as `request` asked it) settled (`settleSafePush`) and decided as every
+ * press is, in `repositoryPath`, the repository of the press: its button says "Checking…" while it waits, the review of
+ * a Safe Push asked meanwhile; once another repository opened, it starts nothing and says so. `start` runs the plan, and
+ * so does a confirm of what the press showed before (`shown`: Start Anyway, the confirmations its popover or toast
+ * showed, which it accepts, `acceptedOf`); a refusal says why (the step's notice, the popover of the approvals it
+ * misses, its toast); a choice, a confirm and a confirmation it didn't show open the popover. Resolves to whether its
+ * robot started
+ */
+async function settleStart(ask: SafePushAsk, request: SafePushRequest, land: Land, repositoryPath: string, shown: readonly Confirmation[] | null): Promise<boolean> {
+  const { branchName, mode } = ask
+  const title = startFailureTitle(mode, formatReadinessSubject(branchName))
+  setLandAsking(branchName, mode, repositoryPath)
+  const release = mode === "rebaseAutosquash" ? demandReviewReadiness(branchName) : () => {}
+  let settled: Settled
+  try {
+    settled = await settleSafePush(branchName, request, land, repositoryPath)
+  } catch (error) {
+    notifyError(title, error)
+    return false
+  } finally {
+    release()
+    setLandAsking(branchName, null, repositoryPath)
+  }
+  // the plan was read in the session of the repository of the press, over its table: another one decides nothing here,
+  // nor the first one shown again, whose table the press didn't wait on
+  if (settled.kind === "switched") {
+    notifyError(title, getRepositorySwitchReason(repositoryPath) ?? `Another repository opened while the start in ${repositoryName(repositoryPath)} waited`)
+    return false
+  }
+  const { read } = settled
+  if (read === null) {
+    return false
+  }
+  const decision = read.prompt
+  const accepted = decision.kind === "confirm" && shown !== null && read.plan !== null ? acceptedOf(read.plan, shown) : null
+  if (decision.kind === "start" || accepted !== null) {
+    return read.plan !== null && startShown(read.plan, accepted ?? read.plan.confirmations, repositoryPath)
+  }
+  if (decision.kind !== "refuse") {
+    openSafePushPopover(ask)
+    return false
+  }
+  // the answer the press waited for may be the step's own reason (the approvals): its notice says it, with its action
+  const step = mode === "rebaseAutosquash" && !decision.offersPush ? currentStepOf(branchName) : undefined
+  if (step?.notice != null && step.safePushBlocker === decision.reason) {
+    tellNotice(branchName, step, step.notice, { ...request, placement: ask.placement })
+  } else if (decision.opens === "review") {
+    // the approvals it misses: the popover names them, where they count and how to get them
+    openSafePushPopover(ask)
+  } else {
+    tellRefusal(branchName, mode, decision.reason, decision.offersPush, decision.opens)
+  }
+  return false
 }
 
 /**
@@ -474,18 +587,20 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   // the start is planned and run in the repository of the click: what it reads meanwhile decides on it, and it starts
   // there
   const repositoryPath = getSelectedRepositoryPath()
-  const root = stackRootOfReadinessKey(branchName)
-  if (root !== null && !isForkingRoot(branchSyncStore.getState(), root)) {
-    // a straight chain has no stack branch: the Safe Push of its last branch lands the whole stack, at the header of its
-    // island as the island's own Safe Push
-    const leaf = getStackNextStep(root)?.leaf
-    if (leaf != null) {
-      await requestSafePush(leaf, { ...request, placement: request.placement ?? (getStackIslandRoots().has(root) ? "stack-header" : "row") })
-    }
+  // the row of the start, the branch, the root for the whole stack: of an island at its header, of a small stack at the
+  // root's row
+  const place = startPlaceOf(branchName, request.placement)
+  if (place === null) {
     return
   }
-  // the row of the start: the branch, the root for the whole stack
-  const row = root ?? branchName
+  if (place.subject !== branchName) {
+    // a straight chain has no stack branch: the Safe Push of its last branch lands the whole stack, at the header of its
+    // island as the island's own Safe Push
+    await requestSafePush(place.subject, { ...request, placement: place.placement })
+    return
+  }
+  const { row, placement } = place
+  const root = stackRootOfReadinessKey(branchName)
   const branch = getBranch(row)
   const run = getLandRun(branchName)
   // a start of the row that runs shows in its slot: a second ask has nothing to add
@@ -499,8 +614,6 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     tellRefusal(branchName, mode, run.by.description, false)
     return
   }
-  // the whole stack of an island starts at its header, of a small stack at the root's row
-  const placement = request.placement ?? (root !== null && getStackIslandRoots().has(root) ? "stack-header" : "row")
   const step = root === null ? getBranchNextStep(row) : getStackNextStep(root)?.step
   if (step == null) {
     return
@@ -523,69 +636,48 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     return
   }
   // the popover and the progress show at the row's slot: a row a collapsed stack or the filter hides is revealed first
-  if (placement === "row" && !getShownBranchTableOrder().includes(row)) {
-    requestReveal({ branchName: row, commitIds: [] })
-  }
+  revealStartRow(place)
   // a failed read of the rules is asked again by each start: the click waits for the new answer, the popover reads anew
   // (the open is a new state of the store of the starts, which its read is memoized on)
   void askBranchRulesAgain()
-  const ask: SafePushAsk = {
-    branchName,
-    mode,
-    placement,
-    ...(request.profileId !== undefined && { profileId: request.profileId }),
-    ...(request.bypassReview === true && { bypassReview: true }),
-  }
+  const ask = askOf(branchName, request, placement)
   if (request.via === "key" || request.bypassReview === true) {
     openSafePushPopover(ask)
     return
   }
-  // its button says "Checking…" while it waits for its plan
-  setLandAsking(branchName, mode, repositoryPath)
-  const release = mode === "rebaseAutosquash" ? demandReviewReadiness(branchName) : () => {}
-  let read: SafePushRead | null
-  try {
-    read = await settleSafePush(branchName, request)
-  } catch (error) {
-    notifyError(startFailureTitle(mode, formatReadinessSubject(branchName)), error)
-    return
-  } finally {
-    release()
-    setLandAsking(branchName, null, repositoryPath)
+  await settleStart(ask, request, landOf(branchName, request), repositoryPath, null)
+}
+
+/** The row of a start that shows at its slot (`StartPlace`), revealed first where a collapsed stack or the filter hides it */
+function revealStartRow(place: StartPlace): void {
+  if (place.placement === "row" && !getShownBranchTableOrder().includes(place.row)) {
+    requestReveal({ branchName: place.row, commitIds: [] })
   }
-  if (read === null) {
-    return
-  }
-  // the plan was read in the session of the selected repository: another one decides nothing here
-  const switched = getRepositorySwitchReason(repositoryPath)
-  if (switched !== null) {
-    notifyError(startFailureTitle(mode, formatReadinessSubject(branchName)), switched)
-    return
-  }
-  const decision = read.prompt
-  switch (decision.kind) {
-    case "start":
-      if (read.plan !== null) {
-        await startPlanned(read.plan, undefined, repositoryPath)
-      }
-      return
-    case "refuse": {
-      // the answer the click waited for may be the step's own reason (the approvals): its notice says it, with its action
-      const settled = mode === "rebaseAutosquash" && !decision.offersPush ? currentStepOf(branchName) : undefined
-      if (settled?.notice != null && settled.safePushBlocker === decision.reason) {
-        tellNotice(branchName, settled, settled.notice, { ...request, placement })
-      } else if (decision.opens === "review") {
-        // the approvals it misses: the popover names them, where they count and how to get them
-        openSafePushPopover(ask)
-      } else {
-        tellRefusal(branchName, mode, decision.reason, decision.offersPush, decision.opens)
-      }
-      return
+}
+
+/**
+ * The fix of what a start of `branchName` needs, the fix of `refusal` ("Stack lane-run on stills-codec"), pressed on the
+ * slot of row 1′, its item in "⋯" or the toast of a refused start: a rewrite that names the refusal it fixes
+ * (`RewriteIntent.fixes`), which the engine runs on fresh landing needs only, while they still refuse with it; refused
+ * (`plan_changed`: the fresh needs ask for it no more, a second press after the first ran), the Safe Push popover opens
+ * at the row with the needs as they are. A fix no action runs (the move of a commit) opens the popover at once. The
+ * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked
+ */
+export function requestLandingFix(branchName: string, refusal: LandingRefusal): void {
+  const fix = refusal.fix
+  // the popover itself, whatever the step holds back now (a readiness asked again for the tip that moved): it reads the
+  // start with the needs as they are, and says what it waits for; where the start of the subject shows (the whole stack
+  // at the header of its island)
+  const popover = () => {
+    const place = startPlaceOf(branchName)
+    if (place !== null) {
+      revealStartRow(place)
+      openSafePushPopover({ branchName: place.subject, mode: "rebaseAutosquash", placement: place.placement })
     }
-    case "wait":
-    case "choose":
-    case "confirm":
-      openSafePushPopover(ask)
+  }
+  const fixes = stackRootOfReadinessKey(branchName) === null ? { fixes: refusal } : {}
+  if (fix == null || !runLandingFix(fix, { ...fixes, onPlanChanged: popover })) {
+    popover()
   }
 }
 
@@ -596,28 +688,21 @@ function landKey(land: Land): string {
   return land.subject.kind === "branch" ? land.subject.name : stackReadinessKey(land.subject.root)
 }
 
-/** The plan of `land` in the session of `repositoryPath` (`prepare`); null without an answer, said under its title */
-async function prepareIn(repositoryPath: string, land: Land): Promise<Plan | null> {
-  const result = await commands.prepare({ repositoryPath, intent: { kind: "land", ...land } })
-  if (result.status === "error" || result.data === null) {
-    notifyError(
-      startFailureTitle(land.mode === "dryRun" ? "dryRun" : "rebaseAutosquash", formatReadinessSubject(landKey(land))),
-      result.status === "error" ? result.error : "The repository has no plan of it yet",
-    )
-    return null
-  }
-  return result.data
-}
-
 /**
  * Runs the start Rust planned (`execute` of the intent of `plan` on its fingerprint, every confirmation of it accepted:
  * the popover showed them, or the click had none) in `repositoryPath`, the repository it was planned in: the session
  * admits it and shows its steps in the slot of every window (`RepositoryView.operations`), the progress of its push and
  * whom it waits for come on its channel; then its toast and Activity from the outcome (`presentLandOutcome`), or the
- * refusal before its first effect (`presentLandRefusal`). `allow`: Start Anyway, the same start with the overrides of
- * what the landing gate refused, planned again first. Resolves to whether its robot started
+ * refusal before its first effect (`presentLandRefusal`). `anyway`: Start Anyway, the same start with the overrides of
+ * what the landing gate refused, settled and decided again first as a click is (`startAnyway`). Resolves to whether its
+ * robot started
  */
-export async function startPlanned(plan: Plan, allow?: LandingAllowances, repositoryPath: string = getSelectedRepositoryPath()): Promise<boolean> {
+export function startPlanned(plan: Plan, anyway?: StartAnyway, repositoryPath: string = getSelectedRepositoryPath()): Promise<boolean> {
+  return anyway === undefined ? startShown(plan, plan.confirmations, repositoryPath) : startAnyway(plan, anyway, repositoryPath)
+}
+
+/** `startPlanned` of `plan` as planned, the user having accepted `accepted`, which hold every confirmation of it */
+async function startShown(plan: Plan, accepted: readonly Confirmation[], repositoryPath: string): Promise<boolean> {
   const { intent } = plan
   if (intent.kind !== "land") {
     return false
@@ -625,15 +710,50 @@ export async function startPlanned(plan: Plan, allow?: LandingAllowances, reposi
   // "Checking…" until the session admits its operation, whose step the slot shows then
   const key = landKey(intent)
   setLandAsking(key, intent.mode === "dryRun" ? "dryRun" : "rebaseAutosquash", repositoryPath)
-  return runPlanned(plan, intent, allow, repositoryPath).finally(() => setLandAsking(key, null, repositoryPath))
+  return runPlanned(plan, intent, accepted, repositoryPath).finally(() => setLandAsking(key, null, repositoryPath))
 }
 
-/** `startPlanned` of the start `intent` of `plan` */
-async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | undefined, repositoryPath: string): Promise<boolean> {
-  const planned = allow === undefined ? plan : await prepareIn(repositoryPath, { ...intent, allow: { ...intent.allow, ...allow } })
-  if (planned === null) {
+/**
+ * Start Anyway of the start of `plan`, which its popover or toast showed: with the overrides of what the landing gate
+ * refused, which lift only the refusals it showed and those a Start Anyway before lifted (one more, of newer needs, joins
+ * them, never takes their place), settled and decided as a click is (`settleStart`): it waits for the facts a click
+ * waits for (the landing needs of tips a sync moved, the review asked again for a tip that moved), starts nothing once
+ * another repository opened, says a refusal as the click says it, and accepts only the confirmations of `plan`: one
+ * more (a robot it would cancel now) opens the popover, which asks again
+ */
+async function startAnyway(plan: Plan, anyway: StartAnyway, repositoryPath: string): Promise<boolean> {
+  const { intent } = plan
+  if (intent.kind !== "land") {
     return false
   }
+  const land: Land = { ...intent, allow: { ...intent.allow, ...anyway.allow }, anyway: withRefusals(intent.anyway ?? [], anyway.refusals) }
+  const key = landKey(land)
+  const request = requestOf(land)
+  const place = startPlaceOf(key, anyway.placement)
+  if (place !== null) {
+    revealStartRow(place)
+  }
+  return settleStart(askOf(key, request, place?.placement ?? "row"), request, land, repositoryPath, plan.confirmations)
+}
+
+/** `shown`, then each refusal of `more` it doesn't hold yet */
+function withRefusals(shown: readonly LandingRefusal[], more: readonly LandingRefusal[]): LandingRefusal[] {
+  return [...shown, ...more.filter(refusal => !shown.some(it => sameJson(it, refusal)))]
+}
+
+/**
+ * Start Anyway: the overrides of the landing gate (`LandingAllowances`) and the refusals the user saw, which they lift
+ * only (`Land.anyway`): a refusal of newer needs refuses the start, whose toast asks again
+ */
+export interface StartAnyway {
+  readonly allow: LandingAllowances
+  readonly refusals: readonly LandingRefusal[]
+  /** Where its popover asked it; undefined from a toast: where the start of its subject shows (`startPlaceOf`) */
+  readonly placement?: SafePushPlacement
+}
+
+/** `startShown` of the start `intent` of `planned`, `accepted` the confirmations the user accepted */
+async function runPlanned(planned: Plan, intent: Land, accepted: readonly Confirmation[], repositoryPath: string): Promise<boolean> {
   const events = new Channel<OperationEvent>()
   let op: OperationId | null = null
   // a push into the target tells what it pushed at its end, then the update that follows it on the same channel
@@ -646,7 +766,7 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
       push?.done(event.outcome)
     }
   }
-  const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: planned.confirmations }
+  const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: [...accepted] }
   const result = await executeIntent(params, events).finally(() => {
     if (op !== null) {
       setLandProgress(op, null)
@@ -884,12 +1004,12 @@ function tellStartRefusal(error: ApiError, plan: Plan, repositoryPath: string): 
   const refusal = presentLandRefusal(error, land.mode, formatReadinessSubject(key), land.allow ?? {}, pushInto)
   switch (refusal.kind) {
     case "landing": {
-      const anyway = { label: "Start Anyway", onClick: () => void startPlanned(plan, refusal.anyway, repositoryPath) }
+      const anyway = { label: "Start Anyway", onClick: () => void startPlanned(plan, { allow: refusal.anyway, refusals: refusal.refusals }, repositoryPath) }
       const fix = refusal.fix
       const fixLabel = formatLandingFix(fix)
       const failure = { ...error, message: refusal.reason }
       if (fix !== null && fixLabel !== null) {
-        notifyError(refusal.title, failure, { children: fixLabel, onClick: () => runLandingFix(fix) }, anyway)
+        notifyError(refusal.title, failure, { children: fixLabel, onClick: () => requestLandingFix(key, refusal.refusals[0]!) }, anyway)
       } else {
         notifyError(refusal.title, failure, { children: anyway.label, onClick: anyway.onClick })
       }

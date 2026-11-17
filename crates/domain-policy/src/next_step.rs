@@ -11,7 +11,10 @@
 //!   takes in the commits someone else pushed to the remote branch, which a push would drop. Rows
 //!   2 and 3 restart a failed robot; 5 and 5′ a pull request into another base; 6 a draft; 7 to 10 the approvals that
 //!   count are missing; 8′ and 10′ the wait GitHub tells while Patronus can't judge them; 11 "Safe Push".
-//! - A stale answer of the readiness keeps its step, its action waits for the new one (`stale_readiness`).
+//! - A stale answer of the readiness keeps its step, its action waits for the new one (`stale_readiness`). The landing
+//!   needs of the tips before, which stand for a branch while those of new tips on the same baseline are computed
+//!   (`Needs::Known` under `Stale`), keep its very step, with no mark: the start waits for the fresh needs in its
+//!   decision (`land::decide`), never in the step, so a step whose needs didn't change is never patched.
 //! - A value of the cached frame of an earlier run (`FactState::Cached`) is a value: the step and the node it decides
 //!   show; of the readiness it is a stale answer, whose action waits for the fresh one.
 //! - "Safe Push elsewhere" is the step's `safe_push`; a Dry Run (`dry_run`) is never held back by the approvals, a
@@ -172,7 +175,9 @@ impl<'a> Listing<'a> {
 pub enum Needs<'a> {
   /// Computed for the view the rows read: the step waits for it
   Computing,
-  /// The refusals the landing gate would give its start; empty: nothing
+  /// The refusals the landing gate would give its start; empty: nothing. Also the answer of the tips before while the
+  /// needs of new tips are computed (the state `Stale`): the step keeps it, the start waits for the fresh needs
+  /// (`land::decide`)
   Known(&'a [LandingRefusal]),
   /// Not computed (a failed computation, a whole stack: the gate of its start checks it)
   Unknown,
@@ -182,7 +187,8 @@ impl<'a> Needs<'a> {
   /// Of what the view has of a branch (`BranchPatronus::landing_needs`; `None` none of it) and how the landing needs of
   /// the view stand (`PatronusPart::landing_needs`): computing while they have no answer for a branch they don't know
   /// yet; a computation that failed waits for nothing (the gate of the start checks), nor a branch they answered none
-  /// of, nor the needs of the cached frame (a value)
+  /// of, nor the needs of the cached frame (a value), nor the answer of the tips before that stands for a branch while
+  /// the needs of new tips are computed (`Stale`: the step of that answer, no patch)
   #[must_use]
   pub fn of(needs: Option<&'a LandingNeeds>, state: &FactState) -> Self {
     match needs {

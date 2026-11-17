@@ -8,7 +8,7 @@ import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { useLandingOverview } from "@/hooks/useLandingOverview"
 import type { LandingOverview } from "@/lib/landing-overview"
 import { formatLandingTitle, getLandingBarSegments, isLandingOverviewEmpty, landingBarFill } from "@/lib/landing-overview"
-import { useBranchSync } from "@/stores/branch-sync"
+import { useBranchSync, useStaleNeeds } from "@/stores/branch-sync"
 import { useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 
 const loadLandingPopover = () => import("@/components/repository/LandingPopover")
@@ -32,6 +32,9 @@ export interface LandingIndicatorProps {
  */
 export function LandingIndicator({ renderPullRequest, footer }: LandingIndicatorProps) {
   const overview = useLandingOverview()
+  // the needs of tips a sync moved are computed: the rows keep the nodes of the needs before, so the counts are of that
+  // answer, which the button says is being checked again (no word: the number stays where it is)
+  const staleNeeds = useStaleNeeds()
   const [open, setOpen] = useState(false)
   const empty = isLandingOverviewEmpty(overview)
   const loadingRows = useIsLoadingRows()
@@ -53,7 +56,9 @@ export function LandingIndicator({ renderPullRequest, footer }: LandingIndicator
             variant="ghost"
             size="sm"
             aria-label={formatLandingTitle(overview)}
+            aria-busy={staleNeeds || undefined}
             data-testid="landing-indicator"
+            data-landing-needs={staleNeeds ? "stale" : undefined}
             data-urgent={overview.urgent ?? undefined}
             // the overview is loaded while the hover delay runs
             onPointerEnter={() => void loadLandingPopover()}

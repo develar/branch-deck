@@ -232,6 +232,44 @@ impl LandingRefusal {
     }
   }
 
+  /// Every branch it names: the one whose start it refuses, the branches of the commits it names (an unassigned commit
+  /// names none), those of its fix and the branch a declared need names or inherits it from
+  pub fn named_branches(&self) -> Vec<&str> {
+    let mut names = vec![self.branch()];
+    match self {
+      Self::DanglingReference { removed_by, fixed_by, .. } => names.extend([removed_by.branch.as_str(), fixed_by.branch.as_str()]),
+      Self::MissingDeclaration { used_by, declared_by, .. } => names.extend([used_by.branch.as_str(), declared_by.branch.as_str()]),
+      Self::UnlandedNeed { needs, inherited_from, .. } => names.extend(std::iter::once(needs.as_str()).chain(inherited_from.as_deref())),
+    }
+    match self.fix() {
+      Some(LandingFix::Restack { branch, onto }) => names.extend([branch.as_str(), onto.as_str()]),
+      Some(LandingFix::MoveCommit { commit, into }) => names.extend([commit.branch.as_str(), into.as_str()]),
+      Some(LandingFix::Unstack { branch, from }) => names.extend([branch.as_str(), from.as_str()]),
+      None => {}
+    }
+    names.retain(|name| !name.is_empty());
+    names.sort_unstable();
+    names.dedup();
+    names
+  }
+
+  /// It refuses the same as `other`: the same need, with the same commits and fix, whatever running Safe Push either
+  /// names (`landing_in`, which a robot that starts or ends changes, not the need)
+  #[must_use]
+  pub fn same_need(&self, other: &Self) -> bool {
+    self.without_landing_in() == other.without_landing_in()
+  }
+
+  /// Itself without the running Safe Push it names
+  fn without_landing_in(&self) -> Self {
+    let mut need = self.clone();
+    match &mut need {
+      Self::MissingDeclaration { landing_in, .. } | Self::UnlandedNeed { landing_in, .. } => *landing_in = None,
+      Self::DanglingReference { .. } => {}
+    }
+    need
+  }
+
   /// In a sentence: what breaks the build of what lands
   pub fn reason(&self) -> String {
     let named = |commit: &StackCommit| {
@@ -341,6 +379,12 @@ pub struct Land {
   pub create_pull_request: bool,
   #[serde(default)]
   pub allow: LandingAllowances,
+  /// The refusals of the landing gate the user started anyway (Start Anyway of the app): `allow` lifts these only, so a
+  /// refusal of newer landing needs the user didn't see refuses the start, which asks again; `None`: `allow` lifts every
+  /// refusal of its kinds (the flags of `brd safe-push`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub anyway: Option<Vec<LandingRefusal>>,
 }
 
 /// Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`)

@@ -110,6 +110,7 @@ impl World {
       readiness: None,
       rules: None,
       landing: self.landing.as_deref(),
+      landing_pending: false,
       target_conflict: self.conflict.as_deref().map(|files| TargetConflictFact { commit: "c1", files }),
     };
     decide(&facts, land)
@@ -355,6 +356,7 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
       readiness: None,
       rules: None,
       landing: Some(&[]),
+      landing_pending: false,
       target_conflict: None,
     };
     let mut land = land(PatronusPushMode::RebaseAutosquash);

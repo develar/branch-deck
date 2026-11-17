@@ -41,7 +41,7 @@ import { joinNames } from "@/lib/text"
 import { textColorClassName } from "@/lib/ui-types"
 import { formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
 import type { ChildrenPushOrder } from "@/stores/branch-sync"
-import { isForkingRoot, mainLineOf, pushOrdersIn, structureIn, useBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
+import { isForkingRoot, mainLineOf, pushOrdersIn, structureIn, useBranch, useBranchSync, useStackBranch, useStaleNeeds } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
@@ -341,12 +341,14 @@ function RunningWholeStack({ count, robot }: { count: number; robot: PatronusRob
  */
 function IslandStateChips({ root }: { root: string }) {
   const states = useStackStates(root, { withRoot: true })
+  // the nodes keep the needs before while those of tips a sync moved are computed: the counts are of that answer
+  const staleNeeds = useStaleNeeds()
   const chips = states === null ? [] : getStackStateChips(states.state)
   if (states === null || chips.length === 0) {
     return null
   }
   return (
-    <div className="hidden items-center gap-1 sm:flex" data-testid="stack-island-states">
+    <div className="hidden items-center gap-1 sm:flex" data-testid="stack-island-states" aria-busy={staleNeeds || undefined} data-landing-needs={staleNeeds ? "stale" : undefined}>
       {chips.map(chip => (
         <StateChip key={chip.state} chip={chip} branch={states.first[chip.state]} />
       ))}

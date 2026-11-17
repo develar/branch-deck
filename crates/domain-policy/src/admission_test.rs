@@ -181,6 +181,7 @@ fn unstack(branch: &str, head: &str) -> Intent {
       head: head.to_string(),
       ..TableWitness::default()
     },
+    fixes: None,
   }))
 }
 

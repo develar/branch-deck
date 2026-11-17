@@ -936,12 +936,12 @@ renders the step of its row; no other row renders, nor the branch table or a sta
 - **AND** of a sync that changes nothing (each branch `Created` to `Unchanged`; each step of the progress of a sync), only the status of each row renders
   [@test] tests/e2e/branch-row-layout/row-renders.spec.ts (`should render only the row of the branch a sync changed, and of a sync that changes nothing the status of each row`)
 
-#### Scenario: The next step of every branch waits for the landing needs of a sync
+#### Scenario: The next steps keep the needs of the tips before while those of a sync are computed
 - **GIVEN** Patronus answers, so the session computes the landing needs of the tips after each sync that moved one
-- **WHEN** a sync finds one more commit on one branch, and the next step of every branch waits for the landing needs meanwhile, then has them
-- **THEN** the step of each row renders, and of the rows and their status cells only those of that branch
+- **WHEN** a sync finds one more commit on one branch, and the next step of every branch keeps the needs of the tips before meanwhile, then has the new ones, the same
+- **THEN** of the steps, the rows and their status cells only those of that branch render
 - **AND** neither the branch table nor a stack island renders: a row reads of the step the ring of its node, a status cell the status and what landed the branch, an island the hold of its root, each kept while it says the same
-  [@test] tests/e2e/branch-row-layout/row-renders.spec.ts (`should render the steps of the rows for the landing needs they wait for after a sync of one more commit on one branch, no other row, no card`)
+  [@test] tests/e2e/branch-row-layout/row-renders.spec.ts (`should render the step of the branch a sync of one more commit changed alone while the landing needs of its new tip are computed, no other row, no card`)
 
 ### Requirement: Status cell: The status of a row is a leaf of its own
 

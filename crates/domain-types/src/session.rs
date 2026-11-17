@@ -574,7 +574,9 @@ pub struct PatronusPart {
   pub state: FactState,
   /// How the landing needs of `view` stand: `Loading` while they are computed for the table and what the view names
   /// landed (the needs of a branch are `unknown` meanwhile), `Fresh` once they are, `Unavailable` when the computation
-  /// failed for them
+  /// failed for them; `Stale` while the needs of tips that moved on the same baseline are computed, the answer of the
+  /// tips before standing for each branch it still answers (the others `unknown`): the steps keep it, a start waits for
+  /// the fresh needs
   pub landing_needs: FactState,
   pub view: PatronusView,
 }

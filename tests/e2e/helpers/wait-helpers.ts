@@ -143,16 +143,28 @@ const STEP_FACTS = Object.keys({
  * lets it take: under load every answer takes seconds and they come one after another (the landing needs after the
  * sync, the approvals after the robots), so one assertion over all of them failed at a load of 150-200, and the 5 s of
  * each fact failed at 30 workers (the readiness, in the setup of `next-step.spec.ts`). A second round takes a fact
- * asked once another answered. A step pending on a failed read (no fact) is the caller's
+ * asked once another answered. A step pending on a failed read (no fact) is the caller's. The needs of tips a sync
+ * moved say no wait on a slot (the steps keep the needs before while they are computed): it waits for them too
+ * (`waitForFreshNeeds`), so no test reads a step of stale needs
  */
 export async function waitForStepFacts(slots: Locator): Promise<void> {
   const waiting = (fact?: string) => slots.and(slots.page().locator(fact === undefined ? "[data-waits-for]" : `[data-waits-for="${fact}"]`))
   for (let round = 0; round < 2; round++) {
+    await waitForFreshNeeds(slots.page())
     for (const fact of STEP_FACTS) {
       await expect(waiting(fact)).toHaveCount(0, { timeout: 0 })
     }
   }
   await expect(waiting()).toHaveCount(0, { timeout: 0 })
+}
+
+/**
+ * Waits until the landing needs of the page are not stale (`data-landing-needs` of Sync): while the session computes the
+ * needs of tips a sync moved, every step keeps the needs before and says no wait, and a start waits for the fresh ones;
+ * a page without Sync (a review window) has none to wait for
+ */
+export async function waitForFreshNeeds(page: Page): Promise<void> {
+  await expect(page.locator('[data-testid="sync-button"][data-landing-needs="stale"]')).toHaveCount(0, { timeout: 0 })
 }
 
 /**

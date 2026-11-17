@@ -1209,6 +1209,7 @@ fn the_operations_of_the_session_lie_over_the_actions_its_own_runs_a_rewrite_wai
   let unstack = |branch: &str| RewriteIntent::Unstack {
     branch_name: branch.to_string(),
     witness: TableWitness::default(),
+    fixes: None,
   };
   let availability = |actions: &[ActionState], id: ActionId| {
     actions

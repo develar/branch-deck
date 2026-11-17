@@ -1,12 +1,12 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { OperationId, OperationStep, PatronusPushMode, RunningOperation, TransferProgress } from "@/lib/bindings"
-import { stackReadinessKey } from "@/lib/whole-stack"
+import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { cancelIntent } from "@/model/intents"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import type { OtherProcessRun } from "@/presenters/operations"
 import { presentOtherProcess } from "@/presenters/operations"
-import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
+import { branchSyncStore, getStackIslandRoots, structureIn, useBranchSyncField } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
 import { onRowsForgotten } from "@/stores/view-rows"
 
@@ -18,6 +18,38 @@ export type SafePushMode = Extract<PatronusPushMode, "rebaseAutosquash" | "dryRu
  * stack island whose main line the branch ends (the island's Safe Push, also while the island is collapsed)
  */
 export type SafePushPlacement = "row" | "stack-header"
+
+/** Where the start of a subject shows (`startPlaceOf`) */
+export interface StartPlace {
+  /** What starts: the branch, the key of the whole stack (`stackReadinessKey`), the last branch of a straight chain */
+  readonly subject: string
+  /** The row of its slot: the branch, the root of the whole stack, the last branch of a straight chain */
+  readonly row: string
+  readonly placement: SafePushPlacement
+}
+
+/**
+ * Where the start of `key` (a branch, `stack:<root>`) shows, its popover and its progress: a branch at its row; the
+ * whole stack at the header of its island, of a small stack at the root's row; a straight chain has no stack branch,
+ * so its whole stack starts as the Safe Push of its last branch, at the header of its island. `placement`: where the
+ * press asked it. Null for a whole stack the table has no stack branch nor chain of
+ */
+export function startPlaceOf(key: string, placement?: SafePushPlacement): StartPlace | null {
+  const root = stackRootOfReadinessKey(key)
+  if (root === null) {
+    return { subject: key, row: key, placement: placement ?? "row" }
+  }
+  const header = placement ?? (getStackIslandRoots().has(root) ? "stack-header" : "row")
+  const whole = structureIn(branchSyncStore.getState(), root).wholeStack
+  switch (whole?.kind) {
+    case "forking":
+      return { subject: key, row: root, placement: header }
+    case "chain":
+      return { subject: whole.leaf, row: whole.leaf, placement: header }
+    default:
+      return null
+  }
+}
 
 /** The popover of a start that has something to say before it starts (`presentLand` of its plan, `confirm`) */
 export interface SafePushAsk {

@@ -788,12 +788,13 @@ pub fn landed_commits(view: &PatronusView) -> HashSet<String> {
     .collect()
 }
 
-/// Every branch of `table` with its landing needs, known: `needs` lists the branches with a refusal. A missing
-/// declaration names the running Safe Push that lands the branch adding the name, as `view` holds it: its own robot, or
-/// one of a branch built on it or of its whole stack
-pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &BTreeMap<String, Vec<LandingRefusal>>) {
+/// Every branch of `table` that `answers` with its landing needs, known: `needs` lists the branches with a refusal; the
+/// others stay unknown (the needs of an earlier table, `facts::NeedsBasis::stands_for`). A missing declaration names the
+/// running Safe Push that lands the branch adding the name, as `view` holds it: its own robot, or one of a branch built on
+/// it or of its whole stack
+pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &BTreeMap<String, Vec<LandingRefusal>>, answers: impl Fn(&str) -> bool) {
   let landing = landing_robots(view);
-  for branch in &table.branches {
+  for branch in table.branches.iter().filter(|branch| answers(&branch.name)) {
     let mut refusals = needs.get(&branch.name).cloned().unwrap_or_default();
     name_landing_robots(&mut refusals, |declared_in| landing.get(declared_in).cloned());
     view.branches.entry(branch.name.clone()).or_default().landing_needs = LandingNeeds::Known { refusals };

@@ -4337,6 +4337,12 @@ export type Land = {
 	 */
 	createPullRequest?: boolean,
 	allow?: LandingAllowances,
+	/**
+	 *  The refusals of the landing gate the user started anyway (Start Anyway of the app): `allow` lifts these only, so a
+	 *  refusal of newer landing needs the user didn't see refuses the start, which asks again; `None`: `allow` lifts every
+	 *  refusal of its kinds (the flags of `brd safe-push`)
+	 */
+	anyway?: LandingRefusal[] | null,
 };
 
 /**  What a start does and what stands in its way, as `domain_policy::land::decide` answers it over the facts it has */
@@ -5982,7 +5988,9 @@ export type PatronusPart = {
 	/**
 	 *  How the landing needs of `view` stand: `Loading` while they are computed for the table and what the view names
 	 *  landed (the needs of a branch are `unknown` meanwhile), `Fresh` once they are, `Unavailable` when the computation
-	 *  failed for them
+	 *  failed for them; `Stale` while the needs of tips that moved on the same baseline are computed, the answer of the
+	 *  tips before standing for each branch it still answers (the others `unknown`): the steps keep it, a start waits for
+	 *  the fresh needs
 	 */
 	landingNeeds: FactState,
 	view: PatronusView,
@@ -8529,9 +8537,16 @@ export type RewriteIntent =
 /**  The branch and the branches stacked on it get `new_name` in the prefix of their commits, its issue groups too */
 { rewrite: "rename"; branchName: string; newName: string; witness: TableWitness } | 
 /**  The branch is stacked on `parent` (Stack On) */
-{ rewrite: "restack"; branchName: string; parent: string; witness: TableWitness } | 
+{ rewrite: "restack"; branchName: string; parent: string; witness: TableWitness; 
+/**
+ *  The refusal of the landing gate it fixes (the fix of row 1′, "Stack lane-run on stills-codec"): the engine runs
+ *  it on fresh landing needs only, and refuses it (`plan_changed`) once none of them refuses with it any more
+ */
+fixes?: LandingRefusal | null } | 
 /**  The branch is made a root (Unstack) */
-{ rewrite: "unstack"; branchName: string; witness: TableWitness } | 
+{ rewrite: "unstack"; branchName: string; witness: TableWitness; 
+/**  The declared need it fixes, inherited from the branch it is built on (`Restack::fixes`) */
+fixes?: LandingRefusal | null } | 
 /**  The branches are parked with their notes, or the notes of parked ones change */
 { rewrite: "park"; branches: ParkBranchLine[]; witness: TableWitness } | { rewrite: "unpark"; branchNames: string[]; witness: TableWitness } | 
 /**

@@ -31,12 +31,12 @@ use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, new_pull_request};
 use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{StartChecks, landing_route_of, with_checked_land_sources};
-use repository_model::facts::BaselineRefusal;
 use repository_model::facts::listed_robots;
+use repository_model::facts::{BaselineRefusal, FactStore};
 use repository_model::patronus_view::landed_commits;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
-use repository_model::table::RemoteSubject;
+use repository_model::table::{RemoteSubject, TableState};
 use std::collections::HashSet;
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
@@ -145,13 +145,13 @@ impl SessionStart {
     Ok((StartChecks { gate, target_conflict }, notes))
   }
 
-  async fn current_plan(&self, land: &Land) -> Result<Option<(Planned, bool)>, ApiError> {
+  /// The plan of `land` over the session as it is, with the checks of the start
+  async fn current_plan(&self, land: &Land) -> Result<Option<Planned>, ApiError> {
     let Some(inputs) = self.inputs(&land.subject).await else {
       return Ok(None);
     };
-    let push_route = inputs.push_route;
     // a push into the target is its own check against it: one that moved refuses it as no fast-forward
-    let (checks, notes) = if push_route {
+    let (checks, notes) = if inputs.push_route {
       (StartChecks::default(), Vec::new())
     } else {
       self.checks(&land.subject, inputs).await?
@@ -163,31 +163,69 @@ impl SessionStart {
         with_checked_land_sources(state, facts, &prefix, &checks, |sources| planned_of(sources, &land))
       })
       .await;
-    Ok(planned.flatten().flatten().map(|planned| (Planned { notes, ..planned }, push_route)))
+    Ok(planned.flatten().flatten().map(|planned| Planned { notes, ..planned }))
   }
 
-  async fn wait_for_landing_needs(&self, land: &Land) -> Result<Option<Planned>, ApiError> {
-    let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel();
-    let Some((id, _)) = self.sessions.subscribe(&self.key, Box::new(PlanChanges(changed))).await else {
-      return Err(ApiError::internal("The session closed while waiting for the landing needs"));
-    };
-    let _subscription = PlanSubscription {
-      sessions: Arc::clone(&self.sessions),
-      id,
-    };
-    loop {
-      let Some((planned, push_route)) = self.current_plan(land).await? else {
-        return Ok(None);
-      };
-      let landing_needs_pending = planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds));
-      if !push_route || !landing_needs_pending {
-        return Ok(Some(planned));
-      }
-      if changes.recv().await.is_none() {
-        return Err(ApiError::internal("The session closed while waiting for the landing needs"));
-      }
+  /// Whether the landing needs `land` reads are fresh in the session as it is: its plan without the checks of the start
+  /// (a read of the session, no git) waits for none of them; a subject the session lacks waits for nothing
+  async fn needs_fresh(&self, land: &Land) -> bool {
+    let (prefix, land) = (self.key.prefix.clone(), land.clone());
+    let planned = self
+      .sessions
+      .read(&self.key, move |state, facts| {
+        with_checked_land_sources(state, facts, &prefix, &StartChecks::default(), |sources| planned_of(sources, &land))
+      })
+      .await;
+    planned.flatten().flatten().is_none_or(|planned| !waits_for_landing_needs(&planned))
+  }
+
+  /// Waits until the landing needs `land` reads are fresh (`needs_fresh`), asked again after each patch of the session
+  /// while they are computed (a sync moved the tips, a Safe Push merged, the queue of the start held a sync)
+  async fn wait_for_landing_needs(&self, land: &Land) -> Result<(), ApiError> {
+    let (prefix, land) = (self.key.prefix.clone(), land.clone());
+    when_session_answers(&self.sessions, &self.key, move |state, facts| {
+      let planned = with_checked_land_sources(state, facts, &prefix, &StartChecks::default(), |sources| planned_of(sources, &land));
+      planned.flatten().is_none_or(|planned| !waits_for_landing_needs(&planned)).then_some(())
+    })
+    .await
+  }
+}
+
+/// What `read` answers of the session of `key` once it answers something (`Some`), read again after each patch of the
+/// session: a wait for what the session computes, the fresh landing needs of a start or of a fix of row 1′
+///
+/// # Errors
+/// The session closed meanwhile
+pub(crate) async fn when_session_answers<T: Send + 'static>(
+  sessions: &Arc<Sessions>,
+  key: &SessionKey,
+  read: impl Fn(&TableState, &FactStore) -> Option<T> + Clone + Send + 'static,
+) -> Result<T, ApiError> {
+  let closed = || ApiError::internal("The session closed while the operation waited for what it computes");
+  if let Some(answer) = sessions.read(key, read.clone()).await.flatten() {
+    return Ok(answer);
+  }
+  let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel();
+  let Some((id, _)) = sessions.subscribe(key, Box::new(PlanChanges(changed))).await else {
+    return Err(closed());
+  };
+  let _subscription = PlanSubscription {
+    sessions: Arc::clone(sessions),
+    id,
+  };
+  loop {
+    if let Some(answer) = sessions.read(key, read.clone()).await.flatten() {
+      return Ok(answer);
+    }
+    if changes.recv().await.is_none() {
+      return Err(closed());
     }
   }
+}
+
+/// The plan waits for the landing needs of what it lands, which the session computes (none failed)
+fn waits_for_landing_needs(planned: &Planned) -> bool {
+  planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds))
 }
 
 struct PlanChanges(tokio::sync::mpsc::UnboundedSender<()>);
@@ -258,19 +296,22 @@ fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Optio
 }
 
 impl StartHost for SessionStart {
+  /// The plan of `land` on fresh landing needs: a start reads only them, never those an earlier table left standing while
+  /// the needs of new tips are computed, and waits for them, never refuses for them; the checks of the start (a fetch of
+  /// the target) run once they are fresh, and again only after a sync that moved the tips while they ran
   fn plan<'a>(&'a self, land: &'a Land) -> Read<'a, Result<Option<Planned>, ApiError>> {
     Box::pin(async move {
-      let Some((planned, push_route)) = self.current_plan(land).await? else {
-        return Ok(None);
-      };
-      if !push_route {
-        return Ok(Some(planned));
+      loop {
+        if !self.needs_fresh(land).await {
+          self.wait_for_landing_needs(land).await?;
+        }
+        let Some(planned) = self.current_plan(land).await? else {
+          return Ok(None);
+        };
+        if !waits_for_landing_needs(&planned) {
+          return Ok(Some(planned));
+        }
       }
-      let landing_needs_pending = planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds));
-      if !landing_needs_pending {
-        return Ok(Some(planned));
-      }
-      self.wait_for_landing_needs(land).await
     })
   }
 

@@ -15,6 +15,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  FactState,
   GitHubLayer,
   IssueLead,
   LandDecisions,
@@ -249,6 +250,12 @@ export interface BranchSyncState {
   /** The version of the session's view the store holds (`data-view-version`); null without one */
   viewVersion: Version | null
   /**
+   * How the landing needs of the view stand (`PatronusPart.landingNeeds`, `data-landing-needs` of Sync): `stale` while
+   * the session computes those of tips a sync moved, the steps keeping the needs before and every start waiting for the
+   * fresh ones; null without a view
+   */
+  landingNeeds: FactState["kind"] | null
+  /**
    * Counts the patches that changed what the table of the backend is made of (the branches, their tips and remote
    * branches, the stacks, the sections), not the state of a run or of a build: what the backend answers about the table
    * (the repository view, the conflict fix) is asked again only when it changed
@@ -427,6 +434,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   cached: false,
   syncedBefore: false,
   viewVersion: null,
+  landingNeeds: null,
   tableRevision: 0,
   commitsRevision: 0,
   inputsCheckedAt: null,
@@ -977,6 +985,15 @@ export function getOpenPullRequest(subject: string): PullRequestView | undefined
 /** `getOpenPullRequest`, re-rendering when it changes */
 export function useOpenPullRequest(subject: string): PullRequestView | undefined {
   return useBranchSyncEntry("openPullRequests", subject, pullRequest => pullRequest)
+}
+
+/**
+ * The landing needs of the view are stale (`landingNeeds` `stale`): the session computes those of tips a sync moved, and
+ * every node keeps the needs before meanwhile, which the counts of the chips, the island headers and the landing
+ * indicator say are of that answer (`aria-busy`, `data-landing-needs`), never fresh ones
+ */
+export function useStaleNeeds(): boolean {
+  return useBranchSync(state => state.landingNeeds === "stale")
 }
 
 /** The decisions of the default starts of `subject` (a branch, `stackReadinessKey(root)`) as Rust decides them; undefined before the Patronus view */

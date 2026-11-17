@@ -2,8 +2,7 @@ import { GitPullRequestCreateIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { getRowOperation, useRowOperation } from "@/hooks/useRowOperation"
-import { requestSafePush } from "@/hooks/useSafePush"
-import { runLandingFix } from "@/hooks/useStackActions"
+import { requestLandingFix, requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { ActionState, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView, RunningOperation } from "@/lib/bindings"
@@ -180,7 +179,8 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
         openPullRequest(pullRequest)
       }
     },
-    fixLanding: runLandingFix,
+    // the fix runs on fresh landing needs, while they still ask for it: the engine decides it (`RewriteIntent.fixes`)
+    fixLanding: refusal => requestLandingFix(key, refusal),
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),

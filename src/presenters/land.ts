@@ -4,6 +4,7 @@
 // and the only blocker the popover lifts is the one an allowance of the start names, a refusal of the landing gate
 // (Start Anyway).
 import type { Confirmation, FactWait, Plan, Reason, StartRoute } from "@/lib/bindings"
+import { sameJson } from "@/lib/record"
 import { formatReason } from "@/presenters/reasons"
 
 /** A line the popover of a start shows before it starts, one per confirmation of the plan, and S itself */
@@ -68,6 +69,15 @@ export interface LandAsk {
   readonly stepBlocker: string | null
   /** A Safe Push without review was asked and applies (the approvals missing or not known yet): it needs a profile that skips the review */
   readonly withoutReview: boolean
+}
+
+/**
+ * What a press accepts of `plan` that its popover or toast showed before (`shown`: Start Anyway, planned again): the
+ * confirmations it showed, which the plan may ask again; null while the plan asks one it didn't show (a robot it would
+ * cancel now), which the popover asks again
+ */
+export function acceptedOf(plan: Plan, shown: readonly Confirmation[]): readonly Confirmation[] | null {
+  return plan.confirmations.every(confirmation => shown.some(it => sameJson(it, confirmation))) ? shown : null
 }
 
 /** The refusals of the landing gate among the blockers: Start Anyway lifts them (`LandingAllowances`) */

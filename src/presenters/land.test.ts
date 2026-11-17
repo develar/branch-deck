@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { LandingRefusal, Plan, Reason } from "@/lib/bindings"
 import type { LandAsk } from "@/presenters/land"
-import { presentLand } from "@/presenters/land"
+import { acceptedOf, presentLand } from "@/presenters/land"
 import { MISSING_STILLS } from "@/test-support/landing-refusal"
 
 /** The plan of a Safe Push of auth through the API with the default checks: nothing in its way */
@@ -51,6 +51,17 @@ describe("presentLand", () => {
       ],
     })
     expect(presentLand(confirmed, CLICK)).toEqual({ kind: "confirm", reasons: ["stack", "profile", "replaces", "review", "dismisses", "rulesUnknown", "wholeStack"] })
+  })
+
+  it("lets Start Anyway accept only the confirmations its popover or toast showed: one the plan asks now asks again", () => {
+    const cancels = { kind: "cancelsRobot", robotId: "older" } as const
+    const profile = { kind: "nonDefaultProfile", id: "lsc" } as const
+    // planned again, the start asks what was shown, or less: it runs on what was shown
+    expect(acceptedOf(decision({ confirmations: [profile] }), [profile, cancels])).toEqual([profile, cancels])
+    expect(acceptedOf(decision(), [])).toEqual([])
+    // a robot of the branch started meanwhile: the start would cancel it, which nobody saw
+    expect(acceptedOf(decision({ confirmations: [profile, cancels] }), [profile])).toBeNull()
+    expect(acceptedOf(decision({ confirmations: [{ kind: "cancelsRobot", robotId: "newer" }] }), [cancels])).toBeNull()
   })
 
   it("opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start", () => {

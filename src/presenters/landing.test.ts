@@ -27,6 +27,8 @@ describe("describeLandingRefusals", () => {
         "“IJAI-4382 lane-run shows each scenario” of lane-run uses Stills (avl-guest/src/lane/build_log/tests.rs:7), which “IJAI-4382 the bundle manifest names lossy stills” of stills-codec adds: git merges it, but the build of ui-perf-nightly fails. Stack lane-run on stills-codec to land it too.",
       fix: MISSING.fix,
       anyway: { allowDangling: false, allowMissing: true, allowUnlanded: false },
+      // Start Anyway lifts the refusals it words only (`Land.anyway`)
+      refusals: [MISSING],
     })
     expect(formatLandingFix(MISSING.fix)).toBe("Stack lane-run on stills-codec")
   })
@@ -55,6 +57,7 @@ describe("describeLandingRefusals", () => {
         "“IJAI-4382 lane-run shows each scenario” of lane-run uses StillEncoding (avl-guest/src/lane/build_log/tests.rs:7), which ecebf000 (“IJAI-4382 the bundle manifest names lossy stills”, unassigned) adds: git merges it, but the build of the whole air stack fails. Move ecebf000 into lane-run. 2 more names break it too: brd check lists them.",
       fix: unassigned.fix,
       anyway: { allowDangling: true, allowMissing: true, allowUnlanded: false },
+      refusals: [unassigned, dangling, MISSING],
     })
     expect(formatLandingFix(unassigned.fix)).toBeNull()
   })
@@ -75,6 +78,7 @@ describe("describeLandingRefusals", () => {
       reason: "You declared that docs lands before auth: it is not in master yet, so a start of auth lands them out of order.",
       fix: null,
       anyway: { allowDangling: false, allowMissing: false, allowUnlanded: true },
+      refusals: [DECLARED_DOCS],
     })
     const of = (state: NeedState) => describeLandingRefusals([{ ...DECLARED_DOCS, state }], "the whole auth stack")?.reason
     expect(of({ kind: "unapplied" })).toBe("You declared that docs lands before auth, and it is unapplied: it cannot land at all. Reapply it, or remove the need.")

@@ -367,6 +367,7 @@ pub fn land_intent(branch: &str, mode: PatronusPushMode) -> crate::operation::In
     without_approvals: false,
     create_pull_request: false,
     allow: crate::patronus::LandingAllowances::default(),
+    anyway: None,
   })
 }
 

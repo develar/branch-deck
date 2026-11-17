@@ -63,14 +63,14 @@ test.describe("The renders of a sync", { tag: "@webkit" }, () => {
     expect(rendered(oneBranch)).toEqual(["row:docs", "status:docs"])
   })
 
-  test("should render the steps of the rows for the landing needs they wait for after a sync of one more commit on one branch, no other row, no card", async ({
+  test("should render the step of the branch a sync of one more commit changed alone while the landing needs of its new tip are computed, no other row, no card", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
     await recordRenders(page)
     // Patronus answers: after each sync that moved a tip the session computes the landing needs of the new tips, and the
-    // next step of every branch waits for them meanwhile, then has them (a patch of every next step, twice)
+    // next step of every branch keeps the needs of the tips before meanwhile: no patch of a step whose needs stay
     const repo = await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     await waitForSettledSession(page, repo)
@@ -85,8 +85,8 @@ test.describe("The renders of a sync", { tag: "@webkit" }, () => {
     await waitForStepFacts(page.getByTestId("next-step-slot"))
     await verifyCommitCount(findBranchRow(page, "docs"), 2)
     const counts = await renderCounts(page)
-    // the step of every row of the table and of the island rendered for the needs it waited for and then had
-    expect(renderedKeys(counts, "step:").sort()).toEqual(BRANCHES.map(name => `step:${name}`))
+    // the step of docs alone, for its branch; no other step rendered, before the needs of the new tip came or after
+    expect(renderedKeys(counts, "step:").sort()).toEqual(["step:docs"])
     // the row of `docs` for its commits, its status for its sync; no other row, no status of the nine others, neither the
     // table nor the island: a row reads of its step the ring of its node, its status cell the status and what landed it,
     // the island the hold of its root, each kept while it says the same (B3)

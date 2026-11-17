@@ -1,17 +1,18 @@
 use crate::branch_table::{BranchTable, RemoteFact};
 use crate::facts::{
-  Applied, AskedRobots, FactRecord, FactResult, FactStore, Finished, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence,
-  robots_digest, session_remote,
+  Applied, AskedRobots, FactRecord, FactResult, FactStore, Finished, Needs, NeedsBasis, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq,
+  Sequence, landed_inputs, landing_inputs, robots_digest, session_remote,
 };
-use crate::patronus_view::patronus_view_test::chain;
+use crate::patronus_view::patronus_view_test::{chain, table};
 use crate::state::View;
 use crate::table::table_test::{grouped, grouping, remote_at, run_sync, sync_events};
 use crate::table::{RemoteSubject, TableState};
+use crate::warm_start::CachedNeeds;
 use crate::warm_start::warm_start_test::answered_facts;
 use domain_policy::refresh::{FactTiming, ReadState};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::{pull_request, robot};
-use domain_types::landing::{LandedPullRequest, Subject};
+use domain_types::fixtures::{pull_request, robot, stack_commit};
+use domain_types::landing::{LandedPullRequest, LandingFix, LandingRefusal, Subject};
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
   REVIEW_APPROVAL_SUBSYSTEM,
@@ -19,7 +20,7 @@ use domain_types::patronus::{
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestsResult};
 use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch};
 use domain_types::review_request::ReviewRequestsResult;
-use domain_types::session::{Fact, FactState, NewsEvent, RobotsHead};
+use domain_types::session::{Fact, FactState, NewsEvent, PatronusPart, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashSet};
@@ -748,6 +749,25 @@ fn the_session_knows_the_remote_branches_a_push_moved_without_a_sync() {
   assert_eq!(remote.branches.get("auth").and_then(|fact| fact.remote_tip.as_deref()), Some("synced-tip"));
 }
 
+/// The view of a merged Safe Push of `branch` that landed its commit `commit`, its own robot `robot-1`
+fn merged_view(branch: &str, commit: &str) -> PatronusView {
+  PatronusView {
+    branches: BTreeMap::from([(
+      branch.to_string(),
+      BranchPatronus {
+        landed_by: Some(LandedByView {
+          by: Subject::branch(branch).robot_of("robot-1"),
+          own: true,
+          landed: vec![commit.to_string()],
+          after: Vec::new(),
+        }),
+        ..BranchPatronus::default()
+      },
+    )]),
+    ..PatronusView::default()
+  }
+}
+
 /// The landing needs are computed one at a time: inputs wanted while another computation runs are computed next (the
 /// newest of them), inputs of an answer are not computed again, and a failure is `Unavailable` for its inputs, never an
 /// empty list; the part names the needs only once they are of the inputs of its view
@@ -773,21 +793,7 @@ fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
   assert!(fact.begin(2, Duration::from_secs(2)));
   assert_eq!(fact.part().state, FactState::Stale { reason: None });
   assert!(!fact.begin(3, Duration::from_secs(2)), "one derivation at a time");
-  let merged = PatronusView {
-    branches: BTreeMap::from([(
-      "auth".to_string(),
-      BranchPatronus {
-        landed_by: Some(LandedByView {
-          by: Subject::branch("auth").robot_of("robot-1"),
-          own: true,
-          landed: vec!["a1".to_string()],
-          after: Vec::new(),
-        }),
-        ..BranchPatronus::default()
-      },
-    )]),
-    ..PatronusView::default()
-  };
+  let merged = merged_view("auth", "a1");
   fact.answer(at(2, 2, 2), Ok(merged));
   assert_eq!(fact.publish(&table, None, &crate::patronus_view::ContentMemo::default()), None, "wanted next");
   let (second, landed) = fact.needs_answer(first, Ok(Needs::new())).expect("the wanted needs next");
@@ -804,6 +810,260 @@ fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
   );
   assert_eq!(fact.part().landing_needs, FactState::Unavailable { reason: failure() });
   assert_eq!(fact.part().view.branches["auth"].landing_needs, LandingNeeds::Unknown);
+}
+
+/// `branch` uses a name `declared_in` adds: Stack `root`, the root of what lands, on it
+fn needs_branch(branch: &str, root: &str, declared_in: &str) -> LandingRefusal {
+  LandingRefusal::MissingDeclaration {
+    branch: branch.to_string(),
+    identifier: "Stills".to_string(),
+    file: "BuildLog.kt".to_string(),
+    line: 3,
+    used_by: stack_commit(&format!("{branch}-use"), "Use stills", branch),
+    declared_by: stack_commit(&format!("{declared_in}-add"), "Add stills", declared_in),
+    fix: LandingFix::Restack {
+      branch: root.to_string(),
+      onto: declared_in.to_string(),
+    },
+    landing_in: None,
+  }
+}
+
+/// While the needs of tips that moved on the same baseline are computed, the answer of the tips before stands for each
+/// branch it still answers (the part `Stale`): one built on the same branches whose refusals name only branches of the
+/// table, its own tip moved or not; a new branch, one built on others now, one whose need names a branch the sync
+/// removed or one the fetched baseline has whole wait (`unknown`), as they do for the first answer. The answer of the new
+/// tips is fresh. A move of the baseline, or a commit a merged Safe Push landed, keeps nothing
+#[test]
+fn the_needs_of_tips_that_moved_stand_for_the_branches_they_still_answer_until_the_new_ones_come() {
+  let on = |commit: &str, branches: &[crate::patronus_view::patronus_view_test::BranchSpec<'_>]| {
+    let mut table = table(branches);
+    table.baseline_commit = commit.to_string();
+    table
+  };
+  let memo = crate::patronus_view::ContentMemo::default();
+  let before = on(
+    "base-1",
+    &[
+      ("ui", Some("lane"), &[("u1", "vu1")]),
+      ("lane", None, &[("n1", "vn1")]),
+      ("codec", None, &[("c1", "vc1")]),
+      ("docs", None, &[("d1", "vd1")]),
+      ("old", None, &[("o1", "vo1")]),
+      ("side", None, &[("s1", "vs1")]),
+      ("done", None, &[("x1", "vx1")]),
+      ("tail", None, &[("t1", "vt1")]),
+    ],
+  );
+  let needs = Needs::from([
+    ("lane".to_string(), vec![needs_branch("lane", "lane", "codec")]),
+    ("ui".to_string(), vec![needs_branch("lane", "lane", "codec")]),
+    ("docs".to_string(), vec![needs_branch("docs", "docs", "old")]),
+    ("tail".to_string(), vec![needs_branch("tail", "tail", "done")]),
+  ]);
+  let mut fact = PatronusFact::default();
+  assert!(fact.begin(1, Duration::ZERO));
+  fact.answer(at(1, 1, 1), Ok(PatronusView::default()));
+  let (first, _) = fact.publish(&before, None, &memo).expect("the needs of the first table");
+  assert_eq!(fact.needs_answer(first, Ok(needs)), None);
+  let _ = fact.publish(&before, None, &memo);
+  assert_eq!(fact.part().landing_needs, FactState::Fresh);
+  let known = |fact: &PatronusFact| -> BTreeMap<String, LandingNeeds> {
+    let view = &fact.part().view;
+    view.branches.iter().map(|(name, facts)| (name.clone(), facts.landing_needs.clone())).collect()
+  };
+  let answered = known(&fact);
+
+  // a commit of lane, old gone, side stacked on codec, the baseline has done whole, a new branch: tips alone moved for
+  // lane, ui, codec
+  let mut after = on(
+    "base-1",
+    &[
+      ("fresh", None, &[("f1", "vf1")]),
+      ("ui", Some("lane"), &[("u1", "vu1")]),
+      ("lane", None, &[("n2", "vn2"), ("n1", "vn1")]),
+      ("codec", None, &[("c1", "vc1")]),
+      ("docs", None, &[("d1", "vd1")]),
+      ("side", Some("codec"), &[("s1", "vs1")]),
+      ("done", None, &[("x1", "vx1")]),
+      ("tail", None, &[("t1", "vt1")]),
+    ],
+  );
+  after.in_baseline.insert("done".to_string());
+  let (second, _) = fact.publish(&after, None, &memo).expect("the needs of the new tips are computed");
+  assert_ne!(first, second);
+  assert_eq!(fact.part().landing_needs, FactState::Stale { reason: None });
+  let stale = known(&fact);
+  for name in ["lane", "ui", "codec"] {
+    assert_eq!(stale.get(name), answered.get(name), "{name} keeps the answer before");
+  }
+  for name in ["fresh", "side", "docs", "tail"] {
+    assert_eq!(stale.get(name).cloned().unwrap_or_default(), LandingNeeds::Unknown, "{name} waits");
+  }
+  assert_eq!(fact.publish(&after, None, &memo), None, "one computation of the new tips");
+
+  // the answer of the new tips: every branch fresh
+  assert_eq!(fact.needs_answer(second, Ok(Needs::new())), None);
+  let _ = fact.publish(&after, None, &memo);
+  assert_eq!(fact.part().landing_needs, FactState::Fresh);
+  assert_eq!(fact.part().view.branches["lane"].landing_needs, LandingNeeds::Known { refusals: Vec::new() });
+  assert_eq!(fact.part().view.branches["fresh"].landing_needs, LandingNeeds::Known { refusals: Vec::new() });
+
+  // a move of the baseline (Update Project, a fetch) keeps nothing: every step waits as for the first answer
+  let moved = on("base-2", &[("ui", Some("lane"), &[("u1", "vu1")]), ("lane", None, &[("n3", "vn3")])]);
+  assert!(fact.publish(&moved, None, &memo).is_some());
+  assert_eq!(fact.part().landing_needs, FactState::Loading);
+  assert_eq!(fact.part().view.branches.get("lane").map(|facts| &facts.landing_needs), None);
+}
+
+/// The answer before stands for no table of another baseline commit, nor of other landed commits (a merged Safe Push),
+/// nor for a table whose baseline commit nobody knows (one rebuilt from a frame, a grouping without a sync); the answer a
+/// frame kept stands with the basis it kept (the first sync after a warm start that moved a tip keeps the steps), and
+/// one of a frame that kept none stands for nothing
+#[test]
+fn the_needs_before_stand_for_no_other_baseline_landed_commit_unknown_baseline_or_answer_without_a_basis() {
+  let memo = crate::patronus_view::ContentMemo::default();
+  let on = |commit: &str, tip: &'static str| {
+    let mut table = table(&[("lane", None, &[("n1", "vn1")]), ("ui", None, &[(tip, tip)])]);
+    table.baseline_commit = commit.to_string();
+    table
+  };
+  let lane = |fact: &PatronusFact| fact.part().view.branches.get("lane").map(|facts| facts.landing_needs.clone());
+  let known = Some(LandingNeeds::Known { refusals: Vec::new() });
+  let answered = |before: &BranchTable| {
+    let mut fact = PatronusFact::default();
+    assert!(fact.begin(1, Duration::ZERO));
+    fact.answer(at(1, 1, 1), Ok(PatronusView::default()));
+    let (inputs, _) = fact.publish(before, None, &memo).expect("the needs of the first table");
+    assert_eq!(fact.needs_answer(inputs, Ok(Needs::new())), None);
+    fact
+  };
+
+  // a commit a merged Safe Push landed: the view names it, so the landed commits differ
+  let mut fact = answered(&on("base-1", "u1"));
+  assert!(fact.begin(2, Duration::from_secs(2)));
+  let merged = merged_view("ui", "u1");
+  fact.answer(at(2, 2, 2), Ok(merged));
+  assert!(fact.publish(&on("base-1", "u2"), None, &memo).is_some());
+  assert_eq!(
+    (fact.part().landing_needs.clone(), lane(&fact)),
+    (FactState::Loading, None),
+    "a landed commit keeps nothing"
+  );
+
+  // a baseline commit nobody knows: neither the table of the answer nor the new one names one
+  let mut fact = answered(&on("", "u1"));
+  assert!(fact.publish(&on("", "u2"), None, &memo).is_some());
+  assert_eq!(
+    (fact.part().landing_needs.clone(), lane(&fact)),
+    (FactState::Loading, None),
+    "an unknown baseline keeps nothing"
+  );
+
+  // the frame of an earlier run: its answer with the basis it kept stands, one without a basis does not
+  let before = on("base-1", "u1");
+  let inputs = landing_inputs(&before, &HashSet::new());
+  let part = PatronusPart {
+    state: FactState::Fresh,
+    landing_needs: FactState::Fresh,
+    view: PatronusView::default(),
+  };
+  for (basis, kept) in [(Some(NeedsBasis::of(&before, landed_inputs(&HashSet::new()))), true), (None, false)] {
+    let needs = CachedNeeds {
+      inputs,
+      needs: Needs::new(),
+      basis,
+    };
+    let mut fact = PatronusFact::cached(part.clone(), Some(needs));
+    assert!(fact.publish(&on("base-1", "u2"), None, &memo).is_some());
+    let expected = if kept {
+      (FactState::Stale { reason: None }, known.clone())
+    } else {
+      (FactState::Loading, None)
+    };
+    assert_eq!((fact.part().landing_needs.clone(), lane(&fact)), expected, "a frame answer, kept: {kept}");
+  }
+}
+
+/// The fix of row 1′ runs while what it fixes still asks for it (`derive::landing_refusal_stands`): a refusal with the
+/// same fix (the same need on another line too) of the fresh landing needs of the view, a wait (`None`) while they are
+/// not fresh (the first ones computed, those of a new tip), refused once the fresh ones lack it; a declared need by the
+/// declared needs of the table. A session without a derived view of its robots computes no needs: the fix runs
+#[test]
+fn a_fix_of_row_1_prime_stands_while_the_fresh_needs_refuse_with_it_and_waits_while_they_are_computed() {
+  use crate::derive::{declared_needs_of, landing_refusal_stands};
+  let memo = crate::patronus_view::ContentMemo::default();
+  // ui is built on lane, which declares that docs lands first: ui inherits the need, whose fix is its unstack
+  let on = |tip: &'static str| {
+    let mut table = table(&[("ui", Some("lane"), &[("u1", "vu1")]), ("lane", None, &[(tip, tip)]), ("codec", None, &[("c1", "vc1")])]);
+    table.baseline_commit = "base-1".to_string();
+    table.needs = BTreeMap::from([("lane".to_string(), vec!["docs".to_string()])]);
+    table
+  };
+  let state = TableState::with_prefix("test");
+  let mut facts = FactStore::new();
+  let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(on("n1"))));
+  let need = needs_branch("lane", "lane", "codec");
+  assert_eq!(
+    landing_refusal_stands(&state, &facts, &need),
+    Some(true),
+    "no view of the robots computes needs: the fix runs"
+  );
+  assert!(facts.patronus.begin(1, Duration::ZERO));
+  facts.patronus.answer(at(2, 1, 2), Ok(PatronusView::default()));
+  let (first, _) = facts.patronus.publish(&on("n1"), None, &memo).expect("the needs of the table");
+  assert_eq!(landing_refusal_stands(&state, &facts, &need), None, "the first needs are computed: the fix waits");
+  assert_eq!(facts.patronus.needs_answer(first, Ok(Needs::from([("lane".to_string(), vec![need.clone()])]))), None);
+  let _ = facts.patronus.publish(&on("n1"), None, &memo);
+  assert_eq!(landing_refusal_stands(&state, &facts, &need), Some(true));
+  // the same need on another line, of another commit, asks for the same fix
+  let mut moved = need.clone();
+  if let LandingRefusal::MissingDeclaration { line, used_by, .. } = &mut moved {
+    *line += 7;
+    used_by.id.push_str("-amended");
+  }
+  assert_eq!(landing_refusal_stands(&state, &facts, &moved), Some(true), "the same fix stands");
+
+  // a commit of lane: its needs are computed, the step keeps them, the fix waits for the fresh ones
+  let (second, _) = facts.patronus.publish(&on("n2"), None, &memo).expect("the needs of the new tip");
+  assert_eq!(facts.patronus.part().landing_needs, FactState::Stale { reason: None });
+  assert_eq!(landing_refusal_stands(&state, &facts, &need), None, "the needs before are no answer for the fix");
+  // they come without it: the fix is refused
+  assert_eq!(facts.patronus.needs_answer(second, Ok(Needs::new())), None);
+  let _ = facts.patronus.publish(&on("n2"), None, &memo);
+  assert_eq!(landing_refusal_stands(&state, &facts, &need), Some(false));
+
+  // the view of the frame of an earlier run (`Cached` while Patronus doesn't answer) computes needs as well: at the first
+  // sync that moves a tip they are stale, and the fix waits for them
+  let part = PatronusPart {
+    state: FactState::Fresh,
+    landing_needs: FactState::Fresh,
+    view: PatronusView::default(),
+  };
+  let cached = CachedNeeds {
+    inputs: landing_inputs(&on("n1"), &HashSet::new()),
+    needs: Needs::from([("lane".to_string(), vec![need.clone()])]),
+    basis: Some(NeedsBasis::of(&on("n1"), landed_inputs(&HashSet::new()))),
+  };
+  let mut warm = FactStore::new();
+  let _ = warm.table.answer(at(1, 0, 1), Ok(Arc::new(on("n2"))));
+  warm.patronus = PatronusFact::cached(part, Some(cached));
+  assert!(warm.patronus.publish(&on("n2"), None, &memo).is_some());
+  assert_eq!(
+    (warm.patronus.part().state.clone(), warm.patronus.part().landing_needs.clone()),
+    (FactState::Cached, FactState::Stale { reason: None })
+  );
+  assert_eq!(landing_refusal_stands(&state, &warm, &need), None, "the needs of a frame are no answer for the fix");
+
+  // a declared need stands by the declaration of the table, with no needs computed: the one ui inherits, fixed by its
+  // unstack
+  let declared = declared_needs_of(&on("n1"), |_| false, &PatronusView::default())["ui"][0].clone();
+  assert!(declared.fix().is_some(), "{declared:?}");
+  assert_eq!(landing_refusal_stands(&state, &facts, &declared), Some(true));
+  let mut gone = on("n2");
+  gone.needs.clear();
+  let _ = facts.table.answer(at(3, 0, 3), Ok(Arc::new(gone)));
+  assert_eq!(landing_refusal_stands(&state, &facts, &declared), Some(false));
 }
 
 /// The details of a robot a window demands: `Loading` from its demand, its answer kept; they name what a list doesn't,

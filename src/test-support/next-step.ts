@@ -62,7 +62,7 @@ export function testActions(calls: string[] = [], extra: Partial<NextStepActions
     retarget: record("retarget"),
     linkStack: record("linkStack"),
     openStackPullRequest: root => calls.push(`openStackPullRequest ${root}`),
-    fixLanding: fix => calls.push(`fixLanding ${fix.kind}`),
+    fixLanding: refusal => calls.push(`fixLanding ${refusal.fix?.kind ?? "none"}`),
     copyLoginCommand: record("copyLoginCommand"),
     refreshPatronus: record("refreshPatronus"),
     pickRemoteCommits: record("pickRemoteCommits"),

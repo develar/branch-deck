@@ -25,7 +25,9 @@ fake Patronus and the fake GitHub, and asks both sides of it:
   refuse otherwise.
 
 The flags of a case are the intent of both sides: the popover's Start Anyway and its line of the robot a start
-replaces accept what `--allow-missing`, `--allow-dangling`, `--allow-unknown-rules` and `--cancel-running` accept.
+replaces accept what `--allow-missing`, `--allow-dangling`, `--allow-unknown-rules` and `--cancel-running` accept. The
+app's Start Anyway lifts the refusals its popover showed (`Land.anyway`: those of the start without the overrides), the
+flags of `bd` every refusal of their kind: of one case they are the same refusals.
 
 The fixed test names, by group:
 

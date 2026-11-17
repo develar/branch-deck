@@ -1,5 +1,5 @@
 import { toast } from "@/components/ui/toast"
-import type { LandingFix, RewriteIntent } from "@/lib/bindings"
+import type { LandingFix, LandingRefusal, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { logError } from "@/lib/errors"
@@ -19,6 +19,14 @@ export interface StackOperationOptions {
   surface?: string | null
   /** The busy state, when the form that starts it says more ("Naming the branch auth") */
   label?: string
+}
+
+/** A restack or an unstack that fixes what a start needs (`RewriteIntent.fixes`) */
+export interface LandingFixOptions extends StackOperationOptions {
+  /** The refusal of the landing gate it fixes: the engine runs it on fresh landing needs, while they still refuse with it */
+  fixes?: LandingRefusal
+  /** The engine refused it because the facts changed (`plan_changed`: the fresh needs no longer refuse with it) */
+  onPlanChanged?: () => void
 }
 
 function stackSuccessTitle(title: string, suffix: string): string {
@@ -62,16 +70,17 @@ async function runStackOperation(
 
 /**
  * Runs the fix of what a start needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs,
- * or the unstack of a branch from the one whose declared need it inherits; false for a fix no action runs (the move of
+ * or the unstack of a branch from the one whose declared need it inherits, with what it fixes (`options.fixes`: the
+ * engine runs it on fresh landing needs while they still refuse with it); false for a fix no action runs (the move of
  * a commit), which the Safe Push popover says
  */
-export function runLandingFix(fix: LandingFix): boolean {
+export function runLandingFix(fix: LandingFix, options: LandingFixOptions = {}): boolean {
   switch (fix.kind) {
     case "restack":
-      void restackBranch(fix.branch, fix.onto)
+      void restackBranch(fix.branch, fix.onto, options)
       return true
     case "unstack":
-      void restackBranch(fix.branch, null)
+      void restackBranch(fix.branch, null, options)
       return true
     case "moveCommit":
       return false
@@ -83,10 +92,12 @@ export function runLandingFix(fix: LandingFix): boolean {
  * declares another parent are rewritten. Resolves after the sync, so that the caller sees the branches as the
  * operation left them.
  */
-export async function restackBranch(branchName: string, parent: string | null, options: StackOperationOptions = {}): Promise<boolean> {
+export async function restackBranch(branchName: string, parent: string | null, options: LandingFixOptions = {}): Promise<boolean> {
+  const fixes = options.fixes === undefined ? {} : { fixes: options.fixes }
   const done = await runStackOperation(
-    { surface: options.surface },
-    repositoryPath => (parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent })),
+    { surface: options.surface, ...(options.onPlanChanged !== undefined && { onPlanChanged: options.onPlanChanged }) },
+    repositoryPath =>
+      parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName, ...fixes }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent, ...fixes }),
     suffix => stackSuccessTitle(parent === null ? `Unstacked ${branchName}` : `Stacked ${branchName} on ${parent}`, suffix),
     branchName,
   )

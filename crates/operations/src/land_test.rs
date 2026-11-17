@@ -10,6 +10,7 @@ use domain_types::session::LandedSection;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use repository_model::branch_table::BranchTable;
+use repository_model::facts::Needs;
 use repository_model::session::SessionKey;
 use std::collections::BTreeMap;
 
@@ -21,6 +22,7 @@ fn safe_push(subject: &str) -> Land {
     without_approvals: false,
     create_pull_request: false,
     allow: LandingAllowances::default(),
+    anyway: None,
   }
 }
 
@@ -126,4 +128,100 @@ async fn the_plan_of_a_session_waits_for_its_patronus_view() {
   let _open = sessions.hold(&key);
   assert!(sessions.is_open(&key));
   assert_eq!(prepare(&sessions, &key, safe_push("auth")).await, None);
+}
+
+/// A start reads only fresh landing needs (`land_session::SessionStart::plan`): planned while the session computes the
+/// needs of the tips a sync moved on the same baseline, whose steps keep the needs before meanwhile (the part `Stale`)
+/// and whose decision waits for them, it waits for them too and is decided on them, never on the needs before; here
+/// the new needs refuse it, which the needs before did not
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_planned_while_the_needs_of_new_tips_are_computed_waits_for_them_and_is_decided_on_them() {
+  use crate::land_execute::StartHost;
+  use crate::push::push_test::{OFFLINE, TestNeeds, host_with_needs, registry_on};
+  use domain_types::landing::{FactWait, LandingFix, LandingRefusal};
+  use domain_types::reason::Reason;
+  use domain_types::session::{FactState, SyncReason};
+  use std::sync::Arc;
+  let needs = Arc::new(TestNeeds::default());
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  let (registry, key) = registry_on(&repo, host_with_needs(Arc::clone(&needs)), true).await;
+  let sessions = registry.sessions();
+  let Intent::Land(land) = land_intent("alpha", PatronusPushMode::RebaseAutosquash) else {
+    unreachable!()
+  };
+  // the other facts the start reads (the profiles, the review) stay unanswered offline: only the needs are of the test
+  let needs_wait = FactWait {
+    fact: LandFact::LandingNeeds,
+    failed: None,
+  };
+  let decided = soon("the plan on the first needs", async {
+    loop {
+      if let Some(plan) = prepare(sessions, &key, land.clone()).await
+        && !plan.waits.contains(&needs_wait)
+      {
+        break plan;
+      }
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  assert!(!decided.blockers.iter().any(|reason| matches!(reason, Reason::LandingRefused { .. })), "{decided:?}");
+  assert_eq!(sessions.get_snapshot(&key).await.unwrap().patronus.landing_needs, FactState::Fresh);
+
+  // a commit of alpha: its new tip on the same baseline, whose needs are computed while the test holds them
+  let (started, release) = needs.held.hold();
+  repo.create_commit("(alpha) Alpha again", "alpha-again.txt", "again\n");
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  soon("the computation of the new needs", started).await.unwrap();
+  assert_eq!(sessions.get_snapshot(&key).await.unwrap().patronus.landing_needs, FactState::Stale { reason: None });
+  let waiting = prepare(sessions, &key, land.clone()).await.unwrap();
+  assert!(waiting.waits.contains(&needs_wait), "the decision of the start waits for the fresh needs: {waiting:?}");
+
+  // the new needs refuse it: alpha uses a name gamma adds
+  let refusal = LandingRefusal::MissingDeclaration {
+    branch: "alpha".to_string(),
+    identifier: "Gamma".to_string(),
+    file: "alpha.txt".to_string(),
+    line: 1,
+    used_by: domain_types::fixtures::stack_commit("a2", "Alpha again", "alpha"),
+    declared_by: domain_types::fixtures::stack_commit("g1", "Gamma", "gamma"),
+    fix: LandingFix::Restack {
+      branch: "alpha".to_string(),
+      onto: "gamma".to_string(),
+    },
+    landing_in: None,
+  };
+  *needs.answer.lock().unwrap() = Needs::from([("alpha".to_string(), vec![refusal.clone()])]);
+  let (host, _) = crate::land_session::pull_request_start(&OFFLINE, sessions, &key).await.unwrap();
+  // the plan waits for the fresh needs: it subscribes to the session, which only that wait does, and is still pending
+  // then; the release comes only after it, so a plan on the needs before would have answered first
+  let subscribers = || sessions.open_sessions().into_iter().find(|open| open.key == key).map_or(0, |open| open.subscribers);
+  let before = subscribers();
+  let mut plan = host.plan(&land);
+  soon("the plan waits for the fresh needs", async {
+    while subscribers() == before {
+      let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(plan.as_mut().poll(cx).is_ready())).await;
+      assert!(!polled, "the plan answered while the needs of the new tip were computed");
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(plan.as_mut().poll(cx).is_ready())).await;
+  assert!(!polled, "the plan still waits once it subscribed");
+  release.send(()).unwrap();
+  let planned = soon("the plan on the new needs", plan).await;
+  let planned = planned.unwrap().expect("a plan of alpha");
+  assert!(!planned.plan.waits.contains(&needs_wait), "{:?}", planned.plan);
+  assert!(
+    planned.plan.blockers.contains(&Reason::LandingRefused { refusal: Box::new(refusal) }),
+    "decided on the new needs: {:?}",
+    planned.plan
+  );
+}
+
+/// `body` within a minute
+async fn soon<T>(what: &str, body: impl Future<Output = T>) -> T {
+  tokio::time::timeout(std::time::Duration::from_mins(1), body)
+    .await
+    .unwrap_or_else(|_elapsed| panic!("{what} within a minute"))
 }

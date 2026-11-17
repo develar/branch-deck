@@ -34,6 +34,11 @@ export interface RewriteRunSpec {
    * shows it: a preview follows its commit to the id the rewrite gave it while that commit is still in the table
    */
   readonly onWritten?: (outcome: Outcome) => void
+  /**
+   * The engine refused it because what it was asked on changed (`plan_changed`): the caller says it its own way (the
+   * fix of what a start needs, which the fresh needs no longer ask for, opens the Safe Push popover); else an error toast
+   */
+  readonly onPlanChanged?: () => void
 }
 
 /** What a rewrite that ran answered: its outcome, what its core did, and how it is undone (null: it has no undo) */
@@ -72,7 +77,11 @@ export async function runRewriteIntent(spec: RewriteRunSpec, rewrite: RewriteInt
   }
   const run = await executeRewrite(spec.repositoryPath, rewrite, onEvent).finally(indicator.done)
   if (run.kind === "failed") {
-    tellFailure(run.error, label, failureTitle ?? words.failure)
+    if (run.error.code === "plan_changed" && spec.onPlanChanged !== undefined) {
+      spec.onPlanChanged()
+    } else {
+      tellFailure(run.error, label, failureTitle ?? words.failure)
+    }
     return null
   }
   const { outcome } = run

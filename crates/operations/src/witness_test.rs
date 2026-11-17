@@ -66,6 +66,7 @@ fn a_rewrite_is_synced_before_it_is_asked_again_only_when_its_plan_changed() {
   let unstack = Intent::Rewrite(Box::new(RewriteIntent::Unstack {
     branch_name: "auth".to_string(),
     witness: TableWitness::default(),
+    fixes: None,
   }));
   let changed = plan_changed(&unstack, None);
   assert_eq!(changed.code, ErrorCode::PlanChanged);

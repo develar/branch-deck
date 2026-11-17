@@ -24,6 +24,10 @@ pub struct BranchTable {
   pub prefix: String,
   /// The baseline as the sync named it (`origin/master`)
   pub baseline: String,
+  /// The commit of the baseline the sync built the virtual branches on (`SyncReport::baseline_commit`); empty for a table
+  /// no sync built (one rebuilt from a frame, a grouping without a sync): the landing needs of another table never stand
+  /// for it (`facts::NeedsBasis`)
+  pub baseline_commit: String,
   /// In the order of the table, as `BranchesGrouped` sends them: newest first, each with its commits (newest first) and its
   /// placement
   pub branches: Vec<GroupedBranchInfo>,
@@ -58,6 +62,7 @@ impl BranchTable {
     Self {
       prefix: prefix.to_string(),
       baseline: report.baseline.clone(),
+      baseline_commit: report.baseline_commit.clone(),
       branches: report.branches.clone(),
       tips: report.tips.clone(),
       not_built: report.not_built.clone(),

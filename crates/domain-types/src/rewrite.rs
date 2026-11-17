@@ -7,6 +7,7 @@
 
 use crate::BranchError;
 use crate::commit::{CommitInfo, SubjectParts};
+use crate::landing::LandingRefusal;
 use crate::session::StoreTips;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -42,11 +43,20 @@ pub enum RewriteIntent {
     branch_name: String,
     parent: String,
     witness: TableWitness,
+    /// The refusal of the landing gate it fixes (the fix of row 1′, "Stack lane-run on stills-codec"): the engine runs
+    /// it on fresh landing needs only, and refuses it (`plan_changed`) once none of them refuses with it any more
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    fixes: Option<Box<LandingRefusal>>,
   },
   /// The branch is made a root (Unstack)
   Unstack {
     branch_name: String,
     witness: TableWitness,
+    /// The declared need it fixes, inherited from the branch it is built on (`Restack::fixes`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    fixes: Option<Box<LandingRefusal>>,
   },
   /// The branches are parked with their notes, or the notes of parked ones change
   Park {
@@ -172,6 +182,15 @@ pub enum RewriteIntent {
 }
 
 impl RewriteIntent {
+  /// The refusal of the landing gate it fixes, which must still stand when it runs: of a fix of row 1′
+  #[must_use]
+  pub fn fixes(&self) -> Option<&LandingRefusal> {
+    match self {
+      Self::Restack { fixes, .. } | Self::Unstack { fixes, .. } => fixes.as_deref(),
+      _ => None,
+    }
+  }
+
   /// The table it was asked on; none for an undo
   #[must_use]
   pub const fn witness(&self) -> Option<&TableWitness> {

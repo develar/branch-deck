@@ -1230,7 +1230,8 @@ pub struct LandSources<'a> {
   pub readiness: &'a dyn Fn(&str) -> Option<&'a Fact<SubjectReadiness>>,
   /// The rules of the target, for a push into an approved pull request
   pub rules: Option<&'a Fact<BranchRules>>,
-  /// How the landing needs of `view` stand: a failed computation waits for nothing (the gate of the start checks)
+  /// How the landing needs of `view` stand: a start reads them only fresh (needs computed again for tips that moved, a
+  /// value of the cached frame: a wait), a failed computation waits for nothing (the gate of the start checks)
   pub landing_needs: &'a FactState,
   /// The landing report of the table: a subject the fetched baseline has whole has nothing left to land
   pub baseline: &'a LandedSection,
@@ -1337,6 +1338,41 @@ pub fn declared_needs_of(table: &BranchTable, unapplied: impl Fn(&str) -> bool, 
   refusals
 }
 
+/// Whether `refusal`, which a fix of row 1′ fixes (`RewriteIntent::fixes`), still asks for that fix in the session: a
+/// refusal with the same fix (`LandingRefusal::fix`; the same need on another line, of another commit, asks for it all
+/// the same), of the declared needs of the table now for a declared need, of the fresh landing needs of the view for a
+/// refusal of the gate; `None` while those needs are not fresh (the needs of tips a sync moved are computed), which the
+/// fix waits for. A computation that failed tells nothing, and a session without a table or without a view of its robots
+/// (derived, or of the frame of an earlier run) computes no needs, as a start reads them (`needs_fresh` of the engine):
+/// the fix runs
+#[must_use]
+pub fn landing_refusal_stands(state: &TableState, facts: &FactStore, refusal: &LandingRefusal) -> Option<bool> {
+  let Some(table) = facts.table_facts(state) else {
+    return Some(true);
+  };
+  let part = facts.patronus.part();
+  let Some(fix) = refusal.fix() else {
+    return Some(true);
+  };
+  let has = |refusals: &[LandingRefusal]| refusals.iter().any(|it| it.fix() == Some(fix));
+  if matches!(refusal, LandingRefusal::UnlandedNeed { .. }) {
+    let declared = declared_needs_of(&table.table, |need| is_unapplied(&state.parts.sections.unapplied, need), &part.view);
+    return Some(declared.values().any(|refusals| has(refusals)));
+  }
+  // a view of the frame of an earlier run is a view too: its needs are computed, stale at the first sync that moves a tip
+  if !matches!(part.state, FactState::Fresh | FactState::Stale { .. } | FactState::Cached) {
+    return Some(true);
+  }
+  match part.landing_needs {
+    FactState::Fresh => Some(part.view.branches.values().any(|facts| match &facts.landing_needs {
+      LandingNeeds::Known { refusals } => has(refusals),
+      LandingNeeds::Unknown => false,
+    })),
+    FactState::Unavailable { .. } => Some(true),
+    _ => None,
+  }
+}
+
 /// An unapply keeps a branch of this name (`UnappliedBranchInfo::branch`)
 #[must_use]
 pub fn is_unapplied(unapplied: &[UnappliedBranchInfo], name: &str) -> bool {
@@ -1392,6 +1428,7 @@ fn default_land(subject: Subject, mode: PatronusPushMode) -> Land {
     without_approvals: false,
     create_pull_request: false,
     allow: LandingAllowances::default(),
+    anyway: None,
   }
 }
 
@@ -1404,17 +1441,22 @@ fn with_land_facts<'s, T>(
   key: &str,
   decide: impl FnOnce(&LandFacts<'_>, Option<&'s PatronusRobotProfile>) -> T,
 ) -> Option<T> {
-  let (subject, robot, needs) = match subject {
+  let (subject, robot, needs, pending) = match subject {
     Subject::Branch { name } => {
-      let needs = match sources.view.branches.get(name.as_str()).map(|facts| &facts.landing_needs) {
-        Some(LandingNeeds::Known { refusals }) => Some(refusals.as_slice()),
-        _ if matches!(sources.landing_needs, FactState::Unavailable { .. }) => Some(&[][..]),
+      // a start reads only fresh needs: those an earlier table left standing while the ones of this table are computed
+      // keep the step, never the start (openspec/specs/branch/next-step/spec.md, "A start reads only fresh answers")
+      let needs = match (sources.landing_needs, sources.view.branches.get(name.as_str()).map(|facts| &facts.landing_needs)) {
+        (FactState::Fresh, Some(LandingNeeds::Known { refusals })) => Some(refusals.as_slice()),
+        (FactState::Unavailable { .. }, _) => Some(&[][..]),
         _ => None,
       };
+      let found = sources.gate.or(needs);
       (
         SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests), sources.baseline)?),
         landing.robot_of(name),
-        with_declared(sources.declared.get(name.as_str()), sources.gate.or(needs)),
+        with_declared(sources.declared.get(name.as_str()), found),
+        // a declared need refuses at once, and the start still waits for the gate beside it
+        found.is_none(),
       )
     }
     Subject::WholeStack { root } => {
@@ -1426,6 +1468,7 @@ fn with_land_facts<'s, T>(
         SubjectFacts::WholeStack(landing.stack_subject(stack, Some(sources.pull_requests), sources.baseline)),
         landing.stack_robot(stack),
         with_declared(Some(&declared), Some(sources.gate.unwrap_or_default())),
+        false,
       )
     }
   };
@@ -1445,6 +1488,7 @@ fn with_land_facts<'s, T>(
     readiness: (sources.readiness)(key),
     rules: sources.rules,
     landing: needs,
+    landing_pending: pending,
     target_conflict: sources.target_conflict,
   };
   Some(decide(&facts, last))

@@ -38,12 +38,14 @@
 
 use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
+use crate::land_session::when_session_answers;
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
+use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::{Witness, plan_changed, read_refs, under_its_lease};
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
 use domain_types::branch_names::{BranchKind, qualified_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::PlannedEffect;
+use domain_types::landing::{LandingRefusal, PlannedEffect};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Outcome, Plan, Resource};
 use domain_types::reason::Reason;
 use domain_types::review_request::FetchReviewHeadParams;
@@ -65,6 +67,7 @@ use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use object_cache::cache::ObjectCache;
+use repository_model::derive::landing_refusal_stands;
 use repository_model::facts::FactStore;
 use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use repository_model::state::actions_now;
@@ -291,12 +294,21 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
     return Err(runs_only_in_bd(&Intent::Rewrite(Box::new(rewrite))));
   }
   let sessions = registry.sessions();
-  let request = rewrite_request(&key.prefix, &rewrite);
+  let mut request = rewrite_request(&key.prefix, &rewrite);
+  // the fix of what a start needs is admitted holding nothing: it waits for the fresh landing needs before it holds HEAD
+  // (`fixed_on_fresh_needs`), so nothing queues behind that wait
+  let fixes = rewrite.fixes().is_some();
+  if fixes {
+    request.resources.retain(|resource| !matches!(resource, Resource::Head));
+  }
   // what it names, read off the table of the click before a rewrite before it changes the table
   let intent = rewrite.clone();
   let planned = sessions.read(key, move |state, _| rewrite_plan(state, &intent)).await;
   let asked = Mutex::new(None);
   let mut answer = run(registry, key, request, events, async |guard| {
+    if let Some(fixed) = rewrite.fixes().filter(|_| fixes) {
+      fixed_on_fresh_needs(sessions, key, guard, &rewrite, fixed).await?;
+    }
     // a park of a branch a robot holds, as the session has it once admitted: nothing parked
     let check = rewrite.clone();
     if let Some(refusal) = sessions.read(key, move |state, facts| park_refusal(state, facts, &check)).await.flatten() {
@@ -318,6 +330,36 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
     }
   }
   answer
+}
+
+/// The fix of what a start needs (`RewriteIntent::fixes`: the restack of row 1′), admitted holding nothing: it waits for
+/// the fresh landing needs of the session while those of tips a sync moved are computed, which a stop ends (`canceled`,
+/// nothing written), then holds HEAD (behind the rewrites before it), waits for the sync that runs (the one a fix before
+/// it asked, whose table changes the needs), and runs only while the needs, read once more without a wait, still refuse
+/// with what it fixes (`derive::landing_refusal_stands`): a second press, or one on the needs before, rewrites nothing
+///
+/// # Errors
+/// `canceled` after a stop of the wait; `plan_changed` when the fresh needs no longer ask for the fix, or are not fresh
+/// once it holds HEAD (the sync of a rewrite before it moved the tips), which the page answers with the popover of the
+/// start; what the hold of HEAD fails with
+async fn fixed_on_fresh_needs(sessions: &Arc<Sessions>, key: &SessionKey, guard: &RunningGuard, rewrite: &RewriteIntent, fixes: &LandingRefusal) -> Result<(), ApiError> {
+  let refusal = fixes.clone();
+  let stands = move |state: &TableState, facts: &FactStore| landing_refusal_stands(state, facts, &refusal);
+  let changed = |why: &str| plan_changed(&Intent::Rewrite(Box::new(rewrite.clone())), Some(why));
+  let fresh = tokio::select! {
+    fresh = when_session_answers(sessions, key, stands.clone()) => fresh?,
+    () = guard.stopped() => return Err(ApiError::new(ErrorCode::Canceled, "The wait for what the start needs was stopped; nothing changed")),
+  };
+  if !fresh {
+    return Err(changed("what the start needs changed: nothing needs this fix any more"));
+  }
+  guard.hold(vec![Resource::Head], OperationStep::Checking).await?;
+  let _ = wait_for_facts(sessions, key, guard, Vec::new(), SyncWait::Running).await;
+  match sessions.read(key, stands).await.flatten() {
+    Some(true) => Ok(()),
+    Some(false) => Err(changed("what the start needs changed: nothing needs this fix any more")),
+    None => Err(changed("what the start needs is computed again since the rewrite before it")),
+  }
 }
 
 /// How many times a rewrite runs its core when HEAD moved away from the one it expected each time

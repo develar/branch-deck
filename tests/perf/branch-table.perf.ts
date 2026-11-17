@@ -34,10 +34,10 @@
 // - resyncRows: the branch rows a sync that changes nothing renders (B5: the status of each row changes, `Created` to
 //   `Unchanged`);
 // - oneBranchSyncRows: the branch rows a sync renders that found one more commit on one branch (B3: that row), with
-//   oneBranchSyncStatuses, the status cells it renders (that row's: the next step of every other branch waits for the
-//   landing needs of the new tip, then has them, and the status and the landing it says stay the same), and
-//   oneBranchSyncTableRenders and oneBranchSyncIslandRenders, the renders of the table card and of the island cards in
-//   that sync.
+//   oneBranchSyncStatuses, the status cells it renders (that row's), oneBranchSyncSteps, the next steps it renders (that
+//   row's: the next step of every branch keeps the landing needs of the tips before while those of the new tip are
+//   computed, so no step of another row is patched), and oneBranchSyncTableRenders and oneBranchSyncIslandRenders, the
+//   renders of the table card and of the island cards in that sync.
 //
 // The warm start (docs/design/rendering-performance.md, "Loading"): the app starts again on the frame its sessions
 // saved, the robots and the landing needs the first page read included (`reloadWarm`), its first sync held until the
@@ -169,6 +169,7 @@ interface RenderMetrics {
   resyncRows: number
   oneBranchSyncRows: number
   oneBranchSyncStatuses: number
+  oneBranchSyncSteps: number
   oneBranchSyncTableRenders: number
   oneBranchSyncIslandRenders: number
 }
@@ -242,10 +243,12 @@ async function timeMainThread(cdp: CDPSession, action: () => Promise<unknown>): 
 
 /**
  * No step of a row waits for a fact any more (`data-waits-for` of the slot: the landing needs, which the session sends a
- * patch of the whole Patronus view for after the rows and chips): a sync measured after it is that sync alone
+ * patch of the whole Patronus view for after the rows and chips), nor are the landing needs of the page stale (those of
+ * tips a sync moved, `data-landing-needs` of Sync): a sync measured after it is that sync alone
  */
 async function waitForStepFacts(page: Page): Promise<void> {
   await expect(page.getByTestId("next-step-slot").and(page.locator("[data-waits-for]"))).toHaveCount(0)
+  await expect(page.locator('[data-testid="sync-button"][data-landing-needs="stale"]')).toHaveCount(0)
 }
 
 /**
@@ -380,6 +383,7 @@ test.describe("Branch table performance", () => {
         resyncRows: renderedKeys(resync, "row:").length,
         oneBranchSyncRows: renderedKeys(oneBranch, "row:").length,
         oneBranchSyncStatuses: renderedKeys(oneBranch, "status:").length,
+        oneBranchSyncSteps: renderedKeys(oneBranch, "step:").length,
         oneBranchSyncTableRenders: oneBranch["table"] ?? 0,
         oneBranchSyncIslandRenders: renderedKeys(oneBranch, "island:").reduce((sum, key) => sum + oneBranch[key]!, 0),
       })

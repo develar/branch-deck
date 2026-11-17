@@ -194,11 +194,28 @@ The contract is [Landing Routes](../../openspec/specs/branch/landing-routes/spec
   `--allow-unlanded` on the user's word ([Declared Needs](../../openspec/specs/branch/declared-needs/spec.md)). A branch built on
   the declaring one inherits the need, since one robot lands both; the fix is its unstack, so that the needed piece
   lands between them. The need is met when integration detection proves the needed branch landed into master.
+- **What a piece needs stands while the needs of new tips are computed.** After a sync that moved tips alone on the
+  same baseline the session computes their landing needs (0.2 s warm, 0.7–1.2 s cold on the monorepo); meanwhile each
+  branch keeps the needs of the tips before, so its step, its node and the counts stay and no step is patched
+  ([Next Step](../../openspec/specs/branch/next-step/spec.md#requirement-facts-without-an-answer-the-needs-of-tips-that-moved-stand-until-the-new-ones-come)).
+  A start reads only fresh needs: every press (the slot, S, the popover, "⋯", Dry Run) waits for them, then starts or
+  opens the popover with the new need; the fix of row 1′ runs only while the fresh needs still name it; Start Anyway
+  lifts only the refusals it showed and accepts only the confirmations it showed (a newer one, a robot it would cancel
+  now, opens the popover), and waits and decides as a click does (one settle, `settleStart` of
+  `src/hooks/useSafePush.ts`). A press waits in the repository it was pressed in: once another one opens it starts
+  nothing and says so ("… is no longer the open repository"), also when the first one shows again before its plan
+  came. The start of a whole stack and `brd land` run the gate of what they land
+  themselves. A move of the baseline, a merged Safe Push, a new or restacked branch and a need of a branch gone wait
+  as for the first answer ("Checking…").
+  - *Rationale:* every step waited after every sync, a flicker of 131 rows for an answer that is almost always the
+    same; what must not act on a stale answer is the press, so the wait lives in the decision of the start, never in
+    the step.
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
   own start; its popover opens at its own row's slot. The header of a stack island asks the start of the whole stack
   (below); of a straight chain, which has no stack branch, the start of its last branch, its popover at the header's
   slot (`SafePushPlacement` `stack-header`), also while the island is collapsed; its holds and its running start stay
-  the branch's.
+  the branch's. One function decides where a start shows (`startPlaceOf` of `src/stores/safe-push.ts`): the click, Start
+  Anyway and the popover a fix of what the start needs opens instead of running.
 - **bd.** `brd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
   `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
   robot started on the branch's virtual branch. Its start is the run of the app's start (`operations::land_execute`,

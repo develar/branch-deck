@@ -12,7 +12,7 @@ use domain_types::error::ApiError;
 use domain_types::fixtures::branches_grouped;
 use domain_types::fixtures::{pull_request, robot, robot_of, stack_held, stack_landed_by_own, stack_robot, whole_stack_robot_of, whole_stack_view};
 use domain_types::landed::LandedBranch;
-use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, LandingRefusal, NeedState, PlannedEffect, ProfileChoice, StartRoute, Subject};
 use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::next_step::{LandingNodeKind, StepKind, StepRow};
 use domain_types::patronus::{
@@ -21,7 +21,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, PatronusView, RobotOf, StackLanding, StackPatronus, WholeStackRest};
+use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, StackLanding, StackPatronus, WholeStackRest};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, StackBranchAlong,
   SubjectReadiness, TableHeader, WholeStackView,
@@ -532,6 +532,61 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
       failed: None,
     }]
   );
+  // the needs of the tips before, standing for oauth while those of its new tips are computed: its step keeps them, its
+  // start waits for the fresh ones as while they load, a Dry Run too
+  let answered = PatronusView {
+    branches: BTreeMap::from([(
+      "oauth".to_string(),
+      BranchPatronus {
+        landing_needs: LandingNeeds::Known { refusals: Vec::new() },
+        ..BranchPatronus::default()
+      },
+    )]),
+    ..PatronusView::default()
+  };
+  let stale_needs = FactState::Stale { reason: None };
+  let fresh_needs = FactState::Fresh;
+  let stale = LandSources {
+    patronus: true,
+    view: &answered,
+    landing_needs: &stale_needs,
+    ..sources
+  };
+  let decided = &decide_lands(&stale)["oauth"];
+  for decision in [&decided.safe_push, &decided.dry_run] {
+    assert_eq!(
+      decision.waits,
+      vec![FactWait {
+        fact: LandFact::LandingNeeds,
+        failed: None
+      }]
+    );
+  }
+  // a declared need of oauth refuses at once, and its start still waits for the gate beside it
+  let declared_need = LandingRefusal::UnlandedNeed {
+    branch: "oauth".to_string(),
+    needs: "docs".to_string(),
+    state: NeedState::Active,
+    inherited_from: None,
+    fix: None,
+    landing_in: None,
+  };
+  let declared = BTreeMap::from([("oauth".to_string(), vec![declared_need.clone()])]);
+  let declared_stale = LandSources { declared: &declared, ..stale };
+  let decided = &decide_lands(&declared_stale)["oauth"].safe_push;
+  assert!(decided.blockers.contains(&Reason::LandingRefused { refusal: Box::new(declared_need) }), "{decided:?}");
+  assert!(
+    decided.waits.contains(&FactWait {
+      fact: LandFact::LandingNeeds,
+      failed: None
+    }),
+    "{decided:?}"
+  );
+  let fresh = LandSources {
+    landing_needs: &fresh_needs,
+    ..stale
+  };
+  assert_eq!(decide_lands(&fresh)["oauth"].safe_push.waits, Vec::new(), "the fresh needs: nothing to wait for");
 
   // a start without approvals: the default checks, as no profile is known to skip the review
   let land = Land {
@@ -541,6 +596,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     without_approvals: true,
     create_pull_request: false,
     allow: LandingAllowances::default(),
+    anyway: None,
   };
   let (decision, profiles) = land_decision(&sources, &land).unwrap();
   assert_eq!(decision.start_route(), Some(&StartRoute::Api { profile: None }));
@@ -1318,7 +1374,7 @@ fn merged_robot_session_with(branches: &[(&str, Option<&str>)], robots: &[(&str,
 /// The view's answer of `name`: its robot `robot_id`, landed whole by `by` with its commits `landed` (a hold of what landed
 /// beside), or none
 fn merged_robot_row(name: &str, robot_id: &str, by: Option<(RobotOf, &[&str])>) -> BranchPatronus {
-  use domain_types::repository_view::{LandedByView, LandingNeeds};
+  use domain_types::repository_view::LandedByView;
   let hold = by.as_ref().map(|(by, _)| HoldView {
     kind: HoldKind::Landed,
     by: by.clone(),

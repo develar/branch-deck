@@ -73,6 +73,7 @@ fn unstack(witness: &TableWitness) -> RewriteIntent {
   RewriteIntent::Unstack {
     branch_name: "beta".to_owned(),
     witness: witness.clone(),
+    fixes: None,
   }
 }
 
@@ -1258,4 +1259,178 @@ fn a_park_of_a_branch_a_robot_holds_is_refused_as_its_menu_refuses_it() {
   ] {
     assert_eq!(park_refusal_of("auth", actions.as_deref(), url), None, "{case}");
   }
+}
+
+/// alpha, beta built on it and gamma, synced in a session whose landing needs are `needs` (alpha uses a name gamma adds:
+/// stack alpha on gamma), once the needs of that table are fresh
+async fn fix_fixture() -> (Fixture, Arc<crate::push::push_test::TestNeeds>, domain_types::landing::LandingRefusal) {
+  use crate::push::push_test::{TestNeeds, host_with_needs};
+  use domain_types::landing::{LandingFix, LandingRefusal};
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  repo.create_commit("(gamma) Gamma", "gamma.txt", "gamma\n");
+  let refusal = LandingRefusal::MissingDeclaration {
+    branch: "alpha".to_owned(),
+    identifier: "Gamma".to_owned(),
+    file: "alpha.txt".to_owned(),
+    line: 1,
+    used_by: domain_types::fixtures::stack_commit("a1", "Alpha", "alpha"),
+    declared_by: domain_types::fixtures::stack_commit("g1", "Gamma", "gamma"),
+    fix: LandingFix::Restack {
+      branch: "alpha".to_owned(),
+      onto: "gamma".to_owned(),
+    },
+    landing_in: None,
+  };
+  let needs = Arc::new(TestNeeds::default());
+  *needs.answer.lock().unwrap() = Needs::from([("alpha".to_owned(), vec![refusal.clone()])]);
+  let (registry, key) = registry_on(&repo, host_with_needs(Arc::clone(&needs)), true).await;
+  let fixture = Fixture { repo, registry, key };
+  fixture.fresh_needs().await;
+  (fixture, needs, refusal)
+}
+
+impl Fixture {
+  /// Until the landing needs of the session are fresh
+  async fn fresh_needs(&self) {
+    within_a_minute(Box::pin(async {
+      while self.registry.sessions().get_snapshot(&self.key).await.unwrap().patronus.landing_needs != domain_types::session::FactState::Fresh {
+        tokio::task::yield_now().await;
+      }
+    }))
+    .await;
+  }
+
+  /// A commit of alpha in a terminal, synced: the needs of its new tip are computed, the test holding the computation;
+  /// the release it holds
+  async fn stale_needs(&self, needs: &crate::push::push_test::TestNeeds, round: &str) -> std::sync::mpsc::Sender<()> {
+    let (started, release) = needs.held.hold();
+    self
+      .repo
+      .create_commit(&format!("(alpha) Alpha {round}"), &format!("alpha-{round}.txt"), &format!("{round}\n"));
+    self.synced().await;
+    within_a_minute(Box::pin(async { started.await.unwrap() })).await;
+    let view = self.registry.sessions().get_snapshot(&self.key).await.unwrap();
+    assert_eq!(view.patronus.landing_needs, domain_types::session::FactState::Stale { reason: None });
+    release
+  }
+
+  /// The restack of alpha onto gamma that fixes `refusal`, named on the table the session shows
+  async fn fix(&self, refusal: &domain_types::landing::LandingRefusal) -> RewriteIntent {
+    RewriteIntent::Restack {
+      branch_name: "alpha".to_owned(),
+      parent: "gamma".to_owned(),
+      witness: self.witness().await,
+      fixes: Some(Box::new(refusal.clone())),
+    }
+  }
+
+  fn stack_parents(&self) -> String {
+    self.repo.rev_parse(history_rewrite::stack_parents::STACK_PARENTS_REF).unwrap_or_default()
+  }
+}
+
+/// The fix of row 1′ (`RewriteIntent::fixes`) waits for the fresh landing needs holding nothing: while the needs of a new
+/// tip are computed, another rewrite, which holds HEAD, is admitted and runs; once they come and still ask for it, the
+/// restack runs
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fix_waits_for_the_fresh_needs_holding_nothing_and_runs_while_they_still_ask_for_it() {
+  let (fixture, needs, refusal) = fix_fixture().await;
+  let release = fixture.stale_needs(&needs, "again").await;
+  let before = fixture.stack_parents();
+  let fix = fixture.fix(&refusal).await;
+  let waiting = async {
+    let operations = fixture
+      .until(|operations| operations.iter().any(|it| matches!(&it.intent, Intent::Rewrite(rewrite) if rewrite.fixes().is_some())))
+      .await;
+    let held: Vec<&Resource> = operations.iter().flat_map(|it| &it.resources).collect();
+    assert!(!held.contains(&&Resource::Head), "the wait for the needs holds no HEAD: {held:?}");
+    // a rewrite that holds HEAD runs meanwhile
+    let unstacked = fixture.rewrite(&unstack(&fixture.witness().await)).await;
+    assert!(unstacked.is_ok(), "{unstacked:?}");
+    assert_eq!(fixture.stack_parents(), before, "the fix rewrote nothing yet");
+    release.send(()).unwrap();
+  };
+  let answer = fixture.rewrite_while(&fix, waiting).await;
+  assert!(answer.is_ok(), "{answer:?}");
+  assert_ne!(fixture.stack_parents(), before, "the restack ran on the fresh needs");
+}
+
+/// The fix of row 1′ whose fresh needs no longer ask for it is `plan_changed`, nothing written; a stop of its wait for
+/// the needs answers `canceled`, nothing written
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fix_the_fresh_needs_no_longer_ask_for_is_plan_changed_and_a_stop_cancels_its_wait() {
+  let (fixture, needs, refusal) = fix_fixture().await;
+  let release = fixture.stale_needs(&needs, "again").await;
+  let before = fixture.stack_parents();
+  *needs.answer.lock().unwrap() = Needs::new();
+  let fix = fixture.fix(&refusal).await;
+  let answer = fixture
+    .rewrite_while(&fix, async {
+      fixture.until(|operations| !operations.is_empty()).await;
+      release.send(()).unwrap();
+    })
+    .await;
+  assert_eq!(answer.unwrap_err().code, ErrorCode::PlanChanged);
+  assert_eq!(fixture.stack_parents(), before, "nothing written");
+
+  // the needs of the next tip, held: a stop ends the wait
+  *needs.answer.lock().unwrap() = Needs::from([("alpha".to_owned(), vec![refusal.clone()])]);
+  fixture.fresh_needs().await;
+  let release = fixture.stale_needs(&needs, "once-more").await;
+  let head = fixture.repo.rev_parse("HEAD").unwrap();
+  let fix = fixture.fix(&refusal).await;
+  let answer = fixture
+    .rewrite_while(&fix, async {
+      let operations = fixture.until(|operations| !operations.is_empty()).await;
+      assert!(fixture.registry.cancel(&operations[0].id), "the wait is the session's");
+    })
+    .await;
+  fixture.assert_stopped(answer, &head).await;
+  assert_eq!(fixture.stack_parents(), before, "nothing written");
+  release.send(()).unwrap();
+}
+
+/// A second press of the fix right after the first (from another row, or the toast, naming the same fix by another
+/// refusal: no join) waits behind the first for HEAD and for the sync it asked, whose table the needs are computed of:
+/// it rewrites nothing more
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_press_of_the_fix_right_after_the_first_runs_no_second_restack() {
+  let (fixture, needs, refusal) = fix_fixture().await;
+  // stacked on gamma, alpha needs nothing any more
+  *needs.answer.lock().unwrap() = Needs::new();
+  let store = history_rewrite::stack_parents::STACK_PARENTS_REF;
+  let restacks = || {
+    fixture
+      .repo
+      .rev_parse(store)
+      .map_or(0, |_| fixture.repo.git(&["rev-list", "--count", store]).trim().parse::<u32>().unwrap())
+  };
+  let before = restacks();
+  let first = fixture.fix(&refusal).await;
+  // the toast names the robot that lands gamma where the row did not: the same need, another intent
+  let mut other = refusal.clone();
+  if let domain_types::landing::LandingRefusal::MissingDeclaration { landing_in, .. } = &mut other {
+    *landing_in = Some(domain_types::repository_view::RobotOf {
+      branch: "gamma".to_owned(),
+      robot_id: "r1".to_owned(),
+      whole_stack: false,
+    });
+  }
+  let second = fixture.fix(&other).await;
+  let (first, second) = within_a_minute(Box::pin(async {
+    tokio::join!(fixture.rewrite(&first), async {
+      fixture
+        .until(|operations| {
+          operations
+            .iter()
+            .any(|it| it.resources.contains(&Resource::Head) && matches!(&it.intent, Intent::Rewrite(rewrite) if rewrite.fixes().is_some()))
+        })
+        .await;
+      fixture.rewrite(&second).await
+    })
+  }))
+  .await;
+  assert!(first.is_ok(), "{first:?}");
+  assert_eq!(second.unwrap_err().code, ErrorCode::PlanChanged);
+  assert_eq!(restacks(), before + 1, "one restack");
 }

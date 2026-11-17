@@ -6,11 +6,15 @@
 import type { LandingAllowances, LandingFix, LandingRefusal, RobotOf, StackCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 
-/** Why the build of what a start lands fails, the fix of the first refusal, and the overrides that start it anyway */
+/**
+ * Why the build of what a start lands fails, the fix of the first refusal, and the overrides that start it anyway, which
+ * lift these refusals only (`Land.anyway`)
+ */
 export interface LandingRefused {
   readonly reason: string
   readonly fix: LandingFix | null
   readonly anyway: LandingAllowances
+  readonly refusals: readonly LandingRefusal[]
 }
 
 /**
@@ -27,7 +31,7 @@ export function describeLandingRefusals(refusals: readonly LandingRefusal[], sub
     allowMissing: allow.allowMissing === true || refusals.some(refusal => refusal.kind === "missingDeclaration"),
     allowUnlanded: allow.allowUnlanded === true || refusals.some(refusal => refusal.kind === "unlandedNeed"),
   }
-  return { reason: `${describeLandingRefusal(first, subject)}${describeMore(refusals.slice(1))}`, fix: first.fix ?? null, anyway }
+  return { reason: `${describeLandingRefusal(first, subject)}${describeMore(refusals.slice(1))}`, fix: first.fix ?? null, anyway, refusals }
 }
 
 /** " One more name breaks it too: brd check lists them.", " One more declared need holds it back too.": the refusals past the first */

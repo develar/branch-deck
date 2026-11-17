@@ -691,6 +691,27 @@ fn row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_sta
   assert_eq!(shape(&needs.step()), (StepRow::OnePrime, kind, None, None));
 }
 
+/// The needs of tips that moved on the same baseline (`FactState::Stale` without a reason): the answer before stands for
+/// each branch it still answers, so its step is the very step of that answer (row 1′ with its fix, row 11 of a branch
+/// that needs nothing), no patch while the new ones are computed; a branch it doesn't answer (new, built on others now,
+/// a need of a branch gone) waits for them as for the first answer ("Checking…", row 0)
+#[test]
+fn the_needs_of_tips_that_moved_keep_the_step_of_the_answer_before_and_a_branch_it_does_not_answer_waits() {
+  let stale = |fixture: Fixture| fixture.with(|it| it.needs_state = FactState::Stale { reason: None });
+  let needs = Fixture::branch().with(|it| {
+    it.needs = Some(LandingNeeds::Known {
+      refusals: vec![missing_declaration()],
+    });
+  });
+  assert_eq!(stale(needs.clone()).step(), needs.step(), "row 1′ and its fix stay");
+  assert_eq!(stale(Fixture::branch()).step(), Fixture::branch().step(), "row 11 stays");
+  let unanswered = stale(Fixture::branch().with(|it| it.needs = Some(LandingNeeds::Unknown)));
+  assert_eq!(
+    shape(&unanswered.step()),
+    (StepRow::Zero, StepKind::Pending { fact: StepFact::LandingNeeds }, Some(StepBlocker::Step), None)
+  );
+}
+
 /// Row 1′ of an order the user declared (`brd need`): a declaration is read of the repository, so the row names it
 /// before Patronus answers and while the gate of a route without a robot waits (row 0); a reason of the subject (row 1)
 /// still outranks it
@@ -1130,8 +1151,14 @@ fn degraded(fixture: &Fixture, family: Family, without: Without) -> Fixture {
       }
     }
     Family::LandingNeeds => {
-      it.needs = Some(LandingNeeds::Unknown);
-      it.needs_state = state;
+      // stale: the needs of the tips before stand while the needs of new tips are computed (`FactState::Stale` without a
+      // reason, the answer kept); the needs of no other failure is stale
+      if without == Without::Stale {
+        it.needs_state = FactState::Stale { reason: None };
+      } else {
+        it.needs = Some(LandingNeeds::Unknown);
+        it.needs_state = state;
+      }
     }
     Family::RobotProblems => {
       if let Some((robot, needs_review, problems, _)) = &mut it.robot
@@ -1230,9 +1257,10 @@ const fn says_missing(row: StepRow) -> bool {
 
 /// Every row with every fact it reads without a fresh answer: one that loads or that nobody asks waits (row 0, every
 /// Safe Push disabled), never a step a later answer turns into another; a stale one keeps the step of the answer before
-/// (a stale readiness holds its action); a read that failed is an answer that says so: Patronus offers what helps, a
-/// listing or a readiness that failed never says the approvals are missing (the start checks them, its popover says
-/// it), a computation of the landing needs that failed leaves them to the gate of the start
+/// (a stale readiness holds its action; the needs of the tips before stand while those of new tips are computed: the
+/// very step, so no patch, its start waiting in its decision, `land::decide`); a read that failed is an answer that says
+/// so: Patronus offers what helps, a listing or a readiness that failed never says the approvals are missing (the start
+/// checks them, its popover says it), a computation of the landing needs that failed leaves them to the gate of the start
 #[test]
 fn every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_fresh_one_would_replace() {
   let families = [
@@ -1256,7 +1284,7 @@ fn every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_
         let ok = match without {
           Without::Loading | Without::Unknown => same || waits,
           Without::Stale if family == Family::Readiness && fresh.needs_readiness => same && step.stale_readiness && step.safe_push.is_some(),
-          Without::Stale if family == Family::LandingNeeds => same || waits,
+          Without::Stale if family == Family::LandingNeeds => step == fresh,
           Without::Stale => same,
           Without::Unavailable => match family {
             Family::Patronus | Family::PatronusView | Family::RobotProblems => same || (waits && matches!(step.kind, StepKind::Unavailable { .. })),

@@ -5,7 +5,9 @@ use crate::land::{
 };
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot};
-use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::landing::{
+  ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandingFix, LandingRefusal, NeedState, PlannedEffect, ProfileChoice, StartRoute, Subject,
+};
 use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::patronus::{
   LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness, ReviewReadinessBranch,
@@ -277,6 +279,8 @@ struct World {
   readiness: Option<Fact<SubjectReadiness>>,
   rules: Option<Fact<BranchRules>>,
   landing: Option<Vec<LandingRefusal>>,
+  /// The gate has no fresh answer beside the declared needs `landing` holds
+  landing_pending: bool,
   /// login on auth: the chain root first, each `(remote, landed whole, held)`: held by a running Safe Push of a branch
   /// built on it, other than the one a start replaces
   chain: Vec<(&'static str, Option<RemoteBranch<'static>>, bool, bool)>,
@@ -375,6 +379,7 @@ fn world() -> World {
     readiness: Some(readiness(ReviewReadiness::NotRequired)),
     rules: None,
     landing: Some(Vec::new()),
+    landing_pending: false,
     chain: vec![("auth", Some(UNPUSHED), false, false), ("login", Some(UNPUSHED), false, false)],
     hold: None,
     replaces: None,
@@ -392,6 +397,7 @@ pub(crate) fn land(mode: PatronusPushMode) -> Land {
     without_approvals: false,
     create_pull_request: false,
     allow: LandingAllowances::default(),
+    anyway: None,
   }
 }
 
@@ -441,6 +447,7 @@ impl World {
       readiness: self.readiness.as_ref(),
       rules: self.rules.as_ref(),
       landing: self.landing.as_deref(),
+      landing_pending: self.landing_pending,
       target_conflict: conflict.map(|files| TargetConflictFact { commit: "c1", files }),
     };
     decide(&facts, land)
@@ -792,6 +799,95 @@ fn the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target() {
   assert_eq!(codes(&gated.decide(&allowed)), ["landingRefused", "targetConflict"]);
 }
 
+/// A declared need refuses a start at once, and while the gate has no fresh answer beside it (the needs of tips a
+/// sync moved are computed) the start waits for that answer too: Start Anyway of the declared need starts no robot with
+/// no gate of what it lands
+#[test]
+fn a_declared_need_refuses_at_once_and_the_start_waits_for_the_gate_beside_it() {
+  let declared = LandingRefusal::UnlandedNeed {
+    branch: "login".to_string(),
+    needs: "docs".to_string(),
+    state: NeedState::Active,
+    inherited_from: None,
+    fix: None,
+    landing_in: None,
+  };
+  let pending = World {
+    landing: Some(vec![declared.clone()]),
+    landing_pending: true,
+    ..world()
+  };
+  let decided = pending.decide(&land(SAFE_PUSH));
+  assert_eq!(
+    decided.blockers,
+    vec![Reason::LandingRefused {
+      refusal: Box::new(declared.clone())
+    }]
+  );
+  let waits_for_the_gate = FactWait {
+    fact: LandFact::LandingNeeds,
+    failed: None,
+  };
+  assert_eq!(decided.waits, vec![waits_for_the_gate.clone()]);
+  let mut anyway = land(SAFE_PUSH);
+  anyway.allow.allow_unlanded = true;
+  anyway.anyway = Some(vec![declared]);
+  let lifted = pending.decide(&anyway);
+  assert_eq!(
+    (lifted.blockers, lifted.waits),
+    (Vec::new(), vec![waits_for_the_gate]),
+    "lifted, it still waits for the gate"
+  );
+}
+
+/// Start Anyway of the app is bound to the refusals it showed (`Land::anyway`): the allowance lifts those only, a
+/// running Safe Push either names aside, so a refusal of newer landing needs the user didn't see refuses the start, which
+/// asks again; without the refusals (the flags of `brd safe-push`) it lifts every refusal of its kind
+#[test]
+fn start_anyway_lifts_only_the_refusals_it_showed_and_newer_needs_ask_again() {
+  let refusal = |identifier: &str, landing_in: Option<RobotOf>| LandingRefusal::MissingDeclaration {
+    branch: "login".to_string(),
+    identifier: identifier.to_string(),
+    file: "a.kt".to_string(),
+    line: 1,
+    used_by: stack_commit("c1", "Use it", "login"),
+    declared_by: stack_commit("c9", "Add it", "util"),
+    fix: LandingFix::Restack {
+      branch: "login".to_string(),
+      onto: "util".to_string(),
+    },
+    landing_in,
+  };
+  let gated = World {
+    landing: Some(vec![refusal("parse", None), refusal("format", None)]),
+    ..world()
+  };
+  let anyway = |shown: Vec<LandingRefusal>| {
+    let mut land = land(SAFE_PUSH);
+    land.allow.allow_missing = true;
+    land.anyway = Some(shown);
+    land
+  };
+  // it showed both: both lifted, a robot that started meanwhile on util named or not
+  let robot = Some(RobotOf {
+    branch: "util".to_string(),
+    robot_id: "r1".to_string(),
+    whole_stack: false,
+  });
+  assert_eq!(codes(&gated.decide(&anyway(vec![refusal("parse", robot), refusal("format", None)]))), Vec::<String>::new());
+  // it showed parse only: format, of newer needs, refuses the start
+  assert_eq!(
+    gated.decide(&anyway(vec![refusal("parse", None)])).blockers,
+    vec![Reason::LandingRefused {
+      refusal: Box::new(refusal("format", None))
+    }]
+  );
+  // the flags of `bd` lift the kind
+  let mut flags = land(SAFE_PUSH);
+  flags.allow.allow_missing = true;
+  assert_eq!(codes(&gated.decide(&flags)), Vec::<String>::new());
+}
+
 /// The pull request of the branch decides the route: one into the target, or into a virtual branch once it is
 /// retargeted first (D11), takes a `/patronus` comment, which runs the default checks, so a profile the user chose is
 /// refused, never dropped (the remembered one is no choice); a draft refuses a Safe Push. One
@@ -1124,6 +1220,7 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
         readiness: None,
         rules: None,
         landing: Some(&[]),
+        landing_pending: false,
         target_conflict: None,
       };
       let mut land = land(mode);

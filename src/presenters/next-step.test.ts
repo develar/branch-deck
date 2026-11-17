@@ -99,6 +99,18 @@ describe("the words of the next step", () => {
     expect(opens.landingFix).toBeNull()
   })
 
+  it("row 1′: while the fix runs on the row, or waits in the session for the fresh needs, its item of the slot and of ⋯ are disabled", () => {
+    const refused = reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>
+    const busy = { id: "rewrite", label: "Stacking flow on util" }
+    const calls: string[] = []
+    const step = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused.refusal] }), testContext({ busy, actions: testActions(calls) }))
+    expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util", disabled: true, description: "Stacking flow on util…" })
+    expect(step.landingFix).toMatchObject({ label: "Stack flow on util", disabled: true, description: "Stacking flow on util…" })
+    // the fix names the refusal it fixes, which the engine checks against the fresh needs
+    presentNextStep(testStep({ kind: "needsBranch", refusals: [refused.refusal] }), testContext({ actions: testActions(calls) })).item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["fixLanding restack"])
+  })
+
   it("row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need", () => {
     const calls: string[] = []
     const own = presentNextStep(testStep({ kind: "needsBranch", refusals: [DECLARED_DOCS] }), testContext({ actions: testActions(calls) }))

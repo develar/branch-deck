@@ -170,8 +170,9 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
       return
     }
     close()
-    // the plan the popover showed, every confirmation of it accepted; Start Anyway with the overrides of the gate
-    void startPlanned(read.plan, landingRefused?.anyway)
+    // the plan the popover showed, every confirmation of it accepted; Start Anyway with the overrides of the refusals it
+    // showed, which lift those only
+    void startPlanned(read.plan, landingRefused === null ? undefined : { allow: landingRefused.anyway, refusals: landingRefused.refusals, placement: ask.placement })
   }
   const dryRun = () => {
     close()

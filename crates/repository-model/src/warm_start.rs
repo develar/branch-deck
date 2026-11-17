@@ -26,7 +26,7 @@
 //!   (`Unavailable`, the value gone), so no value of an earlier run stands as an answer of this one.
 
 use crate::branch_table::{BranchTable, RemoteFacts};
-use crate::facts::{FactStore, Needs};
+use crate::facts::{FactStore, Needs, NeedsBasis};
 use crate::patronus_view::MemoAnswers;
 use crate::session::SessionKey;
 use crate::table::{TableParts, TableState};
@@ -48,7 +48,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 18;
+pub const FRAME_SCHEMA: u32 = 19;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +150,8 @@ impl CachedBuild {
     BranchTable {
       prefix: prefix.to_owned(),
       baseline: self.baseline,
+      // the frame keeps no commit of the baseline: the needs of its table stand for no other until a sync built one
+      baseline_commit: String::new(),
       branches,
       tips: self.tips.into_iter().collect(),
       not_built: self.not_built.into_iter().collect(),
@@ -284,11 +286,15 @@ impl KeptPatronus {
 
 /// The landing needs a frame keeps (`PatronusFact`): by branch, with the inputs they were computed of
 /// (`facts::landing_inputs`, the hash of the binary that computed them: a binary that hashes otherwise computes them
-/// again)
+/// again) and what they were computed over (`facts::NeedsBasis`), so the first sync that moves tips after the start keeps
+/// them for the branches they still answer while the new ones are computed
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedNeeds {
   pub inputs: u64,
   pub needs: Needs,
+  /// `None` of a frame no computation of the process before named it for
+  #[serde(default)]
+  pub basis: Option<NeedsBasis>,
 }
 
 /// The frame of the session of `key` under the epoch `epoch` of its worktree with `state` and `facts`: the table as its

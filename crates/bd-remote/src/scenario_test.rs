@@ -32,6 +32,7 @@ use domain_types::next_step::NextStep;
 use domain_types::operation::Plan;
 use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use domain_types::reason::Reason;
 use domain_types::session::{Demand, SyncState, SyncStep, stack_readiness_key};
 use domain_types::stack::BranchStack;
 use domain_types::{ProgressReporter, SyncEvent};
@@ -623,6 +624,7 @@ impl Given {
       without_approvals: self.has(Flag::WithoutApprovals),
       create_pull_request: self.has(Flag::CreatePullRequest),
       allow: self.allowances(),
+      anyway: None,
     }
   }
 }
@@ -1307,7 +1309,28 @@ impl AppSession<'_> {
     let landed = landed_states_of(&self.state, &self.facts);
     let steps = next_steps_of(&self.state, &self.facts, &open, &landed);
     let land = given.land(subject);
-    let plan = with_land_sources(&self.state, &self.facts, prefix, |sources| plan_of(sources, &land)).flatten();
+    let plan = with_land_sources(&self.state, &self.facts, prefix, |sources| {
+      // Start Anyway of the popover lifts the refusals the popover showed: those of the start without the overrides
+      let lifts = land.allow.allow_dangling || land.allow.allow_missing || land.allow.allow_unlanded;
+      let shown = lifts.then(|| {
+        let asked = Land {
+          allow: LandingAllowances::default(),
+          ..land.clone()
+        };
+        plan_of(sources, &asked).map_or_default(|plan| {
+          plan
+            .blockers
+            .into_iter()
+            .filter_map(|reason| match reason {
+              Reason::LandingRefused { refusal } => Some(*refusal),
+              _ => None,
+            })
+            .collect()
+        })
+      });
+      plan_of(sources, &Land { anyway: shown, ..land.clone() })
+    })
+    .flatten();
     let status = steps
       .get(&key)
       .map_or_default(|view| NextStepSummary::new(&view.step, &key, &[]).with_status(&view.status).status);

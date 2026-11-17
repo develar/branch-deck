@@ -159,8 +159,9 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);
   a menu builder likewise (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
 - **A part of a row answers the whole part**: `useRowPart(name, "landing")` answers the next step of the subject, a new
-  object with every patch of it, each object in it new too, and the next step of every branch is patched twice after
-  each sync that moved a tip (it waits for the landing needs of the new tips, then has them). A component that shows
+  object with every patch of it, each object in it new too (until 2026-11-17 the next step of every branch was patched
+  twice after each sync that moved a tip: it waited for the landing needs of the new tips, then had them; now the needs
+  of the tips before stand meanwhile, but a patch of the status of a row is one of the whole part). A component that shows
   one field of a part selects it: a primitive by itself (`useRowPart(name, "landing", step => step?.node.ring ??
   false)`), an object kept while it says the same (`useRowPart(name, "landing", step => step?.status, sameJson)`),
   never an object `select` builds without `sameJson` (see the next pitfall). Read off the whole part, the ring of the

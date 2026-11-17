@@ -8,6 +8,7 @@ import type { BranchFilterChip } from "@/lib/branch-filter"
 import { CHIP_LABELS, CHIPS, formatNoMatch } from "@/lib/branch-filter"
 import { formatKbds } from "@/lib/menu"
 import { clearBranchFilter, setFilterText, toggleFilterChip, useBranchFilter } from "@/stores/branch-filter"
+import { useStaleNeeds } from "@/stores/branch-sync"
 
 /** The key of the previous row of your move, as F2 is the next one */
 const PREVIOUS_KBD = formatKbds(["shift", "f2"])
@@ -30,12 +31,19 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
   const filter = useBranchFilter()
   const counts = useChipCounts()
   const isShown = useHasFilterBar(counts.all)
+  // the nodes keep the needs before while those of tips a sync moved are computed: the counts are of that answer
+  const staleNeeds = useStaleNeeds()
 
   if (!isShown) {
     return null
   }
   return (
-    <div data-testid="branch-filter" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
+    <div
+      data-testid="branch-filter"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2"
+      aria-busy={staleNeeds || undefined}
+      data-landing-needs={staleNeeds ? "stale" : undefined}
+    >
       <SearchField value={filter.text} onValueChange={setFilterText} label="Filter branches" onLeave={onLeave} onArrowDown={onFocusRows} className="w-60" />
       <FilterChips label="Branch state" value={filter.chip} fallback="all" onValueChange={chip => toggleFilterChip(chip as BranchFilterChip)}>
         {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map(chip => {

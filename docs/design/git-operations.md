@@ -675,7 +675,13 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    there. An unapply names the commits of its branch the window showed, and its core checks that the virtual branch is
    their copies: it waits for the sync that builds them at HEAD whichever way its ids go, and its branch there must be
    those commits. A branch goes by its name. A commit none of them finds, or an unapply's branch with other commits, is
-   `plan_changed`, nothing written.
+   `plan_changed`, nothing written. A restack or an unstack that fixes what a start needs (the fix of row 1′,
+   `RewriteIntent::fixes`) is admitted holding nothing and first waits for the fresh landing needs of the session (the
+   needs of tips a sync moved are computed meanwhile, which the steps keep from the tips before; a stop ends the wait,
+   `canceled`), then holds HEAD behind the rewrites before it, waits for the sync that runs (`SyncWait::Running`: the
+   one a fix before it asked) and runs only while the needs, read once more, still ask for its fix
+   (`derive::landing_refusal_stands`, by the fix, whatever line asks for it), else is `plan_changed`, nothing written:
+   a second press, or one on the needs before, rewrites nothing.
 4. **The core** runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`, `RegroupOptions`,
    `MoveCommitsParams`) and the lock waited for as long as its holder lives (`LockWait::WhileHeld`; the undo of a pick
    and of an update waits `DEFAULT_LOCK_TIMEOUT`, as `brd undo` does): the step of the operation is

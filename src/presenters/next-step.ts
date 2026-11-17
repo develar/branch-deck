@@ -19,7 +19,7 @@ import {
   LayersIcon,
 } from "lucide-react"
 import { getErrorDetails } from "@/lib/api-error"
-import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
+import type { LandingRefusal, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { MenuItem } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
@@ -95,8 +95,8 @@ export interface NextStepActions {
   readonly linkStack: () => void
   /** Opens the pull request of the whole stack of `root` (row 7, "In #12") */
   readonly openStackPullRequest: (root: string) => void
-  /** Runs the fix of what the Safe Push needs (`LandingFix`): the restack of the root of what it lands */
-  readonly fixLanding: (fix: LandingFix) => void
+  /** Runs the fix of what the Safe Push needs, of `refusal` (`LandingFix`): the restack of the root of what it lands */
+  readonly fixLanding: (refusal: LandingRefusal) => void
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
@@ -422,7 +422,9 @@ function needsBranch(kind: Extract<StepKind, { kind: "needsBranch" }>, context: 
   const fix = decision?.fix ?? null
   const fixLabel = formatLandingFix(fix)
   const landingFix: MenuItem | null =
-    fix === null || fixLabel === null ? null : { id: "landing-fix", label: fixLabel, icon: Layers2Icon, description: reason, onSelect: () => context.actions.fixLanding(fix) }
+    fix === null || fixLabel === null
+      ? null
+      : { id: "landing-fix", label: fixLabel, icon: Layers2Icon, description: reason, onSelect: () => context.actions.fixLanding(kind.refusals[0]!) }
   const item: MenuItem =
     landingFix === null
       ? { id: "landing-needs", label, icon: TriangleAlertIcon, description: reason, onSelect: context.actions.openSafePush }
@@ -745,6 +747,15 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     item = { ...item, disabled: true, description: STALE_READINESS }
   }
   let retarget = shown.retarget ?? null
+  let landingFix = shown.landingFix ?? null
+  if (busy !== null && landingFix !== null) {
+    // what runs on the row (the fix itself, waiting in the session for the fresh needs, or a rewrite before it) holds
+    // the fix of the slot and of "⋯" alike: a second press would ask a second rewrite
+    landingFix = { ...landingFix, disabled: true, description: running! }
+    if (item !== null && item.id === landingFix.id) {
+      item = { ...item, disabled: true, description: running! }
+    }
+  }
   if (busy !== null && !BARE.has(shown.kind)) {
     item = item === null ? null : withBusy(item, tone, busy)
     // the retarget the menu offers beside the step runs too
@@ -768,7 +779,7 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     retarget,
     withoutReview: step.withoutReview === null ? null : { blocker: blockerOf(step.withoutReview.blocker) },
     landed: formatLandedWhole(step.landed),
-    landingFix: shown.landingFix ?? null,
+    landingFix,
   }
 }
 

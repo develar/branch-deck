@@ -224,7 +224,10 @@ rules in one line each and links here.
   row after an operation is checked once it answered (`runAndWaitForAnswer(page, "execute", …)` before
   `expectPushedToast`; two moves queued behind the lock, each with its sync, 3 to 8 s under load: both answers,
   `releaseTheTwoMoves` of move-commits.spec.ts), or once the state its sync shows is there (`releaseTheSyncOfTheUnstack`), and the facts of the
-  steps are waited for as long as the test lets them take (`waitForStepFacts`).
+  steps are waited for as long as the test lets them take (`waitForStepFacts`). The landing needs of tips a sync moved
+  say no wait on a slot (each step keeps the needs before while they are computed): `waitForStepFacts` waits for them
+  too (`waitForFreshNeeds`, `data-landing-needs` of Sync), so no test reads a step of stale needs; a test of the stale
+  needs holds them (`holdRemoteAnswers({ hold: ["landingNeeds"] })`) and asserts `data-landing-needs="stale"`.
 - **A menu opened right after the first sync shows the items it opened with**: the facts that sync asked for (the
   listing of GitHub, the permission of Patronus, the route) come after it, and an open menu doesn't move
   (`frozenMenuGroups` of src/lib/menu.ts): an item in its place changes there ("Merge" to "Merge #7", Request Review…

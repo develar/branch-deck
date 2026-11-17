@@ -680,6 +680,9 @@ function projectView(
   if (changes === null || changes.route != null) {
     update.route = next.route
   }
+  if (changes === null || changes.patronus?.landingNeeds != null) {
+    update.landingNeeds = next.patronus.landingNeeds.kind
+  }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
   }
@@ -1038,6 +1041,7 @@ function resetTable(): void {
     syncedBefore: false,
     inputsCheckedAt: null,
     viewVersion: null,
+    landingNeeds: null,
     baselineBranch: null,
     branchOrder: [],
     rows: NO_ROWS,

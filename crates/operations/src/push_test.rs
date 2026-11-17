@@ -82,13 +82,23 @@ impl HeldPrunes {
   }
 }
 
+/// The landing needs a test gives the sessions of its host (`host_with_needs`): what each computation answers, and the
+/// next one, once held, says that it started and waits for its release
+#[derive(Default)]
+pub(crate) struct TestNeeds {
+  pub(crate) answer: std::sync::Mutex<Needs>,
+  pub(crate) held: HeldPrunes,
+}
+
 /// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key; the epoch of
 /// the worktree is the one the test gives it (`host_under`), no slot by default; the prunes of the review refs those the
-/// app runs, the one a test holds after its release (`host_holding_prunes`)
+/// app runs, the one a test holds after its release (`host_holding_prunes`); no landing needs, or the ones a test gives
+/// (`host_with_needs`)
 #[derive(Default)]
 struct TestEnvironment {
   lease: Option<Arc<TestLease>>,
   held_prunes: Option<Arc<HeldPrunes>>,
+  needs: Option<Arc<TestNeeds>>,
 }
 
 impl SessionEnvironment for TestEnvironment {
@@ -132,7 +142,15 @@ impl SessionEnvironment for TestEnvironment {
   }
 
   fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> anyhow::Result<Needs> {
-    Ok(Needs::new())
+    let Some(needs) = &self.needs else {
+      return Ok(Needs::new());
+    };
+    let held = needs.held.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some((started, release)) = held {
+      let _ = started.send(());
+      let _ = release.recv();
+    }
+    Ok(needs.answer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone())
   }
 }
 
@@ -161,6 +179,17 @@ pub(crate) fn host_under(lease: Arc<TestLease>) -> Arc<dyn SessionHost> {
     GitCommandExecutor::new(),
     TestEnvironment {
       lease: Some(lease),
+      ..TestEnvironment::default()
+    },
+  ))
+}
+
+/// `test_host` whose landing needs are `needs`
+pub(crate) fn host_with_needs(needs: Arc<TestNeeds>) -> Arc<dyn SessionHost> {
+  Arc::new(GitSessionHost::new(
+    GitCommandExecutor::new(),
+    TestEnvironment {
+      needs: Some(needs),
       ..TestEnvironment::default()
     },
   ))

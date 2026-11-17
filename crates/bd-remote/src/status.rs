@@ -532,6 +532,8 @@ pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, s
   BranchTable {
     prefix: context.prefix.clone(),
     baseline: grouping.baseline_branch.clone(),
+    // a grouping without a sync built no copy on a commit of the baseline
+    baseline_commit: String::new(),
     branches: grouping.branches.clone(),
     tips: grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect(),
     // a grouping without a sync: the tips are what the refs hold

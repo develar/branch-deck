@@ -42,7 +42,8 @@
 //! a newer one is. The landing needs of the table (`trial_check::landing_gate::landing_needs_of`, which the host
 //! computes) are a fact of their inputs (`landing_inputs`: the baseline, the tips and what the view names landed): one
 //! computation at a time, the newest wanted inputs next, nothing again while they stay; the part names them for the
-//! branches once they are of its inputs.
+//! branches once they are of its inputs, and while the needs of tips that moved on the same baseline are computed, the
+//! answer before for each branch it still answers (`NeedsBasis`, the part's needs `Stale`).
 //!
 //! GitHub and the merge profiles: the pull requests (`pull_request_facts::PullRequestsFact`, the part
 //! `facts.pullRequests` by branch and stack, which the listings and the app's writes leave in their order), the rules of
@@ -1284,7 +1285,11 @@ impl PatronusFact {
     Self {
       derived,
       needs: LandingNeedsFact {
-        known: needs.map(|needs| (needs.inputs, Ok(Arc::new(needs.needs)))),
+        known: needs.map(|needs| KnownNeeds {
+          inputs: needs.inputs,
+          result: Ok(Arc::new(needs.needs)),
+          basis: needs.basis.map(Arc::new),
+        }),
         ..LandingNeedsFact::default()
       },
       part: PatronusPart {
@@ -1366,13 +1371,23 @@ impl PatronusFact {
     };
     let landed = landed_commits(&view);
     let inputs = landing_inputs(table, &landed);
-    let (landing_needs, start) = match self.needs.of(inputs, table) {
+    let landed_hash = landed_inputs(&landed);
+    let landing_needs = match self.needs.of(inputs, table, landed_hash) {
       NeedsOf::Known(needs) => {
-        with_landing_needs(&mut view, table, needs);
-        (FactState::Fresh, None)
+        with_landing_needs(&mut view, table, needs, |_| true);
+        FactState::Fresh
       }
-      NeedsOf::Failed(reason) => (FactState::Unavailable { reason: reason.clone() }, None),
-      NeedsOf::Unknown => (FactState::Loading, self.needs.want(inputs, landed)),
+      NeedsOf::Stale(needs, basis) => {
+        let chains = chains_of(table);
+        with_landing_needs(&mut view, table, needs, |branch| basis.stands_for(table, &chains, branch, needs));
+        FactState::Stale { reason: None }
+      }
+      NeedsOf::Failed(reason) => FactState::Unavailable { reason: reason.clone() },
+      NeedsOf::Unknown => FactState::Loading,
+    };
+    let start = match landing_needs {
+      FactState::Stale { .. } | FactState::Loading => self.needs.want(inputs, landed, || NeedsBasis::of(table, landed_hash)),
+      _ => None,
     };
     self.part = PatronusPart { state, landing_needs, view };
     start
@@ -1386,20 +1401,86 @@ impl PatronusFact {
 }
 
 /// The landing needs of a session (`landing_inputs` say what they are of): the answer of the last computation with its
-/// inputs, the one that runs, and the inputs wanted meanwhile. One computation at a time (a trial session of every
-/// branch), the newest wanted inputs next; while the inputs stay, nothing is computed again, a failure included (a
-/// failed computation is `Unavailable` for its inputs, never an empty list)
+/// inputs and what they were computed over (`NeedsBasis`), the one that runs, and the inputs wanted meanwhile. One
+/// computation at a time (a trial session of every branch), the newest wanted inputs next; while the inputs stay, nothing
+/// is computed again, a failure included (a failed computation is `Unavailable` for its inputs, never an empty list).
+/// While the needs of new inputs are computed, the answer of the last ones stands for the branches it still answers
+/// (`NeedsOf::Stale`): the same baseline and the same landed commits, of tips alone that moved
 #[derive(Debug, Default)]
 struct LandingNeedsFact {
-  known: Option<(u64, Result<Arc<Needs>, ApiError>)>,
-  computing: Option<u64>,
-  /// With the landed commits of the inputs
-  wanted: Option<(u64, HashSet<String>)>,
+  known: Option<KnownNeeds>,
+  /// With what they are computed over
+  computing: Option<(u64, Arc<NeedsBasis>)>,
+  /// With the landed commits of the inputs and what they are of
+  wanted: Option<(u64, HashSet<String>, Arc<NeedsBasis>)>,
+}
+
+/// The answer of a computation of the landing needs, with its inputs and what it was computed over; `None` for an answer
+/// a frame of an older schema seeded, which stands for no other inputs
+#[derive(Debug)]
+struct KnownNeeds {
+  inputs: u64,
+  result: Result<Arc<Needs>, ApiError>,
+  basis: Option<Arc<NeedsBasis>>,
+}
+
+/// What the landing needs of some inputs were computed over beside their hash: what the table of later inputs must keep
+/// for the answer of a branch to stand for it while the needs of that table are computed
+/// (openspec/specs/branch/next-step/spec.md, "The needs of tips that moved stand until the new ones come")
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NeedsBasis {
+  /// The commit of the baseline the table was built on (`BranchTable::baseline_commit`); empty: none known, so the needs
+  /// stand for no other table
+  baseline: String,
+  /// The commits merged Safe Pushes landed, as one hash (`landed_inputs`)
+  landed: u64,
+  /// Each branch of the table with the branches it is built on, nearest first (`BranchTable::chains`)
+  chains: BTreeMap<String, Vec<String>>,
+}
+
+impl NeedsBasis {
+  /// What the needs of `table` with the landed commits `landed` (`landed_inputs`) are computed over
+  #[must_use]
+  pub fn of(table: &BranchTable, landed: u64) -> Self {
+    Self {
+      baseline: table.baseline_commit.clone(),
+      landed,
+      chains: chains_of(table),
+    }
+  }
+
+  /// The needs computed over this basis stand for the table of `baseline` and `landed` while its own are computed: of
+  /// the same commit of the baseline (no Update Project, no fetch moved it) and the same landed commits (no Safe Push
+  /// merged meanwhile), of tips alone that moved
+  fn stands_for_inputs(&self, baseline: &str, landed: u64) -> bool {
+    !self.baseline.is_empty() && self.baseline == baseline && self.landed == landed
+  }
+
+  /// The answer of `branch` in `needs`, computed over this basis, stands for it in `table` (`chains` of it) while the
+  /// needs of `table` are computed: the branch was in the table of the answer, built on the same branches, and every
+  /// branch its refusals name is still a branch of `table` the fetched baseline doesn't have whole (none removed,
+  /// renamed or landed since); otherwise its step waits for the new needs
+  #[must_use]
+  pub fn stands_for(&self, table: &BranchTable, chains: &BTreeMap<String, Vec<String>>, branch: &str, needs: &Needs) -> bool {
+    let present = |name: &str| table.branch(name).is_some() && !table.in_baseline.contains(name);
+    self.chains.get(branch).is_some_and(|chain| chains.get(branch) == Some(chain))
+      && needs
+        .get(branch)
+        .is_none_or(|refusals| refusals.iter().flat_map(LandingRefusal::named_branches).all(present))
+  }
+}
+
+/// Each branch of `table` with the branches it is built on, nearest first (`BranchTable::chains`)
+fn chains_of(table: &BranchTable) -> BTreeMap<String, Vec<String>> {
+  table.chains().into_iter().collect()
 }
 
 /// The landing needs of some inputs
 enum NeedsOf<'a> {
   Known(&'a Needs),
+  /// The needs of other inputs whose basis stands for these while theirs are computed (`NeedsBasis::stands_for_inputs`):
+  /// of each branch it still answers (`NeedsBasis::stands_for`)
+  Stale(&'a Needs, &'a NeedsBasis),
   Failed(&'a ApiError),
   Unknown,
 }
@@ -1411,49 +1492,66 @@ impl LandingNeedsFact {
   /// The needs a frame keeps: of the last computation, when it answered them
   fn frame(&self) -> Option<CachedNeeds> {
     match &self.known {
-      Some((inputs, Ok(needs))) => Some(CachedNeeds {
+      Some(KnownNeeds { inputs, result: Ok(needs), basis }) => Some(CachedNeeds {
         inputs: *inputs,
         needs: Needs::clone(needs),
+        basis: basis.as_deref().cloned(),
       }),
       _ => None,
     }
   }
 
-  fn of(&self, inputs: u64, table: &BranchTable) -> NeedsOf<'_> {
+  /// The needs of `inputs`, of `table` whose landed commits hash to `landed` (`landed_inputs`)
+  fn of(&self, inputs: u64, table: &BranchTable, landed: u64) -> NeedsOf<'_> {
     if table.branches.is_empty() {
       return NeedsOf::Known(&NO_NEEDS);
     }
-    match &self.known {
-      Some((known, Ok(needs))) if *known == inputs => NeedsOf::Known(needs),
-      Some((known, Err(reason))) if *known == inputs => NeedsOf::Failed(reason),
-      _ => NeedsOf::Unknown,
+    let Some(known) = &self.known else {
+      return NeedsOf::Unknown;
+    };
+    match &known.result {
+      Ok(needs) if known.inputs == inputs => NeedsOf::Known(needs),
+      Err(reason) if known.inputs == inputs => NeedsOf::Failed(reason),
+      Ok(needs) => match known.basis.as_deref() {
+        Some(basis) if basis.stands_for_inputs(&table.baseline_commit, landed) => NeedsOf::Stale(needs, basis),
+        _ => NeedsOf::Unknown,
+      },
+      Err(_) => NeedsOf::Unknown,
     }
   }
 
-  /// `inputs` are wanted: the computation to start, unless one runs (of them, or of others: then they are next)
-  fn want(&mut self, inputs: u64, landed: HashSet<String>) -> Option<(u64, HashSet<String>)> {
-    match self.computing {
-      Some(computing) if computing == inputs => {
+  /// `inputs` are wanted: the computation to start, unless one runs (of them, or of others: then they are next); `basis`
+  /// what they are of, asked only for a computation that starts or waits
+  fn want(&mut self, inputs: u64, landed: HashSet<String>, basis: impl FnOnce() -> NeedsBasis) -> Option<(u64, HashSet<String>)> {
+    match &self.computing {
+      Some((computing, _)) if *computing == inputs => {
         self.wanted = None;
         None
       }
       Some(_) => {
-        self.wanted = Some((inputs, landed));
+        if self.wanted.as_ref().is_none_or(|(wanted, _, _)| *wanted != inputs) {
+          self.wanted = Some((inputs, landed, Arc::new(basis())));
+        }
         None
       }
       None => {
-        self.computing = Some(inputs);
+        self.computing = Some((inputs, Arc::new(basis())));
         Some((inputs, landed))
       }
     }
   }
 
   fn answer(&mut self, inputs: u64, result: Result<Needs, ApiError>) -> Option<(u64, HashSet<String>)> {
-    self.known = Some((inputs, result.map(Arc::new)));
-    self.computing = None;
-    let next = self.wanted.take().filter(|(wanted, _)| *wanted != inputs)?;
-    self.computing = Some(next.0);
-    Some(next)
+    // the basis of the computation that answered: one of other inputs (a frame's, a session reopened) has none
+    let basis = self.computing.take().filter(|(computing, _)| *computing == inputs).map(|(_, basis)| basis);
+    self.known = Some(KnownNeeds {
+      inputs,
+      result: result.map(Arc::new),
+      basis,
+    });
+    let (next, landed, basis) = self.wanted.take().filter(|(wanted, _, _)| *wanted != inputs)?;
+    self.computing = Some((next, basis));
+    Some((next, landed))
   }
 }
 
@@ -1581,6 +1679,15 @@ pub fn landing_inputs(table: &BranchTable, landed: &HashSet<String>) -> u64 {
   table.baseline.hash(&mut hasher);
   let tips = table.branches.iter().map(|branch| (branch.name.as_str(), table.tip_of(&branch.name)));
   tips.collect::<BTreeMap<_, _>>().hash(&mut hasher);
+  landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
+  hasher.finish()
+}
+
+/// The commits merged Safe Pushes landed (`landed`), as one hash: of the inputs of the landing needs, and of their basis
+/// (`NeedsBasis`), which a merge changes
+#[must_use]
+pub fn landed_inputs(landed: &HashSet<String>) -> u64 {
+  let mut hasher = DefaultHasher::new();
   landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
   hasher.finish()
 }

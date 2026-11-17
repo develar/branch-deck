@@ -267,8 +267,11 @@ pub struct LandFacts<'a> {
   pub readiness: Option<&'a Fact<SubjectReadiness>>,
   /// The rules of the target, for a push into an approved pull request; `None` while nobody asked
   pub rules: Option<&'a Fact<BranchRules>>,
-  /// What the landing gate refuses of what lands; `None` until it answered
+  /// What the landing gate refuses of what lands, the declared needs first; `None` until either answered
   pub landing: Option<&'a [LandingRefusal]>,
+  /// The landing gate has no fresh answer of what lands beside the declared needs `landing` holds (the needs of tips a
+  /// sync moved are computed): the start waits for it too, its declared refusals still blockers
+  pub landing_pending: bool,
   /// A conflict the check against the newest target found; `None` without one, or when nothing checked
   pub target_conflict: Option<TargetConflictFact<'a>>,
 }
@@ -546,27 +549,37 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
   decision
 }
 
-/// What the landing gate refuses of what lands, each a blocker unless an allowance of `land` accepts its kind; a wait
-/// until it answered
+/// What the landing gate refuses of what lands, each a blocker unless Start Anyway lifts it (`lifted`); a wait until it
+/// answered for what lands as it is (the landing needs of the view while they are computed again included: a start reads
+/// only fresh needs)
 pub(crate) fn gate_blockers(facts: &LandFacts<'_>, land: &Land, decision: &mut LandDecision) {
-  match facts.landing {
-    None => decision.waits.push(FactWait {
+  if facts.landing.is_none() || facts.landing_pending {
+    decision.waits.push(FactWait {
       fact: LandFact::LandingNeeds,
       failed: None,
-    }),
-    Some(refusals) => decision.blockers.extend(
-      refusals
-        .iter()
-        .filter(|refusal| match refusal {
-          LandingRefusal::DanglingReference { .. } => !land.allow.allow_dangling,
-          LandingRefusal::MissingDeclaration { .. } => !land.allow.allow_missing,
-          LandingRefusal::UnlandedNeed { .. } => !land.allow.allow_unlanded,
-        })
-        .map(|refusal| Reason::LandingRefused {
-          refusal: Box::new(refusal.clone()),
-        }),
-    ),
+    });
   }
+  decision.blockers.extend(
+    facts
+      .landing
+      .unwrap_or_default()
+      .iter()
+      .filter(|refusal| !lifted(refusal, land))
+      .map(|refusal| Reason::LandingRefused {
+        refusal: Box::new(refusal.clone()),
+      }),
+  );
+}
+
+/// Start Anyway lifts `refusal`: the allowance of its kind, and of the app only a refusal among those it showed
+/// (`Land::anyway`), so newer needs the user didn't see refuse the start, which asks again
+fn lifted(refusal: &LandingRefusal, land: &Land) -> bool {
+  let allowed = match refusal {
+    LandingRefusal::DanglingReference { .. } => land.allow.allow_dangling,
+    LandingRefusal::MissingDeclaration { .. } => land.allow.allow_missing,
+    LandingRefusal::UnlandedNeed { .. } => land.allow.allow_unlanded,
+  };
+  allowed && land.anyway.as_ref().is_none_or(|shown| shown.iter().any(|it| it.same_need(refusal)))
 }
 
 /// A conflict of what lands with the newest target, as the check before the start found it
