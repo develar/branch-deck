@@ -121,20 +121,21 @@ pub fn create_test_app() -> Router {
 /// The app of the E2E server: the templates of its build come from their cache, or build in the background while it
 /// serves (`templates.rs`)
 pub fn create_test_app_with_state() -> (Router, Arc<AppState>) {
-  create_app_and_state(true, git_executor::git_command_executor::GitCommandExecutor::new())
+  create_app_and_state(true, git_executor::git_command_executor::GitCommandExecutor::new(), DELETE_WAIT)
 }
 
 /// The app of a route test: a template is built when a repository is first made of it, in the temporary directory of the
 /// test. A test asks for one or two of the templates, and nextest runs each test in a process of its own, which would
 /// build all of them
 pub fn create_route_test_app_with_state() -> (Router, Arc<AppState>) {
-  create_app_and_state(false, git_executor::git_command_executor::GitCommandExecutor::new())
+  create_app_and_state(false, git_executor::git_command_executor::GitCommandExecutor::new(), DELETE_WAIT)
 }
 
-/// The app of a route test whose every git, its sessions' and its commands', is `git`'s (`WrappedGit`)
+/// The app of a route test whose every git, its sessions' and its commands', is `git`'s (`WrappedGit`), and whose
+/// deletion of a repository waits `delete_wait` for what still runs for it (`AppState::delete_wait`)
 #[cfg(test)]
-pub(crate) fn create_route_test_app_with_git(git: git_executor::git_command_executor::GitCommandExecutor) -> (Router, Arc<AppState>) {
-  create_app_and_state(false, git)
+pub(crate) fn create_route_test_app_with_git(git: git_executor::git_command_executor::GitCommandExecutor, delete_wait: std::time::Duration) -> (Router, Arc<AppState>) {
+  create_app_and_state(false, git, delete_wait)
 }
 
 /// Where the app of the E2E server records its operations: the registry of the `$GIT_COMMON_DIR` of each worktree, one
@@ -177,7 +178,7 @@ pub fn registry_now(clocks: &state::WorktreeClocks, worktree: &str) -> u32 {
   epoch.saturating_add(elapsed)
 }
 
-fn create_app_and_state(all_templates: bool, git_executor: git_executor::git_command_executor::GitCommandExecutor) -> (Router, Arc<AppState>) {
+fn create_app_and_state(all_templates: bool, git_executor: git_executor::git_command_executor::GitCommandExecutor, delete_wait: std::time::Duration) -> (Router, Arc<AppState>) {
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
   tracing::info!("Test root directory created at: {:?}", test_root_dir.path());
@@ -224,6 +225,8 @@ fn create_app_and_state(all_templates: bool, git_executor: git_executor::git_com
       sessions,
       session_clocks,
       repository_state: app_api::repository_state::RepositoryStateCache::without_object_caches(),
+      made: DashMap::new(),
+      delete_wait,
     }
   });
   // the facts of the sessions, read on the same clocks from the fakes of each test repository
@@ -362,7 +365,7 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
     return StatusCode::GONE.into_response();
   };
   // none once a deletion began; a deletion that came first has removed it and waits out the commands that hold it
-  let command = in_flight.hold();
+  let command = in_flight.hold(request.uri().path());
   if command.is_none() || !state.repositories.contains_key(&id) {
     tracing::warn!(id, uri = %request.uri(), "Request for a deleted test repository");
     return StatusCode::GONE.into_response();
@@ -399,23 +402,76 @@ async fn hold_repository(State(state): State<Arc<AppState>>, request: Request, n
   })
 }
 
-/// What the server holds now: its test repositories, the sessions open, the watches of the registries with their looks,
-/// which tell what a test left behind once it ended (a session, a watch that looks every 2 s)
+/// What the server holds now: its test repositories with the test of each, the deletions still in progress, the apps of
+/// deleted repositories still held, the sessions open, the watches of the registries with their looks and the waits the
+/// clocks of deleted repositories served, which tell what a test left behind once it ended (a repository, a session, a
+/// watch that looks every 2 s, a loop on a clock that ran out). An orphan is named by the repository its worktree is of
+/// and the test that made it, with what keeps it: a window (`subscribers`), an operation (`operations`), or nothing, an
+/// idle session no sweep removes, as the clock of its worktree stands still
 async fn debug_counts(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
-  let sessions = state.sessions.open_keys();
+  let sessions = state.sessions.open_sessions();
   // the sessions of no repository of a test that lives (nor a slot of its pool): what a deleted test left open
   let orphans: Vec<serde_json::Value> = sessions
     .iter()
-    .filter(|key| !state.path_to_id.contains_key(&key.worktree))
-    .map(|key| serde_json::json!({ "worktree": key.worktree, "prefix": key.prefix }))
+    .filter(|open| !state.path_to_id.contains_key(&open.key.worktree))
+    .map(|open| {
+      let repository = repository_id_in(&open.key.worktree);
+      serde_json::json!({
+        "worktree": open.key.worktree,
+        "prefix": open.key.prefix,
+        "repository": repository,
+        "test": repository.map(|id| state.test_of(id)),
+        "subscribers": open.subscribers,
+        "operations": open.operations,
+      })
+    })
+    .collect();
+  let mut tests: Vec<serde_json::Value> = state
+    .repositories
+    .iter()
+    .map(|repository| serde_json::json!({ "repository": repository.key(), "test": state.test_of(repository.key()) }))
+    .collect();
+  tests.sort_by(|a, b| a["repository"].as_str().cmp(&b["repository"].as_str()));
+  // the deletions that wait for what still runs for their repository, and the apps of deleted repositories that
+  // something they started still holds once their deletion ended, with the memory of their diffs
+  let named = |made: &dashmap::mapref::multiple::RefMulti<'_, String, state::Made>| serde_json::json!({ "repository": made.key(), "test": made.test });
+  let deleted = state.made.iter().filter(|made| !state.repositories.contains_key(made.key()));
+  let (mut deleting, mut kept) = (Vec::new(), Vec::new());
+  for made in deleted {
+    if !made.removed.load(Ordering::SeqCst) {
+      deleting.push(named(&made));
+    } else if made.context.strong_count() > 0 {
+      kept.push(named(&made));
+    }
+  }
+  deleting.sort_by(|a, b| a["repository"].as_str().cmp(&b["repository"].as_str()));
+  kept.sort_by(|a, b| a["repository"].as_str().cmp(&b["repository"].as_str()));
+  // the waits the clocks of deleted repositories served once they ran out: a few for each wait with a deadline, ever
+  // more for a loop without one, which the busiest tell
+  let mut run_out = state.session_clocks.run_out_waits();
+  run_out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+  let busiest: Vec<serde_json::Value> = run_out
+    .iter()
+    .take(RUN_OUT_BUSIEST)
+    .map(|(worktree, waits)| {
+      let repository = repository_id_in(worktree);
+      serde_json::json!({ "worktree": worktree, "repository": repository, "test": repository.map(|id| state.test_of(id)), "waits": waits })
+    })
     .collect();
   Json(serde_json::json!({
     "repositories": state.repositories.len(),
+    "tests": tests,
+    "deleting": deleting,
+    "keptContexts": kept,
+    "runOutWaits": { "total": run_out.iter().map(|(_, waits)| waits).sum::<u64>(), "busiest": busiest },
     "sessions": sessions.len(),
     "orphanSessions": orphans,
     "watches": state.registry.watch_counts(),
   }))
 }
+
+/// How many of the clocks that served the most waits once they ran out `/debug/counts` names
+const RUN_OUT_BUSIEST: usize = 5;
 
 /// The checkout this server serves, so the E2E global setup can refuse a server of another worktree on its port
 async fn health_check() -> Json<serde_json::Value> {
@@ -639,6 +695,10 @@ pub struct CreateRepositoryRequest {
   pub template: RepositoryTemplate,
   #[serde(default = "default_prepopulate_store")]
   pub prepopulate_store: bool,
+  /// The test that makes the repository (its file, line and titles, `TestRepositoryBuilder.init` of the E2E fixture):
+  /// what it leaves behind is named by it (`AppState::made`)
+  #[serde(default)]
+  pub test: Option<String>,
 }
 
 const fn default_prepopulate_store() -> bool {
@@ -652,6 +712,19 @@ pub(crate) const REPOSITORY_ID_PREFIX: &str = "repo-";
 pub(crate) const REPOSITORY_ID_DIGITS: usize = 22;
 /// The path of a `NO_REPO` repository, which does not exist: this, then its id
 pub(crate) const NO_REPO_PREFIX: &str = "NO_REPO_";
+
+/// The id of the test repository whose files `path` is in: the deepest component of the path named by it (its
+/// directory, a slot of its pool, a companion beside it: `<id>` or `<id>.<what>`), or the id of a `NO_REPO` path after
+/// `NO_REPO_`; none for a path of no test repository
+pub(crate) fn repository_id_in(path: &str) -> Option<&str> {
+  std::path::Path::new(path).components().rev().find_map(|component| {
+    let name = component.as_os_str().to_str()?;
+    let name = name.strip_prefix(NO_REPO_PREFIX).unwrap_or(name);
+    let id = name.split_once('.').map_or(name, |(id, _what)| id);
+    let digits = id.strip_prefix(REPOSITORY_ID_PREFIX)?;
+    (digits.len() == REPOSITORY_ID_DIGITS && digits.bytes().all(|byte| byte.is_ascii_digit())).then_some(id)
+  })
+}
 
 pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request): Json<CreateRepositoryRequest>) -> Result<Json<CreateRepositoryResponse>, StatusCode> {
   // unique for the life of the server: the repositories live in its own temporary directory
@@ -670,7 +743,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
       tracing::info!("Populated NO_REPO store with invalid path: {}", path);
     }
 
-    insert_repository(&state, &id, &path, &store)?;
+    insert_repository(&state, &id, &path, &store, request.test)?;
     // Don't insert into path_to_id for NO_REPO
 
     tracing::info!("Created NO_REPO repository with id: {}", id);
@@ -702,7 +775,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
     store.push(("recentProjects", serde_json::json!([{ "path": path }])));
   }
 
-  insert_repository(&state, &id, &path, &store)?;
+  insert_repository(&state, &id, &path, &store, request.test)?;
   state.path_to_id.insert(path.clone(), id.clone());
 
   tracing::info!("Created repository with id: {} at path: {}", id, path);
@@ -742,7 +815,7 @@ pub(crate) fn set_fixture_value(store: &app_settings::service::SettingsService, 
   })
 }
 
-fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&str, serde_json::Value)]) -> Result<(), StatusCode> {
+fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&str, serde_json::Value)], test: Option<String>) -> Result<(), StatusCode> {
   let app_data = state.app_data_of(id);
   let store = app_settings::service::SettingsService::open(app_data.clone()).map_err(|e| {
     tracing::error!(error = %e, "cannot start the writer of the settings");
@@ -801,6 +874,12 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     sync_overrides: std::sync::Mutex::default(),
     frame: std::sync::Mutex::default(),
   };
+  let made = state::Made {
+    test: test.unwrap_or_default(),
+    context: Arc::downgrade(&repo.context),
+    removed: std::sync::atomic::AtomicBool::new(false),
+  };
+  state.made.insert(id.to_string(), made);
   state.repositories.insert(id.to_string(), repo);
   Ok(())
 }
@@ -1060,9 +1139,10 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
   })))
 }
 
-/// How long a deletion waits for the commands and the sessions still running for the repository: a sync of a loaded
-/// machine takes tens of seconds after its test failed; a command or a run that takes longer is stuck
-const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long a deletion waits for the commands and the sessions still running for the repository
+/// (`AppState::delete_wait` of the E2E server): a sync of a loaded machine takes tens of seconds after its test failed;
+/// a command or a run that takes longer is stuck
+pub(crate) const DELETE_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Forgets the repository, so no new command starts for it, and answers: its files go in the background
 /// (`remove_repository`), once the commands still running for it ended, which may outlast its test; `NO_REPO` has none
@@ -1079,12 +1159,9 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   repo.context.forget_windows();
   // the event stream of each page ends: a page that outlived its test hears nothing more
   repo.events.close();
-  // its sessions and those of its slots close now; the files go once each ended, its syncs' git with it
-  let sessions_ended: Vec<_> = std::iter::once(repo.path.as_str())
-    .chain(slots.iter().map(String::as_str))
-    .map(|worktree| state.sessions.close_worktree_ended(worktree))
-    .collect();
-  state.session_clocks.forget(&repo.path);
+  // its sessions and those of its slots close now; the files go once each ended, its syncs' git with it. The clock of
+  // each runs out: a command whose operation waits on it (the reply to a start comment) ends by its deadline
+  let sessions_ended = close_worktrees(&state, std::iter::once(repo.path.clone()).chain(slots));
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {
     host.end_sign_ins();
@@ -1095,14 +1172,30 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   Ok(StatusCode::ACCEPTED)
 }
 
+/// Closes the sessions of each of `worktrees` now and runs its clock out (`WorktreeClocks::run_out`): what resolves
+/// once the sessions of each ended, by its worktree
+fn close_worktrees(state: &AppState, worktrees: impl IntoIterator<Item = String>) -> Vec<(String, impl Future<Output = ()> + Send + 'static)> {
+  worktrees
+    .into_iter()
+    .map(|worktree| {
+      let ended = state.sessions.close_worktree_ended(&worktree);
+      state.session_clocks.run_out(&worktree);
+      (worktree, ended)
+    })
+    .collect()
+}
+
 /// Releases the repository lock the test of a deleted repository left held, then waits for the commands still running
 /// for it (`hold_repository`), for the reads of its facts (`TestFactSources`: the computation of its landing needs,
 /// the fetch of its moved remotes) and for its closed sessions (`sessions_ended`: a sync that a Fetch or an update that
-/// applied nothing asked and let go, or the one of an open or a focus, runs git in its worktree until it ends), then
-/// deletes its files (`fs_retry`: on Windows a process whose current directory is in them, or a scanner with a file
-/// open, blocks the removal until it lets go). A git that outlived the files paid a removed working directory, which
-/// on macOS reads the entries of the parent for every `getcwd` and seconds of a large `$TMPDIR`
-async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository, sessions_ended: Vec<impl Future<Output = ()>>) {
+/// applied nothing asked and let go, or the one of an open or a focus, runs git in its worktree until it ends), closes
+/// again the sessions its commands opened anew after the first close and waits for them too, all within
+/// `AppState::delete_wait` (past it, a warning names what still holds the repository, `Stuck`), then deletes its files
+/// (`fs_retry`: on Windows a process whose current directory is in them, or a scanner with a file open, blocks the
+/// removal until it lets go). A git that outlived the files paid a removed working directory, which on macOS reads the
+/// entries of the parent for every `getcwd` and seconds of a large `$TMPDIR`. Once the server let go of the repository,
+/// its record says its deletion ended (`Made::removed`)
+async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository, sessions_ended: Vec<(String, impl Future<Output = ()> + Send + 'static)>) {
   // the lock first (`hold_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
   drop(repo.held_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
@@ -1112,14 +1205,34 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if let Some(operation) = operation {
     operation.end();
   }
-  let sessions = async {
-    for ended in sessions_ended {
-      ended.await;
-    }
-  };
-  let ended = tokio::time::timeout(DELETE_WAIT, async { tokio::join!(repo.in_flight.close(), sessions) }).await;
-  if ended.is_err() {
-    tracing::warn!(id, "Commands or sessions of the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
+  let worktrees: Vec<String> = sessions_ended.iter().map(|(worktree, _)| worktree.clone()).collect();
+  let delete_wait = state.delete_wait;
+  let deadline = tokio::time::Instant::now() + delete_wait;
+  let (_, mut closing) = tokio::join!(tokio::time::timeout_at(deadline, repo.in_flight.close()), sessions_until(sessions_ended, deadline));
+  // what holds the repository once the wait for its commands ended, before the second close ends what they opened
+  let mut stuck = (!closing.is_empty() || !repo.in_flight.running().is_empty()).then(|| Stuck::of(&state, &id, &repo, &worktrees));
+  // a command that ran past the close asked a session of the repository again (the sync after a rewrite or an update,
+  // the subscription of a window that loaded as its test ended), which opened a new one that no window holds and no
+  // sweep removes, as no test moves its clock: closed again once no command runs for the repository
+  let opened_again = sessions_open_in(&state, &worktrees);
+  if !opened_again.is_empty() {
+    tracing::debug!(id, ?opened_again, "The sessions its commands opened again after the deletion close");
+  }
+  closing.extend(sessions_until(close_worktrees(&state, worktrees.iter().cloned()), deadline).await);
+  if !closing.is_empty() {
+    stuck.get_or_insert_with(|| Stuck::of(&state, &id, &repo, &worktrees));
+  }
+  if let Some(mut stuck) = stuck {
+    // the worktrees whose closed sessions still ran at the end of either wait
+    stuck.closing = closing.into_iter().collect();
+    tracing::warn!(
+      id,
+      test = stuck.test,
+      commands = ?stuck.commands,
+      closing = ?stuck.closing,
+      reopened = ?stuck.reopened,
+      "Commands or sessions of the test repository still run after {delete_wait:?}; deleting it anyway"
+    );
   }
   // the git directories and the GitHub repository the commands kept of it
   state.repository_state.forget(&repo.path);
@@ -1156,6 +1269,70 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   }
 
   tracing::info!("Deleted repository: {}", id);
+  // the server lets go of it: an app still held from now on is held by something its commands started
+  drop(repo);
+  if let Some(made) = state.made.get(&id) {
+    made.removed.store(true, Ordering::SeqCst);
+  }
+}
+
+/// Waits until `deadline` for the closed sessions of each worktree to end (`Sessions::close_worktree_ended`): the
+/// worktrees whose closed sessions still run then, a run in flight keeping the actor
+async fn sessions_until(sessions_ended: Vec<(String, impl Future<Output = ()> + Send + 'static)>, deadline: tokio::time::Instant) -> std::collections::BTreeSet<String> {
+  let closing = Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
+  let mut ending = tokio::task::JoinSet::new();
+  for (worktree, ended) in sessions_ended {
+    closing.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(worktree.clone());
+    let closing = Arc::clone(&closing);
+    ending.spawn(
+      async move {
+        ended.await;
+        closing.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&worktree);
+      }
+      .in_current_span(),
+    );
+  }
+  let _ = tokio::time::timeout_at(deadline, async { while ending.join_next().await.is_some() {} }).await;
+  std::mem::take(&mut *closing.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
+/// What still holds a test repository whose deletion waited `AppState::delete_wait`, which its warning names: the test
+/// that made it, the commands of its page and the reads of its facts that still run (`InFlight::running`), the
+/// worktrees whose closed sessions still ran at the end of either wait (`closing`: a run in flight keeps the actor),
+/// and the sessions of its worktrees open again since the deletion closed them, with what keeps each (`reopened`)
+struct Stuck {
+  test: String,
+  commands: Vec<String>,
+  closing: Vec<String>,
+  reopened: Vec<String>,
+}
+
+impl Stuck {
+  /// What holds the repository now; the worktrees whose sessions still close come after the second wait (`closing`)
+  fn of(state: &AppState, id: &str, repo: &TestRepository, worktrees: &[String]) -> Self {
+    Self {
+      test: state.test_of(id),
+      commands: repo.in_flight.running(),
+      closing: Vec::new(),
+      reopened: sessions_open_in(state, worktrees),
+    }
+  }
+}
+
+/// The sessions of `worktrees` open now, each with what keeps it
+fn sessions_open_in(state: &AppState, worktrees: &[String]) -> Vec<String> {
+  state
+    .sessions
+    .open_sessions()
+    .into_iter()
+    .filter(|open| worktrees.contains(&open.key.worktree))
+    .map(|open| {
+      format!(
+        "{} under {} ({} windows, {} operations)",
+        open.key.worktree, open.key.prefix, open.subscribers, open.operations
+      )
+    })
+    .collect()
 }
 
 // Store API endpoints: the fixture of a test reads and writes the settings through the writer of the app

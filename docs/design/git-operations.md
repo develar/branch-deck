@@ -5635,7 +5635,8 @@ each page load of it (a reload, `forget_page`), and a subscription is kept for t
 before it awaited anything (`Call`, `WindowSubscriptions`): one that answers after that page went away ends at once; the
 app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the windows and the sessions of a
 test repository when it deletes it (`forget_windows`, `Sessions::close_worktree_ended`, which drops the subscribers at once
-and answers once each session ended, its runs with it; the files go only then). The main window has
+and answers once each session ended, its runs with it), and once its commands ended it closes again the sessions they
+opened anew (a request of a session that is not open opens it); the files go only then. The main window has
 no sync of its own: it subscribes to the session of the selected repository (`src/model/store.ts`, by path; at start
 holding the seed of the warm start, `adoptCachedModel`; a switch of the repository or of its prefix is another
 subscription, and the session of a changed prefix syncs as it opens, `useSyncOnOpen`; a `prefix_changed` answer resolves the prefix again, and the user's own Sync, when the
@@ -5851,7 +5852,8 @@ drops the task of a closed session.
 The scheduler and the sessions wait on the clock of the session (`SessionClocks::of`): one `SystemClock` for every
 session of the app (`OneClock`), a `TestClock` per worktree in the E2E server (`WorktreeClocks`), which stands still
 until its test moves it (`POST /repositories/{id}/clock/advance`, `repo.advanceBackendClock(ms)`), so the time of one
-test moves no session of another. `Clock::until(at)` answers `Elapsed`, a wall wait, or a signal that `advance` of the
+test moves no session of another, and runs out once its repository is deleted (`TestClock::auto_advance`: it moves to
+each timer that waits on it, so a wait with a deadline ends at once). `Clock::until(at)` answers `Elapsed`, a wall wait, or a signal that `advance` of the
 test clock wakes (`sync_utils::clock::Wait`, a std `Waker`: `sync-utils` stays free of tokio, which `app-settings` and
 `cli-tools` must not reach), and `runtime::sleep_until` waits on it with tokio. `scheduler_test.rs` drives every rule
 on a test clock with scripted sources; `session_test.rs` pins the order of the answers and the writes.

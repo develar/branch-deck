@@ -129,7 +129,7 @@ impl SessionEnvironment for TestSessionEnvironment {
       (Arc::clone(&repository.in_flight), repository.existing_remote())
     };
     // none once a deletion began; a deletion that came first has removed it and waits out the commands that hold it
-    let command = in_flight.hold();
+    let command = in_flight.hold(format!("the computation of the landing needs of the session of {}", key.prefix));
     let _command = state
       .repository(&key.worktree)
       .ok()
@@ -237,10 +237,13 @@ impl SessionEnvironment for TestSessionEnvironment {
   }
 }
 
-/// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
-fn holding(state: &AppState, key: &SessionKey) -> Result<CommandHold, ApiError> {
+/// The repository of a session, held as a command holds it while the read `what` of its facts runs: its deletion waits,
+/// and names the read when it waited too long
+fn holding(state: &AppState, key: &SessionKey, what: &str) -> Result<CommandHold, ApiError> {
   let in_flight = Arc::clone(&state.repository(&key.worktree)?.in_flight);
-  in_flight.hold().ok_or_else(|| ApiError::internal(format!("The test repository {} is gone", key.worktree)))
+  in_flight
+    .hold(format!("the read of the {what} of the session of {}", key.prefix))
+    .ok_or_else(|| ApiError::internal(format!("The test repository {} is gone", key.worktree)))
 }
 
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
@@ -370,7 +373,7 @@ impl FactSources for TestFactSources {
         return PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message });
       }
       let held = match self.count(key, |repository| &repository.pull_request_calls) {
-        Ok(state) => holding(&state, key),
+        Ok(state) => holding(&state, key, "pull requests"),
         Err(error) => Err(error),
       };
       match held {
@@ -382,7 +385,7 @@ impl FactSources for TestFactSources {
 
   fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
     Box::pin(async move {
-      let _command = holding(&*self.state()?, key)?;
+      let _command = holding(&*self.state()?, key, "rules of the branch")?;
       self.gate(key, HeldAnswer::BranchRules, "read the rules of the branch").await?;
       self.services.branch_rules(key, branch).await
     })
@@ -390,7 +393,7 @@ impl FactSources for TestFactSources {
 
   fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     Box::pin(async move {
-      let _command = holding(&*self.state()?, key)?;
+      let _command = holding(&*self.state()?, key, "Safe Push options")?;
       self.gate(key, HeldAnswer::Profiles, "read the Safe Push options").await?;
       self.services.profiles(key, baseline).await
     })
@@ -403,7 +406,7 @@ impl FactSources for TestFactSources {
   fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
     Box::pin(async move {
       let state = self.state()?;
-      let _command = holding(&state, key)?;
+      let _command = holding(&state, key, "review readiness")?;
       {
         let repo = state.repository(&key.worktree)?;
         let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();
@@ -423,7 +426,7 @@ impl FactSources for TestFactSources {
   /// a repository already gone fetches nothing
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     Box::pin(async move {
-      let Ok(_command) = self.state().and_then(|state| holding(&state, key)) else {
+      let Ok(_command) = self.state().and_then(|state| holding(&state, key, "fetch of the moved remotes")) else {
         return;
       };
       self.services.fetch_moved_remotes(key, asks).await;

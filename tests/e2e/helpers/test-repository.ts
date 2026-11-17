@@ -1,3 +1,4 @@
+import { test } from "@playwright/test"
 import type {
   BranchNameSuggestionOutcome,
   CachedModel,
@@ -174,6 +175,22 @@ export interface SyncOverrides {
   every?: boolean
 }
 
+/**
+ * The test that runs now, by which the server names what its repository leaves behind (`test` of `POST /repositories`:
+ * `/debug/counts`, the warning of a deletion that waited too long): its file, line and titles, and the retry; none
+ * outside a test
+ */
+function currentTest(): string | undefined {
+  try {
+    const info = test.info()
+    const [file, ...titles] = info.titlePath
+    const retry = info.retry > 0 ? ` (retry ${info.retry})` : ""
+    return `${file}:${info.line} › ${titles.join(" › ")}${retry}`
+  } catch {
+    return undefined
+  }
+}
+
 export class TestRepositoryBuilder {
   private baseUrl = TEST_SERVER_URL
   public id: string = ""
@@ -205,6 +222,7 @@ export class TestRepositoryBuilder {
       body: JSON.stringify({
         template: this.template,
         prepopulate_store: this.prepopulateStore,
+        test: currentTest(),
       }),
     })
 

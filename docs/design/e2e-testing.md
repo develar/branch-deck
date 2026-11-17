@@ -530,31 +530,47 @@ Mock implementation:
 State isolation:
 - **Repository mapping**: `path_to_id` map for command routing
 - **Store state**: Separate per repository ID
-- **Teardown**: the mock names its repository on every request (`X-Repository-Id`), and the server holds the
-  repository while the command runs, in a task of its own: closing a page aborts its requests and drops their
-  handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
-  `delete_repository` forgets the repository and answers at once; in the background it waits for the running commands
-  (120 s at most: a sync of a loaded machine still runs tens of seconds after its test failed), for the reads of the
-  facts of its session that run git or hold its repository (the landing needs, `TestSessionEnvironment::landing_needs`,
-  and the fetch of the moved remotes, each held as a command is), and for the sessions it closed to end
-  (`Sessions::close_worktree_ended`: an actor ends once its runs let go of its mailbox, so a sync that a Fetch or an
-  update that applied nothing asked and let go has ended its git too), releases the
-  repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it), then deletes
-  the files. A git that outlived them ran in a removed working directory, where every `getcwd` of macOS reads the
-  entries of the parent, seconds beside a large `$TMPDIR`
-  (`deleting_a_repository_leaves_no_git_running_in_its_directory`). Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
-  landing needs ("not a git repository", "bad object", "Unable to read current working directory"); and a wait of 10 s
-  in the cleanup was too short under load (`repository_lifecycle_test.rs`). The deletion waits only for the commands
-  of a named repository, so a route test names it too: every command of one goes through `test_support::command`
-  (`post`, `post_error` and `sync` call it), which names the repository at the `repositoryPath` of the params
-  (`Named::ByPath`) or the one a test gives (`Named::Id`: a command whose params name none, the cancel of an
-  operation; a command of app-api runs in the context of the repository a request names, so every one names one;
-  only the route probe of the registry test names none, `command_of_no_repository`, and runs nothing);
+- **Teardown**: the mock names its repository on every request (`X-Repository-Id`), and the server holds the repository
+  while the command runs, in a task of its own: closing a page aborts its requests and drops their handlers, but their
+  git work runs on. The `setupRepo` fixture closes the pages of the test first, and `delete_repository` forgets the
+  repository and answers at once; in the background it waits for the running commands (120 s at most: a sync of a loaded
+  machine still runs tens of seconds after its test failed), for the reads of the facts of its session that run git or
+  hold its repository (the landing needs, `TestSessionEnvironment::landing_needs`, and the fetch of the moved remotes,
+  each held as a command is), and for the sessions it closed to end (`Sessions::close_worktree_ended`: an actor ends
+  once its runs let go of its mailbox, so a sync that a Fetch or an update that applied nothing asked and let go has
+  ended its git too), releases the repository lock its test held (`holdRepositoryLock`, also when the test failed before
+  it released it), closes again the sessions a command that ran past the first close opened anew (the sync a rewrite or
+  an update asks as it ends, the subscription of a window that loaded as its test ended: such a session had no window,
+  and no sweep removed it, as no test moved its clock;
+  `a_session_a_command_opened_again_after_the_deletion_closes_once_the_command_ended`), then deletes the files. A git
+  that outlived them ran in a removed working directory, where every `getcwd` of macOS reads the entries of the parent,
+  seconds beside a large `$TMPDIR` (`deleting_a_repository_leaves_no_git_running_in_its_directory`). Before, a test's
+  cleanup deleted them under a running sync, file read or note write, and under the landing needs ("not a git
+  repository", "bad object", "Unable to read current working directory"); and a wait of 10 s in the cleanup was too
+  short under load (`repository_lifecycle_test.rs`). The clock of the repository runs out at the deletion and stays so
+  (`WorktreeClocks::run_out`, `TestClock::auto_advance`): a command whose operation waits on it with a deadline, such as
+  the follow of the bot's reply to a start comment or the merge of a stack, waits to its deadline at once instead of for
+  ever, also when it takes the clock after the deletion answered; before, seven Safe Push starts of a full run waited
+  past the 120 s of the deletion and held the app of their repository, the memory of its diffs with it
+  (`a_command_that_waits_on_the_clock_of_its_session_ends_with_the_deletion`,
+  `a_command_that_takes_the_clock_of_its_session_after_the_deletion_ends_with_it_too`). A deletion that waited longer
+  than it may (`AppState::delete_wait`, 120 s) warns with what holds the repository: the test that made it (`test` of
+  `POST /repositories`, the file, line and titles `TestRepositoryBuilder.init` sends), the commands and the reads of its
+  facts still running (`InFlight`, by the path of each request), the worktrees whose closed sessions still ran at the
+  end of either wait and the sessions open again, with their windows and operations
+  (`a_deletion_that_waited_too_long_warns_of_the_test_the_commands_and_the_sessions_that_hold_it`). Until it ended,
+  `/debug/counts` lists it as `deleting`, not as an app kept. The `setupRepo` fixture deletes every repository a test
+  made with it, the last first: a test that makes two kept the first before. The deletion waits only for the commands of
+  a named repository, so a route test names it too: every command of one goes through `test_support::command` (`post`,
+  `post_error` and `sync` call it), which names the repository at the `repositoryPath` of the params (`Named::ByPath`)
+  or the one a test gives (`Named::Id`: a command whose params name none, the cancel of an operation; a command of
+  app-api runs in the context of the repository a request names, so every one names one; only the route probe of the
+  registry test names none, `command_of_no_repository`, and runs nothing);
   `every_command_of_a_route_test_names_its_repository` refuses a request a test builds itself. Unnamed, a command ran
   across the deletion, and the fake GitHub's git of a released answer ran in the files the deletion removed. The
-  removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a
-  process whose current directory is in the directory, or a scanner with a file open, blocks its removal until it
-  lets go, and the directory stays
+  removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a process
+  whose current directory is in the directory, or a scanner with a file open, blocks its removal until it lets go, and
+  the directory stays
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
@@ -567,13 +583,16 @@ State isolation:
   worktree), which stands still; the timers that decide what a session asks and when (its polls, retries and backoffs,
   the sweep of a session no window shows) wake only when its test moves it with `repo.advanceBackendClock(ms)`
   (test-repository.ts, `POST /repositories/{id}/clock/advance { ms }`, which also sweeps the idle sessions), so a test
-  that moves its time moves no session of a test beside it: the poll of the robots a minute after the last one
-  while the window is focused, so a test that waits for a merge a poll tells moves it in a loop until the toast shows;
-  a focus (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock; a focus lists the pull
-  requests only two minutes after their last answer on it, and the look again five seconds after a push that GitHub
-  shows on an old head waits for it too. A test of a new start of the app closes the sessions of its repository before
-  the reload (`closeSessions`, `POST /repositories/{id}/sessions/close`): the reload opens a new session, whose facts
-  are asked anew. Neither clock moves the 16 ms merge of the patches or a
+  that moves its time moves no session of a test beside it: the poll of the robots a minute after the last one while
+  the window is focused, so a test that waits for a merge a poll tells moves it in a loop until the toast shows; a focus
+  (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock; a focus lists the pull requests
+  only two minutes after their last answer on it, and the look again five seconds after a push that GitHub shows on an
+  old head waits for it too. Once its repository is deleted, its clock runs out (`WorktreeClocks::run_out`,
+  `TestClock::auto_advance`): it moves to each timer that waits on it, so a wait with a deadline of an operation that
+  outlived its test ends at once; the clock stays, so a command that takes it later gets it run out too, and each wait
+  it serves yields once and is counted (`runOutWaits` of `/debug/counts`), so a loop without a deadline shows. A test
+  of a new start of the app closes the sessions of its repository before the reload (`closeSessions`,
+  `POST /repositories/{id}/sessions/close`): the reload opens a new session, whose facts are asked anew. Neither clock moves the 16 ms merge of the patches or a
   bounded lock wait, which run on wall time: a test waits for the patch an advance causes (its DOM state,
   `data-view-version`), never for time
 - **Motion**: `base-test.ts` switches the enter animations off in every window of a test (a constructable sheet,
@@ -688,7 +707,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | Route | What it does | Helper |
 |---|---|---|
 | `POST /invoke/<name>` | a command of the registry in the context of the repository of `X-Repository-Id`, for the window of `X-Window-Label`; SSE with `X-Progress-Channel` (`invoke.rs`) | the page mock |
-| `POST /repositories`, `GET`/`DELETE …` | a repository of a template, its path, its deletion after its commands, each of which answers once its work ended (the read ahead of a review too: a read that outlived its command failed on the objects of a deleted repository) | `setupRepo`, `init`, `cleanup` |
+| `POST /repositories`, `GET`/`DELETE …` | a repository of a template, named by the test that makes it (`test`: its file, line and titles), its path, its deletion after its commands, each of which answers once its work ended (the read ahead of a review too: a read that outlived its command failed on the objects of a deleted repository) | `setupRepo`, `init`, `cleanup` |
 | `GET …/mcp` | `brd mcp` on a WebSocket: one connection of `mcp-host` in the context of the repository, one JSON-RPC message per text frame (`mcp_socket.rs`, [IDE Embedding](ide-embedding.md)) | the fake host of the page in Air |
 | `GET`/`POST …/events` | the event stream of a page (`?window=`), an event a page emits (`host.rs`) | the page mock |
 | `GET …/windows`, `POST …/windows/built`, `POST …/dialog-pick` | what the desktop opened and its menus, the build of a page a test opens, the folder of the dialog | `getOpenedSubWindows`, `getWindowMenus`, `registerWindowBuild` (sub-window-helpers.ts), `setDialogPick` |
@@ -710,7 +729,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
 | `POST …/warm-start/build`, `GET …/warm-start` | the frame an earlier run of the app left, the start of the app on it (`session_routes.rs`) | `buildWarmStart`, `warmStartModel` (the option `warmStart` of `setupRepo`, `reloadWarm`) |
 | `GET /health` | the checkout the server serves | global setup |
-| `GET /debug/counts` | what the server holds now: its test repositories, the sessions open, `orphanSessions` (the sessions of a worktree no live test repository has, what a deleted test left open, by `worktree` and `prefix`), the watches of the registries (`watches`: repositories, sessions, the looks their tasks finished, and `total`, what every watch did since the server started, the ended ones too: the looks asked, the events of the watchers among them, the looks finished, those of the clock, those that read the registry) | a person who looks for what a run left behind (`curl`); `the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches` |
+| `GET /debug/counts` | what the server holds now: its test repositories and the test of each (`tests`), `deleting` (the deleted repositories whose deletion still waits for what runs for them), `keptContexts` (the deleted repositories whose app something they started still holds once their deletion ended, with the memory of its diffs, by `repository` and `test`), `runOutWaits` (the waits the clocks of deleted repositories served once they ran out, `total` and the `busiest` five with their tests), the sessions open, `orphanSessions` (the sessions of a worktree no live test repository has, what a deleted test left open, by `worktree`, `prefix`, the `repository` and the `test` of its path, and what keeps it: `subscribers`, `operations`), the watches of the registries (`watches`: repositories, sessions, the looks their tasks finished, and `total`, what every watch did since the server started, the ended ones too: the looks asked, the events of the watchers among them, the looks finished, those of the clock, those that read the registry) | a person who looks for what a run left behind (`curl`); `the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches` |
 
 ### Remote services
 

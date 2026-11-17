@@ -471,6 +471,17 @@ impl SessionClocks for OneClock {
   }
 }
 
+/// A session open now and what keeps it (`Sessions::open_sessions`): with neither a window nor an operation it is idle,
+/// and `sweep` removes it once it was for `IDLE_LIMIT`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenSession {
+  pub key: SessionKey,
+  /// The windows subscribed to it
+  pub subscribers: usize,
+  /// Its operations in flight: a sync, a request that waits for one, a hold of an operation of the registry
+  pub operations: usize,
+}
+
 /// The sessions of the process, by key
 pub struct Sessions {
   runtime: Handle,
@@ -654,11 +665,21 @@ impl Sessions {
     }
   }
 
-  /// The sessions open now: the counts of the E2E server (`/debug/counts`), which tell a session that outlived the windows
-  /// and the repository of its test
+  /// The sessions open now with what keeps each: the counts of the E2E server (`/debug/counts`), which tell a session
+  /// that outlived the windows and the repository of its test, and whether a window or an operation still holds it
   #[must_use]
-  pub fn open_keys(&self) -> Vec<SessionKey> {
-    self.lock().keys().cloned().collect()
+  pub fn open_sessions(&self) -> Vec<OpenSession> {
+    let mut open: Vec<OpenSession> = self
+      .lock()
+      .iter()
+      .map(|(key, entry)| OpenSession {
+        key: key.clone(),
+        subscribers: entry.life.subscribers.load(Ordering::SeqCst),
+        operations: entry.life.operations.load(Ordering::SeqCst),
+      })
+      .collect();
+    open.sort_by(|a, b| (&a.key.worktree, &a.key.prefix).cmp(&(&b.key.worktree, &b.key.prefix)));
+    open
   }
 
   #[must_use]
@@ -1094,6 +1115,8 @@ impl Sessions {
       self.events.emit(key, SessionEventKind::Closed);
     }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
+      // in the span of what opens it (the subscription of a window, a command, a task), which a log tells by it
+      tracing::debug!(worktree = %key.worktree, prefix = %key.prefix, "The session opens");
       let life = Arc::new(SessionLife::new(self.clocks.of(key)));
       let (mailbox, frames_saved) = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events), frame);
       Entry { mailbox, life, frames_saved }

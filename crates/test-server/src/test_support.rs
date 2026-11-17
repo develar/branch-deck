@@ -15,7 +15,16 @@ pub(crate) async fn start_test_server_with_state() -> (SocketAddr, std::sync::Ar
 
 /// The server on a free port whose every git is `git`'s, with its state
 pub(crate) async fn start_test_server_with_git(git: git_executor::git_command_executor::GitCommandExecutor) -> (SocketAddr, std::sync::Arc<crate::state::AppState>) {
-  serve(crate::create_route_test_app_with_git(git)).await
+  start_test_server_waiting(git, crate::DELETE_WAIT).await
+}
+
+/// The server on a free port whose every git is `git`'s and whose deletion of a repository waits `delete_wait` for what
+/// still runs for it, with its state
+pub(crate) async fn start_test_server_waiting(
+  git: git_executor::git_command_executor::GitCommandExecutor,
+  delete_wait: std::time::Duration,
+) -> (SocketAddr, std::sync::Arc<crate::state::AppState>) {
+  serve(crate::create_route_test_app_with_git(git, delete_wait)).await
 }
 
 async fn serve((app, state): (axum::Router, std::sync::Arc<crate::state::AppState>)) -> (SocketAddr, std::sync::Arc<crate::state::AppState>) {
@@ -51,6 +60,11 @@ pub(crate) async fn create_repository_from(client: &reqwest::Client, addr: Socke
 pub(crate) async fn delete_repository(client: &reqwest::Client, addr: SocketAddr, id: &str, path: &str) {
   let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
   assert_eq!(deleted.status(), 202, "delete");
+  wait_until_removed(path).await;
+}
+
+/// Waits until the server removed the files of a deleted repository at `path`, within a minute
+pub(crate) async fn wait_until_removed(path: &str) {
   let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
   while std::path::Path::new(path).exists() {
     assert!(std::time::Instant::now() < deadline, "{path} is still there");
@@ -77,7 +91,7 @@ pub(crate) fn command(client: &reqwest::Client, addr: SocketAddr, named: Named<'
   let id = match named {
     Named::ByPath => {
       let path = params["repositoryPath"].as_str().unwrap_or_default();
-      repository_id_of_path(path).unwrap_or_else(|| panic!("{name}: {path:?} is no repository of the server; Named::Id says what it runs for"))
+      crate::repository_id_in(path).unwrap_or_else(|| panic!("{name}: {path:?} is no repository of the server; Named::Id says what it runs for"))
     }
     Named::Id(id) => id,
   };
@@ -88,15 +102,6 @@ pub(crate) fn command(client: &reqwest::Client, addr: SocketAddr, named: Named<'
 /// its context being the repository a request names (`command_registry_test.rs`: every command has its route)
 pub(crate) fn command_of_no_repository(client: &reqwest::Client, addr: SocketAddr, name: &str) -> reqwest::RequestBuilder {
   client.post(format!("http://{addr}/invoke/{name}")).json(&Value::Null)
-}
-
-/// The id of the repository of the server at `path`: its directory is named by it, and the path of a `NO_REPO`
-/// repository is its id after `NO_REPO_` (`create_repository`)
-fn repository_id_of_path(path: &str) -> Option<&str> {
-  let name = std::path::Path::new(path).file_name()?.to_str()?;
-  let id = name.strip_prefix(crate::NO_REPO_PREFIX).unwrap_or(name);
-  let digits = id.strip_prefix(crate::REPOSITORY_ID_PREFIX)?;
-  (digits.len() == crate::REPOSITORY_ID_DIGITS && digits.bytes().all(|byte| byte.is_ascii_digit())).then_some(id)
 }
 
 /// POSTs `body` to `path`, which must answer 200: its JSON, null for none. A command (`/invoke/<name>`) names the

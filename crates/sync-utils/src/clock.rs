@@ -6,14 +6,16 @@
 //! directly, never on this clock.
 //!
 //! A timer waits by `Clock::until`: the wall time to sleep on the system clock, a future that `TestClock::advance` wakes
-//! on the test clock. The crate has no runtime (the settings and the tools crates, which reach no tokio, depend on it):
-//! the sleep of the wall time is the caller's (`repository_model::runtime::sleep_until`).
+//! on the test clock. A test clock whose test ended runs out (`TestClock::auto_advance`): it moves to the time of each
+//! timer as it waits, so a wait with a deadline ends at once instead of for ever. The crate has no runtime (the
+//! settings and the tools crates, which reach no tokio, depend on it): the sleep of the wall time is the caller's
+//! (`repository_model::runtime::sleep_until`).
 
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
@@ -82,11 +84,26 @@ struct TestTime {
   nanos: AtomicU64,
   waiters: Mutex<HashMap<u64, Waker>>,
   last_waiter: AtomicU64,
+  /// The clock moves to the time of each timer itself (`TestClock::auto_advance`)
+  auto: AtomicBool,
+  /// The timers it moved to since (`TestClock::run_out_waits`)
+  run_out: AtomicU64,
 }
 
 impl TestTime {
   fn now(&self) -> Duration {
     Duration::from_nanos(self.nanos.load(Ordering::SeqCst))
+  }
+
+  /// Whether a timer until `at` has its time: it came, or the clock runs out and moves to it now, which counts it
+  fn reached(&self, at: Duration) -> bool {
+    if self.auto.load(Ordering::SeqCst) {
+      let at = u64::try_from(at.as_nanos()).unwrap_or(u64::MAX);
+      if self.nanos.fetch_max(at, Ordering::SeqCst) < at {
+        self.run_out.fetch_add(1, Ordering::SeqCst);
+      }
+    }
+    self.now() >= at
   }
 
   fn waiters(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Waker>> {
@@ -112,6 +129,28 @@ impl TestClock {
     let by = u64::try_from(by.as_nanos()).unwrap_or(u64::MAX);
     // `try_update` with a closure that always answers `Some` cannot fail
     let _ = self.time.nanos.try_update(Ordering::SeqCst, Ordering::SeqCst, |nanos| Some(nanos.saturating_add(by)));
+    self.wake_all();
+  }
+
+  /// From now on the clock moves to the time of each timer that waits on it, as tokio's paused clock auto-advances, and
+  /// the timers that wait now wake and end. The E2E server's clock of a deleted test repository: a wait with a deadline
+  /// of one of its operations (the reply of a comment, a merge of a stack) runs to it at once instead of for ever, as
+  /// its test, which moved the clock, has ended. Each wait it serves still yields once (its future is ready at its
+  /// second poll), so a loop that waits again and again without a deadline yields to the runtime and can be aborted,
+  /// and `run_out_waits` shows it
+  pub fn auto_advance(&self) {
+    self.time.auto.store(true, Ordering::SeqCst);
+    self.wake_all();
+  }
+
+  /// How many timers the clock moved to since it ran out (`auto_advance`): a few for each wait with a deadline, ever
+  /// more for a loop without one
+  #[must_use]
+  pub fn run_out_waits(&self) -> u64 {
+    self.time.run_out.load(Ordering::SeqCst)
+  }
+
+  fn wake_all(&self) {
     let waiters: Vec<Waker> = self.time.waiters().drain().map(|(_, waker)| waker).collect();
     for waker in waiters {
       waker.wake();
@@ -128,11 +167,14 @@ impl Clock for TestClock {
     if self.now() >= at {
       return Wait::Elapsed;
     }
+    // a clock that runs out moves to the timer, which yields once before it ends
+    let yields = self.time.auto.load(Ordering::SeqCst) && self.time.reached(at);
     let id = self.time.last_waiter.fetch_add(1, Ordering::SeqCst);
     Wait::Signal(TestWait {
       time: Arc::clone(&self.time),
       at,
       id,
+      yields,
     })
   }
 }
@@ -143,6 +185,8 @@ pub struct TestWait {
   at: Duration,
   /// Its waker's key among the clock's waiters
   id: u64,
+  /// A timer of a clock that ran out: its first poll yields (`TestClock::auto_advance`)
+  yields: bool,
 }
 
 impl fmt::Debug for TestWait {
@@ -154,14 +198,18 @@ impl fmt::Debug for TestWait {
 impl Future for TestWait {
   type Output = ();
 
-  fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-    if self.time.now() >= self.at {
+  fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+    if std::mem::take(&mut self.yields) {
+      context.waker().wake_by_ref();
+      return Poll::Pending;
+    }
+    if self.time.reached(self.at) {
       self.time.waiters().remove(&self.id);
       return Poll::Ready(());
     }
     self.time.waiters().insert(self.id, context.waker().clone());
-    // an advance between the check and the insert woke nobody: look again
-    if self.time.now() >= self.at {
+    // an advance or an `auto_advance` between the check and the insert woke nobody: look again
+    if self.time.reached(self.at) {
       self.time.waiters().remove(&self.id);
       return Poll::Ready(());
     }

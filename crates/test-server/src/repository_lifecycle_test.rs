@@ -1,6 +1,7 @@
 use crate::session_routes::TestSessionEnvironment;
 use crate::test_support::{
-  Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_with_git, start_test_server_with_state, sync,
+  Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_waiting, start_test_server_with_git,
+  start_test_server_with_state, sync, wait_until_removed,
 };
 use pretty_assertions::assert_eq;
 use repository_model::runtime::SessionEnvironment;
@@ -141,37 +142,48 @@ async fn deleting_a_repository_waits_for_the_landing_needs_its_session_computes(
 /// its directory is still there
 #[tokio::test]
 async fn deleting_a_repository_leaves_no_git_running_in_its_directory() {
-  // `{dir}/slow` holds the name of the worktree's directory once the test made it; a git elsewhere runs as it is
-  let wrapped = test_utils::wrapped_git::WrappedGit::new(concat!(
-    "*) [ -f '{dir}/slow' ] || exec git \"$@\"; here=$(pwd -P); case \"$here\" in *\"/$(cat '{dir}/slow')\"*) ;; *) exec git \"$@\";; esac; ",
-    "echo \"start $$\" >> '{dir}/log'; sleep 0.2; git \"$@\"; code=$?; ",
-    "if [ -d \"$here\" ]; then echo \"end $$\" >> '{dir}/log'; else echo \"gone $$ $here\" >> '{dir}/log'; fi; exit $code;;"
-  ));
+  let wrapped = slow_git("0.2");
   let (addr, state) = start_test_server_with_git(wrapped.executor().clone()).await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
-  let name = std::path::Path::new(&path).file_name().unwrap().to_string_lossy().into_owned();
-  std::fs::write(wrapped.directory().join("slow"), name).unwrap();
-  let log = || std::fs::read_to_string(wrapped.directory().join("log")).unwrap_or_default();
-
-  let key = SessionKey {
-    worktree: path.clone(),
-    prefix: "user-name".to_string(),
-  };
-  drop(state.sessions.sync(&key, domain_types::session::SyncReason::AfterRewrite));
-  let deadline = Instant::now() + Duration::from_mins(1);
-  while !log().contains("start ") {
-    assert!(Instant::now() < deadline, "the sync ran no git in the worktree");
-    tokio::time::sleep(Duration::from_millis(20)).await;
-  }
+  start_a_slow_sync(&state, &wrapped, &path).await;
 
   delete_repository(&client, addr, &id, &path).await;
-  let log = log();
+  let log = std::fs::read_to_string(wrapped.directory().join("log")).unwrap_or_default();
   let count = |what: &str| log.lines().filter(|line| line.starts_with(what)).count();
   assert!(
     count("gone ") == 0 && count("start ") == count("end "),
     "a git ran on past the removal of its directory:\n{log}"
   );
+}
+
+/// A git whose every run in the worktree whose directory `{dir}/slow` names (once the test wrote it) takes `seconds`
+/// more and logs its `start`, then its `end`, or `gone` when its directory went while it ran, into `{dir}/log`; a git
+/// elsewhere runs as it is
+fn slow_git(seconds: &str) -> test_utils::wrapped_git::WrappedGit {
+  let script = concat!(
+    "*) [ -f '{dir}/slow' ] || exec git \"$@\"; here=$(pwd -P); case \"$here\" in *\"/$(cat '{dir}/slow')\"*) ;; *) exec git \"$@\";; esac; ",
+    "echo \"start $$\" >> '{dir}/log'; sleep SECONDS; git \"$@\"; code=$?; ",
+    "if [ -d \"$here\" ]; then echo \"end $$\" >> '{dir}/log'; else echo \"gone $$ $here\" >> '{dir}/log'; fi; exit $code;;"
+  );
+  test_utils::wrapped_git::WrappedGit::new(&script.replace("SECONDS", seconds))
+}
+
+/// The session of the repository at `path` syncs with the slow git of `wrapped` (`slow_git`), which runs its first git
+/// in the worktree when this answers; nothing waits for the sync
+async fn start_a_slow_sync(state: &crate::state::AppState, wrapped: &test_utils::wrapped_git::WrappedGit, path: &str) {
+  let name = std::path::Path::new(path).file_name().unwrap().to_string_lossy().into_owned();
+  std::fs::write(wrapped.directory().join("slow"), name).unwrap();
+  let key = SessionKey {
+    worktree: path.to_owned(),
+    prefix: "user-name".to_string(),
+  };
+  drop(state.sessions.sync(&key, domain_types::session::SyncReason::AfterRewrite));
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while !std::fs::read_to_string(wrapped.directory().join("log")).unwrap_or_default().contains("start ") {
+    assert!(Instant::now() < deadline, "the sync ran no git in the worktree");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
 }
 
 /// A test that ended while it held the repository lock (`holdRepositoryLock`) has it released with the deletion,
@@ -216,6 +228,23 @@ fn every_command_of_a_route_test_names_its_repository() {
   assert_eq!(built_by_hand, [] as [String; 0], "a command request built outside test_support::command");
 }
 
+/// The test the E2E fixture names as it makes the repository of `subscribed` (`TestRepositoryBuilder.init`)
+const TEST: &str = "lifecycle/counts.spec.ts:7 › Counts › names what it leaves";
+
+/// A repository from the `simple` template as the E2E fixture makes it, naming its test (`TEST`): its id and path
+async fn create_named_repository(client: &reqwest::Client, addr: std::net::SocketAddr) -> (String, String) {
+  let created: Value = client
+    .post(format!("http://{addr}/repositories"))
+    .json(&json!({ "template": "simple", "test": TEST }))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+  (created["id"].as_str().unwrap().to_owned(), created["path"].as_str().unwrap().to_owned())
+}
+
 /// A server with a repository whose window subscribed to its session, which the subscription opened
 struct Subscribed {
   addr: std::net::SocketAddr,
@@ -229,7 +258,7 @@ struct Subscribed {
 async fn subscribed() -> Subscribed {
   let (addr, state) = start_test_server_with_state().await;
   let client = reqwest::Client::new();
-  let (id, path) = create_repository(&client, addr).await;
+  let (id, path) = create_named_repository(&client, addr).await;
   let mut messages = crate::session_routes_test::subscribe(&client, addr, &id, &path, 9).await;
   crate::session_routes_test::subscription(&mut messages).await;
   Subscribed {
@@ -288,10 +317,12 @@ async fn counts_when(client: &reqwest::Client, addr: std::net::SocketAddr, done:
   }
 }
 
-/// `/debug/counts` tells what the server holds: a repository whose window subscribed is one repository, one session and
-/// one watch that looked, with no orphan; a session whose worktree no live test repository has is an orphan, named; once
-/// the repository is deleted the server holds nothing of it, and no session is left an orphan, while the totals of the
-/// watches since the start keep the looks and the reads of the one that ended
+/// `/debug/counts` tells what the server holds: a repository whose window subscribed is one repository, named by its
+/// test, one session and one watch that looked, with no orphan; a session whose worktree no live test repository has is
+/// an orphan, named by its worktree, the repository and the test of its path and what keeps it (its window); once the
+/// repository is deleted the server holds nothing of it, not the app of its commands with the memory of its diffs
+/// (`keptContexts`), and no session is left an orphan, while the totals of the watches since the start keep the looks
+/// and the reads of the one that ended
 #[tokio::test]
 async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches() {
   let Subscribed {
@@ -312,33 +343,54 @@ async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the
   assert_eq!(
     (
       &counts["repositories"],
+      &counts["tests"],
+      &counts["keptContexts"],
       &counts["sessions"],
       &counts["orphanSessions"],
       &counts["watches"]["repositories"],
       &counts["watches"]["sessions"]
     ),
-    (&json!(1), &json!(1), &json!([]), &json!(1), &json!(1)),
+    (
+      &json!(1),
+      &json!([{ "repository": id, "test": TEST }]),
+      &json!([]),
+      &json!(1),
+      &json!([]),
+      &json!(1),
+      &json!(1)
+    ),
     "{counts}"
   );
 
   // the server forgets the worktree of the session, as a deletion that left the session open would
   let (worktree, of) = state.path_to_id.remove(&path).unwrap();
   let counts = counts_when(&client, addr, |_| true).await;
-  assert_eq!(counts["orphanSessions"], json!([{ "worktree": path, "prefix": "user-name" }]), "{counts}");
+  assert_eq!(
+    counts["orphanSessions"],
+    json!([{ "worktree": path, "prefix": "user-name", "repository": id, "test": TEST, "subscribers": 1, "operations": 0 }]),
+    "{counts}"
+  );
   state.path_to_id.insert(worktree, of);
 
   delete_repository(&client, addr, &id, &path).await;
   while messages.next_or_end().await.is_some() {}
-  let counts = counts_when(&client, addr, |counts| counts["watches"]["repositories"] == json!(0)).await;
+  // the app of its commands goes with it, and the memory of its diffs and highlighting with the app
+  let counts = counts_when(&client, addr, |counts| {
+    counts["watches"]["repositories"] == json!(0) && counts["deleting"] == json!([]) && counts["keptContexts"] == json!([])
+  })
+  .await;
   assert_eq!(
     (
       &counts["repositories"],
+      &counts["tests"],
+      &counts["deleting"],
+      &counts["keptContexts"],
       &counts["sessions"],
       &counts["orphanSessions"],
       &counts["watches"]["sessions"],
       &counts["watches"]["looks"]
     ),
-    (&json!(0), &json!(0), &json!([]), &json!(0), &json!(0)),
+    (&json!(0), &json!([]), &json!([]), &json!([]), &json!(0), &json!([]), &json!(0), &json!(0)),
     "{counts}"
   );
   let total = &counts["watches"]["total"];
@@ -346,4 +398,173 @@ async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the
     total["looks"].as_u64() >= Some(1) && total["reads"].as_u64() >= Some(1),
     "the totals keep the watch that ended: {counts}"
   );
+}
+
+/// A server with a repository that a command holds (`InFlight::hold`, as `hold_repository` holds it for an
+/// `execute`), and the key of its session
+struct Held {
+  addr: std::net::SocketAddr,
+  state: std::sync::Arc<crate::state::AppState>,
+  client: reqwest::Client,
+  id: String,
+  path: String,
+  key: SessionKey,
+  command: crate::state::CommandHold,
+}
+
+async fn held_by_a_command() -> Held {
+  let (addr, state) = start_test_server_with_state().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  let key = SessionKey {
+    worktree: path.clone(),
+    prefix: "user-name".to_string(),
+  };
+  let command = state.repositories.get(&id).unwrap().in_flight.hold("/invoke/execute").unwrap();
+  Held {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    key,
+    command,
+  }
+}
+
+/// A command that runs past the deletion and asks the session of its repository again (the sync after a rewrite or an
+/// update) opens a new one, which no window holds and no sweep removes, as no test moves its clock: the deletion closes
+/// it once the command ended, so no session outlives its repository (`orphanSessions`)
+#[tokio::test]
+async fn a_session_a_command_opened_again_after_the_deletion_closes_once_the_command_ended() {
+  let Held {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    key,
+    command,
+  } = held_by_a_command().await;
+  let deleted = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(deleted.status(), 202);
+
+  // the end of the command asks the session for its sync, as `rewrite::finish` does, then the command ends
+  drop(state.sessions.sync(&key, domain_types::session::SyncReason::AfterRewrite));
+  assert!(state.sessions.is_open(&key), "the request opened the session again");
+  drop(command);
+  wait_until_removed(&path).await;
+  let counts = counts_when(&client, addr, |counts| counts["sessions"] == json!(0)).await;
+  assert_eq!(counts["orphanSessions"], json!([]), "{counts}");
+}
+
+/// A command whose operation waits on the clock of its session (the reply of the bot to a start comment, the merge of a
+/// stack), which stands still until its test moves it, ends with the deletion of its repository: the time of the
+/// repository runs out (`TestClock::auto_advance`), its wait runs to its deadline, and the deletion waits for nothing
+/// more; before, it waited `DELETE_WAIT` and the command waited for ever, holding the app of the repository
+#[tokio::test]
+async fn a_command_that_waits_on_the_clock_of_its_session_ends_with_the_deletion() {
+  waits_on_the_clock_through_the_deletion(false).await;
+}
+
+/// A command that takes the clock of its session only after the deletion answered (the start of a review, the start of
+/// a Safe Push asked as the test ended) gets the clock that ran out, not a new one that stands still for ever
+#[tokio::test]
+async fn a_command_that_takes_the_clock_of_its_session_after_the_deletion_ends_with_it_too() {
+  waits_on_the_clock_through_the_deletion(true).await;
+}
+
+/// A command waits on the clock of its session, taken before the deletion or once it answered (`after_delete`), with a
+/// poll every 5 s until a minute passed, as `follow_start_comment` waits for the reply: it looks as often as its
+/// deadline lets it and ends, and the deletion with it
+async fn waits_on_the_clock_through_the_deletion(after_delete: bool) {
+  let Held {
+    addr,
+    state,
+    client,
+    id,
+    path,
+    key,
+    command,
+  } = held_by_a_command().await;
+  let (deleted, answered) = tokio::sync::oneshot::channel::<()>();
+  let sessions = std::sync::Arc::clone(&state.sessions);
+  let waits = tokio::spawn(async move {
+    if after_delete {
+      answered.await.unwrap();
+    }
+    let clock = sessions.clock(&key);
+    let deadline = clock.now() + Duration::from_mins(1);
+    let mut looks = 0;
+    while clock.now() + Duration::from_secs(5) <= deadline {
+      looks += 1;
+      repository_model::runtime::sleep_until(&*clock, clock.now() + Duration::from_secs(5)).await;
+    }
+    drop(command);
+    looks
+  });
+  // the task runs up to its first wait (the runtime of the test has one thread)
+  tokio::task::yield_now().await;
+  assert!(!waits.is_finished(), "the clock of the session stands still");
+
+  let response = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(response.status(), 202);
+  // a command that took the clock before may have ended already
+  let _ = deleted.send(());
+  wait_until_removed(&path).await;
+  assert_eq!(waits.await.unwrap(), 12, "the wait looked as often as its deadline lets it");
+  // the counts name the clock that ran out with the waits it served
+  let counts = counts_when(&client, addr, |_| true).await;
+  let busiest = &counts["runOutWaits"]["busiest"][0];
+  assert!(
+    busiest["repository"] == json!(id) && busiest["waits"].as_u64() >= Some(12) && counts["runOutWaits"]["total"].as_u64() >= Some(12),
+    "{counts}"
+  );
+}
+
+/// A deletion that waited longer than it may (`AppState::delete_wait`, here 300 ms) warns of what holds the repository:
+/// the test that made it, the commands still running, the worktrees whose closed sessions still ran at the end of
+/// either wait, and a session of its worktree open again since the deletion closed it, with what keeps it; then it
+/// deletes the files and closes that session. Here a command of the page holds the repository, the sync of its closed
+/// session runs a slow git, and a request of a sync opens the session again after the close
+#[tokio::test]
+async fn a_deletion_that_waited_too_long_warns_of_the_test_the_commands_and_the_sessions_that_hold_it() {
+  let wrapped = slow_git("3");
+  let (addr, state) = start_test_server_waiting(wrapped.executor().clone(), Duration::from_millis(300)).await;
+  let logged = capture_warnings();
+  let client = reqwest::Client::new();
+  let (id, path) = create_named_repository(&client, addr).await;
+  let in_flight = std::sync::Arc::clone(&state.repositories.get(&id).unwrap().in_flight);
+  let command = in_flight.hold("/invoke/execute").unwrap();
+  start_a_slow_sync(&state, &wrapped, &path).await;
+
+  let response = client.delete(format!("http://{addr}/repositories/{id}")).send().await.unwrap();
+  assert_eq!(response.status(), 202);
+  let key = SessionKey {
+    worktree: path.clone(),
+    prefix: "user-name".to_string(),
+  };
+  drop(state.sessions.sync(&key, domain_types::session::SyncReason::AfterRewrite));
+  let warning = || String::from_utf8_lossy(&logged.lock().unwrap()).into_owned();
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while !warning().contains("still run after") {
+    assert!(Instant::now() < deadline, "no warning of the deletion: {}", warning());
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
+  let warning = warning();
+  for named in [
+    "still run after 300ms; deleting it anyway".to_owned(),
+    format!("test=\"{TEST}\""),
+    "commands=[\"/invoke/execute\"]".to_owned(),
+    format!("closing=[\"{path}\"]"),
+    format!("reopened=[\"{path} under user-name (0 windows, "),
+  ] {
+    assert!(warning.contains(&named), "{named} in {warning}");
+  }
+
+  // the deletion goes on: the files go, the session opened again closes, the closed one ends with its git
+  drop(command);
+  wait_until_removed(&path).await;
+  let counts = counts_when(&client, addr, |counts| counts["sessions"] == json!(0) && counts["deleting"] == json!([])).await;
+  assert_eq!(counts["orphanSessions"], json!([]), "{counts}");
 }

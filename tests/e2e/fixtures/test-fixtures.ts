@@ -102,18 +102,19 @@ export const test = base.extend<{
     }
   },
 
-  // Helper to setup repository with template
+  // Helper to setup repository with template; every repository it made is deleted after the test, the last first
   setupRepo: async ({ page }, use) => {
-    let currentBuilder: TestRepositoryBuilder | null = null
+    const builders: TestRepositoryBuilder[] = []
 
     const setupFn = async (templateName: string, options?: SetupRepoOptions) => {
-      currentBuilder = await setupTestRepository(page, templateName, options)
-      return currentBuilder
+      const builder = await setupTestRepository(page, templateName, options)
+      builders.push(builder)
+      return builder
     }
 
     await use(setupFn)
 
-    if (currentBuilder) {
+    if (builders.length > 0) {
       // the pages first (a test may open a sub-window), so they start no command for the repository; the server waits
       // for the commands still running before it deletes the files
       await Promise.all(
@@ -122,7 +123,9 @@ export const test = base.extend<{
           .pages()
           .map(it => it.close()),
       )
-      await cleanupTestRepository(currentBuilder)
+      for (const builder of builders.reverse()) {
+        await cleanupTestRepository(builder)
+      }
     }
   },
 

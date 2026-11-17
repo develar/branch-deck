@@ -31,9 +31,33 @@ pub struct AppState {
   /// The git directories and the GitHub repository of each test repository, as the app keeps them, without the object
   /// cache (docs/design/e2e-testing.md, decision 8); forgotten with the repository
   pub repository_state: app_api::repository_state::RepositoryStateCache,
+  /// Each repository the server made, by its id, kept past its deletion (`Made`): what a deleted test left behind is
+  /// named by it (`/debug/counts`, the warning of a deletion that waited too long)
+  pub made: DashMap<String, Made>,
+  /// How long the deletion of a repository waits for the commands and the sessions still running for it before it
+  /// deletes the files anyway and warns of what holds it (`DELETE_WAIT`; a route test of the warning waits less)
+  pub delete_wait: std::time::Duration,
+}
+
+/// A repository the server made, as `made` keeps it past its deletion
+pub struct Made {
+  /// The test that made it (`test` of its creation: the file, line and titles the E2E fixture sends); empty for a route
+  /// test, which names none
+  pub test: String,
+  /// The app of its commands (`TestRepository::context`), which holds the memory of its diffs, its highlighting and its
+  /// review plans: gone with the repository, unless something it started outlived it
+  pub context: std::sync::Weak<app_api::context::AppContext>,
+  /// Its deletion ended: its files went and the server let go of it (`remove_repository`); before, a deleted repository
+  /// is being deleted, and its app is held by the deletion itself
+  pub removed: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
+  /// The test that made the repository `id`, as its creation named it; empty for one that named none
+  pub fn test_of(&self, id: &str) -> String {
+    self.made.get(id).map_or_default(|made| made.test.clone())
+  }
+
   /// The global git config of a test repository, beside its directory: `GIT_CONFIG_GLOBAL` of its config reads and
   /// writes (`set_repository_config` with `scope: global`), so no test reads or writes the config of the developer,
   /// and two tests that run at once never share one. Deleted with the repository
@@ -476,9 +500,23 @@ impl WorktreeClocks {
     self.0.entry(worktree.to_owned()).or_default().clone()
   }
 
-  /// The repository went: its clock with it
-  pub fn forget(&self, worktree: &str) {
-    self.0.remove(worktree);
+  /// The repository went: the time of what waits on its clock runs out (`TestClock::auto_advance`), as its test, which
+  /// moved it, has ended, so an operation of a command that outlived the test (the follow of the reply to a start
+  /// comment, the merge of a stack) waits to its deadline at once instead of for ever, and its command ends. The clock
+  /// stays: a command that takes it later gets the same one, run out (the ids of the repositories, and so their
+  /// paths, are unique for the life of the server)
+  pub fn run_out(&self, worktree: &str) {
+    self.0.entry(worktree.to_owned()).or_default().auto_advance();
+  }
+
+  /// The worktrees whose clock ran out and served waits since (`TestClock::run_out_waits`), with their count
+  pub fn run_out_waits(&self) -> Vec<(String, u64)> {
+    self
+      .0
+      .iter()
+      .map(|entry| (entry.key().clone(), entry.value().run_out_waits()))
+      .filter(|(_, waits)| *waits > 0)
+      .collect()
   }
 }
 
@@ -488,8 +526,8 @@ impl repository_model::session::SessionClocks for WorktreeClocks {
   }
 }
 
-/// The commands of the page that run for a test repository: a count each holds one of while it runs, which the deletion
-/// of the repository waits out, never a lock a command waits for
+/// The commands of the page that run for a test repository, each by what it is while it runs, which the deletion of the
+/// repository waits out, never a lock a command waits for; a deletion that waited too long names those still running
 #[derive(Default)]
 pub struct InFlight {
   commands: tokio::sync::watch::Sender<Commands>,
@@ -497,38 +535,56 @@ pub struct InFlight {
 
 #[derive(Default)]
 struct Commands {
-  running: usize,
+  /// What each command that runs is (the URI of its request, a read of the facts), by the number of its hold
+  running: std::collections::BTreeMap<u64, String>,
+  next: u64,
   /// The deletion began: no command starts any more
   closed: bool,
 }
 
 /// A command that runs for a test repository, until it is dropped
-pub struct CommandHold(std::sync::Arc<InFlight>);
+pub struct CommandHold {
+  in_flight: std::sync::Arc<InFlight>,
+  number: u64,
+}
 
 impl InFlight {
-  /// A command of the repository holds it until it ends; none once its deletion began
-  pub fn hold(self: &std::sync::Arc<Self>) -> Option<CommandHold> {
-    let held = self.commands.send_if_modified(|commands| {
+  /// The command `what` holds the repository until it ends; none once its deletion began
+  pub fn hold(self: &std::sync::Arc<Self>, what: impl Into<String>) -> Option<CommandHold> {
+    let mut number = None;
+    self.commands.send_if_modified(|commands| {
       if commands.closed {
         return false;
       }
-      commands.running += 1;
+      commands.next += 1;
+      commands.running.insert(commands.next, what.into());
+      number = Some(commands.next);
       true
     });
-    held.then(|| CommandHold(std::sync::Arc::clone(self)))
+    number.map(|number| CommandHold {
+      in_flight: std::sync::Arc::clone(self),
+      number,
+    })
+  }
+
+  /// What the commands that run now are, the oldest first
+  pub fn running(&self) -> Vec<String> {
+    self.commands.borrow().running.values().cloned().collect()
   }
 
   /// No command holds the repository from now on; resolves once those that hold it ended
   pub async fn close(&self) {
     self.commands.send_modify(|commands| commands.closed = true);
     let mut commands = self.commands.subscribe();
-    // the sender lives in `self`: the wait ends only when the count does
-    let _ = commands.wait_for(|commands| commands.running == 0).await;
+    // the sender lives in `self`: the wait ends only when the commands do
+    let _ = commands.wait_for(|commands| commands.running.is_empty()).await;
   }
 }
 
 impl Drop for CommandHold {
   fn drop(&mut self) {
-    self.0.commands.send_modify(|commands| commands.running -= 1);
+    self.in_flight.commands.send_modify(|commands| {
+      commands.running.remove(&self.number);
+    });
   }
 }
