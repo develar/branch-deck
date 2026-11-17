@@ -174,6 +174,12 @@ pub(crate) enum Message {
     number: u32,
     reply: oneshot::Sender<Version>,
   },
+  /// A review fetch of the pull request `number` (of a stack its top) starts: its review refs stay from now; `reply` is
+  /// answered once the session has it
+  ReviewFetching {
+    number: u32,
+    reply: oneshot::Sender<()>,
+  },
   /// The review fetch of the pull request `number` brought `head`; `reply` gets the version of the view after its patch
   ReviewFetched {
     number: u32,
@@ -783,6 +789,10 @@ impl Actor {
         self.flush();
         let _ = reply.send(self.version());
       }
+      Message::ReviewFetching { number, reply } => {
+        self.facts.review_requests.fetching(number);
+        let _ = reply.send(());
+      }
       Message::ReviewFetched { number, head, reply } => {
         self.facts.review_requests.fetched(number, head);
         self.flush();
@@ -1010,11 +1020,13 @@ impl Actor {
   }
 
   /// Tells the scheduler the union of the demands when it changed; when the pull requests the review windows show
-  /// changed, the review refs of the others go but those of the waiting requests (`prune_kept_reviews`)
+  /// changed, the review refs of the others go but those of the waiting requests (`prune_kept_reviews`), after the
+  /// review requests heard of the windows that closed, whose fetches the prune keeps no more
   fn tell_demand(&mut self) {
     let demand = self.demand();
     if demand != self.told_demand {
       self.told_demand = demand.clone();
+      self.facts.review_requests.demand(&demand);
       self.events.emit(&self.key, SessionEventKind::Demand(demand));
       self.prune_kept_reviews();
     }
@@ -1034,15 +1046,18 @@ impl Actor {
     self.prune_kept_reviews();
   }
 
-  /// The review refs of every pull request go but those the review windows show and those that wait, read ahead
+  /// The review refs of every pull request go but those the review windows show, those their fetches wrote (a fetch may
+  /// come before the demand of its window, `ReviewRequestsFact::fetching`) and those that wait, read ahead
   /// (`SessionHost::prune_review_refs`), when that set changed since the last prune
   fn prune_kept_reviews(&mut self) {
-    let waiting = self.facts.review_requests.view().requests.iter().map(|request| request.number);
+    let review_requests = &self.facts.review_requests;
+    let waiting = review_requests.view().requests.iter().map(|request| request.number);
     let keep: Vec<u32> = self
       .told_demand
       .review_windows
       .iter()
       .copied()
+      .chain(review_requests.fetched_numbers())
       .chain(waiting)
       .collect::<BTreeSet<u32>>()
       .into_iter()

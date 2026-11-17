@@ -4000,7 +4000,13 @@ its commits.
 - **Pruning.** The review refs are those of the pull requests the review windows show and of those that wait for the
   user (the read ahead's): each time that set changes, at a change of the review windows of its demand
   (`Demand::review_windows`) or at a listing of the review requests, the session prunes the others
-  (`SessionHost::prune_review_refs`, on the blocking pool, never waited for). `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
+  (`SessionHost::prune_review_refs`, on the blocking pool, never waited for). A window asks for its fetch apart from
+  its demand, which is sent once the window's own subscription answered: under load the fetch landed first in 11 of 80
+  runs, and a listing that withdrew the request between the two pruned the refs of the review on screen. So a fetch
+  tells the session as it starts, before it writes (`Sessions::review_fetching`), and the prunes keep the pull requests
+  the fetches started or brought (`ReviewRequestsFact::fetched_numbers`) until their window closes, a stack's layers
+  with its top. A fetch whose window moved on before its demand named it keeps its refs until the session closes; the
+  first prune of the next start deletes them. `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
   refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
   its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
   fails the transaction, which is only logged: the next change of the windows deletes it. It is best effort across app instances;

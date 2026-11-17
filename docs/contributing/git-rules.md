@@ -149,7 +149,7 @@ written only there) in that transaction.
   refspecs; always `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under
   the repository lock; no fetch when both commits are local; killed on `cancel_operation`, the close of its window or
   120 s of silence; pruned by the session whenever the pull requests its review windows show or the waiting ones
-  change, keeping both, with one `for-each-ref` and one CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
+  change, keeping both and those a fetch started before its window's demand came (`Sessions::review_fetching`), with one `for-each-ref` and one CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
   memory) ([Review fetch](../design/git-operations.md#review-fetch)).
 - `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}` (`reviewed_refs.rs`): only
   `mark_reviewed_core` (`brd mark-reviewed`, the app's `mark_branch_reviewed`), in one `update-ref --stdin` with CAS on every ref of the `for-each-ref`

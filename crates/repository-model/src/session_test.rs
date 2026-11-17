@@ -1753,16 +1753,20 @@ async fn pruned_window() -> (
   (host, prunes, sessions, repo, main)
 }
 
+/// The demand of a window that shows the review windows of `numbers`
+fn windows(numbers: &[u32]) -> Demand {
+  Demand {
+    review_windows: numbers.to_vec(),
+    ..Demand::default()
+  }
+}
+
 /// The review refs are those of the pull requests the review windows of the session show: each change of them (a
 /// window shows one, another, none, or goes) prunes the others, and a demand that keeps them prunes nothing
 #[tokio::test]
 async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
   let (_host, mut prunes, sessions, repo, main) = pruned_window().await;
   let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
-  let windows = |numbers: &[u32]| Demand {
-    review_windows: numbers.to_vec(),
-    ..Demand::default()
-  };
   sessions.set_demand(main, &windows(&[7]));
   assert_eq!(prunes.recv().await, Some(vec![7]), "a window shows #7: the refs of the others go");
   sessions.set_demand(review, &windows(&[7, 8]));
@@ -1817,6 +1821,41 @@ async fn a_listing_reads_ahead_its_waiting_requests_and_the_prunes_keep_their_re
   };
   sessions.set_demand(main, &windows);
   assert_eq!(prunes.recv().await, Some(vec![7, 8, 9]), "a window of another pull request keeps its refs too");
+}
+
+/// openspec/specs/repository/review-requests/spec.md, "Fetch and refs": a review window asks for its fetch apart from
+/// its demand, which may reach the session after the fetch; a listing that withdraws the pull request in between prunes
+/// nothing of its refs, nor does its demand, and they go once the window shows another pull request
+#[tokio::test]
+async fn a_fetch_before_the_demand_of_its_window_keeps_its_refs_at_a_listing_that_withdraws_it() {
+  use crate::review_request_facts::review_request_facts_test::available;
+  use domain_types::fixtures::review_request;
+  let (_host, mut prunes, sessions, repo, main) = pruned_window().await;
+  let ticket = sessions.begin(&repo).await.unwrap();
+  let listing = available(vec![review_request(7, 100), review_request(8, 200)]);
+  sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(listing)).await.unwrap();
+  assert_eq!(prunes.recv().await, Some(vec![7, 8]));
+
+  // the window of #7 fetches it before its demand comes; #7 no longer waits meanwhile
+  sessions.review_fetching(&repo, 7).await;
+  sessions.review_fetched(&repo, 7, "head".to_owned()).await;
+  let ticket = sessions.begin(&repo).await.unwrap();
+  sessions
+    .apply_facts(&repo, ticket, FactResult::ReviewRequests(available(vec![review_request(8, 200)])))
+    .await
+    .unwrap();
+  let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  sessions.set_demand(review, &windows(&[7]));
+  sessions.set_demand(
+    main,
+    &Demand {
+      focused: true,
+      ..Demand::default()
+    },
+  );
+  // the next prune is the one of the window showing #9: the refs of #7 go then, not before
+  sessions.set_demand(review, &windows(&[9]));
+  assert_eq!(prunes.recv().await, Some(vec![8, 9]), "the listing and the late demand pruned nothing of #7");
 }
 
 /// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a

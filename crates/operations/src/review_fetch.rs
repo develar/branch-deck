@@ -5,9 +5,11 @@
 //! (`sync_core::review_fetch::fetch_review_head`) fetches nothing when both commits are local, else writes only
 //! `refs/branch-deck/review/<n>/{head,base}`, never under the repository lock, and answers the range to review. It holds
 //! the review refs of its number (`Resource::Ref`): a second fetch of the same pull request joins it. Its progress goes
-//! to its caller; `Registry::cancel` stops it (`canceled`), as does a fetch silent for 120 s. The refs of a pull request
-//! no review window shows any more go with the next change of the windows of the session (`Sessions` prunes them,
-//! `SessionHost::prune_review_refs`).
+//! to its caller; `Registry::cancel` stops it (`canceled`), as does a fetch silent for 120 s. Before it writes, it tells the
+//! session (`Sessions::review_fetching`), whose prunes keep its refs from then on: the window asks for the fetch apart
+//! from its demand, which may reach the session later, and a listing that no longer names the pull request in between
+//! would prune the refs of the review on screen. The refs of a pull request no review window shows any more go with the
+//! next change of the windows of the session (`Sessions` prunes them, `SessionHost::prune_review_refs`).
 //!
 //! The fetch of a stack (`Intent::FetchReviewStack`, Review Stack) names its top and its bottom: its layers are the chain
 //! between them as the review requests of the session link them now (`ReviewRequestsFact::stack`), its core
@@ -94,6 +96,8 @@ pub async fn execute_review_fetch(registry: &Registry, key: &SessionKey, number:
       .flatten()
       .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, format!("No listing of the review requests names pull request #{number}")))?;
     let params = fetch_params(key, hosts, request)?;
+    // the refs it writes stay from now, whether or not the demand of its window reached the session yet
+    sessions.review_fetching(key, number).await;
     let (git, stepper, canceled) = (hosts.services.git(), guard.stepper(), guard.canceled());
     let fetched = blocking(move || Ok(fetch_review_head(&git, &params, &mut |tick| stepper.progress(&tick), &|| canceled.load(Ordering::Relaxed)))).await?;
     if let Ok(range) = &fetched {
@@ -139,6 +143,7 @@ pub async fn execute_review_stack_fetch(registry: &Registry, key: &SessionKey, t
       ));
     }
     let params = requests.iter().map(|request| fetch_params(key, hosts, request.clone())).collect::<Result<Vec<_>, _>>()?;
+    sessions.review_fetching(key, top).await;
     let (git, stepper, canceled) = (hosts.services.git(), guard.stepper(), guard.canceled());
     let fetched = blocking(move || Ok(fetch_review_stack(&git, &params, &mut |tick| stepper.progress(&tick), &|| canceled.load(Ordering::Relaxed)))).await?;
     let stack = fetched.map(|ranges| ReviewStack {

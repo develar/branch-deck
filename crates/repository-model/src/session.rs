@@ -554,6 +554,13 @@ impl Sessions {
     self.ask(key, |reply| Message::Unlinked { number, reply }).await
   }
 
+  /// A review fetch of the pull request `number` (of a stack its top) of the open session of `key` starts, before it
+  /// writes a review ref (`ReviewRequestsFact::fetching`): the prunes keep its refs from now until its window closes,
+  /// also when the demand of the window reaches the session after the fetch; resolves once the session has it
+  pub async fn review_fetching(&self, key: &SessionKey, number: u32) {
+    self.ask(key, |reply| Message::ReviewFetching { number, reply }).await;
+  }
+
   /// The review fetch of the pull request `number` brought `head` into the review refs of the open session of `key`
   /// (`ReviewRequestsFact::fetched`): once it is the head the listing names, the readiness of the pull request is asked
   /// while a review window shows it. Answers the version of the view after its patch; `None` for a session that is not

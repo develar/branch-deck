@@ -169,17 +169,40 @@ impl ReviewRequestsFact {
   /// The windows of the session now: the Reviews view, and the pull requests their review windows show
   pub fn demand(&mut self, demand: &Demand) {
     self.reviews_shown = demand.reviews;
-    // the head of a window that closed goes; one fetched before the demand of its window came stays
-    let closed: Vec<u32> = self.windows.iter().filter(|number| !demand.review_windows.contains(number)).copied().collect();
+    // the head of a window that closed goes, with the layers of a stack it showed but those another window shows; one
+    // fetched before the demand of its window came stays
+    let mut closed: Vec<u32> = self.windows.iter().filter(|number| !demand.review_windows.contains(number)).copied().collect();
+    let layers: Vec<u32> = closed
+      .iter()
+      .filter_map(|top| self.fetched_stacks.get(top))
+      .flatten()
+      .filter(|number| !demand.review_windows.contains(number))
+      .copied()
+      .collect();
+    closed.extend(layers);
     self.fetched.retain(|number, _| !closed.contains(number));
     self.fetched_stacks.retain(|top, _| !closed.contains(top));
     self.windows.clone_from(&demand.review_windows);
+  }
+
+  /// A review fetch of the pull request `number` (of a stack its top) starts (`operations::review_fetch`), before it
+  /// writes a review ref: the window asks for it apart from its demand, which may reach the session after the fetch, so
+  /// the refs of the fetch are kept from its start (`fetched_numbers`) until its window closes. The head stays the one
+  /// of an earlier fetch, none before the first
+  pub fn fetching(&mut self, number: u32) {
+    self.fetched.entry(number).or_default();
   }
 
   /// The review fetch of the pull request `number` brought `head` (`operations::review_fetch`); whether it changed what
   /// the session knows. Kept while a window shows the pull request
   pub fn fetched(&mut self, number: u32, head: String) -> bool {
     self.fetched.insert(number, head.clone()) != Some(head)
+  }
+
+  /// The pull requests a review fetch of a window started or brought (of a stack its top and its layers), whose review
+  /// refs the prunes keep until the window closes, also when its demand came after the fetch
+  pub fn fetched_numbers(&self) -> impl Iterator<Item = u32> + '_ {
+    self.fetched.keys().chain(self.fetched_stacks.keys()).copied()
   }
 
   /// The fetch of the stack of `top` brought `layers`, the bottom first, each with its head; whether it changed what the

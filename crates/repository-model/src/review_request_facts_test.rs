@@ -231,6 +231,36 @@ fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
   assert_eq!(fact.approved(&reviewed), Some("head"));
 }
 
+/// A review fetch counts from its start, before the demand of its window names the pull request, and its number goes
+/// once its window closes; the layers of a stack go with its top, but one another window shows
+#[test]
+fn the_fetches_of_a_window_keep_their_numbers_until_it_closes_with_the_layers_of_its_stack() {
+  use domain_types::session::Demand;
+  let windows = |numbers: &[u32]| Demand {
+    review_windows: numbers.to_vec(),
+    ..Demand::default()
+  };
+  let numbers = |fact: &ReviewRequestsFact| fact.fetched_numbers().collect::<std::collections::BTreeSet<u32>>().into_iter().collect::<Vec<_>>();
+  let mut fact = ReviewRequestsFact::default();
+  fact.fetching(7);
+  assert_eq!(numbers(&fact), vec![7], "a fetch before the demand of its window");
+  fact.demand(&windows(&[7]));
+  assert!(!fact.fetched(7, String::new()), "the start fetched no head yet");
+  assert!(fact.fetched(7, "head".to_owned()));
+  fact.fetching(7);
+  assert!(!fact.fetched(7, "head".to_owned()), "a fetch again keeps the head of the one before");
+
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(7, "head".to_owned()), (8, "eight".to_owned()), (9, "nine".to_owned())]);
+  fact.demand(&windows(&[7, 9]));
+  assert_eq!(numbers(&fact), vec![7, 8, 9]);
+  // the stack's window closes: its layers go with it but #7, which the other window shows
+  fact.demand(&windows(&[7]));
+  assert_eq!(numbers(&fact), vec![7]);
+  fact.demand(&windows(&[]));
+  assert_eq!(numbers(&fact), Vec::<u32>::new());
+}
+
 /// The stack of a review window is the chain under its top as the pull requests of the listings link it now: a layer
 /// the user reviewed (gone from the listing) stays, a merged bottom leaves once its upper layer goes into master
 #[test]
