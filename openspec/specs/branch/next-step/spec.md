@@ -139,14 +139,14 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
   | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `brd safe-push` (`PlannedEffect::Retarget` of `domain_policy::land::decide`) |
   | 5 | Merge route: an open pull request into the branch of the layer below it that GitHub lists in no stack (`layerNotLinked` of the merge, [Stacks of GitHub](../stacked-branches/spec.md#stacks-of-github)): its merge would land nothing | "Link GitHub Stack" ("Link Stack" in the slot): Link GitHub Stack (`Intent::LinkStack`) | its merge waits for the link |
-  | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `brd safe-push` (D3b) |
-  | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
-  | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
-  | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
+  | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | a wait: no step; the Status cell says "Into release-252", the reason on hover, and opens it; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `brd safe-push` (D3b) |
+  | 6 | An open draft | a wait: no step; the Status cell says "Draft" and opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
+  | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: a wait, no step; the Status cell says "In #12" and opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
+  | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | a wait: no step; the Status cell says "Changes requested" in `destructive` and opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
   | 9 | `missing`, a missing group asks fewer people than the approvals it needs (nobody, or one of a group that needs two) | "Request Review…", its popover ([Pull Requests](../pull-requests/spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
-  | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting Review" in the slot, the people in its hover; "Awaiting 2 Reviews" for several), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
-  | 8′ | `unknown`, `unavailable`, an open pull request into the target where a reviewer requested changes and wasn't asked again since (`changesRequestedBy`, bots left out) | quiet "Changes Requested" in `destructive`, opens the pull request | enabled: Patronus can't judge the approvals, the start checks them |
-  | 10′ | `unknown`, `unavailable`, an open pull request into the target that waits for a requested reviewer (`readiness::waiting_reviewers`: asked and not approving since, bots left out) | quiet "Awaiting ikorennoy" ("Awaiting 2 Reviews"), its hover "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them", opens the pull request | enabled, as 8′ |
+  | 10 | `missing`, someone of every missing group is asked | a wait: no step; the Status cell says "Awaiting review" (the people in its hover; "Awaiting 2 reviews" for several) and opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
+  | 8′ | `unknown`, `unavailable`, an open pull request into the target where a reviewer requested changes and wasn't asked again since (`changesRequestedBy`, bots left out) | a wait, as 8 | enabled: Patronus can't judge the approvals, the start checks them |
+  | 10′ | `unknown`, `unavailable`, an open pull request into the target that waits for a requested reviewer (`readiness::waiting_reviewers`: asked and not approving since, bots left out) | a wait: the Status cell says "Awaiting review" ("Awaiting 2 reviews"), its hover "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them", and opens the pull request | enabled, as 8′ |
   | 11 | `approved`, `notRequired`; `unknown`, `unavailable` where GitHub tells no wait | "Safe Push" | enabled |
 
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`, `the_cases_are_well_formed_and_name_every_row_of_the_next_step_table`)
@@ -199,7 +199,7 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
 
 #### Scenario: Row 6 opens a draft
 - **WHEN** the open pull request is a draft
-- **THEN** the step is a quiet "Draft" that opens it
+- **THEN** the step is a wait: the Status cell says "Draft" and opens it, the slot shows no step
 - **AND** its Safe Push is disabled with why, a Dry Run runs
   [@test] crates/domain-policy/src/next_step_test.rs (`row_6_a_draft_is_a_step_that_opens_it_the_safe_push_waits_a_dry_run_runs`)
   [@test] src/presenters/next-step.test.ts (`row 6: a draft is a quiet step that opens it; its Safe Push says why, a Dry Run runs`)
@@ -656,12 +656,12 @@ name the branch by `NextStepFacts.subject`, the branch's name.
 An operation on the row ([Running Operations](../../../../docs/design/operations.md)), as the view of the session has
 it in every window (`RepositoryView.operations`: a rewrite of the branch or of its commits, the retarget of its pull
 request; `useRowOperation`), MUST disable the action of the slot with its busy state ("Renaming auth to login…"), never
-a quiet step: it only opens the pull request.
+a wait: it only opens the pull request.
 
 #### Scenario: A rename runs on the row
 - **WHEN** an operation runs on the row, in any window of the repository
 - **THEN** the action of the slot is disabled with its busy state ("Renaming auth to login…")
-- **AND** a quiet step stays, as it only opens the pull request
+- **AND** a wait stays, as it only opens the pull request
   [@test] src/presenters/next-step.test.ts (`lays what runs on the row over the step: its own action runs, the others wait, never a quiet step nor another field of the pull request`)
   [@test] src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`)
 
@@ -1163,7 +1163,7 @@ another step.
 #### Scenario: A new tip while the step is Safe Push
 - **WHEN** the readiness of the branch is stale
 - **THEN** Safe Push, Restart, Create Pull Request… and Request Review… are disabled with "Waits for Patronus to check the approvals again", S says it
-- **AND** a quiet step only opens the pull request and stays
+- **AND** a wait only opens the pull request and stays
   [@test] crates/domain-policy/src/next_step_test.rs (`a_stale_readiness_keeps_its_step_and_its_action_waits_for_the_new_answer`)
   [@test] src/presenters/next-step.test.ts (`keeps a stale answer, its action waiting for the new one, and a start reads only a fresh one`)
 
@@ -1393,8 +1393,8 @@ neither a mirror nor a repository off GitHub: there the rows of the Patronus tab
   |---|---|---|---|
   | pr | No open pull request into the target | "Create Pull Request…", its node the user's step | Merge disabled: "auth has no open pull request: create one, GitHub merges it" |
   | merge | GitHub can merge it (`CLEAN`, `HAS_HOOKS`, `UNSTABLE` with a confirmation); its required checks still run (`BLOCKED` by them) where the repository allows auto-merge; it shows another commit than the copy, which a push restarts the checks of | "Merge #7", or "Auto-Merge #7" (the push first when it shows another commit), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover names the method and what it asks |
-  | merge′ | Its auto-merge is enabled | "Merges when checks pass", Cancel Auto-Merge; its node landing | — |
-  | merge″ | What holds the merge back: a draft, changes requested, approvals the base requires, required checks that fail, or still run without auto-merge, a head behind its base (`BEHIND`), a conflict (`DIRTY`), a pull request that shows another commit without auto-merge, what GitHub doesn't name | its reason; the node a fix (a conflict, changes, failing checks), the user's step (a head behind, a branch to push, a draft) or a wait (approvals, running checks) | Merge disabled with the reason |
+  | merge′ | Its auto-merge is enabled | a wait: the Status cell says "Merges when checks pass", Cancel Auto-Merge in "⋯"; its node landing | — |
+  | merge″ | What holds the merge back: a draft, changes requested, approvals the base requires, required checks that fail, or still run without auto-merge, a head behind its base (`BEHIND`), a conflict (`DIRTY`), a pull request that shows another commit without auto-merge, what GitHub doesn't name | a wait: the Status cell says its reason ("Conflict", "Checks running"); the node a fix (a conflict, changes, failing checks), the user's step (a head behind, a branch to push, a draft) or a wait (approvals, running checks) | Merge disabled with the reason |
 
   [@test] crates/domain-policy/src/next_step_test.rs (`a_merge_of_the_pull_request_is_the_step_of_its_route_by_what_github_tells`)
   [@test] crates/domain-policy/src/landing_node_test.rs (`a_merge_of_the_pull_request_is_ready_landing_a_fix_or_a_wait_by_what_holds_it_back`)
@@ -1479,17 +1479,32 @@ user's step first, a fix, landing now, a wait, in master.
   [@test] crates/domain-policy/src/landing_node_test.rs (`is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`, `waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`)
   [@test] src/presenters/landing-node.test.ts (`words where a start lands it: ready with the branches it lands, the user's step while Patronus checks the approvals at the start`)
 
-### Requirement: The surfaces: A quiet step is the state as its label
+### Requirement: The surfaces: A wait is a state, which the status says
 
-A quiet step MUST be the state as its label (the [UX Writing](../../../../docs/contributing/ux-writing.md#actions)
-exception): a ghost `xs` button in `text-muted-foreground` (`destructive` for Changes Requested), the `ClockIcon`
-before "Awaiting …"; the label truncates to the slot. The pull request chip keeps its own state: the row doesn't say
-"awaiting" twice.
+A step that is a state the subject waits in (`NextStep.wait`, `StepKind::is_wait`: rows 3 of a pull request, 5′, 6,
+7 of a whole stack's pull request, 8, 10, 8′, 10′, merge′, merge″) MUST be said by the status of the subject, never by
+its slot of actions, whose `data-step` still names it ("Status says, Actions do",
+[UX Writing](../../../../docs/contributing/ux-writing.md#actions)): a click on it would only open the pull request.
 
-#### Scenario: The hover of a quiet step
-- **WHEN** the pointer rests on a quiet step
+#### Scenario: A branch whose pull request awaits a review
+- **WHEN** the step of a branch is a wait, and no fact of its own says more (`RowFact::Wait`; a failed robot, parked, a block keep the cell)
+- **THEN** its Status cell says it in sentence case as every status ("Awaiting review", "Changes requested" in `destructive`, "Draft", "Into release-252", "In #12", "Merges when checks pass"), its icon where a status has its dot (`StepWaitStatus`), its slot shows no step
+- **AND** a click on the status opens the pull request, and so does O on the focused row
+- **AND** the pull request chip keeps its own state: the row doesn't say "awaiting" twice; the preview says the wait as its status, the landing overview in the reason under the name
+  [@test] crates/domain-policy/src/row_status_test.rs (`a_wait_is_the_state_of_the_cell_where_nothing_of_its_own_says_more`)
+  [@test] src/presenters/next-step.test.ts (`a wait is a state: the words its status says, in sentence case, the hover of its step, and the pull request it opens; a step of an action has none`)
+  [@test] src/presenters/row-status.test.ts (`says the state the next step waits in, worded by the step, and the preview its words: no action of the slot says it`)
+  [@test] tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
+
+#### Scenario: The hover of a wait
+- **WHEN** the pointer rests on a wait in the Status cell
 - **THEN** the hover gives the whole text, a line per missing group ("Awaiting Ilya Korennoy · IJPL Code Platform", "1 more approval · IJPL Code Platform" for a group that has an approval and needs more), then "Open Pull Request #1078" with O
-- **AND** O opens the pull request on the focused row too
+  [@test] tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
+
+#### Scenario: The wait of a whole stack
+- **WHEN** the step of the whole stack of an island is a wait
+- **THEN** the header says it beside the pull request of the stack, its slot shows no step, and a click opens the pull request
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
 
 ### Requirement: The surfaces: The start renders the step with the readiness as it is
 
@@ -1748,7 +1763,7 @@ Korennoy approved the whole air stack" with "Safe Push Whole Stack".
 ## User Experience
 
 - The slot is as wide as the widest step of the view, at most 10rem, its step a ghost `xs` button with its
-  `compactLabel` ("Retarget #7", "Awaiting Review", "Create Pull Request…" of the whole stack), every label of a step
+  `compactLabel` ("Retarget #7", "Create Pull Request…" of the whole stack), every label of a step
   within the 10rem; a start that runs keeps the width the step had at rest ("Checking…", "Waiting…" for another holder
   of the repository lock, the spinner and "45%" of its push, "Starting…"; "Pushing 45%" and the branches it pushes in
   its name and hover), so nothing moves under the pointer ([UX Writing](../../../../docs/contributing/ux-writing.md#actions)).
@@ -1759,9 +1774,10 @@ Korennoy approved the whole air stack" with "Safe Push Whole Stack".
   [@test] crates/domain-policy/src/next_step_test.rs (`row_5_retargets_a_pull_request_into_a_virtual_branch_and_5_prime_opens_one_into_another_base`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] src/presenters/next-step.test.ts (`row 5: retargets a pull request into a virtual branch, short in its column; 5′ opens one into another base, the retarget in the menu`, `rows 8 to 10: changes requested, Request Review…, the wait naming the people asked`)
 - Disabled, a step keeps the focus and the hover
-  (`focusableWhenDisabled`), dimmed to `opacity-50`. A quiet step is muted, Changes Requested `text-destructive`.
+  (`focusableWhenDisabled`), dimmed to `opacity-50`. A wait in the Status cell is muted, Changes requested
+  `text-destructive`.
 - Wording follows [UX Writing](../../../../docs/contributing/ux-writing.md): Title Case for the steps, sentence case for the
-  reasons, people by their full name (the login without one).
+  reasons and the waits, people by their full name (the login without one).
 
 ## Testing / Local Run
 

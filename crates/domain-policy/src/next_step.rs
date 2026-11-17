@@ -460,6 +460,7 @@ fn start_reason(facts: &StepFacts<'_>, start: Option<&Reason>, landed: Option<&L
 const fn step(row: StepRow, kind: StepKind, safe_push: Option<StepBlocker>, dry_run: Option<StepBlocker>) -> NextStep {
   NextStep {
     row,
+    wait: kind.is_wait(),
     kind,
     safe_push,
     dry_run,

@@ -254,6 +254,34 @@ describe("the words of the next step", () => {
     expect(awaiting.notice).toEqual({ title: "Safe Push of auth waits for Ilya Korennoy", description: "IJPL Code Platform · requested on #1078" })
   })
 
+  it("a wait is a state: the words its status says, in sentence case, the hover of its step, and the pull request it opens; a step of an action has none", () => {
+    const calls: string[] = []
+    const context = testContext({ actions: testActions(calls) })
+    const wait = (kind: Parameters<typeof testStep>[0]) => presentNextStep(testStep(kind, { safePush: OWN, wait: true }), context).wait
+    expect(wait({ kind: "awaiting", number: 1078, groups: ASKED })).toMatchObject({
+      label: "Awaiting review",
+      description: "Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078",
+      tone: "quiet",
+    })
+    expect(wait({ kind: "awaiting", number: 1078, groups: [missingGroup("IJPL Code Platform", ["Ilya Korennoy"]), missingGroup("Air", ["Alice"])] })?.label).toBe(
+      "Awaiting 2 reviews",
+    )
+    const ilya = { login: "ikorennoy", fullName: "Ilya Korennoy" }
+    expect(wait({ kind: "changesRequested", number: 1078, groups: [missingGroup("IJPL Code Platform", [], { changesRequestedBy: [ilya] })] })).toMatchObject({
+      label: "Changes requested",
+      tone: "destructive",
+    })
+    expect(wait({ kind: "draft", number: 7 })?.label).toBe("Draft")
+    expect(wait({ kind: "otherBase", number: 7, base: "release-253" })?.label).toBe("Into release-253")
+    expect(wait({ kind: "autoMerging", number: 7, method: "squash" })?.label).toBe("Merges when checks pass")
+    expect(wait({ kind: "awaitingUnjudged", number: 7, reviewers: ["ikorennoy"] })?.label).toBe("Awaiting review")
+    // a click opens the pull request it waits in
+    wait({ kind: "draft", number: 7 })?.open(FROM_MENU)
+    expect(calls).toEqual(["openPullRequest"])
+    // a step of an action is no wait
+    expect(presentNextStep(testStep({ kind: "safePush" }), context).wait).toBeNull()
+  })
+
   it("rows 8′ and 10′: the wait GitHub tells while Patronus can't judge, the Safe Push enabled", () => {
     const waits = presentNextStep(testStep({ kind: "awaitingUnjudged", number: 1078, reviewers: ["ikorennoy"] }), testContext())
     expect(waits).toMatchObject({ kind: "awaiting", tone: "quiet", safePushBlocker: null })

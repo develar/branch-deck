@@ -201,15 +201,22 @@ indicator could cancel a robot but not restart it.
   the preview and the review window of a branch the remote lacks show Create Pull Request… and Safe Push, which push
   it, and no "Push Branch" of their own; the menu keeps the push, so it stays reachable. One name per action: the first push
   is "Push Branch (3)" like every other, its description says that it creates the remote branch.
-- **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
-  object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
+- **Never offer an action whose failure is known**: disable it with the reason; a wait is a state, which the status
+  says. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
   ([Next Step](../../openspec/specs/branch/next-step/spec.md)). One model of an object decides its next step
   (`domain_policy::next_step`, worded by `presentNextStep`), every surface renders it.
-- **A state as a label**: the one exception to "a button is a verb". A quiet step names the state it waits in ("Awaiting
-  Ilya Korennoy", "Changes Requested", "Draft"), muted (`text-muted-foreground`, `destructive` for changes requested), in
-  Title Case as a button; its hover says the whole state and the action it takes ("Open Pull Request #1078" with its
-  key), and the chip of the object keeps its own state, so the row doesn't say it twice.
+- **Status says, Actions do**: a status answers where the work stands and whose move it is, and changes by itself (the
+  robot runs, the reviewers answer); its click only opens its object (the robot, the pull request), it is never
+  disabled. An action is what the user can do here and now, a verb that changes something, disabled with its reason,
+  with its key. Ask of an element: does a press change anything but what opens? Then it is an action, else a status.
+  A wait is a status ("Awaiting review", "Changes requested", "Draft", "Merges when checks pass"; `NextStep.wait`),
+  in sentence case as every status, muted (`destructive` for changes requested), its hover the whole state and what a
+  click opens ("Open Pull Request #1078" with its key); the slot of the actions shows no step of it. Until 2026-11-17
+  a wait was a "quiet step" in Title Case in the Actions column: the row of a pull request awaiting review said
+  nothing in its Status cell (its push state was quiet) and "◷ Awaiting Review" among the buttons, the state of the
+  branch in the column of what to do. "Checking…" stays in the slot: it holds the place of an action not known yet,
+  not a state of the branch. The chip of the object keeps its own state, so the row doesn't say it twice.
 - **The review keys of every object**: D reviews it in its window ("Review Changes": the commit, the branch, the pull
   request; one action, no "Open in Window"), from the row, its menu and its preview (D, the footer button, Enter on a
   file of the tree, which closes the preview); a commit of a branch is reviewed in the window of its branch, at the

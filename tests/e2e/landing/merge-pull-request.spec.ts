@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
-import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
+import { findBranchRow, getLandingNode, getRowWait } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import { availablePullRequests, createPullRequestDialog, gitHubMutations, gitHubWrites, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
@@ -269,8 +269,8 @@ test.describe("Merge #7", () => {
     expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["enablePullRequestAutoMerge", { id: "PR_7", method: "REBASE", head: copy }]])
     const enabled = mergeToast(page, "Auto-Merge of #7 is on")
     await expect(enabled).toContainText("GitHub merges it into master by rebase once its checks pass")
-    const slot = findBranchRow(page, BRANCH).getByTestId("next-step-slot")
-    await expect(slot).toContainText("Merges when checks pass")
+    // a state of the pull request, which the Status cell says
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Merges when checks pass")
     await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "landing")
     // the checks passed, GitHub merged it: the listing of the next sync tells it (a sync lists at most once a minute,
     // on the clock of the session), no update ran by itself
@@ -284,7 +284,7 @@ test.describe("Merge #7", () => {
 
   test("should cancel the auto-merge from the menu of the row", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ mergeState: "blocked", checks: RUNNING, autoMerge: "rebase" }))
-    await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toContainText("Merges when checks pass")
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Merges when checks pass")
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await mergeAndWait(page, () => page.getByRole("menuitem", { name: "Cancel Auto-Merge" }).click())
     expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["disablePullRequestAutoMerge", { id: "PR_7" }]])
@@ -319,7 +319,7 @@ test.describe("Merge #7", () => {
 
   test("should disable Merge with the reason while the pull request waits for the approvals its base requires", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ mergeState: "blocked", reviewDecision: "reviewRequired" }))
-    await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toContainText("Awaiting Approval")
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Awaiting approval")
     await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "waiting")
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Merge" })).toBeDisabled()

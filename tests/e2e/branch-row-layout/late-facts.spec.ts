@@ -26,15 +26,26 @@ async function trackBox(locator: Locator): Promise<Box> {
   return box!
 }
 
-/** Where the row of JIRA-456 is, and where its commits, its pull request and its step stand */
-async function rowLayout(page: Page): Promise<{ row: Box; commits: Box; pullRequest: { x: number; width: number }; step: Box }> {
+/** Where a track of a row stands and how wide it is: its height is its content's ("Checking…" of a step, or nothing) */
+async function trackPlace(locator: Locator): Promise<{ x: number; width: number }> {
+  const { x, width } = await trackBox(locator)
+  return { x, width }
+}
+
+/**
+ * Where the row of JIRA-456 is, and where its commits, its state, its pull request and its step stand: the step track
+ * holds "Checking…" until the approvals come, nothing once they say it waits (a wait is the state of the Status cell)
+ */
+async function rowLayout(
+  page: Page,
+): Promise<{ row: Box; commits: Box; state: { x: number; width: number }; pullRequest: { x: number; width: number }; step: { x: number; width: number } }> {
   const row = findBranchRow(page, BRANCH)
-  const { x, width } = await trackBox(row.locator("[data-track=pr]"))
   return {
     row: await boxOf(row),
     commits: await boxOf(row.locator("[data-track=commits]")),
-    pullRequest: { x, width },
-    step: await trackBox(row.locator("[data-track=step]")),
+    state: await trackPlace(row.locator("[data-track=state]")),
+    pullRequest: await trackPlace(row.locator("[data-track=pr]")),
+    step: await trackPlace(row.locator("[data-track=step]")),
   }
 }
 
@@ -91,6 +102,7 @@ test.describe("Late facts", () => {
     await expect(getYourTurnCard(page).getByTestId("review-request-row")).toHaveCount(1)
     await expect(findBranchRow(page, BRANCH).getByTestId("pull-request-chip")).toBeVisible()
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toHaveAttribute("data-step", "awaiting")
+    await expect(findBranchRow(page, BRANCH).getByTestId("step-wait")).toHaveText("Awaiting review")
     await expect(page.getByTestId("your-turn-checking")).toHaveCount(0)
     expect(await rowLayout(page)).toEqual(settled)
   })

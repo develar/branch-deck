@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusRobot } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchDetailsRow, getLandingNode, getRowWait } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
 import {
   AWAITING_CODE_OWNER,
@@ -377,6 +377,14 @@ test.describe("Whole stack", () => {
     expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air" })])
     expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
+    // the pull request asks the code owner: the header says the wait beside it, a state its slot offers no action of,
+    // and opens the pull request it waits in
+    const wait = island(page, "air").getByTestId("stack-island-wait").getByTestId("step-wait")
+    await expect(wait).toHaveText("Awaiting review")
+    await expect(slot).toHaveAttribute("data-step", "awaiting")
+    await expect(slot.getByTestId("next-step")).toHaveCount(0)
+    await wait.click()
+    await expect.poll(() => getOpenedUrls(page)).toEqual([expect.stringMatching(/\/pull\/\d+$/)])
   })
 
   test("should show the failed robot of the whole stack in the hover of the island's node, with its actions", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -764,14 +772,16 @@ test.describe("Whole stack", () => {
     const slot = findBranchRow(page, "bridge").getByTestId("next-step-slot")
     await waitForStepFacts(slot)
     await expect(slot).toHaveAttribute("data-step", "createPullRequest")
-    const step = slot.getByTestId("next-step")
-    await expect(step).toHaveText("In #12")
-    await expect(step).toHaveAttribute("data-tone", "quiet")
-    await step.hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText(
-      "Code owners must approve in a pull request: IJPL Code Platform\nApprovals in #12, the pull request of the whole air stack, count for its Safe Push only\nOpen Pull Request #12",
+    // a state, which its Status cell says: the slot offers no action
+    await expect(slot.getByTestId("next-step")).toHaveCount(0)
+    const wait = getRowWait(findBranchRow(page, "bridge"))
+    await expect(wait).toHaveText("In #12")
+    await expect(wait).toHaveAttribute("data-tone", "quiet")
+    await wait.hover()
+    await expect(page.getByTestId("step-wait-hover")).toHaveText(
+      "Code owners must approve in a pull request: IJPL Code Platform\nApprovals in #12, the pull request of the whole air stack, count for its Safe Push only\nOpen Pull Request #12O",
     )
-    await step.click()
+    await wait.click()
     await expect.poll(() => getOpenedUrls(page)).toEqual([stack.url, stack.url])
 
     // the branch's own Safe Push still needs approvals of its own: S says so, and where those of the whole stack count

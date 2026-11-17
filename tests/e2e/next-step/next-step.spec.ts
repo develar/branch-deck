@@ -4,7 +4,7 @@ import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "..
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
+import { findBranchRow, getLandingNode, getRowWait } from "../helpers/branch-helpers"
 import {
   APPROVED_BY_CODE_OWNER,
   AWAITING_CODE_OWNER,
@@ -175,17 +175,22 @@ test.describe("Next step", () => {
   test("should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED])
 
-    // the quiet wait in the slot, which opens the pull request it waits in
+    // the wait is a state: the Status cell says it and opens the pull request it waits in; the slot offers no action
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
-    const step = slot(page).getByTestId("next-step")
-    await expect(step).toHaveText("Awaiting Review")
-    await expect(step).toHaveAttribute("data-tone", "quiet")
-    await step.hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
+    await expect(slot(page).getByTestId("next-step")).toHaveCount(0)
+    const wait = getRowWait(findBranchRow(page, BRANCH))
+    await expect(wait).toHaveText("Awaiting review")
+    await expect(wait).toHaveAttribute("data-tone", "quiet")
+    await wait.hover()
+    await expect(page.getByTestId("step-wait-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
     // the chip of the pull request keeps its own state: the row doesn't say it twice
     await expect(findBranchRow(page, BRANCH).getByTestId("pull-request-chip")).not.toContainText("Awaiting")
-    await step.click()
+    await wait.click()
     expect(await getOpenedUrls(page)).toEqual([AWAITED.url])
+    // O on the focused row opens it too
+    await findBranchRow(page, BRANCH).focus()
+    await page.keyboard.press("o")
+    await expect.poll(() => getOpenedUrls(page)).toEqual([AWAITED.url, AWAITED.url])
 
     // "⋯": Safe Push and its profile disabled with the reason, Dry Run needs no approval, Check Approvals Again
     const menu = await expectSafePushItemsDisabled(page, "enabled")
@@ -211,8 +216,8 @@ test.describe("Next step", () => {
   }) => {
     // a Patronus that doesn't evaluate the pull request yet: nobody can tell whether the bot's approval counts
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED])
-    // GitHub waits for ikorennoy: the slot says so, S still opens the start
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
+    // GitHub waits for ikorennoy: the Status cell says so, S still opens the start
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Awaiting review")
     const popover = await openSafePushWithKey(page, BRANCH)
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
@@ -226,9 +231,9 @@ test.describe("Next step", () => {
     await openSubmenu(page, "Patronus")
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
-    await slot(page).getByTestId("next-step").hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Awaiting review")
+    await getRowWait(findBranchRow(page, BRANCH)).hover()
+    await expect(page.getByTestId("step-wait-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
 
     // the menu's Safe Push says why: Patronus would fail it
     const menuAgain = await openMenu(page)
@@ -251,9 +256,9 @@ test.describe("Next step", () => {
     const row = findBranchRow(page, "oauth")
     const oauthSlot = row.getByTestId("next-step-slot")
     await expect(oauthSlot).toHaveAttribute("data-step", "awaiting")
-    await expect(oauthSlot.getByTestId("next-step")).toHaveText("Awaiting Review")
-    await oauthSlot.getByTestId("next-step").hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #8O")
+    await expect(getRowWait(row)).toHaveText("Awaiting review")
+    await getRowWait(row).hover()
+    await expect(page.getByTestId("step-wait-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #8O")
     // Patronus is asked for the stacked branch itself, its start the comment on #8
     expect((await repo.getReviewReadinessCalls()).some(call => call.branches.includes("oauth"))).toBe(true)
     // S says why, naming the branch, and opens no form
@@ -309,7 +314,7 @@ test.describe("Next step", () => {
     // the screenshot of 2026-10-18: a bot approved #1078, Patronus doesn't tell whose approvals count, ikorennoy is asked
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
+    await expect(getRowWait(findBranchRow(page, BRANCH))).toHaveText("Awaiting review")
     // the node waits, never "Ready to land"
     const node = findBranchRow(page, BRANCH).getByTestId("lane-node")
     await expect(node).toHaveAttribute("data-kind", "waiting")
@@ -657,11 +662,14 @@ test.describe("Next step", () => {
   test("should open a pull request into another base that may be meant, and keep its retarget in the menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: "release-252" })])
     await expect(slot(page)).toHaveAttribute("data-step", "otherBase")
-    const step = slot(page).getByTestId("next-step")
-    await expect(step).toHaveText("Open Pull Request")
-    await expect(step).toHaveAttribute("data-tone", "quiet")
-    await step.hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText("Approvals in #7 don't count: its base is release-252. Open Pull Request #7O")
+    await expect(slot(page).getByTestId("next-step")).toHaveCount(0)
+    const wait = getRowWait(findBranchRow(page, BRANCH))
+    await expect(wait).toHaveText("Into release-252")
+    await expect(wait).toHaveAttribute("data-tone", "quiet")
+    await wait.hover()
+    await expect(page.getByTestId("step-wait-hover")).toHaveText("Approvals in #7 don't count: its base is release-252. Open Pull Request #7O")
+    await wait.click()
+    expect(await getOpenedUrls(page)).toEqual([pullRequest(BRANCH, 7).url])
     const menu = await openMenu(page)
     await expect(menu.getByRole("menuitem", { name: "Retarget #7 to master" })).toBeEnabled()
     await expect(menu.getByRole("menuitem", SAFE_PUSH_ITEM)).toBeDisabled()

@@ -190,6 +190,14 @@ export function getLandingNode(branchRow: Locator): Locator {
   return branchRow.getByTestId("lane-node")
 }
 
+/**
+ * The state the next step of a branch row waits in, in its Status cell ("Awaiting review", "Changes requested",
+ * "Draft"), its tone in `data-tone`: a click opens the pull request it waits in; the slot of the Actions shows none
+ */
+export function getRowWait(branchRow: Locator): Locator {
+  return branchRow.getByTestId("step-wait")
+}
+
 /** The chip after the name of a stack root: its size, the toggle of its collapse */
 export function getStackChip(row: Locator): Locator {
   return row.getByTestId("stack-chip")

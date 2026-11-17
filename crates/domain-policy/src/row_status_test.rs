@@ -1,11 +1,12 @@
 use crate::landing_node::{NodeFacts, landing_node};
 use crate::next_step::{StepRobot, next_step};
-use crate::next_step_test::{Fixture, robot_on_tip};
+use crate::next_step_test::{Fixture, failed, group, missing, open, readiness, robot_on_tip};
 use crate::row_status::row_status;
 use domain_types::fixtures::robot_of;
 use domain_types::landing::{Landed, LandedBy};
-use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, RowFact, RowStatus, StepKind};
-use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
+use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, RowFact, RowStatus, StepKind};
+use domain_types::patronus::{MissingApprovalsReason, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
+use domain_types::pull_request::PullRequestBase;
 use domain_types::session::{BranchStatus, FactState, Parked};
 use pretty_assertions::assert_eq;
 
@@ -450,4 +451,74 @@ fn a_finished_robot_of_an_earlier_state_gives_way_where_no_start_is_offered() {
     assert_eq!(decide(plain, &|it| it.view = FactState::Loading), RowStatus::default(), "{robot:?}: pending");
     assert_eq!(decide(plain, &|it| it.commit_count = 0), RowStatus::default(), "{robot:?}: no commits");
   }
+}
+
+/// The Status cell and the next step of the branch of `fixture`, nothing else of the row
+fn cell_of(fixture: &Fixture) -> (RowStatus, NextStep) {
+  let standing = fixture.standing();
+  let step = fixture.facts(&standing);
+  let facts = NodeFacts {
+    step,
+    status: BranchStatus::Unchanged,
+    blocked_by: None,
+    lands_with: None,
+    lands_failing: false,
+    push_pending: false,
+  };
+  (row_status(&facts), next_step(&step))
+}
+
+/// A wait is a state: the cell says it where nothing of the branch's own says more (a finished robot that covers nothing
+/// gives way to it), the step is no action of the slot; a failed robot, parked or a block keep the cell, and the wait is
+/// never a fact beside another
+#[test]
+fn a_wait_is_the_state_of_the_cell_where_nothing_of_its_own_says_more() {
+  let wait = RowStatus {
+    main: Some(RowFact::Wait),
+    also: Vec::new(),
+  };
+  let awaiting = || {
+    Fixture::branch().with(open(PullRequestBase::Target, |_| {})).with(readiness(missing(
+      vec![group("IJPL Code Platform", &["ikorennoy"], &[], &[])],
+      MissingApprovalsReason::ApprovalsMissing,
+    )))
+  };
+  let (status, step) = cell_of(&awaiting());
+  assert!(matches!(step.kind, StepKind::Awaiting { .. }) && step.wait);
+  assert_eq!(status, wait);
+  let draft = Fixture::branch().with(open(PullRequestBase::Target, |it| it.is_draft = true));
+  let (status, step) = cell_of(&draft);
+  assert!(matches!(step.kind, StepKind::Draft { .. }) && step.wait);
+  assert_eq!(status, wait);
+  // a Dry Run passed on the branch as it is: it covers nothing, the wait says more
+  let dry_run = awaiting().with(|it| {
+    let mut robot = robot_on_tip(PatronusRobotStatus::Success);
+    robot.push_mode = PatronusPushMode::DryRun;
+    it.robot = Some((robot, Some(false), None, false));
+  });
+  assert_eq!(cell_of(&dry_run).0, wait);
+  // parked: the cell says it, the wait is no fact beside it
+  let parked = awaiting().with(|it| {
+    it.parked = Some(Parked {
+      note: "after the release".to_string(),
+      with: None,
+    });
+  });
+  assert_eq!(cell_of(&parked).0.main, Some(RowFact::Parked));
+  assert!(!cell_of(&parked).0.also.contains(&RowFact::Wait));
+  // a robot failed and nobody can tell whether the approvals count: the robot is the state, its pull request no action
+  let unjudged = Fixture::branch()
+    .with(failed(Some(true), true))
+    .with(open(PullRequestBase::Target, |_| {}))
+    .with(readiness(ReviewReadiness::Unknown {
+      reason: UnknownReadinessReason::ApprovalsNotEvaluated,
+    }));
+  let (status, step) = cell_of(&unjudged);
+  assert!(step.wait, "{:?}", step.kind);
+  assert_eq!(status.main, Some(RowFact::Robot { running: false, failed: true }));
+  assert!(!status.also.contains(&RowFact::Wait));
+  // a step of an action is no wait: the cell says the push state
+  let (status, step) = cell_of(&Fixture::branch());
+  assert!(!step.wait);
+  assert_eq!(status, RowStatus::default());
 }

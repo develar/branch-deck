@@ -148,6 +148,12 @@ The contract is [Landing Routes](../../openspec/specs/branch/landing-routes/spec
   hours later; a fix doesn't disturb the robot, which lands the remote copy whose push it holds. All of it in master
   outranks a conflict of what is left: the update archives it. One table over every combination pins it
   (`row_status_test.rs`), and `brd status` says the same cell (`next_step.status`).
+- **Status says, Actions do.** The Status column says where the work stands and whose move it is, the Actions column
+  only what the user can do now. A wait is a state (`StepKind::is_wait`: the reviewers, a draft, changes requested,
+  another base, the merge of GitHub): the cell says it where nothing of the branch's own says more ("Awaiting
+  review", `RowFact::Wait`), the slot shows no step of it. Until 2026-11-17 the wait was a "quiet step" in the slot:
+  a branch awaiting review had an empty Status cell (its push state up to date, quiet) and "◷ Awaiting Review" among
+  the buttons, the state in the column of what to do, next to the pull request chip of the same object in Status.
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
   Landing, Waiting, In Master ([Branch Filter](../../openspec/specs/branch/branch-filter/spec.md)). They replaced To Push,
   Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is

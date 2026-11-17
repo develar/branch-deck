@@ -973,8 +973,8 @@ matches (`domain_policy::next_step`), from the robot, the pull request and the r
 
 #### Scenario: The wait for the approvals that count
 - **WHEN** the branch waits for the approvals that count
-- **THEN** the slot is "Awaiting Review" (whom on hover), "Changes Requested", "Request Review…", "Create Pull Request…";
-  "Draft", "Retarget #7" (to master on hover)
+- **THEN** the slot is "Request Review…", "Create Pull Request…" or "Retarget #7" (to master on hover); a wait is the
+  Status cell's: "Awaiting review" (whom on hover), "Changes requested", "Draft"
 - **AND** a stacked branch's by its own pull request
 
 #### Scenario: Nothing to offer

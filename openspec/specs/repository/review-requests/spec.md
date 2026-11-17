@@ -136,7 +136,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 ### Approval news
 
 The other side of the review: the user waits for the code owners of their own pull request
-([Next Step](../../branch/next-step/spec.md), "Awaiting Review", whom in its hover). An approval that makes it ready is news, with the
+([Next Step](../../branch/next-step/spec.md), "Awaiting review" in the Status cell, whom in its hover). An approval that makes it ready is news, with the
 Safe Push it allows.
 
 ## Requirements

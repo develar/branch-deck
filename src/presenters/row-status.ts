@@ -12,10 +12,18 @@ import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
 import { stackProblemOf } from "@/lib/stack"
+import type { StepWait } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
 
-/** What the first column of the cell shows: the robot of the row, its parked state, or a status text */
-export type RowCell = { readonly kind: "robot"; readonly running: boolean } | { readonly kind: "parked" } | { readonly kind: "text"; readonly texts: StatusTexts }
+/**
+ * What the first column of the cell shows: the robot of the row, its parked state, the state its next step waits in
+ * (worded by the step, `BranchNextStep.wait`), or a status text
+ */
+export type RowCell =
+  | { readonly kind: "robot"; readonly running: boolean }
+  | { readonly kind: "parked" }
+  | { readonly kind: "wait" }
+  | { readonly kind: "text"; readonly texts: StatusTexts }
 
 /** The mark beside the first column: the colour of its strongest fact, and a line of each fact on its hover */
 export interface RowMark {
@@ -23,12 +31,16 @@ export interface RowMark {
   readonly lines: readonly string[]
 }
 
-/** What the cell words beside the view: the branch, the baseline that landed it (`useLandedIn`), its robot, parked */
+/**
+ * What the cell words beside the view: the branch, the baseline that landed it (`useLandedIn`), its robot, parked, and
+ * the state its next step waits in (`BranchNextStep.wait`), null while the step is an action or not presented
+ */
 export interface RowContext {
   readonly branch: Branch
   readonly landedIn: string | null
   readonly robot: PatronusRobot | undefined
   readonly parked: ParkedState | null
+  readonly wait: StepWait | null
 }
 
 /** The first column of the Status cell of a branch row */
@@ -43,6 +55,9 @@ export function presentRowCell(status: RowStatus | undefined, context: RowContex
   }
   if (main?.kind === "parked" && context.parked !== null) {
     return { kind: "parked" }
+  }
+  if (main?.kind === "wait") {
+    return { kind: "wait" }
   }
   return { kind: "text", texts: main === null ? pushTexts(branch) : factTexts(main, context) }
 }
@@ -99,8 +114,11 @@ function pushTexts(branch: Branch): StatusTexts {
 }
 
 /** The words of a fact of the cell */
-function factTexts(fact: RowFact, { branch, landedIn, robot, parked }: RowContext): StatusTexts {
+function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: RowContext): StatusTexts {
   switch (fact.kind) {
+    // the step it waits in: "Awaiting review", "Changes requested" in red; without its words yet, the push state
+    case "wait":
+      return wait === null ? pushTexts(branch) : { text: wait.label, tooltip: wait.description, color: wait.tone === "destructive" ? "error" : "neutral" }
     case "syncFailed": {
       // a stack problem: its label, its message on hover
       if (fact.status === "AnalyzingConflict") {
@@ -137,6 +155,8 @@ function markColor(fact: RowFact): RowMark["color"] {
       return fact.failed ? "error" : "success"
     case "blocked":
     case "parked":
+      return "warning"
+    case "wait":
       return "warning"
     case "landed":
       return "success"

@@ -37,10 +37,9 @@ type SlotBranch = Pick<Branch, "name" | "remoteStatus">
  *   start of the branch: the menu, S, the preview, the review window, a toast);
  *   "Restart Safe Push" after a failed or canceled robot of the branch as it is; "Retarget #7 to master" of a pull
  *   request into another base; "Create Pull Request…" or "Request Review…" where the approvals that count are missing;
- * - a quiet step, the state as its label, which opens the pull request it waits in: "Awaiting Ilya Korennoy" (or
- *   "Awaiting 2 Reviews"), "Changes Requested" in `destructive`, "Draft";
  * - nothing while the Status cell says why: a sync, a failed sync, a blocked branch, a robot that runs or merged, a
- *   Safe Push that lands the branch (`PushHold`), a branch that landed;
+ *   Safe Push that lands the branch (`PushHold`), a branch that landed, and a wait (`BranchNextStep.wait`: "Awaiting
+ *   review", "Changes requested", "Draft"), a state and no action, which the Status cell says (`StepWaitStatus`);
  * - on the root of a small stack, while the start of its whole stack runs, the steps of that start.
  * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
  * (`RequestReviewAnchors`).
@@ -69,7 +68,8 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
     // no step where Patronus doesn't answer; Request Review… of an open pull request asks GitHub, from the menus
     return stackHeader === undefined ? <RequestReviewAnchors branch={branch} wholeStack={!wholeStackInHeader} /> : null
   }
-  const item = step.item
+  // a wait is a state: the Status cell says it, the slot of the actions shows none
+  const item = step.wait === null ? step.item : null
   const requestReview = !startsWholeStack && step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
     <div

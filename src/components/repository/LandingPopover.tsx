@@ -278,7 +278,8 @@ interface LandingRowProps {
  */
 function LandingRow({ name, node, subject = { kind: "branch", name }, size, step, stepOwner = name, nested = false, kind, pullRequest, onClose, onReveal }: LandingRowProps) {
   const reason = node.label.split("\n")[0] ?? ""
-  const item = step?.item ?? null
+  // a wait is a state, which the reason under the name says: no button of it ("Status says, Actions do")
+  const item = step === null || step.wait !== null ? null : step.item
   return (
     <li className="col-span-full grid grid-cols-subgrid items-center" data-testid="landing-row" data-branch-name={name} data-kind={node.kind}>
       {/* the node and the name; a branch of the stack above is indented one step */}

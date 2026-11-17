@@ -54,6 +54,7 @@ fn ready_step() -> NextStep {
   NextStep {
     row: StepRow::Eleven,
     kind: StepKind::SafePush,
+    wait: false,
     safe_push: None,
     dry_run: None,
     needs_readiness: false,

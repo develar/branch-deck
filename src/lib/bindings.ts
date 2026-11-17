@@ -5425,6 +5425,11 @@ export type NewsKey =
 export type NextStep = {
 	row: StepRow,
 	kind: StepKind,
+	/**
+	 *  The step is a state the subject waits in (`StepKind::is_wait`): the status of the subject says it, the slot of its
+	 *  actions shows none; left out of the JSON when false, as most steps are actions
+	 */
+	wait?: boolean,
 	/**  Why "Safe Push" can't open now; `None` when it can */
 	safePush: StepBlocker | null,
 	/**  Why a Dry Run can't start: never the approvals, a draft, another base or a robot that lands an ancestor */
@@ -8884,7 +8889,12 @@ export type RowFact =
 /**  The baseline or a merged Safe Push of another branch has all of it */
 { kind: "landed" } | 
 /**  It stays local */
-{ kind: "parked" };
+{ kind: "parked" } | 
+/**
+ *  Its next step is a state it waits in (`StepKind::is_wait`: the reviewers, a draft, changes requested): the cell
+ *  says the step, never beside another fact
+ */
+{ kind: "wait" };
 
 /**
  *  The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";

@@ -251,7 +251,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const parked = useParkedState(branch.name)
   // the robot has its own chip here: the first fact of the cell that is not the robot, else the push state
-  const status = presentPreviewStatus(useRowPart(branch.name, "landing")?.status, { branch, landedIn, robot, parked })
+  // the state its next step waits in, which the status words: "Awaiting review"
+  const wait = useBranchNextStep(branch.name)?.wait ?? null
+  const status = presentPreviewStatus(useRowPart(branch.name, "landing")?.status, { branch, landedIn, robot, parked, wait })
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = []
   items.push(<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>)

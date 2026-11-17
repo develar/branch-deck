@@ -11,6 +11,7 @@ import {
   getLandingNode,
   getMoreButton,
   getPushButton,
+  getRowWait,
   pushFromRowMenu,
   verifyBranchState,
   verifyCommitCount,
@@ -1977,14 +1978,16 @@ test.describe("Patronus actions", () => {
     test("should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { isDraft: true, reviewers: [reviewer("alice", "approved")] }))
 
-      // the state as the label, quiet, opening the pull request it waits in
-      const step = findBranchRow(page, "JIRA-456").getByTestId("next-step")
-      await expect(findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")).toHaveAttribute("data-step", "draft")
-      await expect(step).toHaveText("Draft")
-      await expect(step).toHaveAttribute("data-tone", "quiet")
-      await step.hover()
-      await expect(page.getByTestId("next-step-hover")).toHaveText("#7 is a draft: Patronus merges it once it is ready for review. Open Pull Request #7O")
-      await step.click()
+      // the state in the Status cell, quiet, opening the pull request it waits in; no action in the slot
+      const slot = findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")
+      await expect(slot).toHaveAttribute("data-step", "draft")
+      await expect(slot.getByTestId("next-step")).toHaveCount(0)
+      const wait = getRowWait(findBranchRow(page, "JIRA-456"))
+      await expect(wait).toHaveText("Draft")
+      await expect(wait).toHaveAttribute("data-tone", "quiet")
+      await wait.hover()
+      await expect(page.getByTestId("step-wait-hover")).toHaveText("#7 is a draft: Patronus merges it once it is ready for review. Open Pull Request #7O")
+      await wait.click()
       expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
 
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -2090,9 +2093,10 @@ test.describe("Patronus actions", () => {
         expect(writes).toContainEqual(["POST", repoPath("pulls", 7, "requested_reviewers"), { reviewers: ["alice-gh"] }])
         // the approvals count in it: the row waits for the code owner asked there, whom its hover names
         await expect(slot).toHaveAttribute("data-step", "awaiting")
-        await expect(slot.getByTestId("next-step")).toHaveText("Awaiting Review")
-        await slot.getByTestId("next-step").hover()
-        await expect(page.getByTestId("next-step-hover")).toContainText("Awaiting Alice")
+        const wait = getRowWait(findBranchRow(page, "JIRA-456"))
+        await expect(wait).toHaveText("Awaiting review")
+        await wait.hover()
+        await expect(page.getByTestId("step-wait-hover")).toContainText("Awaiting Alice")
       })
 
       test("should open GitHub's form without a token GitHub accepts", async ({ page, setupRepo, syncAndWaitForBranches }) => {

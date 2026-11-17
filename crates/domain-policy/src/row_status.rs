@@ -5,9 +5,13 @@
 //! what landed all of it (its own merged robot says "Merged"), a failed sync, parked, a block by its parent, and its
 //! robot finished on the branch as it is. A finished robot that neither failed nor landed all of it covers nothing; the rest is the sync or the push state, which the page words as it
 //! changes (a sync running lays over the cell, as it passes).
+//!
+//! A wait is a state (`StepKind::is_wait`: the reviewers, a draft, changes requested, the merge of GitHub): where no own
+//! fact says more, the cell says the step, and the slot of the actions shows none ("Status says, Actions do",
+//! docs/contributing/ux-writing.md). It comes before a finished robot that covers nothing, never beside another fact.
 
 use crate::landing_node::NodeFacts;
-use crate::next_step::{Chip, Slot};
+use crate::next_step::{Chip, Slot, next_step};
 use crate::own_facts::own_facts;
 use domain_types::next_step::{RowFact, RowStatus};
 
@@ -44,6 +48,12 @@ pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
       running: false,
       failed: matches!(chip, Chip::Failed | Chip::NeedsReview),
     });
+  }
+  // the state it waits in, where no fact of its own says more than a finished robot that covers nothing: the slot of its
+  // actions shows none
+  let covers_nothing = matches!(found.as_slice(), [] | [RowFact::Robot { running: false, failed: false }]) && !merged;
+  if covers_nothing && next_step(&facts.step).wait {
+    found.insert(0, RowFact::Wait);
   }
   let mut found = found.into_iter();
   let main = found.next();

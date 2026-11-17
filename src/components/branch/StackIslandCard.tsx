@@ -11,6 +11,7 @@ import { GaplessAnchors, NextStepSlot, WholeStackRequestReviewAnchor } from "@/c
 import { ClosePullRequestButton, OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { LaneNodeDot } from "@/components/branch/StackLanes"
+import { StepWaitStatus } from "@/components/branch/StepWaitStatus"
 import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
@@ -22,6 +23,7 @@ import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
 import { useSourceMemo } from "@/hooks/useSourceMemo"
+import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -142,6 +144,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
       actions={
         <>
           <StackPullRequestButton root={root} />
+          <StackWaitStatus root={root} held={summary.rootHeld} />
           <IslandStateChips root={root} />
           {/* the header has the card's wider padding: its actions stand where the Actions cell of the rows ends */}
           <div className="sm:-mr-2">
@@ -413,6 +416,20 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
   }
   const description = describeStackSafePush(leaf, summary.mainLine, summary.members)
   return <NextStepSlot branch={branch} stackHeader={{ description }} />
+}
+
+/**
+ * The state the step of the whole stack waits in ("Awaiting review", "Changes requested" of its pull request, of the
+ * last branch of a straight chain), which the slot of the header doesn't show, as a wait is no action; none while a
+ * Safe Push runs in the stack (`held`), whose landing line says it
+ */
+function StackWaitStatus({ root, held }: { root: string; held: boolean }) {
+  const wait = useStackNextStep(root)?.step.wait ?? null
+  return held || wait === null ? null : (
+    <div className="flex min-w-0 px-2" data-testid="stack-island-wait">
+      <StepWaitStatus wait={wait} showKeys={false} />
+    </div>
+  )
 }
 
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */

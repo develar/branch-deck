@@ -14,7 +14,7 @@ function rowStatus(main: RowFact | null, also: RowFact[] = []): RowStatus {
 }
 
 function context(branch: Branch, extra: Partial<RowContext> = {}): RowContext {
-  return { branch, landedIn: null, robot: undefined, parked: null, ...extra }
+  return { branch, landedIn: null, robot: undefined, parked: null, wait: null, ...extra }
 }
 
 describe("the Status cell of a branch row", () => {
@@ -80,5 +80,23 @@ describe("the Status cell of a branch row", () => {
     expect(presentRowCell(rowStatus({ kind: "syncFailed", status: "AnalyzingConflict" }), context({ ...failed, statusText: "" }))).toMatchObject({
       texts: { tooltip: "Analyzing conflict…", color: "warning" },
     })
+  })
+
+  it("says the state the next step waits in, worded by the step, and the preview its words: no action of the slot says it", () => {
+    const branch = testBranch("docs", null, { remoteStatus: testRemoteStatus() })
+    const wait = {
+      label: "Awaiting review",
+      description: "Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078",
+      icon: undefined,
+      tone: "quiet" as const,
+      open: () => {},
+    }
+    expect(presentRowCell(rowStatus({ kind: "wait" }), context(branch))).toEqual({ kind: "wait" })
+    expect(presentPreviewStatus(rowStatus({ kind: "wait" }), context(branch, { wait }))).toMatchObject({ text: "Awaiting review", tooltip: wait.description, color: "neutral" })
+    expect(presentPreviewStatus(rowStatus({ kind: "wait" }), context(branch, { wait: { ...wait, label: "Changes requested", tone: "destructive" } }))).toMatchObject({
+      color: "error",
+    })
+    // a sync lays over it as over any fact
+    expect(presentRowCell(rowStatus({ kind: "wait" }), context({ ...branch, status: "Syncing" }))).toMatchObject({ kind: "text" })
   })
 })

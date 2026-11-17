@@ -5,6 +5,8 @@ import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { RobotStatusChip } from "@/components/branch/PatronusChip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
+import { StepWaitStatus } from "@/components/branch/StepWaitStatus"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useRowRobotChip } from "@/hooks/useRowRobot"
@@ -34,9 +36,10 @@ const ROW_ROBOT = "h-6 min-w-0 gap-2 px-0 text-sm"
  * The first column of the Status cell of a branch row, what happens to the branch, as Rust decides it (`RowStatus`,
  * `presentRowCell`): its robot while one runs (its ring, its time, the progress line under it; "Failing" in
  * `destructive` for one that will fail) or finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run
- * passed", "Canceled"), what landed it, a failed sync, parked, a block by its parent, else the push state. The facts the
- * first covers stay beside it as a mark whose hover names them: a running robot never hides a block or a conflict. A
- * sync running lays over the cell.
+ * passed", "Canceled"), what landed it, a failed sync, parked, a block by its parent, the state its next step waits in
+ * ("Awaiting review", "Changes requested", "Draft": no action, so the slot of the Actions shows none), else the push
+ * state. The facts the first covers stay beside it as a mark whose hover names them: a running robot never hides a
+ * block or a conflict. A sync running lays over the cell.
  *
  * A leaf of its row: it reads the branch by its name, the status of its sync included, which the row leaves out
  * (`Branch.row`), so a sync that changes only the status of a branch renders this alone.
@@ -53,7 +56,7 @@ function RowStatusCell({ branch }: { branch: Branch }) {
   const robot = useBranchRobot(branch.name)
   const parked = useParkedState(branch.name)
   const status = useRowPart(branch.name, "landing")?.status
-  const context = { branch, landedIn, robot, parked }
+  const context = { branch, landedIn, robot, parked, wait: null }
   const cell = presentRowCell(status, context)
   const mark = presentRowMark(status, context)
   const first =
@@ -61,6 +64,8 @@ function RowStatusCell({ branch }: { branch: Branch }) {
       <RobotRowStatus branch={branch} robot={robot} running={cell.running} />
     ) : cell.kind === "parked" && parked !== null ? (
       <ParkedStatus state={parked} />
+    ) : cell.kind === "wait" ? (
+      <RowWaitStatus name={branch.name} />
     ) : cell.kind === "text" ? (
       <BranchStatusBadge status={cell.texts} />
     ) : null
@@ -87,6 +92,15 @@ function RobotRowStatus({ branch, robot, running }: { branch: Branch; robot: Pat
       {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
     </RobotStatusChip>
   )
+}
+
+/**
+ * The state the next step of the branch waits in ("Awaiting review", "Changes requested", "Draft"), which its slot of
+ * actions doesn't show; the step's hooks only for a row that waits, a few of the rows
+ */
+function RowWaitStatus({ name }: { name: string }) {
+  const wait = useBranchNextStep(name)?.wait ?? null
+  return wait === null ? null : <StepWaitStatus wait={wait} showKeys />
 }
 
 /** The facts the first column covers ("blocked by auth" beside a running Safe Push): a dot, their lines on hover */

@@ -19,7 +19,8 @@ export interface WholeStackSlotProps {
  * The Safe Push slot of the header of a stack island whose stack forks: the next step of the whole stack
  * (`useStackNextStep`, the step of its stack branch `{prefix}/stack/<root>`), as the slot of a row renders a branch's:
  * "Safe Push · 7" (one robot lands every branch of it, side branches too; the hover says what), the restart of its
- * robot, "Create Pull Request of the Stack…", Request Review… of its pull request, the wait in it. Disabled with the
+ * robot, "Create Pull Request of the Stack…", Request Review… of its pull request; a wait in it is a state, which the
+ * header says beside the pull request of the stack (`StackWaitStatus`), never this slot. Disabled with the
  * reason while its stack branch is not built ("The stack branch conflicts at …: the stack lands in pieces"). The popover
  * of its start opens here (`stack-header`), and so does the one of the Safe Push of the main line, which lands the stack
  * in pieces.
@@ -46,7 +47,8 @@ export function WholeStackSlot({ root, leaf }: WholeStackSlotProps) {
       </GaplessAnchors>
     )
   }
-  const item = step.item
+  // a wait is a state: the header says it beside the pull request of the stack, the slot shows none
+  const item = step.wait === null ? step.item : null
   const requestReview = step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
     <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-waits-for={step.waitsFor ?? undefined} data-whole-stack={root}>

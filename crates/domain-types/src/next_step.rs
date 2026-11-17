@@ -257,6 +257,43 @@ pub enum StepKind {
   MergeHeld { number: u32 },
 }
 
+impl StepKind {
+  /// A state the subject waits in, no action of the app (openspec/specs/branch/next-step/spec.md, "A wait is a state"):
+  /// the reviewers, a draft, changes requested, another base, the merge of GitHub, the pull request of the whole stack
+  /// or the one that collects the approvals of a failed robot. Its status says it; a slot of actions shows none, as a
+  /// click on it would only open the pull request its status opens
+  #[must_use]
+  pub const fn is_wait(&self) -> bool {
+    match self {
+      Self::Draft { .. }
+      | Self::ChangesRequested { .. }
+      | Self::Awaiting { .. }
+      | Self::ChangesRequestedUnjudged { .. }
+      | Self::AwaitingUnjudged { .. }
+      | Self::OtherBase { .. }
+      | Self::AutoMerging { .. }
+      | Self::MergeHeld { .. } => true,
+      Self::CreatePullRequest { stack, .. } => stack.is_some(),
+      Self::RobotPullRequest { number } => number.is_some(),
+      Self::Hidden
+      | Self::Settled
+      | Self::Pending { .. }
+      | Self::Unavailable { .. }
+      | Self::NeedsBranch { .. }
+      | Self::PickRemoteCommits { .. }
+      | Self::Restart { .. }
+      | Self::Retarget { .. }
+      | Self::LinkStack { .. }
+      | Self::RequestReview { .. }
+      | Self::SafePush
+      | Self::PushToBaseline { .. }
+      | Self::UpdateProject { .. }
+      | Self::OpenPullRequest
+      | Self::MergePullRequest { .. } => false,
+    }
+  }
+}
+
 /// Why "Safe Push" (or a Dry Run) can't open now, the same on every surface
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -296,6 +333,11 @@ pub struct StepRetarget {
 pub struct NextStep {
   pub row: StepRow,
   pub kind: StepKind,
+  /// The step is a state the subject waits in (`StepKind::is_wait`): the status of the subject says it, the slot of its
+  /// actions shows none; left out of the JSON when false, as most steps are actions
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub wait: bool,
   /// Why "Safe Push" can't open now; `None` when it can
   pub safe_push: Option<StepBlocker>,
   /// Why a Dry Run can't start: never the approvals, a draft, another base or a robot that lands an ancestor
@@ -506,6 +548,9 @@ pub enum RowFact {
   Landed,
   /// It stays local
   Parked,
+  /// Its next step is a state it waits in (`StepKind::is_wait`: the reviewers, a draft, changes requested): the cell
+  /// says the step, never beside another fact
+  Wait,
 }
 
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)

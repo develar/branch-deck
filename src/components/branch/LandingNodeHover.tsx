@@ -82,7 +82,7 @@ function BranchNodeAlso({ name }: { name: string }) {
   const robot = useBranchRobot(name)
   const parked = useParkedState(name)
   const status = useRowPart(name, "landing")?.status
-  const mark = branch === undefined ? null : presentRowMark(status, { branch, landedIn, robot, parked })
+  const mark = branch === undefined ? null : presentRowMark(status, { branch, landedIn, robot, parked, wait: null })
   if (mark === null) {
     return null
   }

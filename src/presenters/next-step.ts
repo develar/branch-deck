@@ -55,8 +55,22 @@ export type NextStepKind =
   | "awaiting"
   | "safePush"
 
-/** `quiet` is a state as a label (a wait, a draft): muted, it opens its object; `destructive` the same in red */
+/** `quiet` is a state (a wait, a draft): muted, it opens its object; `destructive` the same in red */
 export type NextStepTone = "default" | "quiet" | "destructive"
+
+/**
+ * A step that is a state the subject waits in (`NextStep.wait`, Rust's `StepKind::is_wait`), as a status says it:
+ * "Awaiting review", "Changes requested", "Draft", in sentence case as every status; its hover the whole state and the
+ * pull request it opens. A slot of actions shows no wait ("Status says, Actions do", docs/contributing/ux-writing.md)
+ */
+export interface StepWait {
+  readonly label: string
+  readonly description: string
+  readonly icon: MenuItem["icon"]
+  readonly tone: NextStepTone
+  /** Opens the object it waits in (the pull request), as O on the row does */
+  readonly open: MenuItem["onSelect"]
+}
 
 /** A fact the step waits for (`StepKind.pending`): the slot names it (`data-waits-for`) */
 export type PendingFact = StepFact
@@ -122,8 +136,10 @@ export interface StepContext {
 /** The next step of a subject in the page's words, the same on every surface */
 export interface BranchNextStep {
   readonly kind: NextStepKind
-  /** The action of the slot; null for `none` and `hidden` */
+  /** The action of the slot; null for `none` and `hidden`; of a wait, what opens its object, which no slot shows */
   readonly item: MenuItem | null
+  /** The state the subject waits in, which its status says; null for a step of an action */
+  readonly wait: StepWait | null
   readonly tone: NextStepTone
   /** Why "Safe Push" can't open now, the same on every surface; null when it can */
   readonly safePushBlocker: string | null
@@ -198,6 +214,11 @@ export function formatAwaitingLabel(people: readonly Person[]): string {
 /** "Awaiting Review", "Awaiting 2 Reviews": the wait in a column of steps (`compactLabel`); its hover names the people */
 export function formatAwaitingStep(count: number): string {
   return count === 1 ? "Awaiting Review" : `Awaiting ${count} Reviews`
+}
+
+/** "Awaiting review", "Awaiting 2 reviews": the wait as a status says it; its hover names the people */
+export function formatAwaitingStatus(count: number): string {
+  return count === 1 ? "Awaiting review" : `Awaiting ${count} reviews`
 }
 
 /**
@@ -333,6 +354,8 @@ interface Shown {
   readonly notice?: { readonly title: string; readonly description: string }
   readonly retarget?: MenuItem
   readonly landingFix?: MenuItem | null
+  /** The words of a wait as its status says them (`StepWait.label`), sentence case */
+  readonly status?: string
 }
 
 /** "Safe Push" ("Safe Push · 3" with what it is built on), disabled with `blocker` */
@@ -422,7 +445,7 @@ function createPullRequest(kind: Extract<StepKind, { kind: "createPullRequest" }
       onSelect: () => actions.openStackPullRequest(stack.root),
     }
     const notice = { title: `Safe Push of ${subject} needs a pull request`, description: `Code owners must approve in it: ${groupNames(kind.groups)} · ${counts}` }
-    return { kind: "createPullRequest", item, tone: "quiet", own: reason, notice }
+    return { kind: "createPullRequest", item, tone: "quiet", own: reason, notice, status: `In #${stack.number}` }
   }
   const item = (kind.repository ? actions.createPullRequest : null) ?? {
     id: "create-pull-request",
@@ -453,31 +476,31 @@ function requestReview(kind: Extract<StepKind, { kind: "requestReview" }>, conte
 function mergeHeld(step: NextStep, number: number, context: StepContext): Shown {
   const reason = step.safePush?.code === "rule" ? step.safePush.reason : null
   const words = reason === null ? `The merge of #${number} waits` : formatReason(reason)
-  const [label, icon, fix]: [string, MenuItem["icon"], boolean] = (() => {
+  const [label, status, icon, fix]: [string, string, MenuItem["icon"], boolean] = (() => {
     switch (reason?.code) {
       case "mergeConflict":
-        return ["Conflict", TriangleAlertIcon, true]
+        return ["Conflict", "Conflict", TriangleAlertIcon, true]
       case "mergeChangesRequested":
-        return ["Changes Requested", MessageSquareWarningIcon, true]
+        return ["Changes Requested", "Changes requested", MessageSquareWarningIcon, true]
       case "mergeChecksFail":
-        return ["Checks Fail", TriangleAlertIcon, true]
+        return ["Checks Fail", "Checks fail", TriangleAlertIcon, true]
       case "mergeBehind":
-        return ["Update Needed", RefreshCwIcon, false]
+        return ["Update Needed", "Behind its base", RefreshCwIcon, false]
       case "mergeHeadBehind":
-        return ["Push Branch First", RefreshCwIcon, false]
+        return ["Push Branch First", "Not pushed", RefreshCwIcon, false]
       case "mergeDraft":
-        return ["Draft", FileTextIcon, false]
+        return ["Draft", "Draft", FileTextIcon, false]
       case "mergeNeedsApprovals":
-        return ["Awaiting Approval", ClockIcon, false]
+        return ["Awaiting Approval", "Awaiting approval", ClockIcon, false]
       case "mergeChecksRunning":
-        return ["Checks Running", ClockIcon, false]
+        return ["Checks Running", "Checks running", ClockIcon, false]
       default:
-        return ["Merge Blocked", ClockIcon, false]
+        return ["Merge Blocked", "Merge blocked", ClockIcon, false]
     }
   })()
   const item = quietItem(context.actions, label, `${words}\nOpen Pull Request #${number}`, icon)
   const notice = { title: `The merge of #${number} of ${context.subject} waits`, description: words }
-  return { kind: fix ? "changesRequested" : "awaiting", item, tone: fix ? "destructive" : "quiet", own: words, notice }
+  return { kind: fix ? "changesRequested" : "awaiting", item, tone: fix ? "destructive" : "quiet", own: words, notice, status }
 }
 
 /** Row 10: someone of every missing group is asked: the wait, its hover a line per group */
@@ -489,7 +512,7 @@ function awaiting(kind: Extract<StepKind, { kind: "awaiting" }>, context: StepCo
   const waitsFor = people.length === 1 ? formatPerson(people[0]!) : `${people.length} reviews`
   const item = { ...quietItem(context.actions, formatAwaitingLabel(people), hover, ClockIcon), compactLabel: formatAwaitingStep(people.length) }
   const notice = { title: `Safe Push of ${context.subject} waits for ${waitsFor}`, description: `${groupNames(groups)} · requested on #${number}` }
-  return { kind: "awaiting", item, tone: "quiet", own: reason, notice }
+  return { kind: "awaiting", item, tone: "quiet", own: reason, notice, status: formatAwaitingStatus(people.length) }
 }
 
 /** The items of the step of `step.kind`; `general` the reason of the subject (or what runs on the row) that holds every start back */
@@ -534,7 +557,8 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     case "robotPullRequest": {
       // nobody can tell whether the approvals count: a restart may fail again, the pull request collects them
       const item = kind.number === null ? actions.createPullRequest : quietItem(actions, "Open Pull Request", `Open Pull Request #${kind.number}`, GitPullRequestArrowIcon)
-      return item === null ? { kind: "safePush", item: safePushItem(step, context, general) } : { kind: "pullRequest", item }
+      const status = kind.number === null ? undefined : `Approvals in #${kind.number}`
+      return item === null ? { kind: "safePush", item: safePushItem(step, context, general) } : { kind: "pullRequest", item, status }
     }
     case "retarget": {
       // a parent's branch: every pull request of a virtual branch goes into the target; short in its column
@@ -561,7 +585,7 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       const reason = `Approvals in #${kind.number} don't count: its base is ${kind.base}`
       const item = { ...quietItem(actions, "Open Pull Request", `${reason}. Open Pull Request #${kind.number}`, GitPullRequestArrowIcon), id: "open-pull-request-other-base" }
       const notice = { title: `Approvals in #${kind.number} of ${subject} don't count`, description: `Its base is ${kind.base}, not ${step.retarget?.target ?? context.target}` }
-      return { kind: "otherBase", item, tone: "quiet", own: reason, retarget, notice }
+      return { kind: "otherBase", item, tone: "quiet", own: reason, retarget, notice, status: `Into ${kind.base}` }
     }
     case "draft": {
       const reason = `#${kind.number} is a draft: Patronus merges it once it is ready for review`
@@ -571,6 +595,7 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
         item,
         tone: "quiet",
         own: reason,
+        status: "Draft",
         notice: { title: `#${kind.number} of ${subject} is a draft`, description: "Patronus merges it once it is ready for review" },
       }
     }
@@ -580,7 +605,14 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       // only the changes requested by a member of a group still short of approvals block, as Patronus decides
       const reason = formatApprovalBlocker("changesRequested", kind.groups, kind.number)
       const item = quietItem(actions, "Changes Requested", `${reason}. Open Pull Request #${kind.number}`, MessageSquareWarningIcon)
-      return { kind: "changesRequested", item, tone: "destructive", own: reason, notice: { title: `Safe Push of ${subject} waits for changes`, description: reason } }
+      return {
+        kind: "changesRequested",
+        item,
+        tone: "destructive",
+        own: reason,
+        notice: { title: `Safe Push of ${subject} waits for changes`, description: reason },
+        status: "Changes requested",
+      }
     }
     case "requestReview":
       return requestReview(kind, context)
@@ -593,6 +625,7 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
         kind: "changesRequested",
         item: quietItem(actions, "Changes Requested", `${reason}\nOpen Pull Request #${kind.number}`, MessageSquareWarningIcon),
         tone: "destructive",
+        status: "Changes requested",
       }
     }
     case "awaitingUnjudged": {
@@ -600,7 +633,7 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       const reason = `Waits for ${joinNames(reviewers)} on #${number} · ${UNJUDGED}`
       const label = reviewers.length === 1 ? `Awaiting ${reviewers[0]!}` : `Awaiting ${reviewers.length} Reviews`
       const item = { ...quietItem(actions, label, `${reason}\nOpen Pull Request #${number}`, ClockIcon), compactLabel: formatAwaitingStep(reviewers.length) }
-      return { kind: "awaiting", item, tone: "quiet" }
+      return { kind: "awaiting", item, tone: "quiet", status: formatAwaitingStatus(reviewers.length) }
     }
     case "safePush":
       return { kind: "safePush", item: safePushItem(step, context, general) }
@@ -634,7 +667,14 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       // row merge′: GitHub merges it by itself once its checks pass; Cancel Auto-Merge is in the menus
       const reason = `GitHub merges #${kind.number} by ${formatMergeMethod(kind.method)} once its checks pass`
       const item = quietItem(actions, "Merges when checks pass", `${reason}\nOpen Pull Request #${kind.number}`, ClockIcon)
-      return { kind: "awaiting", item, tone: "quiet", own: reason, notice: { title: `#${kind.number} of ${subject} merges by itself`, description: reason } }
+      return {
+        kind: "awaiting",
+        item,
+        tone: "quiet",
+        own: reason,
+        notice: { title: `#${kind.number} of ${subject} merges by itself`, description: reason },
+        status: "Merges when checks pass",
+      }
     }
     case "mergeHeld":
       return mergeHeld(step, kind.number, context)
@@ -710,9 +750,14 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     // the retarget the menu offers beside the step runs too
     retarget = retarget !== null && retarget.id === busy.id ? { ...retarget, running: true, disabled: true, description: running! } : retarget
   }
+  const wait: StepWait | null =
+    step.wait === true && shown.item !== null
+      ? { label: shown.status ?? shown.item.compactLabel ?? shown.item.label, description: shown.item.description ?? "", icon: shown.item.icon, tone, open: shown.item.onSelect }
+      : null
   return {
     kind: shown.kind,
     item,
+    wait,
     tone,
     safePushBlocker,
     dryRunBlocker: blockerOf(step.dryRun),
@@ -746,6 +791,7 @@ export function startStepBlocker(step: BranchNextStep, mode: "rebaseAutosquash" 
 export const NO_NEXT_STEP: BranchNextStep = {
   kind: "hidden",
   item: null,
+  wait: null,
   tone: "default",
   safePushBlocker: null,
   dryRunBlocker: null,
