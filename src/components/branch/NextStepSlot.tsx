@@ -12,6 +12,7 @@ import type { PullRequest } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { formatKbds, FROM_MENU } from "@/lib/menu"
 import { isStartItem } from "@/lib/push-to-baseline"
+import { countRender } from "@/lib/render-counts"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { NextStepTone } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
@@ -56,6 +57,9 @@ export interface NextStepSlotProps {
 }
 
 export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }: NextStepSlotProps) {
+  if (stackHeader === undefined) {
+    countRender(`step:${branch.name}`)
+  }
   const step = useBranchNextStep(branch.name)
   const placement = stackHeader === undefined ? "row" : "stack-header"
   const ask = useSafePushAsk(branch.name, placement)

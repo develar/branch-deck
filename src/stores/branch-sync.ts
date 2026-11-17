@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
@@ -557,12 +557,53 @@ export function subscribeToEntry(field: EntryField, key: string, listener: Liste
 
 /**
  * What `select` reads of the entry `key` of a keyed field (a branch, the next step of a subject), undefined without one:
- * runs again only when that entry is another object, which a patch makes only of what it changes (`projectView`)
+ * runs again only when that entry is another object, which a patch makes only of what it changes (`projectView`). The
+ * component renders again when `select` answers another value (`Object.is`), so without `equal` it answers a primitive
+ * or a reference into the entry, never an object or an array it builds, which would be another one at every read
+ * (docs/contributing/frontend.md, Pitfalls, "A selector answers one object per state"). A patch replaces the entry
+ * whole, so every object in it is new too: with `equal` (`sameJson`) the subscriber keeps the answer it gave last while
+ * `equal` says the new one is the same, and renders only for an answer that says something else (`keptAnswer`)
  */
-export function useBranchSyncEntry<F extends EntryField, T>(field: F, key: string, select: (entry: EntryOf<F> | undefined) => T): T {
+export function useBranchSyncEntry<F extends EntryField, T>(field: F, key: string, select: (entry: EntryOf<F> | undefined) => T, equal?: (kept: T, next: T) => boolean): T {
   const subscribe = useCallback((listener: Listener) => subscribeToEntry(field, key, listener), [field, key])
-  const read = () => select(branchSyncStore.getState()[field][key] as EntryOf<F> | undefined)
+  const [keep] = useState(() => keptAnswer<T>())
+  const read = () => readEntry(field, key, select, keep, equal)
   return useSyncExternalStore(subscribe, read, read)
+}
+
+/** What a subscriber of `useBranchSyncEntry` keeps: the answer it gave last, while `equal` says a new one is the same */
+export type KeptAnswer<T> = (answer: T, equal: (kept: T, next: T) => boolean) => T
+
+/**
+ * The snapshot of one subscriber of `useBranchSyncEntry`, which `useSyncExternalStore` reads after each change of the
+ * entry and renders for when it is another value: what `select` answers of the entry `key` of `field` now, the answer
+ * `keep` holds while `equal` says the new one is the same
+ */
+export function readEntry<F extends EntryField, T>(
+  field: F,
+  key: string,
+  select: (entry: EntryOf<F> | undefined) => T,
+  keep: KeptAnswer<T>,
+  equal?: (kept: T, next: T) => boolean,
+): T {
+  const answer = select(branchSyncStore.getState()[field][key] as EntryOf<F> | undefined)
+  return equal === undefined ? answer : keep(answer, equal)
+}
+
+/**
+ * The answer of the selector of one subscriber: the one it gave last while `equal` says the new one is the same, so a
+ * part a patch replaced with the same words renders nothing (`useBranchSyncEntry`). One per subscriber, never shared
+ * by a key: two subscribers of one entry may select differently
+ */
+export function keptAnswer<T>(): KeptAnswer<T> {
+  let kept: { readonly answer: T } | null = null
+  return (answer, equal) => {
+    if (kept !== null && (Object.is(kept.answer, answer) || equal(kept.answer, answer))) {
+      return kept.answer
+    }
+    kept = { answer }
+    return answer
+  }
 }
 
 /**

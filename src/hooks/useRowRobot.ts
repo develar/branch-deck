@@ -30,6 +30,6 @@ export function useRobotChip(robot: PatronusRobot, tip: string | undefined, remo
  * it: the preview and the details of a robot
  */
 export function useEarlierRobot(subject: string, robotId: string | undefined): true | undefined {
-  const earlier = useRowPart(subject, "landing")?.step.earlierRobot
+  const earlier = useRowPart(subject, "landing", step => step?.step.earlierRobot)
   return robotId !== undefined && earlier === robotId ? true : undefined
 }

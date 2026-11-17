@@ -11,6 +11,7 @@ import { useOperationWords } from "@/hooks/useOperationWords"
 import type { ActionId } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { pushWithChildren } from "@/lib/push-run"
+import { sameJson } from "@/lib/record"
 import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
 import { transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
@@ -76,8 +77,9 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   const stackBranchProgress = useStackBranchPushProgress(root)
   const progress = alone ? stackBranchProgress : branchProgress
   const hold = usePushHold(root)
-  // Push with Children of the root as Rust offers it (`domain_policy::actions`)
-  const rootActions = useRowPart(root, "actions")
+  // Push with Children of the root as Rust offers it (`domain_policy::actions`): its item alone, kept while it says the
+  // same, as the other actions of the root change while its Safe Push waits for the landing needs of a sync
+  const rootActions = useRowPart(root, "actions", actions => actions?.filter(action => PUSH_WITH_CHILDREN.includes(action.id)), sameJson)
   // the operations of the session only while Push with Children runs, waits or is busy behind one, whose words it says
   const words = useOperationWords(rootActions, PUSH_WITH_CHILDREN)
   const stack = useStackBranch(root)

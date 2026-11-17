@@ -34,6 +34,8 @@
 // - resyncRows: the branch rows a sync that changes nothing renders (B5: the status of each row changes, `Created` to
 //   `Unchanged`);
 // - oneBranchSyncRows: the branch rows a sync renders that found one more commit on one branch (B3: that row), with
+//   oneBranchSyncStatuses, the status cells it renders (that row's: the next step of every other branch waits for the
+//   landing needs of the new tip, then has them, and the status and the landing it says stay the same), and
 //   oneBranchSyncTableRenders and oneBranchSyncIslandRenders, the renders of the table card and of the island cards in
 //   that sync.
 //
@@ -72,7 +74,6 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
-import type { Version } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { findBranchRow, restOnBranchRow } from "../e2e/helpers/branch-helpers"
 import { reloadWarm } from "../e2e/helpers/common-setup"
@@ -83,7 +84,7 @@ import { recordRenders, renderCounts, renderedKeys, resetRenders } from "../e2e/
 import type { RenderCounts } from "../e2e/helpers/render-helpers"
 import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
-import { runAndWaitForSync, syncBranches, waitForBranchesLoaded, waitForViewVersion } from "../e2e/helpers/sync-helpers"
+import { runAndWaitForSync, syncBranches, waitForBranchesLoaded, waitForSettledSession } from "../e2e/helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../e2e/helpers/test-repository"
 import { expectClosed } from "../e2e/helpers/wait-helpers"
 
@@ -167,6 +168,7 @@ function syncMainThread<Sync extends string>(sync: Sync, mainThread: MainThread)
 interface RenderMetrics {
   resyncRows: number
   oneBranchSyncRows: number
+  oneBranchSyncStatuses: number
   oneBranchSyncTableRenders: number
   oneBranchSyncIslandRenders: number
 }
@@ -268,24 +270,6 @@ async function syncInPage(page: Page): Promise<void> {
         button.click()
       }),
   )
-}
-
-/**
- * The session committed its first sync and derived the view of its robots and their landing needs over it, and the
- * page holds that view
- */
-async function waitForSettledSession(page: Page, repo: TestRepositoryBuilder): Promise<void> {
-  let settled: Version | null = null
-  await expect
-    .poll(async () => {
-      // the view of the session as the server has it (`get_snapshot` in the app of the repository, outside the page)
-      const view = await repo.sessionView()
-      const fresh = view !== null && !view.cached && view.patronus.state.kind === "fresh" && view.patronus.landingNeeds.kind === "fresh"
-      settled = fresh ? view.version : null
-      return fresh
-    })
-    .toBe(true)
-  await waitForViewVersion(page, settled!)
 }
 
 /**
@@ -395,6 +379,7 @@ test.describe("Branch table performance", () => {
       renderRuns.push({
         resyncRows: renderedKeys(resync, "row:").length,
         oneBranchSyncRows: renderedKeys(oneBranch, "row:").length,
+        oneBranchSyncStatuses: renderedKeys(oneBranch, "status:").length,
         oneBranchSyncTableRenders: oneBranch["table"] ?? 0,
         oneBranchSyncIslandRenders: renderedKeys(oneBranch, "island:").reduce((sum, key) => sum + oneBranch[key]!, 0),
       })

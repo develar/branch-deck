@@ -23,7 +23,7 @@ import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
 import { useSourceMemo } from "@/hooks/useSourceMemo"
-import { useStackNextStep } from "@/hooks/useStackNextStep"
+import { useStackStepWait } from "@/hooks/useStackNextStep"
 import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -424,7 +424,7 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
  * Safe Push runs in the stack (`held`), whose landing line says it
  */
 function StackWaitStatus({ root, held }: { root: string; held: boolean }) {
-  const wait = useStackNextStep(root)?.step.wait ?? null
+  const wait = useStackStepWait(root)
   return held || wait === null ? null : (
     <div className="flex min-w-0 px-2" data-testid="stack-island-wait">
       <StepWaitStatus wait={wait} showKeys={false} />

@@ -1,3 +1,4 @@
+import type { Landed } from "@/lib/bindings"
 import { useRowPart } from "@/model/store"
 import { useBaselineStatus } from "@/stores/branch-sync"
 
@@ -15,7 +16,12 @@ export function useUpstreamName(): string {
  * robot ("Merged"), a merged pull request its chip
  */
 export function useLandedIn(name: string): string | null {
-  const landed = useRowPart(name, "landing")?.step.landed ?? null
+  // the words alone, a string: the next step is a new object with every patch of it
+  return useRowPart(name, "landing", step => landedInOf(step?.step.landed ?? null))
+}
+
+/** The words of where `landed` put all of a branch (`useLandedIn`) */
+function landedInOf(landed: Landed | null): string | null {
   switch (landed?.by.kind) {
     case "baseline":
       return landed.by.upstream

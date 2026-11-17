@@ -16,6 +16,7 @@ import { useRowOperation } from "@/hooks/useRowOperation"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
 import { pushFromButton } from "@/lib/push-run"
 import { pushBranch } from "@/lib/push-run"
+import { sameJson } from "@/lib/record"
 import { formatStackPushing, stackPushSubject } from "@/lib/stack"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
@@ -92,7 +93,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const processing = useRowOperation(branch.name) !== undefined
   const push = usePushButton(branch, isPushing)
   // Rust offers it while the remote has commits the branch lacks (`domain_policy::actions`)
-  const pick = useRowPart(branch.name, "actions")?.find(action => action.id === "pick-remote-commits")
+  const pick = useRowPart(branch.name, "actions", actions => actions?.find(action => action.id === "pick-remote-commits"), sameJson)
   const request = usePushConfirmRequest(branch.name, confirmTarget ?? "row")
   const disabled = push.disabled || processing || starting !== null || (waits !== null && !isPushing)
 

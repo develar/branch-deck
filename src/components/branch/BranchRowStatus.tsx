@@ -6,7 +6,7 @@ import { RobotStatusChip } from "@/components/branch/PatronusChip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { StepWaitStatus } from "@/components/branch/StepWaitStatus"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { useBranchStepWait } from "@/hooks/useBranchNextStep"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useRowRobotChip } from "@/hooks/useRowRobot"
@@ -16,6 +16,7 @@ import { formatParkedLabel } from "@/lib/parked"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, isFailingChip, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
+import { sameJson } from "@/lib/record"
 import { countRender } from "@/lib/render-counts"
 import { formatRobotProgress, formatSpokenRobotProgress } from "@/lib/robot-eta"
 import { useRowPart } from "@/model/store"
@@ -45,17 +46,22 @@ const ROW_ROBOT = "h-6 min-w-0 gap-2 px-0 text-sm"
  * (`Branch.row`), so a sync that changes only the status of a branch renders this alone.
  */
 export function BranchRowStatus({ name }: { name: string }) {
-  countRender(`status:${name}`)
   const branch = useBranch(name)
   return branch === undefined ? null : <RowStatusCell branch={branch} />
 }
 
-/** The first column and the mark beside it; the robot's hooks only for a row that shows its robot, a few of the rows */
+/**
+ * The first column and the mark beside it; the robot's hooks only for a row that shows its robot, a few of the rows. It
+ * renders for its branch and for what it selects of the next step (its status, what landed it), each kept while it
+ * says the same, so the patches of every next step after a sync (the landing needs) render none of the cells
+ * (`status:<name>` of the render counter)
+ */
 function RowStatusCell({ branch }: { branch: Branch }) {
+  countRender(`status:${branch.name}`)
   const landedIn = useLandedIn(branch.name)
   const robot = useBranchRobot(branch.name)
   const parked = useParkedState(branch.name)
-  const status = useRowPart(branch.name, "landing")?.status
+  const status = useRowPart(branch.name, "landing", step => step?.status, sameJson)
   const context = { branch, landedIn, robot, parked, wait: null }
   const cell = presentRowCell(status, context)
   const mark = presentRowMark(status, context)
@@ -99,7 +105,7 @@ function RobotRowStatus({ branch, robot, running }: { branch: Branch; robot: Pat
  * actions doesn't show; the step's hooks only for a row that waits, a few of the rows
  */
 function RowWaitStatus({ name }: { name: string }) {
-  const wait = useBranchNextStep(name)?.wait ?? null
+  const wait = useBranchStepWait(name)
   return wait === null ? null : <StepWaitStatus wait={wait} showKeys />
 }
 

@@ -3,6 +3,7 @@ import { useStore } from "zustand"
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { getStepInputs, stepActionsOf, useStepInputs } from "@/hooks/useBranchNextStep"
 import type { LandingNodeKind, NextStep, NextStepView, RunningOperation, WholeStackView } from "@/lib/bindings"
+import { sameJson } from "@/lib/record"
 import { formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
@@ -25,11 +26,15 @@ import {
 
 /*
  * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
- * (`presentLandingNode`): a row reads its part of the view (`useRowPart(key, "landing")`, one kept reference) and what
- * the words read beside it, each a narrow selector; the move that runs on the row (its push too) is laid over it: the
- * moves of the operations of the session (`RepositoryView.operations`: a start or a restart of a robot, the creation of
- * a pull request, a review request, from its admission on).
+ * (`presentLandingNode`): a row reads the node of its part of the view (`useRowPart(key, "landing", step => step?.node,
+ * sameJson)`, kept while it says the same) and what the words read beside it, each a narrow selector; the move that
+ * runs on the row (its push too) is laid over it: the moves of the operations of the session
+ * (`RepositoryView.operations`: a start or a restart of a robot, the creation of a pull request, a review request, from
+ * its admission on).
  */
+
+/** The node of the part of a subject (`NextStepView.node`), as Rust sends it */
+type NodeView = NextStepView["node"]
 
 /** The moves that run: of the operations of the session */
 function runningMoves(): readonly RunningMove[] {
@@ -57,8 +62,8 @@ function pushingNow(key: string): boolean {
 }
 
 /** The step a node words as its slot says it (`NodeLabel.step`); undefined for a node with words of its own */
-function wordedStep(view: NextStepView | undefined): NextStep | undefined {
-  const label = view?.node.label
+function wordedStep(node: NodeView | undefined): NextStep | undefined {
+  const label = node?.label
   return label?.kind === "step" ? label.step : undefined
 }
 
@@ -73,9 +78,9 @@ interface NodeInputs {
 }
 
 /** The node of the subject `key` of its part of the view in the page's words, with the move that runs on its row */
-function presentNode(key: string, view: NextStepView, inputs: NodeInputs): LandingNode {
+function presentNode(key: string, node: NodeView, inputs: NodeInputs): LandingNode {
   const root = stackRootOfReadinessKey(key)
-  return presentLandingNode(view.node, {
+  return presentLandingNode(node, {
     step: {
       subject: root === null ? key : formatWholeStack(root),
       target: inputs.step.target,
@@ -92,12 +97,12 @@ function presentNode(key: string, view: NextStepView, inputs: NodeInputs): Landi
 
 /** The node of the subject `key` now (a branch, `stack:<root>`), in its words; null before the view has it */
 export function getLandingNodeNow(key: string): LandingNode | null {
-  const view = getRowPart(key, "landing")
-  if (view === undefined) {
+  const node = getRowPart(key, "landing")?.node
+  if (node === undefined) {
     return null
   }
-  return presentNode(key, view, {
-    step: getStepInputs(key, wordedStep(view)),
+  return presentNode(key, node, {
+    step: getStepInputs(key, wordedStep(node)),
     statusText: getBranch(key)?.statusText ?? "",
     move: runningMoveNow(key),
     pushing: pushingNow(key),
@@ -186,12 +191,13 @@ function useRunningMove(key: string): FoundMove | null {
 
 /** The node of the subject `key` ("" for none), re-rendering when its part of the view or what its words read changes */
 function useNodeOf(key: string): LandingNode | null {
-  const view = useRowPart(key, "landing")
-  const step = useStepInputs(key, wordedStep(view))
+  // the node alone, kept while it says the same: the rest of the step changes in every patch of it (the landing needs)
+  const node = useRowPart(key, "landing", step => step?.node, sameJson)
+  const step = useStepInputs(key, wordedStep(node))
   const statusText = useBranchSyncEntry("branches", key, branch => branch?.statusText ?? "")
   const move = useRunningMove(key)
   const pushing = useIsBranchPushing(key) && stackRootOfReadinessKey(key) === null
-  return view === undefined ? null : presentNode(key, view, { step, statusText, move, pushing })
+  return node === undefined ? null : presentNode(key, node, { step, statusText, move, pushing })
 }
 
 /**

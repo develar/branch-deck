@@ -158,6 +158,15 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   `useStore`, is memoized on its arguments and shows a stale value. The value must come out of a selector, or be an
   argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);
   a menu builder likewise (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
+- **A part of a row answers the whole part**: `useRowPart(name, "landing")` answers the next step of the subject, a new
+  object with every patch of it, each object in it new too, and the next step of every branch is patched twice after
+  each sync that moved a tip (it waits for the landing needs of the new tips, then has them). A component that shows
+  one field of a part selects it: a primitive by itself (`useRowPart(name, "landing", step => step?.node.ring ??
+  false)`), an object kept while it says the same (`useRowPart(name, "landing", step => step?.status, sameJson)`),
+  never an object `select` builds without `sameJson` (see the next pitfall). Read off the whole part, the ring of the
+  node made a sync of one more commit on one branch render 131 of the 141 rows of `perf:table`, and a status read off
+  it each status cell (`part-field-read` of `pnpm lint:arch` catches only a field read inline off the answer; the
+  render counter, `row-renders.spec.ts`, is the guard).
 - **A selector answers one object per state, of its own**: `useSyncExternalStore` reads a selector again after each
   commit and renders again for another object, so a selector that builds (a menu, the read of a popover) keeps what it
   built in a memo of its subscriber (`useSourceMemo`), keyed by the stores and by every argument. A cache by a key that

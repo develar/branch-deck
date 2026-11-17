@@ -273,7 +273,7 @@ test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/st
     "export function formatLandedWith(landed) {}",
     'const lands = getRowPart(name, "landing")?.step.lands',
     'const rest = getRowPart(key, "landing")?.rest',
-    'const hold = useRowPart(name, "landing")?.hold',
+    'const hold = useRowPart(name, "landing", step => step?.hold)',
     "const blocker = getPushOrders(name).actionBlocker",
     "export type LandedBy = string",
   ].join("\n")
@@ -577,6 +577,31 @@ test("the component of a cut path, a left-to-right direction, a comment and a te
   const source = ['<bdi dir="ltr">{path}</bdi>', '<span dir="auto">{name}</span>', '// dir="rtl" in a comment', 'const word = "rtl"'].join("\n")
   assert.deepEqual(findProblems("src/components/Example.tsx", source), [])
   assert.deepEqual(findProblems("src/components/Example.test.tsx", '<span dir="rtl" />'), [])
+})
+
+test("a field of a part of a row is selected by its hook, never read off the whole part", () => {
+  const source = [
+    'const robotRuns = useRowPart(name, "landing")?.node.ring ?? false',
+    'const hold = useRowPart(branchName, "landing") ?.hold',
+    'const pick = useRowPart(branch.name, "actions").find(action => action.id === "pick-remote-commits")',
+    'const ring = useRowPart(stackReadinessKey(root), "landing")?.node.ring === true',
+  ].join("\n")
+  assert.deepEqual(
+    findProblems("src/components/Example.tsx", source).map(problem => `${problem.line} ${problem.rule}`),
+    ["1 part-field-read", "2 part-field-read", "3 part-field-read", "4 part-field-read"],
+  )
+  const selected = [
+    'const robotRuns = useRowPart(name, "landing", step => step?.node.ring ?? false)',
+    'const pick = useRowPart(branch.name, "actions", actions => actions?.find(action => action.id === "pick-remote-commits"), sameJson)',
+    'const ring = useRowPart(stackReadinessKey(root), "landing", step => step?.node.ring === true)',
+    'const blocker = useRowPart(branch.name, "actions", pushBlockerOf, sameJson)',
+    'const step = useRowPart(name, "landing")',
+    'const status = presentPreviewStatus(useRowPart(branch.name, "landing", step => step?.status), context)',
+    'const ring = getRowPart(name, "landing")?.node.ring',
+    '// useRowPart(name, "landing")?.node.ring in a comment',
+  ].join("\n")
+  assert.deepEqual(findProblems("src/components/Example.tsx", selected), [])
+  assert.deepEqual(findProblems("src/model/store.test.ts", 'expect(useRowPart("a", "landing")?.node.ring).toBe(true)'), [])
 })
 
 test("a ResizeObserver of the page is made only by observeSize", () => {

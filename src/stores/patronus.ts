@@ -27,7 +27,7 @@ import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import { formatMergedRobotTitle, formatPushMode, isRobotActive } from "@/lib/patronus"
-import { withoutKeys } from "@/lib/record"
+import { sameJson, withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
@@ -468,7 +468,7 @@ function pushHoldOf(hold: HoldView | null | undefined, robot: PatronusRobot | un
  * view of another table says); null while it can be pushed
  */
 export function usePushHold(branchName: string): PushHold | null {
-  const hold = useRowPart(branchName, "landing")?.hold
+  const hold = useRowPart(branchName, "landing", step => step?.hold, sameJson)
   const key = useRepositoryKey()
   const robot = useStore(patronusStore, state => (hold == null ? undefined : state.repositories[key]?.robots[hold.by.robotId]))
   return pushHoldOf(hold, robot)

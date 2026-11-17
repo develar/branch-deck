@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import type { Version } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
 import { findBranchRow } from "./branch-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "./test-repository"
@@ -288,7 +289,6 @@ async function focusWindowAnswer(page: Page): Promise<unknown> {
   return (await focusResponse).json()
 }
 
-/** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */
 /**
  * The first view of the session of the page's repository (`data-view-version` of Sync), however long the open of the
  * session takes: the first wave of a loaded run (14 cold workers, a load of 60 to 100) got it 5 to 15 s after its
@@ -298,6 +298,7 @@ export async function waitForSessionView(page: Page): Promise<void> {
   await expect(page.getByTestId("sync-button")).toHaveAttribute("data-view-version", /\d+:\d+/, { timeout: 0 })
 }
 
+/** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */
 export async function waitForViewVersion(page: Page, version: { epoch: number; seq: number }): Promise<void> {
   const syncButton = page.locator('[data-testid="sync-button"]')
   await expect
@@ -311,6 +312,25 @@ export async function waitForViewVersion(page: Page, version: { epoch: number; s
     })
     .toBe(true)
   await expect(syncButton).toBeEnabled()
+}
+
+/**
+ * The session of `repo` committed its last sync and derived over it the view of its robots and their landing needs, and
+ * the page holds that view: the patches a sync sends after its end (the landing needs of the tips it moved, for which
+ * every next step waits meanwhile) came. The view as the server has it (`get_snapshot` in the app of the repository,
+ * outside the page)
+ */
+export async function waitForSettledSession(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  let settled: Version | null = null
+  await expect
+    .poll(async () => {
+      const view = await repo.sessionView()
+      const fresh = view !== null && !view.cached && view.patronus.state.kind === "fresh" && view.patronus.landingNeeds.kind === "fresh"
+      settled = fresh ? view.version : null
+      return fresh
+    })
+    .toBe(true)
+  await waitForViewVersion(page, settled!)
 }
 
 /**

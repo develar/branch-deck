@@ -1,5 +1,15 @@
 import type { StepInputs } from "@/hooks/useBranchNextStep"
-import { announceApproval, busyOf, getBranchNextStep, getStepInputs, stepActionsOf, tellApprovalNews, useBranchNextStep, useStepInputs } from "@/hooks/useBranchNextStep"
+import {
+  announceApproval,
+  busyOf,
+  getBranchNextStep,
+  getStepInputs,
+  stepActionsOf,
+  tellApprovalNews,
+  useBranchNextStep,
+  useBranchStepWait,
+  useStepInputs,
+} from "@/hooks/useBranchNextStep"
 import { useOperationWords } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
@@ -8,12 +18,13 @@ import { formatBranchCount } from "@/lib/branch"
 import type { MenuItem } from "@/lib/menu"
 import { formatLandingSubject } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
+import { sameJson } from "@/lib/record"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
 import { presentAction } from "@/presenters/actions"
-import type { BranchNextStep, StepContext } from "@/presenters/next-step"
+import type { BranchNextStep, StepContext, StepWait } from "@/presenters/next-step"
 import { presentNextStep } from "@/presenters/next-step"
 import type { OperationWords } from "@/presenters/operations"
 import type { StackBranch } from "@/stores/branch-sync"
@@ -132,6 +143,35 @@ function stackContextOf(root: string, inputs: StackInputs, forStart: boolean, by
       createPullRequest: create === null ? null : { ...create, compactLabel: "Create Pull Request…" },
     }),
   }
+}
+
+/**
+ * The state the step of the whole stack of `root` waits in (`useStackNextStep(root)?.step.wait`), null while it waits
+ * in none: of the parts of the whole stack only a step that waits, what its start lands and its Create Pull Request of
+ * the Stack…, each kept while it says the same (`sameJson`), the leaf's wait for a straight chain, so the patches of
+ * every next step after a sync (the landing needs) render no wait that stays; the slot of the header asks for its
+ * readiness
+ */
+export function useStackStepWait(root: string): StepWait | null {
+  const whole = useWholeStack(root)
+  const forks = whole?.kind === "forking"
+  const key = forks ? stackReadinessKey(root) : ""
+  const step = useRowPart(key, "landing", view => (view?.step.wait === true ? view.step : undefined), sameJson)
+  const rest = useRowPart(key, "landing", view => (view?.step.wait === true ? view.rest : undefined), sameJson)
+  const actions = useRowPart(key, "actions", all => all?.filter(action => CREATE_STACK_PULL_REQUEST.includes(action.id)), sameJson)
+  const inputs: StackInputs = {
+    ...useStepInputs(key, step),
+    rest,
+    stack: useStackBranch(forks ? root : ""),
+    actions,
+    stackWords: useOperationWords(actions, CREATE_STACK_PULL_REQUEST),
+  }
+  const leaf = whole?.kind === "chain" ? whole.leaf : null
+  const leafWait = useBranchStepWait(leaf ?? "")
+  if (leaf !== null) {
+    return leafWait
+  }
+  return step === undefined ? null : presentNextStep(step, stackContextOf(root, inputs, false, step.kind.kind === "pushToBaseline")).wait
 }
 
 /**

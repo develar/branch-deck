@@ -26,7 +26,7 @@ export function ReviewRobotStatus({ target, wholeStack }: { target: string; whol
 
 function BranchRobotStatus({ name }: { name: string }) {
   const robot = useBranchRobot(name)
-  const ring = useRowPart(name, "landing")?.node.ring === true
+  const ring = useRowPart(name, "landing", step => step?.node.ring === true)
   const span = useLandingSpan(name)
   if (robot !== undefined && ring) {
     return (
@@ -48,7 +48,7 @@ function BranchRobotStatus({ name }: { name: string }) {
 
 function StackRobotStatus({ root }: { root: string }) {
   const robot = useStackRobot(root)
-  const ring = useRowPart(stackReadinessKey(root), "landing")?.node.ring === true
+  const ring = useRowPart(stackReadinessKey(root), "landing", step => step?.node.ring === true)
   if (robot === undefined || !ring) {
     return null
   }

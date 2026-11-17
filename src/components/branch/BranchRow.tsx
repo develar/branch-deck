@@ -119,7 +119,7 @@ export const BranchRow = memo(function BranchRow({
   const branch = useBranchRowFacts(name)
   const parked = useParkedState(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot, whatever the node says (`LandingNode.ring`)
-  const robotRuns = useRowPart(name, "landing")?.node.ring ?? false
+  const robotRuns = useRowPart(name, "landing", step => step?.node.ring ?? false)
   const activeInline = useActiveInlineForRow(name)
   // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too. A
   // dragged branch is stacked here instead when dropped on the chip over the Actions cell (`StackOnDropChip`); a row of

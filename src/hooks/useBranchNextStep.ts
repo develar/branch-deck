@@ -14,6 +14,7 @@ import { announce } from "@/lib/os-notification"
 import { formatPushMode, formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
+import { sameJson } from "@/lib/record"
 import { baselineOnRemote } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -21,7 +22,7 @@ import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
 import type { RobotAction } from "@/presenters/actions"
 import { getRobotActionItems, isRestart } from "@/presenters/actions"
-import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
+import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext, StepWait } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
 import type { OperationWords } from "@/presenters/operations"
 import { CREATE_PULL_REQUEST_LABEL } from "@/presenters/pull-request-url"
@@ -235,6 +236,18 @@ export function useBranchNextStep(name: string): BranchNextStep | null {
   const view = useRowPart(name, "landing")
   const inputs = useStepInputs(name, view?.step)
   return view === undefined ? null : presentNextStep(view.step, branchContextOf(name, inputs, false))
+}
+
+/**
+ * The state the next step of the branch waits in (`BranchNextStep.wait`: "Awaiting review"), null while it waits in
+ * none. Of the part of the branch only a step that waits, kept while it says the same (`sameJson`), so the patches of
+ * every next step after a sync (the landing needs) render no wait that stays; the slot of the row, which reads the whole
+ * step, asks for its readiness
+ */
+export function useBranchStepWait(name: string): StepWait | null {
+  const step = useRowPart(name, "landing", view => (view?.step.wait === true ? view.step : undefined), sameJson)
+  const inputs = useStepInputs(name, step)
+  return step === undefined ? null : presentNextStep(step, branchContextOf(name, inputs, false)).wait
 }
 
 /**

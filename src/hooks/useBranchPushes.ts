@@ -8,6 +8,7 @@ import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { getPushRetargets } from "@/lib/pull-request-now"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/push-run"
+import { sameJson } from "@/lib/record"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { lockWaitProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -63,16 +64,19 @@ export function usePushButton(branch: PushedBranch, isPushing: boolean): PushBut
   const unpushedParent = useUnpushedParent(branch.name)
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
-  const actions = useRowPart(branch.name, "actions")
+  // the two pushes of the actions alone: the actions of every branch change while its Safe Push waits for the landing
+  // needs of a sync, its push not
+  const blocker = useRowPart(branch.name, "actions", pushBlockerOf, sameJson)
+  const childrenEnabled = useRowPart(branch.name, "actions", childrenPushEnabled)
   const retargets = usePushRetargets(retargetCandidates(branch.name, unpushedParent))
   // the operations of the session only while the push is busy behind one, whose words its button says
-  const { operations, named } = useOperationWordsWhile(pushBlockerOf(actions)?.code === "busy")
+  const { operations, named } = useOperationWordsWhile(blocker?.code === "busy")
   return useMemo(() => {
     const runs = pushRunsOf(branch.name)
     return getPushButtonState(branch, {
       isPushing,
-      blocker: pushBlockerOf(actions),
-      childrenEnabled: childrenPushEnabled(actions),
+      blocker,
+      childrenEnabled,
       unpushedParent,
       unpushedChildren,
       landedIn,
@@ -81,7 +85,7 @@ export function usePushButton(branch: PushedBranch, isPushing: boolean): PushBut
       operations,
       named,
     })
-  }, [branch, isPushing, actions, unpushedParent, unpushedChildren, landedIn, retargets, operations, named])
+  }, [branch, isPushing, blocker, childrenEnabled, unpushedParent, unpushedChildren, landedIn, retargets, operations, named])
 }
 
 /** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */

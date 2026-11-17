@@ -1410,8 +1410,31 @@ export function getRowPart<P extends keyof RowParts>(subject: string, part: P): 
 /**
  * `getRowPart`, re-rendering when it changes: one kept reference, the same object while the patches leave the part of
  * the subject untouched (`applyViewPatch`), so a row renders again only when its own part changes, and its hook runs
- * only then (`useBranchSyncEntry`)
+ * only then (`useBranchSyncEntry`). A patch of the part replaces it whole: each of its objects is new, also where it
+ * says the same. With `select`, what the component shows of the part, re-rendering only when that is another value:
+ * - a primitive by itself (`step => step?.node.ring ?? false`, the words of what landed a branch);
+ * - an object of the part, which alone wakes with every patch of the part, a new object then; with `equal`, `sameJson`
+ *   of src/lib/record.ts, the hook keeps the last answer while the new one says the same (the status of a row, the hold
+ *   of a branch, the blocker of its push);
+ * - never an object or an array `select` builds without `equal`: `useSyncExternalStore` reads it again after each
+ *   commit and renders again for another object, for ever (docs/contributing/frontend.md, Pitfalls, "A selector answers
+ *   one object per state").
+ * So the patches of the rest of the part (the next step of every branch waits for the landing needs after each sync
+ * that moved a tip, then has them) render the leaves that word it, not the component (`part-field-read` of
+ * `pnpm lint:arch`)
  */
-export function useRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {
-  return useBranchSyncEntry(ROW_PARTS[part], subject, entry => entry as RowParts[P] | undefined)
+export function useRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined
+export function useRowPart<P extends keyof RowParts, T>(subject: string, part: P, select: (part: RowParts[P] | undefined) => T, equal?: (kept: T, next: T) => boolean): T
+export function useRowPart<P extends keyof RowParts, T>(
+  subject: string,
+  part: P,
+  select?: (part: RowParts[P] | undefined) => T,
+  equal?: (kept: T, next: T) => boolean,
+): T | RowParts[P] | undefined {
+  return useBranchSyncEntry(
+    ROW_PARTS[part],
+    subject,
+    entry => (select === undefined ? (entry as RowParts[P] | undefined) : select(entry as RowParts[P] | undefined)),
+    equal as ((kept: T | RowParts[P] | undefined, next: T | RowParts[P] | undefined) => boolean) | undefined,
+  )
 }

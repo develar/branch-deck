@@ -6,6 +6,7 @@ import { RobotRow } from "@/components/repository/RobotRows"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { getPatronusChipState } from "@/lib/patronus"
+import { sameJson } from "@/lib/record"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatWholeStackStart } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
@@ -81,7 +82,7 @@ function BranchNodeAlso({ name }: { name: string }) {
   const landedIn = useLandedIn(name)
   const robot = useBranchRobot(name)
   const parked = useParkedState(name)
-  const status = useRowPart(name, "landing")?.status
+  const status = useRowPart(name, "landing", step => step?.status, sameJson)
   const mark = branch === undefined ? null : presentRowMark(status, { branch, landedIn, robot, parked, wait: null })
   if (mark === null) {
     return null

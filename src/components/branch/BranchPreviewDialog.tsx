@@ -21,7 +21,7 @@ import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { CommitsPreviewBody } from "@/components/preview/CommitsPreviewBody"
 import type { PreviewCommit } from "@/components/preview/CommitsPreviewBody"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { useBranchNextStep, useBranchStepWait } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
@@ -38,6 +38,7 @@ import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { pushFromButton } from "@/lib/push-run"
+import { sameJson } from "@/lib/record"
 import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/review-window"
 import { stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
@@ -252,8 +253,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const parked = useParkedState(branch.name)
   // the robot has its own chip here: the first fact of the cell that is not the robot, else the push state
   // the state its next step waits in, which the status words: "Awaiting review"
-  const wait = useBranchNextStep(branch.name)?.wait ?? null
-  const status = presentPreviewStatus(useRowPart(branch.name, "landing")?.status, { branch, landedIn, robot, parked, wait })
+  const wait = useBranchStepWait(branch.name)
+  const rowStatus = useRowPart(branch.name, "landing", step => step?.status, sameJson)
+  const status = presentPreviewStatus(rowStatus, { branch, landedIn, robot, parked, wait })
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = []
   items.push(<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>)

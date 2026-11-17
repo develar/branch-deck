@@ -98,6 +98,17 @@
 //   show on the row of the same name and act on what the session before held. A store that only projects the view (its
 //   answers come anew with the view of another session), is keyed by what a commit is (a tip, a robot) or holds no row
 //   is an entry of ALLOWLIST that says so.
+// A component wakes only for what it shows (docs/design/rendering-performance.md, Key Decision 3): the hook of a part of
+// a row (`useRowPart`) answers the whole part, a new object with every patch of it, and the next step of every branch
+// waits for the landing needs after each sync that moved a tip, then has them, so a row that read the ring of its node
+// off the whole step rendered with every such patch (131 of the 141 rows of `perf:table`):
+// - `part-field-read`: a field read off the answer of `useRowPart(…)` (`useRowPart(name, "landing")?.node.ring`, an
+//   argument of one call deep too: `useRowPart(stackReadinessKey(root), "landing")?.node`) in src (its tests aside);
+//   the hook selects it (`useRowPart(name, "landing", step => step?.node.ring ?? false)`, an object of the part kept
+//   by `sameJson`). It reads one line at a time and only the inline read: a part kept in a name and read later
+//   (`const step = useRowPart(…)`), a call the formatter splits over lines and arguments two calls deep pass it. The
+//   guard of what renders is the render counter (`row-renders.spec.ts`, `perf:table`), this rule only of its first
+//   cause.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`), of a write a test polls
 // (`e2e-remote-poll`, with the exact `count` of its findings in the file) and of a store of the view (`row-store`;
@@ -518,6 +529,13 @@ const STORE_CREATED = /(?<![\w$.])createStore\s*(?:<[^(]*>)?\s*\(/
 // of a stack (`root`, `stackRoot`), the subject of a landing (`subject`), a key of a row (`branchKey`, `rowKey`)
 const ROW_KEYS = /(?<![\w$])(?:branchName|branch|name|root|stackRoot|subject|branchKey|rowKey)(?![\w$])/
 const ROWS_FORGOTTEN = /(?<![\w$.])onRowsForgotten\s*\(/
+/** The sources whose components read the parts of the rows by `useRowPart`: the page, its tests aside */
+const PART_READING = /^src\/(?!.*\.test\.tsx?$)/
+/**
+ * A field read off the whole part `useRowPart(…)` answers, its arguments one call deep at most: `useRowPart(name,
+ * "landing")?.node`, `useRowPart(name, "actions").find`, `useRowPart(stackReadinessKey(root), "landing")?.node`
+ */
+const PART_FIELD_READ = /(?<![\w$.])useRowPart\s*\((?:[^()]|\([^()]*\))*\)\s*\??\./
 /** A direction of rtl: `dir="rtl"`, `dir={wide ? "rtl" : undefined}`, `direction: "rtl"`, `[direction:rtl]` */
 const RTL = /\bdir\s*=\s*(?:["'`]rtl["'`]|\{[^}\n]*["'`]rtl["'`])|\bdirection\s*:\s*["'`]?rtl\b|\[direction:rtl\]/
 
@@ -686,6 +704,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (CUTTING.test(file) && file !== SIZE_OBSERVER_MODULE && NEW_RESIZE_OBSERVER.test(line)) {
       problems.push({ ...at, rule: "resize-observer" })
+    }
+    if (PART_READING.test(file) && PART_FIELD_READ.test(line)) {
+      problems.push({ ...at, rule: "part-field-read" })
     }
   })
   if (ROW_HOLDING.test(file) && ROW_KEYS.test(text) && !ROWS_FORGOTTEN.test(text)) {

@@ -162,7 +162,18 @@ flowchart LR
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
    "Create Pull Request of the Stack…" and never the items of #12. The node of a row is its part of the view, one kept
    reference (`useRowPart(name, "landing")`), worded in the render (`useLandingNode`, `presentLandingNode`); only the
-   move that runs on the row, which the page lays over the node, is a selector of its text. What reads the nodes of many rows (the
+   move that runs on the row, which the page lays over the node, is a selector of its text. A component that shows one
+   field of a part selects it and wakes only when that value changes, not with every patch of the part, which replaces
+   the part whole (`applyViewPatch`), each of its objects new: a primitive by itself (`useRowPart(name, "landing", step
+   => step?.node.ring ?? false)`, the ring of the node of a row; the words of what landed a branch, `useLandedIn`), an
+   object kept while it says the same (`useRowPart(name, "landing", step => step?.status, sameJson)`: the status of a
+   row, the hold of a branch, the blocker of its push, the node of a row, the item of Push with Children of a root, the
+   fixes of a stack problem, the step a status says the wait of, of a row and of an island header, `useBranchStepWait`
+   and `useStackStepWait`; one kept answer per subscriber, `useBranchSyncEntry`). The next step of every branch waits
+   for the landing needs after each sync that moved a tip and then has them, two patches of every step, which render
+   the step of each row (`NextStepSlot`, which reads the whole step) and its node, whose hover words that step, and
+   neither the row, its status cell nor an island (`part-field-read` of `pnpm lint:arch`, which catches only a field
+   read inline off the answer). What reads the nodes of many rows (the
    filter chips, the states of a stack, the landing overview) counts their kinds without the words (`getNodeKindNow`)
    and words only the nodes it lists.
 
@@ -463,6 +474,26 @@ renders the rows, 17 % less script and 6 % less task. What the resync still spen
 records, `branchOf` of 141 branches), the selectors over the whole store that each patch runs (the units of the landing
 indicator, `getLandingUnitsNow`; Push with Children of each row, `useUnpushedChildren`; the counts of the filter chips)
 and the 141 statuses (`PERF_PROFILE=1` writes the profile of a resync beside that of the first sync).
+
+On 2026-11-17 the same measure rendered 131 rows and each island twice for the sync of one more commit on one branch,
+in Chromium and in WebKit (`oneBranchSyncRows` 131, `oneBranchSyncIslandRenders` 6; run 1794901217007-86606 on the Mac
+Studio, again in 1794903664293-57100): since 918ac6849 (2026-10-31) a row read the ring of its node off its whole next
+step, and since cfdb49097 (2026-11-13) an island the hold of its root, and the hook of a part answers the whole part,
+a new object with every patch of it. After each sync that moved a tip the session computes the landing needs of the
+new tips, and the next step of every branch waits for them meanwhile, then has them: two patches of the 131 steps the
+needs decide (the ten whose robot runs stay), each of which woke every such row and every island, though nothing they
+read of it changed. `row-renders.spec.ts` synced without Patronus, where no needs are computed. A component selects
+the field it shows since, an object of it kept while it says the same (`useRowPart(subject, part, select, sameJson)`,
+Key Decision 3), and the test syncs with Patronus answering too: the step of each row renders (`step:<name>`), of the
+rows and of their status cells only those of the branch, no card. On the Mac Studio in turns, the tree before the step
+and the step twice, three runs each in both engines (run 1794904382889-31720, at a load of 37 to 10, which says
+nothing of the counts): `oneBranchSyncRows` 131, 1, 131, 1 and `oneBranchSyncIslandRenders` 6, 0, 6, 0 in Chromium
+and in WebKit alike, the table 0 and `resyncRows` 0 in all four; the test failed on the tree before the step with the
+nine other rows and the island, each rendered twice. The counter of a status counted its outer leaf, which reads the
+branch, while the cell inside it (`RowStatusCell`) read the status off the whole step too and rendered twice in each
+row; it counts the cell now (`oneBranchSyncStatuses`), and the cell keeps the status and the words of what landed the
+branch while they say the same: in turns without the kept answers and with them (run 1794907311904-89399, three runs
+each), `oneBranchSyncStatuses` 131, 1, 131, 1 in Chromium and in WebKit alike, the rows 1 in all.
 
 Since s15-5 the column registry writes the widths of the columns less often. The first sync had cost more task time than
 the tree of s0a while its script was less (784 / 769 ms against 616 / 646 ms in [Итог

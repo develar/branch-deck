@@ -2,9 +2,21 @@
 // rewrite acts on. The table itself comes from the patches of the session (`src/model/store.test.ts`)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Commit, RunningOperation } from "@/lib/bindings"
+import { sameJson } from "@/lib/record"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranchTableRows, isBranchPushing, isStackPushing, resolveCommits, subscribeToEntry, subscribeToField, wholeStackRootIn } from "@/stores/branch-sync"
-import { placed, testBranch } from "@/stores/test-branch"
+import {
+  branchSyncStore,
+  getBranchTableRows,
+  isBranchPushing,
+  isStackPushing,
+  keptAnswer,
+  readEntry,
+  resolveCommits,
+  subscribeToEntry,
+  subscribeToField,
+  wholeStackRootIn,
+} from "@/stores/branch-sync"
+import { placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testSubject } from "@/test-support/subject-parts"
 
 const { repository } = vi.hoisted(() => ({
@@ -173,5 +185,76 @@ describe("the narrow subscriptions", () => {
     branchSyncStore.setState({ branches: {}, operations: {} })
     expect(auth).toHaveBeenCalledTimes(1)
     expect(operations).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * One subscriber of `useBranchSyncEntry` as `useSyncExternalStore` drives it: its snapshot (`readEntry`, its own
+   * `keptAnswer`) read as it mounts and after each change of its entry, a render whenever the snapshot is another value
+   */
+  function subscriber<T>(key: string, select: (branch: Branch | undefined) => T, equal?: (kept: T, next: T) => boolean) {
+    const keep = keptAnswer<T>()
+    const read = () => readEntry("branches", key, select, keep, equal)
+    const shown = { answer: read(), renders: 0 }
+    unsubscribes.push(
+      subscribeToEntry("branches", key, () => {
+        const next = read()
+        if (!Object.is(next, shown.answer)) {
+          shown.answer = next
+          shown.renders++
+        }
+      }),
+    )
+    return shown
+  }
+
+  const unsubscribes: (() => void)[] = []
+  afterEach(() => {
+    unsubscribes.splice(0).forEach(unsubscribe => unsubscribe())
+  })
+
+  /** A patch of `auth`: its record built anew, as `branchOf` builds the record of a branch a patch changed */
+  function patchAuth(overrides: Partial<Branch>): void {
+    branchSyncStore.setState({ branches: { ...branchSyncStore.getState().branches, auth: testBranch("auth", null, overrides) } })
+  }
+
+  it("keeps an object it selected while a patch says the same in new objects, and renders once for one that says another", () => {
+    showBranches(testBranch("auth", null, { remoteStatus: testRemoteStatus({ commitsAhead: 1 }) }))
+    const kept = subscriber("auth", branch => branch?.remoteStatus, sameJson)
+    const anew = subscriber("auth", branch => branch?.remoteStatus)
+    const first = kept.answer
+
+    // the same remote status in a new record: the subscriber without `equal` renders for the new object, the kept one not
+    patchAuth({ remoteStatus: testRemoteStatus({ commitsAhead: 1 }) })
+    expect(anew.renders).toBe(1)
+    expect(kept.renders).toBe(0)
+    expect(kept.answer).toBe(first)
+
+    // another count: once, with the new answer
+    patchAuth({ remoteStatus: testRemoteStatus({ commitsAhead: 2 }) })
+    expect(kept.renders).toBe(1)
+    expect(kept.answer?.commitsAhead).toBe(2)
+    patchAuth({ remoteStatus: testRemoteStatus({ commitsAhead: 2 }) })
+    expect(kept.renders).toBe(1)
+    expect(anew.renders).toBe(3)
+  })
+
+  it("keeps the answer of each subscriber of one entry apart, whatever each selects", () => {
+    showBranches(testBranch("auth", null, { remoteStatus: testRemoteStatus({ commitsAhead: 1 }) }))
+    const remote = subscriber("auth", branch => branch?.remoteStatus, sameJson)
+    // an object the selector builds, kept by `equal` too
+    const count = subscriber("auth", branch => ({ commits: branch?.commitCount ?? 0 }), sameJson)
+    const counted = count.answer
+
+    patchAuth({ remoteStatus: testRemoteStatus({ commitsAhead: 2 }) })
+    expect(remote.renders).toBe(1)
+    expect(remote.answer?.commitsAhead).toBe(2)
+    expect(count.renders).toBe(0)
+    expect(count.answer).toBe(counted)
+
+    patchAuth({ remoteStatus: testRemoteStatus({ commitsAhead: 2 }), commitCount: 3 })
+    expect(remote.renders).toBe(1)
+    expect(count.renders).toBe(1)
+    expect(count.answer).toEqual({ commits: 3 })
+    expect(remote.answer?.commitsAhead).toBe(2)
   })
 })
