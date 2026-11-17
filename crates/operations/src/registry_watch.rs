@@ -107,12 +107,40 @@ pub fn touch_stamp(git_common_dir: &Path) {
 }
 
 /// What the watches of a registry hold now: the repositories watched, the sessions that watch them and the looks the
-/// tasks of these watches finished (the counts of the E2E server, `/debug/counts`)
+/// tasks of these watches finished, and what every watch of the registry did since it started (`total`): the counts of
+/// the E2E server, `/debug/counts`
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct WatchCounts {
   pub repositories: usize,
   pub sessions: usize,
   pub looks: u64,
+  pub total: LookCounts,
+}
+
+/// What the watches of a registry did since it started, the ones that ended too: a run of the E2E suite reads the rate
+/// of its looks and of its reads of the registry off them
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct LookCounts {
+  /// The looks asked: the events of the watchers, a focus of a window, an admission, the E2E server
+  pub asked: u64,
+  /// Of them, the events of the watchers
+  pub events: u64,
+  /// The looks the tasks finished, whatever they found
+  pub looks: u64,
+  /// Of them, the looks of the clock: none was asked for a `RECHECK`
+  pub ticks: u64,
+  /// Of them, the looks that read the registry
+  pub reads: u64,
+}
+
+impl LookCounts {
+  const fn add(&mut self, other: Self) {
+    self.asked += other.asked;
+    self.events += other.events;
+    self.looks += other.looks;
+    self.ticks += other.ticks;
+    self.reads += other.reads;
+  }
 }
 
 /// What woke the task of a watch: a look at the three files was asked
@@ -125,14 +153,39 @@ pub(crate) struct Wake {
   stamps: std::sync::atomic::AtomicU64,
   /// The looks the task finished, whatever they found
   looks: std::sync::atomic::AtomicU64,
+  /// The looks asked, the events among them, the looks of the clock and the reads of the registry (`LookCounts`)
+  asked: std::sync::atomic::AtomicU64,
+  events: std::sync::atomic::AtomicU64,
+  ticks: std::sync::atomic::AtomicU64,
+  reads: std::sync::atomic::AtomicU64,
 }
 
 impl Wake {
   /// A look at the three files: an event of the directory, which tells what may have changed, not what did, a focus of
   /// a window, an admission that wrote the registry
   pub(crate) fn look(&self) {
+    self.asked.fetch_add(1, Ordering::Relaxed);
     self.look.store(true, Ordering::SeqCst);
     self.notify.notify_one();
+  }
+
+  /// A look finished: one of the clock when `tick`
+  fn took(&self, tick: bool) {
+    if tick {
+      self.ticks.fetch_add(1, Ordering::Relaxed);
+    }
+    self.looks.fetch_add(1, Ordering::SeqCst);
+  }
+
+  /// What the task did so far (`LookCounts`)
+  fn counts(&self) -> LookCounts {
+    LookCounts {
+      asked: self.asked.load(Ordering::Relaxed),
+      events: self.events.load(Ordering::Relaxed),
+      looks: self.looks.load(Ordering::SeqCst),
+      ticks: self.ticks.load(Ordering::Relaxed),
+      reads: self.reads.load(Ordering::Relaxed),
+    }
   }
 
   /// Whether a look was asked and not taken yet, which a test of the events reads
@@ -178,6 +231,8 @@ pub(crate) struct Watches {
   by_registry: Arc<Mutex<HashMap<ProcessRegistry, RepositoryWatch>>>,
   journaled: Option<JournalListener>,
   config: WatchConfig,
+  /// What the watches that ended did (`WatchCounts::total`)
+  ended: Arc<Mutex<LookCounts>>,
 }
 
 impl Watches {
@@ -186,6 +241,7 @@ impl Watches {
       by_registry: Arc::default(),
       journaled,
       config,
+      ended: Arc::default(),
     }
   }
 
@@ -193,13 +249,19 @@ impl Watches {
     self.by_registry.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
-  /// The repositories watched now, the sessions that watch them and the looks their tasks finished (`WatchCounts`)
+  /// The repositories watched now, the sessions that watch them and the looks their tasks finished, with what every
+  /// watch did since the start (`WatchCounts`)
   pub(crate) fn counts(&self) -> WatchCounts {
     let watches = self.lock();
+    let mut total = *self.ended.lock().unwrap_or_else(PoisonError::into_inner);
+    for watch in watches.values() {
+      total.add(watch.wake.counts());
+    }
     WatchCounts {
       repositories: watches.len(),
       sessions: watches.values().map(|watch| watch.keys.len()).sum(),
       looks: watches.values().map(|watch| watch.wake.looks_taken()).sum(),
+      total,
     }
   }
 
@@ -276,6 +338,7 @@ impl Watches {
     {
       // the watcher stops with its drop
       watch.task.abort();
+      self.ended.lock().unwrap_or_else(PoisonError::into_inner).add(watch.wake.counts());
     }
   }
 }
@@ -343,6 +406,7 @@ pub(crate) fn woken(wake: &Wake, dir: &WatchedDir, event: &notify::Result<Event>
     debug!("the watch of the operations registry failed: {error}");
   }
   if dir.wake_of(event, &NAMES).wakes() {
+    wake.events.fetch_add(1, Ordering::Relaxed);
     wake.look();
   }
 }
@@ -372,7 +436,8 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
       wake.notify.notified().await;
       false
     };
-    if !(wake.look.swap(false, Ordering::SeqCst) || ticked) {
+    let asked = wake.look.swap(false, Ordering::SeqCst);
+    if !(asked || ticked) {
       continue;
     }
     // a stat each, off the workers of the runtime: the drive may be slow under load
@@ -409,7 +474,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
             sessions.close_worktree(&key.worktree);
           }
         }
-        wake.looks.fetch_add(1, Ordering::SeqCst);
+        wake.took(!asked);
         continue;
       }
       CommonDir::Unreadable(error) => {
@@ -418,7 +483,7 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
           warn!(registry = %dir.display(), %error, "the git directory of the repository can't be read: its sessions stay, the next look asks again");
           unreadable = true;
         }
-        wake.looks.fetch_add(1, Ordering::SeqCst);
+        wake.took(!asked);
         continue;
       }
     }
@@ -430,10 +495,11 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
       }
     }
     show(&sessions, &registry, &watches).await;
+    wake.reads.fetch_add(1, Ordering::Relaxed);
     if changed & JOURNAL_CHANGED != 0 {
       watches.journaled(&registry);
     }
-    wake.looks.fetch_add(1, Ordering::SeqCst);
+    wake.took(!asked);
   }
 }
 

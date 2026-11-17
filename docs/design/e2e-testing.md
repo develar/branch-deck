@@ -710,7 +710,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
 | `POST …/warm-start/build`, `GET …/warm-start` | the frame an earlier run of the app left, the start of the app on it (`session_routes.rs`) | `buildWarmStart`, `warmStartModel` (the option `warmStart` of `setupRepo`, `reloadWarm`) |
 | `GET /health` | the checkout the server serves | global setup |
-| `GET /debug/counts` | what the server holds now: its test repositories, the sessions open, `orphanSessions` (the sessions of a worktree no live test repository has, what a deleted test left open, by `worktree` and `prefix`), the watches of the registries (`watches`: repositories, sessions, the looks their tasks finished) | a person who looks for what a run left behind (`curl`); `the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches` |
+| `GET /debug/counts` | what the server holds now: its test repositories, the sessions open, `orphanSessions` (the sessions of a worktree no live test repository has, what a deleted test left open, by `worktree` and `prefix`), the watches of the registries (`watches`: repositories, sessions, the looks their tasks finished, and `total`, what every watch did since the server started, the ended ones too: the looks asked, the events of the watchers among them, the looks finished, those of the clock, those that read the registry) | a person who looks for what a run left behind (`curl`); `the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches` |
 
 ### Remote services
 

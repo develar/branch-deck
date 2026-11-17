@@ -290,7 +290,8 @@ async fn counts_when(client: &reqwest::Client, addr: std::net::SocketAddr, done:
 
 /// `/debug/counts` tells what the server holds: a repository whose window subscribed is one repository, one session and
 /// one watch that looked, with no orphan; a session whose worktree no live test repository has is an orphan, named; once
-/// the repository is deleted the server holds nothing of it, and no session is left an orphan
+/// the repository is deleted the server holds nothing of it, and no session is left an orphan, while the totals of the
+/// watches since the start keep the looks and the reads of the one that ended
 #[tokio::test]
 async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the_watches() {
   let Subscribed {
@@ -303,6 +304,11 @@ async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the
   } = subscribed().await;
 
   let counts = counts_when(&client, addr, |counts| counts["watches"]["looks"].as_u64() >= Some(1)).await;
+  let total = &counts["watches"]["total"];
+  assert!(
+    total["reads"].as_u64() >= Some(1) && total["asked"].as_u64() >= Some(1),
+    "the first look read the registry: {counts}"
+  );
   assert_eq!(
     (
       &counts["repositories"],
@@ -334,5 +340,10 @@ async fn the_debug_counts_tell_the_repositories_the_sessions_the_orphans_and_the
     ),
     (&json!(0), &json!(0), &json!([]), &json!(0), &json!(0)),
     "{counts}"
+  );
+  let total = &counts["watches"]["total"];
+  assert!(
+    total["looks"].as_u64() >= Some(1) && total["reads"].as_u64() >= Some(1),
+    "the totals keep the watch that ended: {counts}"
   );
 }
