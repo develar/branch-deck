@@ -67,14 +67,42 @@ impl TestLease {
   }
 }
 
+/// The prunes of the review refs a test holds (`host_holding_prunes`): the next one, once held, says that it started and
+/// waits for its release before it prunes
+#[derive(Default)]
+pub(crate) struct HeldPrunes(std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, mpsc::Receiver<()>)>>);
+
+impl HeldPrunes {
+  /// Holds the next prune: the first answer resolves once it started, and it prunes once the second sends or goes
+  pub(crate) fn hold(&self) -> (tokio::sync::oneshot::Receiver<()>, mpsc::Sender<()>) {
+    let (started, on_start) = tokio::sync::oneshot::channel();
+    let (release, released) = mpsc::channel();
+    *self.0.lock().unwrap() = Some((started, released));
+    (on_start, release)
+  }
+}
+
 /// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key; the epoch of
-/// the worktree is the one the test gives it (`host_under`), no slot by default
+/// the worktree is the one the test gives it (`host_under`), no slot by default; the prunes of the review refs those the
+/// app runs, the one a test holds after its release (`host_holding_prunes`)
 #[derive(Default)]
 struct TestEnvironment {
   lease: Option<Arc<TestLease>>,
+  held_prunes: Option<Arc<HeldPrunes>>,
 }
 
 impl SessionEnvironment for TestEnvironment {
+  fn prune_review_refs(&self, git: &GitCommandExecutor, key: &SessionKey, keep: &[u32]) {
+    let held = self.held_prunes.as_ref().and_then(|held| held.0.lock().unwrap().take());
+    if let Some((started, release)) = held {
+      let _ = started.send(());
+      let _ = release.recv();
+    }
+    if let Err(error) = sync_core::review_fetch::prune_review_refs(git, &key.worktree, keep) {
+      tracing::warn!("Cannot prune the review refs: {error:#}");
+    }
+  }
+
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
     let Some(lease) = &self.lease else {
       return WorktreeEpoch::NotASlot;
@@ -129,7 +157,24 @@ pub(crate) fn test_host() -> Arc<dyn SessionHost> {
 
 /// `test_host` of a worktree that is a slot of a lease pool, whose lease the test gives it in `lease`
 pub(crate) fn host_under(lease: Arc<TestLease>) -> Arc<dyn SessionHost> {
-  Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment { lease: Some(lease) }))
+  Arc::new(GitSessionHost::new(
+    GitCommandExecutor::new(),
+    TestEnvironment {
+      lease: Some(lease),
+      ..TestEnvironment::default()
+    },
+  ))
+}
+
+/// `test_host` whose prunes of the review refs `held` holds
+pub(crate) fn host_holding_prunes(held: Arc<HeldPrunes>) -> Arc<dyn SessionHost> {
+  Arc::new(GitSessionHost::new(
+    GitCommandExecutor::new(),
+    TestEnvironment {
+      held_prunes: Some(held),
+      ..TestEnvironment::default()
+    },
+  ))
 }
 
 /// The registry of the sessions of `repo` under the prefix of the tests, its session synced unless `synced` is false:

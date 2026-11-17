@@ -4008,13 +4008,35 @@ its commits.
 - **Pruning.** The review refs are those of the pull requests the review windows show and of those that wait for the
   user (the read ahead's): each time that set changes, at a change of the review windows of its demand
   (`Demand::review_windows`) or at a listing of the review requests, the session prunes the others
-  (`SessionHost::prune_review_refs`, on the blocking pool, never waited for). A window asks for its fetch apart from
-  its demand, which is sent once the window's own subscription answered: under load the fetch landed first in 11 of 80
-  runs, and a listing that withdrew the request between the two pruned the refs of the review on screen. So a fetch
-  tells the session as it starts, before it writes (`Sessions::review_fetching`), and the prunes keep the pull requests
-  the fetches started or brought (`ReviewRequestsFact::fetched_numbers`) until their window closes, a stack's layers
-  with its top. A fetch whose window moved on before its demand named it keeps its refs until the session closes; the
-  first prune of the next start deletes them. `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
+  (`SessionHost::prune_review_refs`, on the blocking pool, never waited for by the actor). Its first decision prunes
+  whatever it keeps, so the refs of an earlier start go also when nothing waits; a change of the demand that names no
+  review window decides none, so the first prune of a start is that of its first listing or its first review window,
+  never an empty one before the listing came. The prunes of a session run
+  one after another in the order it decided them (`ReviewPrunes` of `runtime.rs`: one task runs them), so an older
+  `keep` never runs after a newer one, and a prune that has not started gives its place to a newer one: holding ↓
+  through Your Turn runs the prune that runs and the last one, not one per pull request. A window asks for its fetch
+  apart from its demand, which is sent once the window's own subscription answered: under load the fetch landed first
+  in 11 of 80 runs, and a listing that withdrew the request between the two pruned the refs of the review on screen.
+  So a fetch tells the session as it starts, before it writes (`Sessions::review_fetching`), which answers once every
+  prune it decided before has ended (a watch of the prunes ended against those decided); a stop of the fetch ends that
+  wait (`StoppedCommand::Cancelled`, canceled, as for its git), and so does a wait of 120 s, so a prune that hangs
+  keeps no fetch. The prunes keep the pull requests of the fetches (`ReviewRequestsFact::fetched_numbers`, a stack by
+  its top with the layers it brought). A fetch goes when the window that showed its pull request closes or moves on,
+  also while it runs, with the layers of its stack but those another stack that is kept has: its refs are of no window
+  once it ended. The head it brought is apart from that (`ReviewRequestsFact::heads`, the layers of a stack in
+  `stacks`): a change of another window that dropped the pull request while the fetch ran (a stack window that showed
+  it closing, a window moving back while its demand lags behind its fetch) still leaves the head the readiness is asked
+  at. A fetch that ends without a head (an error, a stop, its operation dropped: the drop of `CountedFetch` sends
+  `Sessions::review_fetch_ended`) goes when no window shows its pull request and no other fetch of it runs. The end of a
+  fetch prunes only when the set the prunes keep changed. So the refs of a pull request outlive its window in two
+  cases. A fetch that wrote after the prune of its window's move or close (it ran meanwhile) leaves refs no prune keeps
+  any more, and its end prunes nothing, as the set is unchanged: they go with the next prune, which comes at a change of
+  the review windows, at a listing that changes the waiting requests, at a `ReviewFetchEnded` that drops a kept fetch,
+  or at the first prune of the next start. And a fetch that brought its head while no demand had named its pull request
+  since it started (its window moved on or closed before its demand came, or before the fetch told the session, and the
+  fetch ended before the cancel that the move or the close sends stopped it) stays kept: its refs stay until a window
+  shows that pull request and stops showing it, or until the session closes, and the first prune of the next start
+  deletes them. `prune_review_refs(keep)` is one `for-each-ref --format=%(refname) %(objectname)
   refs/branch-deck/review/` and one `update-ref --stdin` deleting every review ref of a number not in `keep` with
   its old value (the `sweep_stale_temp_refs` pattern). A ref that moved meanwhile (a review fetch of another window)
   fails the transaction, which is only logged: the next change of the windows deletes it. It is best effort across app instances;

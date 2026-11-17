@@ -362,6 +362,8 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
   assert_eq!(state_of(&fact, "request:7"), FactState::Loading);
   assert!(fact.fact("request:8").is_none(), "a pull request into another branch has no record");
 
+  requests.fetching(7);
+  requests.fetching(8);
   requests.fetched(7, "head-1".to_owned());
   requests.fetched(8, "head-8".to_owned());
   update(&mut fact, &mut requests, &windows);
@@ -394,6 +396,7 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
     (true, FactState::Loading),
     "the answer of the earlier head is no answer for the new one, so no groups while its fetch runs or after it failed"
   );
+  requests.fetching(7);
   requests.fetched(7, "head-2".to_owned());
   update(&mut fact, &mut requests, &windows);
   let moved = subject(&fact, "request:7").clone();
@@ -421,10 +424,13 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
   };
   assert_eq!(fact.answer(at(6), answer(&reviewed, approved)), (true, None));
 
-  // the window closes: nothing is asked, the record goes, and the fetched head with it
+  // the window closes: nothing is asked and the record goes
   update(&mut fact, &mut requests, &Demand::default());
   assert_eq!((fact.digest().subjects.len(), fact.fact("request:7").is_some()), (0, false));
   // a fetch that ends after its window closed asks nothing
+  requests.fetching(7);
+  update(&mut fact, &mut requests, &windows);
+  update(&mut fact, &mut requests, &Demand::default());
   requests.fetched(7, "head-2".to_owned());
   update(&mut fact, &mut requests, &Demand::default());
   assert_eq!(
@@ -432,6 +438,7 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
     (0, false),
     "the window of the late fetch is closed"
   );
+  requests.fetching(8);
   requests.fetched(8, "head-8".to_owned());
   let windows_8 = Demand {
     review_windows: vec![8],
@@ -467,12 +474,14 @@ fn a_late_answer_of_an_earlier_head_of_a_pull_request_never_becomes_its_readines
   let value_tip = |fact: &ReadinessFact| fact.fact("request:7").unwrap().value.as_ref().map(|value| value.ask.tip.clone());
 
   let mut fact = ReadinessFact::default();
+  requests.fetching(7);
   requests.fetched(7, "head-1".to_owned());
   update(&mut fact, &mut requests);
   // the read of head-1 is in flight as the listing names head-2, whose fetch ends before that read
   let earlier = subject(&fact, "request:7").clone();
   requests.answer(review_at(2), review_available(vec![request("head-2", Vec::new())]));
   update(&mut fact, &mut requests);
+  requests.fetching(7);
   requests.fetched(7, "head-2".to_owned());
   update(&mut fact, &mut requests);
   let now = subject(&fact, "request:7").clone();

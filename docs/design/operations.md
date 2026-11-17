@@ -340,7 +340,9 @@ the same pull request from another window joins it. Its first step names its ope
 stops it (`cancel_operation`), and the close of the window that started it stops it too (`WindowFetches` of the app,
 by the label of the window). The review refs are pruned by the session, not by an operation: at each change of the
 review windows of its demand, keeping those a fetch started, which tells the session before it writes
-(`Sessions::review_fetching`), as the demand of its window may come later.
+(`Sessions::review_fetching`, answered once the prunes decided before it ended, a wait that a stop of the fetch ends),
+as the demand of its window may come later; the end of the fetch goes to the session too, the head it brought or that
+it ended without one.
 
 ### Moves
 

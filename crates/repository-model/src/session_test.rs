@@ -87,6 +87,9 @@ struct ScriptedHost {
   sent_at: Arc<Mutex<Vec<Instant>>>,
   /// The `keep` of each prune of the review refs, as it ran
   prunes: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u32>>>>,
+  /// The prunes to hold, the next first: each says that it started, then waits for its release before it runs
+  /// (`ScriptedHost::hold_prune`)
+  prune_gates: Mutex<VecDeque<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
   /// The frame a session that opens reads, and whether its worktree was synced before
   frame: Mutex<Option<CachedSession>>,
   synced_before: Mutex<bool>,
@@ -115,6 +118,15 @@ struct ViewGate {
 impl ScriptedHost {
   fn push(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>) {
     self.push_gated(events, result, None);
+  }
+
+  /// Holds the next prune of the review refs not held yet: the first answer resolves once it started, and it runs once
+  /// the second sends or goes
+  fn hold_prune(&self) -> (tokio::sync::oneshot::Receiver<()>, std::sync::mpsc::Sender<()>) {
+    let (started, on_start) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    self.prune_gates.lock().unwrap().push_back((started, released));
+    (on_start, release)
   }
 
   fn push_gated(&self, events: Vec<SyncEvent>, result: Result<SyncReport, ApiError>, gate: Option<Arc<Notify>>) {
@@ -250,6 +262,11 @@ impl SessionHost for ScriptedHost {
   }
 
   fn prune_review_refs(&self, _key: &SessionKey, keep: &[u32]) {
+    let gate = self.prune_gates.lock().unwrap().pop_front();
+    if let Some((started, release)) = gate {
+      let _ = started.send(());
+      let _ = release.recv();
+    }
     if let Some(prunes) = self.prunes.lock().unwrap().as_ref() {
       let _ = prunes.send(keep.to_vec());
     }
@@ -1785,6 +1802,29 @@ async fn a_change_of_the_review_windows_prunes_the_review_refs_of_the_others() {
   assert_eq!(prunes.recv().await, Some(vec![]), "no review window: every review ref goes");
 }
 
+/// "Fetch and refs": the first prune of a session deletes the refs of an earlier start also when it keeps nothing: a
+/// change of the demand that names no review window prunes nothing, the first listing prunes once, the same listing again
+/// nothing, and the next change of the windows prunes as before
+#[tokio::test]
+async fn the_first_prune_of_a_session_that_keeps_nothing_prunes_once() {
+  use crate::review_request_facts::review_request_facts_test::available;
+  let (_host, mut prunes, sessions, repo, main) = pruned_window().await;
+  sessions.set_demand(
+    main,
+    &Demand {
+      focused: true,
+      ..Demand::default()
+    },
+  );
+  for _ in 0..2 {
+    let ticket = sessions.begin(&repo).await.unwrap();
+    sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(available(Vec::new()))).await.unwrap();
+  }
+  sessions.set_demand(main, &windows(&[7]));
+  assert_eq!(prunes.recv().await, Some(vec![]), "the first listing, with nothing to keep");
+  assert_eq!(prunes.recv().await, Some(vec![7]), "nothing pruned between");
+}
+
 /// openspec/specs/repository/review-requests/spec.md, "Read ahead": a listing asks the host to read ahead its waiting
 /// requests, the readings it tells come to the windows in the part `reviewReadings`, which no frame keeps, and the review
 /// refs the prunes keep are those of the waiting requests with those of the review windows
@@ -1856,6 +1896,152 @@ async fn a_fetch_before_the_demand_of_its_window_keeps_its_refs_at_a_listing_tha
   // the next prune is the one of the window showing #9: the refs of #7 go then, not before
   sessions.set_demand(review, &windows(&[9]));
   assert_eq!(prunes.recv().await, Some(vec![8, 9]), "the listing and the late demand pruned nothing of #7");
+}
+
+/// The session of `/repo` with the review request #8 listed, and a window of its own, whose review windows it shows
+async fn listed_eight(sessions: &Sessions, repo: &SessionKey, prunes: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>) -> crate::session::SubscriptionId {
+  use crate::review_request_facts::review_request_facts_test::available;
+  use domain_types::fixtures::review_request;
+  let ticket = sessions.begin(repo).await.unwrap();
+  sessions
+    .apply_facts(repo, ticket, FactResult::ReviewRequests(available(vec![review_request(8, 200)])))
+    .await
+    .unwrap();
+  assert_eq!(prunes.recv().await, Some(vec![8]));
+  let (review, _) = sessions.subscribe(repo, Box::new(Window::default())).await.unwrap();
+  review
+}
+
+/// openspec/specs/repository/review-requests/spec.md, "Fetch and refs": a window shows #7 while its fetch runs and moves
+/// on before the fetch ends: the end of the fetch prunes nothing, the set the prunes keep being the same, and what it
+/// wrote after the prune of the move goes with the next prune, which keeps no #7; so for a stack whose window closes
+#[tokio::test]
+async fn a_fetch_that_ends_after_its_window_moved_on_keeps_none_of_its_refs() {
+  let (_host, mut prunes, sessions, repo, _main) = pruned_window().await;
+  let review = listed_eight(&sessions, &repo, &mut prunes).await;
+  sessions.set_demand(review, &windows(&[7]));
+  assert_eq!(prunes.recv().await, Some(vec![7, 8]));
+  sessions.review_fetching(&repo, 7).await;
+  sessions.set_demand(review, &windows(&[9]));
+  assert_eq!(prunes.recv().await, Some(vec![8, 9]), "the window moved on while the fetch of #7 ran");
+  sessions.review_fetched(&repo, 7, "head".to_owned()).await;
+
+  sessions.review_fetching(&repo, 9).await;
+  sessions.set_demand(review, &windows(&[]));
+  assert_eq!(prunes.recv().await, Some(vec![8]), "the end of the fetch of #7 pruned nothing, and nothing keeps #7");
+  sessions.review_stack_fetched(&repo, 9, vec![(8, "eight".to_owned()), (9, "nine".to_owned())]).await;
+  sessions.set_demand(review, &windows(&[10]));
+  assert_eq!(prunes.recv().await, Some(vec![8, 10]), "nothing keeps #9 or its layers either");
+}
+
+/// "Fetch and refs": a fetch that fails or is stopped before the demand of its window came keeps nothing, what it wrote
+/// going with the next prune; one whose window shows its pull request keeps its refs
+#[tokio::test]
+async fn a_fetch_that_ends_without_a_head_keeps_its_refs_only_while_its_window_shows_them() {
+  use crate::review_request_facts::review_request_facts_test::available;
+  let (_host, mut prunes, sessions, repo, _main) = pruned_window().await;
+  let review = listed_eight(&sessions, &repo, &mut prunes).await;
+  sessions.review_fetching(&repo, 7).await;
+  sessions.review_fetch_ended(&repo, 7);
+  sessions.set_demand(review, &windows(&[9]));
+  assert_eq!(prunes.recv().await, Some(vec![8, 9]), "it failed before the demand of its window came");
+
+  sessions.set_demand(review, &windows(&[7]));
+  assert_eq!(prunes.recv().await, Some(vec![7, 8]));
+  sessions.review_fetching(&repo, 7).await;
+  sessions.review_fetch_ended(&repo, 7);
+  // a listing that withdraws #8: the failure left the pull request the window shows kept
+  let ticket = sessions.begin(&repo).await.unwrap();
+  sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(available(Vec::new()))).await.unwrap();
+  assert_eq!(prunes.recv().await, Some(vec![7]));
+}
+
+/// "Fetch and refs": a window fetches #7 while a stack window that showed #7 closes before the demand of the window of
+/// #7 came: the refs go with that change, but the head the fetch brought is the one the readiness of #7 is asked at
+#[tokio::test]
+async fn a_fetch_keeps_its_head_when_another_window_drops_its_pull_request_while_it_runs() {
+  use crate::review_request_facts::review_request_facts_test::available;
+  use domain_types::fixtures::review_request;
+  use domain_types::review_request::ReviewRequest;
+  let (_host, _prunes, sessions, repo, main) = pruned_window().await;
+  let request = ReviewRequest {
+    head_ref_oid: "head-7".to_owned(),
+    base_is_default: true,
+    ..review_request(7, 100)
+  };
+  let ticket = sessions.begin(&repo).await.unwrap();
+  sessions.apply_facts(&repo, ticket, FactResult::ReviewRequests(available(vec![request]))).await.unwrap();
+  let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  sessions.set_demand(main, &windows(&[7, 8, 9]));
+  sessions.review_fetching(&repo, 7).await;
+  sessions.set_demand(main, &windows(&[]));
+  sessions.review_fetched(&repo, 7, "head-7".to_owned()).await;
+  sessions.set_demand(review, &windows(&[7]));
+  let tip = sessions
+    .read(&repo, |_, facts| facts.review_requests.readiness_asks(&[7]).remove(&7).flatten().map(|ask| ask.tip))
+    .await;
+  assert_eq!(tip, Some(Some("head-7".to_owned())));
+}
+
+/// "Fetch and refs": the prunes decided while one runs wait as one, the newest: a burst of changes of the windows runs
+/// the prune that ran and the last one, and a fetch that started meanwhile waits for both
+#[tokio::test]
+async fn the_prunes_decided_while_one_runs_run_as_the_newest() {
+  let (host, mut prunes, sessions, repo, main) = pruned_window().await;
+  let (started, release) = host.hold_prune();
+  sessions.set_demand(main, &windows(&[1]));
+  started.await.unwrap();
+  for number in 2..=5 {
+    sessions.set_demand(main, &windows(&[number]));
+  }
+  let mut fetching = std::pin::pin!(sessions.review_fetching(&repo, 9));
+  let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+  assert!(fetching.as_mut().poll(&mut context).is_pending());
+  assert_eq!(sessions.demand(&repo).await.map(|demand| demand.review_windows), Some(vec![5]));
+  release.send(()).unwrap();
+  fetching.await;
+  assert_eq!(prunes.try_recv(), Ok(vec![1]));
+  assert_eq!(prunes.try_recv(), Ok(vec![5]), "the prunes of #2, #3 and #4 gave their place to the newest");
+  assert_eq!(prunes.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty));
+}
+
+/// "Fetch and refs": the prunes of a session run one after another in the order it decided them, so an older `keep`
+/// never runs after a newer one
+#[tokio::test]
+async fn the_prunes_of_a_session_run_in_the_order_it_decided_them() {
+  let (host, mut prunes, sessions, repo, main) = pruned_window().await;
+  let (started, release) = host.hold_prune();
+  sessions.set_demand(main, &windows(&[7]));
+  started.await.unwrap();
+  sessions.set_demand(main, &windows(&[8]));
+  assert_eq!(
+    sessions.demand(&repo).await.map(|demand| demand.review_windows),
+    Some(vec![8]),
+    "the second prune is decided"
+  );
+  release.send(()).unwrap();
+  assert_eq!(prunes.recv().await, Some(vec![7]), "the first one ends first");
+  assert_eq!(prunes.recv().await, Some(vec![8]));
+}
+
+/// "Fetch and refs": a review fetch writes only once every prune the session decided before it started has ended, so
+/// none of them deletes what it writes; with no prune running the session answers it at once
+#[tokio::test]
+async fn a_review_fetch_writes_once_the_prunes_decided_before_it_ended() {
+  let (host, mut prunes, sessions, repo, main) = pruned_window().await;
+  sessions.review_fetching(&repo, 9).await;
+  let (started, release) = host.hold_prune();
+  sessions.set_demand(main, &windows(&[7]));
+  started.await.unwrap();
+  let mut fetching = std::pin::pin!(sessions.review_fetching(&repo, 8));
+  let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+  assert!(fetching.as_mut().poll(&mut context).is_pending());
+  // the session has the start of the fetch
+  assert_eq!(sessions.demand(&repo).await.map(|demand| demand.review_windows), Some(vec![7]));
+  assert!(fetching.as_mut().poll(&mut context).is_pending(), "the prune decided before it runs");
+  release.send(()).unwrap();
+  fetching.await;
+  assert_eq!(prunes.try_recv(), Ok(vec![7, 9]), "the prune ended before the fetch was answered");
 }
 
 /// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a

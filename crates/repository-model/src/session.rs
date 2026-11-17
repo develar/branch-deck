@@ -203,8 +203,9 @@ pub trait SessionHost: Send + Sync + 'static {
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError>;
 
   /// The review refs of the repository of `key` but those of the pull requests `keep` go
-  /// (`sync_core::review_fetch::prune_review_refs`, best effort): the review windows of the session show `keep` now.
-  /// Blocking: the runtime calls it on the blocking pool. Nothing by default (a host without git)
+  /// (`sync_core::review_fetch::prune_review_refs`, best effort): the review windows of the session show `keep` now,
+  /// their fetches write it or it waits. Blocking: the runtime calls it on the blocking pool, one prune of a session at
+  /// a time, in the order it decided them. Nothing by default (a host without git)
   fn prune_review_refs(&self, _key: &SessionKey, _keep: &[u32]) {}
 
   /// The frame the worktree of `key` was saved with last (`warm_start`), which the session seeds from when it opens, if
@@ -555,16 +556,29 @@ impl Sessions {
   }
 
   /// A review fetch of the pull request `number` (of a stack its top) of the open session of `key` starts, before it
-  /// writes a review ref (`ReviewRequestsFact::fetching`): the prunes keep its refs from now until its window closes,
-  /// also when the demand of the window reaches the session after the fetch; resolves once the session has it
+  /// writes a review ref (`ReviewRequestsFact::fetching`): the prunes keep its refs from now until the window that shows
+  /// the pull request closes, also when the demand of the window reaches the session after the fetch. Resolves once the
+  /// session has it and every prune it decided before has ended, so none deletes what the fetch writes. Its end is
+  /// `review_fetched` (`review_stack_fetched`), else `review_fetch_ended`
   pub async fn review_fetching(&self, key: &SessionKey, number: u32) {
     self.ask(key, |reply| Message::ReviewFetching { number, reply }).await;
   }
 
+  /// The review fetch of the pull request `number` (of a stack its top) of the open session of `key` ended without a
+  /// head: it failed, was stopped, or its operation went (`ReviewRequestsFact::fetch_ended`). The session drops it when
+  /// no window shows the pull request, and the refs it wrote go with the next prune. Sent without waiting, so a drop can
+  /// send it
+  pub fn review_fetch_ended(&self, key: &SessionKey, number: u32) {
+    if let Some(entry) = self.lock().get(key) {
+      let _ = entry.mailbox.send(Message::ReviewFetchEnded { number });
+    }
+  }
+
   /// The review fetch of the pull request `number` brought `head` into the review refs of the open session of `key`
-  /// (`ReviewRequestsFact::fetched`): once it is the head the listing names, the readiness of the pull request is asked
-  /// while a review window shows it. Answers the version of the view after its patch; `None` for a session that is not
-  /// open
+  /// (`ReviewRequestsFact::fetched`), its end: once it is the head the listing names, the readiness of the pull request
+  /// is asked while a review window shows it, whatever change of the windows came meanwhile; the refs of a fetch whose
+  /// window closed while it ran stay unkept and go with the next prune. Answers the version of the view after its patch;
+  /// `None` for a session that is not open
   pub async fn review_fetched(&self, key: &SessionKey, number: u32, head: String) -> Option<Version> {
     self.ask(key, |reply| Message::ReviewFetched { number, head, reply }).await
   }

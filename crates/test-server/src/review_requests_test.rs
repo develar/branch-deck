@@ -75,7 +75,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   assert_eq!(files["commitId"], format!("{}..{}", ids[1], ids[0]));
   assert_eq!(files["files"][0]["path"], "file2.txt");
 
-  // #7 waits and a review window shows it: the session prunes the review refs of the others once
+  // #7 waits and a review window shows it: the session prunes no more, its set unchanged
   let demand = |windows: Value| {
     json!({ "subscription": subscribed["id"], "demand": {
       "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "robotDetails": [], "watchedRobots": [],
@@ -96,13 +96,14 @@ async fn review_routes_answer_the_fixture_without_a_network() {
     )
   );
 
-  // the fixture answers once the session pruned: a prune runs beside the commands
+  // the fixture answers once the session pruned twice, as the prunes run beside the commands: the first listing, off
+  // GitHub, pruned the refs of an earlier start with nothing to keep, the listing of #7 kept it
   let mut calls = fixture_calls(&client, addr, &id).await;
-  while calls["prunes"] == json!([]) {
+  while calls["prunes"].as_array().is_none_or(|prunes| prunes.len() < 2) {
     tokio::task::yield_now().await;
     calls = fixture_calls(&client, addr, &id).await;
   }
-  assert_eq!(calls, json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[7]] }));
+  assert_eq!(calls, json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[], [7]] }));
 }
 
 /// While the window shows Reviews the session reads its rest from the fixture; a link the user adds is asked of the fake

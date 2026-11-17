@@ -75,7 +75,7 @@ use domain_types::worktree_epoch::WorktreeEpoch;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 use sync_core::lease_state::LeaseGuard;
 use sync_core::remote_status::RemoteStatusCollector;
@@ -175,10 +175,16 @@ pub(crate) enum Message {
     reply: oneshot::Sender<Version>,
   },
   /// A review fetch of the pull request `number` (of a stack its top) starts: its review refs stay from now; `reply` is
-  /// answered once the session has it
+  /// answered once every prune the session decided before has ended (`ReviewPrunes::after`), so none deletes what it
+  /// writes
   ReviewFetching {
     number: u32,
     reply: oneshot::Sender<()>,
+  },
+  /// The review fetch of the pull request `number` (of a stack its top) ended without a head: it failed, was stopped, or
+  /// its operation went
+  ReviewFetchEnded {
+    number: u32,
   },
   /// The review fetch of the pull request `number` brought `head`; `reply` gets the version of the view after its patch
   ReviewFetched {
@@ -359,6 +365,84 @@ impl FrameSaves {
   }
 }
 
+/// The prunes of the review refs of a session (`Actor::prune_review_refs`), each on the blocking pool and never waited
+/// for by the actor, one after another in the order the session decided them, so an older `keep` never runs after a
+/// newer one. A prune that has not started gives its place to a newer one, whose `keep` is the newest: a burst of
+/// changes runs the prune that runs and the last one. A review fetch writes only once every prune decided before it
+/// started has ended (`after`)
+struct ReviewPrunes {
+  /// How many prunes the session decided
+  decided: u64,
+  /// The number of the last prune that ended: a prune that gave its place to a newer one ends with it
+  ended: Arc<watch::Sender<u64>>,
+  /// The prune that waits for the one that runs, and whether one runs
+  queue: Arc<std::sync::Mutex<PruneQueue>>,
+}
+
+/// The prunes of `ReviewPrunes` that wait or run
+#[derive(Default)]
+struct PruneQueue {
+  /// The newest prune decided that has not started, with its number
+  waiting: Option<(u64, Box<dyn FnOnce() + Send>)>,
+  /// A task runs the prunes; it ends once none waits
+  running: bool,
+}
+
+impl ReviewPrunes {
+  fn new() -> Self {
+    Self {
+      decided: 0,
+      ended: Arc::new(watch::channel(0).0),
+      queue: Arc::default(),
+    }
+  }
+
+  /// Runs `prune` on the blocking pool once the prune that runs ended, in place of the one that waits for it
+  fn push(&mut self, prune: impl FnOnce() + Send + 'static) {
+    self.decided += 1;
+    let starts = {
+      let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+      queue.waiting = Some((self.decided, Box::new(prune)));
+      !std::mem::replace(&mut queue.running, true)
+    };
+    if !starts {
+      return;
+    }
+    let (queue, ended) = (Arc::clone(&self.queue), Arc::clone(&self.ended));
+    let task = async move {
+      loop {
+        let next = {
+          let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
+          let next = queue.waiting.take();
+          queue.running = next.is_some();
+          next
+        };
+        let Some((number, prune)) = next else { break };
+        // a prune that panicked is over all the same
+        let _ = tokio::task::spawn_blocking(in_current_span(prune)).await;
+        ended.send_replace(number);
+      }
+    };
+    tokio::spawn(task.in_current_span());
+  }
+
+  /// Answers `reply` once every prune decided so far ended: at once when none runs, else from a task of its own
+  fn after(&self, reply: oneshot::Sender<()>) {
+    let decided = self.decided;
+    let mut ended = self.ended.subscribe();
+    if *ended.borrow_and_update() >= decided {
+      let _ = reply.send(());
+      return;
+    }
+    let wait = async move {
+      // the prunes of a session that went answer all the same
+      let _ = ended.wait_for(|ended| *ended >= decided).await;
+      let _ = reply.send(());
+    };
+    tokio::spawn(wait.in_current_span());
+  }
+}
+
 struct Actor {
   key: SessionKey,
   host: Arc<dyn SessionHost>,
@@ -383,8 +467,12 @@ struct Actor {
   told_digest: Option<(Version, [Vec<String>; 2], RobotsDigest)>,
   /// The subjects of the readiness the scheduler was told last
   told_readiness: ReadinessDigest,
-  /// The pull requests whose review refs the last prune kept: those the review windows show and those that wait
-  told_kept_reviews: Vec<u32>,
+  /// The pull requests whose review refs the last prune kept: those the review windows show, those their fetches write
+  /// and those that wait; none before the first prune of the session, which prunes whatever it keeps, so the refs of an
+  /// earlier start go also when it keeps nothing
+  told_kept_reviews: Option<Vec<u32>>,
+  /// The prunes of the review refs, in order
+  review_prunes: ReviewPrunes,
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
@@ -435,7 +523,8 @@ impl Actor {
       told_demand: Demand::default(),
       told_digest: None,
       told_readiness: ReadinessDigest::default(),
-      told_kept_reviews: Vec::new(),
+      told_kept_reviews: None,
+      review_prunes: ReviewPrunes::new(),
       flush_at: None,
       last_flush: None,
       held: None,
@@ -477,6 +566,7 @@ impl Actor {
       mut frames,
       subscribers,
       demands,
+      review_prunes,
       ..
     } = self;
     frames.reopen();
@@ -484,6 +574,8 @@ impl Actor {
       events.emit(&key, SessionEventKind::Closed);
     }
     let mut actor = Self::new(key, host, life, mailbox, events, frames);
+    // the prunes of the worktree stay in order across the leases
+    actor.review_prunes = review_prunes;
     actor.open(None).await;
     let hand_over = ViewPatch {
       base: held,
@@ -791,7 +883,15 @@ impl Actor {
       }
       Message::ReviewFetching { number, reply } => {
         self.facts.review_requests.fetching(number);
-        let _ = reply.send(());
+        // a prune decided before the fetch could delete what it writes: it writes once they ended
+        self.review_prunes.after(reply);
+      }
+      Message::ReviewFetchEnded { number } => {
+        self.facts.review_requests.fetch_ended(number);
+        // the refs of a fetch that goes go with a prune only when the set changed: what it wrote after the last prune
+        // goes with the next
+        self.prune_kept_reviews();
+        self.flush();
       }
       Message::ReviewFetched { number, head, reply } => {
         self.facts.review_requests.fetched(number, head);
@@ -1021,14 +1121,19 @@ impl Actor {
 
   /// Tells the scheduler the union of the demands when it changed; when the pull requests the review windows show
   /// changed, the review refs of the others go but those of the waiting requests (`prune_kept_reviews`), after the
-  /// review requests heard of the windows that closed, whose fetches the prune keeps no more
+  /// review requests heard of the windows that closed, whose fetches the prune keeps no more. Another change of the demand
+  /// decides no prune: the first prune of a session that no review window changed is the one of its first listing, which
+  /// keeps the waiting requests
   fn tell_demand(&mut self) {
     let demand = self.demand();
     if demand != self.told_demand {
+      let windows_changed = demand.review_windows != self.told_demand.review_windows;
       self.told_demand = demand.clone();
       self.facts.review_requests.demand(&demand);
       self.events.emit(&self.key, SessionEventKind::Demand(demand));
-      self.prune_kept_reviews();
+      if windows_changed {
+        self.prune_kept_reviews();
+      }
     }
   }
 
@@ -1046,9 +1151,10 @@ impl Actor {
     self.prune_kept_reviews();
   }
 
-  /// The review refs of every pull request go but those the review windows show, those their fetches wrote (a fetch may
+  /// The review refs of every pull request go but those the review windows show, those their fetches write (a fetch may
   /// come before the demand of its window, `ReviewRequestsFact::fetching`) and those that wait, read ahead
-  /// (`SessionHost::prune_review_refs`), when that set changed since the last prune
+  /// (`SessionHost::prune_review_refs`), when that set changed since the last prune, and at the first decision of the
+  /// session whatever it keeps
   fn prune_kept_reviews(&mut self) {
     let review_requests = &self.facts.review_requests;
     let waiting = review_requests.view().requests.iter().map(|request| request.number);
@@ -1062,22 +1168,17 @@ impl Actor {
       .collect::<BTreeSet<u32>>()
       .into_iter()
       .collect();
-    if keep != self.told_kept_reviews {
-      self.told_kept_reviews.clone_from(&keep);
+    if self.told_kept_reviews.as_ref() != Some(&keep) {
+      self.told_kept_reviews = Some(keep.clone());
       self.prune_review_refs(keep);
     }
   }
 
-  /// Deletes the review refs of every pull request but `keep` on the blocking pool, best effort: the session never waits
-  /// for it
-  fn prune_review_refs(&self, keep: Vec<u32>) {
+  /// Deletes the review refs of every pull request but `keep` on the blocking pool, best effort, after the prune that runs
+  /// and in place of one that waits for it (`ReviewPrunes`); the session never waits for it
+  fn prune_review_refs(&mut self, keep: Vec<u32>) {
     let (host, key) = (Arc::clone(&self.host), self.key.clone());
-    tokio::spawn(
-      async move {
-        let _ = tokio::task::spawn_blocking(in_current_span(move || host.prune_review_refs(&key, &keep))).await;
-      }
-      .in_current_span(),
-    );
+    self.review_prunes.push(move || host.prune_review_refs(&key, &keep));
   }
 
   /// Tells the scheduler the robots the poll asks about when they changed: computed only after a patch or a change of
@@ -1468,8 +1569,6 @@ impl Actor {
       .update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand, &self.key.prefix, &wanted);
     // the details a window asks for are `Loading` in the patch of its demand, and go with the demand
     self.facts.demand_details(&self.told_demand.robot_details);
-    // Reviews and the review windows the windows show
-    self.facts.review_requests.demand(&self.told_demand);
     // the landings by content the table and the listing show now, with the pull requests they close
     self.facts.tell_landings(&self.state);
     // whether the session syncs of itself, which the page asks for its Ready to Sync card

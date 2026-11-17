@@ -1209,30 +1209,22 @@ test.describe("Review window", () => {
     const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
     await syncAndWaitForBranches()
     // the window asks for its fetch apart from its demand: the demand that names #101 waits until the listing withdrew it
-    let release!: () => void
-    const held = new Promise<void>(resolve => {
-      release = resolve
-    })
-    const told: Promise<unknown>[] = []
-    const { review } = await openRequestReview(page, 101, {
-      beforeLoad: window =>
-        window.route("**/invoke/set_demand", async route => {
-          const request = route.request()
-          if ((request.postDataJSON() as { demand?: { reviewWindows?: number[] } }).demand?.reviewWindows?.includes(101) === true) {
-            told.push(window.waitForResponse(response => response.request() === request))
-            await held
-          }
-          await route.fallback()
-        }),
+    const showsOld = (params: unknown) => (params as { demand?: { reviewWindows?: number[] } } | null)?.demand?.reviewWindows?.includes(101) === true
+    let demand!: Awaited<ReturnType<typeof holdCommandCalls>>
+    const { window, review } = await openRequestReview(page, 101, {
+      beforeLoad: async window => {
+        demand = await holdCommandCalls(window, "set_demand", { when: showsOld })
+      },
     })
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     const prunes = async () => (await repo.getReviewRequestsFixture()).prunes
     await expect.poll(prunes).toEqual([[101, 102]])
-    await expect.poll(() => told.length).toBeGreaterThan(0)
+    await expect.poll(() => demand.calls.length).toBeGreaterThan(0)
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
     await moveClockUntil(repo, 300_000, () => review.getByTestId("review-withdrawn").isVisible())
-    release()
-    await Promise.all(told)
+    const told = window.waitForResponse(response => response.url().endsWith("/invoke/set_demand") && showsOld(response.request().postDataJSON()))
+    demand.release()
+    await told
     // #102 goes too: the prune of that listing keeps #101, which the window shows, as the listing before kept it
     await repo.setReviewRequests(availableReviewRequests([]))
     await moveClockUntil(repo, 300_000, async () => (await prunes()).at(-1)?.join() === "101")

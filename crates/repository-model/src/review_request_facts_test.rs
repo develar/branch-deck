@@ -3,8 +3,9 @@ use crate::review_request_facts::ReviewRequestsFact;
 use domain_types::fixtures::review_request;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
 use domain_types::review_request::{BackToYou, RequestRow, ReviewRequest, ReviewRequestsResult};
-use domain_types::session::{FactState, NewsEvent};
+use domain_types::session::{Demand, FactState, NewsEvent};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 /// The observation `seq` of the review requests, a second per seq on the clock of the session
@@ -159,7 +160,6 @@ fn with_reviews(requests: Vec<ReviewRequest>, others: domain_types::review_reque
 #[test]
 fn the_rest_of_reviews_stands_by_its_listing_and_stays_through_one_without_it() {
   use domain_types::review_request::{ReviewEntry, ReviewInvolvement, ReviewSearch, ReviewsAnswer};
-  use domain_types::session::Demand;
   let mut fact = ReviewRequestsFact::default();
   assert_eq!(fact.reviews().0.state, FactState::Unknown);
   fact.demand(&Demand {
@@ -200,7 +200,6 @@ fn the_rest_of_reviews_stands_by_its_listing_and_stays_through_one_without_it() 
 #[test]
 fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
   use domain_types::pull_request::{PullRequestReviewEvent, ReviewerState};
-  use domain_types::session::Demand;
   let mut fact = ReviewRequestsFact::default();
   let request = ReviewRequest {
     head_ref_oid: "head".to_owned(),
@@ -231,34 +230,192 @@ fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
   assert_eq!(fact.approved(&reviewed), Some("head"));
 }
 
+/// The demand of the review windows that show `numbers`
+fn showing(numbers: &[u32]) -> Demand {
+  Demand {
+    review_windows: numbers.to_vec(),
+    ..Demand::default()
+  }
+}
+
+/// The pull requests whose fetches the prunes keep, ascending
+fn kept(fact: &ReviewRequestsFact) -> Vec<u32> {
+  fact.fetched_numbers().collect::<BTreeSet<u32>>().into_iter().collect()
+}
+
 /// A review fetch counts from its start, before the demand of its window names the pull request, and its number goes
 /// once its window closes; the layers of a stack go with its top, but one another window shows
 #[test]
 fn the_fetches_of_a_window_keep_their_numbers_until_it_closes_with_the_layers_of_its_stack() {
-  use domain_types::session::Demand;
-  let windows = |numbers: &[u32]| Demand {
-    review_windows: numbers.to_vec(),
-    ..Demand::default()
-  };
-  let numbers = |fact: &ReviewRequestsFact| fact.fetched_numbers().collect::<std::collections::BTreeSet<u32>>().into_iter().collect::<Vec<_>>();
   let mut fact = ReviewRequestsFact::default();
   fact.fetching(7);
-  assert_eq!(numbers(&fact), vec![7], "a fetch before the demand of its window");
-  fact.demand(&windows(&[7]));
-  assert!(!fact.fetched(7, String::new()), "the start fetched no head yet");
-  assert!(fact.fetched(7, "head".to_owned()));
+  assert_eq!(kept(&fact), vec![7], "a fetch before the demand of its window");
+  fact.demand(&showing(&[7]));
+  assert!(fact.fetched(7, "head".to_owned()), "the start brought no head");
   fact.fetching(7);
   assert!(!fact.fetched(7, "head".to_owned()), "a fetch again keeps the head of the one before");
 
   fact.fetching(9);
   fact.stack_fetched(9, vec![(7, "head".to_owned()), (8, "eight".to_owned()), (9, "nine".to_owned())]);
-  fact.demand(&windows(&[7, 9]));
-  assert_eq!(numbers(&fact), vec![7, 8, 9]);
+  fact.demand(&showing(&[7, 9]));
+  assert_eq!(kept(&fact), vec![7, 8, 9]);
   // the stack's window closes: its layers go with it but #7, which the other window shows
-  fact.demand(&windows(&[7]));
-  assert_eq!(numbers(&fact), vec![7]);
-  fact.demand(&windows(&[]));
-  assert_eq!(numbers(&fact), Vec::<u32>::new());
+  fact.demand(&showing(&[7]));
+  assert_eq!(kept(&fact), vec![7]);
+  fact.demand(&showing(&[]));
+  assert_eq!(kept(&fact), Vec::<u32>::new());
+}
+
+/// A fetch whose window moved on or closed while it ran goes with the window: what it brings after keeps nothing, of a
+/// pull request and of a stack alike
+#[test]
+fn a_fetch_that_ends_after_its_window_moved_on_keeps_nothing() {
+  let mut fact = ReviewRequestsFact::default();
+  fact.fetching(7);
+  fact.demand(&showing(&[7]));
+  fact.demand(&showing(&[8]));
+  assert_eq!(kept(&fact), Vec::<u32>::new(), "the window moved on while the fetch of #7 ran");
+  assert!(fact.fetched(7, "head".to_owned()), "the head it brought is known");
+  assert_eq!(kept(&fact), Vec::<u32>::new(), "its refs are of no window");
+
+  fact.fetching(9);
+  fact.demand(&showing(&[9]));
+  fact.demand(&showing(&[]));
+  fact.stack_fetched(9, vec![(8, "eight".to_owned()), (9, "nine".to_owned())]);
+  assert_eq!(kept(&fact), Vec::<u32>::new(), "nor do the layers of a stack whose window closed");
+  assert_eq!(fact.fetched_stacks().count(), 0, "no window shows the stack");
+}
+
+/// A fetch of #7 for a window of its own, whose demand is still to come, while a stack window that showed #7 closes: its
+/// refs go with the change, but the head it brought is the one the readiness of #7 is asked at once its window's demand
+/// came
+#[test]
+fn a_fetch_keeps_its_head_for_its_window_when_another_window_dropped_its_pull_request_while_it_ran() {
+  let mut fact = ReviewRequestsFact::default();
+  let request = ReviewRequest {
+    head_ref_oid: "head-7".to_owned(),
+    base_is_default: true,
+    ..review_request(7, 100)
+  };
+  fact.answer(at(1), available(vec![request]));
+  fact.demand(&showing(&[7, 8, 9]));
+  fact.fetching(7);
+  fact.demand(&showing(&[]));
+  assert!(fact.fetched(7, "head-7".to_owned()));
+  fact.demand(&showing(&[7]));
+  let asks = fact.readiness_asks(&[7]);
+  assert_eq!(asks[&7].as_ref().map(|ask| ask.tip.as_str()), Some("head-7"));
+}
+
+/// The layers of a stack whose window closes go with its top, but those another stack that is kept has: two stacks share
+/// #8, and the one of #10 was fetched before any demand named it
+#[test]
+fn the_layers_of_a_closed_stack_stay_while_another_stack_has_them() {
+  let mut fact = ReviewRequestsFact::default();
+  fact.fetching(10);
+  fact.stack_fetched(10, vec![(8, "eight".to_owned()), (10, "ten".to_owned())]);
+  fact.demand(&showing(&[7, 8, 9]));
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(7, "seven".to_owned()), (8, "eight".to_owned()), (9, "nine".to_owned())]);
+  assert_eq!(kept(&fact), vec![7, 8, 9, 10]);
+  fact.demand(&showing(&[]));
+  assert_eq!(kept(&fact), vec![8, 10], "#8 stays with the stack of #10");
+}
+
+/// A fetch of a layer that fails while a stack that is kept has the layer keeps it, and the stack a window shows keeps
+/// every layer with its head, which Approve N Pull Requests is decided on
+#[test]
+fn a_failed_fetch_of_a_layer_leaves_the_stack_that_has_it_whole() {
+  let mut fact = ReviewRequestsFact::default();
+  let requests = [7, 8, 9].map(|number| review_request(number, number)).to_vec();
+  fact.answer(at(1), available(requests));
+  fact.demand(&showing(&[9]));
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(7, "seven".to_owned()), (8, "eight".to_owned()), (9, "nine".to_owned())]);
+  fact.fetching(8);
+  fact.fetch_ended(8);
+  assert_eq!(kept(&fact), vec![7, 8, 9], "the stack of #9 keeps #8");
+  let stacks: Vec<(u32, Vec<(u32, &str)>)> = fact
+    .fetched_stacks()
+    .map(|(top, layers)| (top, layers.iter().map(|layer| (layer.request.number, layer.head)).collect()))
+    .collect();
+  assert_eq!(stacks, [(9, vec![(7, "seven"), (8, "eight"), (9, "nine")])]);
+}
+
+/// A stack window opened again decides nothing on the layers of its earlier fetch, whose heads may be old: the stack goes
+/// as its window closes, and comes back with the window's own fetch, on the heads that fetch brought
+#[test]
+fn a_stack_window_opened_again_shows_no_stack_until_its_own_fetch_ended() {
+  let mut fact = ReviewRequestsFact::default();
+  fact.answer(at(1), available([7, 8, 9].map(|number| review_request(number, number)).to_vec()));
+  let shown = |fact: &ReviewRequestsFact| -> Vec<(u32, Vec<String>)> {
+    fact
+      .fetched_stacks()
+      .map(|(top, layers)| (top, layers.iter().map(|layer| layer.head.to_owned()).collect()))
+      .collect()
+  };
+  let heads = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+  fact.demand(&showing(&[7, 8, 9]));
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(7, "old-7".to_owned()), (8, "old-8".to_owned()), (9, "old-9".to_owned())]);
+  assert_eq!(shown(&fact), [(9, heads(&["old-7", "old-8", "old-9"]))]);
+  fact.demand(&showing(&[]));
+  fact.demand(&showing(&[7, 8, 9]));
+  assert_eq!(shown(&fact), [], "the window opened again before its own fetch ended");
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(7, "old-7".to_owned()), (8, "new-8".to_owned()), (9, "new-9".to_owned())]);
+  assert_eq!(shown(&fact), [(9, heads(&["old-7", "new-8", "new-9"]))]);
+}
+
+/// A fetch that fails or is stopped goes once it ended while no window shows its pull request and no other fetch of it
+/// runs, a stack with its layers; a window that shows it keeps it, with the head of the fetch before
+#[test]
+fn a_fetch_that_ends_without_a_head_goes_unless_a_window_shows_it() {
+  let mut fact = ReviewRequestsFact::default();
+  fact.fetching(7);
+  fact.fetch_ended(7);
+  assert_eq!(kept(&fact), Vec::<u32>::new(), "it failed before the demand of its window came");
+
+  fact.fetching(7);
+  fact.fetching(7);
+  fact.fetch_ended(7);
+  assert_eq!(kept(&fact), vec![7], "another fetch of it runs");
+  assert!(fact.fetched(7, "head".to_owned()));
+  fact.demand(&showing(&[7]));
+  fact.fetching(7);
+  fact.fetch_ended(7);
+  assert_eq!(kept(&fact), vec![7], "its window shows it");
+  assert!(!fact.fetched(7, "head".to_owned()), "with the head of the fetch before");
+
+  fact.fetching(9);
+  fact.stack_fetched(9, vec![(8, "eight".to_owned()), (9, "nine".to_owned())]);
+  assert_eq!(kept(&fact), vec![7, 8, 9]);
+  fact.fetching(9);
+  fact.fetch_ended(9);
+  assert_eq!(kept(&fact), vec![7], "a fetch of the stack again stopped while no window shows its top");
+}
+
+/// A fetch that brought its head before the demand of its window named the pull request keeps it through a change of
+/// another window until its own closes; the layers of a stack go with its top but one a fetch of its own runs for
+#[test]
+fn a_fetch_before_the_demand_of_its_window_keeps_its_head_until_the_window_closes() {
+  let mut fact = ReviewRequestsFact::default();
+  fact.fetching(7);
+  assert!(fact.fetched(7, "head".to_owned()));
+  fact.demand(&showing(&[8]));
+  assert_eq!(kept(&fact), vec![7], "another window changed meanwhile");
+  fact.demand(&showing(&[7, 8]));
+  fact.demand(&showing(&[8]));
+  assert_eq!(kept(&fact), Vec::<u32>::new(), "its window closed");
+
+  fact.fetching(5);
+  fact.fetching(6);
+  fact.stack_fetched(6, vec![(5, "five".to_owned()), (6, "six".to_owned())]);
+  fact.demand(&showing(&[6]));
+  fact.demand(&showing(&[]));
+  assert_eq!(kept(&fact), vec![5], "the fetch of #5 alone runs, its window to come");
+  assert!(!fact.fetched(5, "five".to_owned()), "the head of the stack's layer");
+  assert_eq!(kept(&fact), vec![5]);
 }
 
 /// The stack of a review window is the chain under its top as the pull requests of the listings link it now: a layer

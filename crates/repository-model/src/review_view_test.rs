@@ -191,6 +191,8 @@ fn the_view_has_the_reviewer_groups_of_a_pull_request_a_review_window_shows() {
   let mut facts = FactStore::new();
   patronus_answers(&mut facts);
   facts.review_requests.answer(at(2), available(vec![with_head(7, "master"), with_head(8, "master")]));
+  facts.review_requests.fetching(7);
+  facts.review_requests.fetching(8);
   facts.review_requests.fetched(7, "head-7".to_owned());
   facts.review_requests.fetched(8, "head-8".to_owned());
   let windows = Demand {
@@ -276,6 +278,7 @@ fn the_view_decides_approve_n_pull_requests_of_a_stack_on_the_heads_its_fetch_br
   assert_eq!(review_stacks_of(&state, &facts), (BTreeMap::new(), BTreeMap::new()), "no fetch of the stack yet");
 
   let layers = vec![(7, "head-7".to_owned()), (8, "head-8".to_owned()), (9, "old-9".to_owned())];
+  facts.review_requests.fetching(9);
   facts.review_requests.stack_fetched(9, layers);
   let layer = |number: u32, commit: &str| ReviewedLayer {
     number,

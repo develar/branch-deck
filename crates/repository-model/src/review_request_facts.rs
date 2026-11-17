@@ -12,11 +12,16 @@
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
 //!
-//! The head each review fetch of a window brought (`fetched`, by number, while a window shows it; the layers of a stack by
-//! its top, `fetched_stacks`, which Approve N Pull Requests is decided on) makes the ask of the
-//! readiness of its pull request (`readiness_asks`, openspec/specs/branch/patronus/spec.md, "The readiness of a request"): the
-//! head the listing names once it is fetched, with its head branch, its reviewers and its author; only a pull request
-//! into the default branch is asked.
+//! The review fetches of the windows (`kept`, by the pull request a fetch writes, of a stack its top with the layers it
+//! brought) count from their start (`fetching`), before the demand of their window may name the pull request, and the
+//! prunes of the session keep their review refs (`fetched_numbers`); a fetch goes when the window that showed its pull
+//! request closes, also while it runs, so its refs are of no window once it ended, and when it ends without a head while
+//! no window shows its pull request (`fetch_ended`). Apart from that, the head each fetch brought (`heads`) stays,
+//! whichever window's change came meanwhile, and the layers of a stack (`stacks`, by its top, which Approve N Pull
+//! Requests is decided on) stay while a window shows the top, so a stack window opened again decides nothing on the
+//! heads of its earlier fetch; a head makes the ask of the readiness of its pull request (`readiness_asks`,
+//! openspec/specs/branch/patronus/spec.md, "The readiness of a request"): the head the listing names once it is
+//! fetched, with its head branch, its reviewers and its author; only a pull request into the default branch is asked.
 
 use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
@@ -60,10 +65,20 @@ pub struct ReviewRequestsFact {
   remembered: BTreeMap<u32, (ReviewRequest, Option<ReviewInvolvement>)>,
   /// The pull requests the review windows show (`Demand::review_windows`)
   windows: Vec<u32>,
-  /// The head the last review fetch of each pull request a window shows brought, by number
-  fetched: BTreeMap<u32, String>,
-  /// The layers the last fetch of each stack a window shows brought (Review Stack), the bottom first, by its top
-  fetched_stacks: BTreeMap<u32, Vec<u32>>,
+  /// The head the last review fetch of each pull request brought (of a stack, of each layer), whichever window asked for
+  /// it and whatever change of the windows came meanwhile: the readiness of a pull request a window shows is asked at it
+  /// (`readiness_asks`), and the layers of a stack show it (`fetched_stacks`)
+  heads: BTreeMap<u32, String>,
+  /// The layers the last fetch of each stack brought (Review Stack), the bottom first, by its top: shown while a window
+  /// shows the top, and gone once no window does, so a stack window opened again shows none until its own fetch ended
+  stacks: BTreeMap<u32, Vec<u32>>,
+  /// The review fetches whose refs the prunes keep (`fetched_numbers`), by the pull request they write, with the layers
+  /// a fetch of a stack brought: here from its start (`fetching`), whether or not the demand of its window named the pull
+  /// request yet, until the window that showed it closes, also while the fetch runs, or until it ends without a head
+  /// while no window shows it (`fetch_ended`)
+  kept: BTreeMap<u32, Vec<u32>>,
+  /// The review fetches that started (`fetching`) and did not end, by the pull request they write
+  in_flight: BTreeMap<u32, u32>,
 }
 
 impl ReviewRequestsFact {
@@ -169,64 +184,88 @@ impl ReviewRequestsFact {
   /// The windows of the session now: the Reviews view, and the pull requests their review windows show
   pub fn demand(&mut self, demand: &Demand) {
     self.reviews_shown = demand.reviews;
-    // the head of a window that closed goes, with the layers of a stack it showed but those another window shows; one
-    // fetched before the demand of its window came stays
-    let mut closed: Vec<u32> = self.windows.iter().filter(|number| !demand.review_windows.contains(number)).copied().collect();
-    let layers: Vec<u32> = closed
-      .iter()
-      .filter_map(|top| self.fetched_stacks.get(top))
-      .flatten()
-      .filter(|number| !demand.review_windows.contains(number))
-      .copied()
-      .collect();
-    closed.extend(layers);
-    self.fetched.retain(|number, _| !closed.contains(number));
-    self.fetched_stacks.retain(|top, _| !closed.contains(top));
+    // the fetch of a window that closed goes, also one that runs, with the layers of its stack: its refs are of no
+    // window, nor is the stack it showed. One that started before the demand of its window named the pull request stays
+    for number in &self.windows {
+      if !demand.review_windows.contains(number) {
+        self.kept.remove(number);
+        self.stacks.remove(number);
+      }
+    }
     self.windows.clone_from(&demand.review_windows);
   }
 
   /// A review fetch of the pull request `number` (of a stack its top) starts (`operations::review_fetch`), before it
   /// writes a review ref: the window asks for it apart from its demand, which may reach the session after the fetch, so
-  /// the refs of the fetch are kept from its start (`fetched_numbers`) until its window closes. The head stays the one
-  /// of an earlier fetch, none before the first
+  /// the refs of the fetch are kept from its start (`fetched_numbers`) until the window that showed the pull request
+  /// closes, or until the fetch ends without a head while no window shows it (`fetch_ended`)
   pub fn fetching(&mut self, number: u32) {
-    self.fetched.entry(number).or_default();
+    *self.in_flight.entry(number).or_default() += 1;
+    self.kept.entry(number).or_default();
   }
 
-  /// The review fetch of the pull request `number` brought `head` (`operations::review_fetch`); whether it changed what
-  /// the session knows. Kept while a window shows the pull request
+  /// The review fetch of the pull request `number` ended with `head` (`operations::review_fetch`); whether it changed
+  /// what the session knows. The head is its window's whatever change of the windows came meanwhile; its refs stay kept
+  /// only while the fetch is (one whose window closed while it ran went with it)
   pub fn fetched(&mut self, number: u32, head: String) -> bool {
-    self.fetched.insert(number, head.clone()) != Some(head)
+    self.ended(number);
+    self.heads.insert(number, head.clone()) != Some(head)
   }
 
-  /// The pull requests a review fetch of a window started or brought (of a stack its top and its layers), whose review
-  /// refs the prunes keep until the window closes, also when its demand came after the fetch
+  /// The review fetch of the pull request `number` (of a stack its top) ended without a head: it failed or was stopped
+  /// (`operations::review_fetch`). It goes with the layers of its stack when no window shows the pull request and no
+  /// other fetch of it runs, the pull request kept still while a stack that is kept has it; a window that shows it keeps
+  /// it, with the head of an earlier fetch
+  pub fn fetch_ended(&mut self, number: u32) {
+    self.ended(number);
+    if !self.windows.contains(&number) && !self.in_flight.contains_key(&number) {
+      self.kept.remove(&number);
+    }
+  }
+
+  /// The pull requests whose review fetches are kept, of a stack its top and the layers it brought (some more than
+  /// once): the prunes keep their review refs, also before the demand of their window names them
   pub fn fetched_numbers(&self) -> impl Iterator<Item = u32> + '_ {
-    self.fetched.keys().chain(self.fetched_stacks.keys()).copied()
+    self.kept.iter().flat_map(|(number, layers)| std::iter::once(*number).chain(layers.iter().copied()))
   }
 
-  /// The fetch of the stack of `top` brought `layers`, the bottom first, each with its head; whether it changed what the
-  /// session knows. Kept while a window shows the top
+  /// The fetch of the stack of `top` ended with `layers`, the bottom first, each with its head; whether it changed what
+  /// the session knows. The heads and the stack are its window's as `fetched` says; the layers are kept with the top
+  /// only while its fetch is
   pub fn stack_fetched(&mut self, top: u32, layers: Vec<(u32, String)>) -> bool {
+    self.ended(top);
     let numbers: Vec<u32> = layers.iter().map(|(number, _)| *number).collect();
-    let mut changed = self.fetched_stacks.insert(top, numbers.clone()) != Some(numbers);
+    if let Some(kept) = self.kept.get_mut(&top) {
+      kept.clone_from(&numbers);
+    }
+    let mut changed = self.stacks.insert(top, numbers.clone()) != Some(numbers);
     for (number, head) in layers {
-      changed |= self.fetched(number, head);
+      changed |= self.heads.insert(number, head.clone()) != Some(head);
     }
     changed
+  }
+
+  /// A review fetch of `number` ended, one of those that started
+  fn ended(&mut self, number: u32) {
+    if let Some(running) = self.in_flight.get_mut(&number) {
+      *running -= 1;
+      if *running == 0 {
+        self.in_flight.remove(&number);
+      }
+    }
   }
 
   /// The stacks the review windows show as their last fetch brought them, by top: each layer's pull request as a listing
   /// named it last, whether it is the user's own, and the head the fetch brought; a layer no listing named is left out
   pub fn fetched_stacks(&self) -> impl Iterator<Item = (u32, Vec<FetchedLayer<'_>>)> {
-    self.fetched_stacks.iter().map(|(top, numbers)| {
+    self.stacks.iter().filter(|(top, _)| self.windows.contains(top)).map(|(top, numbers)| {
       let layers = numbers
         .iter()
         .filter_map(|number| {
           Some(FetchedLayer {
             request: self.pull_request(*number)?,
             own: self.is_own(*number),
-            head: self.fetched.get(number)?,
+            head: self.heads.get(number)?,
           })
         })
         .collect();
@@ -243,7 +282,7 @@ impl ReviewRequestsFact {
       .iter()
       .filter_map(|number| {
         let request = self.pull_request(*number).filter(|request| request.base_is_default)?;
-        let fetched = self.fetched.get(number).filter(|head| !head.is_empty() && **head == request.head_ref_oid);
+        let fetched = self.heads.get(number).filter(|head| **head == request.head_ref_oid);
         let ask = fetched.map(|head| ReviewReadinessBranch {
           branch_name: request_readiness_key(*number),
           source: None,

@@ -176,12 +176,13 @@ export async function holdCommand(page: Page, command: string): Promise<() => vo
  * `holdCommand` that records the parameters of each call: a test of an action that must run once (a double click, a
  * second surface) counts what reached the backend. With `scope: "context"` the hold is on the context, so it holds the
  * calls of the windows opened after it too: a command the page answers from a cache (`get_blob_texts`, kept by blob id
- * in `src/stores/blob-texts.ts`) is asked once, and a hold installed after the window opened may never see it
+ * in `src/stores/blob-texts.ts`) is asked once, and a hold installed after the window opened may never see it. With
+ * `when` it holds and records only the calls whose parameters it accepts; the others go on at once
  */
 export async function holdCommandCalls(
   page: Page,
   command: string,
-  { scope = "page" }: { scope?: "page" | "context" } = {},
+  { scope = "page", when }: { scope?: "page" | "context"; when?: (params: Record<string, unknown>) => boolean } = {},
 ): Promise<{ calls: Record<string, unknown>[]; release: () => void }> {
   const calls: Record<string, unknown>[] = []
   let release!: () => void
@@ -190,7 +191,12 @@ export async function holdCommandCalls(
   })
   const router = scope === "context" ? page.context() : page
   await router.route(`**/invoke/${command}`, async route => {
-    calls.push(route.request().postDataJSON() as Record<string, unknown>)
+    const params = route.request().postDataJSON() as Record<string, unknown>
+    if (when?.(params) === false) {
+      await route.fallback()
+      return
+    }
+    calls.push(params)
     await held
     await route.fallback()
   })
