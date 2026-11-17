@@ -15,6 +15,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : Math.floor(cpus().length * 0.8),
   globalSetup: "./tests/e2e/setup/global-setup.ts",
+  // what the test server holds once the run ended, each thing left behind by its test; it never fails the run
+  globalTeardown: "./tests/e2e/setup/global-teardown.ts",
   // the timing of the run after the results: its start, the slowest tests and the actions that stalled
   reporter: [[process.env.CI ? "dot" : "list"], ["./tests/e2e/setup/timing-reporter.ts"]],
 

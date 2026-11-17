@@ -560,17 +560,22 @@ State isolation:
   end of either wait and the sessions open again, with their windows and operations
   (`a_deletion_that_waited_too_long_warns_of_the_test_the_commands_and_the_sessions_that_hold_it`). Until it ended,
   `/debug/counts` lists it as `deleting`, not as an app kept. The `setupRepo` fixture deletes every repository a test
-  made with it, the last first: a test that makes two kept the first before. The deletion waits only for the commands of
-  a named repository, so a route test names it too: every command of one goes through `test_support::command` (`post`,
-  `post_error` and `sync` call it), which names the repository at the `repositoryPath` of the params (`Named::ByPath`)
-  or the one a test gives (`Named::Id`: a command whose params name none, the cancel of an operation; a command of
-  app-api runs in the context of the repository a request names, so every one names one; only the route probe of the
-  registry test names none, `command_of_no_repository`, and runs nothing);
-  `every_command_of_a_route_test_names_its_repository` refuses a request a test builds itself. Unnamed, a command ran
-  across the deletion, and the fake GitHub's git of a released answer ran in the files the deletion removed. The
-  removals go through `sync_utils::fs_retry`, which tries a sharing error again for about a second: on Windows a process
-  whose current directory is in the directory, or a scanner with a file open, blocks its removal until it lets go, and
-  the directory stays
+  made with it, the last first: a test that makes two kept the first before. At the end of every run the global teardown
+  (`tests/e2e/setup/global-teardown.ts`) prints what the server still holds (`/debug/counts`, read again for up to 5 s
+  while the last deletions settle): the repositories, the deletions in progress, the apps of deleted repositories still
+  held, the sessions and the orphans among them and the watches, each left behind by its test, and the waits the clocks
+  of deleted repositories served once they ran out, with the busiest of them (`describeServerCounts`,
+  `server-counts.test.ts`); it never fails the run, and a clean run prints its counts under "The test server holds
+  nothing of the run". The deletion waits only for the commands of a named repository, so a route test names it too:
+  every command of one goes through `test_support::command` (`post`, `post_error` and `sync` call it), which names the
+  repository at the `repositoryPath` of the params (`Named::ByPath`) or the one a test gives (`Named::Id`: a command
+  whose params name none, the cancel of an operation; a command of app-api runs in the context of the repository a
+  request names, so every one names one; only the route probe of the registry test names none,
+  `command_of_no_repository`, and runs nothing); `every_command_of_a_route_test_names_its_repository` refuses a request
+  a test builds itself. Unnamed, a command ran across the deletion, and the fake GitHub's git of a released answer ran
+  in the files the deletion removed. The removals go through `sync_utils::fs_retry`, which tries a sharing error again
+  for about a second: on Windows a process whose current directory is in the directory, or a scanner with a file open,
+  blocks its removal until it lets go, and the directory stays
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
