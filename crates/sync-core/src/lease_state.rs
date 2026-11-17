@@ -161,9 +161,18 @@ pub(crate) fn write_lease_file(guard: &LeaseGuard, paths: &LeasePaths, path: &Pa
 }
 
 /// Removes the file of the lease `paths` at `path` while `guard` holds, under the lock of the lease, one gone already
-/// being no failure; a failure is only logged, as `what`
+/// being no failure; a failure is only logged, as `what`. A file that is not there takes no lock and asks no guard: a
+/// removal that finds it gone before the lock comes before a write that makes it again, as one that took the lock
+/// first would, and one that waited for the lock would find it gone the same. Every sync removes the mark of a build
+/// before (`mark_synced`), which is almost never there, and took the lock for it: a holder file written and removed
+/// beside the operations registry at each sync (in a full E2E run the events of that holder file fell from 28 466 to
+/// 18 061 without it), and a wait of up to `LEASE_LOCK_TIMEOUT` behind another process at the end of the sync
 pub(crate) fn remove_lease_file(guard: &LeaseGuard, paths: &LeasePaths, path: &Path, what: &str) {
   debug_assert!(paths.holds(path), "{} is no file of the lease in {}", path.display(), paths.dir.display());
+  // not followed: a link left there is a file of the lease to remove, whatever it names
+  if std::fs::symlink_metadata(path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) {
+    return;
+  }
   let _lock = match lock_lease(paths, &|| debug!("waiting for the lock of the lease")) {
     Ok(lock) => lock,
     Err(error) => {

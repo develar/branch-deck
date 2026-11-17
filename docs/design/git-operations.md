@@ -2521,6 +2521,14 @@ the get that reuses the slot takes before it removes: a write that passed its ch
 takes it out, and one after the forget sees the epoch of the next lease, as the forget of the get comes after its
 reservation changed it (`a_forget_between_the_check_of_a_write_and_the_write_takes_out_what_the_write_wrote`); a write
 between the forget of the return and its end, while the epoch still names the lease, goes with the forget of the get.
+A removal of a file of the lease that is not there takes no lock and asks no guard (`remove_lease_file`): found gone
+before the lock, it comes before a write that makes the file again, as one that took the lock first would. Every sync
+removes the mark a build before named by the hex of its prefix, almost never there, and until 2026-11-17 took the lock
+for it: a holder file written and removed beside the operations registry at each sync, and a wait of up to 10 s
+(`LEASE_LOCK_TIMEOUT`) behind another process at the end of the sync
+(`a_mark_of_a_prefix_marked_already_takes_no_lock_of_the_lease`). In a full E2E run the events of the watch of the
+registry fell from 71 581 to 61 354 with it, those of the holder file of the lease lock from 28 466 to 18 061; the
+writes take the rest of its locks: the first mark of each worktree and the landed state (`landed::save_state`).
 
 **The notes of a lease** (`lease_pool::lease_notes`, `brd lease notes`): the logs, probes and patches of the session
 that holds a lease, which the lead or a reviewer may need after the return. Each lease has a directory of its own

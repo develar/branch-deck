@@ -6,7 +6,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
 use history_rewrite::repository_lock::{lock_as_another_process, lock_file};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::sync_fixtures::TestReporter;
@@ -251,4 +251,38 @@ fn the_mark_named_by_the_hex_of_its_prefix_is_read_and_moved_by_the_next_mark() 
   mark_synced(&LeaseGuard::any(), &paths, "team/old");
   assert!(!hex.exists(), "the file of the build before goes");
   assert!(synced_before(path, "team/old"));
+}
+
+/// A mark of a prefix the worktree has marked already takes no lock of the lease: it writes nothing, and the mark of a
+/// build before that it removes is not there, which it checks before the lock (it took the lock at every sync, a holder
+/// file written and removed beside the operations registry). The guard of a write or a removal is asked only under the
+/// lock: a mark of the build before that is there is removed under it
+#[test]
+fn a_mark_of_a_prefix_marked_already_takes_no_lock_of_the_lease() {
+  let repo = TestRepo::new();
+  let paths = lease_of(&repo);
+  let path = repo.path().to_str().unwrap();
+  mark_synced(&LeaseGuard::any(), &paths, "team/test");
+  let asked = Arc::new(AtomicUsize::new(0));
+  let guard = LeaseGuard::while_held({
+    let asked = Arc::clone(&asked);
+    move || {
+      asked.fetch_add(1, Ordering::SeqCst);
+      true
+    }
+  });
+
+  mark_synced(&guard, &paths, "team/test");
+  assert_eq!(asked.load(Ordering::SeqCst), 0, "a mark of a prefix marked already took the lock of the lease");
+  assert!(synced_before(path, "team/test"));
+
+  let hex = paths.marks().join("7465616d2f74657374");
+  std::fs::write(&hex, "team/test").unwrap();
+  mark_synced(&guard, &paths, "team/test");
+  assert_eq!(
+    asked.load(Ordering::SeqCst),
+    1,
+    "the removal of the mark of the build before asked the guard under the lock"
+  );
+  assert!(!hex.exists(), "the mark of the build before goes");
 }
