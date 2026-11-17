@@ -4033,7 +4033,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 [[package]]
 name = "lmdb-env"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=b99998ac6b69807bc6079efc6d2d9b3816b40884#b99998ac6b69807bc6079efc6d2d9b3816b40884"
+source = "git+https://github.com/develar/psi-syntax?rev=e23b5e941a899ea49b3364aab12b2532d713a62d#e23b5e941a899ea49b3364aab12b2532d713a62d"
 dependencies = [
  "heed",
  "libc",
