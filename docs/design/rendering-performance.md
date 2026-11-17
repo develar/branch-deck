@@ -353,9 +353,9 @@ and task and 41 % fewer bytes, and asks one command before its rows, the subscri
 [@test] ../../src/stores/branch-sync.test.ts (`wakes the hooks of a branch only when its own entry changed, those of a field only when the field did`)
 
 What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
-2 ms in a release build for the 141 rows): `derive_budget_test.rs` takes the least of nine runs of a flush (the
-readiness the session asks, the next step, the node and the actions of every row and whole stack) and of the whole
-first patch of the view (every part derived and compared from nothing). In a release build on the Mac Studio, three
+2 ms in a release build for the 141 rows): `derive_budget_test.rs` measures a flush (the readiness the session asks,
+the next step, the node and the actions of every row and whole stack) and the whole first patch of the view (every
+part derived and compared from nothing), as below. In a release build on the Mac Studio, three
 runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms).
 The test measures the CPU work of its thread, on which the derive runs alone (`test_utils::cpu_time::thread_work`: the
 CPU time on macOS and Linux, the cycles on Windows, whose CPU time counts ticks of 15.6 ms; the CPU time of the process
@@ -366,7 +366,15 @@ does the reference slower too, and the references beside a derive follow it to a
 reference apart from the derives, 44 of 120 throttled copies failed; where the wall time and its budget of 40 ms
 failed 79 of 80). The ratio differs by system, the heap of Windows makes the reference dearer, so the budgets are a
 flush within 2.1 units and the first patch within 3.5 on macOS and Linux, 1.55 and 3.0 on Windows (`BUDGETS`): each
-between the slowest run there, under load too, and a derive that takes twice its work. The table of the calibration
+between the slowest run there, under load too, and a derive that takes twice its work. A full test run beside it
+(load 81 on the Studio's 20 cores) still made the derive dearer against the reference for a while, through the caches
+and the memory it shares with the other processes: one first patch measured 3.63 units, which 38 spinning and copying
+processes beside it never brought back (2.58–3.11). So a measurement over its budget is taken again, at most three
+times: the test passes when one of them is within, the best of three, and every one is printed. A regression just over
+a budget therefore passes more often than once in a single measurement; one of twice the work, where the budgets sit
+0.7–1.5 units below it, fails all three. Beside a loop of real suites and 26 burners the fixed test
+passed 20 of 20, and a derive of twice the work failed every measurement, 4 of 4 under that load and 2 of 2 quiet.
+The table of the calibration
 on arm64 (the developer Mac, Linux in Docker, Windows in the Parallels VM) is in the test; the x86 runners of CI were
 not measured.
 
