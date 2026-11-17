@@ -267,12 +267,15 @@ struct RecordingPort {
   rule_bases: Mutex<Vec<String>>,
   /// The remote branches the next answer of a listing of the pull requests shows moved, once
   moved_remotes: Mutex<Vec<MovedRemoteAsk>>,
+  /// How many times the session opened anew under its key: the epoch of its tickets is one more
+  epoch: AtomicU32,
 }
 
 impl FactsPort for RecordingPort {
   fn begin<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Option<FactTicket>> {
     let seq = Seq(self.seq.fetch_add(1, Ordering::SeqCst) + 1);
-    Box::pin(async move { Some(FactTicket { epoch: 1, seq }) })
+    let epoch = self.epoch.load(Ordering::SeqCst) + 1;
+    Box::pin(async move { Some(FactTicket { epoch, seq }) })
   }
 
   fn apply<'a>(&'a self, _key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
@@ -689,6 +692,81 @@ async fn a_closed_session_asks_nothing_and_answers_a_refresh_with_none() {
   session.send(SessionEventKind::Closed).await;
   assert_eq!(session.refresh(FactRefreshReason::Manual).await, None);
   assert_eq!(session.calls(), vec![]);
+}
+
+/// A watched session with the details of a running robot shown and a list of its robots held in flight, whose answer
+/// would ask whether the running robot will fail, closes; what the scheduler asked until then is taken. The refresh of
+/// the held list is answered
+async fn closed_while_listing() -> (Harness, oneshot::Receiver<Option<Version>>) {
+  use PatronusRobotStatus::Running;
+  let session = Harness::watched().await;
+  session.send(details(&[("running", Running)])).await;
+  session.hold_lists(true);
+  let refresh = session.ask_refresh(FactRefreshReason::Manual).await;
+  session.after_answer(RobotsDigest {
+    unknown_failing: names(&["running"]),
+    ..RobotsDigest::default()
+  });
+  session.calls();
+  session.github_calls();
+  session.review_request_calls();
+  session.send(SessionEventKind::Closed).await;
+  (session, refresh)
+}
+
+/// Nothing at all was asked of the session since `closed_while_listing`: no read of the robots, of GitHub or of the
+/// review requests
+fn asked_nothing(session: &Harness) {
+  assert_eq!(
+    (session.calls(), session.github_calls(), session.review_request_calls()),
+    (vec![], vec![], vec![]),
+    "nothing asked of the closed session"
+  );
+}
+
+/// A session that closes while a window still watches it and a read of it is in flight (the registry watch closes the
+/// sessions of a repository that went away; the E2E server deletes a test repository) asks nothing more: its timers
+/// stop at the close, not once its reads in flight answered. Here the timers come first: ten minutes on, no details of
+/// the running robot (61 s), no poll of the review requests (5 min), nothing of GitHub; then the list answers to no
+/// task. Before, the details due meanwhile were read for a closed session, and a clock that moves to each timer at once
+/// (the E2E server's clock of a deleted repository) fired them one after another while one read after another held the
+/// inbox: 2988 waits for one test of a full run
+#[tokio::test]
+async fn a_session_that_closes_while_a_read_is_in_flight_stops_its_timers_at_the_close() {
+  let (session, refresh) = closed_while_listing().await;
+  session.advance(600).await;
+  asked_nothing(&session);
+  session.hold_lists(false);
+  session.release().await;
+  assert_eq!(refresh.await.ok().flatten(), None, "the list answers to no task");
+  session.advance(600).await;
+  asked_nothing(&session);
+}
+
+/// The answer of a read in flight at the close that comes before any timer goes to no task: what it tells of the robots
+/// (a running robot whose failing is not known) asks nothing, and no timer fires after it
+#[tokio::test]
+async fn the_answer_of_a_read_in_flight_at_the_close_asks_nothing_after_it() {
+  let (session, refresh) = closed_while_listing().await;
+  session.hold_lists(false);
+  session.release().await;
+  assert_eq!(refresh.await.ok().flatten(), None, "the list answers to no task");
+  asked_nothing(&session);
+  session.advance(600).await;
+  asked_nothing(&session);
+}
+
+/// The reads of a task take their tickets of one epoch of its session: once the session opened anew under the same key
+/// (a slot leased again: `Actor::reopened` carries on with the same mailbox), a read whose `begin` the new epoch
+/// answered is refused before it asks anything, and the refresh it served hears none; the new epoch has a task of its
+/// own, which the session's close and watch at its reopen make
+#[tokio::test]
+async fn a_read_of_a_task_takes_no_ticket_of_another_epoch_of_its_session() {
+  let session = Harness::watched().await;
+  session.calls();
+  session.port.epoch.store(1, Ordering::SeqCst);
+  assert_eq!(session.refresh(FactRefreshReason::Manual).await, None);
+  assert_eq!(session.calls(), vec![], "no list of the robots for a ticket of another epoch");
 }
 
 #[tokio::test]

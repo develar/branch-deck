@@ -4,8 +4,10 @@
 //! asks again), deciding by the rules of `domain_policy::refresh` on the clock of the sessions (`sleep_until`: the wall
 //! time of the app, the advances of a test), reading through the host's `FactSources` and applying each answer to its
 //! session (`FactsPort`: `Sessions::begin` when the read starts, `Sessions::apply_facts` with its answer, which the
-//! windows get as a patch). Nothing is asked for a session no window watches; a session that closed drops its task, and
-//! the answers of its reads in flight apply to no session opened again (the ticket's epoch).
+//! windows get as a patch). Nothing is asked for a session no window watches; a session that closed ends its task at
+//! once, its timers with it, also while reads of it are in flight, whose answers go to no task. A task serves one epoch
+//! of its session: its reads take their tickets only of the epoch of its first one (`TaskPort`), so none of them applies
+//! to the session opened again under the same key (`Actor::reopened`, whose mailbox carries on).
 //!
 //! The robots of Patronus:
 //! - a list by `robots_list_due`: the first after the first committed table of a watched session, then a sync every five
@@ -70,7 +72,8 @@ use repository_model::session::{SessionClocks, SessionEvent, SessionEventKind, S
 use review_requests::ReviewRequestsSchedule;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use sync_utils::clock::Clock;
 use sync_utils::timestamp::unix_now;
@@ -119,18 +122,22 @@ impl Scheduler {
   /// Hands each event to the task of its session: a session gets one when a window watches it, and loses it when it
   /// closes; the events of a session without one are of no window
   async fn dispatch(self, mut events: mpsc::UnboundedReceiver<SessionEvent>) {
-    let mut tasks: HashMap<SessionKey, mpsc::UnboundedSender<Input>> = HashMap::new();
+    let mut tasks: HashMap<SessionKey, SessionTask> = HashMap::new();
     while let Some(SessionEvent { key, kind }) = events.recv().await {
       match kind {
-        // the task ends with its inbox, once its reads in flight answered
-        SessionEventKind::Closed => drop(tasks.remove(&key)),
+        // the task ends at its next turn, before any timer of it asks again, though its reads in flight answer later
+        SessionEventKind::Closed => {
+          if let Some(task) = tasks.remove(&key) {
+            task.closed.store(true, Ordering::SeqCst);
+          }
+        }
         kind => {
-          if matches!(kind, SessionEventKind::Watched(true)) && tasks.get(&key).is_none_or(mpsc::UnboundedSender::is_closed) {
+          if matches!(kind, SessionEventKind::Watched(true)) && tasks.get(&key).is_none_or(|task| task.inbox.is_closed()) {
             let task = self.spawn_session(&key);
             tasks.insert(key.clone(), task);
           }
           let unsent = match tasks.get(&key) {
-            Some(task) => task.send(Input::Event(kind)).err().map(|error| error.0),
+            Some(task) => task.inbox.send(Input::Event(kind)).err().map(|error| error.0),
             None => Some(Input::Event(kind)),
           };
           if let Some(Input::Event(kind)) = unsent {
@@ -141,13 +148,23 @@ impl Scheduler {
     }
   }
 
-  fn spawn_session(&self, key: &SessionKey) -> mpsc::UnboundedSender<Input> {
+  fn spawn_session(&self, key: &SessionKey) -> SessionTask {
     let (inbox, messages) = mpsc::unbounded_channel();
+    let closed = Arc::new(AtomicBool::new(false));
+    // the reads of the task take the tickets of one epoch of the session
+    let scheduler = Self {
+      port: Arc::new(TaskPort {
+        port: Arc::clone(&self.port),
+        epoch: OnceLock::new(),
+      }),
+      ..self.clone()
+    };
     let facts = SessionFacts {
       key: key.clone(),
       clock: self.clocks.of(key),
-      scheduler: self.clone(),
+      scheduler,
       inbox: inbox.downgrade(),
+      closed: Arc::clone(&closed),
       watched: false,
       focused: None,
       table_committed: false,
@@ -161,8 +178,38 @@ impl Scheduler {
     };
     let span = tracing::info_span!("session_facts", worktree = %key.worktree, prefix = %key.prefix);
     span.in_scope(|| tokio::spawn(facts.run(messages).in_current_span()));
-    inbox
+    SessionTask { inbox, closed }
   }
+}
+
+/// The port of the reads of one task (`Scheduler::spawn_session`): a read takes its ticket only of the epoch of the
+/// task's first ticket, so a read whose `begin` the session answered after it opened anew under the same key
+/// (`Actor::reopened` carries on with the same mailbox) is refused, never applied to the session of the new epoch, whose
+/// task is another one
+struct TaskPort {
+  port: Arc<dyn FactsPort>,
+  epoch: OnceLock<u32>,
+}
+
+impl FactsPort for TaskPort {
+  fn begin<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Option<FactTicket>> {
+    Box::pin(async move {
+      let ticket = self.port.begin(key).await?;
+      (*self.epoch.get_or_init(|| ticket.epoch) == ticket.epoch).then_some(ticket)
+    })
+  }
+
+  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
+    self.port.apply(key, ticket, result)
+  }
+}
+
+/// The task of a session as the dispatcher holds it: its inbox, and whether its session closed
+struct SessionTask {
+  inbox: mpsc::UnboundedSender<Input>,
+  /// Set when the session closes (`SessionEventKind::Closed`): the task ends at its next turn, its timers with it,
+  /// though its reads in flight still hold its inbox
+  closed: Arc<AtomicBool>,
 }
 
 /// An event no task takes: a refresh of it asked nothing
@@ -324,8 +371,10 @@ struct SessionFacts {
   /// The clock of the session, which its timers wait on
   clock: Arc<dyn Clock>,
   scheduler: Scheduler,
-  /// For the answers of its reads; weak, so the task ends once the dispatcher dropped it and its reads answered
+  /// For the answers of its reads; weak, so the inbox closes once the dispatcher dropped it and its reads answered
   inbox: mpsc::WeakUnboundedSender<Input>,
+  /// The session closed (`SessionTask::closed`): the task ends, whatever its timers and its reads in flight
+  closed: Arc<AtomicBool>,
   /// A window shows the session
   watched: bool,
   /// A window of the session has the focus; `None` until a window said it (the first demand tells it, and is no focus)
@@ -343,8 +392,11 @@ struct SessionFacts {
 }
 
 impl SessionFacts {
+  /// Takes the inputs and fires the timers until the session closed: at once, though reads of it are still in flight (a
+  /// timer due meanwhile would ask for a closed session, and a clock that moves to each timer at once, the E2E server's
+  /// of a deleted repository, would fire them one after another while one read after another holds the inbox)
   async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Input>) {
-    loop {
+    while !self.closed.load(Ordering::SeqCst) {
       // nothing is asked for a session no window watches: its timers wait for one
       let timers = [
         self.robots.poll_at,
@@ -360,7 +412,9 @@ impl SessionFacts {
           tokio::select! {
             input = inbox.recv() => input,
             () = sleep_until(&*clock, at) => {
-              self.timers();
+              if !self.closed.load(Ordering::SeqCst) {
+                self.timers();
+              }
               continue;
             }
           }
@@ -370,6 +424,9 @@ impl SessionFacts {
       let Some(input) = input else {
         break;
       };
+      if self.closed.load(Ordering::SeqCst) {
+        break;
+      }
       self.handle(input);
     }
   }
@@ -450,7 +507,7 @@ impl SessionFacts {
         self.read_details();
         self.ask_readiness();
       }
-      // the dispatcher drops the task of a closed session
+      // the dispatcher ends the task of a closed session (`SessionTask::closed`)
       SessionEventKind::Closed => {}
       SessionEventKind::Focus(focused) => self.focus(focused),
       SessionEventKind::Demand(demand) => self.demand(&demand),

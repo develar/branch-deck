@@ -2590,8 +2590,11 @@ and its windows watch it again, and the answer of a read of the lease before app
 its view, right after the message of the stamp, before any other (`reopen_now`). A run in flight cannot be cancelled:
 the session opens anew once it ended (`reopen_after_run`, `finish_run`), its table dropped, the requests it served
 told its end, the follow-up and the recheck of the session before never run (`SyncScheduler::abandon`, answered
-`Skipped`), and the scheduler of the facts hears the session close at the stamp already
-(`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`); a check of the inputs in flight
+`Skipped`), and the scheduler of the facts hears the session close at the stamp already, and again as it opens anew
+(`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`): a window that left and came
+back during the run while the epoch could not be told watched the session of the lease before again, and the task the
+scheduler made for it ends there
+(`a_window_back_during_the_run_before_a_new_lease_hears_the_session_close_again_as_it_opens_anew`); a check of the inputs in flight
 holds nothing of the worktree, so the session opens anew at once, the requests it served answered `Skipped` and its late
 answer dropped by the new session, which is checking nothing (`InputsRead`,
 `a_stamp_under_another_lease_during_a_check_opens_the_session_anew_at_once`). Each window keeps its
@@ -5846,8 +5849,15 @@ around it over the fakes of each test repository, which count and hold the reads
 [E2E Testing](e2e-testing.md#remote-services)) and applying each answer through `FactsPort`
 (`begin`, then `apply_facts`). A list is in flight once per family and session (the readiness asks up to four subjects
 side by side, the problems and the details one read per robot); a reason the rules let follow up asks once more after
-it. It starts no git process, asks nothing of a session no window watches and keeps no timer of one, and
-drops the task of a closed session.
+it. It starts no git process, asks nothing of a session no window watches and keeps no timer of one, and ends the
+task of a closed session at once (`SessionTask::closed`): its timers stop at the close, also while reads of it are in
+flight, whose answers go to no task. Before, the task ended only once no read held its inbox, and a timer due meanwhile
+woke it and asked again: of a session whose key was open again (a reopen, a window back on a slot leased again) a read
+of the remote; of a repository that went away nothing but a wakeup (`begin` answered none), while on the E2E server's
+clock of a deleted repository, which moves to each timer at once, the timers fired one after another (2988 waits of
+one test of a full run). A task serves one epoch of its session: its reads take their tickets only of the epoch of its
+first one (`TaskPort`), so a read whose `begin` the session answered after it opened anew under the same key
+(`Actor::reopened` carries on with the same mailbox) is refused, never applied to the new lease.
 
 The scheduler and the sessions wait on the clock of the session (`SessionClocks::of`): one `SystemClock` for every
 session of the app (`OneClock`), a `TestClock` per worktree in the E2E server (`WorktreeClocks`), which stands still

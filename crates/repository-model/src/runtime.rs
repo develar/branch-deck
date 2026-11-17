@@ -497,8 +497,8 @@ struct Actor {
   /// so the session opens anew for the new lease once it ended (`finish_run`), with the waiter of that stamp
   reopen_after_run: Option<Waiter>,
   /// The session opens anew for the new lease of its slot once the message in hand is handled, before any other
-  /// (`run`): the waiter of the stamp, and whether the scheduler of the facts heard the session close already
-  reopen_now: Option<(Waiter, bool)>,
+  /// (`run`): the waiter of the stamp
+  reopen_now: Option<Waiter>,
 }
 
 impl Actor {
@@ -547,9 +547,11 @@ impl Actor {
   /// each window gets one patch from the version it holds into that epoch, with no change, which applies to no view
   /// (`patch::apply_patch`, `applyOrRefresh` of `src/model/store.ts`), so the window reads the snapshot of the session
   /// and takes it as the view of another session (the page as on a switch, the mirror of `brd mcp` as at its first
-  /// subscription). Then the stamp of `waiter` is decided as by any session; `closed`: the scheduler of the facts heard
-  /// the session close already, as a stamp found the new lease while a run was in flight (`reopen_for_lease`)
-  async fn reopened(mut self, waiter: Waiter, closed: bool) -> Self {
+  /// subscription). Then the stamp of `waiter` is decided as by any session. The scheduler of the facts hears the session
+  /// close here, also when it heard it at the stamp that found the new lease while a run was in flight
+  /// (`reopen_for_lease`): a window that left and came back during the run watched the session again, and the task the
+  /// scheduler made for it is of the lease before, which ends here; a close of a session it holds no task of does nothing
+  async fn reopened(mut self, waiter: Waiter) -> Self {
     tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
     let held = self.view.version();
     // a check of the inputs in flight, or requests that wait, answer nothing of the session before: its answer goes to
@@ -570,9 +572,7 @@ impl Actor {
       ..
     } = self;
     frames.reopen();
-    if !closed {
-      events.emit(&key, SessionEventKind::Closed);
-    }
+    events.emit(&key, SessionEventKind::Closed);
     let mut actor = Self::new(key, host, life, mailbox, events, frames);
     // the prunes of the worktree stay in order across the leases
     actor.review_prunes = review_prunes;
@@ -611,8 +611,8 @@ impl Actor {
         break;
       };
       self.handle(message);
-      if let Some((waiter, closed)) = self.reopen_now.take() {
-        self = Box::pin(self.reopened(waiter, closed)).await;
+      if let Some(waiter) = self.reopen_now.take() {
+        self = Box::pin(self.reopened(waiter)).await;
         continue;
       }
       // a stream of events never starves the patch
@@ -1093,7 +1093,7 @@ impl Actor {
   /// session waits for that run asks nothing more
   fn reopen_for_lease(&mut self, waiter: Waiter) {
     if self.scheduler.running().is_none() {
-      self.reopen_now = Some((waiter, false));
+      self.reopen_now = Some(waiter);
       return;
     }
     if self.reopen_after_run.is_some() {
@@ -1339,7 +1339,7 @@ impl Actor {
       for waited in self.scheduler.abandon() {
         waited.settle(Ok(SyncOutcome::Skipped), version);
       }
-      self.reopen_now = Some((waiter, true));
+      self.reopen_now = Some(waiter);
       return;
     }
     let result = match result {

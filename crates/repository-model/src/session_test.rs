@@ -2956,6 +2956,29 @@ async fn a_stamp_under_another_lease_opens_the_session_anew_for_that_lease() {
   assert_eq!(host.runs(), 0, "the first sync of the new worktree is the user's");
 }
 
+/// A window subscribes to the session of `key` and asks a manual sync, whose run started when this answers: the window's
+/// subscription, the view it got and the ticket of the sync
+async fn a_run_in_flight(sessions: &Sessions, host: &ScriptedHost, key: &SessionKey) -> (crate::session::SubscriptionId, RepositoryView, SyncTicket) {
+  let (id, view) = sessions.subscribe(key, Box::new(Window::default())).await.unwrap();
+  let manual = sessions.sync(key, SyncReason::Manual);
+  while host.runs() == 0 {
+    tokio::task::yield_now().await;
+  }
+  (id, view, manual)
+}
+
+/// Waits until the scheduler of the facts hears the session close, as a stamp finds the new lease of its slot
+async fn hears_closed(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) {
+  let closed = async {
+    while let Some(SessionEvent { kind, .. }) = events.recv().await {
+      if matches!(kind, SessionEventKind::Closed) {
+        return;
+      }
+    }
+  };
+  tokio::time::timeout(UNHURRIED, closed).await.expect("the session closes as the stamp finds the new lease");
+}
+
 /// A stamp of another lease comes while a run of the session under the lease before is in flight, with the inputs
 /// changed and a request waiting for the follow-up: the run cannot be cancelled and ends for its request, while the
 /// scheduler of the facts hears the session close at once; then the session opens anew for the new lease, its table of
@@ -2971,11 +2994,7 @@ async fn a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_th
   let (sessions, _clock) = scripted(&host);
   let mut events = sessions.events().unwrap();
   let key = key("/repo");
-  let (_, view) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
-  let manual = sessions.sync(&key, SyncReason::Manual);
-  while host.runs() == 0 {
-    tokio::task::yield_now().await;
-  }
+  let (_, view, manual) = a_run_in_flight(&sessions, &host, &key).await;
   let follow_up = sessions.sync(&key, SyncReason::AfterRewrite);
   heard(&mut events);
 
@@ -2983,14 +3002,7 @@ async fn a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_th
   host.set_inputs(2);
   let stamp = sessions.sync(&key, SyncReason::Stamp);
   // the stamp found the new lease during the run: nothing of the lease before is read from now
-  let closed = async {
-    while let Some(SessionEvent { kind, .. }) = events.recv().await {
-      if matches!(kind, SessionEventKind::Closed) {
-        return;
-      }
-    }
-  };
-  tokio::time::timeout(UNHURRIED, closed).await.expect("the session closes as the stamp finds the new lease");
+  hears_closed(&mut events).await;
   assert_eq!(snapshot(&sessions, &key).await.version.epoch, view.version.epoch, "the run in flight ends first");
 
   gate.notify_one();
@@ -3001,7 +3013,47 @@ async fn a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_th
   assert_ne!(now.version.epoch, view.version.epoch, "the session of the new lease");
   assert_eq!((now.order.clone(), now.synced), (Vec::<String>::new(), false), "nothing of the run of the lease before");
   assert_eq!(host.runs(), 1, "no recheck of the stamp under the session before");
-  assert_eq!(heard(&mut events), vec!["watched true"], "the session closed once");
+  // closed again as it opened anew: a close of a session the scheduler holds no task of does nothing
+  assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
+}
+
+/// A stamp of another lease comes while a run of the session under the lease before is in flight, and the last window
+/// leaves and comes back during the run while the files cannot tell the epoch of the slot (a read during a rename), so
+/// the window watches the session of the lease before again (`close_of_another_epoch` closes only on two known epochs):
+/// the scheduler of the facts heard the session close at the stamp, then heard a window watch it, for which it makes a
+/// task of the session of the lease before; the session closes again as it opens anew for the new lease, so that task
+/// ends, and the window watches the session of the new lease
+#[tokio::test]
+async fn a_window_back_during_the_run_before_a_new_lease_hears_the_session_close_again_as_it_opens_anew() {
+  let host = host_of(frame_of_lease("lease-a"), lease("lease-a"));
+  host.set_inputs(1);
+  let gate = Arc::new(Notify::new());
+  host.push_gated(auth_built(), Ok(report(false, &[])), Some(Arc::clone(&gate)));
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  let key = key("/repo");
+  let (first, _, manual) = a_run_in_flight(&sessions, &host, &key).await;
+  *host.epoch.lock().unwrap() = lease("lease-b");
+  let stamp = sessions.sync(&key, SyncReason::Stamp);
+  hears_closed(&mut events).await;
+
+  // the last window leaves and comes back while the run of the lease before is in flight
+  *host.epoch.lock().unwrap() = WorktreeEpoch::Unknown;
+  sessions.unsubscribe(first);
+  let (_back, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  *host.epoch.lock().unwrap() = lease("lease-b");
+  gate.notify_one();
+  assert_eq!(outcome(manual).await, Ok(SyncOutcome::Synced), "the run ended for its request");
+  assert_eq!(outcome(stamp).await, Ok(SyncOutcome::Skipped));
+  let heard = heard(&mut events);
+  let back = heard.iter().position(|kind| kind == "watched true").expect("the window came back");
+  let closed_again = heard.iter().rposition(|kind| kind == "closed").expect("the session closes as it opens anew");
+  assert!(back < closed_again, "the task of the window that came back is of the lease before, and ends: {heard:?}");
+  assert_eq!(
+    heard.last().map(String::as_str),
+    Some("watched true"),
+    "a window watches the session of the new lease: {heard:?}"
+  );
 }
 
 /// A stamp of another lease comes while a check of the inputs of a focus is in flight: no run holds the worktree, so the

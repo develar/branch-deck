@@ -1525,7 +1525,10 @@ epoch of its view, and the window MUST show nothing of the rows of the lease bef
 - **THEN** the run ends for its request and its table goes, the session opens anew for the new lease once it ended,
   the facts of the lease before are read no more from the stamp on, and no recheck of the stamp and no follow-up of the
   session before runs: the waiting request is answered with nothing done
-  [@test] crates/repository-model/src/session_test.rs (`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`)
+- **AND** the scheduler of the facts hears the session close at the stamp and again as it opens anew: a window that left
+  and came back during the run while the epoch of the slot could not be told watched the session of the lease before,
+  and the task of its facts ends there, the new lease served by a task of its own
+  [@test] crates/repository-model/src/session_test.rs (`a_stamp_under_another_lease_during_a_run_opens_the_session_anew_once_the_run_ended`, `a_window_back_during_the_run_before_a_new_lease_hears_the_session_close_again_as_it_opens_anew`)
 
 #### Scenario: A run across a lease change writes nothing of the lease
 - **GIVEN** a run of the session began under one lease of the slot
