@@ -27,6 +27,18 @@ fn the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waitin
     ["heavy turn: free"],
     "a turn that no run counted cores in"
   );
+  let before = serde_json::json!({
+    "schema": 2,
+    "holders": [{ "run": "1788-12", "pid": 1, "repo": "/Users/u/projects/idea-1", "command": "bt --lane fast", "since_ms": now - 60_000 }],
+  });
+  assert_eq!(
+    lines_at(&before, now).unwrap(),
+    [
+      "heavy turn: 1 run(s) hold the whole host; no run of this build counted its cores yet",
+      "  run 1788-12 of idea-1 holds the whole host for 60 s (no measure): bt --lane fast",
+    ],
+    "the holder of the build before, ahead of the first run of this build"
+  );
   assert_eq!(lines_at(&serde_json::json!({ "queue": 1 }), now).unwrap_err().code, Code::Link);
 }
 

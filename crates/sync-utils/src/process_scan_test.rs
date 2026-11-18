@@ -409,19 +409,19 @@ fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() 
 }
 
 /// The CPU time of a process grows while it computes, and the cheap list of the processes has this one with its group;
-/// a gone process has no CPU time
+/// a gone process has no CPU time. The loop waits for the CPU time itself, not for a time: a loaded host gives this
+/// process a fraction of a core (28 ms of CPU in 300 ms of a spin at load 90)
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn the_cpu_time_of_a_process_grows_while_it_computes() {
   let pid = std::process::id();
   let before = crate::process_scan::cpu_time(pid).unwrap();
-  let started = std::time::Instant::now();
   let mut spin = 0u64;
-  while started.elapsed() < std::time::Duration::from_millis(300) {
-    spin = std::hint::black_box(spin.wrapping_add(1));
+  while crate::process_scan::cpu_time(pid).unwrap() < before + std::time::Duration::from_millis(100) {
+    for _ in 0..100_000 {
+      spin = std::hint::black_box(spin.wrapping_add(1));
+    }
   }
-  let after = crate::process_scan::cpu_time(pid).unwrap();
-  assert!(after >= before + std::time::Duration::from_millis(100), "{before:?} then {after:?}");
   let own = crate::process_scan::process_list().unwrap().into_iter().find(|process| process.pid == pid).unwrap();
   assert_ne!(own.group, 0);
   assert_eq!(crate::process_scan::cpu_time(u32::MAX - 1), None);

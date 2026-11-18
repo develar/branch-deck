@@ -125,7 +125,10 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   calibration of once: a command that got heavier is expected heavier at its next run, one that got lighter (a faster
   fast lane) frees its cores within a few runs, and a cancelled run counts by its own measure. A holder holds the
   larger of its expectation and its live use, so a run that grows past its expectation holds more at once, for the
-  admissions that follow, not only at its end.
+  admissions that follow, not only at its end. A sample sees the processes that live at two samples in a row: a process shorter than 10 s, a
+  rustc or a test of nextest, counts in the mean through `RUSAGE_CHILDREN` at the end, not in the peak or the live
+  cores. So the expectation, of the means, is the measure; the peak of a command of many short processes reads low
+  (the first `cargo nextest run --workspace` on 2026-11-18: 6.8 cores on average, 8.1 at its peak).
 - **The upgrade**: `heavy.json`, the table of one holder of the build before, stays for its supervisors, which go on
   after an upgrade; its live holder holds the whole host for the runs of this build. A supervisor of the build before
   that waits in `heavy.json` takes its turn without seeing the holders of `turn.json`, so for the hours after an

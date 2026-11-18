@@ -1136,7 +1136,8 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
 #### Scenario: The heavy turn of a host
 - **WHEN** `brd-host runs <alias>` runs while heavy runs hold cores of the heavy turn and another waits for it
 - **THEN** after the runs it says `heavy turn: <held> of <cores> cores held` (`heavy turn: free, <cores> cores` without
-  a holder), then `  run <id> of <repository> holds <cores> for <time> (measured): <command>` for each holder, with
+  a holder; `heavy turn: <n> run(s) hold the whole host; no run of this build counted its cores yet` while only the
+  holder of the build before holds it), then `  run <id> of <repository> holds <cores> for <time> (measured): <command>` for each holder, with
   `(live, above its measure)` when it uses more, and `holds the whole host for <time> (no measure)` or `(measured
   <cores>)` for one that takes the whole host; `  run <id> of <repository> waits <time> for <cores> (measured):
   <command>` or `for the whole host (no measure)` for each run that waits; and `  run <id> of <repository>, not heavy,

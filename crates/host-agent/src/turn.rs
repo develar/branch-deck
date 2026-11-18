@@ -252,6 +252,9 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
   let held: Cores = table.holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
   let mut lines = vec![if table.holders.is_empty() && cores == 0 {
     "heavy turn: free".to_owned()
+  } else if cores == 0 {
+    // only the holder of the build before, ahead of the first run of this build, which counts the cores
+    format!("heavy turn: {} run(s) hold the whole host; no run of this build counted its cores yet", table.holders.len())
   } else if table.holders.is_empty() {
     format!("heavy turn: free, {cores} cores")
   } else {
