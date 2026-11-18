@@ -1,4 +1,4 @@
-use super::{Code, Exit, Reached, Refusal};
+use super::{Code, Exit, Reached, Refusal, on_host};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeSet;
 
@@ -63,4 +63,11 @@ fn a_refusal_prints_its_code_and_an_unknown_code_of_an_agent_is_an_agent_error()
     Refusal::of_agent("new_code", "words"),
     Refusal::new(Code::AgentError, "the agent refused with the code new_code, which this build does not know: words")
   );
+}
+
+/// The agent names its host as `<host>`, and the client fills in its own alias
+#[test]
+fn a_message_of_the_agent_gets_the_alias_of_the_client_for_its_host() {
+  assert_eq!(on_host("follow 1-3: `brd-host follow <host> 1-3`", "studio"), "follow 1-3: `brd-host follow studio 1-3`");
+  assert_eq!(on_host("no host named", "studio"), "no host named");
 }

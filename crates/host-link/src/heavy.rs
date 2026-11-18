@@ -262,31 +262,83 @@ fn shell_input(words: &[String]) -> Option<ShellInput> {
 /// of its own
 fn without_prefixes(words: Vec<String>) -> Vec<String> {
   let mut at = 0;
-  while let Some(word) = words.get(at) {
+  while at < words.len() {
     if let Some(end) = crate::config::env_end(&words[at..]) {
       at += end;
-    } else if PREFIXES.contains(&word.as_str()) || crate::config::is_assignment(word) {
+    } else if crate::config::is_assignment(&words[at]) {
       at += 1;
-    } else if word == "nice" {
-      at += 1;
-      // `nice -n 10`, `nice -10`
-      if words.get(at).is_some_and(|word| word == "-n") {
-        at += 2;
-      } else if words.get(at).is_some_and(|word| word.starts_with('-')) {
-        at += 1;
+    } else {
+      let end = wrapper_end(&words[at..]);
+      if end == 0 {
+        break;
       }
-    } else if word == "timeout" {
-      at += 1;
-      while words.get(at).is_some_and(|word| word.starts_with('-')) {
-        at += 1;
-      }
-      // the duration
+      at += end;
+    }
+  }
+  words.into_iter().skip(at).collect()
+}
+
+/// The count of the words at the start of `words` of a keyword or a wrapper that changes nothing its command runs: one
+/// of `PREFIXES`, `nice` with its option (`nice -n 10`, `nice -10`), `timeout` with its options and its duration; 0 for
+/// none
+fn wrapper_end(words: &[String]) -> usize {
+  let Some(word) = words.first() else {
+    return 0;
+  };
+  let end = if PREFIXES.contains(&word.as_str()) {
+    1
+  } else if word == "nice" {
+    match words.get(1) {
+      Some(option) if option == "-n" => 3,
+      Some(option) if option.starts_with('-') => 2,
+      _ => 1,
+    }
+  } else if word == "timeout" {
+    let options = words[1..].iter().take_while(|word| word.starts_with('-')).count();
+    // the duration
+    1 + options + 1
+  } else {
+    0
+  };
+  end.min(words.len())
+}
+
+/// The words of `command` by what it runs, for a later heavy run that supersedes a waiting one of its checkout
+/// (openspec/specs/cli/host/spec.md, "A later run of the same checkout and command"): without the keywords and the
+/// wrappers before it that change nothing it runs, as the classification drops them (`time`, `nohup`, `exec`, `command`,
+/// `nice -n 10`, `timeout 1h`), but with its environment (`env`, `FOO=1`), which can change what it checks. A run that
+/// differs in any other word is another run
+pub fn run_words(command: &[String]) -> Vec<String> {
+  let mut words = Vec::with_capacity(command.len());
+  let mut at = 0;
+  while at < command.len() {
+    let rest = &command[at..];
+    let wrapper = wrapper_end(rest);
+    if wrapper > 0 {
+      at += wrapper;
+    } else if let Some(end) = crate::config::env_end(rest) {
+      words.extend_from_slice(&rest[..end]);
+      at += end;
+    } else if crate::config::is_assignment(&rest[0]) {
+      words.push(rest[0].clone());
       at += 1;
     } else {
       break;
     }
   }
-  words.into_iter().skip(at).collect()
+  words.extend_from_slice(command.get(at..).unwrap_or_default());
+  words
+}
+
+/// The key of `command` by what it runs ([`run_words`]): the SHA-256 of its words, each ended by a zero byte, as 64 hex
+/// digits. Two runs of one key run the same command
+pub fn run_key(command: &[String]) -> String {
+  let mut digest = crate::digest::Sha256::default();
+  for word in run_words(command) {
+    digest.update(word.as_bytes());
+    digest.update(&[0]);
+  }
+  digest.hex()
 }
 
 /// The simple commands of a shell script, each as its words (see the header of the module)

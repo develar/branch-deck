@@ -83,16 +83,23 @@ impl Repository {
   /// What the pools of the host hold on disk, as `brd lease disk --all` reports it (`pool_disk`), as the JSON of
   /// `Reply::Disk`: the pools of this repository and of the home of the agent; `fresh` walks every slot again
   pub(crate) fn disk(&self, fresh: bool) -> Result<serde_json::Value, Refusal> {
+    let report = self.disk_report(fresh, false)?;
+    serde_json::to_value(report).map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
+  }
+
+  /// The disk report of every pool of the host; `cached`: from `disk.json` alone, without a walk of a slot, as the
+  /// line of a relief names what holds the space
+  pub(crate) fn disk_report(&self, fresh: bool, cached: bool) -> Result<DiskReport, Refusal> {
     let params = DiskParams {
       repository: &self.dirs,
       home: Some(&self.home),
       scope: DiskScope::Machine,
       fresh,
-      cached: false,
+      cached,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
     };
     let usage = disk_usage_core(&self.git, &params).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))?;
-    serde_json::to_value(DiskReport::of(&usage)).map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
+    Ok(DiskReport::of(&usage))
   }
 
   /// The trim of every pool of the host (`lease_pool::host_slots::trim`), as `pool_disk::trim_report::TrimReport`

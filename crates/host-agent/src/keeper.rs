@@ -26,6 +26,7 @@ use lease_pool::host_slots::{clean_idle_slots, fill, keep_free};
 use lease_pool::lease::{ReclaimedLease, ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
 use lease_pool::lease_notes::expire_pool_notes;
+use pool_disk::report::DiskReport;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -40,6 +41,9 @@ const FILL_BACKOFF: [Duration; 3] = [Duration::from_mins(1), Duration::from_mins
 /// The wait after a relief that left the volume below its minimum, or failed: what it could delete is gone, and the
 /// next one would walk the pools again for nothing
 const RELIEF_BACKOFF: Duration = Duration::from_mins(15);
+
+/// The largest pools and the largest slots of each that the line of a volume still below its minimum names
+const HOLDERS: usize = 3;
 
 /// The fills of each repository
 #[derive(Debug, Default)]
@@ -260,7 +264,18 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
         Ok(Some(relieved)) => {
           let still_low = relieved.after.is_some_and(|after| after < relieved.required);
           low |= still_low;
-          log(&relieved_line(&repo.path, &relieved, still_low));
+          let mut line = relieved_line(&repo.path, &relieved, still_low);
+          if still_low {
+            // what `disk.json` measured last, without a walk of a slot: the relief walked the pools already
+            match repo.disk_report(false, true) {
+              Ok(report) => line.push_str(&holders_line(&report)),
+              Err(refusal) => {
+                line.push_str("; what holds the space is unknown: ");
+                line.push_str(&refusal.to_string());
+              }
+            }
+          }
+          log(&line);
         }
         Err(error) => {
           low = true;
@@ -339,3 +354,35 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
     if steps.is_empty() { "nothing to delete".to_string() } else { steps.join(", ") }
   )
 }
+
+/// What holds the space of a volume still below its minimum after a relief, from the disk report `report`: the largest
+/// pools of the host, the largest slots of each, and what a person can do, as the relief deletes no slot that a lease
+/// holds. A report without a measured byte names no pool
+fn holders_line(report: &DiskReport) -> String {
+  let mut pools: Vec<_> = report.pools.iter().filter(|pool| pool.bytes > 0).collect();
+  pools.sort_by_key(|pool| std::cmp::Reverse(pool.bytes));
+  let named: Vec<String> = pools
+    .iter()
+    .take(HOLDERS)
+    .map(|pool| {
+      let mut slots: Vec<_> = pool.slots.iter().filter(|slot| slot.bytes > 0).collect();
+      slots.sort_by_key(|slot| std::cmp::Reverse(slot.bytes));
+      let slots: Vec<String> = slots.iter().take(HOLDERS).map(|slot| format!("{} {}", slot.slot, describe_size(slot.bytes))).collect();
+      let name = pool.repository.as_deref().unwrap_or(&pool.git_common_dir);
+      let largest = if slots.is_empty() { String::new() } else { format!(" (largest: {})", slots.join(", ")) };
+      format!("{name} {} in {} slot(s){largest}", describe_size(pool.bytes), pool.slots.len())
+    })
+    .collect();
+  let held = if named.is_empty() {
+    "no pool has measured bytes yet (`brd-host disk <host> --fresh` measures them)".to_owned()
+  } else {
+    format!("the pools that hold the most: {}", named.join("; "))
+  };
+  format!(
+    "; {held}. The relief deleted all it may: the rest is held by leases, the host slots of runs among them. A person frees more by returning the leases that `brd lease status` names on the host, by `brd-host trim <host> --max <n>`, which deletes the free slots past n, or by moving a pool to a larger volume: `git -C <repository> config branchdeck.leasePool <dir>` on the host, whose new slots go there"
+  )
+}
+
+#[cfg(test)]
+#[path = "keeper_test.rs"]
+mod keeper_test;

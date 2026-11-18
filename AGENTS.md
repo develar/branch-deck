@@ -22,7 +22,7 @@ A note on each original commit (`MappingNote`, `crates/git-ops/src/notes.rs`) na
 while the original's trees match.
 
 ## Never
-Hard rules in one place; the linked section says why and what to do instead.
+Hard rules in one place; the linked section says why and what instead.
 - Never edit, build or commit in the main checkout; only the agent's own ignored plan (`.junie/plans/`) is edited there
   ([Worktrees](#worktrees)).
 - Never `git stash` in a lease, never rerere: the stash and the rerere cache are shared by every worktree of the pool
@@ -88,18 +88,19 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
 ## Verification
 ⚠️ **NEVER `cargo test`, ALWAYS `cargo nextest run`**: `cargo test` runs a binary's tests as threads of one process,
 and a test that sets environment variables (`test_utils::env_vars::EnvVars`) changes them under the others. In CI a
-test that passes only on a retry is FLAKY and fails the run: a race to fix. `cargo nextest run -R latest` reruns what
-failed (record on in the user config); finish with a full run. Why and how: [Checks](docs/contributing/checks.md).
+pass only on a retry is FLAKY and fails the run: a race to fix. `cargo nextest run -R latest` reruns what failed
+(record on in the user config); finish with a full run. More: [Checks](docs/contributing/checks.md).
 
 **A test's time is its git processes** ([Fast Rust Tests](docs/contributing/rust-tests.md)): `TestRepo::new()`,
 `create_commit*` or `commit_with`, `with_history` for many commits; never a `git config` process per key, a sleep, or
 a wall-clock limit an assertion depends on.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, `pnpm e2e` and `pnpm lint:backend` run
-as `brd-host run studio -- <command>` from the lease, in the background, one at a time there; exit 75 but
-`heavy_timeout`: run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait, `--apply`).
+as `brd-host run studio -- <command>` from the lease, in the background; exit 75 but `heavy_timeout` or `superseded`:
+run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait, `--apply`). **One heavy run, one check**: an A/B
+loop or `zsh -c 'a && b'` holds the turn an hour.
 
-If Homebrew `cargo` comes before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`.
+Homebrew `cargo` before rustup in `PATH`: prefix `PATH=$HOME/.cargo/bin:$PATH`.
 
 | You changed | Run (every filter: [Checks → By Change](docs/contributing/checks.md#by-change)) |
 |---|---|
@@ -129,8 +130,8 @@ The other scripts and debugging: [Checks → Commands](docs/contributing/checks.
 Mistakes agents made, each a lost session.
 - **One `pnpm e2e` per checkout**, even on two ports: a global setup that runs `pnpm build` empties `dist/` under the
   other run. **`CI=1` does not speed up E2E** (1 worker, 2 retries); a test that fails only under load is a race.
-- **Same-second commits are the same commit**: a replay onto its own parent within one second writes the identical
-  object; a test that needs a new copy makes the target diverge first or uses `cherry-pick -x`.
+- **Same-second commits are the same commit**: a replay onto its own parent within a second writes the same object;
+  a test that needs a new copy diverges the target first or uses `cherry-pick -x`.
 - **React Compiler and store reads**: a `getState()` read in the render body is memoized and goes stale; take the
   value from a selector ([Frontend Rules → Pitfalls](docs/contributing/frontend.md#pitfalls)).
 - **A kept view runs its effects again** as it shows (`Activity`, `KeepMounted`); WebKit keeps the focus on a hidden
@@ -328,7 +329,7 @@ never goes into `src/lib` or `src/hooks` (`pnpm lint:arch`). The crates of git (
 Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
 [Virtual Branches](docs/design/virtual-branches.md), [Git Operations](docs/design/git-operations.md),
 [Running Operations](docs/design/operations.md), [Rust as the Domain Authority](docs/design/rust-domain-authority.md)
-(the rework plan, in Russian), [Distributed Settings](docs/design/distributed-settings.md),
+(in Russian), [Distributed Settings](docs/design/distributed-settings.md),
 [Async Patterns](docs/design/async-patterns.md), [Rendering Performance](docs/design/rendering-performance.md),
 [UI Theme](docs/design/ui-theme.md), [Diff View](docs/design/diff-view.md), [Text Diff](docs/design/text-diff.md),
 [Symbol Dependencies](docs/design/symbol-dependencies.md), [Integration Detection](docs/design/integration-detection.md),

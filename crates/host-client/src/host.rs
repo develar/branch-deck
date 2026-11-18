@@ -12,7 +12,7 @@ use crate::config::{Config, HostFile};
 use crate::{Timing, setup_hint};
 use host_link::channel::{Channel, ClientTls, Closer, LinkError};
 use host_link::proto::{Reply, Request, SCHEMA_VERSION};
-use host_link::refusal::{Code, Refusal};
+use host_link::refusal::{Code, Refusal, on_host};
 use host_link::relay::local_network_cause;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -227,9 +227,10 @@ impl Host {
     Refusal::new(Code::Link, format!("the agent on {} sent a reply out of turn: {reply:?}", self.alias()))
   }
 
-  /// A refusal of the agent, with its own code. A code that this build does not know is `agent_error`
+  /// A refusal of the agent, with its own code and the alias for the host that it names (`<host>`). A code that this
+  /// build does not know is `agent_error`
   pub(crate) fn agent_refusal(&self, code: &str, message: &str) -> Refusal {
-    Refusal::of_agent(code, &format!("{}: {message}", self.alias()))
+    Refusal::of_agent(code, &format!("{}: {}", self.alias(), on_host(message, self.alias())))
   }
 
   /// Tries each of `addresses` in turn, and notes each failure in `tries`. Answers the first channel, the refusal of
@@ -356,11 +357,12 @@ pub(crate) fn resolve(hostname: &str, port: u16, deadline: Duration) -> Result<V
 }
 
 /// The hello of a host and a hint when it runs another build than this client: the run goes on, and one line names
-/// `brd-host upgrade <alias>`
+/// `brd-host upgrade <alias>`, that runs work across builds, and that an upgrade waits for the user, as it deploys a
+/// new agent on a machine that the user shares
 pub(crate) fn another_build_hint(alias: &str, agent: &AgentInfo, client: Option<&str>) -> Option<String> {
   match (agent.build.as_deref(), client) {
     (Some(agent_build), Some(client_build)) if agent_build != client_build => Some(format!(
-      "brd-host: {alias} runs another build of brd-host ({} {}, this client {}): `brd-host upgrade {alias}` sends this one",
+      "brd-host: {alias} runs another build of brd-host ({} {}, this client {}); runs work across builds, so this is no error: `brd-host upgrade {alias}` sends this one, only after the user agrees",
       agent.version,
       crate::short(agent_build),
       crate::short(client_build)

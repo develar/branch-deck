@@ -14,7 +14,11 @@ fn command() -> Vec<String> {
   vec!["cargo".to_owned(), "nextest".to_owned(), "run".to_owned(), "--workspace".to_owned()]
 }
 
-/// A request of this process, whose pid lives as long as the test
+/// The checkout of the requests of the tests
+const CHECKOUT: &str = "checkout-0123456789ab";
+
+/// A request of this process, whose pid lives as long as the test, from a checkout of its own (the run id), so no run
+/// supersedes another
 fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
   let pid = std::process::id();
   TurnRequest {
@@ -23,6 +27,16 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
     process_started: sync_utils::process_scan::process_started(pid),
     repo: "/Users/u/projects/branch-deck",
     command,
+    affinity: run,
+    command_key: if command == ["pnpm", "e2e"] { "key-of-e2e" } else { "key-of-nextest" },
+  }
+}
+
+/// A request as `request` from `CHECKOUT`, the checkout of every run that asks with it
+fn of_checkout<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+  TurnRequest {
+    affinity: CHECKOUT,
+    ..request(run, command)
   }
 }
 
@@ -42,6 +56,7 @@ fn queued(answer: &TurnAnswer) -> (Option<&str>, Vec<&str>) {
       queue.ahead.iter().map(|entry| entry.ticket.run.as_str()).collect(),
     ),
     TurnAnswer::Taken => panic!("the run took the turn"),
+    TurnAnswer::Superseded { by } => panic!("{by} superseded the run"),
   }
 }
 
@@ -200,12 +215,96 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     repo: waited_long.repo.to_owned(),
     command: "cargo nextest run --workspace".to_owned(),
     since_ms: 1,
+    affinity: None,
+    command_key: None,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 1, "queue": [joined] }));
   let before = now_ms();
   assert_eq!(take(&params, &waited_long).unwrap(), TurnAnswer::Taken);
   let holder = read_live(dir.path()).unwrap().holder.unwrap();
   assert!(holder.since_ms >= before, "{} is the time it joined the queue", holder.since_ms);
+}
+
+/// The runs of the queue of `table`, each with the run that superseded it
+fn superseded(table: &HeavyTurn) -> Vec<(&str, &str)> {
+  table.superseded.iter().map(|entry| (entry.ticket.run.as_str(), entry.by.as_str())).collect()
+}
+
+/// A later run of the same checkout and command supersedes the run of the queue that waits with them: it takes its
+/// place, and the next look of the superseded run answers the later one once and takes it out of the table
+#[test]
+fn a_later_run_of_the_same_checkout_and_command_supersedes_the_waiting_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let (nextest, e2e) = (command(), vec!["pnpm".to_owned(), "e2e".to_owned()]);
+  assert_eq!(take(&params, &of_checkout("holder", &nextest)).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &of_checkout("old", &e2e)).unwrap()), (Some("holder"), vec![]));
+  assert_eq!(queued(&take(&params, &of_checkout("other", &nextest)).unwrap()), (Some("holder"), vec!["old"]));
+
+  let joined = join(&params, &of_checkout("new", &e2e)).unwrap();
+  assert_eq!(queued(&joined.answer), (Some("holder"), vec![]), "the later run takes the place of the superseded one");
+  let runs_of = |entries: &[TurnEntry]| entries.iter().map(|entry| entry.ticket.run.clone()).collect::<Vec<_>>();
+  assert_eq!(runs_of(&joined.replaced), ["old"]);
+  assert_eq!(runs_of(&joined.beside), ["other"], "a run of the checkout with another command waits beside it");
+  let table = read_live(dir.path()).unwrap();
+  assert_eq!(runs(&table), (Some("holder"), vec!["new", "other"]));
+  assert_eq!(superseded(&table), [("old", "new")]);
+  let new = &table.queue[0];
+  assert_eq!((new.affinity.as_deref(), new.command_key.as_deref()), (Some(CHECKOUT), Some("key-of-e2e")));
+
+  assert_eq!(take(&params, &of_checkout("old", &e2e)).unwrap(), TurnAnswer::Superseded { by: "new".to_owned() });
+  assert_eq!(superseded(&read_live(dir.path()).unwrap()), [], "the answer takes it out");
+  let repeat = join(&params, &of_checkout("new", &e2e)).unwrap();
+  assert_eq!((repeat.replaced, repeat.beside), (vec![], vec![]), "a repeat of a queued run supersedes nothing");
+}
+
+/// Another command of the checkout, the same command of another checkout or of an older build without a key, and the
+/// holder, whose command may run, are never superseded; a superseded run that leaves or whose process is gone is out
+#[test]
+fn another_command_another_checkout_and_the_holder_are_never_superseded() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &of_checkout("holder", &command)).unwrap(), TurnAnswer::Taken);
+  let elsewhere = TurnRequest {
+    affinity: "checkout-ba9876543210",
+    ..of_checkout("elsewhere", &command)
+  };
+  assert_eq!(queued(&take(&params, &elsewhere).unwrap()), (Some("holder"), vec![]));
+  let unnamed = TurnRequest {
+    affinity: "",
+    ..of_checkout("unnamed", &command)
+  };
+  assert_eq!(queued(&take(&params, &unnamed).unwrap()), (Some("holder"), vec!["elsewhere"]));
+  let joined = join(&params, &of_checkout("same", &command)).unwrap();
+  assert_eq!(queued(&joined.answer), (Some("holder"), vec!["elsewhere", "unnamed"]), "nobody is superseded");
+  assert_eq!((joined.replaced, joined.beside), (vec![], vec![]));
+  assert_eq!(superseded(&read_live(dir.path()).unwrap()), []);
+
+  // an entry of an older build names no checkout and no key
+  let mut table = read_live(dir.path()).unwrap();
+  for entry in &mut table.queue {
+    (entry.affinity, entry.command_key) = (None, None);
+  }
+  write_table(dir.path(), &serde_json::to_value(&table).unwrap());
+  let later = join(&params, &of_checkout("later", &command)).unwrap();
+  assert_eq!(later.replaced, vec![], "an entry without a key is no run of this command");
+
+  let gone = TurnRequest {
+    process_started: Some(1),
+    ..of_checkout("gone", &command)
+  };
+  write_table(
+    dir.path(),
+    &serde_json::json!({ "schema": 1, "queue": [], "superseded": [{ "run": "gone", "pid": gone.pid, "process_started": 1, "by": "later" }] }),
+  );
+  assert_eq!(superseded(&read_live(dir.path()).unwrap()), [], "a gone process is no superseded run");
+  write_table(
+    dir.path(),
+    &serde_json::json!({ "schema": 1, "queue": [], "superseded": [{ "run": "left", "pid": gone.pid, "by": "later" }] }),
+  );
+  assert!(!leave(&params, "left").unwrap());
+  assert_eq!(superseded(&read_live(dir.path()).unwrap()), [], "the end of a superseded run takes it out");
 }
 
 /// A table of another schema, which an agent of another build wrote, refuses every step, and so does one without a
@@ -217,7 +316,7 @@ fn a_table_of_another_schema_refuses() {
   let command = command();
   for table in [serde_json::json!({ "schema": 2, "queue": [] }), serde_json::json!({ "queue": [] })] {
     write_table(dir.path(), &table);
-    let refused = take(&params, &request("run-1", &command)).unwrap_err().to_string();
+    let refused = take(&params, &of_checkout("run-1", &command)).unwrap_err().to_string();
     assert!(
       refused.contains("heavy.json has the schema ") && refused.contains(" of another build of brd-host, and this one reads 1"),
       "{refused}"

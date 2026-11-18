@@ -11,6 +11,13 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// The slots of `table` whose run or step is gone by the processes of this machine (`is_abandoned`): the agent names
+/// them in `Reply::Slots` for its host, and `slots --local` for this one. A pid of a table means a process only on the
+/// machine of the table
+pub fn abandoned(table: &HostSlots) -> Vec<u32> {
+  table.slots.iter().filter(|slot| is_abandoned(&slot.state)).map(|slot| slot.n).collect()
+}
+
 /// The table of a reply of the agent (`Reply::Slots`), which carries the JSON of `host-slots.json`. A table of another
 /// shape refuses with `link`, because the agent sent it
 pub fn parse(table: &serde_json::Value) -> Result<HostSlots, Refusal> {
@@ -127,8 +134,9 @@ pub fn sizes(table: &HostSlots) -> Vec<RuleSize> {
 }
 
 /// The lines of the table of the repository `repo` for a person: the count, the limit and the queue, then one line per
-/// slot with its state, its affinity, its last use and its path
-pub fn lines(repo: &str, table: &HostSlots) -> Vec<String> {
+/// slot with its state, `(abandoned)` for a slot of `abandoned` (as the machine of the table judged it, [`abandoned`]),
+/// its affinity, its last use and its path
+pub fn lines(repo: &str, table: &HostSlots, abandoned: &[u32]) -> Vec<String> {
   let limit = table.limit.map_or_else(String::new, |limit| format!(", limit {limit}"));
   let queue = if table.queue.is_empty() {
     String::new()
@@ -139,7 +147,7 @@ pub fn lines(repo: &str, table: &HostSlots) -> Vec<String> {
   let mut lines = vec![format!("{repo}: {} slots{limit}{queue}", table.slots.len())];
   let now = now_ms();
   for slot in &table.slots {
-    let abandoned = if is_abandoned(&slot.state) { " (abandoned)" } else { "" };
+    let abandoned = if abandoned.contains(&slot.n) { " (abandoned)" } else { "" };
     let affinity = slot.affinity.as_deref().map_or_else(String::new, |affinity| format!(", affinity {affinity}"));
     let used = slot.used.map_or_else(String::new, |used| format!(", used {} ago", ago(now.saturating_sub(used))));
     let state = match &slot.state {

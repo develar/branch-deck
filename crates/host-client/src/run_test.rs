@@ -1215,6 +1215,7 @@ fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
         repositories: vec![host_link::proto::RepositorySlots {
           repo: "~/projects/idea-1".to_owned(),
           table: serde_json::json!({"slots": []}),
+          abandoned: Vec::new(),
         }],
       }),
       _ => channel.send(&Reply::refused(Code::BadRequest, "no")),

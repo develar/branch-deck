@@ -37,7 +37,7 @@
 //! of the cut log maps an offset in and each end out ([`LogCut`])
 
 use crate::files::{append_private, open_private, private_dir, remove_entry, try_flock, try_flock_shared, write_private};
-use host_link::proto::{Phase, Piece, RunInfo, RunSpec, Stream, is_run_id};
+use host_link::proto::{Phase, Piece, RunInfo, RunRefusal, RunSpec, Stream, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -363,6 +363,13 @@ impl RunDir {
       started_ms: self.started_ms(),
       ended_ms: ended.as_ref().filter(|_| !lost).and_then(|_| self.ended()).map(epoch_ms),
       exit: ended.as_ref().map(|(end, _)| end.code()),
+      refused: match ended.as_ref() {
+        Some((ExitRecord::Refused { refused }, _)) => Some(RunRefusal {
+          code: refused.code.clone(),
+          message: refused.message.clone(),
+        }),
+        _ => None,
+      },
       phases: ended.map_or_else(|| self.running_phases(), |(_, phases)| phases),
       forgotten: self.is_forgotten(),
     })

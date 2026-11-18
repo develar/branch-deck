@@ -612,6 +612,10 @@ fn two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot() {
     lent && table["queue"].as_array().map(Vec::len) == Some(1)
   });
   assert_eq!(running(), 2, "the third run waits for a slot");
+  match agent.reply(&Request::Slots) {
+    Reply::Slots { repositories } => assert_eq!(repositories[0].abandoned, Vec::<u32>::new(), "the supervisors of the lends live on the host"),
+    other => panic!("{other:?}"),
+  }
   fs::write(&gate, "").expect("the gate opens");
   for run in ["4-1", "4-2", "4-3"] {
     assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));

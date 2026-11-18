@@ -10,7 +10,13 @@
 //! while the table changes, never across git or another lock. A run that waits watches the directory once for its whole
 //! wait (`TurnWatch`) and looks again every 5 s, as the end of a process makes no file event. The table names its
 //! schema: a table of another schema, which an agent of another build wrote, refuses, so a supervisor of the build
-//! before an upgrade never reads a turn it does not know
+//! before an upgrade never reads a turn it does not know.
+//!
+//! A later heavy run of the same checkout (its affinity) and the same command (`host_link::heavy::run_key`) supersedes
+//! the runs of the queue that wait for the turn with them: it takes the place of the first in the queue, and each of
+//! them moves to `superseded` with the id of the later run, which its own next look answers (`TurnAnswer::Superseded`).
+//! A run of the queue has no slot and has started no command: the turn comes before the lend. The holder is never
+//! superseded. An entry of an older build has no affinity and no key, and supersedes nothing and nobody
 
 use crate::host_slots::{TableWake, Ticket, WAIT_RECHECK, now_ms};
 use crate::state_file::StateFile;
@@ -41,6 +47,20 @@ pub struct HeavyTurn {
   /// The heavy runs that wait for the turn, first come first
   #[serde(default)]
   pub queue: Vec<TurnEntry>,
+  /// The runs that a later run of their checkout and command took out of the queue: the next look of each answers the
+  /// later run and takes it out
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub superseded: Vec<SupersededEntry>,
+}
+
+/// A run that a later run of its checkout and command superseded while it waited for the turn
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupersededEntry {
+  /// The superseded run and its process
+  #[serde(flatten)]
+  pub ticket: Ticket,
+  /// The later run that took its place
+  pub by: String,
 }
 
 /// A heavy run that holds the turn or waits for it
@@ -55,6 +75,13 @@ pub struct TurnEntry {
   pub command: String,
   /// When it took the turn, or joined the queue, in Unix milliseconds
   pub since_ms: u64,
+  /// The checkout of the client of the run (`RunSpec::affinity`); `None` from an older build
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub affinity: Option<String>,
+  /// The key of the whole command by what it runs (`host_link::heavy::run_key`), not cut as `command`; `None` from an
+  /// older build
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub command_key: Option<String>,
 }
 
 impl Default for HeavyTurn {
@@ -63,6 +90,7 @@ impl Default for HeavyTurn {
       schema: SCHEMA,
       holder: None,
       queue: Vec::new(),
+      superseded: Vec::new(),
     }
   }
 }
@@ -84,6 +112,15 @@ impl HeavyTurn {
 impl TurnEntry {
   fn is_running(&self) -> bool {
     is_running(self.ticket.pid, self.ticket.process_started)
+  }
+
+  /// Whether the entry is of the checkout of `request` (`same_command`: and of its command), as both name them; an
+  /// entry of an older build names neither
+  fn is_of(&self, request: &TurnRequest<'_>, same_command: bool) -> bool {
+    !request.affinity.is_empty()
+      && self.repo == request.repo
+      && self.affinity.as_deref() == Some(request.affinity)
+      && (self.command_key.as_deref() == Some(request.command_key)) == same_command
   }
 }
 
@@ -132,6 +169,10 @@ pub struct TurnRequest<'a> {
   pub repo: &'a str,
   /// The command of the run
   pub command: &'a [String],
+  /// The checkout of the client of the run (`RunSpec::affinity`): an empty one supersedes nothing
+  pub affinity: &'a str,
+  /// The key of the command by what it runs (`host_link::heavy::run_key`)
+  pub command_key: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +181,19 @@ pub enum TurnAnswer {
   Taken,
   /// Not yet: who holds it and who waits before the run
   Queued(TurnQueue),
+  /// A later run of the same checkout and command, named here, took its place in the queue: the run runs nothing
+  Superseded { by: String },
+}
+
+/// The answer to a run that asks for the turn, and what its first ask did to the queue
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Joined {
+  pub answer: TurnAnswer,
+  /// The runs of the same checkout and command that waited for the turn: this run took the place of the first, and each
+  /// is superseded
+  pub replaced: Vec<TurnEntry>,
+  /// The other runs of the same checkout that wait for the turn, with another command
+  pub beside: Vec<TurnEntry>,
 }
 
 /// No turn for the run yet, for the line of the wait
@@ -151,56 +205,96 @@ pub struct TurnQueue {
   pub ahead: Vec<TurnEntry>,
 }
 
-/// Give the turn to the run of `request`, or put it in the queue. Under the lock of the table: the tickets of gone
-/// processes leave the queue, and a gone holder frees the turn; a run that holds the turn holds it again (a repeat is
-/// safe); the run's ticket joins the queue; the first run of the queue takes a free turn
+/// Give the turn to the run of `request`, or put it in the queue ([`join`])
 pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAnswer> {
+  join(params, request).map(|joined| joined.answer)
+}
+
+/// Give the turn to the run of `request`, or put it in the queue, and say what its first ask did. Under the lock of the
+/// table: the tickets of gone processes leave the queue and `superseded`, and a gone holder frees the turn; a superseded
+/// run gets the later run and leaves `superseded`; a run that holds the turn holds it again (a repeat is safe); a run
+/// new to the queue supersedes the runs of the queue of its checkout and command and takes the place of the first of
+/// them, else joins the end; the first run of the queue takes a free turn
+pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
     table.queue.retain(TurnEntry::is_running);
+    table.superseded.retain(|entry| is_running(entry.ticket.pid, entry.ticket.process_started));
     if table.holder.as_ref().is_some_and(|holder| !holder.is_running()) {
       table.holder = None;
     }
-    if table.holder.as_ref().is_some_and(|holder| holder.ticket.run == request.run) {
-      return Ok(TurnAnswer::Taken);
+    let mut joined = Joined {
+      answer: TurnAnswer::Taken,
+      replaced: Vec::new(),
+      beside: Vec::new(),
+    };
+    if let Some(at) = table.superseded.iter().position(|entry| entry.ticket.run == request.run) {
+      joined.answer = TurnAnswer::Superseded {
+        by: table.superseded.remove(at).by,
+      };
+      return Ok(joined);
     }
-    let position = table.queue.iter().position(|entry| entry.ticket.run == request.run).unwrap_or_else(|| {
-      table.queue.push(TurnEntry {
-        ticket: Ticket {
-          run: request.run.to_owned(),
-          pid: request.pid,
-          process_started: request.process_started,
-        },
-        repo: request.repo.to_owned(),
-        command: one_line(request.command),
-        since_ms: now_ms(),
-      });
-      table.queue.len() - 1
-    });
+    if table.holder.as_ref().is_some_and(|holder| holder.ticket.run == request.run) {
+      return Ok(joined);
+    }
+    let queued = table.queue.iter().position(|entry| entry.ticket.run == request.run);
+    let position = queued.unwrap_or_else(|| enqueue(table, request, &mut joined));
     if table.holder.is_none() && position == 0 {
       let mut entry = table.queue.remove(0);
       entry.since_ms = now_ms();
       table.holder = Some(entry);
-      return Ok(TurnAnswer::Taken);
+      return Ok(joined);
     }
-    Ok(TurnAnswer::Queued(TurnQueue {
+    joined.answer = TurnAnswer::Queued(TurnQueue {
       holder: table.holder.clone(),
       ahead: table.queue[..position].to_vec(),
-    }))
+    });
+    Ok(joined)
   })
+}
+
+/// Puts the run of `request`, new to the queue, in its place, and answers it: the runs of the queue of its checkout and
+/// command go to `superseded` with it as the later run (`joined.replaced`), and it takes the place of the first of
+/// them, else the end; `joined.beside` gets the runs of its checkout with another command
+fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined) -> usize {
+  let place = table.queue.iter().position(|entry| entry.is_of(request, true));
+  let (replaced, kept): (Vec<TurnEntry>, Vec<TurnEntry>) = std::mem::take(&mut table.queue).into_iter().partition(|entry| entry.is_of(request, true));
+  table.queue = kept;
+  table.superseded.extend(replaced.iter().map(|entry| SupersededEntry {
+    ticket: entry.ticket.clone(),
+    by: request.run.to_owned(),
+  }));
+  joined.beside = table.queue.iter().filter(|entry| entry.is_of(request, false)).cloned().collect();
+  joined.replaced = replaced;
+  let entry = TurnEntry {
+    ticket: Ticket {
+      run: request.run.to_owned(),
+      pid: request.pid,
+      process_started: request.process_started,
+    },
+    repo: request.repo.to_owned(),
+    command: one_line(request.command),
+    since_ms: now_ms(),
+    affinity: Some(request.affinity.to_owned()),
+    command_key: Some(request.command_key.to_owned()),
+  };
+  // the place of the first superseded run: the runs before it are before it still
+  let position = place.unwrap_or(table.queue.len()).min(table.queue.len());
+  table.queue.insert(position, entry);
+  position
 }
 
 /// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued, woken by `watch`, which
 /// the caller started before its first look and keeps for its whole wait; without a file event it looks again every
 /// `params.recheck`, since the end of a holder makes none and an event may come late or never (`FSEvents` under load). The
-/// answer is the turn, or the place in the queue once the
-/// time is up: the ticket stays while the process lives, and `leave` takes it out
+/// answer is the turn, the later run that superseded it, or the place in the queue once the time is up: the ticket
+/// stays while the process lives, and `leave` takes it out
 pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration, watch: &TurnWatch) -> Result<TurnAnswer> {
   let started = Instant::now();
   loop {
     let queued = match take(params, request)? {
-      TurnAnswer::Taken => return Ok(TurnAnswer::Taken),
       TurnAnswer::Queued(queued) => queued,
+      answer => return Ok(answer),
     };
     let waited = started.elapsed();
     if waited >= timeout {
@@ -210,12 +304,13 @@ pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout:
   }
 }
 
-/// The run `run` leaves the turn: it gives the turn back, or its ticket leaves the queue. Answers whether it held the
-/// turn
+/// The run `run` leaves the turn: it gives the turn back, or its ticket leaves the queue or `superseded`. Answers whether
+/// it held the turn
 pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
     table.queue.retain(|entry| entry.ticket.run != run);
+    table.superseded.retain(|entry| entry.ticket.run != run);
     let held = table.holder.as_ref().is_some_and(|holder| holder.ticket.run == run);
     if held {
       table.holder = None;
@@ -231,6 +326,7 @@ pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
   table.of_this_schema(dir)?;
   table.holder = table.holder.filter(TurnEntry::is_running);
   table.queue.retain(TurnEntry::is_running);
+  table.superseded.retain(|entry| is_running(entry.ticket.pid, entry.ticket.process_started));
   Ok(table)
 }
 

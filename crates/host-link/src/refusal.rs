@@ -99,6 +99,7 @@ pub enum Code {
   PackMissing,
   SlotTimeout,
   HeavyTimeout,
+  Superseded,
   LeaseFailed,
   OldGit,
   CheckoutFailed,
@@ -121,7 +122,7 @@ pub enum Code {
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 40] = [
+  pub const ALL: [Self; 41] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -144,6 +145,7 @@ impl Code {
     Self::PackMissing,
     Self::SlotTimeout,
     Self::HeavyTimeout,
+    Self::Superseded,
     Self::LeaseFailed,
     Self::OldGit,
     Self::CheckoutFailed,
@@ -244,6 +246,11 @@ impl Code {
         "heavy_timeout",
         ExitRule::Always(Exit::NotRun),
         "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs.",
+      ),
+      Self::Superseded => (
+        "superseded",
+        ExitRule::Always(Exit::NotRun),
+        "A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`.",
       ),
       Self::LeaseFailed => ("lease_failed", ExitRule::Always(Exit::NotRun), "The lend failed. The message has the error of the pool."),
       Self::OldGit => (
@@ -386,7 +393,7 @@ impl Refusal {
   }
 
   /// The refusal of `Reply::Refused` of an agent. A code that this build does not know becomes `agent_error`, and the
-  /// message keeps the code
+  /// message keeps the code. The caller fills in its alias of the host ([`on_host`])
   pub fn of_agent(code: &str, message: &str) -> Self {
     match Code::from_name(code) {
       Some(code) => Self::new(code, message),
@@ -396,6 +403,15 @@ impl Refusal {
       ),
     }
   }
+}
+
+/// How the agent names its own host in a message for a client, which knows the host by its alias only: `brd-host follow
+/// <host> <run>`
+pub const HOST: &str = "<host>";
+
+/// `message` of the agent with the alias of the client for [`HOST`]: `brd-host follow studio <run>`
+pub fn on_host(message: &str, alias: &str) -> String {
+  message.replace(HOST, alias)
 }
 
 #[cfg(test)]

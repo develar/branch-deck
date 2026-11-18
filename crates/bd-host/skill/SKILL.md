@@ -68,11 +68,22 @@ commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt 
 names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says
 `brd-host: a heavy run by …`, then waits for the heavy turn before it takes a slot, with a line at once and once a
 minute: `brd-host: run <run> waits 3 min for the heavy turn of the host, 117 min left: run <run> of <repo> holds it
-4 min (<command>), 1 run ahead: …`. That is a wait, not a hang: never cancel and rerun it locally for it, and never
+4 min (<command>), 1 run ahead: …; a wait, not a hang: …`. Never cancel and rerun it locally for it, and never
 treat a test that failed on a timeout beside another heavy run as a flake to fix. `brd-host runs <host>` names the
 holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75): never run it
 locally then, as under the load of this machine its tests fail on timeouts; read `brd-host runs <host>` and run it
 again later. A run that is not heavy runs at once.
+
+One heavy run is one check: `cargo nextest run --workspace`, `pnpm lint:backend` and `pnpm e2e` go as three runs, never
+as one `zsh -c '… && … && …'`, and an A/B loop of `pnpm e2e` is one run per side. A bundle holds the turn for an hour
+and more, while the fast lanes and the checks of other sessions wait; between runs the turn goes round.
+
+A heavy run that waits is superseded by a later run of the same checkout and the same command (the words it runs,
+without `nice` or `time` before them): the later run says `brd-host: replaces run <run>, which waited <time> …` and takes
+its place, and the waiting run ends with `superseded` (exit 75), before its lend, so nothing of it ran. Never run a
+superseded run again, here or there: `brd-host follow <host> <later run>` follows the one that replaced it. A run that
+holds the turn is never superseded. `brd-host: run <run> of this checkout also waits for the heavy turn, …: <command>`
+says that your checkout queued another command: cancel the one you no longer need.
 
 A heavy run can wait long, so start it in the background (`run_in_background` of a coding agent) and follow its
 output, rather than in a call that a tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C
@@ -107,8 +118,10 @@ line. `brd-host upgrade <host>` replaces it after the user agrees.
 | `total` | here | The whole call. |
 
 `brd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more, then the heavy turn:
-who holds it and who waits. `brd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `brd-host slots <host>`
-shows the lend table of the host: each slot, its state, its run and the queue.
+who holds it and who waits; a run that a refusal ended says `finished, refused <code>` and its message on the next line.
+`brd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `brd-host slots <host>`
+shows the lend table of the host: each slot, its state, its run and the queue. `(abandoned)` marks a slot whose run is
+gone by the processes of the host, as its agent judged them; an agent of an older build marks none.
 
 ## The disk of a host
 
@@ -127,6 +140,7 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 | The code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Never locally: `brd-host runs <host>`, then run it again later. |
+| 75 with `superseded` | A later run of your checkout and command took its place before it started: nothing ran. | Never run it again: `brd-host follow <host> <later run>`, which the message names. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
 | 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
@@ -216,6 +230,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
+| `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: follow the later run that the message names. |
 | `local_changes` | `--head` or `bt --host` with uncommitted or untracked changes. Commit first. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |
@@ -235,7 +250,8 @@ gets `No route to host` for each child. The client handles this itself: after a 
 `brd-host upgrade <host>` sends this `brd-host` binary to the agent of a macOS host over the link, without ssh. Run it
 only after the user agrees. `--binary <path>` sends another binary. `--force` sends the same build again, or a lower
 version. A watchdog on the host brings back the previous binary when the new one does not listen (`rolled_back`). Runs
-in flight go on.
+in flight go on. `brd-host: <host> runs another build of brd-host (…); runs work across builds, so this is no error: …`
+is a hint, not a failure: go on, and ask the user before an upgrade.
 
 `brd-host upgrade` also replaces this skill in `~/.claude/skills/brd-host/` when the installed copy is unedited and comes
 from another build. An edited copy stays: `brd-host skill install --force` replaces it.

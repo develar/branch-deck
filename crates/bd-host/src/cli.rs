@@ -498,7 +498,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       if host.runs.is_empty() {
         out.line(&format!("no runs on {alias}"));
       }
-      for line in run_lines(&host.runs) {
+      for line in run_lines(&host.runs, &alias) {
         out.line(&line);
       }
       match &host.heavy {
@@ -746,7 +746,7 @@ struct SlotsOutput<'a> {
 
 fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
   let table = host_agent::table::parse(&repository.table)?;
-  for line in host_agent::table::lines(&repository.repo, &table) {
+  for line in host_agent::table::lines(&repository.repo, &table, &repository.abandoned) {
     out.line(&line);
   }
   Ok(())
@@ -754,12 +754,14 @@ fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
 
 /// `brd-host slots --local`: the table of a repository of this machine, its shrink and its sizes, in this process
 fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
-  use host_agent::table::{Local, lines, sizes};
+  use host_agent::table::{Local, abandoned, lines, sizes};
   let dir = args.dir.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
   let local = Local::open(&dir)?;
   let shrunk = args.shrink.map(|keep| local.shrink(keep)).transpose()?;
   let table = local.table()?;
   let sizes = args.sizes.then(|| sizes(&table));
+  // the pids of the table are processes of this machine
+  let abandoned = abandoned(&table);
   let repo = local.path().to_string_lossy().into_owned();
   if args.json {
     #[derive(Serialize)]
@@ -767,6 +769,8 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
       schema: u32,
       repo: &'a str,
       table: &'a T,
+      #[serde(skip_serializing_if = "<[u32]>::is_empty")]
+      abandoned: &'a [u32],
       #[serde(skip_serializing_if = "Option::is_none")]
       shrunk: Option<&'a [host_agent::table::ShrunkSlot]>,
       #[serde(skip_serializing_if = "Option::is_none")]
@@ -776,13 +780,14 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
       schema: REPORT_SCHEMA,
       repo: &repo,
       table: &table,
+      abandoned: &abandoned,
       shrunk: shrunk.as_deref(),
       sizes: sizes.as_deref(),
     });
     return Ok(0);
   }
   shrunk.iter().flatten().for_each(|slot| out.line(&slot.line()));
-  for line in lines(&repo, &table) {
+  for line in lines(&repo, &table, &abandoned) {
     out.line(&line);
   }
   sizes.iter().flatten().for_each(|size| out.line(&size.line()));

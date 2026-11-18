@@ -213,6 +213,7 @@ heavy runs went first, a long `slot` that every slot was busy, a long `prepare` 
 | the code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: asleep, behind, all slots busy for an hour. | Run it here. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Not here: under the load of this Mac its tests fail on timeouts. `brd-host runs studio`, then run it again later. |
+| 75 with `superseded` | A later heavy run of the same checkout and command took its place while it waited: nothing ran. | Never again: `brd-host follow studio <later run>`, which the message names. |
 | 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `brd-host follow` shows its end. |
 | 255 | The link broke after the start, or a fetch failed. | The run goes on: `brd-host follow studio <run>`. |
 
@@ -297,6 +298,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | `old_git` | The git of the host is too old and Homebrew cannot upgrade it. | Install or repair Homebrew on the host. |
 | `slot_timeout` | Every slot stayed busy for an hour. | `brd-host slots studio`, then try again. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then run it again later, not here. |
+| `superseded` | A later heavy run of the same checkout and command replaced it while it waited. | Nothing ran: follow the later run that the message names. |
 | `bad_config` | `[host]` of the commit does not parse, or has a key of a later Branch Deck. | Fix the key, or update brd-host on both ends. |
 | `local_changes` | `--head` with uncommitted changes. | Commit, or drop `--head`. |
 

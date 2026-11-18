@@ -44,6 +44,8 @@ fn the_turn_line_names_the_wait_the_time_left_the_holder_and_the_runs_ahead() {
     repo: repo.to_owned(),
     command: command.to_owned(),
     since_ms,
+    affinity: None,
+    command_key: None,
   };
   let now_ms = 1_000_000_000;
   let queue = TurnQueue {

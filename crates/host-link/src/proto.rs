@@ -412,6 +412,17 @@ pub struct RunInfo {
   /// log
   #[serde(default, skip_serializing_if = "is_false")]
   pub forgotten: bool,
+  /// The refusal that ended the run, as `exit.json` keeps it: its code by name, so a code of a later build reads too;
+  /// `None` while it goes on, for a run whose command ended, and from an older agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub refused: Option<RunRefusal>,
+}
+
+/// The refusal that ended a run: the name of its code and its message
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRefusal {
+  pub code: String,
+  pub message: String,
 }
 
 /// The lend table of one repository of the host
@@ -422,6 +433,11 @@ pub struct RepositorySlots {
   /// The table as `host-slots.json` of the repository holds it (`lease_pool::host_slots::HostSlots`): this crate
   /// reaches no pool, so the table stays JSON here, and `brd-host slots` reads it with the type of the pool
   pub table: serde_json::Value,
+  /// The slots whose run or step is gone by the processes of the host, as the agent judged them there
+  /// (`lease_pool::host_slots::is_abandoned`): the pid of a lend is a process of the host, which the client cannot
+  /// look up. An older agent sends none, and its client marks no slot
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub abandoned: Vec<u32>,
 }
 
 /// One step of a run and its duration: `heavy`, `git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `stage`. A client

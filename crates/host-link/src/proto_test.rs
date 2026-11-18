@@ -1,5 +1,6 @@
 use crate::proto::{
-  DEFAULT_PORT, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunSpec, SCHEMA_VERSION, Stream, VersionLine, feature, features, is_run_id,
+  DEFAULT_PORT, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSpec, SCHEMA_VERSION, Stream, VersionLine, feature, features,
+  is_run_id,
 };
 use crate::refusal::Code;
 use pretty_assertions::assert_eq;
@@ -193,6 +194,20 @@ fn the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema() 
     r#"{"run":"1-2","affinity":"a","commit":"c","command":["true"],"started_ms":1,"ended_ms":5,"exit":0,"phases":[],"fetch":[],"forgotten":true}"#
   );
   assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), forgotten);
+  let superseded = RunInfo {
+    exit: Some(255),
+    refused: Some(RunRefusal {
+      code: "superseded".to_owned(),
+      message: "run 1-2 was superseded".to_owned(),
+    }),
+    ..forgotten
+  };
+  let json = serde_json::to_string(&superseded).expect("json");
+  assert!(
+    json.ends_with(r#""forgotten":true,"refused":{"code":"superseded","message":"run 1-2 was superseded"}}"#),
+    "{json}"
+  );
+  assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), superseded);
 }
 
 #[test]
@@ -309,11 +324,28 @@ fn the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it() {
     repositories: vec![RepositorySlots {
       repo: "~/projects/idea-1".to_owned(),
       table: serde_json::json!({"slots": [], "queue": []}),
+      abandoned: Vec::new(),
     }],
   };
   let json = serde_json::to_string(&reply).expect("json");
   assert_eq!(json, r#"{"reply":"slots","repositories":[{"repo":"~/projects/idea-1","table":{"queue":[],"slots":[]}}]}"#);
   assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), reply);
+}
+
+/// The agent judges the abandoned slots by the processes of its host and names them beside the table; the reply of an
+/// older agent, without them, parses and marks no slot
+#[test]
+fn the_abandoned_slots_come_from_the_agent_and_an_older_agent_names_none() {
+  let repository = RepositorySlots {
+    repo: "~/projects/idea-1".to_owned(),
+    table: serde_json::json!({"slots": []}),
+    abandoned: vec![2],
+  };
+  let json = serde_json::to_string(&repository).expect("json");
+  assert_eq!(json, r#"{"repo":"~/projects/idea-1","table":{"slots":[]},"abandoned":[2]}"#);
+  assert_eq!(serde_json::from_str::<RepositorySlots>(&json).expect("parsed"), repository);
+  let older: RepositorySlots = serde_json::from_str(r#"{"repo":"~/projects/idea-1","table":{"slots":[]}}"#).expect("an older reply");
+  assert_eq!(older.abandoned, Vec::<u32>::new());
 }
 
 /// `RunSpec::heavy` and the heavy turn of `Reply::Runs` are optional fields: a run that is not heavy and an agent without

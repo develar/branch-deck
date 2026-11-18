@@ -29,6 +29,8 @@ targets:
   - crates/pool-disk/src/report.rs
   - crates/pool-disk/src/trim_report.rs
   - crates/host-agent/src/keeper.rs
+  - crates/host-link/src/heavy.rs
+  - crates/host-agent/src/supervise.rs
 ---
 
 # brd-host
@@ -214,7 +216,8 @@ first a letter or a digit, no `..`, no `.lock` at the end.
 
 A refusal of the agent MUST be `{"reply": "refused", "code", "message"}` with a code of the table "Refusal codes". A
 client that does not know the code MUST take it as `agent_error`, and the message names the code, so a code of a newer
-build is no protocol error.
+build is no protocol error. A message MUST name the host of the agent as `<host>`, and the client MUST put its alias
+there.
 
 #### Scenario: A refusal of a known code
 - **WHEN** the agent refuses a request
@@ -225,6 +228,12 @@ build is no protocol error.
 - **WHEN** the reply names a code that the client does not know
 - **THEN** the client takes it as `agent_error`, and the message names the code
   [@test] crates/host-link/src/refusal_test.rs (`a_refusal_prints_its_code_and_an_unknown_code_of_an_agent_is_an_agent_error`)
+
+#### Scenario: A message that names the host
+- **WHEN** a message of the agent names its own host as `<host>`, as in `brd-host follow <host> <run>`, which the agent
+  cannot know the alias of
+- **THEN** the client says it with its alias of the host: `brd-host follow studio <run>`
+  [@test] crates/host-link/src/refusal_test.rs (`a_message_of_the_agent_gets_the_alias_of_the_client_for_its_host`)
 
 ### Requirement: The link: A connection that fails has one of four codes
 
@@ -1079,8 +1088,8 @@ forget or the hourly cleanup.
 
 `brd-host runs <alias> [--json]` MUST list the runs that the agent keeps, the finished and forgotten ones too, each
 with its state, its start, its affinity, commit, command and the steps of 0.1 s or more, and for a finished run its
-exit and how long it took, then the heavy turn of the host. An agent without the feature `heavy` has no heavy turn to
-list.
+exit and how long it took, or the refusal that ended it, then the heavy turn of the host. An agent without the feature
+`heavy` has no heavy turn to list.
 
 #### Scenario: The runs of a host
 - **WHEN** `brd-host runs <alias>` runs while a run goes on
@@ -1100,6 +1109,16 @@ list.
   [@test] crates/bd-host/tests/cli.rs (`follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
   [@test] crates/host-client/src/phases_test.rs (`a_run_line_says_its_state_its_start_and_how_long_a_finished_run_took`)
   [@test] crates/host-link/src/proto_test.rs (`the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema`)
+
+#### Scenario: A run that a refusal ended
+- **WHEN** `brd-host runs <alias>` runs after a refusal of the agent ended a run, such as `superseded`
+- **THEN** it lists the run as `<run>  finished, refused <code>, started …`, and on the next line `    <code>: <message>`
+  with the alias of the host for `<host>`
+- **AND** `--json` has the refusal as `refused` of `RunInfo`: `{"code", "message"}`, the code by its name; an older
+  agent sends none
+  [@test] crates/host-client/src/phases_test.rs (`a_refused_run_says_its_code_and_its_message_with_the_alias`)
+  [@test] crates/host-link/src/proto_test.rs (`the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`)
 
 #### Scenario: The heavy turn of a host
 - **WHEN** `brd-host runs <alias>` runs while a heavy run holds the heavy turn and another waits for it
@@ -1197,11 +1216,14 @@ A hello of another schema MUST refuse with `schema` (exit 75 for a run).
 ### Requirement: hello: A hello of another build runs with a hint
 
 A hello of the same schema and another build MUST let the run go on, with one line that names
-`brd-host upgrade <alias>`.
+`brd-host upgrade <alias>`, says that runs work across builds, and that the upgrade waits for the user, so an agent
+that reads only the output neither stops nor upgrades on its own.
 
 #### Scenario: An agent of another build
 - **WHEN** the agent answers the hello with the same schema and another build
-- **THEN** the run goes on, with one line that names `brd-host upgrade <alias>`
+- **THEN** the run goes on, with the line `brd-host: <alias> runs another build of brd-host (<version> <build>, this
+  client <build>); runs work across builds, so this is no error: `brd-host upgrade <alias>` sends this one, only after
+  the user agrees`
   [@test] crates/host-client/src/host_test.rs (`another_schema_refuses_and_another_build_runs_with_a_hint`)
 
 ### Requirement: slots: The command line of slots
@@ -1222,7 +1244,8 @@ brd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 
 `brd-host slots <alias>` MUST ask the agent for the lend table of each repository that it served since its first
 `Start` (`Request::Slots`): each slot, its state, its run, its affinity, its last use, and the queue. It MUST write
-nothing.
+nothing. It MUST mark `(abandoned)` only the slots that the agent named so: the pid of a lend is a process of the host,
+which the client cannot look up.
 
 #### Scenario: The slots of a host
 - **WHEN** `brd-host slots <alias>` runs
@@ -1231,25 +1254,37 @@ nothing.
 - **AND** nothing is written
   [@test] crates/host-link/src/proto_test.rs (`the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it`)
 
+#### Scenario: A lent slot of a live run on the host
+- **WHEN** a run of the host holds a slot, and its supervisor is no process of the client
+- **THEN** `brd-host slots <alias>` shows the slot lent without `(abandoned)`, and marks a slot `(abandoned)` only when
+  the agent named it; an agent of an older build names none, and no slot gets the mark
+  [@test] crates/host-agent/src/table_test.rs (`the_lines_mark_the_slots_that_the_machine_of_the_table_found_abandoned`)
+  [@test] crates/host-agent/tests/serve.rs (`two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot`)
+
 ### Requirement: slots: The reply carries each table as the pool writes it
 
 The reply MUST carry each table as the JSON of its `host-slots.json`, so the protocol keeps no second shape of the
-table.
+table, and beside it `abandoned`: the numbers of the slots whose run or step is gone by the processes of the host
+(`lease_pool::host_slots::is_abandoned`), as the agent judged them there. The field MUST be optional, so the reply of
+an older agent parses and marks no slot.
 
 #### Scenario: The reply of Request::Slots
 - **WHEN** the agent answers `Request::Slots`
-- **THEN** each table is the JSON of its `host-slots.json`
-  [@test] crates/host-link/src/proto_test.rs (`the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it`)
+- **THEN** each table is the JSON of its `host-slots.json`, with `abandoned` when the agent judged a slot so
+- **AND** a reply without `abandoned` parses with none
+  [@test] crates/host-link/src/proto_test.rs (`the_slots_of_the_agent_carry_the_lend_table_as_the_pool_writes_it`, `the_abandoned_slots_come_from_the_agent_and_an_older_agent_names_none`)
 
 ### Requirement: slots: --local reads the table without the agent
 
-`--local` MUST read the table of the repository of `-C` on this machine, without the agent.
+`--local` MUST read the table of the repository of `-C` on this machine, without the agent, and judge the abandoned
+slots by the processes of this machine, whose table it is.
 
 #### Scenario: The table of this machine
 - **WHEN** `brd-host slots --local -C <repo>` runs
-- **THEN** it shows the lend table of that repository on this machine, without the agent
+- **THEN** it shows the lend table of that repository on this machine, without the agent, with `(abandoned)` for a slot
+  whose run is gone here
   [@test] crates/bd-host/tests/cli.rs (`slots_shows_the_lend_table_and_shrinks_it_without_the_agent`)
-  [@test] crates/host-agent/src/table_test.rs (`the_lines_of_a_table_name_the_limit_the_queue_and_each_slot`)
+  [@test] crates/host-agent/src/table_test.rs (`the_lines_of_a_table_name_the_limit_the_queue_and_each_slot`, `the_lines_mark_the_slots_that_the_machine_of_the_table_found_abandoned`)
 
 ### Requirement: slots: --shrink gives the slots past a limit back in its own process
 
@@ -1744,7 +1779,8 @@ once and once a minute; it MUST give it back after its give-back. A run that is 
 #### Scenario: The line of the wait
 - **WHEN** a heavy run waits for the turn
 - **THEN** at once and then once a minute its log says `run <id> waits <time> for the heavy turn of the host, <time>
-  left: run <id> of <repository> holds it <time> (<command>), <n> runs ahead: <id> of <repository> (<command>), …`
+  left: run <id> of <repository> holds it <time> (<command>), <n> runs ahead: <id> of <repository> (<command>), …; a
+  wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn`
 - **AND** after the wait it says `took the heavy turn of the host after <n> s`
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_time_left_the_holder_and_the_runs_ahead`)
   [@test] crates/host-agent/src/turn_test.rs (`a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it`)
@@ -1773,6 +1809,44 @@ once and once a minute; it MUST give it back after its give-back. A run that is 
 - **WHEN** `heavy.json` has a schema other than the one of this build, or none, as an agent of another build wrote it
 - **THEN** each take, leave and read of the turn refuses, and the run ends with `agent_error`, never with a free turn
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_table_of_another_schema_refuses`)
+
+### Requirement: serve: A later heavy run of the same checkout and command supersedes the waiting one
+
+A heavy run new to the queue MUST supersede each waiting run of its repository with the same affinity and the same
+command by what it runs (`host_link::heavy::run_key`: without `nice`, `timeout`, `time`, `nohup`, `exec` or `command`
+before it, with its environment): it takes the place of the first, and each ends with `superseded` before its lend.
+The holder of the turn MUST never be superseded. The later run MUST say whom it replaced and which other runs of its
+checkout wait.
+
+#### Scenario: The same checkout and command
+- **WHEN** a heavy run waits for the turn, and a later heavy run of the same repository, affinity and command starts
+- **THEN** the later run takes the place of the waiting one in the queue, and its log says `replaces run <id>, which
+  waited <time> for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and
+  this run takes its place in the queue`
+- **AND** the waiting run ends at its next look with `superseded` (exit 75), in the phase `heavy` only, with the message
+  `run <id> was superseded by run <later id> of the same checkout and command before it started: nothing ran; do not
+  run it again, here or on the client; follow <later id>: `brd-host follow <host> <later id>``, which its client and
+  `brd-host follow` say with the alias, and `brd-host runs` lists it as `finished, refused superseded`
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_later_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits`)
+  [@test] crates/host-link/src/heavy_test.rs (`the_key_of_a_run_drops_the_wrappers_and_keeps_the_environment`)
+
+#### Scenario: Another command or another checkout
+- **WHEN** a later heavy run starts with another command of the same checkout, or the same command of another checkout
+- **THEN** both wait, each in its place
+- **AND** a later run of the same checkout with another command says `run <id> of this checkout also waits for the heavy
+  turn, <time>: <command>. Both run, one after the other; if this run replaces it, cancel it: `brd-host cancel <host>
+  <id>``
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_later_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`, `another_command_another_checkout_and_the_holder_are_never_superseded`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`)
+
+#### Scenario: A run that started
+- **WHEN** a later heavy run of the same checkout and command starts while the run that holds the turn runs
+- **THEN** the holder runs on, and the later run waits for it; an entry without an affinity and a key, of an older
+  build, is never superseded
+  [@test] crates/lease-pool/src/host_turn_test.rs (`another_command_another_checkout_and_the_holder_are_never_superseded`)
 
 ### Requirement: serve: The supervisor lends a slot and waits for one up to 1 h
 
@@ -1945,13 +2019,21 @@ took a step, with what each step deleted (each host slot with what it freed) and
 
 ### Requirement: serve: A relief that left the volume low makes the next one wait
 
-A relief that leaves a volume below the minimum after every step MUST say so, and the next one waits 15 minutes;
-without a minimum it deletes nothing. So a host that only runs keeps its disk without the app and without `brd`.
+A relief that leaves a volume below the minimum after every step MUST say so, name what holds the space and what a
+person can do, and the next one waits 15 minutes; without a minimum it deletes nothing. So a host that only runs keeps
+its disk without the app and without `brd`.
 
 #### Scenario: A volume below the minimum after every step
 - **WHEN** a relief leaves a volume below the minimum after every step
 - **THEN** it says so, and the next relief waits 15 minutes
+- **AND** the line goes on with `the pools that hold the most: <repository> <size> in <n> slot(s) (largest: <slot>
+  <size>, …); …`, the three largest pools and the three largest slots of each by `disk.json`, without a walk, then
+  `The relief deleted all it may: the rest is held by leases, the host slots of runs among them. A person frees more by
+  returning the leases that `brd lease status` names on the host, by `brd-host trim <host> --max <n>`, which deletes the
+  free slots past n, or by moving a pool to a larger volume: `git -C <repository> config branchdeck.leasePool <dir>` on
+  the host, whose new slots go there`
   [@test] crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low`)
+  [@test] crates/host-agent/src/keeper_test.rs (`the_line_of_a_volume_still_low_names_the_largest_pools_and_slots_and_what_a_person_can_do`)
 
 #### Scenario: A host without a minimum
 - **WHEN** the host has no `branchdeck.leaseMinFree`
@@ -2305,6 +2387,7 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
 | `pack_missing` | 75 | The pack of the commit did not come within 30 min, or sent no chunk for 2 min. |
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
 | `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs. |
+| `superseded` | 75 | A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`. |
 | `lease_failed` | 75 | The lend failed. The message has the error of the pool. |
 | `old_git` | 75 | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. The message is the hint of Branch Deck. |
 | `checkout_failed` | 75 | The commit cannot be checked out in the slot. |

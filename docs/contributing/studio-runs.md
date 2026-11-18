@@ -65,17 +65,30 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   Each script is read once a run, 64 at most, past which, as past four nested shells or scripts, a script counts as
   heavy. `eval`, `xargs`, `sudo`, `$'…'`, `caffeinate` and a script by its path after a `cd` (`cd scripts &&
   ./e2e.sh`, read from the root) are not read: a heavy run through them says so with `--heavy`. Its wait
-  says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …` at once and once a minute:
-  a wait, not a hang. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
+  says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …; a wait, not a hang: …` at once
+  and once a minute. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
   (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
   later. A run that is not heavy goes at once. Start a heavy run in the background (`run_in_background`) and follow
   its output: SIGTERM and SIGHUP of the client cancel the run there, as Ctrl+C does, so the 10 min timeout of a
   foreground call would cancel it.
+- **One heavy run is one check**: `cargo nextest run --workspace`, `pnpm lint:backend`, `pnpm e2e` and each side of an
+  A/B comparison are runs of their own, each with `--heavy` when `[host]` does not name it. A bundle (`zsh -c 'pnpm
+  test:unit && for i in 1 2 3 4; do pnpm e2e …; done && pnpm e2e:webkit && …'`) held the turn for 1 h 19 min on
+  2026-11-18 while the fast lanes of idea-1 and the checks of other sessions waited up to 75 min; between separate
+  runs the turn goes round.
+- **A later run supersedes a waiting one**: a heavy run of the same checkout and the same command (`nice`, `time` and
+  the like before it aside, its environment not) takes the place of the one of that checkout that still waits for the
+  turn, which ends with `superseded` (exit 75) before its lend: nothing of it ran, so never run it again; its message
+  names `brd-host follow studio <later run>`. The later run says `brd-host: replaces run …, which waited …`, and
+  `brd-host: run … of this checkout also waits for the heavy turn, …: <command>` when the checkout queued another
+  command: cancel the one you no longer need. A run that holds the turn is never superseded. On 2026-11-18 one session
+  queued the same hour-long A/B batch on each new commit, and each would have run.
 - **The disk of the Studio**: the Studio has no app and no `brd`; never put either there. Its agent frees space by
   itself below `branchdeck.leaseMinFree` there; `brd-host disk studio` shows the pools, `brd-host trim studio --plan`
   what a trim would delete, and `brd-host trim studio` deletes it, after the user agrees.
 - **Exit codes**: the command's own; 75 when the Studio did not run it (unreachable, a refusal before the command):
-  run the same command here then, but never after `heavy_timeout`; 130 after Ctrl+C, which cancels the run there.
+  run the same command here then, but never after `heavy_timeout` or `superseded`; 130 after Ctrl+C, which cancels the
+  run there. `studio runs another build of brd-host … only after the user agrees` is a hint: the run goes on.
   `brd-host schema` lists every refusal code with its exit code.
 - **Output**: stdout is only the stdout of the command, byte for byte, when the agent of the Studio is not older than
   the local brd-host. stderr has the lines of brd-host, and the run ends with `brd-host: phases: … command …, total …`:

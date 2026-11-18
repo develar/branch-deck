@@ -9,7 +9,8 @@
 //! 0. A heavy run (`RunSpec::heavy`) takes the heavy turn of the host first (`turn::take`, with the pid of this
 //!    process), in the phase `heavy`: at once when no other heavy run of the host holds it or waits before it, else
 //!    after a wait of up to 2 h whose line goes to the log at once and once a minute. A wait that ends in the queue ends
-//!    the run with `heavy_timeout`. A run that is not heavy takes no turn.
+//!    the run with `heavy_timeout`; a later run of the same checkout and command that took its place in the queue ends
+//!    it with `superseded`. A run that is not heavy takes no turn.
 //! 1. Lend a host slot of the repository (`slots::lend`, with the pid of this process): the slot that the affinity used
 //!    last, else the one used longest ago, else a place in the queue. While Homebrew upgrades the git of the host, the
 //!    run waits in the phase `git`. While every slot is lent, the run waits up to an hour, and the queue line goes to
@@ -353,16 +354,21 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
 
 /// Takes the heavy turn of the host for a heavy run, in the phase `heavy`: at once when no other heavy run holds it or
 /// waits before it, else after a wait of up to `tuning::heavy_wait` (2 h) whose line goes to the log at once and once
-/// a minute, with the time left. A wait that ends in the queue refuses with `heavy_timeout`. Answers `false` when a
-/// cancel ended the wait; the end of the run takes it out of the queue then
+/// a minute, with the time left. A wait that ends in the queue refuses with `heavy_timeout`, one that a later run of the
+/// same checkout and command superseded with `superseded`. Answers `false` when a cancel ended the wait; the end of the
+/// run takes it out of the queue then
 fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> bool) -> Result<bool, Refusal> {
   let spec = context.spec;
   let wait = tuning::heavy_wait();
   let started = Instant::now();
   let repo = context.repo.path.display().to_string();
-  let taken = phases.time("heavy", || {
-    turn::take(context.home, &spec.run, &repo, &spec.command, wait, stop, &mut |line| context.say(line))
-  });
+  let of = turn::TurnRun {
+    run: &spec.run,
+    repo: &repo,
+    affinity: &spec.affinity,
+    command: &spec.command,
+  };
+  let taken = phases.time("heavy", || turn::take(context.home, &of, wait, stop, &mut |line| context.say(line)));
   let waited = started.elapsed();
   match taken {
     Err(_) | Ok(None) if stop() => Ok(false),
@@ -381,6 +387,7 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
         turn::timeout_line(&spec.run, &queue, waited)
       ),
     )),
+    Ok(Some(TurnAnswer::Superseded { by })) => Err(Refusal::new(Code::Superseded, turn::superseded_message(&spec.run, &by))),
     Err(refusal) => Err(refusal),
   }
 }

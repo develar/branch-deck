@@ -4,6 +4,7 @@
 //! run of `brd-host runs` for a person (`run_line`)
 
 use host_link::proto::{Phase, RunInfo};
+use host_link::refusal::on_host;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use std::fmt::Write as _;
@@ -37,9 +38,20 @@ pub fn duration_text(ms: u64) -> String {
 }
 
 /// The lines of the runs of `brd-host runs`, each start in the time zone of the system (`run_line`)
-pub fn run_lines(runs: &[RunInfo]) -> Vec<String> {
-  let zone = TimeZone::system();
-  runs.iter().map(|run| run_line(run, &zone)).collect()
+pub fn run_lines(runs: &[RunInfo], alias: &str) -> Vec<String> {
+  run_lines_in(runs, alias, &TimeZone::system())
+}
+
+/// The lines of `runs` in `zone`: each run ([`run_line`]), and after a run that a refusal ended a line with its code and
+/// its message, the alias of the host in it (`superseded: run … was superseded by run …: … follow …`)
+pub fn run_lines_in(runs: &[RunInfo], alias: &str, zone: &TimeZone) -> Vec<String> {
+  runs
+    .iter()
+    .flat_map(|run| {
+      let refused = run.refused.as_ref().map(|refused| format!("    {}: {}", refused.code, on_host(&refused.message, alias)));
+      std::iter::once(run_line(run, zone)).chain(refused)
+    })
+    .collect()
 }
 
 /// One run of `brd-host runs`: its id, its state with its start in `zone` (and for a finished run its exit and how long
@@ -53,9 +65,10 @@ pub fn run_line(run: &RunInfo, zone: &TimeZone) -> String {
     |_| "at an unknown time".to_owned(),
     |at| at.to_zoned(zone.clone()).strftime("%Y-%m-%d %H:%M:%S").to_string(),
   );
-  let mut state = match run.exit {
-    None => format!("running, started {started}"),
-    Some(code) => format!("finished, exit {code}, started {started}"),
+  let mut state = match (run.exit, &run.refused) {
+    (None, _) => format!("running, started {started}"),
+    (Some(_), Some(refused)) => format!("finished, refused {}, started {started}", refused.code),
+    (Some(code), None) => format!("finished, exit {code}, started {started}"),
   };
   if let Some(ended) = run.ended_ms {
     let _ = write!(state, ", took {}", duration_text(ended.saturating_sub(run.started_ms)));

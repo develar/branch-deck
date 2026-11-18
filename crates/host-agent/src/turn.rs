@@ -7,6 +7,10 @@
 //!   the supervisor). Its wait is the wait for a host slot ([`slots::wait_in_looks`]): looks of 2 s, so a cancel ends
 //!   it, one watch of the table for the whole wait, and the line of the wait once a minute
 //!   (`lease_pool::host_runs::turn_line`).
+//! - A run new to the queue supersedes the runs that wait there with its checkout and its command
+//!   (`lease_pool::host_turn::join`, the key `host_link::heavy::run_key`) and says so, and names the other runs of its
+//!   checkout that wait ([`joined_lines`]); a superseded run learns the later one at its next look, and its supervisor
+//!   ends it with `superseded` ([`superseded_message`]).
 //! - On every way out, after the give-back of its slot, the supervisor leaves the turn ([`leave`]): it gives the turn
 //!   back, or its ticket leaves the queue.
 //! - `Reply::Runs` carries the table without the gone runs ([`live`]), and `brd-host runs` says it ([`lines`])
@@ -14,9 +18,10 @@
 use crate::home::Home;
 use crate::run::epoch_ms;
 use crate::slots::{self, Look};
+use host_link::heavy::run_key;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_runs::{run_of_repo, span_since, turn_line};
-use lease_pool::host_turn::{HeavyTurn, RECHECK, TurnAnswer, TurnParams, TurnQueue, TurnRequest, read_live, take as take_turn, take_waiting, watch};
+use lease_pool::host_turn::{HeavyTurn, Joined, RECHECK, TurnAnswer, TurnParams, TurnQueue, TurnRequest, join, read_live, take_waiting, watch};
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::process_scan::process_started;
@@ -36,27 +41,36 @@ fn now_ms() -> u64 {
   epoch_ms(SystemTime::now())
 }
 
-/// Takes the heavy turn of the host for the heavy run `run` of `repo`, which this process runs, waiting up to `wait`
-/// while other heavy runs hold it or wait before it. A queued first look says the line of the wait through `say` at
-/// once, and each minute of the wait says it again. Answers `Some(TurnAnswer::Taken)`, the place in the queue once the
-/// time is up, or `None` when `stop` ended the wait: the end of the run takes the ticket out of the queue ([`leave`]). A
-/// table that cannot be read or written refuses with `agent_error`
-pub(crate) fn take(
-  home: &Home,
-  run: &str,
-  repo: &str,
-  command: &[String],
-  wait: Duration,
-  stop: &dyn Fn() -> bool,
-  say: &mut dyn FnMut(&str),
-) -> Result<Option<TurnAnswer>, Refusal> {
+/// What a heavy run is to the heavy turn: its id, its main repository on the host, the checkout of its client
+/// (`RunSpec::affinity`) and its command
+pub(crate) struct TurnRun<'a> {
+  pub(crate) run: &'a str,
+  pub(crate) repo: &'a str,
+  pub(crate) affinity: &'a str,
+  pub(crate) command: &'a [String],
+}
+
+/// What an agent tells a run that waits, after the line of its wait: the wait goes on by itself, and a cancel or a run
+/// on the client only loses the place
+const NOT_A_HANG: &str = "a wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn";
+
+/// Takes the heavy turn of the host for the heavy run `of`, which this process runs, waiting up to `wait` while other
+/// heavy runs hold it or wait before it. The first look says what it did to the queue ([`joined_lines`]) through `say`,
+/// and a queued first look the line of the wait at once, which each minute of the wait says again. Answers
+/// `Some(TurnAnswer::Taken)`, `Some(TurnAnswer::Superseded)` once a later run of the checkout and command took its
+/// place, the place in the queue once the time is up, or `None` when `stop` ended the wait: the end of the run takes
+/// the ticket out of the queue ([`leave`]). A table that cannot be read or written refuses with `agent_error`
+pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Result<Option<TurnAnswer>, Refusal> {
   let pid = std::process::id();
+  let command_key = run_key(of.command);
   let request = TurnRequest {
-    run,
+    run: of.run,
     pid,
     process_started: process_started(pid),
-    repo,
-    command,
+    repo: of.repo,
+    command: of.command,
+    affinity: of.affinity,
+    command_key: &command_key,
   };
   let dir = home.heavy_dir();
   let params = params(&dir);
@@ -64,21 +78,56 @@ pub(crate) fn take(
   let watched = watch(&params);
   let refused = |error: anyhow::Error| Refusal::new(Code::AgentError, format!("cannot take the heavy turn of the host: {error:#}"));
   let started = Instant::now();
-  let line = |queue: &TurnQueue, waited: Duration| turn_line(run, queue, waited, wait.saturating_sub(waited), now_ms());
-  match take_turn(&params, &request).map_err(refused)? {
-    TurnAnswer::Taken => return Ok(Some(TurnAnswer::Taken)),
+  let run = of.run;
+  let line = |queue: &TurnQueue, waited: Duration| format!("{}; {NOT_A_HANG}", turn_line(run, queue, waited, wait.saturating_sub(waited), now_ms()));
+  let joined = join(&params, &request).map_err(refused)?;
+  for said in joined_lines(&joined, now_ms()) {
+    say(&said);
+  }
+  match joined.answer {
     TurnAnswer::Queued(queue) => say(&line(&queue, Duration::ZERO)),
+    answer => return Ok(Some(answer)),
   }
   let mut look = |chunk: Duration| match take_waiting(&params, &request, chunk, &watched).map_err(refused)? {
-    TurnAnswer::Taken => Ok(Look::Got(())),
     TurnAnswer::Queued(queue) => Ok(Look::Queued(queue)),
+    answer => Ok(Look::Got(answer)),
   };
   let left = wait.saturating_sub(started.elapsed());
   let waited = slots::wait_in_looks(left, stop, &mut look, &|queue: &TurnQueue, _| line(queue, started.elapsed()), say)?;
   Ok(waited.map(|look| match look {
-    Look::Got(()) => TurnAnswer::Taken,
+    Look::Got(answer) => answer,
     Look::Queued(queue) => TurnAnswer::Queued(queue),
   }))
+}
+
+/// The lines of what the first ask of a run did to the queue at `now_ms`: each run of the same checkout and command that
+/// it superseded, and each run of the checkout that waits with another command
+pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
+  let replaced = joined.replaced.iter().map(|entry| {
+    format!(
+      "replaces run {}, which waited {} for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and this run takes its place in the queue",
+      entry.ticket.run,
+      span_since(entry.since_ms, now_ms)
+    )
+  });
+  let beside = joined.beside.iter().map(|entry| {
+    format!(
+      "run {} of this checkout also waits for the heavy turn, {}: {}. Both run, one after the other; if this run replaces it, cancel it: `brd-host cancel <host> {}`",
+      entry.ticket.run,
+      span_since(entry.since_ms, now_ms),
+      entry.command,
+      entry.ticket.run
+    )
+  });
+  replaced.chain(beside).collect()
+}
+
+/// The message of the refusal `superseded` of the run `run`, which the later run `by` superseded: what happened, that
+/// nothing ran, and the follow of the later run. The client puts its alias for `<host>`
+pub(crate) fn superseded_message(run: &str, by: &str) -> String {
+  format!(
+    "run {run} was superseded by run {by} of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow {by}: `brd-host follow <host> {by}`"
+  )
 }
 
 /// The line of a wait for the turn that ended in the queue after `waited`, for the refusal `heavy_timeout`

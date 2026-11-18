@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, run_key, run_words, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -416,4 +416,26 @@ fn a_script_file_is_read_from_the_working_tree_inside_it_and_within_its_size() {
     config().heavy_reason(&words(&["zsh", "./probe/run.sh"]), &read),
     Some("`pnpm e2e*` of [host] in its script".to_owned())
   );
+}
+
+/// Two runs are the same run by what they run: the wrappers before the command that change nothing it runs go, as the
+/// classification drops them, and the environment stays, as it can change what the command checks; any other word
+/// makes another run
+#[test]
+fn the_key_of_a_run_drops_the_wrappers_and_keeps_the_environment() {
+  assert_eq!(run_words(&words(&["nice", "-n", "5", "time", "pnpm", "e2e"])), words(&["pnpm", "e2e"]));
+  assert_eq!(run_words(&words(&["timeout", "--foreground", "1h", "nohup", "pnpm", "e2e"])), words(&["pnpm", "e2e"]));
+  assert_eq!(
+    run_words(&words(&["env", "DEBUG_E2E=1", "nice", "pnpm", "e2e"])),
+    words(&["env", "DEBUG_E2E=1", "pnpm", "e2e"])
+  );
+  assert_eq!(run_words(&words(&["E2E_PORT=3031", "pnpm", "e2e"])), words(&["E2E_PORT=3031", "pnpm", "e2e"]));
+  assert_eq!(run_words(&words(&["timeout"])), Vec::<String>::new(), "a wrapper without its command");
+  let script = |text: &str| words(&["zsh", "-c", text]);
+  assert_eq!(run_key(&words(&["nice", "pnpm", "e2e"])), run_key(&words(&["pnpm", "e2e"])));
+  assert_eq!(run_key(&script("pnpm e2e; pnpm e2e")), run_key(&script("pnpm e2e; pnpm e2e")));
+  assert_ne!(run_key(&script("pnpm e2e; pnpm e2e")), run_key(&script("pnpm e2e")));
+  assert_ne!(run_key(&words(&["E2E_PORT=3031", "pnpm", "e2e"])), run_key(&words(&["pnpm", "e2e"])));
+  assert_ne!(run_key(&words(&["pnpm", "e2e", "x"])), run_key(&words(&["pnpm", "e2e x"])), "the words, not their line");
+  assert_eq!(run_key(&words(&["pnpm"])).len(), 64);
 }

@@ -1,6 +1,7 @@
 //! The heavy turn of the host (openspec/specs/cli/host/spec.md, "serve: Heavy runs take the heavy turn of the host one at a
 //! time"): the heavy runs of the host run one at a time before their lends, a run that is not heavy goes beside them,
-//! a cancel and a killed holder free the queue, and a wait past its time ends with `heavy_timeout`
+//! a cancel and a killed holder free the queue, a wait past its time ends with `heavy_timeout`, and a later run of the
+//! same checkout and command supersedes the one that waits
 
 use super::{ALL_PHASES, World, events, eventually, gate_and_marks, process_alive, wait_for};
 use host_link::proto::{Reply, Request, RunSpec};
@@ -190,4 +191,57 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
   fs::write(&gate, "").expect("the gate opens");
   assert_eq!(agent.follow("11-1").end, Reply::Exit { code: 0 });
   assert_eq!(agent.follow("11-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("11-2"));
+}
+
+#[test]
+fn a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one() {
+  let world = World::new(2, &[]);
+  let agent = world.serve();
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "12-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["12-1"]);
+  // one command for the runs of the checkout: it marks `same`
+  let same = |run: &str| RunSpec {
+    heavy: true,
+    ..world.spec(run, &format!(": > '{}'; {}", marks.join("same").display(), wait_for(&gate)))
+  };
+  agent.start(same("12-2"));
+  eventually("the second heavy run waits for the turn", || heavy_turn(&agent).1 == ["12-2"]);
+  agent.start(same("12-3"));
+  let superseded = agent.follow("12-2");
+  assert_eq!(
+    superseded.end,
+    Reply::Refused {
+      code: "superseded".to_owned(),
+      message: "run 12-2 was superseded by run 12-3 of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow 12-3: `brd-host follow <host> 12-3`".to_owned(),
+    },
+    "{}",
+    agent.dump("12-2")
+  );
+  assert_eq!(superseded.phase_names(), ["heavy"], "no lend, no command");
+  assert!(events(&world, "12-3").contains("brd-host: replaces run 12-2, which waited "), "{}", agent.dump("12-3"));
+  // the same command of another checkout is another run
+  agent.start(RunSpec {
+    affinity: "checkout-ba9876543210".to_owned(),
+    ..same("12-4")
+  });
+  eventually("the later run and the run of another checkout wait", || {
+    heavy_turn(&agent) == (Some("12-1".to_owned()), vec!["12-3".to_owned(), "12-4".to_owned()])
+  });
+  assert!(!events(&world, "12-4").contains("replaces run"), "{}", agent.dump("12-4"));
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+    panic!("no runs");
+  };
+  let refused = runs
+    .iter()
+    .find(|run| run.run == "12-2")
+    .and_then(|run| run.refused.as_ref())
+    .map(|refused| refused.code.as_str());
+  assert_eq!(refused, Some("superseded"), "`brd-host runs` says how it ended");
+
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("12-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("12-1"));
+  assert_eq!(agent.follow("12-3").end, Reply::Exit { code: 0 }, "{}", agent.dump("12-3"));
+  assert_eq!(agent.follow("12-4").end, Reply::Exit { code: 0 }, "{}", agent.dump("12-4"));
+  assert_eq!(started(&marks), ["12-1", "same"]);
 }

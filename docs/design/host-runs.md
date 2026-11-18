@@ -109,12 +109,26 @@ host run one at a time, whatever their repository, and the other runs go as befo
   a minute with the holder, the runs ahead and the time left. It gives the turn back after its give-back, so the
   processes that it left are gone first. A killed supervisor holds nothing: the next run takes the turn of a gone
   holder at its next look. A wait past 2 h ends with `heavy_timeout`, and the run then goes nowhere else: a local run
-  is the run under load that the turn keeps from failing.
+  is the run under load that the turn keeps from failing. The line of the wait says that it is a wait, not a hang,
+  since an agent reads only the output and cancelled runs that only waited.
+- **A later run supersedes a waiting one of its checkout and command.** On 2026-11-18 one session queued the same
+  hour-long A/B batch of `pnpm e2e` on every new commit, and each queued run would have run in its turn. A heavy run new
+  to the queue takes the place of the runs that wait there with its affinity (the checkout of its client) and its
+  command by what it runs (`host_link::heavy::run_key`: the words without `nice`, `time` and the like before them, the
+  environment kept, as it changes what a run checks), and they move to `superseded` with its id. The next look of each
+  answers it, and its supervisor ends it with `superseded` (exit 75) before its lend: a run of the queue holds no slot
+  and started no command, so nothing of it ran. The holder is never superseded, as its command may run. The later run
+  says whom it replaces, and names the other runs of its checkout that wait with another command, so an agent sees a
+  second batch that it queued. An entry of an older build has no affinity and no key, and supersedes nothing.
 - **A client that a signal stops** cancels its run: SIGTERM and SIGHUP count as Ctrl+C, so a tool that kills an
   agent's call at its timeout leaves no run waiting for the turn and running for nobody. A SIGKILL cannot be caught;
   the run goes on until `brd-host cancel`.
 - **`brd-host runs`** names the holder and each waiting run with their times, the first thing an agent reads before
   it starts a heavy run.
+- **`brd-host slots`** marks a slot `(abandoned)` only as the agent judged it on the host and named it beside the table
+  (`RepositorySlots::abandoned`): the pid of a lend is a process of the host. Until 2026-11-18 the client judged the
+  pids of the host by its own processes and marked every lent slot of a live run abandoned; an agent of an older build
+  names none, and its client marks none.
 
 ### The finished runs
 
@@ -163,7 +177,10 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
   the host, the shrink, the eviction) without one, once per volume and tick (`ReliefRound`), since the repositories
   of a host share one. Those steps take free slots only, so below the minimum still each repository relieves its idle
   host slots, used longest ago first: their clean rules with keep 0, then their Bazel output bases
-  (`relieve_host_slots`). A relief that leaves a volume below it waits 15 minutes.
+  (`relieve_host_slots`). A relief that leaves a volume below it waits 15 minutes, and its line names the pools and
+  the slots that hold the most by `disk.json`, without a walk, and what a person can do: return leases, `brd-host trim`,
+  or move a pool with `branchdeck.leasePool`. On 2026-11-18 the Studio said "nothing to delete" for hours while the
+  leased slots held 400 GiB, and nobody could tell from the log what held the space.
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 

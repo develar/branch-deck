@@ -434,19 +434,26 @@ impl Agent {
     }
   }
 
-  /// The lend table of each repository of the repository list, as `host-slots.json` holds it. A repository that is gone
-  /// or whose table cannot be read is left out, and the log says why
+  /// The lend table of each repository of the repository list, as `host-slots.json` holds it, with the slots whose run
+  /// or step is gone by the processes of this host (`table::abandoned`), which a client cannot look up. A repository
+  /// that is gone or whose table cannot be read is left out, and the log says why
   fn slots(&self) -> Reply {
     let repositories = cleanup::repos(&self.home)
       .into_iter()
       .filter_map(|path| {
         let read = Repository::open(&self.home, path.clone())
           .and_then(|repo| read_host_slots(repo.common_dir()).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}"))))
-          .and_then(|table| serde_json::to_value(table).map_err(|error| Refusal::new(Code::AgentError, error.to_string())));
+          .and_then(|table| {
+            let abandoned = crate::table::abandoned(&table);
+            serde_json::to_value(table)
+              .map(|table| (table, abandoned))
+              .map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
+          });
         match read {
-          Ok(table) => Some(RepositorySlots {
+          Ok((table, abandoned)) => Some(RepositorySlots {
             repo: path.display().to_string(),
             table,
+            abandoned,
           }),
           Err(refusal) => {
             log(&format!("cannot read the host slots of {}: {refusal}", path.display()));

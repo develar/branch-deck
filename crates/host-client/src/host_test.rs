@@ -123,7 +123,10 @@ fn another_schema_refuses_and_another_build_runs_with_a_hint() {
     address: dead_address(),
   };
   let hint = another_build_hint("studio", &agent, Some(&"b".repeat(64))).unwrap();
-  assert!(hint.contains("`brd-host upgrade studio`"), "{hint}");
+  assert_eq!(
+    hint,
+    "brd-host: studio runs another build of brd-host (0.37.0 aaaaaaaaaaaa, this client bbbbbbbbbbbb); runs work across builds, so this is no error: `brd-host upgrade studio` sends this one, only after the user agrees"
+  );
   assert_eq!(another_build_hint("studio", &agent, Some(&"a".repeat(64))), None, "the same build");
   assert_eq!(another_build_hint("studio", &agent, None), None, "a client that cannot read its own binary");
 }

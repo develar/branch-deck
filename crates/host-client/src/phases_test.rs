@@ -1,4 +1,5 @@
 use super::*;
+use host_link::proto::RunRefusal;
 use pretty_assertions::assert_eq;
 
 fn step(name: &str, ms: u64) -> Phase {
@@ -53,6 +54,7 @@ fn run_info(exit: Option<i32>, ended_ms: Option<u64>, forgotten: bool) -> RunInf
     phases: vec![step("slot", 50), step("command", 801_000)],
     fetch: Vec::new(),
     forgotten,
+    refused: None,
   }
 }
 
@@ -75,4 +77,26 @@ fn a_run_line_says_its_state_its_start_and_how_long_a_finished_run_took() {
   );
   // an older agent sends no end
   assert!(run_line(&run_info(Some(0), None, true), &utc).contains("finished, exit 0, started 2026-11-16 08:28:31  checkout-"));
+}
+
+/// A run that a refusal ended says the code instead of its exit, and the next line its message with the alias of the
+/// host: a superseded run names the run that replaced it and its follow
+#[test]
+fn a_refused_run_says_its_code_and_its_message_with_the_alias() {
+  let superseded = RunInfo {
+    exit: Some(255),
+    refused: Some(RunRefusal {
+      code: "superseded".to_owned(),
+      message: "run 1794817711000-42 was superseded by run 1794817712000-43 of the same checkout and command before it started: nothing ran; follow 1794817712000-43: `brd-host follow <host> 1794817712000-43`".to_owned(),
+    }),
+    phases: vec![step("heavy", 801_000)],
+    ..run_info(Some(255), Some(1_794_817_711_000 + 801_400), true)
+  };
+  assert_eq!(
+    run_lines_in(&[superseded], "studio", &TimeZone::UTC),
+    [
+      "1794817711000-42  finished, refused superseded, started 2026-11-16 08:28:31, took 13m21s  checkout-0123456789ab  86551e413c53  cargo test  (heavy 13m21s)",
+      "    superseded: run 1794817711000-42 was superseded by run 1794817712000-43 of the same checkout and command before it started: nothing ran; follow 1794817712000-43: `brd-host follow studio 1794817712000-43`",
+    ]
+  );
 }
