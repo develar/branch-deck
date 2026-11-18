@@ -1,6 +1,8 @@
 use super::*;
 use crate::host_slots::{HostProcess, Ticket};
+use crate::host_turn::Need;
 use pretty_assertions::assert_eq;
+use sync_utils::cores::Cores;
 
 #[test]
 fn the_queue_line_names_the_wait_the_runs_ahead_the_lent_slots_the_quarantine_and_an_upgrade_of_git() {
@@ -33,9 +35,11 @@ fn the_queue_line_names_the_wait_the_runs_ahead_the_lent_slots_the_quarantine_an
   assert_eq!(queue_line("r", &empty, Duration::ZERO), "run r waits 0 s: 0 runs ahead, 0 slots, lent to none");
 }
 
+/// The line of a wait names what the run waits for, what each holder holds and why, what the runs that are not heavy
+/// use, and the runs ahead
 #[test]
-fn the_turn_line_names_the_wait_the_time_left_the_holder_and_the_runs_ahead() {
-  let entry = |run: &str, repo: &str, command: &str, since_ms: u64| TurnEntry {
+fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
+  let entry = |run: &str, repo: &str, command: &str, since_ms: u64, expected: Option<u32>| TurnEntry {
     ticket: Ticket {
       run: run.to_owned(),
       pid: 1,
@@ -46,30 +50,45 @@ fn the_turn_line_names_the_wait_the_time_left_the_holder_and_the_runs_ahead() {
     since_ms,
     affinity: None,
     command_key: None,
+    expected: expected.map(Cores),
+    live: None,
   };
   let now_ms = 1_000_000_000;
+  let live = TurnEntry {
+    live: Some(Cores(60)),
+    ..entry("1789-40", "/Users/u/projects/accio", "scripts/check.sh --smoke", now_ms - 30_000, Some(40))
+  };
   let queue = TurnQueue {
-    holder: Some(entry("1788-12", "/Users/u/projects/branch-deck", "cargo nextest run --workspace", now_ms - 250_000)),
-    ahead: vec![entry("1790-03", "~/projects/idea-1", "./community/tools/bt.cmd --lane fast", now_ms - 60_000)],
+    cores: 20,
+    need: Need::Cores { cores: Cores(75), live: false },
+    holders: vec![entry("1788-12", "/Users/u/projects/branch-deck", "pnpm e2e", now_ms - 250_000, Some(120)), live],
+    light: Cores(20),
+    ahead: vec![entry("1790-03", "~/projects/idea-1", "./community/tools/bt.cmd --lane fast", now_ms - 60_000, None)],
   };
   assert_eq!(
     turn_line("1792-81", &queue, Duration::from_mins(3), Duration::from_mins(117), now_ms),
-    "run 1792-81 waits 3 min for the heavy turn of the host, 117 min left: run 1788-12 of branch-deck holds it 4 min (cargo nextest run --workspace), 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"
+    "run 1792-81 waits 3 min for the heavy turn of the host, 7.5 of its 20 cores, 117 min left: run 1788-12 of branch-deck holds 12.0 for 4 min (pnpm e2e, measured), run 1789-40 of accio holds 6.0 for 30 s (scripts/check.sh --smoke, live, above its measure), runs that are not heavy use 2.0, 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"
   );
-  let free = TurnQueue {
-    holder: None,
-    ahead: vec![entry("a", "/r/one", "pnpm e2e", now_ms), entry("b", "/r/two", "pnpm lint", now_ms)],
-  };
-  assert_eq!(
-    turn_line("c", &free, Duration::from_secs(5), Duration::from_secs(119), now_ms),
-    "run c waits 5 s for the heavy turn of the host, 119 s left: the turn is free, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
-  );
-  let alone = TurnQueue {
-    holder: Some(entry("h", "/r/one", "pnpm e2e", now_ms)),
+  let whole = TurnQueue {
+    cores: 20,
+    need: Need::Unmeasured,
+    holders: vec![entry("h", "/r/one", "bt --lane fast", now_ms, Some(210))],
+    light: Cores(0),
     ahead: Vec::new(),
   };
   assert_eq!(
-    turn_line("c", &alone, Duration::ZERO, Duration::from_hours(2), now_ms),
-    "run c waits 0 s for the heavy turn of the host, 120 min left: run h of one holds it 0 s (pnpm e2e), no run ahead"
+    turn_line("c", &whole, Duration::ZERO, Duration::from_hours(2), now_ms),
+    "run c waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 120 min left: run h of one holds the whole host for 0 s (bt --lane fast, measured 21.0), no run ahead"
+  );
+  let free = TurnQueue {
+    cores: 20,
+    need: Need::Measured(Cores(200)),
+    holders: Vec::new(),
+    light: Cores(0),
+    ahead: vec![entry("a", "/r/one", "pnpm e2e", now_ms, None), entry("b", "/r/two", "pnpm lint", now_ms, None)],
+  };
+  assert_eq!(
+    turn_line("c", &free, Duration::from_secs(5), Duration::from_secs(119), now_ms),
+    "run c waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
   );
 }

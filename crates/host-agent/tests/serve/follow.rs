@@ -70,8 +70,9 @@ fn a_follow_of_an_ended_run_gives_the_bytes_of_each_stream() {
   stdout.extend(b"x\r\n\xff\n");
   assert_eq!(stream_bytes(&pieces, Stream::Stdout), stdout, "{}", agent.dump("4-1"));
   let stderr = stream_bytes(&pieces, Stream::Stderr);
+  let text = String::from_utf8_lossy(&stderr);
   assert!(
-    stderr.ends_with(b"\nno end"),
+    text.contains("\nno end\nbrd-host: the command used ") && text.ends_with(" of the host\n"),
     "the lines of the agent are whole, and the last piece of the command is partial: {}",
     String::from_utf8_lossy(&stderr)
   );

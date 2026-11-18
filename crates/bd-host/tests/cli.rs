@@ -258,7 +258,10 @@ fn short_lines_and_a_long_line_keep_every_line_end() {
   assert_bytes(&ran.stdout, &printed, "stdout");
   let at = find(&ran.stderr, &printed).unwrap_or_else(|| panic!("stderr has the bytes of the command: {}", text(&ran.stderr)));
   let after = text(&ran.stderr[at + printed.len()..]);
-  assert!(after.starts_with("\nbrd-host: phases: "), "the line of the phases starts a line of its own: {after:?}");
+  assert!(
+    after.starts_with("\nbrd-host: the command used ") && after.contains(" of the host\nbrd-host: phases: "),
+    "the lines of the agent start lines of their own: {after:?}"
+  );
 }
 
 /// The client of a run and the hold file of its command, which waits while the file exists. The drop kills the client
@@ -382,7 +385,11 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   let listed: Value = serde_json::from_slice(&runs.stdout).expect("JSON");
   let id = listed["runs"][0]["run"].as_str().expect("the run that goes on").to_owned();
   assert_eq!(listed["runs"][0]["exit"], Value::Null, "{listed}");
-  assert_eq!(listed["heavy"], json!({ "schema": 1, "queue": [] }), "a run that is not heavy takes no turn: {listed}");
+  assert_eq!(
+    (&listed["heavy"]["holders"], &listed["heavy"]["queue"]),
+    (&json!([]), &json!([])),
+    "a run that is not heavy takes no turn: {listed}"
+  );
   let text_runs = world.bd_host(&["runs", ALIAS]);
   assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running, started ")), "{}", text(&text_runs.stdout));
   assert!(text(&text_runs.stdout).ends_with("\nheavy turn: free\n"), "{}", text(&text_runs.stdout));
@@ -567,13 +574,14 @@ fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
     .lines()
     .filter(|line| line.contains(" heavy turn: ") || line.starts_with("heavy turn: ") || line.starts_with("  run "))
     .collect();
-  assert_eq!(lines.len(), 2, "{listed}");
+  assert_eq!(lines.len(), 3, "{listed}");
+  assert!(lines[0].starts_with("heavy turn: ") && lines[0].ends_with(" cores held"), "{listed}");
   assert!(
-    lines[0].starts_with(&format!("heavy turn: run {held_by} of {repo} holds it ")) && lines[0].ends_with(&format!(" s: /bin/sh -c {script}")),
+    lines[1].starts_with(&format!("  run {held_by} of {repo} holds the whole host for ")) && lines[1].ends_with(&format!(" s (no measure): /bin/sh -c {script}")),
     "{listed}"
   );
   assert!(
-    lines[1].starts_with(&format!("  run {waits} of {repo} waits ")) && lines[1].ends_with(" s: true"),
+    lines[2].starts_with(&format!("  run {waits} of {repo} waits ")) && lines[2].ends_with(" s for the whole host (no measure): true"),
     "{listed}"
   );
 
@@ -584,17 +592,23 @@ fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
   let stderr = text(&waited.stderr);
   assert_eq!(waited.status.code(), Some(0), "{stderr}");
   assert!(
-    stderr.contains("brd-host: a heavy run by --heavy: on local it waits until no other heavy run goes\n"),
+    stderr.contains(
+      "brd-host: a heavy run by --heavy: on local it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure\n"
+    ),
     "{stderr}"
   );
   assert!(
-    stderr.contains(&format!(
-      "brd-host: run {waits} waits 0 s for the heavy turn of the host, 120 min left: run {held_by} of {repo} holds it "
-    )),
+    stderr.contains(&format!("brd-host: run {waits} waits 0 s for the heavy turn of the host, all its "))
+      && stderr.contains(&format!(
+        " cores, as the command has no measure yet, 120 min left: run {held_by} of {repo} holds the whole host for "
+      )),
     "{stderr}"
   );
   assert!(stderr.contains("brd-host: phases: heavy "), "{stderr}");
-  wait_until("the turn is free", || heavy() == json!({ "schema": 1, "queue": [] }));
+  wait_until("the turn is free", || {
+    let turn = heavy();
+    turn["holders"] == json!([]) && turn["queue"] == json!([])
+  });
 }
 
 #[test]

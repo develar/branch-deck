@@ -10,7 +10,7 @@
 //! - an operation: `operation_id` (its ULID), `operation_tally` (what it cost), `clock` (the clock of its timers),
 //!   `span` (the span of its caller on another thread), `single_flight` (one read for every caller of the same key),
 //!   `page_writes` (the order of the writes of the pages, which a writer applies only newest first)
-//! - the values as a setting or a service writes them: `git_bool`, `host_ref_name`, `list_cut`, `size`, `timestamp`
+//! - the values as a setting or a service writes them: `cores` (a count of CPU cores in tenths), `git_bool`, `host_ref_name`, `list_cut`, `size`, `timestamp`
 
 pub mod atomic_file;
 pub mod child_process;
@@ -18,6 +18,7 @@ pub mod clock;
 pub mod code_spans;
 pub mod commit_body;
 pub mod commit_subject;
+pub mod cores;
 pub mod dir_watch;
 pub mod fs_retry;
 pub mod git_bool;

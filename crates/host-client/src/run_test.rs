@@ -1127,7 +1127,7 @@ fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
     (
       true,
       vec![format!(
-        "brd-host: a heavy run by `./community/tools/bt.cmd*` of [host]: on {ALIAS} it waits until no other heavy run goes"
+        "brd-host: a heavy run by `./community/tools/bt.cmd*` of [host]: on {ALIAS} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
       )]
     ),
     "the first pattern that matches names the run"
@@ -1136,7 +1136,12 @@ fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
   assert_eq!(run(None, &heavy_agent, RunOptions::default()), (false, vec![]), "no [host], no heavy run");
   assert_eq!(
     run(None, &heavy_agent, heavy),
-    (true, vec![format!("brd-host: a heavy run by --heavy: on {ALIAS} it waits until no other heavy run goes")])
+    (
+      true,
+      vec![format!(
+        "brd-host: a heavy run by --heavy: on {ALIAS} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
+      )]
+    )
   );
   assert_eq!(
     run(None, &Hello::default(), heavy),
@@ -1144,7 +1149,9 @@ fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
       true,
       vec![
         format!("brd-host: the agent on {ALIAS} predates heavy runs, so this one runs beside the others: `brd-host upgrade {ALIAS}` sends this build"),
-        format!("brd-host: a heavy run by --heavy: on {ALIAS} it waits until no other heavy run goes"),
+        format!(
+          "brd-host: a heavy run by --heavy: on {ALIAS} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
+        ),
       ]
     )
   );

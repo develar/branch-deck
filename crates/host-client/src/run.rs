@@ -309,7 +309,9 @@ impl Client<'_> {
     self.start(&mut host, spec, &needs).map_err(|refusal| before(refusal, &facts))?;
     (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
     if let Some(why) = &heavy {
-      (self.say)(&format!("brd-host: a heavy run by {why}: on {alias} it waits until no other heavy run goes"));
+      (self.say)(&format!(
+        "brd-host: a heavy run by {why}: on {alias} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
+      ));
     }
 
     let sync = BaseSync {

@@ -52,6 +52,7 @@
 //! each on a line of its own (`EventLog::write`). A prepare step writes both of its streams as stderr events, so the
 //! stdout of a run holds only the bytes of the stdout of its command
 
+use crate::cores::Sampler;
 use crate::files::{FILE_MODE, open_private, private_dir, remove_entry, try_flock};
 use crate::home::Home;
 use crate::log::{panics_reach_the_agent_log, supervisor, supervisor_after_end};
@@ -145,9 +146,8 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
   drop(lock);
   if let Some(spec) = spec {
     give_back(home, repo, &spec);
-    if spec.heavy {
-      leave_turn(home, &spec.run);
-    }
+    // a heavy run gives its cores back, a run that is not heavy takes its live cores out
+    leave_turn(home, &spec.run);
   }
 }
 
@@ -345,11 +345,71 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   if let Some(warning) = run_git::login_shell_warning(&spec.command, &launch.git, cfg!(target_os = "macos")) {
     context.say(&warning);
   }
-  let code = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout))?;
+  let repo = context.repo.path.display().to_string();
+  let of = turn_run(context, &repo);
+  let mut sampler = Sampler::start(&slot, tuning::sample_every());
+  let mut sampled_group = 0;
+  let mut on_poll = |group: u32| {
+    sampled_group = group;
+    if sampler.is_due() {
+      let live = sampler.sample(group);
+      if let Err(error) = run.write_cores(sampler.file()) {
+        supervisor(&format!("cannot write the cores of the run {}: {error}", spec.run));
+      }
+      if let Err(refusal) = turn::note_use(context.home, &of, live) {
+        supervisor(&format!("run {}: {refusal}", spec.run));
+      }
+    }
+  };
+  let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
+  measure_end(context, &of, &mut sampler, sampled_group);
+  let code = ran?;
   for error in phases.time("stage", || stage_run(context, &slot, &launch, &before)) {
     context.say(&error);
   }
   Ok(code)
+}
+
+/// The measure of the command of the run `of`, which ended: `cores.json` of the run, its line in the log, and the
+/// measures of the command, which the admissions of the heavy turn read
+fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Sampler, group: u32) {
+  let file = sampler.finish(group).clone();
+  if let Err(error) = context.run.write_cores(&file) {
+    supervisor(&format!("cannot write the cores of the run {}: {error}", of.run));
+  }
+  context.say(&format!(
+    "the command used {} cores on average and {} at its peak, of the {} of the host",
+    file.mean, file.peak, of.cores
+  ));
+  if let Err(refusal) = turn::record(context.home, of, file.mean, file.peak, Duration::from_millis(file.wall_ms)) {
+    supervisor(&format!("run {}: {refusal}", of.run));
+  }
+}
+
+/// The run of `context` as the heavy turn knows it, of the main repository `repo`
+fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
+  let spec = context.spec;
+  turn::TurnRun {
+    run: &spec.run,
+    repo,
+    affinity: &spec.affinity,
+    command: &spec.command,
+    cores: host_cores(context.repo),
+  }
+}
+
+/// The cores of the host that the heavy runs share: `BD_HOST_TEST_CORES`, else `branchdeck.hostCores` of the config of
+/// the repository (its global config, as a host is one machine), else the cores that the system counts
+fn host_cores(repo: &Repository) -> u32 {
+  if let Some(cores) = tuning::cores() {
+    return cores;
+  }
+  let configured = git_ops::lease_slot::lease_config(&repo.git, &repo.dirs.top_level)
+    .ok()
+    .and_then(|config| config.host_cores)
+    .and_then(|cores| cores.trim().parse::<u32>().ok())
+    .filter(|cores| *cores > 0);
+  configured.unwrap_or_else(|| thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)))
 }
 
 /// Takes the heavy turn of the host for a heavy run, in the phase `heavy`: at once when no other heavy run holds it or
@@ -362,12 +422,7 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
   let wait = tuning::heavy_wait();
   let started = Instant::now();
   let repo = context.repo.path.display().to_string();
-  let of = turn::TurnRun {
-    run: &spec.run,
-    repo: &repo,
-    affinity: &spec.affinity,
-    command: &spec.command,
-  };
+  let of = turn_run(context, &repo);
   let taken = phases.time("heavy", || turn::take(context.home, &of, wait, stop, &mut |line| context.say(line)));
   let waited = started.elapsed();
   match taken {
@@ -516,7 +571,7 @@ fn prepare_slot(context: &Context<'_>, slot: &Path, stop: &dyn Fn() -> bool, hel
       continue;
     };
     context.say(&format!("prepare: {} ({why})", step.name));
-    let code = run_group(&step.run, slot, &launch, context.log, stop, Stream::Stderr)?;
+    let code = run_group(&step.run, slot, &launch, context.log, stop, Stream::Stderr, &mut |_| {})?;
     if stop() {
       return Ok(None);
     }
@@ -699,7 +754,7 @@ pub(crate) fn wait_for_pack(
 /// Runs `argv` in the slot root, in its own process group, with the environment and the niceness of `launch`, and
 /// answers its exit code. The bytes of its stdout go to `events.log` as events of `stdout`, and of its stderr as stderr
 /// events, each pipe a source of its own. The other processes of the group end before the answer
-fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>, stop: &dyn Fn() -> bool, stdout: Stream) -> Result<i32, Refusal> {
+fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>, stop: &dyn Fn() -> bool, stdout: Stream, on_poll: &mut dyn FnMut(u32)) -> Result<i32, Refusal> {
   let Some((program, arguments)) = argv.split_first() else {
     return Err(Refusal::new(Code::SpawnFailed, "the run has no command"));
   };
@@ -741,7 +796,7 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
   let status = loop {
     match child.try_wait() {
       Ok(Some(status)) => break Some(status),
-      Ok(None) => {}
+      Ok(None) => on_poll(group),
       Err(error) => {
         // the slot goes back with the give-back, so the command must not outlive it
         sys::signal_group(group, libc::SIGKILL);

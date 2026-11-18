@@ -19,6 +19,7 @@ use crate::refusal::{Code, Refusal};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::{Deserialize, Serialize};
+use sync_utils::cores::Cores;
 use sync_utils::host_ref_name::is_host_ref_name;
 
 /// The schema of the protocol. A change that an older end cannot read raises it. The hello of another schema refuses
@@ -416,6 +417,17 @@ pub struct RunInfo {
   /// `None` while it goes on, for a run whose command ended, and from an older agent
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub refused: Option<RunRefusal>,
+  /// The cores that its command used, by the samples of its supervisor: so far while it runs; `None` before its command
+  /// and from an older agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cores: Option<RunCores>,
+}
+
+/// The cores that the command of a run used: its CPU time over its wall time, and the most of one sample
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunCores {
+  pub mean: Cores,
+  pub peak: Cores,
 }
 
 /// The refusal that ended a run: the name of its code and its message

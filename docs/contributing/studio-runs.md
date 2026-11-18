@@ -44,8 +44,12 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   names its crates (`cargo nextest run -p <crate>`, also with `-E` or `-R latest`); `-E` or `-R latest` without `-p`
   builds the whole workspace and waits in the heavy queue. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
-- **Heavy runs take turns**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until no other heavy
-  run of the Studio goes, whatever its repository, so two full suites never slow each other into timeouts. A pattern
+- **Heavy runs share the cores**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until the cores
+  that its command used in its last runs (the 80th percentile of the last 5, by its samples) fit beside the heavy runs
+  of the Studio and the live use of the others, whatever its repository, so two full suites never slow each other into
+  timeouts. A command without a measure yet, or one that measured all 20 cores, runs alone; the queue is first come
+  first, and no run overtakes the head. The end of a run says `brd-host: the command used <mean> cores on average and
+  <peak> at its peak, of the 20 of the host`, and `brd-host runs studio` shows both for each run. A pattern
   matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
   `npx -y`, `npx -p @playwright/test`, `pnpm playwright`, a runner or the binary by its path), `pnpm e2e*` also
   `pnpm -C web e2e`, `--dir`, `--filter`, `--registry <url>` and pnpm by its path, while a flag of pnpm takes no value
@@ -65,7 +69,8 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   Each script is read once a run, 64 at most, past which, as past four nested shells or scripts, a script counts as
   heavy. `eval`, `xargs`, `sudo`, `$'…'`, `caffeinate` and a script by its path after a `cd` (`cd scripts &&
   ./e2e.sh`, read from the root) are not read: a heavy run through them says so with `--heavy`. Its wait
-  says `brd-host: run … waits … for the heavy turn of the host, … left: run … holds it …; a wait, not a hang: …` at once
+  says `brd-host: run … waits … for the heavy turn of the host, 7.5 of its 20 cores, … left: run … holds 12.0 for … (…,
+  measured), …; a wait, not a hang: …` at once
   and once a minute. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
   (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
   later. A run that is not heavy goes at once. Start a heavy run in the background (`run_in_background`) and follow

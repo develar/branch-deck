@@ -1,22 +1,29 @@
-//! The heavy turn of a host (openspec/specs/cli/host/spec.md, "serve: Heavy runs take the heavy turn of the host one at a
-//! time"; docs/design/host-runs.md, "Heavy runs"): a run that `heavy` of `[host]` or `brd-host run --heavy` marks heavy
-//! holds the turn from before its lend to its give-back, and the other heavy runs of the host wait for it in a
-//! first-come queue, whatever their repository. A run that is not heavy never asks for it.
+//! The heavy turn of a host (openspec/specs/cli/host/spec.md, "serve: Heavy runs share the cores of the host by their
+//! measure"; docs/design/host-runs.md, "Heavy runs"): a run that `heavy` of `[host]` or `brd-host run --heavy` marks
+//! heavy holds the turn from before its lend to its give-back, and the other heavy runs of the host wait in a first-come
+//! queue, whatever their repository. A run that is not heavy never waits for it.
 //!
-//! The table is the queue of the host slots with one place for the whole host: `heavy.json` with its lock `heavy.lock`
-//! in a directory of the agent of its own (`~/.cache/brd-host/heavy/`), not in a repository. The holder and each
-//! ticket name the process of their run (the supervisor), as a lend and a ticket of `host_slots` do, so a gone process
-//! leaves the queue and a gone holder frees the turn for the next run, without a keeper. The lock is a leaf, held only
-//! while the table changes, never across git or another lock. A run that waits watches the directory once for its whole
-//! wait (`TurnWatch`) and looks again every 5 s, as the end of a process makes no file event. The table names its
-//! schema: a table of another schema, which an agent of another build wrote, refuses, so a supervisor of the build
-//! before an upgrade never reads a turn it does not know.
+//! The turn holds cores, not one run: the head of the queue is admitted while the cores that the holders are expected
+//! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
+//! without a measure of its command (`TurnEntry::expected` is `None`), or one whose command measured the whole host,
+//! takes the whole host: it waits for no holder, and no heavy run joins it. Only the head of the queue is admitted, so a
+//! small run never overtakes one that waits for more, and none waits forever. A holder counts the larger of its
+//! expectation and its live use (`live`, which its supervisor notes at each sample), so a command that got heavier
+//! holds more at once; the runs that are not heavy note theirs into `light`.
+//!
+//! The table is `turn.json` with its lock `turn.lock` in a directory of the agent of its own (`~/.cache/brd-host/heavy/`),
+//! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
+//! do, so a gone process leaves the table without a keeper. The lock is a leaf, held only while the table changes,
+//! never across git or another lock. A run that waits watches the directory once for its whole wait (`TurnWatch`) and
+//! looks again every 5 s, as the end of a process makes no file event. The table names its schema: a table of another
+//! schema refuses. `heavy.json` is the table of the build before (one holder, schema 1): its supervisors go on with it
+//! after an upgrade, and its live holder counts here as one that holds the whole host, so no run of this build joins it.
 //!
 //! A later heavy run of the same checkout (its affinity) and the same command (`host_link::heavy::run_key`) supersedes
 //! the runs of the queue that wait for the turn with them: it takes the place of the first in the queue, and each of
 //! them moves to `superseded` with the id of the later run, which its own next look answers (`TurnAnswer::Superseded`).
-//! A run of the queue has no slot and has started no command: the turn comes before the lend. The holder is never
-//! superseded. An entry of an older build has no affinity and no key, and supersedes nothing and nobody
+//! A run of the queue has no slot and has started no command: the turn comes before the lend. A holder is never
+//! superseded. An entry without an affinity and a key supersedes nothing and nobody
 
 use crate::host_slots::{TableWake, Ticket, WAIT_RECHECK, now_ms};
 use crate::state_file::StateFile;
@@ -24,14 +31,18 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
+use sync_utils::cores::Cores;
 use sync_utils::process_scan::is_running;
 
-/// The schema of `heavy.json` that this build reads and writes
-const SCHEMA: u32 = 1;
-const STATE_FILE: &str = "heavy.json";
-const LOCK_FILE: &str = "heavy.lock";
-/// The files whose change can give a waiting run the turn
-const WAKE_FILES: [&str; 1] = [STATE_FILE];
+/// The schema of `turn.json` that this build reads and writes
+const SCHEMA: u32 = 2;
+const STATE_FILE: &str = "turn.json";
+/// The lock of `turn.json`, which the agent creates private before the first change
+pub const LOCK_FILE: &str = "turn.lock";
+/// The table of the build before, of one holder: read for its holder only
+const LEGACY_FILE: &str = "heavy.json";
+/// The files whose change can admit a waiting run
+const WAKE_FILES: [&str; 2] = [STATE_FILE, LEGACY_FILE];
 /// The longest command of an entry, in characters
 const COMMAND_CHARS: usize = 200;
 
@@ -41,9 +52,12 @@ pub struct HeavyTurn {
   /// The schema of the table, `SCHEMA` of this build; a table without one is of no build
   #[serde(default)]
   pub schema: u32,
-  /// The run that holds the turn
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub holder: Option<TurnEntry>,
+  /// The cores of the host that the last change counted with
+  #[serde(default)]
+  pub cores: u32,
+  /// The heavy runs that hold cores of the turn, in the order they were admitted
+  #[serde(default)]
+  pub holders: Vec<TurnEntry>,
   /// The heavy runs that wait for the turn, first come first
   #[serde(default)]
   pub queue: Vec<TurnEntry>,
@@ -51,6 +65,9 @@ pub struct HeavyTurn {
   /// later run and takes it out
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub superseded: Vec<SupersededEntry>,
+  /// The runs that are not heavy whose command runs, with their live cores
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub light: Vec<LightEntry>,
 }
 
 /// A run that a later run of its checkout and command superseded while it waited for the turn
@@ -63,7 +80,18 @@ pub struct SupersededEntry {
   pub by: String,
 }
 
-/// A heavy run that holds the turn or waits for it
+/// A run that is not heavy whose command runs, and the cores it used at its last sample
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LightEntry {
+  #[serde(flatten)]
+  pub ticket: Ticket,
+  pub repo: String,
+  /// The command as one line, at most 200 characters
+  pub command: String,
+  pub live: Cores,
+}
+
+/// A heavy run that holds cores of the turn or waits for them
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnEntry {
   /// The run and its process, as a ticket of the host slots names them
@@ -73,7 +101,7 @@ pub struct TurnEntry {
   pub repo: String,
   /// The command of the run as one line, at most 200 characters
   pub command: String,
-  /// When it took the turn, or joined the queue, in Unix milliseconds
+  /// When it was admitted, or joined the queue, in Unix milliseconds
   pub since_ms: u64,
   /// The checkout of the client of the run (`RunSpec::affinity`); `None` from an older build
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,15 +110,49 @@ pub struct TurnEntry {
   /// older build
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub command_key: Option<String>,
+  /// The cores that the last runs of its command lead to expect (`host_cores::expected`); `None` without a measure:
+  /// the run takes the whole host
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected: Option<Cores>,
+  /// The cores of its last sample, while it holds cores
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub live: Option<Cores>,
+}
+
+/// How much of the host an entry takes, for the admission and the lines
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+  /// These cores, by the measure of its command, or its live use when that is more
+  Cores { cores: Cores, live: bool },
+  /// The whole host: its command has no measure yet
+  Unmeasured,
+  /// The whole host: its command measured these cores, the cores of the host or more
+  Measured(Cores),
+}
+
+impl Need {
+  /// The cores of the need on a host of `cores`
+  pub const fn cores(self, cores: u32) -> Cores {
+    match self {
+      Self::Cores { cores, .. } => cores,
+      Self::Unmeasured | Self::Measured(_) => Cores::whole(cores),
+    }
+  }
+
+  pub const fn is_whole_host(self) -> bool {
+    !matches!(self, Self::Cores { .. })
+  }
 }
 
 impl Default for HeavyTurn {
   fn default() -> Self {
     Self {
       schema: SCHEMA,
-      holder: None,
+      cores: 0,
+      holders: Vec::new(),
       queue: Vec::new(),
       superseded: Vec::new(),
+      light: Vec::new(),
     }
   }
 }
@@ -107,11 +169,36 @@ impl HeavyTurn {
     }
     Ok(self)
   }
+
+  /// Without the entries whose process is gone
+  fn prune(&mut self) {
+    self.holders.retain(TurnEntry::is_running);
+    self.queue.retain(TurnEntry::is_running);
+    self.superseded.retain(|entry| entry.ticket.is_running());
+    self.light.retain(|entry| entry.ticket.is_running());
+  }
+
+  /// The live cores of the runs that are not heavy
+  pub fn light_cores(&self) -> Cores {
+    self.light.iter().map(|entry| entry.live).sum()
+  }
 }
 
 impl TurnEntry {
   fn is_running(&self) -> bool {
-    is_running(self.ticket.pid, self.ticket.process_started)
+    self.ticket.is_running()
+  }
+
+  /// What the entry takes of a host of `cores`: a holder the larger of its expectation and its live use
+  pub fn need(&self, cores: u32) -> Need {
+    match self.expected {
+      None => Need::Unmeasured,
+      Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
+      Some(expected) => match self.live {
+        Some(live) if live > expected => Need::Cores { cores: live, live: true },
+        _ => Need::Cores { cores: expected, live: false },
+      },
+    }
   }
 
   /// Whether the entry is of the checkout of `request` (`same_command`: and of its command), as both name them; an
@@ -124,15 +211,24 @@ impl TurnEntry {
   }
 }
 
-/// The directory of the table of a host
+impl Ticket {
+  fn is_running(&self) -> bool {
+    is_running(self.pid, self.process_started)
+  }
+}
+
+/// The directory of the table of a host and its cores
 pub struct TurnParams<'a> {
-  /// The directory of `heavy.json`, of its lock and of nothing else: `~/.cache/brd-host/heavy/`
+  /// The directory of `turn.json`, of its lock, of `heavy.json` of the build before and of `cores.json`
+  /// (`host_cores`): `~/.cache/brd-host/heavy/`
   pub dir: &'a Path,
   /// The wait for the lock of the table
   pub lock_timeout: Duration,
   /// How often a wait looks again without a file event (`RECHECK`): the end of a holder makes none, and `FSEvents` of
   /// macOS delays and drops events under load, so the look bounds every wait
   pub recheck: Duration,
+  /// The cores of the host that the heavy runs share
+  pub cores: u32,
 }
 
 /// How often a wait for the turn looks again without a file event, as a lend that waits does
@@ -157,6 +253,45 @@ fn table_file(dir: &Path) -> StateFile {
   StateFile::in_dir(dir, STATE_FILE, LOCK_FILE, "the heavy turn")
 }
 
+/// The table of the build before capacities: only its holder counts here
+#[derive(Debug, Default, Deserialize)]
+struct LegacyTurn {
+  #[serde(default)]
+  schema: u32,
+  #[serde(default)]
+  holder: Option<LegacyHolder>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyHolder {
+  #[serde(flatten)]
+  ticket: Ticket,
+  #[serde(default)]
+  repo: String,
+  #[serde(default)]
+  command: String,
+  #[serde(default)]
+  since_ms: u64,
+}
+
+/// The live holder of `heavy.json` of the build before, as an entry that takes the whole host; read without its lock,
+/// as nothing of this build writes it
+fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
+  let text = std::fs::read_to_string(dir.join(LEGACY_FILE)).ok()?;
+  let table: LegacyTurn = serde_json::from_str(&text).ok()?;
+  let holder = table.holder.filter(|holder| table.schema == 1 && holder.ticket.is_running())?;
+  Some(TurnEntry {
+    ticket: holder.ticket,
+    repo: holder.repo,
+    command: holder.command,
+    since_ms: holder.since_ms,
+    affinity: None,
+    command_key: None,
+    expected: None,
+    live: None,
+  })
+}
+
 /// A heavy run that asks for the turn
 pub struct TurnRequest<'a> {
   /// The id of the run
@@ -173,13 +308,15 @@ pub struct TurnRequest<'a> {
   pub affinity: &'a str,
   /// The key of the command by what it runs (`host_link::heavy::run_key`)
   pub command_key: &'a str,
+  /// The cores that the last runs of the command lead to expect (`host_cores::expected`), `None` without a measure
+  pub expected: Option<Cores>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TurnAnswer {
-  /// The run holds the turn
+  /// The run holds its cores of the turn
   Taken,
-  /// Not yet: who holds it and who waits before the run
+  /// Not yet: who holds cores, what the runs that are not heavy use, and who waits before the run
   Queued(TurnQueue),
   /// A later run of the same checkout and command, named here, took its place in the queue: the run runs nothing
   Superseded { by: String },
@@ -199,10 +336,31 @@ pub struct Joined {
 /// No turn for the run yet, for the line of the wait
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnQueue {
-  /// The run that holds the turn; `None` while the run before this one in the queue has yet to take it
-  pub holder: Option<TurnEntry>,
+  /// The cores of the host
+  pub cores: u32,
+  /// What the run needs of the host
+  pub need: Need,
+  /// The runs that hold cores, the holder of the build before among them
+  pub holders: Vec<TurnEntry>,
+  /// The live cores of the runs that are not heavy
+  pub light: Cores,
   /// The runs before this one in the queue
   pub ahead: Vec<TurnEntry>,
+}
+
+/// Whether the head of the queue `entry` is admitted beside `holders` and `light` on a host of `cores`: always to a turn
+/// without a holder; a run that takes the whole host to none other; a run of a measure only beside holders that do not
+/// take the whole host, while their needs, `light` and its own fit the cores
+fn admits(entry: &TurnEntry, holders: &[TurnEntry], light: Cores, cores: u32) -> bool {
+  if holders.is_empty() {
+    return true;
+  }
+  let need = entry.need(cores);
+  if need.is_whole_host() || holders.iter().any(|holder| holder.need(cores).is_whole_host()) {
+    return false;
+  }
+  let held: Cores = holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
+  held.saturating_add(light).saturating_add(need.cores(cores)) <= Cores::whole(cores)
 }
 
 /// Give the turn to the run of `request`, or put it in the queue ([`join`])
@@ -210,19 +368,17 @@ pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
   join(params, request).map(|joined| joined.answer)
 }
 
-/// Give the turn to the run of `request`, or put it in the queue, and say what its first ask did. Under the lock of the
-/// table: the tickets of gone processes leave the queue and `superseded`, and a gone holder frees the turn; a superseded
-/// run gets the later run and leaves `superseded`; a run that holds the turn holds it again (a repeat is safe); a run
-/// new to the queue supersedes the runs of the queue of its checkout and command and takes the place of the first of
-/// them, else joins the end; the first run of the queue takes a free turn
+/// Give the run of `request` its cores of the turn, or put it in the queue, and say what its first ask did. Under the
+/// lock of the table: the entries of gone processes leave it; a superseded run gets the later run and leaves
+/// `superseded`; a holder holds still (a repeat is safe); a run new to the queue supersedes the runs of the queue of
+/// its checkout and command and takes the place of the first of them, else joins the end; the head of the queue is
+/// admitted while it fits ([`admits`]), beside the holder of `heavy.json` of the build before too
 pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined> {
+  let legacy = legacy_holder(params.dir);
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
-    table.queue.retain(TurnEntry::is_running);
-    table.superseded.retain(|entry| is_running(entry.ticket.pid, entry.ticket.process_started));
-    if table.holder.as_ref().is_some_and(|holder| !holder.is_running()) {
-      table.holder = None;
-    }
+    table.prune();
+    table.cores = params.cores;
     let mut joined = Joined {
       answer: TurnAnswer::Taken,
       replaced: Vec::new(),
@@ -234,19 +390,26 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       };
       return Ok(joined);
     }
-    if table.holder.as_ref().is_some_and(|holder| holder.ticket.run == request.run) {
+    if table.holders.iter().any(|holder| holder.ticket.run == request.run) {
       return Ok(joined);
     }
     let queued = table.queue.iter().position(|entry| entry.ticket.run == request.run);
     let position = queued.unwrap_or_else(|| enqueue(table, request, &mut joined));
-    if table.holder.is_none() && position == 0 {
+    // the expectation of a run that waits follows the measures that came while it waited
+    table.queue[position].expected = request.expected;
+    let holders: Vec<TurnEntry> = legacy.iter().cloned().chain(table.holders.iter().cloned()).collect();
+    let light = table.light_cores();
+    if position == 0 && admits(&table.queue[0], &holders, light, params.cores) {
       let mut entry = table.queue.remove(0);
       entry.since_ms = now_ms();
-      table.holder = Some(entry);
+      table.holders.push(entry);
       return Ok(joined);
     }
     joined.answer = TurnAnswer::Queued(TurnQueue {
-      holder: table.holder.clone(),
+      cores: params.cores,
+      need: table.queue[position].need(params.cores),
+      holders,
+      light,
       ahead: table.queue[..position].to_vec(),
     });
     Ok(joined)
@@ -277,6 +440,8 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     since_ms: now_ms(),
     affinity: Some(request.affinity.to_owned()),
     command_key: Some(request.command_key.to_owned()),
+    expected: request.expected,
+    live: None,
   };
   // the place of the first superseded run: the runs before it are before it still
   let position = place.unwrap_or(table.queue.len()).min(table.queue.len());
@@ -286,8 +451,8 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
 
 /// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued, woken by `watch`, which
 /// the caller started before its first look and keeps for its whole wait; without a file event it looks again every
-/// `params.recheck`, since the end of a holder makes none and an event may come late or never (`FSEvents` under load). The
-/// answer is the turn, the later run that superseded it, or the place in the queue once the time is up: the ticket
+/// `params.recheck`, since the end of a holder makes none and an event may come late or never (`FSEvents` under load).
+/// The answer is the turn, the later run that superseded it, or the place in the queue once the time is up: the ticket
 /// stays while the process lives, and `leave` takes it out
 pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration, watch: &TurnWatch) -> Result<TurnAnswer> {
   let started = Instant::now();
@@ -304,35 +469,74 @@ pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout:
   }
 }
 
-/// The run `run` leaves the turn: it gives the turn back, or its ticket leaves the queue or `superseded`. Answers whether
-/// it held the turn
+/// The live use of a run whose command runs, at a sample of its supervisor
+pub struct UseNote<'a> {
+  pub run: &'a str,
+  pub pid: u32,
+  pub process_started: Option<u64>,
+  pub repo: &'a str,
+  pub command: &'a [String],
+  pub live: Cores,
+}
+
+/// Notes the live cores of the run of `note`: a holder's `live`, which raises what it holds once it is past its
+/// expectation; a run that is neither a holder nor waits is a run that is not heavy, and its entry of `light` gets them.
+/// The admissions that follow count them
+pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
+  params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
+    let table = table.of_this_schema(params.dir)?;
+    table.prune();
+    table.cores = params.cores;
+    if let Some(holder) = table.holders.iter_mut().find(|holder| holder.ticket.run == note.run) {
+      holder.live = Some(note.live);
+    } else if let Some(light) = table.light.iter_mut().find(|light| light.ticket.run == note.run) {
+      light.live = note.live;
+    } else if !table.queue.iter().any(|entry| entry.ticket.run == note.run) {
+      table.light.push(LightEntry {
+        ticket: Ticket {
+          run: note.run.to_owned(),
+          pid: note.pid,
+          process_started: note.process_started,
+        },
+        repo: note.repo.to_owned(),
+        command: one_line(note.command),
+        live: note.live,
+      });
+    }
+    Ok(())
+  })
+}
+
+/// The run `run` leaves the turn: it gives its cores back, or its entry leaves the queue, `superseded` or `light`.
+/// Answers whether it held cores
 pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
     table.queue.retain(|entry| entry.ticket.run != run);
     table.superseded.retain(|entry| entry.ticket.run != run);
-    let held = table.holder.as_ref().is_some_and(|holder| holder.ticket.run == run);
-    if held {
-      table.holder = None;
-    }
+    table.light.retain(|entry| entry.ticket.run != run);
+    let held = table.holders.iter().any(|holder| holder.ticket.run == run);
+    table.holders.retain(|holder| holder.ticket.run != run);
     Ok(held)
   })
 }
 
-/// The heavy turn of the host in `dir` without the runs whose process is gone, read without the lock: the holder and
-/// the queue that `brd-host runs` shows
+/// The heavy turn of the host in `dir` without the runs whose process is gone, read without the lock, the live holder
+/// of `heavy.json` of the build before first among the holders: what `brd-host runs` shows
 pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
   let mut table: HeavyTurn = table_file(dir).read()?;
   table.of_this_schema(dir)?;
-  table.holder = table.holder.filter(TurnEntry::is_running);
-  table.queue.retain(TurnEntry::is_running);
-  table.superseded.retain(|entry| is_running(entry.ticket.pid, entry.ticket.process_started));
+  table.prune();
+  if let Some(legacy) = legacy_holder(dir) {
+    table.holders.insert(0, legacy);
+  }
   Ok(table)
 }
 
 /// The words of a command as one line, at most `COMMAND_CHARS` characters
 fn one_line(command: &[String]) -> String {
-  let line = command.join(" ");
+  // a word of a script holds its line ends: `zsh -c 'a\nb'`
+  let line = command.join(" ").replace(['\n', '\r', '\t'], " ");
   match line.char_indices().nth(COMMAND_CHARS) {
     Some((cut, _)) => format!("{}…", &line[..cut]),
     None => line,

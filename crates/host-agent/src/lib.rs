@@ -11,7 +11,8 @@
 //! - `supervise`: one run from the lend of its slot to `exit.json` and the give-back
 //! - `run`: the run directory and its files
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
-//! - `turn`: the heavy turn of the host, which the heavy runs of every repository there take one at a time
+//! - `turn`: the heavy turn of the host, whose cores the heavy runs of every repository there share by their measure
+//! - `cores`: the samples of the cores that the command of a run uses, and its measure
 //! - `table`: the lend table for `brd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
 //! - `setup`: `setup --agent` and the `LaunchAgent`
 //! - `upgrade`: the install of a new binary and its watchdog
@@ -27,6 +28,7 @@ mod awake;
 mod child;
 mod cleanup;
 pub mod command;
+mod cores;
 mod files;
 pub mod home;
 mod keeper;
@@ -44,7 +46,7 @@ mod slots;
 pub mod supervise;
 #[expect(
   unsafe_code,
-  reason = "the calls of libc that std has no safe form of: flock, process groups, signals, rlimit, the user database, kqueue"
+  reason = "the calls of libc that std has no safe form of: flock, process groups, signals, rlimit, rusage, the user database, kqueue"
 )]
 mod sys;
 pub mod table;

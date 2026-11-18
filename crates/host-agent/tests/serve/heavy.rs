@@ -1,7 +1,7 @@
 //! The heavy turn of the host (openspec/specs/cli/host/spec.md, "serve: Heavy runs take the heavy turn of the host one at a
 //! time"): the heavy runs of the host run one at a time before their lends, a run that is not heavy goes beside them,
-//! a cancel and a killed holder free the queue, a wait past its time ends with `heavy_timeout`, and a later run of the
-//! same checkout and command supersedes the one that waits
+//! a cancel and a killed holder free the queue, a wait past its time ends with `heavy_timeout`, a later run of the
+//! same checkout and command supersedes the one that waits, and the heavy runs of a measure share the cores of the host
 
 use super::{ALL_PHASES, World, events, eventually, gate_and_marks, process_alive, wait_for};
 use host_link::proto::{Reply, Request, RunSpec};
@@ -46,7 +46,7 @@ fn started(marks: &Path) -> Vec<String> {
 #[test]
 fn heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them() {
   let world = World::new(3, &[]);
-  let agent = world.serve();
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20")]);
   let (gate, marks) = gate_and_marks(&world);
   agent.start(heavy(&world, "7-1", &marks, &gate));
   eventually("the first heavy run holds the turn", || started(&marks) == ["7-1"]);
@@ -61,7 +61,7 @@ fn heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_bes
   eventually("the run that is not heavy goes beside the heavy one", || started(&marks) == ["7-1", "7-3"]);
   assert_eq!(heavy_turn(&agent), (Some("7-1".to_owned()), vec!["7-2".to_owned()]));
   assert!(
-    events(&world, "7-2").contains("brd-host: run 7-2 waits 0 s for the heavy turn of the host, 120 min left: run 7-1 of "),
+    events(&world, "7-2").contains("brd-host: run 7-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 120 min left: run 7-1 of "),
     "{}",
     agent.dump("7-2")
   );
@@ -136,14 +136,14 @@ fn a_killed_heavy_run_frees_the_turn_for_the_next_one() {
 #[test]
 fn a_heavy_run_that_waits_past_its_time_ends_with_heavy_timeout() {
   let world = World::new(2, &[]);
-  let agent = world.serve_with(&[("BD_HOST_TEST_HEAVY_WAIT_MS", "1500")]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_HEAVY_WAIT_MS", "1500"), ("BD_HOST_TEST_CORES", "20")]);
   let (gate, marks) = gate_and_marks(&world);
   agent.start(heavy(&world, "10-1", &marks, &gate));
   eventually("the first heavy run holds the turn", || started(&marks) == ["10-1"]);
   agent.start(heavy(&world, "10-2", &marks, &gate));
   let timed_out = agent.follow("10-2");
   assert!(
-    matches!(&timed_out.end, Reply::Refused { code, message } if code == "heavy_timeout" && message.starts_with("no heavy turn for 1 s; giving up: run 10-2 waits ") && message.contains(" for the heavy turn of the host, 0 s left: run 10-1 of ")),
+    matches!(&timed_out.end, Reply::Refused { code, message } if code == "heavy_timeout" && message.starts_with("no heavy turn for 1 s; giving up: run 10-2 waits ") && message.contains(" for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 0 s left: run 10-1 of ")),
     "{timed_out:?}"
   );
   assert_eq!(timed_out.phase_names(), ["heavy"]);
@@ -156,7 +156,11 @@ fn a_heavy_run_that_waits_past_its_time_ends_with_heavy_timeout() {
 #[test]
 fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left() {
   let world = World::new(2, &[]);
-  let agent = world.serve_with(&[("BD_HOST_TEST_WAIT_PROGRESS_MS", "300"), ("BD_HOST_TEST_HEAVY_WAIT_MS", "600000")]);
+  let agent = world.serve_with(&[
+    ("BD_HOST_TEST_WAIT_PROGRESS_MS", "300"),
+    ("BD_HOST_TEST_HEAVY_WAIT_MS", "600000"),
+    ("BD_HOST_TEST_CORES", "20"),
+  ]);
   let (gate, marks) = gate_and_marks(&world);
   agent.start(heavy(&world, "11-1", &marks, &gate));
   eventually("the first heavy run holds the turn", || started(&marks) == ["11-1"]);
@@ -173,7 +177,7 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
   eventually("a second line of the wait", || lines().len() >= 2);
   let lines = lines();
   assert!(
-    lines[0].contains("run 11-2 waits 0 s for the heavy turn of the host, 10 min left: run 11-1 of "),
+    lines[0].contains("run 11-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 10 min left: run 11-1 of "),
     "{lines:?}"
   );
   let waited: u64 = lines[1]
@@ -183,7 +187,12 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
     .and_then(|n| n.parse().ok())
     .expect("the time waited");
   // the line says the whole seconds waited, and the time left is of the exact wait: one of two whole minutes
-  let left = |seconds: u64| format!("waits {waited} s for the heavy turn of the host, {} left: run 11-1 of ", span(seconds));
+  let left = |seconds: u64| {
+    format!(
+      "waits {waited} s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, {} left: run 11-1 of ",
+      span(seconds)
+    )
+  };
   assert!(
     waited >= 1 && (lines[1].contains(&left(600 - waited)) || lines[1].contains(&left(599 - waited))),
     "{lines:?}"
@@ -244,4 +253,64 @@ fn a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one
   assert_eq!(agent.follow("12-3").end, Reply::Exit { code: 0 }, "{}", agent.dump("12-3"));
   assert_eq!(agent.follow("12-4").end, Reply::Exit { code: 0 }, "{}", agent.dump("12-4"));
   assert_eq!(started(&marks), ["12-1", "same"]);
+}
+
+/// The holders of the heavy turn as `Request::Runs` answers it
+fn turn_holders(agent: &super::Agent<'_>) -> Vec<String> {
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs) else {
+    panic!("no heavy turn");
+  };
+  heavy["holders"]
+    .as_array()
+    .map_or_else(Vec::new, |holders| holders.iter().filter_map(|holder| holder["run"].as_str().map(str::to_owned)).collect())
+}
+
+#[test]
+fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20"), ("BD_HOST_TEST_SAMPLE_MS", "100"), ("BD_HOST_TEST_MIN_WALL_MS", "0")]);
+  let (gate, marks) = gate_and_marks(&world);
+  // one command for the runs that share: each process marks its own pid, then waits for the gate
+  let script = format!(": > '{}/shared-'$$; {}", marks.display(), wait_for(&gate));
+  let shared = |run: &str| RunSpec {
+    heavy: true,
+    ..world.spec(run, &script)
+  };
+  fs::write(&gate, "").expect("the gate opens");
+  agent.start(shared("13-1"));
+  assert_eq!(agent.follow("13-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("13-1"));
+  assert!(events(&world, "13-1").contains("brd-host: the command used "), "{}", agent.dump("13-1"));
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+    panic!("no runs");
+  };
+  assert!(runs.iter().find(|run| run.run == "13-1").is_some_and(|run| run.cores.is_some()), "{runs:?}");
+  fs::remove_file(&gate).expect("the gate closes");
+  fs::remove_file(marks.join(fs::read_dir(&marks).unwrap().next().unwrap().unwrap().file_name())).expect("the mark of the first run");
+  // the first run, without a measure, holds the whole host until its give-back, after its end
+  eventually("the first run left the turn", || turn_holders(&agent).is_empty());
+
+  // the command measured a fraction of a core: two of its runs hold cores at once; the second of another checkout, so
+  // it supersedes nothing
+  agent.start(shared("13-2"));
+  agent.start(RunSpec {
+    affinity: "checkout-ba9876543210".to_owned(),
+    ..shared("13-3")
+  });
+  eventually("two heavy runs of a measure run at once", || fs::read_dir(&marks).map_or(0, Iterator::count) == 2);
+  let mut holders = turn_holders(&agent);
+  holders.sort();
+  assert_eq!(holders, ["13-2", "13-3"]);
+  // a command without a measure waits for the whole host
+  agent.start(heavy(&world, "13-4", &marks, &gate));
+  eventually("the run without a measure waits", || heavy_turn(&agent).1 == ["13-4"]);
+  assert!(
+    events(&world, "13-4").contains("brd-host: run 13-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, "),
+    "{}",
+    agent.dump("13-4")
+  );
+  fs::write(&gate, "").expect("the gate opens");
+  for run in ["13-2", "13-3", "13-4"] {
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+  assert!(started(&marks).contains(&"13-4".to_owned()));
 }

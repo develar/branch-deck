@@ -62,13 +62,17 @@ A Mac host stays awake while a client talks to it and while a run goes on.
 
 ### Heavy runs
 
-The host runs its heavy runs one at a time, whatever their repository: two full test suites at once both slow down
-until their tests fail on timeouts, which are no flakes. A run is heavy when a pattern of `heavy` of `[host]` of the
+The heavy runs of a host share its cores, whatever their repository: two full test suites at once both slow down
+until their tests fail on timeouts, which are no flakes. A heavy run is admitted while what its command used in its
+last runs fits beside the holders and the runs that are not heavy; a command without a measure (its first runs, any
+new command) takes the whole host, and so does one that measured the whole host. The queue is first come first. A run is heavy when a pattern of `heavy` of `[host]` of the
 commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository
 names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says
 `brd-host: a heavy run by …`, then waits for the heavy turn before it takes a slot, with a line at once and once a
-minute: `brd-host: run <run> waits 3 min for the heavy turn of the host, 117 min left: run <run> of <repo> holds it
-4 min (<command>), 1 run ahead: …; a wait, not a hang: …`. Never cancel and rerun it locally for it, and never
+minute: `brd-host: run <run> waits 3 min for the heavy turn of the host, 7.5 of its 20 cores, 117 min left: run <run>
+of <repo> holds 12.0 for 4 min (<command>, measured), 1 run ahead: …; a wait, not a hang: …`. At the end of its command
+a run says `brd-host: the command used 7.5 cores on average and 14.0 at its peak, of the 20 of the host`, which the
+next runs of that command are expected to use. Never cancel and rerun it locally for it, and never
 treat a test that failed on a timeout beside another heavy run as a flake to fix. `brd-host runs <host>` names the
 holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75): never run it
 locally then, as under the load of this machine its tests fail on timeouts; read `brd-host runs <host>` and run it
@@ -198,7 +202,7 @@ step that fails ends it with `prepare_failed`.
 [host]
 # Paths that the command makes and that come back to this checkout. The host removes each one before the command.
 outputs = ["tests/results", "playwright-report"]
-# The commands of the heavy runs, which the host runs one at a time: `*` matches any characters.
+# The commands of the heavy runs, which share the cores of the host by their measure: `*` matches any characters.
 heavy = ["cargo nextest run*--workspace*", "pnpm e2e*"]
 
 [host.env]

@@ -33,6 +33,24 @@ pub(crate) fn wait_progress() -> Duration {
   from_env("BD_HOST_TEST_WAIT_PROGRESS_MS", lease_pool::host_slots::WAIT_PROGRESS)
 }
 
+/// How often the supervisor samples the cores of the command of a run (`cores::Sampler`): `BD_HOST_TEST_SAMPLE_MS`, else
+/// 10 s
+pub(crate) fn sample_every() -> Duration {
+  from_env("BD_HOST_TEST_SAMPLE_MS", Duration::from_secs(10))
+}
+
+/// The shortest command whose cores count for its measures: `BD_HOST_TEST_MIN_WALL_MS`, else
+/// `lease_pool::host_cores::MIN_WALL` (10 s)
+pub(crate) fn min_wall() -> Duration {
+  from_env("BD_HOST_TEST_MIN_WALL_MS", lease_pool::host_cores::MIN_WALL)
+}
+
+/// The cores of the host that a process test gives the heavy turn in place of the setting and of the system:
+/// `BD_HOST_TEST_CORES`
+pub(crate) fn cores() -> Option<u32> {
+  std::env::var("BD_HOST_TEST_CORES").ok()?.parse().ok().filter(|cores| *cores > 0)
+}
+
 /// How long a heavy run waits for the heavy turn of the host: `BD_HOST_TEST_HEAVY_WAIT_MS`, else 2 h
 pub(crate) fn heavy_wait() -> Duration {
   from_env("BD_HOST_TEST_HEAVY_WAIT_MS", Duration::from_hours(2))

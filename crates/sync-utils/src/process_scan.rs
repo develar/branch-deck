@@ -385,6 +385,20 @@ pub fn process_started(pid: u32) -> Option<u64> {
   platform::started(pid)
 }
 
+/// The CPU time that the process `pid` used so far, user and system, of all its threads: `proc_taskinfo` of libproc on
+/// macOS, `utime` and `stime` of `/proc/<pid>/stat` on Linux; `None` for a gone process, one the system won't describe
+/// to this process, and on another platform. The time of its reaped children is not in it
+pub fn cpu_time(pid: u32) -> Option<std::time::Duration> {
+  platform::cpu_time(pid)
+}
+
+/// Every process with its parent, its group and its start, without its working directory and its arguments, which take
+/// most of the time of a full scan (`ProcessScan::scan`): what a sampler of the CPU of a process group reads often;
+/// `None` where the system tells no list
+pub fn process_list() -> Option<Vec<ProcessInfo>> {
+  platform::process_tree()
+}
+
 /// The pids of the processes that have the file `path` open, each once: the file descriptors of each process through
 /// libproc on macOS, the `fd` links of `/proc` on Linux (the processes of this user); `None` when that can't be told
 /// (the file is gone, a sandbox, another platform)
@@ -648,6 +662,28 @@ mod platform {
 
   pub(super) fn started(pid: u32) -> Option<u64> {
     bsd_info(pid).map(|info| start_time(&info))
+  }
+
+  /// `pti_total_user` and `pti_total_system` of `PROC_PIDTASKINFO`, in the ticks of the Mach clock, which
+  /// `mach_timebase_info` turns into nanoseconds (1:1 on Intel, 125:3 on Apple silicon)
+  pub(super) fn cpu_time(pid: u32) -> Option<std::time::Duration> {
+    let task: libc::proc_taskinfo = pid_info(pid, libc::PROC_PIDTASKINFO)?;
+    let ticks = u128::from(task.pti_total_user) + u128::from(task.pti_total_system);
+    let (numer, denom) = timebase()?;
+    u64::try_from(ticks * u128::from(numer) / u128::from(denom)).ok().map(std::time::Duration::from_nanos)
+  }
+
+  /// The ratio of the Mach clock to nanoseconds, read once
+  #[expect(unsafe_code, reason = "mach_timebase_info(3), which std does not offer")]
+  #[expect(deprecated, reason = "libc points to the mach2 crate for mach_timebase_info, which this crate does not depend on")]
+  fn timebase() -> Option<(u32, u32)> {
+    static TIMEBASE: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
+    *TIMEBASE.get_or_init(|| {
+      let mut info = libc::mach_timebase_info { numer: 0, denom: 0 };
+      // SAFETY: the call writes the two fields of `info`, which lives across it
+      let status = unsafe { libc::mach_timebase_info(&raw mut info) };
+      (status == 0 && info.denom != 0).then_some((info.numer, info.denom))
+    })
   }
 
   /// `PROC_PIDLISTTHREADS` of `sys/proc_info.h`: the flavor of `proc_pidinfo` that lists the thread handles of a process
@@ -995,6 +1031,13 @@ mod platform {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
   }
 
+  /// `utime` and `stime` of `/proc/<pid>/stat`, in clock ticks
+  pub(super) fn cpu_time(pid: u32) -> Option<std::time::Duration> {
+    let stat = Stat::read(pid)?;
+    let ticks = clock_ticks()?;
+    Some(std::time::Duration::from_nanos((stat.cpu_ticks.saturating_mul(1_000_000_000)) / ticks))
+  }
+
   /// Each thread stopped (`T`, or `t` under a tracer), a zombie (`Z`) or dead (`X`): `/proc/<pid>/stat` has the state of
   /// the main thread, and another one runs on to the end of its call (a fork)
   pub(super) fn halted(pid: u32) -> Option<bool> {
@@ -1061,6 +1104,8 @@ mod platform {
     group: u32,
     /// Field 22, `starttime`: clock ticks since boot
     started: u64,
+    /// Fields 14 and 15, `utime` and `stime`: clock ticks of CPU
+    cpu_ticks: u64,
     /// Field 3, `state`, is `Z`
     zombie: bool,
     /// Field 3, `state`, is `T`, `t`, `Z` or `X`: the thread forks no more
@@ -1085,6 +1130,7 @@ mod platform {
         parent: fields.get(1)?.parse().ok()?,
         group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
+        cpu_ticks: fields.get(11)?.parse::<u64>().ok()?.saturating_add(fields.get(12)?.parse::<u64>().ok()?),
         zombie: fields.first() == Some(&"Z"),
         halted: fields.first().is_some_and(|state| ["T", "t", "Z", "X"].contains(state)),
       })
@@ -1152,6 +1198,12 @@ mod platform {
 
   /// The creation time of the process, while it runs: a process that exited keeps its pid as long as a handle to it is
   /// open, with its exit code in place of `STILL_ACTIVE`
+  /// No CPU time: no run of brd-host samples one here
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn cpu_time(_pid: u32) -> Option<std::time::Duration> {
+    None
+  }
+
   pub(super) fn started(pid: u32) -> Option<u64> {
     let process = open(pid).ok()?;
     let mut exit_code = 0;
@@ -1206,6 +1258,11 @@ mod platform {
   }
 
   pub(super) const fn halted(_pid: u32) -> Option<bool> {
+    None
+  }
+
+  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
+  pub(super) fn cpu_time(_pid: u32) -> Option<std::time::Duration> {
     None
   }
 }

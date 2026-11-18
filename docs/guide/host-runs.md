@@ -159,8 +159,9 @@ missing. `[host]` installs no tool: the host has its own. Every key is in the sp
 ### Heavy runs
 
 Two runs that use every core at once, such as two full test suites, both run several times slower, and their tests
-fail on timeouts. So the host runs its heavy runs one at a time, whatever their repository, and the other runs as
-before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
+fail on timeouts. So the heavy runs of a host share its cores, whatever their repository: a heavy run starts while
+what its command used in its last runs fits beside the others, and a command without a measure yet runs alone. The
+other runs go as before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
 
 ```toml
 [host]
@@ -171,8 +172,8 @@ heavy = ["cargo nextest run*--workspace*", "pnpm e2e*"]
 and says so at once and once a minute:
 
 ```text
-brd-host: a heavy run by `pnpm e2e*` of [host]: on studio it waits until no other heavy run goes
-brd-host: run 01M63T… waits 0 s for the heavy turn of the host, 120 min left: run 01M63R… of idea-1 holds it 4 min (./community/tools/bt.cmd --lane fast), no run ahead
+brd-host: a heavy run by `pnpm e2e*` of [host]: on studio it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure
+brd-host: run 01M63T… waits 0 s for the heavy turn of the host, 9.5 of its 20 cores, 120 min left: run 01M63R… of idea-1 holds the whole host for 4 min (./community/tools/bt.cmd --lane fast, measured 20.0), no run ahead; a wait, not a hang: …
 ```
 
 `brd-host runs studio` shows who holds the heavy turn and who waits, each with its time. Both ends of a run refuse a
@@ -314,7 +315,8 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |
 | Host | `~/Library/Logs/brd-host.log` | The log of the agent |
 | Host | `~/.cache/brd-host/runs/<run>/` | The events, the exit and the outputs of each run, for 24 h |
-| Host | `~/.cache/brd-host/heavy/heavy.json` | The heavy turn: the heavy run that holds it and the ones that wait |
+| Host | `~/.cache/brd-host/heavy/turn.json` | The heavy turn: the heavy runs that hold cores, the ones that wait, and the live cores of the others |
+| Host | `~/.cache/brd-host/heavy/cores.json` | What the last 5 runs of each command used, which a heavy run of it is expected to use |
 
 ## Remove a host
 

@@ -52,6 +52,8 @@ const SPEC: &str = "spec.json";
 const EVENTS: &str = "events.log";
 const EXIT: &str = "exit.json";
 const PHASES: &str = "phases.json";
+/// The cores that the command used, by the samples of the supervisor (`cores::CoresFile`)
+const CORES: &str = "cores.json";
 const PID: &str = "pid";
 const LOCK: &str = "lock";
 const CANCEL: &str = "cancel";
@@ -266,6 +268,18 @@ impl RunDir {
     write_private(&self.path.join(EXIT), &json)
   }
 
+  /// Writes the cores of the command so far, or at its end, to `cores.json`
+  pub(crate) fn write_cores(&self, cores: &crate::cores::CoresFile) -> io::Result<()> {
+    let json = serde_json::to_vec(cores).map_err(io::Error::other)?;
+    write_private(&self.path.join(CORES), &json)
+  }
+
+  /// The cores of `cores.json`: none before the command, from an agent before the samples, or in a file the agent
+  /// cannot read
+  fn cores(&self) -> Option<crate::cores::CoresFile> {
+    fs::read(self.path.join(CORES)).ok().and_then(|text| serde_json::from_slice(&text).ok())
+  }
+
   /// Writes the steps that have ended so far to `phases.json`
   pub(crate) fn write_phases(&self, phases: &[Phase]) -> io::Result<()> {
     let json = serde_json::to_vec(phases).map_err(io::Error::other)?;
@@ -370,6 +384,7 @@ impl RunDir {
         }),
         _ => None,
       },
+      cores: self.cores().map(|cores| cores.run_cores()),
       phases: ended.map_or_else(|| self.running_phases(), |(_, phases)| phases),
       forgotten: self.is_forgotten(),
     })

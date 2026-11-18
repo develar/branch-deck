@@ -564,6 +564,9 @@ pub struct LeaseConfig {
   /// `branchdeck.hostSlotIdleClean`, as written (`6h`, `0` for never): how long a host slot waits idle after its last run
   /// before the keeper applies its clean rules (`host_slots::clean_idle_slots`)
   pub host_slot_idle_clean: Option<String>,
+  /// `branchdeck.hostCores`, as written: the cores that the heavy runs of `brd-host` share on this host, in place of the
+  /// cores the system counts (`host_turn`)
+  pub host_cores: Option<String>,
   /// `branchdeck.leaseNotesKeep`, as written (`14d`, `0` for ever): how long the notes of a returned lease stay before
   /// `brd lease trim` and the keeper of a host delete them (`lease_pool::lease_notes`)
   pub notes_keep: Option<String>,
@@ -592,7 +595,7 @@ pub enum AgentLanding {
 
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
 /// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`,
-/// `branchdeck.hostSlotIdleClean`,
+/// `branchdeck.hostSlotIdleClean`, `branchdeck.hostCores`,
 /// `branchdeck.agentPullRequest`, `branchdeck.landing`, `core.fileMode`, `core.symlinks`, the smudge commands of Git LFS
 /// (`filter.lfs.process`, `filter.lfs.smudge`) and `lfs.storage`: one
 /// `config --type=path --show-scope --get-regexp`, which exits with 1 when no key is set
@@ -605,7 +608,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "--show-scope",
         "--get-regexp",
         &format!(
-          r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.leasenoteskeep|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|{LFS_KEYS})$"
+          r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.hostcores|branchdeck\.leasenoteskeep|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|{LFS_KEYS})$"
         ),
       ],
       repository,
@@ -628,6 +631,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "branchdeck.hostslotmaxsize" if !value.is_empty() => config.host_slot_max_size = Some(value.to_string()),
       "branchdeck.hostslotidleclean" if !value.is_empty() => config.host_slot_idle_clean = Some(value.to_string()),
       "branchdeck.leasenoteskeep" if !value.is_empty() => config.notes_keep = Some(value.to_string()),
+      "branchdeck.hostcores" if !value.is_empty() => config.host_cores = Some(value.to_string()),
       // the last value wins; a key without a value is true
       "branchdeck.leasemaintenance" => config.return_maintenance = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),
       "branchdeck.agentpullrequest" => pull_request = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),

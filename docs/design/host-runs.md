@@ -83,9 +83,12 @@ The lend table, the give-back, the clean and the shrink are in "Host slots" of
 ### Heavy runs
 
 A full `cargo nextest run --workspace`, a full `pnpm e2e` or a long `bt` uses every core of the host. Two of them at
-once run 3 to 4 times slower, and the tests of both fail on their timeouts: in one case the E2E suite ran 3.6 times
-slower beside a `cargo nextest run --workspace` of another agent, and 4 tests failed at 30 s. So the heavy runs of a
-host run one at a time, whatever their repository, and the other runs go as before.
+once run 3 to 4 times slower, and the tests of both fail on their timeouts: on 2026-11-14 the E2E suite ran 3.6 times
+slower beside a `cargo nextest run --workspace` of another agent, and 4 tests failed at 30 s. Both of those were large.
+So the heavy runs of a host share its cores by what their commands used before. They wait in one queue, whatever their
+repository, and the other runs go as before. Until 2026-11-18 they ran one at a time: a queue waited 45 to 50 min,
+mostly behind runs that did not fill the host. `pnpm lint:backend` measured 5 to 17 of the 20 cores of the Studio
+while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel counts twice the cores of the host.
 
 - **What is heavy** is the repository's to say: `heavy` of `[host]` lists the patterns of its heavy commands
   (`cargo nextest run*--workspace*`, `pnpm e2e*`), `*` any characters, matched against the words of the command after
@@ -100,11 +103,33 @@ host run one at a time, whatever their repository, and the other runs go as befo
 - **An older agent** refuses every run of a commit with `heavy`, a light one too, as an unknown key of `[host]`. The
   client knows both the table and the features of the agent, so it refuses before the start with `bad_config` and
   names `brd-host upgrade`; a `--heavy` run of a commit without the key runs on such an agent beside the others.
-- **The heavy turn** (`lease_pool::host_turn`) is the queue of the host slots with one place for the whole host:
-  `~/.cache/brd-host/heavy/heavy.json`, the holder and the tickets of the waiting runs, each with the pid of its
-  supervisor, and the schema of the table, which a supervisor of another build refuses rather than misread. A heavy
-  run takes the turn before its lend, in the phase `heavy`, so it holds no slot while it waits and the runs that are
-  not heavy keep every slot. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, one watch of the
+- **The heavy turn** (`lease_pool::host_turn`) is `~/.cache/brd-host/heavy/turn.json`: the holders, the tickets of
+  the waiting runs, the runs that are not heavy with their live cores, each with the pid of its supervisor, the cores
+  of the host and the schema of the table, which a supervisor of another build refuses rather than misread. A heavy
+  run takes its cores before its lend, in the phase `heavy`, so it holds no slot while it waits and the runs that are
+  not heavy keep every slot.
+- **The admission**: the head of the queue is admitted while the expected cores of the holders, the live cores of the
+  runs that are not heavy and its own expected cores fit the cores of the host (`branchdeck.hostCores` of the global
+  git config of the host, else what the system counts). Only the head: a small run never overtakes one that waits for
+  more, so none waits forever, and a host that frees cores gives them to the oldest waiting run. A run without a
+  measure, or whose command measured the whole host, takes the whole host: it waits for every holder, and no heavy run
+  joins it. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
+  the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
+  from joining a host they already load.
+- **The measure** (`host_agent::cores`, `lease_pool::host_cores`): the supervisor of every run samples the CPU of its
+  command every 10 s, the processes of its command group and the Bazel servers of its slot (a server leaves the group,
+  and its CPU is the work of the run), and at the end takes the larger of the sampled CPU and the CPU of its reaped
+  children (`RUSAGE_CHILDREN`, which counts the short processes between two samples) over the wall time. Each run of
+  10 s or more adds its mean to the last 5 of its repository and command (the key of the supersede), in `cores.json`
+  beside the turn, and a command is expected to use their 80th percentile. So the stats follow the changes, never a
+  calibration of once: a command that got heavier is expected heavier at its next run, one that got lighter (a faster
+  fast lane) frees its cores within a few runs, and a cancelled run counts by its own measure. A holder holds the
+  larger of its expectation and its live use, so a run that grows past its expectation holds more at once, for the
+  admissions that follow, not only at its end.
+- **The upgrade**: `heavy.json`, the table of one holder of the build before, stays for its supervisors, which go on
+  after an upgrade; its live holder holds the whole host for the runs of this build. A supervisor of the build before
+  that waits in `heavy.json` takes its turn without seeing the holders of `turn.json`, so for the hours after an
+  upgrade two heavy runs can run at once, as they do when one of them is not heavy. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, one watch of the
   directory of the table for the whole wait, which holds nothing else, a look every 5 s, and a line at once and once
   a minute with the holder, the runs ahead and the time left. It gives the turn back after its give-back, so the
   processes that it left are gone first. A killed supervisor holds nothing: the next run takes the turn of a gone

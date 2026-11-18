@@ -279,3 +279,17 @@ pub(crate) mod kqueue {
     }
   }
 }
+
+/// The user and system CPU time of the children of this process that it reaped (`getrusage(RUSAGE_CHILDREN)`)
+pub(crate) fn children_cpu() -> std::time::Duration {
+  let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+  // SAFETY: the call writes one `rusage` into the buffer, which lives across it
+  if unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, usage.as_mut_ptr()) } != 0 {
+    return std::time::Duration::ZERO;
+  }
+  // SAFETY: the call succeeded and filled it; every bit pattern is valid for the plain C struct
+  let usage = unsafe { usage.assume_init() };
+  let time =
+    |value: libc::timeval| std::time::Duration::from_secs(u64::try_from(value.tv_sec).unwrap_or(0)) + std::time::Duration::from_micros(u64::try_from(value.tv_usec).unwrap_or(0));
+  time(usage.ru_utime) + time(usage.ru_stime)
+}

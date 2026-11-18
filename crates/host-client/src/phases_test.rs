@@ -1,6 +1,7 @@
 use super::*;
-use host_link::proto::RunRefusal;
+use host_link::proto::{RunCores, RunRefusal};
 use pretty_assertions::assert_eq;
+use sync_utils::cores::Cores;
 
 fn step(name: &str, ms: u64) -> Phase {
   Phase { name: name.to_owned(), ms }
@@ -55,6 +56,7 @@ fn run_info(exit: Option<i32>, ended_ms: Option<u64>, forgotten: bool) -> RunInf
     fetch: Vec::new(),
     forgotten,
     refused: None,
+    cores: None,
   }
 }
 
@@ -77,6 +79,29 @@ fn a_run_line_says_its_state_its_start_and_how_long_a_finished_run_took() {
   );
   // an older agent sends no end
   assert!(run_line(&run_info(Some(0), None, true), &utc).contains("finished, exit 0, started 2026-11-16 08:28:31  checkout-"));
+}
+
+/// A run says the cores of its command: so far while it runs, its mean and its peak once it ended
+#[test]
+fn a_run_line_says_the_mean_and_the_peak_cores_of_its_command() {
+  let utc = TimeZone::UTC;
+  let cores = Some(RunCores {
+    mean: Cores(75),
+    peak: Cores(140),
+  });
+  let finished = RunInfo {
+    cores,
+    ..run_info(Some(0), Some(1_794_817_711_000 + 801_400), true)
+  };
+  assert_eq!(
+    run_line(&finished, &utc),
+    "1794817711000-42  finished, exit 0, started 2026-11-16 08:28:31, took 13m21s, cores 7.5 mean, 14.0 peak  checkout-0123456789ab  86551e413c53  cargo test  (command 13m21s)"
+  );
+  let running = RunInfo {
+    cores,
+    ..run_info(None, None, false)
+  };
+  assert!(run_line(&running, &utc).contains("running, started 2026-11-16 08:28:31, cores 7.5 mean, 14.0 peak so far  checkout-"));
 }
 
 /// A run that a refusal ended says the code instead of its exit, and the next line its message with the alias of the

@@ -59,7 +59,8 @@ pub fn run_lines_in(runs: &[RunInfo], alias: &str, zone: &TimeZone) -> Vec<Strin
 /// not forget still has its files on the host: `brd-host fetch` copies them
 ///
 /// `1-1  running, started 2026-11-16 14:02:11  checkout-…  86551e413c53  cargo test`
-/// `1-1  finished, exit 0, started 2026-11-16 14:02:11, took 13m21s  checkout-…  86551e413c53  cargo test  (command 13m20s)`
+/// `1-1  finished, exit 0, started 2026-11-16 14:02:11, took 13m21s, cores 7.5 mean, 14.0 peak  checkout-…  86551e413c53
+/// cargo test  (command 13m20s)`
 pub fn run_line(run: &RunInfo, zone: &TimeZone) -> String {
   let started = Timestamp::from_millisecond(i64::try_from(run.started_ms).unwrap_or(i64::MAX)).map_or_else(
     |_| "at an unknown time".to_owned(),
@@ -72,6 +73,10 @@ pub fn run_line(run: &RunInfo, zone: &TimeZone) -> String {
   };
   if let Some(ended) = run.ended_ms {
     let _ = write!(state, ", took {}", duration_text(ended.saturating_sub(run.started_ms)));
+  }
+  if let Some(cores) = run.cores {
+    let so_far = if run.exit.is_none() { " so far" } else { "" };
+    let _ = write!(state, ", cores {} mean, {} peak{so_far}", cores.mean, cores.peak);
   }
   if run.exit.is_some() && !run.forgotten {
     state.push_str(", its files kept");
