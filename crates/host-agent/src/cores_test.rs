@@ -65,7 +65,7 @@ fn the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure() {
 }
 
 /// A process of the group that started before the command, as a Bazel server of the slot that the sampler finds only at
-/// a later sample, counts from that sample on, not its whole life; a sample counts at most the cores of the machine
+/// a later sample, counts from that sample on, not its whole life
 #[test]
 fn a_process_older_than_the_command_counts_only_from_its_first_sample() {
   let slot = tempfile::tempdir().unwrap();
@@ -74,9 +74,29 @@ fn a_process_older_than_the_command_counts_only_from_its_first_sample() {
   // its life before the command: 300 ms of CPU
   old.spin(Duration::from_millis(300));
   let mut sampler = Sampler::start(slot.path(), Duration::ZERO);
-  let first = sampler.sample(group);
+  // a machine of cores enough that the cap of a sample never hides its life
+  sampler.machine_cores = 1000;
+  let _first = sampler.sample(group);
   assert!(sampler.file().cpu_ms < 300, "its life before the command counts: {:?}", sampler.file());
-  let machine = Cores::whole(u32::try_from(std::thread::available_parallelism().unwrap().get()).unwrap());
-  assert!(first <= machine, "{first}");
   old.end();
+}
+
+/// A sample counts at most the cores of the machine over its time: a process that the sampler takes as new to the
+/// command with a second of CPU, sampled a few ms after the start on a machine of one core, counts those few ms
+#[test]
+fn a_sample_counts_at_most_the_cores_of_the_machine() {
+  let slot = tempfile::tempdir().unwrap();
+  let spinner = Spinner::start();
+  let group = spinner.group();
+  spinner.spin(Duration::from_secs(1));
+  let mut sampler = Sampler::start(slot.path(), Duration::ZERO);
+  // a command that started before the spinner, so its whole second counts, on one core
+  sampler.started_clock = sampler.started_clock.map(|clock| StartClock { now: 0, ..clock });
+  sampler.machine_cores = 1;
+  let _first = sampler.sample(group);
+  let file = sampler.file();
+  let interval_ms = file.samples[0].ms;
+  assert!(interval_ms < 1000, "the sample came after the second of CPU it would count: {file:?}");
+  assert!(file.cpu_ms <= interval_ms, "one core over {interval_ms} ms: {file:?}");
+  spinner.end();
 }
