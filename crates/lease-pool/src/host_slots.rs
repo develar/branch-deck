@@ -1861,6 +1861,7 @@ pub fn trim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, max
       repository: params.repository,
       home: params.home,
       max_slots,
+      slots: true,
       apply,
       server_timeout: params.server_timeout,
       bazel: None,

@@ -247,6 +247,7 @@ pub async fn trim_pools(ctx: &AppContext, params: TrimPoolsParams) -> Result<Tri
       repository: &dirs,
       home: home.as_deref(),
       max_slots: None,
+      slots: true,
       apply: true,
       server_timeout: SERVER_TIMEOUT,
       bazel: None,

@@ -1593,7 +1593,7 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
   assert!(
     message.contains("1048576.0 GiB")
       && message.contains("1 free slot(s)")
-      && message.contains("in all, less than the minimum, so the get deleted no build output and no free slot below `branchdeck.leaseMaxSlots` for it")
+      && message.contains("in all, less than the minimum, so the get deleted no build output and no free slot for it")
       && message.contains("never pass `--min-free 0` on your own"),
     "{output}"
   );
@@ -2131,7 +2131,7 @@ fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_n
   assert!(freed.shrink.bytes >= 3 * UNIT_BYTES as u64 && freed.evict.bytes > 0, "{message}");
   assert!(
     message.contains("the get cleaned the build output of 3 slot(s) of the pools of this machine")
-      && message.contains("then it deleted 2 free slot(s) below `branchdeck.leaseMaxSlots`"),
+      && message.contains("then it deleted 2 free slot(s), returned longest ago first"),
     "{message}"
   );
   assert_eq!(kinds(&steps), ["trim", "shrink", "evict"]);

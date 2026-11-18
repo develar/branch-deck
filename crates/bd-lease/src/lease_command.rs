@@ -306,17 +306,17 @@ pub struct LeaseGetOutput {
   /// get returned before the trim, as `brd lease reclaim --idle` prints them; their slots are free
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reclaimed: Vec<ReclaimedLeaseOutput>,
-  /// The free space was below the minimum: the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine
-  /// and the Bazel output bases that the get deleted first (`brd lease trim`)
+  /// The free space was below the minimum: the Bazel output bases of gone workspaces of every pool of this machine that
+  /// the get deleted first, as `brd lease trim` prints them; a get deletes no slot past `branchdeck.leaseMaxSlots`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub trimmed: Option<crate::trim_command::TrimmedOutput>,
   /// The free space was still below the minimum after the trim: the free slots of the pools of this machine whose build
   /// output the get deleted by their clean rules with keep 0, the ones returned longest ago first
   #[serde(skip_serializing_if = "Option::is_none")]
   pub shrunk: Option<crate::trim_command::ShrunkOutput>,
-  /// The free space was still below the minimum after the shrink: the free slots below `branchdeck.leaseMaxSlots` that
-  /// the get deleted with their Bazel output bases, the ones returned longest ago first, one at a time until the volume
-  /// had the minimum (as `brd lease trim` prints them)
+  /// The free space was still below the minimum after the shrink: the free slots that the get deleted with their Bazel
+  /// output bases, the ones returned longest ago first, one at a time until the volume had the minimum (as `brd lease
+  /// trim` prints them)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub evicted: Option<crate::trim_command::TrimmedOutput>,
   /// Each step as stderr printed it, with when it started: the time a step took is the start of the next one less its

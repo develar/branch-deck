@@ -291,6 +291,7 @@ pub fn lease_trim(context: &LeaseContext, environment: &Environment, args: &Leas
     repository: &context.dirs,
     home: environment.home.as_deref(),
     max_slots: args.max,
+    slots: true,
     apply: !args.plan,
     server_timeout: context.server_stop_timeout,
     bazel: None,

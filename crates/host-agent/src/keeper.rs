@@ -293,10 +293,9 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
       describe_size(relieved.reclaimed.iter().map(ReclaimedLease::freed_bytes).sum())
     ));
   }
-  if let Some(trimmed) = relieved.trimmed.as_ref().filter(|trimmed| trimmed.removed_slots() > 0 || trimmed.freed_bytes() > 0) {
+  if let Some(trimmed) = relieved.trimmed.as_ref().filter(|trimmed| trimmed.freed_bytes() > 0) {
     steps.push(format!(
-      "the trim deleted {} free slot(s) past `branchdeck.leaseMaxSlots` and the Bazel output bases of gone slots, {}",
-      trimmed.removed_slots(),
+      "the trim deleted the Bazel output bases of gone workspaces, {}",
       describe_size(trimmed.freed_bytes())
     ));
   }
@@ -305,7 +304,7 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
   }
   if let Some(evicted) = relieved.evicted.as_ref().filter(|evicted| evicted.removed_slots() > 0) {
     steps.push(format!(
-      "the eviction deleted {} free slot(s) below `branchdeck.leaseMaxSlots`, {}",
+      "the eviction deleted {} free slot(s), {}",
       evicted.removed_slots(),
       describe_size(evicted.freed_bytes())
     ));

@@ -2232,7 +2232,8 @@ nothing but LFS puts the content back after a checkout of the blobs.
    `out/`. The minimum is the machine's, so it is git config (the global one on the user's Mac: `200G`), not
    `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked. Below it the
    get first deletes the trash of gone runs, then returns the idle leases of the machine whose work landed, then trims
-   the pools of the machine once (`lease_pool::trim`, `brd lease trim`), and measures again. The reclaim
+   the pools of the machine once without their slots (`trim_for_get`: the output bases of gone workspaces and the
+   expired notes), and measures again. The reclaim
    (`reclaim_for_get`) is the rule of `brd lease reclaim --idle` (the takeover below) for every pool of the machine,
    only for the slots on the device of the pool directory of the get. It runs once per get, under
    `~/.branch-deck/pressure.lock`, and only while a state holds an idle lease there, so a get without one tells no step
@@ -2262,15 +2263,21 @@ nothing but LFS puts the content back after a checkout of the blobs.
    highest number of the slots, and a return takes one past `last_returned`, so it gives no number twice.
    A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
    Bazel output bases outside it (`<output_user_root>/<md5 of the workspace>`, one per workspace, which no clean rule
-   reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. The trim keeps `branchdeck.leaseMaxSlots` (10)
-   slots of each pool and deletes the free ones past it, the ones a get would take last first, each under the
+   reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. `brd lease trim`, the trim of the app and
+   `brd-host trim` keep `branchdeck.leaseMaxSlots` (10) slots of each pool and delete the free ones past it, the ones a get would take last first, each under the
    `cleaning` marker: its Bazel servers stopped, its `<pool>/<n>` directory renamed into the trash, its admin directory
    dropped by `git worktree remove --force` once the directory is gone (`lease_slot::forget_slot`: with the directory
    there git would delete the files itself), its entry dropped, its output bases renamed into the trash. A return
    deletes the `bazel-*` links of a slot, so the output user roots come from the links of the source checkouts and of
    the slots that still have one, and each output base names its workspace in `DO_NOT_BUILD_HERE`; an output base whose
    slot is gone goes too. The deletes run after every pool, eight threads over the entries of the trash, so no get
-   waits on the pool lock meanwhile. Still below the minimum, the get shrinks the pools once (`lease_pool::shrink`): a
+   waits on the pool lock meanwhile. A get below the minimum, and the keeper, trim without the slots: the limit counts
+   the leased slots too, so with more leases than the limit every free slot is past it, the one the get would reuse as
+   well. On 2026-11-18 the idea-1 pool held 12 leases: each get's trim deleted every free slot with its output base, in
+   the get itself, the get cloned one, 25 minutes, and the gets behind it waited for that clone, up to 62 minutes,
+   while the free slots of branch-deck kept 114 GiB of `target/` that the shrink, after the trim, never reached. A warm
+   slot is worth more than its bytes, so the space comes from the shrink and the eviction, which measure after each
+   slot and keep the next free slot of the get's pool. Still below the minimum, the get shrinks the pools once (`lease_pool::shrink`): a
    free slot keeps the warm build output of its last lease, since the cargo rule of a return keeps the 8 newest units of
    every group (variant hygiene, not a bound on size), and a get takes the slot returned last, so the output of the
    others waits for a lease that rarely comes; on 2026-11-03 that was 50 to 59 GiB in each free slot of branch-deck,
@@ -2307,8 +2314,7 @@ nothing but LFS puts the content back after a checkout of the blobs.
    counts the bytes of each file as it deletes it (`remove_measured`, an `lstat` beside each `unlink`). After each slot one
    `statfs`; the shrink stops at the minimum and a tenth of it, a margin that keeps the next gets, whose leases build,
    from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
-   the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for
-   nothing. Still below, the get evicts free slots below the limit once (`trim::evict_core`), in the order of the
+   the minimum. Still below, the get evicts free slots once (`trim::evict_core`), in the order of the
    shrink, each removed as the trim removes one and deleted at once, one `statfs` before each, up to the minimum
    itself: a margin is cheap for a clean, whose cost is a build warmed again, but here it would cost a whole worktree
    after the volume is already above the minimum. What the shrink left of a free slot is its worktree (14 to 16 GB of

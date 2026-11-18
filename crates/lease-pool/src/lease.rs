@@ -795,12 +795,12 @@ fn describe_idle(idle: &[IdleLease]) -> String {
 pub struct FreedBy {
   /// The idle leases whose work landed that it returned first, and what their clean rules freed (`reclaim_for_get`)
   pub reclaim: Freed,
-  /// The free slots past `branchdeck.leaseMaxSlots` and the output bases of gone workspaces it deleted first (`trim`)
+  /// The output bases of gone workspaces it deleted first (`trim` without its slots); no slot
   pub trim: Freed,
   /// The slots whose build output it deleted after the trim, the leased and the free ones that freed bytes (`shrink`,
   /// `Shrunk::freed_slots`)
   pub shrink: Freed,
-  /// The free slots below `branchdeck.leaseMaxSlots` it deleted after the shrink (`trim::evict_core`)
+  /// The free slots it deleted after the shrink (`trim::evict_core`)
   pub evict: Freed,
 }
 
@@ -822,14 +822,11 @@ fn describe_reclaimed_idle(Freed { slots, bytes }: Freed) -> String {
   }
 }
 
-fn describe_trimmed(Freed { slots, bytes }: Freed) -> String {
-  if slots == 0 && bytes == 0 {
+fn describe_trimmed(Freed { bytes, .. }: Freed) -> String {
+  if bytes == 0 {
     String::new()
   } else {
-    format!(
-      "; the get deleted {slots} free slot(s) past `branchdeck.leaseMaxSlots` and the Bazel output bases of gone slots first, {}",
-      describe_size(bytes)
-    )
+    format!("; the get deleted the Bazel output bases of gone workspaces first, {}", describe_size(bytes))
   }
 }
 
@@ -838,7 +835,7 @@ fn describe_past_the_volume(total: u64, required: u64) -> String {
     String::new()
   } else {
     format!(
-      "; the volume holds {} in all, less than the minimum, so the get deleted no build output and no free slot below `branchdeck.leaseMaxSlots` for it",
+      "; the volume holds {} in all, less than the minimum, so the get deleted no build output and no free slot for it",
       describe_size(total)
     )
   }
@@ -860,7 +857,7 @@ fn describe_evicted(Freed { slots, bytes }: Freed) -> String {
     String::new()
   } else {
     format!(
-      "; then it deleted {slots} free slot(s) below `branchdeck.leaseMaxSlots`, returned longest ago first, with their Bazel output bases, {}",
+      "; then it deleted {slots} free slot(s), returned longest ago first, with their Bazel output bases, {}",
       describe_size(bytes)
     )
   }
@@ -1053,16 +1050,17 @@ pub enum GetStep {
   /// Below the minimum free space, after the trash, while a pool of the machine holds an idle lease on the volume of
   /// the get: the idle leases whose work landed are returned (`lease_reclaim_core`), without the clones lock
   Reclaim,
-  /// Below the minimum free space, after the reclaim: the free slots past `branchdeck.leaseMaxSlots` of every pool of
-  /// the machine are deleted with their Bazel output bases (`trim`), without the clones lock
+  /// Below the minimum free space, after the reclaim: the Bazel output bases of the gone workspaces of every pool of the
+  /// machine are deleted and their expired notes (`trim` without its slots), without the clones lock; no slot goes for
+  /// `branchdeck.leaseMaxSlots`, a warm slot being worth more than its bytes
   Trim,
   /// Below the minimum free space, after the trim: the stale build output of the leased slots of every pool of the
   /// machine is pruned by the cargo rules of their leases, the largest first, then the build output of the free slots is
   /// deleted by their clean rules with keep 0, the ones returned longest ago first (`shrink`), without the clones lock
   Shrink,
-  /// Below the minimum free space, after the shrink: free slots of every pool of the machine below
-  /// `branchdeck.leaseMaxSlots` are deleted with their Bazel output bases, the ones returned longest ago first, one at a
-  /// time (`trim::evict_core`), without the clones lock
+  /// Below the minimum free space, after the shrink: free slots of every pool of the machine are deleted with their
+  /// Bazel output bases, the ones returned longest ago first, one at a time (`trim::evict_core`), without the clones
+  /// lock
   Evict,
   /// The shrink or the eviction waits for the one of another get of the machine (`shrink::lock_pressure`), told when
   /// its holder changes and once a minute, with how long that one holds it and the free space of the volume now, so a
@@ -1114,13 +1112,13 @@ impl fmt::Display for GetStep {
       Self::DeleteTrash => f.write_str("deleting the trash of runs that are gone: the free space is below the minimum"),
       Self::Reclaim => f.write_str("returning the idle leases whose work landed, in every pool of this machine: the free space is below the minimum"),
       Self::Trim => {
-        f.write_str("deleting the free slots past `branchdeck.leaseMaxSlots` of the pools of this machine with their Bazel output bases: the free space is below the minimum")
+        f.write_str("deleting the Bazel output bases of gone workspaces and the expired notes of the pools of this machine: the free space is below the minimum")
       }
       Self::Shrink => f.write_str(
         "pruning the stale build output of the leased slots of the pools of this machine by their cargo rules, then deleting the build output of the free slots, returned longest ago first, by their clean rules with keep 0: the free space is below the minimum",
       ),
       Self::Evict => f.write_str(
-        "deleting free slots below `branchdeck.leaseMaxSlots` of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
+        "deleting free slots of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
       ),
       Self::WaitForPressure { holder, free, minimum } => {
         let free = free.map_or_else(|| "an unknown free space".to_string(), describe_size);
@@ -1220,13 +1218,13 @@ pub struct LeaseGot {
   /// Below the minimum free space: the idle leases of the pools of the machine whose work landed, which the get
   /// returned before the trim (`reclaim_for_get`)
   pub reclaimed: Vec<ReclaimedLease>,
-  /// Below the minimum free space: the free slots and the output bases that the trim of the pools of the machine deleted
+  /// Below the minimum free space: the output bases of gone workspaces that the trim of the pools of the machine deleted,
+  /// no slot (`trim_for_get`)
   pub trimmed: Option<Trimmed>,
   /// Below the minimum free space after the trim: the free slots of the pools of the machine whose build output the
   /// get deleted (`shrink::shrink_core`)
   pub shrunk: Option<Shrunk>,
-  /// Below the minimum free space after the shrink: the free slots below `branchdeck.leaseMaxSlots` that the get
-  /// deleted (`trim::evict_core`)
+  /// Below the minimum free space after the shrink: the free slots that the get deleted (`trim::evict_core`)
   pub evicted: Option<Trimmed>,
   /// `branchdeck.agentPullRequest` of the source, from the get's one read of the pool config: the `next` of the get
   pub agent_landing: AgentLanding,
@@ -1705,17 +1703,17 @@ enum FreeSpace {
   /// machine whose work landed are returned (`reclaim_for_get`), never under the clones lock, and the get measures
   /// again. A reclaim deletes no slot, so it runs for a minimum past the size of the volume too
   Reclaim,
-  /// Below the minimum after the reclaim, and the get trimmed no pool yet: the free slots past
-  /// `branchdeck.leaseMaxSlots` of every pool of the machine go with their output bases (`trim_for_get`), never under
-  /// the clones lock, and the get measures again
+  /// Below the minimum after the reclaim, and the get trimmed no pool yet: the output bases of the gone workspaces of
+  /// every pool of the machine go and their expired notes, no slot (`trim_for_get`), never under the clones lock, and
+  /// the get measures again
   Trim,
   /// Below the minimum after the trim, and the get shrank no pool yet: the build output of the free slots of every pool
   /// of the machine goes, the ones returned longest ago first, until the volume has the minimum and its margin
   /// (`shrink_for_get`), never under the clones lock
   Shrink,
-  /// Below the minimum after the shrink, and the get evicted no slot yet: free slots of every pool go below
-  /// `branchdeck.leaseMaxSlots`, one at a time, the ones returned longest ago first, until the volume has the minimum
-  /// (`evict_for_get`), never under the clones lock
+  /// Below the minimum after the shrink, and the get evicted no slot yet: free slots of every pool go, one at a time,
+  /// the ones returned longest ago first, until the volume has the minimum (`evict_for_get`), never under the clones
+  /// lock
   Evict,
 }
 
@@ -1982,14 +1980,18 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
   });
 }
 
-/// The trim of the pools of the machine below the minimum free space (`trim::trim_core`), told as a step; a trim that
-/// fails deletes nothing more, and the get measures again
+/// The trim of the pools of the machine below the minimum free space (`trim::trim_core`) without its slots: the output
+/// bases of gone workspaces and the expired notes. A free slot past `branchdeck.leaseMaxSlots` stays: with more leases
+/// than the limit every free slot is past it, and a trim of them deleted the slot the get was about to reuse, so it
+/// cloned one, 25 minutes in the idea-1 pool on 2026-11-18; the shrink and the eviction free the space by the bytes
+/// instead, the next free slot kept. Told as a step; a trim that fails deletes nothing more, and the get measures again
 fn trim_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, report: &dyn Fn(GetStep)) -> Trimmed {
   report(GetStep::Trim);
   let trim = TrimParams {
     repository: params.source,
     home: params.home,
     max_slots: None,
+    slots: false,
     apply: true,
     server_timeout: params.server_timeout,
     bazel: params.bazel,
@@ -2097,7 +2099,7 @@ fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>
   )
 }
 
-/// The eviction of free slots of the pools of the machine below `branchdeck.leaseMaxSlots` (`trim::evict_core`), told as
+/// The eviction of free slots of the pools of the machine (`trim::evict_core`), told as
 /// a step, up to the minimum of the volume of `pool_dir`, without the margin of the shrink: a slot is a whole worktree,
 /// and with slots of 15 GiB and a margin of 20 GiB a margin would delete one more slot after the volume is already
 /// above the minimum. After the shrink a free slot holds little but its worktree, which a later get clones again; a
@@ -2111,6 +2113,7 @@ fn evict_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>,
         repository: params.source,
         home: params.home,
         max_slots: None,
+        slots: true,
         apply: true,
         server_timeout: params.server_timeout,
         bazel: params.bazel,

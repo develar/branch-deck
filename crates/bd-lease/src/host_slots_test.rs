@@ -647,14 +647,14 @@ fn an_idle_host_slot_is_cleaned_once_it_waited_after_its_last_run() {
   );
 }
 
-/// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the
-/// free slot past `branchdeck.leaseMaxSlots` returned longest ago, and the host slot, a lease, stays in the pool, its
-/// clean rules applied (`relieve_host_slots`). A minimum past the volume deletes no build output and no slot below the
-/// limit, and the answer says what went, not the refusal of a get. A second call of the round on the same volume takes
-/// no step of the pools again, only the host slots of its repository. Without a minimum, and where the system tells no
-/// free space, it measures only
+/// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim keeps the
+/// free slot past `branchdeck.leaseMaxSlots`, as a get's trim does (a warm slot is worth more than its bytes), and the
+/// host slot, a lease, stays in the pool, its clean rules applied (`relieve_host_slots`). A minimum past the volume
+/// deletes no build output and no slot, and the answer says what went, not the refusal of a get. A second call of the
+/// round on the same volume takes no step of the pools again, only the host slots of its repository. Without a minimum,
+/// and where the system tells no free space, it measures only
 #[test]
-fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
+fn the_keeper_keeps_the_free_slots_past_the_limit_below_the_minimum_free_space_without_a_get() {
   let host = Host::filled(1);
   let (fixture, context, params) = host.parts();
   let lanes: Vec<String> = (1..=2).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
@@ -678,15 +678,17 @@ fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
   }
   let relieved = relieved.expect("a relief below the minimum");
   assert!(relieved.after.is_some_and(|after| after < relieved.required), "still below 1 PiB: {relieved:?}");
-  assert_eq!(relieved.trimmed.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{relieved:?}");
+  assert_eq!(relieved.trimmed.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(0), "{relieved:?}");
   assert!(relieved.shrunk.is_none() && relieved.evicted.is_none(), "{relieved:?}");
   let host_slots = |relieved: &lease_pool::lease::Relieved| relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>();
   assert_eq!(host_slots(&relieved), [1], "{relieved:?}");
   let again = again.expect("the host slots again");
   assert!(again.trimmed.is_none() && again.shrunk.is_none() && !again.swept, "once per volume and round: {again:?}");
   assert_eq!(host_slots(&again), [1], "{again:?}");
-  assert!(!slots.contains(&lanes[0]), "the free slot returned longest ago goes: {slots:?}");
-  assert!(slots.contains(&lanes[1]) && slots.contains(&host.filled[0].path), "{slots:?}");
+  assert!(
+    slots.contains(&lanes[0]) && slots.contains(&lanes[1]) && slots.contains(&host.filled[0].path),
+    "the free slots past the limit stay: {slots:?}"
+  );
 }
 
 /// Below `branchdeck.leaseMinFree` the keeper returns the idle leases whose work landed without a get (`keep_free`),

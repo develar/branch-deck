@@ -55,6 +55,10 @@ pub struct TrimParams<'a> {
   pub home: Option<&'a Path>,
   /// The limit of every pool over `branchdeck.leaseMaxSlots` of each repository (`--max`)
   pub max_slots: Option<usize>,
+  /// Whether the free slots past the limit go; false: only the output bases of gone workspaces and the expired notes,
+  /// as a get below the minimum free space trims (`lease::trim_for_get`): a warm slot is worth more than its bytes, so a
+  /// get never deletes one for the limit, only the shrink and the eviction for the space
+  pub slots: bool,
   /// Delete; false (`--plan`) only says what would go
   pub apply: bool,
   /// How long the trim waits for the Bazel servers of a slot it asked to exit
@@ -273,7 +277,7 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       config_error,
       expired_notes,
     };
-    let excess = present.len().saturating_sub(max_slots);
+    let excess = if params.slots { present.len().saturating_sub(max_slots) } else { 0 };
     let removal = SlotRemoval {
       git_common_dir: &machine_pool.git_common_dir,
       pool: &pool,
