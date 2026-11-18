@@ -4,8 +4,9 @@
 //!
 //! - a sample adds the CPU time that each process of the command group (its `pgid`) and each Bazel server of the slot
 //!   (`lease_pool::host_cores::slot_bazel_servers`: a server leaves the group, and its CPU is the run's) used since the
-//!   sample before, over the time since: the live cores. A process new to a sample counts its whole CPU time, as it
-//!   started during the command; a Bazel server that ran before the command counts from the first sample on;
+//!   sample before, over the time since: the live cores. A process new to a sample that started after the command
+//!   counts its whole CPU time; one that started before it (a Bazel server of the slot, found only now) counts from that
+//!   sample on, so its life before the command is not the run's. A sample counts at most the cores of the machine;
 //! - at the end, the mean is the larger of the CPU time of the samples and the CPU time of the reaped children of the
 //!   supervisor (`RUSAGE_CHILDREN`, which counts each process that its parent waited for, the short ones between two
 //!   samples too), over the wall time of the command; the peak is the most of one sample.
@@ -21,7 +22,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use sync_utils::cores::Cores;
-use sync_utils::process_scan::{cpu_time, process_list};
+use sync_utils::process_scan::{StartClock, cpu_time, process_list, start_clock};
 
 /// One sample of a run: when, in ms since its command started, and its live cores
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +61,10 @@ pub(crate) struct Sampler {
   seen: HashMap<(u32, Option<u64>), Duration>,
   cpu: Duration,
   children_before: Duration,
+  /// The start of the command in the unit of the starts of the processes: a process that started before it is not new
+  started_clock: Option<StartClock>,
+  /// The cores of the machine: a sample counts at most these over its time
+  machine_cores: u32,
   file: CoresFile,
 }
 
@@ -80,6 +85,8 @@ impl Sampler {
       seen,
       cpu: Duration::ZERO,
       children_before: children_cpu(),
+      started_clock: start_clock(),
+      machine_cores: std::thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)),
       file: CoresFile::default(),
     }
   }
@@ -109,9 +116,17 @@ impl Sampler {
         continue;
       }
       let Some(cpu) = cpu_time(member.0) else { continue };
-      used += cpu.saturating_sub(self.seen.get(&member).copied().unwrap_or_default());
+      let before = match self.seen.get(&member) {
+        Some(before) => *before,
+        // new to the samples: all of its CPU when it started after the command, none of its life before
+        None if self.started_after_the_command(member.1) => Duration::ZERO,
+        None => cpu,
+      };
+      used += cpu.saturating_sub(before);
       seen.insert(member, cpu);
     }
+    // no machine runs more than its cores: a count past them is a process read twice, never work
+    used = used.min(interval * self.machine_cores);
     self.seen = seen;
     self.cpu += used;
     let live = Cores::of(used, interval);
@@ -133,6 +148,11 @@ impl Sampler {
     self.file.ended = true;
     self.file.peak = self.file.peak.max(self.file.mean);
     &self.file
+  }
+
+  /// Whether a process that started at `started` (`process_started`) started after the command; unknown is no
+  const fn started_after_the_command(&self, started: Option<u64>) -> bool {
+    matches!((started, &self.started_clock), (Some(started), Some(clock)) if started >= clock.now)
   }
 
   /// The file so far

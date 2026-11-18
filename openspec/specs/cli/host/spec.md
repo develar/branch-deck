@@ -1872,7 +1872,9 @@ expected to use their 80th percentile.
   `live`, of a run that is not heavy in `light`
 - **AND** at the end its log says `the command used <mean> cores on average and <peak> at its peak, of the <cores> of
   the host`
-  [@test] crates/host-agent/src/cores_test.rs (`the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure`)
+- **AND** a process that started before the command, such as a Bazel server of the slot that a later sample finds,
+  counts from that sample on, and a sample counts at most the cores of the machine
+  [@test] crates/host-agent/src/cores_test.rs (`the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure`, `a_process_older_than_the_command_counts_only_from_its_first_sample`)
   [@test] crates/sync-utils/src/process_scan_test.rs (`the_cpu_time_of_a_process_grows_while_it_computes`)
   [@test] crates/sync-utils/src/cores_test.rs (`cores_read_and_write_with_one_decimal_and_are_the_mean_of_a_cpu_time`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
