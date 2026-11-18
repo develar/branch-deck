@@ -25,10 +25,11 @@ use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, p
 use lease_pool::lease_notes::read_notes;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::cell::RefCell;
 use std::fmt::Write;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sync_utils::list_cut::kept;
 use sync_utils::size::parse_size;
 
@@ -318,6 +319,18 @@ pub struct LeaseGetOutput {
   /// had the minimum (as `brd lease trim` prints them)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub evicted: Option<crate::trim_command::TrimmedOutput>,
+  /// Each step as stderr printed it, with when it started: the time a step took is the start of the next one less its
+  /// own, the last one ending with the get
+  pub steps: Vec<GetStepOutput>,
+}
+
+/// A step of `brd lease get`
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct GetStepOutput {
+  /// The step, as stderr printed it after `brd lease get: [<at>] `
+  pub step: String,
+  /// When it started, in milliseconds since the get began
+  pub at_ms: u64,
 }
 
 /// Where the commits of a lease land
@@ -690,16 +703,42 @@ fn stopped_output(servers: &[StoppedServer]) -> Vec<StoppedServerOutput> {
     .collect()
 }
 
-/// `brd lease get`, each step on stderr as it starts: the JSON goes to stdout at the end, and whoever waits for a get of
-/// minutes (a clone, the wait for another get that adds a slot) sees where it is
+/// `brd lease get`, each step on stderr as it starts, with the time since the get began: the JSON goes to stdout at the
+/// end, and whoever waits for a get of minutes (a clone, the wait for another get that adds a slot) sees where it is and
+/// what took the time
 pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs) -> Result<LeaseGetOutput, CliError> {
+  let started = Instant::now();
   lease_get_reporting(context, environment, args, &|step| {
-    let _ = writeln!(std::io::stderr().lock(), "brd lease get: {step}");
+    let _ = writeln!(std::io::stderr().lock(), "{}", progress_line(started.elapsed(), &step));
   })
 }
 
-/// `brd lease get`, each step told to `progress` as it starts
+/// The stderr line of a step that started `at` after the get began: `brd lease get: [1 min 5 s] cloning …`
+pub fn progress_line(at: Duration, step: &GetStep) -> String {
+  format!("brd lease get: [{}] {step}", elapsed_text(at))
+}
+
+/// `42 s`, `3 min 12 s`: whole seconds, as the wait for a lock names its holder's time
+fn elapsed_text(elapsed: Duration) -> String {
+  let seconds = elapsed.as_secs();
+  if seconds >= 60 {
+    format!("{} min {} s", seconds / 60, seconds % 60)
+  } else {
+    format!("{seconds} s")
+  }
+}
+
+/// `brd lease get`, each step told to `progress` as it starts; the output names each step with when it started
 pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs, progress: &dyn Fn(GetStep)) -> Result<LeaseGetOutput, CliError> {
+  let started = Instant::now();
+  let steps = RefCell::new(Vec::new());
+  let timed = |step: GetStep| {
+    steps.borrow_mut().push(GetStepOutput {
+      step: step.to_string(),
+      at_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    });
+    progress(step);
+  };
   let min_free = match &args.min_free {
     Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error}")))?),
     None => None,
@@ -713,12 +752,14 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     server_timeout: context.server_stop_timeout,
     bazel: None,
     lock_timeout: context.lock_timeout,
-    progress: Some(progress),
+    progress: Some(&timed),
     space: None,
     cached_build: Some(&pool_disk::cached_build_bytes),
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
-  lease_get_output(context, &got)
+  let mut output = lease_get_output(context, &got)?;
+  output.steps = steps.take();
+  Ok(output)
 }
 
 /// The output of the get `got` in the repository of `context`
@@ -799,6 +840,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
     shrunk: got.shrunk.as_ref().map(crate::trim_command::ShrunkOutput::of),
     evicted: got.evicted.as_ref().map(crate::trim_command::TrimmedOutput::of),
+    steps: Vec::new(),
   })
 }
 

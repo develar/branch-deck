@@ -1141,17 +1141,17 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   waits, and a slot a return frees meanwhile ends the wait and is leased instead (`reused: true`), within about a
   second, while the other clone still runs; a get whose turn comes while a slot is being returned or cleaned waits for
   that slot rather than clone one; the free space is checked again once its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). The wait lasts
-  while the holder lives; a killed holder frees the lock. Each step goes to stderr as it starts, the wait with its
-  holder:
+  while the holder lives; a killed holder frees the lock. Each step goes to stderr as it starts, with the time since the
+  get began, the wait with its holder; the answer lists the same steps with when each started (`steps`, `at_ms`):
 
   ```
-  brd lease get: reserving a free slot
-  brd lease get: no free slot; waiting for `brd lease get --holder lane-3` (pid 4242, for 35 s), which adds /Users/me/.branch-deck/pool/idea-1-3f2a9c01/8/idea-1 for lane-3: the pool adds one slot at a time, and a slot freed meanwhile is leased instead
-  brd lease get: reserving a slot freed meanwhile, else a new one
-  brd lease get: cloning /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 into /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  brd lease get: refreshing the index of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  brd lease get: checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  brd lease get: looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: [0 s] reserving a free slot
+  brd lease get: [0 s] no free slot; waiting for `brd lease get --holder lane-3` (pid 4242, for 35 s), which adds /Users/me/.branch-deck/pool/idea-1-3f2a9c01/8/idea-1 for lane-3: the pool adds one slot at a time, and a slot freed meanwhile is leased instead
+  brd lease get: [2 min 5 s] reserving a slot freed meanwhile, else a new one
+  brd lease get: [2 min 5 s] cloning /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 into /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: [2 min 46 s] refreshing the index of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: [3 min 0 s] checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: [3 min 12 s] looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
   ```
 - `home` names where the commits of the lease land: `checkout`, the source of the get, and `branch`, the branch it
   had checked out (`null` for a detached HEAD: nothing to pick onto, and `next` is only the return). `next` is what the

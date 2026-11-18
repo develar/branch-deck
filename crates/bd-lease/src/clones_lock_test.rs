@@ -2,7 +2,7 @@
 //! a slot freed meanwhile ends the wait, the minimum free space is checked under the lock, the steps of a get
 //! arrive in order, and a killed holder frees the lock with its process
 
-use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting};
+use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting, progress_line};
 use crate::lease_test::{Fixture, path_of};
 #[cfg(unix)]
 use crate::lease_test::{held_environment, states, trash_of_a_run, wait_until_held};
@@ -398,12 +398,25 @@ fn the_steps_of_a_get_arrive_in_order() {
   assert!(steps.lock().unwrap().contains(&checkout), "{:?}", steps.lock().unwrap());
   assert_eq!(steps.lock().unwrap().last(), Some(&GetStep::Seed { slot: path.clone(), paths: 1 }));
   assert_eq!(checkout.to_string(), format!("checking out {} in {path}", &repo.head()[..8]));
+  let told: Vec<String> = steps.lock().unwrap().iter().map(ToString::to_string).collect();
+  let answered: Vec<&str> = added["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect();
+  assert_eq!(answered, told, "{added}");
+  let starts: Vec<u64> = added["steps"].as_array().unwrap().iter().map(|step| step["at_ms"].as_u64().unwrap()).collect();
+  assert!(starts.is_sorted(), "{starts:?}");
 
   fixture.give_back(&path);
   steps.lock().unwrap().clear();
   let reused = printed(&fixture, &get_with_steps(&fixture, "second", &steps).unwrap());
   assert_eq!((path_of(&reused), &reused["reused"]), (path, &json!(true)), "{reused}");
   assert_eq!(kinds(&steps), ["reserve", "status", "checkout", "seed"]);
+}
+
+/// The stderr line of a step names the time since the get began, so a slow step shows in the gap to the next line
+#[test]
+fn a_step_on_stderr_names_when_it_started() {
+  let step = GetStep::Reserve { adding: false };
+  assert_eq!(progress_line(Duration::from_millis(900), &step), "brd lease get: [0 s] reserving a free slot");
+  assert_eq!(progress_line(Duration::from_secs(192), &step), "brd lease get: [3 min 12 s] reserving a free slot");
 }
 
 /// A get that adds a slot releases the clones lock once the slot is checked out: the seed, a copy of the ignored files
