@@ -61,6 +61,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Shrink => "shrink",
       GetStep::Evict => "evict",
       GetStep::WaitForPressure { .. } => "wait for pressure",
+      GetStep::SweepCloneLeftovers { .. } => "sweep",
       GetStep::StopServers { .. } => "stop servers",
       GetStep::Status { .. } => "status",
       GetStep::Clone { .. } => "clone",
@@ -409,6 +410,49 @@ fn the_steps_of_a_get_arrive_in_order() {
   let reused = printed(&fixture, &get_with_steps(&fixture, "second", &steps).unwrap());
   assert_eq!((path_of(&reused), &reused["reused"]), (path, &json!(true)), "{reused}");
   assert_eq!(kinds(&steps), ["reserve", "status", "checkout", "seed"]);
+}
+
+/// A get that takes the clones lock moves into the trash what gets killed during their clone left: a number directory
+/// of the pool in no state, holding only `<repository>.cloning`, whose number `next_slot_path` would pass over for ever
+/// (the idea-1 pool kept 51 GiB of one from 2026-11-07). An empty number directory, one with more than the clone and a
+/// slot stay; a get that reuses a free slot takes no clones lock and sweeps nothing
+#[test_log::test]
+fn a_get_that_adds_a_slot_moves_the_leftovers_of_killed_clones_into_the_trash() {
+  let fixture = Fixture::new();
+  let held = path_of(&fixture.get(&["--holder", "held"]));
+  let pool = Path::new(&held).parent().unwrap().parent().unwrap().to_path_buf();
+  let cloning = format!("{}.cloning", Path::new(&held).file_name().unwrap().to_string_lossy());
+  let leftover = pool.join("7");
+  std::fs::create_dir_all(leftover.join(&cloning).join("src")).unwrap();
+  std::fs::write(leftover.join(&cloning).join("src/file"), "cloned").unwrap();
+  let empty = pool.join("8");
+  std::fs::create_dir_all(&empty).unwrap();
+  let more = pool.join("9");
+  std::fs::create_dir_all(more.join(&cloning)).unwrap();
+  std::fs::write(more.join("other"), "kept").unwrap();
+
+  let steps = Mutex::new(Vec::new());
+  let added = printed(&fixture, &get_with_steps(&fixture, "second", &steps).unwrap());
+  assert_eq!(&added["reused"], &json!(false), "{added}");
+  assert!(kinds(&steps).starts_with(&["reserve", "sweep", "reserve adding"]), "{:?}", kinds(&steps));
+  assert!(
+    steps.lock().unwrap().contains(&GetStep::SweepCloneLeftovers {
+      dirs: vec![leftover.to_string_lossy().into_owned()],
+    }),
+    "{:?}",
+    steps.lock().unwrap()
+  );
+  assert!(!leftover.exists());
+  assert!(empty.is_dir() && more.join("other").is_file() && Path::new(&held).is_dir());
+  assert_ne!(Path::new(&path_of(&added)).parent().unwrap(), leftover);
+
+  fixture.give_back(&path_of(&added));
+  steps.lock().unwrap().clear();
+  std::fs::create_dir_all(leftover.join(&cloning)).unwrap();
+  let reused = printed(&fixture, &get_with_steps(&fixture, "third", &steps).unwrap());
+  assert_eq!(&reused["reused"], &json!(true), "{reused}");
+  assert!(!kinds(&steps).contains(&"sweep"), "{:?}", kinds(&steps));
+  assert!(leftover.is_dir(), "a reuse takes no clones lock and sweeps nothing");
 }
 
 /// The stderr line of a step names the time since the get began, so a slow step shows in the gap to the next line

@@ -2190,7 +2190,12 @@ wait its turn may come minutes later, so it reads `branchdeck.leaseMinFree` agai
 processes again; every get that adds a slot measures the free space again under the lock, so a queue never adds
 slots past the minimum. Under the lock it only measures (one `statfs`, below the minimum the names in the trash): the
 delete of a trash of tens of GB took minutes with every get behind it waiting, so a get that finds a trash of a gone
-run there releases the lock, deletes it, and takes its turn again, once per wait. The locks of the pool are taken in
+run there releases the lock, deletes it, and takes its turn again, once per wait. Holding the lock, a get also moves
+into the trash what a get killed during its clone left (`sweep_clone_leftovers`): a number directory that no state of
+the machine names and that holds only `<repository>.cloning`. Nothing else would ever delete it, and `next_slot_path`
+passes over its number; the idea-1 pool kept one from 2026-11-07 to 2026-11-18. Under the lock no clone of the
+repository runs, so the directory is no slot; an empty one stays, which a move of `adopt` may be filling. The move is
+a rename, and the trash is left to a later sweep (`Trash::abandon`), never deleted under the lock. The locks of the pool are taken in
 one order, `clones.lock`, `leases.lock`, `worktrees.lock`: a get takes the other two under the clones lock, one at a
 time, and nothing is taken under the pool lock or under `worktrees.lock` (the move of an adopt holds only the
 latter); a return and a clean take only the pool lock, so neither waits for a clone. The shrink and the eviction of a

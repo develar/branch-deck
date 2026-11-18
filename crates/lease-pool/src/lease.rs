@@ -1073,6 +1073,9 @@ pub enum GetStep {
     /// The free bytes the get needs: `branchdeck.leaseMinFree`
     minimum: u64,
   },
+  /// Under the clones lock: the number directories that gets killed during their clone left, `<n>/<repository>.cloning`
+  /// in no state of the machine, are moved into the trash (`sweep_clone_leftovers`)
+  SweepCloneLeftovers { dirs: Vec<String> },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -1119,6 +1122,12 @@ impl fmt::Display for GetStep {
       ),
       Self::Evict => f.write_str(
         "deleting free slots of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
+      ),
+      Self::SweepCloneLeftovers { dirs } => write!(
+        f,
+        "moving what {} killed clone(s) left into the trash: {}",
+        dirs.len(),
+        dirs.join(", ")
       ),
       Self::WaitForPressure { holder, free, minimum } => {
         let free = free.map_or_else(|| "an unknown free space".to_string(), describe_size);
@@ -1387,6 +1396,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           continue;
         }
         CloneTurn::Locked { lock, waited } => {
+          // under the clones lock no clone of the repository runs: what a killed one left is no slot
+          sweep_clone_leftovers(&pool, params, (&pool_dir, &git_common_dir), &report);
           if let Some(waited) = waited {
             *waited_for_clone.get_or_insert_default() += waited;
             // the turn came minutes later perhaps: the minimum of the config and the processes in the slots as they are
@@ -2539,6 +2550,56 @@ pub struct TookOver {
 
 /// The path of the next new slot: `<pool>/<n>/<repository name>`, the smallest `n` whose directory does not exist and
 /// holds no slot of the state
+/// The number directories of `pool_dir` that a get killed during its clone left: one that no state of a pool of the
+/// machine names (`machine`), holding nothing but `<repository>.cloning` (`add_cloned_slot`). The caller holds the
+/// clones lock of the repository, so no clone of it runs: such a directory is no slot, and its number is lost to
+/// `next_slot_path` for ever. An empty one costs no space and may be a move of `adopt` on its way, so it stays
+pub(crate) fn clone_leftovers(pool_dir: &Path, git_common_dir: &Path, machine: &[LeaseStore]) -> Vec<PathBuf> {
+  let cloning = format!("{}.cloning", repository_name(git_common_dir));
+  let Ok(entries) = std::fs::read_dir(pool_dir) else {
+    return Vec::new();
+  };
+  let mut leftovers: Vec<PathBuf> = entries
+    .filter_map(Result::ok)
+    .filter(|entry| entry.file_name().to_str().is_some_and(|name| name.parse::<u32>().is_ok()))
+    .map(|entry| entry.path())
+    .filter(|dir| dir.is_dir() && !machine.iter().any(|store| store.slots.iter().any(|slot| Path::new(&slot.path).starts_with(dir))))
+    .filter(|dir| {
+      std::fs::read_dir(dir).is_ok_and(|entries| {
+        let names: Vec<_> = entries.filter_map(Result::ok).map(|entry| entry.file_name()).collect();
+        names.len() == 1 && names[0].to_str() == Some(cloning.as_str())
+      })
+    })
+    .collect();
+  leftovers.sort();
+  leftovers
+}
+
+/// Move the leftovers of killed clones of the pool (`clone_leftovers`) into the trash of this run, under the clones lock,
+/// and leave that trash to a later sweep (`Trash::abandon`): the delete of a clone of idea-1 is 1.4 million files, which
+/// the next get below the minimum, a return or a clean deletes outside the lock. Told as a step when there is one; a
+/// move that fails leaves its directory and is logged
+fn sweep_clone_leftovers(pool: &Pool, params: &LeaseGetParams<'_>, (pool_dir, git_common_dir): (&Path, &Path), report: &dyn Fn(GetStep)) {
+  let machine: Vec<LeaseStore> = machine_pools(params.source, params.home)
+    .iter()
+    .filter_map(|machine| Pool::new(&machine.git_common_dir).read().ok())
+    .collect();
+  let leftovers = clone_leftovers(pool_dir, git_common_dir, &machine);
+  if leftovers.is_empty() {
+    return;
+  }
+  report(GetStep::SweepCloneLeftovers {
+    dirs: leftovers.iter().map(|dir| display_path(dir)).collect(),
+  });
+  let trash = Trash::new(&pool.trash_dir());
+  for dir in &leftovers {
+    if let Err(error) = trash.move_in(dir) {
+      warn!(dir = %dir.display(), error = %error, "cannot move the leftover of a killed clone into the trash");
+    }
+  }
+  trash.abandon();
+}
+
 fn next_slot_path(store: &LeaseStore, pool_dir: &Path, git_common_dir: &Path) -> PathBuf {
   let leaf = repository_name(git_common_dir);
   (1..=u32::MAX)
