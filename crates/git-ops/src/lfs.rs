@@ -4,11 +4,10 @@
 //! filter of the move under the lock reads the store only. A repository without objects of LFS costs no process.
 
 use crate::attributes::read_attributes;
-use crate::lease_slot::linked_worktree;
 use crate::object_texts::read_blob_bytes;
 use crate::paths::changed_path_names;
 use crate::remote_command::{LFS_IDLE, execute_remote_command, execute_remote_command_while_progressing};
-use crate::revs::{git_common_dir, known_dirs};
+use crate::revs::common_dir_of;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
@@ -254,22 +253,6 @@ fn idle() -> Duration {
     .ok()
     .and_then(|millis| millis.parse().ok())
     .map_or(LFS_IDLE, Duration::from_millis)
-}
-
-/// `$GIT_COMMON_DIR` of `worktree` without a process when the executor knows it (`with_dirs_of`) or the files tell it:
-/// the `.git` directory of a main worktree, the `.git` file of a linked one; else `rev-parse`
-fn common_dir_of(git_executor: &GitCommandExecutor, worktree: &str) -> Result<PathBuf> {
-  if let Some(dirs) = known_dirs(git_executor, worktree) {
-    return Ok(PathBuf::from(&dirs.git_common_dir));
-  }
-  let dot_git = Path::new(worktree).join(".git");
-  if dot_git.is_dir() {
-    return Ok(dot_git);
-  }
-  if let Some(linked) = linked_worktree(Path::new(worktree)) {
-    return Ok(linked.git_common_dir);
-  }
-  git_common_dir(git_executor, worktree).map(PathBuf::from)
 }
 
 /// A file of Git LFS that a move writes: its path and the object id of its pointer at the target

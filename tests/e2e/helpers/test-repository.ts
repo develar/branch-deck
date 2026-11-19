@@ -70,6 +70,8 @@ export interface RemoteCommit {
   author: string
   timestamp: number
   files: Record<string, string>
+  /** A root commit that replaces the branch, as a server that serves another repository under its name */
+  root?: boolean
 }
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 

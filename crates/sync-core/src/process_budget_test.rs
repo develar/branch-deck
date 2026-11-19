@@ -17,7 +17,7 @@ use crate::review_fetch::{fetch_review_pairs, fetch_review_stack, local_review_p
 use crate::review_target::ReviewMemo;
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
-use crate::sync::{SyncOptions, sync_branches};
+use crate::sync::{SyncDeferred, SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use domain_types::review::{GetReviewParams, ReviewTarget};
@@ -40,6 +40,7 @@ use std::collections::BTreeMap;
 use test_utils::fake_executable::{executor_of_fake_git, fake_executable};
 use test_utils::git_test_utils::{TestRepo, append_config, stack_ahead_of_bare_origin};
 use test_utils::hermetic_git::HermeticGit;
+use test_utils::history::{HistoryCommit, HistoryStream};
 use test_utils::process_budget::{
   FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
 };
@@ -64,6 +65,35 @@ async fn a_first_sync() {
   // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(&git, FIRST_SYNC);
   // jscpd:ignore-end
+}
+
+/// A sync whose baseline is a history unrelated to HEAD (a server served another repository) reads what the walk needs
+/// and refuses at the first root it streams: no check of the update (its `merge-base` would walk the whole history
+/// again), no tree, no commit, no ref
+#[tokio::test]
+async fn a_sync_of_a_head_unrelated_to_the_baseline_builds_nothing() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  let mut unrelated = HistoryStream::new("refs/heads/unrelated");
+  unrelated.commit(&HistoryCommit::new("Other root", &[("other.txt", "other")]));
+  let unrelated = unrelated.write(repo.path()).unwrap();
+  repo.git(&["update-ref", "refs/remotes/origin/master", unrelated[0].as_deref().unwrap()]);
+  let git = counting();
+
+  let error = sync_branches(&git, &path(&repo), PREFIX, TestReporter::new(), SyncOptions::default()).await.unwrap_err();
+
+  assert!(matches!(error.downcast_ref::<SyncDeferred>(), Some(SyncDeferred::UnrelatedHistory { .. })), "{error:#}");
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("for-each-ref", 1),
+      ("log", 1),
+      ("remote", 1),
+      ("rev-parse", 1),
+      ("symbolic-ref", 1),
+    ],
+  );
 }
 
 #[tokio::test]

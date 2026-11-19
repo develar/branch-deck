@@ -143,7 +143,12 @@ pub fn fetch_baseline(
   ];
   let output = execute_remote_command_with_progress(git_executor, &args, repo_path, &[], on_progress)?.into_text();
   own.fetched();
-  Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))
+  let previous = previous_tip_of_forced_update(&output, &upstream.tracking_ref);
+  // the remote rewrote the baseline: a history unrelated to HEAD defers the next sync (`SyncDeferred::UnrelatedHistory`)
+  if let Some(previous) = &previous {
+    warn!(previous, tracking_ref = %upstream.tracking_ref, "the baseline was force-pushed");
+  }
+  Ok(previous)
 }
 
 /// The old id from the `fetch --porcelain` line of `tracking_ref` if that line is a forced update:

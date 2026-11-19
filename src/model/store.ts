@@ -811,7 +811,7 @@ function syncDeferredOf(view: RepositoryView, shown: SyncDeferral | null): SyncD
     return null
   }
   const deferral = describeSyncDeferral(view.sync.error)
-  return shown?.title === deferral.title && shown.description === deferral.description ? shown : deferral
+  return shown?.title === deferral.title && shown.description === deferral.description && shown.tone === deferral.tone ? shown : deferral
 }
 
 /** The fields of the header; a record of the same entries stays the same object, a sync rarely changes them */
@@ -1277,8 +1277,9 @@ async function settle(
 
 /**
  * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD, a checked out branch
- * under the prefix) is no failure: the user's own (`manual`) says so in an `info` toast, any other waits; the view says
- * why it waits (`deferred`), which the page shows where it has no table. Nor is a sync of a session whose prefix the git
+ * under the prefix, commits ahead that do not build on the baseline) is no failure: the user's own (`manual`) says so in
+ * a toast of its tone, any other waits; the view says why it waits (`deferred`), which the page shows where it has no
+ * table, and above the table for a `warning`. Nor is a sync of a session whose prefix the git
  * config no longer names (`prefix_changed`: a `git config` in a terminal): the run read the prefix again, and the window
  * subscribes again (`resubscribeSession`), so the session of the new prefix answers, which syncs as it opens for a
  * repository synced before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is
@@ -1302,9 +1303,10 @@ async function refused(target: Session, reason: SyncReason, error: ApiError, ask
     const asksAgain = held?.repositoryPath === repositoryPath && held.failure === null && held.view?.synced !== true
     return asksAgain ? askAgain() : null
   }
-  if (code === "operation_in_progress" || code === "detached_head" || code === "managed_branch") {
+  if (code === "operation_in_progress" || code === "detached_head" || code === "managed_branch" || code === "unrelated_history") {
     if (reason === "manual") {
-      showToast({ type: "info", ...describeSyncDeferral(error) })
+      const { tone, ...words } = describeSyncDeferral(error)
+      showToast({ type: tone, ...words })
     }
   } else {
     failRequest(target, message, error)

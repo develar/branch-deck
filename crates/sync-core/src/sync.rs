@@ -26,7 +26,7 @@ use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_
 use branch_integration::strategy::DetectionStrategy;
 use domain_types::branch_names::{BranchKind, managed_branch_kind, strip_branch_namespace, to_final_branch_name};
 use domain_types::commit::Commit;
-use domain_types::error::ErrorCode;
+use domain_types::error::{ErrorCode, ErrorDetails, UnrelatedHistoryDetails};
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::session::StoreTips;
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
@@ -34,7 +34,7 @@ use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInf
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
-use git_ops::commit_list::{get_frozen_commit_list_with_handler, on_local_baseline};
+use git_ops::commit_list::{UnrelatedHistory, get_frozen_commit_list_with_handler, on_local_baseline};
 use git_ops::commit_signing::Signing;
 use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
 use git_ops::landed_pairing::CommitKey;
@@ -377,7 +377,8 @@ struct RemoteTips {
 /// A sync waits while HEAD is not the branch the user works on: git in the middle of a rebase, merge, cherry-pick or
 /// revert, a detached HEAD, or a checked out branch that Branch Deck writes itself (under the prefix: a virtual, an
 /// archived, an unapplied or a stack branch). The history of HEAD then lacks the commits of groups, and the sync would
-/// archive their virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
+/// archive their virtual branches (docs/design/git-operations.md, "Guards"). It waits too while the commits ahead of
+/// the baseline do not build on it (`UnrelatedHistory`): they would be the whole history of HEAD. Nothing is changed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SyncDeferred {
   #[error("Not synced: {0} is in progress")]
@@ -387,6 +388,10 @@ pub enum SyncDeferred {
   /// The checked out branch, by its full name
   #[error("Not synced: {0} is a branch Branch Deck manages")]
   ManagedBranch(String),
+  /// HEAD's `branch` reaches `root`, a root commit the `baseline` (by its name) lacks
+  /// (`git_ops::commit_list::UnrelatedHistory`)
+  #[error("{}", if *.shallow { format!("Not synced: the history of {branch} ahead of {baseline} is shallow") } else { format!("Not synced: {branch} has history unrelated to {baseline}") })]
+  UnrelatedHistory { branch: String, baseline: String, root: String, shallow: bool },
 }
 
 impl SyncDeferred {
@@ -396,6 +401,21 @@ impl SyncDeferred {
       Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
       Self::DetachedHead => ErrorCode::DetachedHead,
       Self::ManagedBranch(_) => ErrorCode::ManagedBranch,
+      Self::UnrelatedHistory { .. } => ErrorCode::UnrelatedHistory,
+    }
+  }
+
+  /// The data of the code: the history of `UnrelatedHistory`
+  #[must_use]
+  pub fn details(&self) -> Option<ErrorDetails> {
+    match self {
+      Self::UnrelatedHistory { branch, baseline, root, shallow } => Some(ErrorDetails::UnrelatedHistory(Box::new(UnrelatedHistoryDetails {
+        head: branch.clone(),
+        baseline: baseline.clone(),
+        root: root.clone(),
+        shallow: *shallow,
+      }))),
+      Self::OperationInProgress(_) | Self::DetachedHead | Self::ManagedBranch(_) => None,
     }
   }
 }
@@ -426,7 +446,8 @@ fn check_sync_guards_on(git_executor: &GitCommandExecutor, repository_path: &str
 
 /// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
 /// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
-/// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
+/// Nothing is sent or changed before the walk of the commits ahead: a sync it refuses (`SyncDeferred::UnrelatedHistory`)
+/// reports nothing, as the guards. The update check runs beside the rest of the sync, from the end of the walk: its
 /// `BaselineStatus` can come at any point of the event stream.
 /// The phase makes the tree cache, with the conflict views of `object_cache` for the resolve mode of the config, and seeds
 /// it with the trees of the commit list and the date of the base
@@ -462,14 +483,10 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
       load_issue_navigation_config(repository_path)
     }
   };
-  progress.send(SyncEvent::IssueNavigationConfig { config: issue_config })?;
 
   // the baseline (the upstream, origin/master, origin/main, or local master/main) with its commit, HEAD and the
   // branches under the prefix, once for every step below
   let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix, known_remotes)?;
-  // the temporary refs of a process killed in a write (and the shared ref of Branch Deck 0.21 and earlier) keep their
-  // objects alive; the listing found them, so the delete costs a process only when there are some
-  delete_stale_temp_refs(git_executor, repository_path, &facts.stale_temp_refs);
   let baseline_branch = facts.baseline.clone();
   // the descriptions, then the issue groups; the update check groups the landed commits with them
   let config = match config {
@@ -488,6 +505,32 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   } else {
     TreeIdCache::new()
   };
+  // Use streaming commit processing, and the order of the history, for the stack branches
+  let mut grouper = CommitGrouper::new_with(&grouping);
+  let mut commit_ids = Vec::new();
+  // the ids the facts froze, not the names: a fetch or a commit meanwhile changes nothing of what this sync groups
+  let on_local_baseline = facts.is_on_local_baseline();
+  // a root ahead of the baseline refuses the walk at once: the range would be the whole history of HEAD
+  get_frozen_commit_list_with_handler(git_executor, repository_path, &facts.baseline_commit, &facts.head, on_local_baseline, |commit| {
+    commit_ids.push(commit.id.clone());
+    grouper.add_commit(commit);
+    Ok(())
+  })
+  .map_err(|error| match error.downcast::<UnrelatedHistory>() {
+    Ok(UnrelatedHistory { root, shallow, .. }) => SyncDeferred::UnrelatedHistory {
+      branch: current_branch.clone(),
+      baseline: baseline_branch.clone(),
+      root,
+      shallow,
+    }
+    .into(),
+    Err(error) => error,
+  })?;
+
+  progress.send(SyncEvent::IssueNavigationConfig { config: issue_config })?;
+  // the temporary refs of a process killed in a write (and the shared ref of Branch Deck 0.21 and earlier) keep their
+  // objects alive; the listing found them, so the delete costs a process only when there are some
+  delete_stale_temp_refs(git_executor, repository_path, &facts.stale_temp_refs);
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking(in_current_span({
     // with the files of attributes outside the worktree, under which the probe of the check answers in the next sync
@@ -500,17 +543,6 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let lease = lease.clone();
     move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &lease, &progress)
   }));
-
-  // Use streaming commit processing, and the order of the history, for the stack branches
-  let mut grouper = CommitGrouper::new_with(&grouping);
-  let mut commit_ids = Vec::new();
-  // the ids the facts froze, not the names: a fetch or a commit meanwhile changes nothing of what this sync groups
-  let on_local_baseline = facts.is_on_local_baseline();
-  get_frozen_commit_list_with_handler(git_executor, repository_path, &facts.baseline_commit, &facts.head, on_local_baseline, |commit| {
-    commit_ids.push(commit.id.clone());
-    grouper.add_commit(commit);
-    Ok(())
-  })?;
 
   // The virtual branches are rebuilt on top of the parent of the oldest commit
   let first_parent_id = grouper.first_parent_id.take();

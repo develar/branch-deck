@@ -1,3 +1,4 @@
+use super::commit_list::UnrelatedHistory;
 use super::history::History;
 use super::rewrite_test_utils::repo_path;
 use anyhow::Result;
@@ -96,6 +97,40 @@ fn the_guard_refuses_a_merge_in_the_range_only() -> Result<()> {
   );
   let target = history.check_rewrite(repo.git_executor(), repo_path(&repo), merge_position - 1)?;
   assert_eq!((target.branch.as_str(), Some(target.head.as_str())), ("master", history.head()));
+  Ok(())
+}
+
+/// A baseline unrelated to HEAD: the first-parent history ahead reaches the root of HEAD, which the baseline lacks, so
+/// the read refuses instead of handing a rewrite the whole history
+#[test]
+fn the_history_ahead_of_an_unrelated_baseline_is_refused() -> Result<()> {
+  let repo = TestRepo::new();
+  let commits = linear(&repo, 2);
+  repo.git(&["checkout", "-q", "--orphan", "baseline"]);
+  repo.create_commit("Other root", "other.txt", "other");
+  repo.checkout("master").map_err(anyhow::Error::msg)?;
+
+  let error = History::read_ahead_of(repo.git_executor(), repo_path(&repo), "baseline", false).expect_err("an unrelated baseline");
+  let refusal = error.downcast_ref::<UnrelatedHistory>().expect("UnrelatedHistory");
+  assert_eq!(
+    refusal,
+    &UnrelatedHistory {
+      baseline: "baseline".to_string(),
+      root: commits[0].clone(),
+      shallow: false,
+    }
+  );
+  Ok(())
+}
+
+/// On the local baseline branch itself every commit counts, the root too: nothing to refuse
+#[test]
+fn the_history_on_the_local_baseline_reads_its_root() -> Result<()> {
+  let repo = TestRepo::new();
+  let commits = linear(&repo, 2);
+  let history = History::read_ahead_of(repo.git_executor(), repo_path(&repo), "master", false)?;
+  let read: Vec<&str> = history.commits().iter().map(|commit| commit.id.as_str()).collect();
+  assert_eq!(read, [&commits[1], &commits[0]]);
   Ok(())
 }
 

@@ -5,6 +5,7 @@
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// The id of the main worktree; a linked one is named by its directory under `$GIT_COMMON_DIR/worktrees`
 const MAIN_WORKTREE: &str = "main";
@@ -66,8 +67,8 @@ impl RepositoryDirs {
   /// name git keeps per worktree (gitrepository-layout(5)): `index`, `FETCH_HEAD`, the markers of an operation in
   /// progress (`rebase-merge`, `MERGE_HEAD`, `sequencer`, …), `branch-deck/landed.json`. Not for what the worktrees
   /// share (`refs`, `objects`, `config`), which lives in `git_common_dir`
-  pub fn git_path(&self, name: &str) -> std::path::PathBuf {
-    std::path::Path::new(&self.git_dir).join(name)
+  pub fn git_path(&self, name: &str) -> PathBuf {
+    Path::new(&self.git_dir).join(name)
   }
 }
 
@@ -119,6 +120,22 @@ pub fn git_common_dir(git_executor: &GitCommandExecutor, repo_path: &str) -> Res
       .trim()
       .to_string(),
   )
+}
+
+/// `$GIT_COMMON_DIR` of `worktree` without a process when the executor knows it (`with_dirs_of`) or the files tell it:
+/// the `.git` directory of a main worktree, the `.git` file of a linked one; else `rev-parse`
+pub(crate) fn common_dir_of(git_executor: &GitCommandExecutor, worktree: &str) -> Result<PathBuf> {
+  if let Some(dirs) = known_dirs(git_executor, worktree) {
+    return Ok(PathBuf::from(&dirs.git_common_dir));
+  }
+  let dot_git = Path::new(worktree).join(".git");
+  if dot_git.is_dir() {
+    return Ok(dot_git);
+  }
+  if let Some(linked) = crate::lease_slot::linked_worktree(Path::new(worktree)) {
+    return Ok(linked.git_common_dir);
+  }
+  git_common_dir(git_executor, worktree).map(PathBuf::from)
 }
 
 /// The working tree `directory` is in, `None` outside one (a bare repository, a `.git` directory, no repository): one

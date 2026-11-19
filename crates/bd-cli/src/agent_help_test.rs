@@ -244,6 +244,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::NothingToReapply
     | ErrorCode::ReapplyConflict
     | ErrorCode::Unapplied
+    | ErrorCode::UnrelatedHistory
     | ErrorCode::UndoStale => &["help agent"],
     ErrorCode::Parked | ErrorCode::LeaseRejected | ErrorCode::PushTooLarge => &["help agent", "push"],
     ErrorCode::PushRefused | ErrorCode::Landed => &["push", "safe-push"],
@@ -619,6 +620,7 @@ fn the_agent_help_is_a_short_core_with_every_guard() {
     "`--without-approvals` only\n  when the user says so",
     "only when the user says it is a false alarm",
     "never pass `brd lease get --min-free 0` on your own",
+    "never reset, rebase or merge the branch onto the baseline",
     "each `error.next_steps` entry with\n  `needs_approval`",
     "Never stash, reset, check out or commit the\n  user's files",
   ] {

@@ -196,13 +196,15 @@ pub fn earlier_build(repo_path: &Path, base: &str, revision: &str) -> Result<Str
 }
 
 /// A commit someone else pushed: its subject, its author (`Name <email>`) and time (Unix seconds, also the committer's),
-/// and the files it writes
+/// and the files it writes; with `root`, a root commit that replaces the branch, as a server that serves another
+/// repository under its name (a history unrelated to the one the repository has)
 #[derive(Debug, Clone)]
 pub struct RemoteCommit {
   pub subject: String,
   pub author: String,
   pub timestamp: i64,
   pub files: Vec<(String, String)>,
+  pub root: bool,
 }
 
 /// Writes `commit` onto `branch` of the remote of the repository at `repo_path`, as someone else's push does: the
@@ -214,8 +216,9 @@ pub fn commit_on_remote(repo_path: &Path, branch: &str, commit: &RemoteCommit) -
   ensure!(!commit.files.is_empty(), "a commit on the remote writes a file: `git commit` refuses an empty one");
   let when = format!("{} +0000", commit.timestamp);
   let message = format!("{}\n", commit.subject);
+  let from = if commit.root { String::new() } else { format!("from refs/heads/{branch}^0\n") };
   let mut stream = format!(
-    "commit refs/heads/{branch}\nmark :1\nauthor {author} {when}\ncommitter {author} {when}\ndata {}\n{message}from refs/heads/{branch}^0\n",
+    "commit refs/heads/{branch}\nmark :1\nauthor {author} {when}\ncommitter {author} {when}\ndata {}\n{message}{from}",
     message.len(),
     author = commit.author,
   );
@@ -223,8 +226,11 @@ pub fn commit_on_remote(repo_path: &Path, branch: &str, commit: &RemoteCommit) -
     let _ = write!(stream, "M 100644 inline {path}\ndata {}\n{content}\n", content.len());
   }
   stream.push_str("\nget-mark :1\ndone\n");
+  // a root replaces the branch: no fast-forward
+  let force: &[&str] = if commit.root { &["--force"] } else { &[] };
   let mut child = git_command()
     .args(["fast-import", "--quiet", "--done", "--date-format=raw"])
+    .args(force)
     .current_dir(existing_origin(repo_path)?)
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())

@@ -587,7 +587,7 @@ describe("a sync of the session", () => {
     await send({ sync: { kind: "deferred", error: deferred } })
     expect(branchSyncStore.getState()).toMatchObject({
       syncError: null,
-      syncDeferred: { title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" },
+      syncDeferred: { title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it", tone: "info" },
     })
     const shown = branchSyncStore.getState().syncDeferred
     await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
@@ -595,7 +595,7 @@ describe("a sync of the session", () => {
     await send(running)
     expect(branchSyncStore.getState().syncDeferred).toBeNull()
     await send({ sync: { kind: "deferred", error: { ...deferred, code: "detached_head", message: "Not synced: HEAD is detached" } } })
-    expect(branchSyncStore.getState().syncDeferred).toEqual({ title: "Not synced: HEAD is detached", description: "Check out a branch to sync its commits" })
+    expect(branchSyncStore.getState().syncDeferred).toEqual({ title: "Not synced: HEAD is detached", description: "Check out a branch to sync its commits", tone: "info" })
   })
 
   it("is no failure on a checked out branch under the prefix: an info toast that names the branch and says to check out the main branch", async () => {
@@ -614,7 +614,33 @@ describe("a sync of the session", () => {
     expect(toasts).toEqual([{ type: "info", ...words }])
 
     await send({ sync: { kind: "deferred", error: managed } })
-    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, syncDeferred: words })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, syncDeferred: { ...words, tone: "info" } })
+  })
+
+  it("is no failure when the branch has history unrelated to the baseline: a warning toast that says which side lacks what for a sync the user asked for", async () => {
+    await open()
+    await send(grouping("a"))
+    const unrelated = {
+      ...internalError("Not synced: master has history unrelated to origin/master"),
+      code: "unrelated_history",
+      details: { type: "unrelatedHistory", head: "master", baseline: "origin/master", root: "41b940fd533a6fb7cdac7dd16052a3968da12f64", shallow: false },
+    } as const
+    const words = {
+      title: "Not synced: master has history unrelated to origin/master",
+      description: "origin/master lacks 41b940fd, a root commit of master: the branches sync once origin/master holds every root of master",
+    }
+    const quiet = requestSessionSync("focus")
+    ;(await nextSync(1)).fail(unrelated)
+    expect(await quiet).toBeNull()
+    expect(toasts).toEqual([])
+    const manual = requestSessionSync("manual")
+    ;(await nextSync(2)).fail(unrelated)
+    await manual
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
+    expect(toasts).toEqual([{ type: "warning", ...words }])
+
+    await send({ sync: { kind: "deferred", error: unrelated } })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, syncDeferred: { ...words, tone: "warning" } })
   })
 
   it("names the step of the running sync, and none once it ended", async () => {

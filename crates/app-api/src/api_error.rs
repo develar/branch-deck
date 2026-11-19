@@ -7,10 +7,11 @@
 
 use app_settings::service::SettingsError;
 use cli_tools::install::ActionError;
-use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
+use domain_types::error::{ApiError, ErrorCode, ErrorDetails, UnrelatedHistoryDetails};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_executor::git_info::GitNotFound;
+use git_ops::commit_list::UnrelatedHistory;
 use git_ops::commit_signing::SigningFailed;
 use git_ops::commit_writer::NoIdentity;
 use git_ops::index_lock::IndexLocked;
@@ -199,7 +200,17 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
     return need.code().and_then(code);
   }
   if let Some(deferred) = error.downcast_ref::<SyncDeferred>() {
-    return code(deferred.code());
+    return Some((deferred.code(), deferred.details()));
+  }
+  // a read of the commits ahead outside a sync (a rewrite, a check, a pick): HEAD, as the read knows no branch
+  if let Some(refusal) = error.downcast_ref::<UnrelatedHistory>() {
+    let details = ErrorDetails::UnrelatedHistory(Box::new(UnrelatedHistoryDetails {
+      head: "HEAD".to_string(),
+      baseline: refusal.baseline.clone(),
+      root: refusal.root.clone(),
+      shallow: refusal.shallow,
+    }));
+    return Some((ErrorCode::UnrelatedHistory, Some(details)));
   }
   // the setup of git: no usable git (the page shows its words, the install hint, as they are), no identity to write
   // the notes and the commits with
@@ -370,6 +381,27 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
     ("operation_in_progress", SyncDeferred::OperationInProgress("a rebase").into()),
     ("detached_head", SyncDeferred::DetachedHead.into()),
     ("managed_branch", SyncDeferred::ManagedBranch("jane/virtual/auth".to_string()).into()),
+    (
+      "unrelated_history",
+      SyncDeferred::UnrelatedHistory {
+        branch: "master".to_string(),
+        baseline: "origin/master".to_string(),
+        root: "41b940fd533a6fb7cdac7dd16052a3968da12f64".to_string(),
+        shallow: false,
+      }
+      .into(),
+    ),
+    (
+      "unrelated_history_of_a_rewrite",
+      anyhow::Error::new(RegroupError::Other(
+        UnrelatedHistory {
+          baseline: "origin/master".to_string(),
+          root: "41b940fd533a6fb7cdac7dd16052a3968da12f64".to_string(),
+          shallow: false,
+        }
+        .into(),
+      )),
+    ),
     ("no_baseline", NoBaseline::NoCommits.into()),
     (
       "head_moved",

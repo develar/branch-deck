@@ -208,6 +208,31 @@ fn waits_while_a_rebase_is_in_progress() {
   assert_eq!(output["error"]["message"], json!("Not synced: a rebase is in progress"));
 }
 
+/// The baseline is a history unrelated to HEAD (a server served another repository as master): `brd sync` refuses with
+/// `unrelated_history` (exit 4) and names the root commit of HEAD that the baseline lacks, so the agent asks the user
+#[test_log::test]
+fn refuses_a_head_unrelated_to_the_baseline() {
+  let repo = repo_with_login();
+  let root = git(&repo, &["rev-list", "--max-parents=0", "HEAD"]).trim().to_string();
+  git(&repo, &["switch", "--quiet", "--orphan", "unrelated"]);
+  write(&repo, "other.txt", "other\n");
+  let unrelated = commit_all(&repo, "Other root", 1_700_000_300);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", &unrelated]);
+  git(&repo, &["switch", "--quiet", "--force", "master"]);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("unrelated_history")), "{output}");
+  assert_eq!(output["error"]["message"], json!("Not synced: master has history unrelated to origin/master"));
+  assert_eq!(output["error"]["commits"], json!([root]));
+  assert_eq!(output["error"]["ask_user"], json!(true));
+
+  // a rewrite reads the same commits ahead and refuses the same way
+  let head = git(&repo, &["rev-parse", "HEAD"]).trim().to_string();
+  let (exit_code, output) = run_in(&repo, &["reword", &head, "--subject", "(auth) Add the login"]);
+  assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("unrelated_history")), "{output}");
+  assert_eq!(output["error"]["commits"], json!([root]));
+}
+
 #[test_log::test]
 fn reports_the_commits_the_baseline_already_has() {
   let (repo, [login, _]) = repo_with_commits(

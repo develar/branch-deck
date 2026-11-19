@@ -401,7 +401,8 @@ impl TableState {
     }
   }
 
-  /// The sync was refused before it built anything (a rebase in progress, a detached HEAD: `SyncDeferred`): the table
+  /// The sync was refused before it built anything (a rebase in progress, a detached HEAD, commits ahead that do not
+  /// build on the baseline: `SyncDeferred`): the table
   /// of the sync before comes back with what the session wrote since, and nothing failed. The sync says why it waits;
   /// a run under a prefix the git config left (`prefix_changed`) is no state of this session, whose window opens the
   /// session of the new prefix

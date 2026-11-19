@@ -5,11 +5,12 @@
 //! - `History::read_to` streams the history and stops as soon as it has every commit the rewrite changes and the
 //!   parent of the oldest one: amend, drop, squash and squash fixups, whose requests name no baseline;
 //! - `History::read_ahead_of` reads the commits ahead of the baseline and the boundary below them, with their mapping
-//!   notes if asked: reword and the move of a hunk, which never rewrite a commit of the baseline.
+//!   notes if asked: reword and the move of a hunk, which never rewrite a commit of the baseline. A root commit among
+//!   them refuses the read (`commit_list::UnrelatedHistory`): they do not build on the baseline.
 //!
 //! The parents also give the merge guard of the rewrite without another process (`History::check_rewrite`).
 
-use crate::commit_list::is_on_local_baseline;
+use crate::commit_list::{is_on_local_baseline, unrelated_history};
 use crate::notes::mapping_lines;
 use crate::revs::{checked_out_target, short_id};
 use crate::rewrite_guard::{HeadMoved, RewriteTarget, ensure_no_operation_in_progress, merge_refusal};
@@ -97,14 +98,22 @@ impl History {
     let mut commits = Vec::new();
     // the first parent of the oldest commit, and the second parents of the merges among them
     let mut boundary = Vec::new();
+    // a root ahead of the baseline: the first-parent history does not build on it (`UnrelatedHistory`)
+    let mut root = None;
     read_records(git_executor, repo_path, &args, |is_boundary, commit| {
       if is_boundary {
         boundary.push(commit);
+      } else if baseline.is_some() && commit.parent.is_none() {
+        root = Some(commit.id);
+        return ControlFlow::Break(());
       } else {
         commits.push(commit);
       }
       ControlFlow::Continue(())
     })?;
+    if let (Some(root), Some(baseline)) = (root, &baseline) {
+      return Err(unrelated_history(git_executor, repo_path, baseline, &root).into());
+    }
     let below = commits
       .last()
       .and_then(|oldest| oldest.parent.as_ref())

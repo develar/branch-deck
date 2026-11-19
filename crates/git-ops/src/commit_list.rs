@@ -1,15 +1,69 @@
 //! The commits ahead of the baseline, oldest first and without merges, with their mapping notes, parsed as one
-//! `git log` streams (`COMMIT_RECORD_FORMAT`): what a sync and every read of the grouping start from.
+//! `git log` streams (`COMMIT_RECORD_FORMAT`): what a sync and every read of the grouping start from. A root commit
+//! among them refuses the read (`UnrelatedHistory`): the history ahead does not build on the baseline, and a read of it
+//! would be the whole history of HEAD.
 
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
-use crate::revs::current_branch;
+use crate::revs::{common_dir_of, current_branch, short_id};
 use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::ops::ControlFlow;
 use sync_utils::commit_body::has_body;
 use sync_utils::commit_subject::subject_parts;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
+
+/// HEAD reaches a root commit that the baseline lacks, so the commits ahead of the baseline do not build on it: the
+/// baseline is a history unrelated to HEAD (a server that served another repository, an orphan branch), an unrelated
+/// history was merged in ahead of it, or the parents of a commit ahead are cut (`git replace --graft`, a shallow fetch).
+/// Every read of the commits ahead refuses then, at the first root it streams: the range would be the whole history of
+/// HEAD (docs/design/git-operations.md, "Virtual branch sync")
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.describe())]
+pub struct UnrelatedHistory {
+  /// The baseline of the read, as its caller named it: a name, or the id a sync froze
+  pub baseline: String,
+  /// The full id of the root commit ahead of the baseline
+  pub root: String,
+  /// `root` is a boundary of a shallow repository (`$GIT_COMMON_DIR/shallow`): its parents were not fetched
+  pub shallow: bool,
+}
+
+impl UnrelatedHistory {
+  fn describe(&self) -> String {
+    let root = short_id(&self.root);
+    if self.shallow {
+      format!("the history ahead of {} is shallow: the parents of {root} were not fetched", self.baseline)
+    } else {
+      format!("HEAD has history unrelated to {}: {} lacks {root}, a root commit of HEAD", self.baseline, self.baseline)
+    }
+  }
+}
+
+/// The refusal of a read of the commits ahead of `baseline` that streamed `root`, a commit without parents
+pub(crate) fn unrelated_history(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, root: &str) -> UnrelatedHistory {
+  let refusal = UnrelatedHistory {
+    baseline: baseline.to_string(),
+    root: root.to_string(),
+    shallow: is_shallow_boundary(git_executor, repo_path, root),
+  };
+  warn!(
+    baseline,
+    root,
+    shallow = refusal.shallow,
+    "the history ahead of the baseline reaches a root commit the baseline lacks"
+  );
+  refusal
+}
+
+/// Whether `commit` is a boundary of a shallow repository, whose parents a shallow fetch cut: a line of
+/// `$GIT_COMMON_DIR/shallow`. No process when the operation knows its directories (`with_dirs_of`)
+fn is_shallow_boundary(git_executor: &GitCommandExecutor, repo_path: &str, commit: &str) -> bool {
+  common_dir_of(git_executor, repo_path)
+    .ok()
+    .and_then(|common_dir| std::fs::read_to_string(common_dir.join("shallow")).ok())
+    .is_some_and(|shallow| shallow.lines().any(|line| line.trim() == commit))
+}
 
 /// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
 pub fn get_commit_list(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Vec<Commit>> {
@@ -80,7 +134,9 @@ where
 }
 
 /// The commits of `baseline..head` (`baseline` a name or an id), or on the local baseline of every commit of `head` but
-/// the roots, streamed into `commit_handler`
+/// the roots, streamed into `commit_handler`. Off the local baseline a root commit among them is `UnrelatedHistory`,
+/// before the handler sees it: git lists the range oldest first, so the root of an unrelated history usually comes
+/// first, but every record is checked, as a skewed commit date can put another before it. The error stops git
 fn walk_commits_ahead<F>(git_executor: &GitCommandExecutor, repo_path: &str, baseline: &str, on_local_baseline: bool, head: &str, mut commit_handler: F) -> Result<()>
 where
   F: FnMut(Commit) -> Result<()>,
@@ -108,6 +164,9 @@ where
       && !record.trim().is_empty()
     {
       match parse_single_commit(record) {
+        Ok(commit) if !on_local_baseline && commit.parent_id.is_none() => {
+          return Err(unrelated_history(git_executor, repo_path, baseline, &commit.id).into());
+        }
         Ok(commit) => {
           commit_count += 1;
           commit_handler(commit)?;

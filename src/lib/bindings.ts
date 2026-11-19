@@ -184,7 +184,7 @@ export const commands = {
 	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
-	 *  `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`)
+	 *  `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`, `unrelated_history`)
 	 */
 	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>("sync", __TAURI_INVOKE("sync", { params })),
 	/**
@@ -2804,6 +2804,14 @@ export type ErrorCode =
  */
 "managed_branch" | 
 /**
+ *  HEAD reaches a root commit the baseline lacks (`details` names both and the root): the baseline is a history
+ *  unrelated to HEAD (a server served another repository), an unrelated history was merged in ahead of it, or the
+ *  parents of a commit ahead are cut (a graft, a shallow fetch). The commits ahead would be the whole history of HEAD,
+ *  so nothing was read or changed; a sync waits for it as for a rebase in progress. Tell the user; never reset,
+ *  rebase or merge the branch onto the baseline
+ */
+"unrelated_history" | 
+/**
  *  `brd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
  *  commit, another rewrite, a switch. The token can never succeed again
  */
@@ -3136,30 +3144,34 @@ export type ErrorDetails =
  *  The commit that conflicts and its files: `target_conflict`, `hunk_conflict`, `stack_conflict`,
  *  `reapply_conflict`, `drop_conflict`
  */
-{ type: "conflict"; commits: string[]; paths: string[] } | 
+({ type: "conflict"; commits: string[]; paths: string[] }) & { blocks?: never; branches?: never; holder?: never; prefix?: never; refusals?: never } | 
 /**
  *  The files the error is about, relative to the repository: the local files of `uncommitted_overlap`; the directory
  *  that holds most of a `push_too_large` push (`dir/`) and its largest files
  */
-{ type: "paths"; paths: string[] } | 
+({ type: "paths"; paths: string[] }) & { blocks?: never; branches?: never; commits?: never; holder?: never; prefix?: never; refusals?: never } | 
 /**  The full names of the branches the error is about: the rejected ones of `lease_rejected` */
-{ type: "branches"; branches: string[] } | 
+({ type: "branches"; branches: string[] }) & { blocks?: never; commits?: never; holder?: never; paths?: never; prefix?: never; refusals?: never } | 
 /**  The ids of the blocks the file has now: `block_not_found` */
-{ type: "blocks"; blocks: string[] } | 
+({ type: "blocks"; blocks: string[] }) & { branches?: never; commits?: never; holder?: never; paths?: never; prefix?: never; refusals?: never } | 
 /**  Who holds the repository lock: `locked`; `None` when the holder wrote no record */
-{ type: "locked"; holder: LockHolderInfo | null } | 
+({ type: "locked"; holder: LockHolderInfo | null }) & { blocks?: never; branches?: never; commits?: never; paths?: never; prefix?: never; refusals?: never } | 
 /**
  *  The operation of another process that runs what this one needs: `busy`; `None` when the registry is of another
  *  Branch Deck (another schema), whose operations can't be read
  */
-{ type: "busy"; holder: OperationHolder | null } | 
+({ type: "busy"; holder: OperationHolder | null }) & { blocks?: never; branches?: never; commits?: never; paths?: never; prefix?: never; refusals?: never } | 
 /**  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference` */
-{ type: "landing"; refusals: LandingRefusal[] } | 
+({ type: "landing"; refusals: LandingRefusal[] }) & { blocks?: never; branches?: never; commits?: never; holder?: never; paths?: never; prefix?: never } | 
+/**  The history of `unrelated_history`; boxed, as every `ApiError` carries the size of the largest data */
+{
+	type: "unrelatedHistory",
+} & UnrelatedHistoryDetails | 
 /**
  *  The prefix to suggest where none names the branches (`no_branch_prefix` of the app): the local part of the
  *  committer email of git, without a `+tag`, as a branch name; empty when git names no email
  */
-{ type: "prefixSuggestion"; prefix: string };
+({ type: "prefixSuggestion"; prefix: string }) & { blocks?: never; branches?: never; commits?: never; holder?: never; paths?: never; refusals?: never };
 
 /**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
 export type EveryoneDelivery = {
@@ -10191,9 +10203,11 @@ export type SyncState = { kind: "idle" } | { kind: "running"; step: SyncStep } |
 { kind: "failed"; error: ApiError } | 
 /**
  *  Git refused the last sync before it built anything: a rebase, merge, cherry-pick or revert in progress
- *  (`operation_in_progress`), a detached HEAD (`detached_head`), or a checked out branch under the prefix
- *  (`managed_branch`). Nothing failed; the table is the one of the sync before, and the next sync starts once git
- *  finished or the user checked out their branch (a focus sees the change)
+ *  (`operation_in_progress`), a detached HEAD (`detached_head`), a checked out branch under the prefix
+ *  (`managed_branch`), or commits ahead of the baseline that do not build on it (`unrelated_history`: the baseline is
+ *  a history unrelated to HEAD, or an unrelated one was merged in). Nothing failed; the table is the one of the sync
+ *  before, and the next sync starts once git finished, the user checked out their branch or a fetch moved the
+ *  baseline (a focus sees the change)
  */
 { kind: "deferred"; error: ApiError };
 
@@ -10731,6 +10745,17 @@ export type UnreachedDeclaration = {
 	path: string,
 	/**  The line of its name at the head, from 1 */
 	line: number,
+};
+
+/**
+ *  The history of `unrelated_history`: `head` (its branch, or `HEAD`) reaches `root`, a root commit (full id) that
+ *  `baseline` lacks; `shallow` when `root` is a boundary of a shallow repository, whose parents were not fetched
+ */
+export type UnrelatedHistoryDetails = {
+	head: string,
+	baseline: string,
+	root: string,
+	shallow: boolean,
 };
 
 export type UnsubscribeViewParams = {

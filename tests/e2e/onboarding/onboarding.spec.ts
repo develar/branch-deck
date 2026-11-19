@@ -539,6 +539,50 @@ test.describe("Deferred sync", () => {
   })
 })
 
+test.describe("A history unrelated to the baseline", () => {
+  test("says above the table that a sync waits while the branch has history unrelated to the baseline, and syncs once the baseline is back", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    const rows = await page.getByTestId("branch-row").count()
+    const master = await repo.revision("origin/master")
+    // the server serves another repository as master, and a fetch takes it (a forced update)
+    await repo.commitOnRemote("master", {
+      subject: "Initial commit",
+      author: "JitPack <bot@example.com>",
+      timestamp: 1_700_000_000,
+      files: { "README.md": "library\n" },
+      root: true,
+    })
+    await repo.fetchInTerminal()
+
+    // the session's own sync: deferred, the table of the sync before stays, the warning says which side lacks what
+    expect(await focusWindowRefused(page)).toMatchObject({ code: "unrelated_history" })
+    const alert = page.getByTestId("sync-deferred-alert")
+    await expect(alert).toContainText("Not synced: master has history unrelated to origin/master")
+    await expect(alert).toContainText("origin/master lacks")
+    await expect(alert).toContainText("a root commit of master")
+    await expect(page.getByTestId("branch-row")).toHaveCount(rows)
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+
+    // the user's Sync says it in a warning toast too, and Sync shows no failure
+    await page.getByTestId("sync-button").click()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Not synced: master has history unrelated to origin/master" })
+    await expect(toast).toContainText("origin/master lacks")
+    await expect(page.getByTestId("sync-button")).toBeEnabled()
+    await expectClosed(page.getByTestId("sync-tooltip"))
+
+    // the real master is back on the remote and fetched: the next sync syncs, and the warning goes
+    await repo.pushInTerminal("master", { revision: master })
+    await syncOnWindowFocus(page)
+    await expect(alert).toHaveCount(0)
+    await expect(page.getByTestId("branch-row")).toHaveCount(rows)
+  })
+})
+
 test.describe("A sync without a table", () => {
   test("says in the body that a sync waits for git while there is no table, and syncs once git finished", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, rebaseInProgress: true })

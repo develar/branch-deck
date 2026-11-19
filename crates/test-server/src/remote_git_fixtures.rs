@@ -4,8 +4,9 @@
 //! app, in order (`pushes`: each the branches it moved, to their commits, null for a deleted one); `POST …/remote/push`
 //! (`{branch, revision, earlierBuild}`) pushes a commit of the repository to a branch of it as `git push --force` in a
 //! terminal does (the remote-tracking ref moves too), or an earlier build of its commits: the same commits by content
-//! under other ids, as the sync rebuilt them since; `POST …/remote/commit` (`{branch, subject, author, timestamp, files}`) writes a
-//! commit onto a branch of it as someone else's push does (the remote-tracking ref stays); `POST …/remote/fetch`
+//! under other ids, as the sync rebuilt them since; `POST …/remote/commit` (`{branch, subject, author, timestamp, files,
+//! root}`) writes a commit onto a branch of it as someone else's push does (the remote-tracking ref stays), with `root` a
+//! root commit that replaces the branch, as a server that served another repository under its name; `POST …/remote/fetch`
 //! fetches it as `git fetch origin` in a terminal does (the remote-tracking refs move to what it has);
 //! `POST …/remote/refusal` (`{message}`) makes it refuse every push with that message, `null` take them again. A push
 //! held at the remote is the held answer `push` of `remote-gates` (`RemoteHost::hold_answers`). `POST
@@ -184,6 +185,9 @@ pub struct RemoteCommitRequest {
   author: String,
   timestamp: i64,
   files: Vec<(String, String)>,
+  /// A root commit that replaces the branch: a history unrelated to the repository's
+  #[serde(default)]
+  root: bool,
 }
 
 /// Writes a commit onto a branch of the remote as someone else's push does; the commit
@@ -199,6 +203,7 @@ pub async fn commit_on_remote_route(
     author: request.author,
     timestamp: request.timestamp,
     files: request.files,
+    root: request.root,
   };
   let id = blocking(move || commit_on_remote(&path, &request.branch, &commit)).await?;
   host.note_remote_moved_behind();

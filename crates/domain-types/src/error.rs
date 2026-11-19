@@ -111,6 +111,12 @@ pub enum ErrorCode {
   /// `unapplied`, `stack`): a sync and an update would group and rebase its history, not the user's branch. Nothing was
   /// changed; check out the baseline's branch (ask the user)
   ManagedBranch,
+  /// HEAD reaches a root commit the baseline lacks (`details` names both and the root): the baseline is a history
+  /// unrelated to HEAD (a server served another repository), an unrelated history was merged in ahead of it, or the
+  /// parents of a commit ahead are cut (a graft, a shallow fetch). The commits ahead would be the whole history of HEAD,
+  /// so nothing was read or changed; a sync waits for it as for a rebase in progress. Tell the user; never reset,
+  /// rebase or merge the branch onto the baseline
+  UnrelatedHistory,
   /// `brd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
   /// commit, another rewrite, a switch. The token can never succeed again
   UndoStale,
@@ -380,6 +386,7 @@ impl ErrorCode {
       | Self::OperationInProgress
       | Self::DetachedHead
       | Self::ManagedBranch
+      | Self::UnrelatedHistory
       | Self::UndoStale
       | Self::LeaseRejected
       | Self::StackConflict
@@ -493,9 +500,10 @@ impl ErrorCode {
   }
 
   /// Whether an agent shows the error to the user and asks before it goes on: a decision on the user's files or
-  /// commits that only the user makes (`ask_user` of the error object of `bd`)
+  /// commits that only the user makes (`ask_user` of the error object of `bd`); for `unrelated_history`, which side of
+  /// the history is wrong
   pub const fn asks_user(self) -> bool {
-    matches!(self, Self::UncommittedOverlap | Self::EmptyResolution | Self::LandedDiffers)
+    matches!(self, Self::UncommittedOverlap | Self::EmptyResolution | Self::LandedDiffers | Self::UnrelatedHistory)
   }
 }
 
@@ -586,9 +594,23 @@ pub enum ErrorDetails {
   Busy { holder: Option<Box<OperationHolder>> },
   /// What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference`
   Landing { refusals: Vec<LandingRefusal> },
+  /// The history of `unrelated_history`; boxed, as every `ApiError` carries the size of the largest data
+  UnrelatedHistory(Box<UnrelatedHistoryDetails>),
   /// The prefix to suggest where none names the branches (`no_branch_prefix` of the app): the local part of the
   /// committer email of git, without a `+tag`, as a branch name; empty when git names no email
   PrefixSuggestion { prefix: String },
+}
+
+/// The history of `unrelated_history`: `head` (its branch, or `HEAD`) reaches `root`, a root commit (full id) that
+/// `baseline` lacks; `shallow` when `root` is a boundary of a shallow repository, whose parents were not fetched
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct UnrelatedHistoryDetails {
+  pub head: String,
+  pub baseline: String,
+  pub root: String,
+  pub shallow: bool,
 }
 
 /// The holder of the repository lock as the page names it: "`brd push auth` (pid 4242) has held the repository for 40 s"

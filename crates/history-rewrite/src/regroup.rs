@@ -26,6 +26,7 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_list::UnrelatedHistory;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_writer::{StoreCommit, WrittenCommits, WrittenStore, write_commits_with_notes, write_store_commits};
 use git_ops::ref_transaction::RefTransaction;
@@ -315,6 +316,7 @@ impl RegroupError {
       Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
       Self::DetachedHead(_) => ErrorCode::DetachedHead,
       Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
+      Self::Other(error) if error.downcast_ref::<UnrelatedHistory>().is_some() => ErrorCode::UnrelatedHistory,
       Self::Other(_) => return None,
     })
   }

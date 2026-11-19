@@ -370,9 +370,11 @@ pub enum SyncState {
     error: ApiError,
   },
   /// Git refused the last sync before it built anything: a rebase, merge, cherry-pick or revert in progress
-  /// (`operation_in_progress`), a detached HEAD (`detached_head`), or a checked out branch under the prefix
-  /// (`managed_branch`). Nothing failed; the table is the one of the sync before, and the next sync starts once git
-  /// finished or the user checked out their branch (a focus sees the change)
+  /// (`operation_in_progress`), a detached HEAD (`detached_head`), a checked out branch under the prefix
+  /// (`managed_branch`), or commits ahead of the baseline that do not build on it (`unrelated_history`: the baseline is
+  /// a history unrelated to HEAD, or an unrelated one was merged in). Nothing failed; the table is the one of the sync
+  /// before, and the next sync starts once git finished, the user checked out their branch or a fetch moved the
+  /// baseline (a focus sees the change)
   Deferred {
     error: ApiError,
   },

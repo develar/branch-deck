@@ -13,6 +13,7 @@ fn fix_the_pool() -> RemoteCommit {
     author: "Ann <ann@example.com>".to_string(),
     timestamp: 1_704_178_800,
     files: vec![("pool.txt".to_string(), "pool\n".to_string())],
+    root: false,
   }
 }
 
@@ -40,6 +41,22 @@ fn a_template_has_its_own_remote_which_a_terminal_and_someone_else_push_to() {
     run(&bare, &["log", "-1", "--format=%an <%ae> %at %s %P", &theirs]).unwrap().trim(),
     format!("Ann <ann@example.com> 1704178800 Fix the pool {head}")
   );
+}
+
+/// A root commit replaces the branch of the remote with a history unrelated to the repository's, as a server that serves
+/// another repository under its name; a fetch then moves the remote-tracking ref onto it
+#[test]
+fn a_root_commit_on_the_remote_replaces_its_branch_with_an_unrelated_history() {
+  let directory = tempfile::tempdir().unwrap();
+  let repo = directory.path();
+  templates::simple().build(repo).unwrap();
+  let other = commit_on_remote(repo, "master", &RemoteCommit { root: true, ..fix_the_pool() }).unwrap();
+  assert_eq!(remote_branches(repo).unwrap()["master"], other);
+  assert_eq!(run(&bare_origin(repo), &["log", "-1", "--format=%P", &other]).unwrap().trim(), "", "a root");
+
+  fetch_in_terminal(repo).unwrap();
+  assert_eq!(rev_parse(repo, "origin/master"), other);
+  run(repo, &["merge-base", "HEAD", "origin/master"]).unwrap_err();
 }
 
 /// An earlier build copies the commits after the base with their trees, authors and messages, committed a day earlier

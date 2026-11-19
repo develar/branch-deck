@@ -639,7 +639,9 @@ async fn the_facts_git_tells_of_the_remote_come_with_the_rows_of_a_sync() {
 }
 
 /// A failed sync keeps the table of the sync before, its rows as they were, with the error; a deferred one keeps it
-/// too and says nothing failed, only why it waits (`Deferred`), until the next run; its ticket gets the code
+/// too and says nothing failed, only why it waits (`Deferred`), until the next run; its ticket gets the code. So does a
+/// sync whose commits ahead do not build on the baseline (a server served another repository as master), with the
+/// history the page names
 #[tokio::test]
 async fn a_failed_sync_keeps_the_table() {
   let host = Arc::new(ScriptedHost::default());
@@ -647,6 +649,14 @@ async fn a_failed_sync_keeps_the_table() {
   host.push(vec![grouping(vec![grouped("other", &["o1"])])], Err(ApiError::internal("broken")));
   let deferred = ApiError::new(ErrorCode::OperationInProgress, SyncDeferred::OperationInProgress("rebase").to_string());
   host.push(Vec::new(), Err(deferred.clone()));
+  let refusal = SyncDeferred::UnrelatedHistory {
+    branch: "master".to_string(),
+    baseline: "origin/master".to_string(),
+    root: "41b940fd533a6fb7cdac7dd16052a3968da12f64".to_string(),
+    shallow: false,
+  };
+  let unrelated = ApiError::new(refusal.code(), refusal.to_string()).with_details(refusal.details().unwrap());
+  host.push(Vec::new(), Err(unrelated.clone()));
   host.push(auth_built(), Ok(report(false, &[])));
   let (sessions, key) = watched(&host).await;
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
@@ -666,6 +676,11 @@ async fn a_failed_sync_keeps_the_table() {
   let deferred_view = snapshot(&sessions, &key).await;
   assert_eq!(deferred_view.sync, SyncState::Deferred { error: deferred });
   assert_eq!(deferred_view.branches, synced.branches);
+
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(unrelated.clone()));
+  let unrelated_view = snapshot(&sessions, &key).await;
+  assert_eq!(unrelated_view.sync, SyncState::Deferred { error: unrelated });
+  assert_eq!((&unrelated_view.order, &unrelated_view.branches), (&synced.order, &synced.branches));
 
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert_eq!(snapshot(&sessions, &key).await.sync, SyncState::Idle);

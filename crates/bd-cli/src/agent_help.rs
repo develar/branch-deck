@@ -54,8 +54,7 @@ Rules
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale (`head_moved`, `locked`, `busy`, `plan_changed`): read again and retry. 4 refused:
   do what the table below or the `--help` of the command says for the code, else stop and show `message` to the user.
-  5 git or network error: show it. Retry only when `retryable` is true, whatever the exit code. A `git_error` \"not
-  updating refs/branch-deck/tmp/chain\": a ref of brd 0.21 or older; `git update-ref -d` that ref, then retry.
+  5 git or network error: show it. Retry only when `retryable` is true, whatever the exit code.
 - An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"processes\",
   \"next_steps\",\"retryable\"}}; `paths`, `branches`, `review`, `blocks`, `processes` and `next_steps` only where they
   apply.
@@ -71,7 +70,6 @@ Rules
 
 Refusals that wait for the user (exit 4); the `--help` of the command has the rest:
 - `push_too_large`: show `paths`; never raise `branchdeck.pushSizeLimit` yourself.
-- `parked`: tell the user; never push, start or unpark a parked branch on your own.
 - `lease_rejected`: show `error.branches[].remote.dropped_commits`; `brd push --force --expect-remote <remote.head>` for
   that one branch only once the user approved.
 - `robot_running`: wait until the robot merges; `brd push --restart-running` or `brd safe-push --cancel-running` only once
@@ -81,7 +79,9 @@ Refusals that wait for the user (exit 4); the `--help` of the command has the re
 - `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`); `brd safe-push --allow-dangling` or
   `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `brd safe-push
   --allow-unknown-rules` only when the user says so.
+- `parked`: tell the user; never push, start or unpark a parked branch on your own.
 - `low_disk_space`: tell the user; never pass `brd lease get --min-free 0` on your own.
+- `unrelated_history`: show `message`; never reset, rebase or merge the branch onto the baseline.
 
 Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of the git config or the app setting;
 `prefix_source` of `brd status` names which), --full-ids, --no-cache, -v.

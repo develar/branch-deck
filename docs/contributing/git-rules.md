@@ -273,6 +273,11 @@ history would archive the branches it lacks. A sync and Update Project (the app'
 well while a branch under the prefix is checked out (`{prefix}/virtual/`, `unapplied/`, `archived/`, `stack/`;
 `managed_branch`, exit 4; `managed_branch_kind`): its history holds the commits of one group, so a sync would archive
 every other branch and an update would rebase a copy instead of the user's branch.
+Every read of the commits ahead of the baseline (`walk_commits_ahead`, `History::read_ahead_of`) refuses, off the local
+baseline, at the first root commit it lists (`UnrelatedHistory`, `unrelated_history`, exit 4): HEAD then reaches a root
+the baseline lacks, and the range would be its whole history; a sync is `SyncDeferred::UnrelatedHistory`, before any
+event and the update check. A new reader of that range goes through them, never a `log <baseline>..HEAD` of its own
+([Virtual branch sync](../design/git-operations.md#virtual-branch-sync)).
 
 ## Metadata
 

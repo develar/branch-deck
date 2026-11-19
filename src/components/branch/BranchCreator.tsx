@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { CircleXIcon, GitBranchIcon, HourglassIcon } from "lucide-react"
+import { CircleXIcon, GitBranchIcon, HourglassIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
@@ -80,8 +80,9 @@ export function BranchCreator() {
       markWindowContentReady()
     }
   }, [hasContent])
-  // a sync git refused (a rebase in progress, a detached HEAD) says why where there is no table to show
-  const showDeferred = syncDeferred !== null && !isSyncing && !hasError && branchCount === 0 && unassignedCommitCount === 0
+  // a sync git refused (a rebase in progress, a detached HEAD) says why where there is no table to show; one that no work
+  // of the user ends (a baseline unrelated to the branch) says it above the table of the sync before too
+  const showDeferred = syncDeferred !== null && !isSyncing && !hasError && (syncDeferred.tone === "warning" || (branchCount === 0 && unassignedCommitCount === 0))
   // until the session of the repository answers, the table loads where it will be (the shell of the window has it); a
   // repository synced before syncs when the window opens it: until its rows come, the table loads, also during a sync
   // after one that failed or waited for git, and during the first one of another session (a prefix changed in a
@@ -105,8 +106,8 @@ export function BranchCreator() {
       <LandedCard />
 
       {showDeferred && (
-        <Alert variant="info" data-testid="sync-deferred-alert">
-          <HourglassIcon />
+        <Alert variant={syncDeferred.tone} data-testid="sync-deferred-alert">
+          {syncDeferred.tone === "warning" ? <TriangleAlertIcon /> : <HourglassIcon />}
           <AlertTitle>{syncDeferred.title}</AlertTitle>
           <AlertDescription>{syncDeferred.description}</AlertDescription>
         </Alert>

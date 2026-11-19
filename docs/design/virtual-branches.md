@@ -1,7 +1,7 @@
 # Virtual Branches Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-11-19  
 **Tags:** [architecture, git, workflow]
 
 ## Problem
@@ -87,6 +87,13 @@ flowchart TD
    its place but gives each commit above the oldest one it rewrites a new committer time; an order by the newest commit
    time moved every row after a squash of one fixup, under the pointer that pressed Squash. A branch of new commits still
    comes first ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md#ui))
+
+5. **Decision**: The commits ahead must build on the baseline: a root commit among them refuses the sync, which waits
+   (`unrelated_history`) with the table of the sync before ([Git Operations](git-operations.md#virtual-branch-sync))
+   **Rationale**: A baseline unrelated to HEAD (on 2026-11-19 the server of the monorepo served another repository as
+   `master` for 17 minutes) makes `<baseline>..HEAD` the whole history: 1.6 million commits grouped and sent to the
+   page. A root is what tells it, at no process of its own. There is no limit on the count of commits ahead: a related
+   baseline far below HEAD is a baseline the user chose, and a limit would refuse a long but true range
 
 ### Grouping Rules
 

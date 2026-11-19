@@ -449,3 +449,116 @@ fn messages_and_paths_of_commits_come_from_one_log() {
   );
   assert_eq!(read_messages_and_paths(repo.git_executor(), path, &[]).unwrap(), []);
 }
+
+/// The refusal of a read of the commits ahead of `baseline_branch`, with the number of commits its handler saw
+fn refusal_ahead_of(test_repo: &TestRepo, baseline_branch: &str) -> (UnrelatedHistory, usize) {
+  let mut handled = 0;
+  let error = get_commit_list_with_handler(test_repo.git_executor(), test_repo.path_str(), baseline_branch, |_| {
+    handled += 1;
+    Ok(())
+  })
+  .expect_err("the history ahead does not build on the baseline");
+  (error.downcast_ref::<UnrelatedHistory>().expect("UnrelatedHistory").clone(), handled)
+}
+
+/// An orphan branch of one commit at `timestamp`, `branch` set at it, and master checked out again
+fn unrelated_branch(test_repo: &TestRepo, branch: &str, timestamp: i64) -> String {
+  test_repo.git(&["checkout", "-q", "--orphan", "unrelated"]);
+  test_repo.git(&["rm", "-q", "-r", "--cached", "."]);
+  let root = test_repo.create_commit_with_timestamp("Other root", "other.txt", "other", Some(timestamp));
+  test_repo.git(&["checkout", "-q", "-f", "master"]);
+  test_repo.git(&["update-ref", branch, &root]);
+  root
+}
+
+/// The baseline points at a history unrelated to HEAD (a server served another repository): the range is the whole
+/// history of HEAD, refused at its root, which git lists first, before the handler sees any commit
+#[test]
+fn a_head_unrelated_to_the_baseline_is_refused_at_its_first_root() {
+  let test_repo = TestRepo::new();
+  let root = test_repo.create_commit_with_timestamp("Initial commit", "README.md", "# Test", Some(1_700_000_000));
+  test_repo.create_commit_with_timestamp("(feature) Add feature", "feature.txt", "content", Some(1_700_000_100));
+  unrelated_branch(&test_repo, "refs/remotes/origin/master", 1_700_000_200);
+
+  let (refusal, handled) = refusal_ahead_of(&test_repo, "origin/master");
+  assert_eq!(
+    refusal,
+    UnrelatedHistory {
+      baseline: "origin/master".to_string(),
+      root,
+      shallow: false,
+    }
+  );
+  assert_eq!(handled, 0);
+}
+
+/// A commit dated before the root comes before it in the oldest-first listing: every record is checked, not the first
+#[test]
+fn a_root_listed_after_an_older_dated_commit_is_refused_too() {
+  let test_repo = TestRepo::new();
+  let root = test_repo.create_commit_with_timestamp("Initial commit", "README.md", "# Test", Some(1_700_000_100));
+  test_repo.create_commit_with_timestamp("(feature) Skewed", "feature.txt", "content", Some(1_600_000_000));
+  unrelated_branch(&test_repo, "refs/remotes/origin/master", 1_700_000_200);
+
+  let (refusal, _) = refusal_ahead_of(&test_repo, "origin/master");
+  assert_eq!(refusal.root, root);
+}
+
+/// An unrelated history merged in ahead of the baseline: its root is ahead of the baseline, so the sync would copy the
+/// tree of another repository onto it; refused
+#[test]
+fn an_unrelated_history_merged_in_ahead_of_the_baseline_is_refused() {
+  let test_repo = repo_with_origin_master();
+  let other_root = unrelated_branch(&test_repo, "refs/heads/other", 1_700_000_000);
+  test_repo.git(&["merge", "-q", "--allow-unrelated-histories", "-m", "Join the other history", "other"]);
+  test_repo.create_commit("(feature) Add feature", "feature.txt", "content");
+
+  let (refusal, _) = refusal_ahead_of(&test_repo, "origin/master");
+  assert_eq!(refusal.root, other_root);
+}
+
+/// A repository whose history joined another by a merge the baseline holds (the IntelliJ monorepo has many roots): the
+/// roots are the baseline's, so the commits ahead build on it
+#[test]
+fn a_history_the_baseline_joined_by_a_merge_is_not_refused() {
+  let test_repo = repo_with_origin_master();
+  unrelated_branch(&test_repo, "refs/heads/other", 1_700_000_000);
+  test_repo.git(&["merge", "-q", "--allow-unrelated-histories", "-m", "Join the other history", "other"]);
+  // `repo_with_origin_master` makes it a local branch
+  test_repo.git(&["update-ref", "refs/heads/origin/master", "HEAD"]);
+  create_auth_and_login_commits(&test_repo);
+
+  assert_subjects(
+    &commits_ahead(&test_repo, "origin/master"),
+    &["(feature-auth) Add authentication", "(bugfix-login) Fix login issue"],
+  );
+}
+
+/// A commit ahead whose parents a graft cut reads as a root: the history ahead is incomplete, refused
+#[test]
+fn a_commit_ahead_whose_parents_are_cut_is_refused() {
+  let test_repo = repo_with_origin_master();
+  test_repo.create_commit("(feature) First", "first.txt", "first");
+  let grafted = test_repo.create_commit("(feature) Second", "second.txt", "second");
+  test_repo.git(&["replace", "--graft", &grafted]);
+
+  let (refusal, _) = refusal_ahead_of(&test_repo, "origin/master");
+  assert_eq!((refusal.root.as_str(), refusal.shallow), (grafted.as_str(), false));
+}
+
+/// A boundary of a shallow repository ahead of the baseline (its parents were not fetched): refused, and the refusal
+/// says shallow, not unrelated
+#[test]
+fn a_shallow_boundary_ahead_of_the_baseline_is_refused_as_shallow() {
+  let test_repo = repo_with_origin_master();
+  test_repo.create_commit("(feature) First", "first.txt", "first");
+  let boundary = test_repo.create_commit("(feature) Second", "second.txt", "second");
+  std::fs::write(test_repo.path().join(".git/shallow"), format!("{boundary}\n")).unwrap();
+
+  let (refusal, _) = refusal_ahead_of(&test_repo, "origin/master");
+  assert_eq!((refusal.root.as_str(), refusal.shallow), (boundary.as_str(), true));
+  assert_eq!(
+    refusal.to_string(),
+    format!("the history ahead of origin/master is shallow: the parents of {} were not fetched", &boundary[..8])
+  );
+}

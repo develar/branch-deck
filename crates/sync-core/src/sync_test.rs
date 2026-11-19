@@ -826,13 +826,13 @@ async fn sync_waits_while_a_rebase_is_in_progress_or_head_is_detached() -> anyho
   Ok(())
 }
 
-/// A virtual branch checked out by hand (`git switch user/virtual/x`) has only the commits of its group: a sync from it
-/// would archive every other virtual branch. It is refused, typed, before it reports or moves any ref under the prefix
-#[tokio::test]
-async fn sync_waits_while_a_branch_under_the_prefix_is_checked_out() -> anyhow::Result<()> {
-  let test_repo = repo_with_initial_commit();
-  let git_executor = GitCommandExecutor::new();
-  let repo = test_repo.path().to_str().unwrap();
+/// The refs under the prefix `test`, with their commits
+fn refs_under_prefix(git_executor: &GitCommandExecutor, test_repo: &TestRepo) -> anyhow::Result<String> {
+  git_executor.execute_command(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/"], test_repo.path_str())
+}
+
+/// Two groups committed on master and synced: the refs under the prefix the sync left
+async fn two_groups_synced(git_executor: &GitCommandExecutor, test_repo: &TestRepo) -> anyhow::Result<String> {
   test_repo.commits_on(
     "refs/heads/master",
     &one_file_each([
@@ -840,27 +840,82 @@ async fn sync_waits_while_a_branch_under_the_prefix_is_checked_out() -> anyhow::
       ("(feature-cache) Add caching", "cache/cache.txt", "cache content"),
     ]),
   );
-  sync_events(&git_executor, &test_repo).await?;
-  let refs_under_prefix = || git_executor.execute_command(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/"], repo);
-  let before = refs_under_prefix()?;
-  assert!(before.contains("refs/heads/test/virtual/feature-auth"), "{before}");
+  sync_events(git_executor, test_repo).await?;
+  let synced = refs_under_prefix(git_executor, test_repo)?;
+  assert!(synced.contains("refs/heads/test/virtual/feature-auth"), "{synced}");
+  Ok(synced)
+}
+
+/// A sync refused before it reported anything: why it waits, its message the words of the refusal
+async fn deferred_sync(git_executor: &GitCommandExecutor, test_repo: &TestRepo) -> SyncDeferred {
+  let progress = TestReporter::new();
+  let error = sync_branches(git_executor, test_repo.path_str(), "test", progress.clone(), SyncOptions::default())
+    .await
+    .unwrap_err();
+  assert!(progress.get_events().is_empty(), "nothing is reported: {:?}", progress.get_events());
+  let deferred = error.downcast_ref::<SyncDeferred>().cloned().unwrap_or_else(|| panic!("not deferred: {error:#}"));
+  assert_eq!(error.to_string(), deferred.to_string());
+  deferred
+}
+
+/// A virtual branch checked out by hand (`git switch user/virtual/x`) has only the commits of its group: a sync from it
+/// would archive every other virtual branch. It is refused, typed, before it reports or moves any ref under the prefix
+#[tokio::test]
+async fn sync_waits_while_a_branch_under_the_prefix_is_checked_out() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  let git_executor = GitCommandExecutor::new();
+  let repo = test_repo.path_str();
+  let before = two_groups_synced(&git_executor, &test_repo).await?;
 
   git_executor.execute_command(&["symbolic-ref", "HEAD", "refs/heads/test/virtual/feature-cache"], repo)?;
-  let progress = TestReporter::new();
-  let error = sync_branches(&git_executor, repo, "test", progress.clone(), SyncOptions::default()).await.unwrap_err();
-  assert_eq!(
-    error.downcast_ref::<SyncDeferred>(),
-    Some(&SyncDeferred::ManagedBranch("test/virtual/feature-cache".to_string()))
-  );
-  assert_eq!(error.downcast_ref::<SyncDeferred>().map(SyncDeferred::code), Some(ErrorCode::ManagedBranch));
-  assert_eq!(error.to_string(), "Not synced: test/virtual/feature-cache is a branch Branch Deck manages");
-  assert!(progress.get_events().is_empty(), "nothing is reported");
-  assert_eq!(refs_under_prefix()?, before, "no virtual branch is archived or rebuilt");
+  let deferred = deferred_sync(&git_executor, &test_repo).await;
+  assert_eq!(deferred, SyncDeferred::ManagedBranch("test/virtual/feature-cache".to_string()));
+  assert_eq!(deferred.code(), ErrorCode::ManagedBranch);
+  assert_eq!(deferred.to_string(), "Not synced: test/virtual/feature-cache is a branch Branch Deck manages");
+  assert_eq!(refs_under_prefix(&git_executor, &test_repo)?, before, "no virtual branch is archived or rebuilt");
 
   // back on master, the sync runs and groups the same commits
   git_executor.execute_command(&["symbolic-ref", "HEAD", "refs/heads/master"], repo)?;
   sync_events(&git_executor, &test_repo).await?;
-  assert_eq!(refs_under_prefix()?, before);
+  assert_eq!(refs_under_prefix(&git_executor, &test_repo)?, before);
+  Ok(())
+}
+
+/// The remote served another repository as master (a forced update to an unrelated history): the range ahead of the
+/// baseline would be the whole history of HEAD. The walk refuses at its first root, typed, before the sync reports or
+/// changes anything, and a fetch of the real master syncs the same branches again
+#[tokio::test]
+async fn sync_waits_while_head_has_history_unrelated_to_the_baseline() -> anyhow::Result<()> {
+  let test_repo = TestRepo::new();
+  let git_executor = GitCommandExecutor::new();
+  let root = test_repo.create_commit("Initial commit", "README.md", "# Test Project");
+  // the baseline is the remote's master only with a remote of that name; the sync never fetches
+  test_repo.add_remote("origin", test_repo.path_str()).unwrap();
+  test_repo.git(&["update-ref", "refs/remotes/origin/master", &root]);
+  let before = two_groups_synced(&git_executor, &test_repo).await?;
+
+  let mut unrelated = HistoryStream::new("refs/heads/unrelated");
+  unrelated.commit(&HistoryCommit::new("Other root", &[("other.txt", "other")]));
+  let unrelated = unrelated.write(test_repo.path())?;
+  test_repo.git(&["update-ref", "refs/remotes/origin/master", unrelated[0].as_deref().unwrap()]);
+  let deferred = deferred_sync(&git_executor, &test_repo).await;
+  assert_eq!(
+    deferred,
+    SyncDeferred::UnrelatedHistory {
+      branch: "master".to_string(),
+      baseline: "origin/master".to_string(),
+      root: root.clone(),
+      shallow: false,
+    }
+  );
+  assert_eq!(deferred.code(), ErrorCode::UnrelatedHistory);
+  assert_eq!(deferred.to_string(), "Not synced: master has history unrelated to origin/master");
+  assert_eq!(refs_under_prefix(&git_executor, &test_repo)?, before, "no virtual branch is archived or rebuilt");
+
+  // the real master is back: the sync groups the same commits
+  test_repo.git(&["update-ref", "refs/remotes/origin/master", &root]);
+  sync_events(&git_executor, &test_repo).await?;
+  assert_eq!(refs_under_prefix(&git_executor, &test_repo)?, before);
   Ok(())
 }
 

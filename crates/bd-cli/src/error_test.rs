@@ -43,6 +43,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::OperationInProgress, 4, false),
   (ErrorCode::DetachedHead, 4, false),
   (ErrorCode::ManagedBranch, 4, false),
+  (ErrorCode::UnrelatedHistory, 4, false),
   (ErrorCode::UndoStale, 4, false),
   (ErrorCode::RangeUnknown, 4, false),
   (ErrorCode::SourceOnNewerBaseline, 4, false),

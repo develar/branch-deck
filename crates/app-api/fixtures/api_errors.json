@@ -15,6 +15,20 @@
     "retry": "no",
     "operation_id": null
   },
+  "unrelated_history": {
+    "code": "unrelated_history",
+    "message": "Not synced: master has history unrelated to origin/master",
+    "details": { "type": "unrelatedHistory", "head": "master", "baseline": "origin/master", "root": "41b940fd533a6fb7cdac7dd16052a3968da12f64", "shallow": false },
+    "retry": "no",
+    "operation_id": null
+  },
+  "unrelated_history_of_a_rewrite": {
+    "code": "unrelated_history",
+    "message": "HEAD has history unrelated to origin/master: origin/master lacks 41b940fd, a root commit of HEAD",
+    "details": { "type": "unrelatedHistory", "head": "HEAD", "baseline": "origin/master", "root": "41b940fd533a6fb7cdac7dd16052a3968da12f64", "shallow": false },
+    "retry": "no",
+    "operation_id": null
+  },
   "no_baseline": {
     "code": "no_baseline",
     "message": "The repository has no commits yet: commit to the main branch, then sync",

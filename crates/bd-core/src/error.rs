@@ -2,6 +2,7 @@ use crate::output::SchemaVersion;
 use crate::review_summary::ReviewSummary;
 use crate::sync_command::RemoteSummary;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, OperationHolder};
+use git_ops::commit_list::UnrelatedHistory;
 use git_ops::commit_signing::SigningFailed;
 use git_ops::commit_writer::NoIdentity;
 use history_rewrite::baseline::NoBaseline;
@@ -181,13 +182,20 @@ impl From<&PushTooLarge> for CliError {
 }
 
 /// A missing baseline (`NoBaseline`, also a repository without commits) is `no_baseline`, a push refused for its size
-/// `push_too_large`, a write without the identity of the user (`NoIdentity`) `no_identity`, and a failed signing
-/// (`SigningFailed`) `signing_failed`; any other git failure,
-/// which has no more specific code, is `git_error`
+/// `push_too_large`, a write without the identity of the user (`NoIdentity`) `no_identity`, a failed signing
+/// (`SigningFailed`) `signing_failed`, and a history ahead of the baseline that does not build on it
+/// (`UnrelatedHistory`, `SyncDeferred::UnrelatedHistory`) `unrelated_history` with its root commit; any other git
+/// failure, which has no more specific code, is `git_error`
 impl From<anyhow::Error> for CliError {
   fn from(error: anyhow::Error) -> Self {
     if let Some(too_large) = error.downcast_ref::<PushTooLarge>() {
       return Self::from(too_large);
+    }
+    if let Some(root) = unrelated_root(&error) {
+      return Self {
+        commits: vec![root],
+        ..Self::new(ErrorCode::UnrelatedHistory, format!("{error:#}"))
+      };
     }
     let code = if error.downcast_ref::<NoBaseline>().is_some() {
       ErrorCode::NoBaseline
@@ -199,6 +207,18 @@ impl From<anyhow::Error> for CliError {
       error.downcast_ref::<SyncDeferred>().map_or(ErrorCode::GitError, SyncDeferred::code)
     };
     Self::new(code, format!("{error:#}"))
+  }
+}
+
+/// The root commit of a history ahead of the baseline that does not build on it, read by any read of the commits ahead
+/// (`UnrelatedHistory`) or by a sync (`SyncDeferred::UnrelatedHistory`)
+fn unrelated_root(error: &anyhow::Error) -> Option<String> {
+  if let Some(refusal) = error.downcast_ref::<UnrelatedHistory>() {
+    return Some(refusal.root.clone());
+  }
+  match error.downcast_ref::<SyncDeferred>() {
+    Some(SyncDeferred::UnrelatedHistory { root, .. }) => Some(root.clone()),
+    _ => None,
   }
 }
 
@@ -255,7 +275,7 @@ pub struct ErrorBody {
   /// Whether the same command may succeed when retried
   pub retryable: bool,
   /// The user decides: show `message` (with `paths`) to the user and ask before you go on (`uncommitted_overlap`,
-  /// `empty_resolution`, `landed_differs`); omitted when false
+  /// `empty_resolution`, `landed_differs`, `unrelated_history`); omitted when false
   #[serde(default, skip_serializing_if = "is_false")]
   pub ask_user: bool,
 }
@@ -330,6 +350,14 @@ pub fn regroup_error(error: RegroupError) -> CliError {
       FixupRefusal::NamedById => " (fold them first with brd fold)",
       FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with brd fold)",
     });
+  }
+  if let RegroupError::Other(inner) = &error
+    && let Some(root) = unrelated_root(inner)
+  {
+    return CliError {
+      commits: vec![root],
+      ..CliError::new(ErrorCode::UnrelatedHistory, message)
+    };
   }
   CliError {
     commits: error.commits().to_vec(),

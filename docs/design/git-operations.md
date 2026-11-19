@@ -636,7 +636,10 @@ the whole history, which has 10⁵–10⁶ commits in a monorepo. There are two 
 - **Ahead of the baseline** (`History::read_ahead_of`): reword, add issue reference and the move of a hunk, which must
   not rewrite a commit of the baseline. `log --first-parent --boundary HEAD ^<baseline>` (no exclusion on the local
   baseline branch itself, as the commit list does) also prints the boundary, the first parent of the oldest commit,
-  and the second parent of every merge among them; the one that is the oldest commit's first parent is kept.
+  and the second parent of every merge among them; the one that is the oldest commit's first parent is kept. A root
+  commit among the commits ahead stops the log and refuses the rewrite (`UnrelatedHistory`, `unrelated_history`): the
+  first-parent line does not build on the baseline, as in "Virtual branch sync". The log is newest first, so the root
+  comes last: the refusal saves the rewrite, not the read.
 
 #### Rewrite in the engine
 
@@ -3163,10 +3166,11 @@ git directory it read and one `symbolic-ref HEAD`): while git is in the middle o
 revert, or HEAD is detached, the history of HEAD is not the branch the user works on, and a sync would archive the
 virtual branches of the groups the half-done history lacks. So is a checked out branch under the prefix (a virtual,
 unapplied, archived or stack branch, `managed_branch_kind`): its history holds the commits of one group, and a sync
-from it would archive every other branch. It is refused before any event as `SyncDeferred`: the app names it by the
-code of its `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`, `SyncDeferred::code`) and shows an
-`info` toast for a sync the user asked for, nothing for one it started itself; `brd sync` answers the same codes
-(exit 4).
+from it would archive every other branch. So are commits ahead that do not build on the baseline (below: the walk
+refuses at a root). It is refused before any event as `SyncDeferred`: the app names it by the code of its `ApiError`
+(`operation_in_progress`, `detached_head`, `managed_branch`, `unrelated_history`, `SyncDeferred::code`) and shows a
+toast for a sync the user asked for (`info`, `warning` for `unrelated_history`), nothing for one it started itself;
+`brd sync` answers the same codes (exit 4).
 
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
 needs it: `remote -v` (the remotes in the order of `git remote`, each with its first push URL, `pushInsteadOf`
@@ -3203,6 +3207,26 @@ detection and the update check compare with the same commit. The walk of the com
 `<baseline commit>..<HEAD>`, the two ids, never the names (`get_frozen_commit_list_with_handler`; on the local
 baseline itself `<HEAD>` without its roots): a fetch or a commit in the IDE while the sync runs changes nothing of what
 it groups, and the next focus syncs them (`a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups`).
+
+**A root ahead of the baseline refuses the walk** (`git_ops::commit_list::UnrelatedHistory`, every reader of
+`walk_commits_ahead`: the sync, the grouping, the snapshots of the rewrites, the checks, a pick): off the local
+baseline, a commit without parents in `<baseline>..<HEAD>` means HEAD reaches a root the baseline lacks. The baseline
+is a history unrelated to HEAD, an unrelated history was merged in ahead of it, or the parents of a commit ahead are
+cut (`git replace --graft`, the boundary of a shallow fetch, which `$GIT_COMMON_DIR/shallow` names: the refusal says
+shallow then). The range would be the whole history of HEAD: on 2026-11-19 the server of the monorepo served another
+repository (76 commits) as `master` for 17 minutes, a fetch took the forced update, and each sync grouped 1 623 531
+commits into 214 689 branches and sent them to the page. A history joined by a merge the baseline holds (the monorepo
+has many roots) lists none of its roots and syncs. Every record is checked, not the first: the log lists the range
+oldest first by date, so the root usually comes first, but a skewed date puts another before it; `--topo-order`
+would change the order of the groups. The error stops git, so the app holds none of the commits; git itself has
+walked the range before the first byte (`^<baseline>` limits the walk, `--reverse` collects it), once a sync. No
+`merge-base` first: it costs a process in every sync and the same walk in this case, and misses a history merged in
+ahead. The sync turns it into `SyncDeferred::UnrelatedHistory` (`unrelated_history`, its details the branch, the
+baseline, the root and whether it is shallow) before it sends an event, deletes a temporary ref or starts the update
+check, whose `merge-base` would walk the whole history again; the scheduler remembers what the deferred run read, so
+a focus without a fetch reads the inputs only. No limit on the count of commits ahead: a related baseline far below
+HEAD (an upstream of a release branch for work on master) is a choice of the user, not a history that breaks the
+model. A fetch of the baseline that takes a forced update logs it (`the baseline was force-pushed`).
 
 **The unapplied branches** (`{prefix}/unapplied/<name>`, "Drop and unapply") are in the same listing. A sync never
 writes them; after the stack branches it sends them once, also an empty list, in `UnappliedBranchesFound`: the name,

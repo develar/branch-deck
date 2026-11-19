@@ -179,7 +179,8 @@ pub trait SessionHost: Send + Sync + 'static {
 
   /// One sync of the session that opened under the lease `opened` (`SessionLife::opened_epoch`); its events go to
   /// `reporter`, the session's mailbox. A deferred sync (a rebase in progress, a detached HEAD, a branch under the
-  /// prefix) answers its `ApiError` code (`operation_in_progress`, `detached_head`, `managed_branch`); a run of a
+  /// prefix, commits ahead that do not build on the baseline) answers its `ApiError` code (`operation_in_progress`,
+  /// `detached_head`, `managed_branch`, `unrelated_history`); a run of a
   /// worktree that holds another lease than `opened` syncs nothing and answers `Ran::AnotherLease` (`lease_began`), and the
   /// session opens anew for that lease
   fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun;

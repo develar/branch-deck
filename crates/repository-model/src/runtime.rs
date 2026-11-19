@@ -30,10 +30,10 @@
 //!   one each, and the waiters of the run resolve after it. Meanwhile every other change waits for that patch too, and
 //!   an answer names its version (`Actor::version`); only a new run or a closed session sends it before.
 //! - The end of a run: a success leaves the table its events made; a deferred sync (`operation_in_progress`,
-//!   `detached_head`, `managed_branch`, and `prefix_changed`: the git config the run read names the branches by another
-//!   prefix than the session's, so it builds nothing) restores the table and says nothing failed, its waiters get the
-//!   code; the sync is `Deferred { error }` for the first three, which the page shows where there is no table, and
-//!   `Idle` for the last; another failure restores the table with `Failed { error }`. The scheduler remembers what a
+//!   `detached_head`, `managed_branch`, `unrelated_history`, and `prefix_changed`: the git config the run read names the
+//!   branches by another prefix than the session's, so it builds nothing) restores the table and says nothing failed,
+//!   its waiters get the code; the sync is `Deferred { error }` for the first four, which the page shows where there is
+//!   no table (`unrelated_history` above the table too), and `Idle` for the last; another failure restores the table with `Failed { error }`. The scheduler remembers what a
 //!   failed or deferred run read, so a focus that finds the same runs nothing. A run whose report asks for a retry
 //!   (`SyncReport::retry`) runs once more for the same requests, its branches that were not built `Syncing` until then.
 //! - The frame (`warm_start`): the actor opens by reading the frame of its worktree on the blocking pool and seeds from
@@ -1610,12 +1610,13 @@ fn asked_robots(demand: &Demand) -> AskedRobots<'_> {
   }
 }
 
-/// A sync refused while git is in the middle of something, HEAD is detached or on a branch under the prefix
-/// (`SyncDeferred`), or under a prefix the git config no longer names (`prefix_changed`): nothing failed
+/// A sync refused while git is in the middle of something, HEAD is detached or on a branch under the prefix, the
+/// commits ahead do not build on the baseline (`SyncDeferred`), or under a prefix the git config no longer names
+/// (`prefix_changed`): nothing failed
 const fn is_deferred(error: &ApiError) -> bool {
   matches!(
     error.code,
-    ErrorCode::OperationInProgress | ErrorCode::DetachedHead | ErrorCode::ManagedBranch | ErrorCode::PrefixChanged
+    ErrorCode::OperationInProgress | ErrorCode::DetachedHead | ErrorCode::ManagedBranch | ErrorCode::UnrelatedHistory | ErrorCode::PrefixChanged
   )
 }
 
