@@ -193,6 +193,27 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wa
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
 }
 
+/// Samples the busy cores of the whole host every `every` into `host.json` of the heavy turn, for the admissions
+/// (`lease_pool::host_turn::note_host`): the runs miss what no run counts. A host that tells no CPU ticks notes nothing,
+/// and a note that fails says so in the log once
+pub(crate) fn sample_host(home: &Home, every: Duration) {
+  let cores = std::thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX));
+  let Some(mut before) = sync_utils::host_cpu::host_ticks() else { return };
+  let mut said = false;
+  loop {
+    std::thread::sleep(every);
+    let Some(after) = sync_utils::host_cpu::host_ticks() else { continue };
+    if let Some(busy) = sync_utils::host_cpu::busy_cores(before, after, cores)
+      && let Err(error) = lease_pool::host_turn::note_host(&heavy_dir(home), busy)
+      && !said
+    {
+      crate::log::log(&format!("cannot note the busy cores of the host for the heavy turn: {error:#}"));
+      said = true;
+    }
+    before = after;
+  }
+}
+
 /// The line of a wait for the turn that ended in the queue after `waited`, for the refusal `heavy_timeout`
 pub(crate) fn timeout_line(run: &str, queue: &TurnQueue, waited: Duration) -> String {
   turn_line(run, queue, waited, Duration::ZERO, now_ms())

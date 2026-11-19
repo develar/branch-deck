@@ -361,7 +361,7 @@ the content that the table names.
 | Agent | `~/.config/brd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/brd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/brd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
+| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/host.json` (the busy cores of the host, every 2 s), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -1835,8 +1835,9 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 Before its lend, a heavy run MUST take its cores of the heavy turn of the host (`lease_pool::host_turn`) in the phase
 `heavy`, waiting up to 2 h first come first, and give them back after its give-back; a run that is not heavy takes
-none. The head of the queue, and no run after it, MUST be admitted while the cores of the holders, the live cores of
-the runs that are not heavy and its own fit the cores of the host. A run without a measure MUST take the whole host.
+none. The head of the queue, and no run after it, MUST be admitted while the cores of the holders, the busy cores of
+the host outside them and its own fit the host, or on a free turn of a quiet host. A run without a measure MUST take
+the whole host.
 
 #### Scenario: Two heavy runs and one that is not heavy
 - **WHEN** a heavy run without a measure holds the turn, a second heavy run starts, and a run that is not heavy starts
@@ -1864,6 +1865,17 @@ the runs that are not heavy and its own fit the cores of the host. A run without
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_whole_host_and_the_head_of_the_queue_goes_first`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
 
+#### Scenario: The busy cores of the host
+- **WHEN** the host is busy with cores that no holder uses: runs that are not heavy, processes of no run
+- **THEN** an admission counts the larger of the live cores of the runs that are not heavy and the busy cores of the
+  host by the last sample of the agent (every 2 s, `host.json` of the heavy turn), less the live cores of the holders;
+  a sample older than 10 s counts as none
+- **AND** a run that takes the whole host is admitted only on a quiet host, busy with at most a fifth of its cores (at
+  least 1) outside the heavy runs; a run of a measure on a free turn while it fits beside that load, or on a quiet host
+  [@test] crates/lease-pool/src/host_turn_test.rs (`the_busy_cores_of_the_host_outside_the_holders_hold_a_heavy_run_back`)
+  [@test] crates/sync-utils/src/host_cpu_test.rs (`the_busy_cores_are_the_busy_part_of_the_ticks_between_two_readings`, `the_ticks_of_proc_stat_count_the_work_as_busy_and_idle_and_iowait_as_not`, `the_ticks_of_this_host_grow`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`serve_samples_the_busy_cores_of_the_host_for_the_heavy_turn`)
+
 #### Scenario: The holder of the build before
 - **WHEN** the supervisor of a heavy run of the build before an upgrade holds `heavy.json`, the table of one holder
 - **THEN** it holds the whole host for the runs of this build, which wait for it, and `brd-host runs` names it first
@@ -1872,13 +1884,14 @@ the runs that are not heavy and its own fit the cores of the host. A run without
 #### Scenario: The line of the wait
 - **WHEN** a heavy run waits for the turn
 - **THEN** at once and then once a minute its log says `run <id> waits <time> for the heavy turn of the host, <need>,
-  <time> left: <holders>, runs that are not heavy use <cores>, <n> runs ahead: <id> of <repository> (<command>), …; a
-  wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn`
+  <time> left: <holders>, the host is busy with <cores> of <cores of the host> cores outside the heavy runs, <n> runs
+  ahead: <id> of <repository> (<command>), …; a wait, not a hang: do not cancel it and do not run it on the client;
+  `brd-host runs <host>` shows the heavy turn`
 - **AND** `<need>` is `<cores> of its <cores of the host> cores`, `all its <cores of the host> cores, as the command
   has no measure yet` or `all its <cores of the host> cores, as the command measured <cores>`; each holder is `run <id>
   of <repository> holds <cores> for <time> (<command>, measured)`, `(<command>, live, above its measure)`, or `holds
-  the whole host for <time> (<command>, no measure)`; without a holder `no heavy run holds cores`; the part of the runs
-  that are not heavy only when they use cores
+  the whole host for <time> (<command>, no measure)`; without a holder `no heavy run holds cores`; without a fresh
+  sample of the host, `runs that are not heavy use <cores>` instead of the busy cores, and only when they use cores
 - **AND** after the wait it says `took the heavy turn of the host after <n> s`
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead`)
   [@test] crates/host-agent/src/turn_test.rs (`a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it`)
@@ -1910,21 +1923,24 @@ the runs that are not heavy and its own fit the cores of the host. A run without
 
 ### Requirement: serve: A run measures the cores of its command
 
-The supervisor of every run MUST sample the CPU of its command group and of the Bazel servers of its slot every 10 s,
-and at the end measure the mean (the larger of the sampled CPU and of the reaped children over the wall time) and the
-peak. A command of 10 s or more MUST add its measure to the last 5 of its repository and command; a command is
-expected to use their 80th percentile.
+The supervisor of every run MUST sample the CPU of its command group, of the Bazel servers of its slot and of their
+descendants, each with the CPU of its reaped children, every 10 s, and at the end measure the mean and the peak. A
+command of 10 s or more MUST add its measure to the last 5 of its repository and command.
 
 #### Scenario: The samples of a run
 - **WHEN** the command of a run runs
 - **THEN** each sample rewrites `cores.json` of the run and notes the live cores in the heavy turn: of a holder as its
   `live`, of a run that is not heavy in `light`
 - **AND** at the end its log says `the command used <mean> cores on average and <peak> at its peak, of the <cores> of
-  the host`
+  the host`: the mean is the larger of the sampled CPU and the CPU of the reaped children of the supervisor over the
+  wall time, the peak the most of one sample
 - **AND** a process that started before the command, such as a Bazel server of the slot that a later sample finds,
   counts from that sample on, and a sample counts at most the cores of the machine
-  [@test] crates/host-agent/src/cores_test.rs (`the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure`, `a_process_older_than_the_command_counts_only_from_its_first_sample`, `a_sample_counts_at_most_the_cores_of_the_machine`)
-  [@test] crates/sync-utils/src/process_scan_test.rs (`the_cpu_time_of_a_process_grows_while_it_computes`)
+- **AND** a process that started and ended between two samples, a compiler or a test, counts in the process that
+  reaped it, and a process that a sample saw alive counts once after its reap: its time at that sample is a credit
+  that the growth of an ancestor that a sample looks at pays off
+  [@test] crates/host-agent/src/cores_test.rs (`the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure`, `a_process_older_than_the_command_counts_only_from_its_first_sample`, `a_sample_counts_at_most_the_cores_of_the_machine`, `a_child_that_ends_between_two_samples_counts_in_the_process_that_reaped_it`, `a_child_seen_alive_counts_once_after_its_parent_reaped_it`)
+  [@test] crates/sync-utils/src/process_scan_test.rs (`the_cpu_time_of_a_process_grows_while_it_computes`, `the_cpu_times_of_a_process_count_its_reaped_children`)
   [@test] crates/sync-utils/src/cores_test.rs (`cores_read_and_write_with_one_decimal_and_are_the_mean_of_a_cpu_time`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
 

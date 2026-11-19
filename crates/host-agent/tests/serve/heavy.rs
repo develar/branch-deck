@@ -314,3 +314,16 @@ fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_w
   }
   assert!(started(&marks).contains(&"13-4".to_owned()));
 }
+
+/// `serve` samples the busy cores of the whole host into `host.json` of the heavy turn every 2 s, for the admissions:
+/// the samples of the runs miss what no run counts
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn serve_samples_the_busy_cores_of_the_host_for_the_heavy_turn() {
+  let world = World::new(1, &[]);
+  let _agent = world.serve_with(&[("BD_HOST_TEST_HOST_SAMPLE_MS", "200")]);
+  let file = world.home.path().join(".cache/brd-host/heavy/host.json");
+  eventually("a sample of the host", || {
+    fs::read_to_string(&file).is_ok_and(|text| serde_json::from_str::<serde_json::Value>(&text).is_ok_and(|sample| sample["busy"].is_number() && sample["at_ms"].is_u64()))
+  });
+}

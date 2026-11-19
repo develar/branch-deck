@@ -36,8 +36,9 @@ pub fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
 /// The line of the heavy run `run` that waited `waited` for its cores of the heavy turn of the host, with `left` until
 /// it gives up, at `now_ms`: "run 1792-81 waits 3 min for the heavy turn of the host, 7.5 of its 20 cores, 117 min left:
 /// run 1788-12 of
-/// branch-deck holds 12.0 for 4 min (pnpm e2e, measured), runs that are not heavy use 2.0, 1 run ahead: 1790-03 of idea-1
-/// (./community/tools/bt.cmd --lane fast)"
+/// branch-deck holds 12.0 for 4 min (pnpm e2e, measured), the host is busy with 18.3 of 20 cores outside the heavy runs,
+/// 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"; without a sample of the host, the use of the runs
+/// that are not heavy instead: "runs that are not heavy use 2.0"
 pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration, now_ms: u64) -> String {
   let holders = if queue.holders.is_empty() {
     "no heavy run holds cores".to_owned()
@@ -57,10 +58,10 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
       .collect();
     holders.join(", ")
   };
-  let light = if queue.light == Cores(0) {
-    String::new()
-  } else {
-    format!(", runs that are not heavy use {}", queue.light)
+  let light = match queue.outside {
+    Some(outside) => format!(", the host is busy with {outside} of {} cores outside the heavy runs", queue.cores),
+    None if queue.light == Cores(0) => String::new(),
+    None => format!(", runs that are not heavy use {}", queue.light),
   };
   let ahead: Vec<String> = queue.ahead.iter().map(|entry| format!("{} ({})", run_of_repo(entry), entry.command)).collect();
   let ahead = match ahead.len() {

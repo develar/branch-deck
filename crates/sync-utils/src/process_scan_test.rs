@@ -408,6 +408,21 @@ fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() 
   }
 }
 
+/// Computes until this process used `cpu` more of CPU time, the state an assertion needs, not a time; answers its CPU
+/// time before
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn spin_for_cpu(cpu: std::time::Duration) -> std::time::Duration {
+  let pid = std::process::id();
+  let before = crate::process_scan::cpu_time(pid).unwrap();
+  let mut spin = 0u64;
+  while crate::process_scan::cpu_time(pid).unwrap() < before + cpu {
+    for _ in 0..100_000 {
+      spin = std::hint::black_box(spin.wrapping_add(1));
+    }
+  }
+  before
+}
+
 /// The CPU time of a process grows while it computes, and the cheap list of the processes has this one with its group;
 /// a gone process has no CPU time. The loop waits for the CPU time itself, not for a time: a loaded host gives this
 /// process a fraction of a core (28 ms of CPU in 300 ms of a spin at load 90)
@@ -415,14 +430,44 @@ fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() 
 #[test]
 fn the_cpu_time_of_a_process_grows_while_it_computes() {
   let pid = std::process::id();
-  let before = crate::process_scan::cpu_time(pid).unwrap();
-  let mut spin = 0u64;
-  while crate::process_scan::cpu_time(pid).unwrap() < before + std::time::Duration::from_millis(100) {
-    for _ in 0..100_000 {
-      spin = std::hint::black_box(spin.wrapping_add(1));
-    }
-  }
+  spin_for_cpu(std::time::Duration::from_millis(100));
   let own = crate::process_scan::process_list().unwrap().into_iter().find(|process| process.pid == pid).unwrap();
   assert_ne!(own.group, 0);
   assert_eq!(crate::process_scan::cpu_time(u32::MAX - 1), None);
+}
+
+/// The CPU times of a process count its own time, in the unit of `cpu_time`, and the time of each child once it reaped
+/// it: a shell that waited for a child that computed and ended has that time as its children's, while it waits itself
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn the_cpu_times_of_a_process_count_its_reaped_children() {
+  use std::io::Write;
+  let pid = std::process::id();
+  let before = spin_for_cpu(std::time::Duration::from_millis(100));
+  let own = crate::process_scan::cpu_times(pid).unwrap().own;
+  assert!(
+    own >= before + std::time::Duration::from_millis(100) && own <= crate::process_scan::cpu_time(pid).unwrap(),
+    "{own:?}"
+  );
+
+  // the child computes and ends; the shell waits for it, then for a line of its stdin
+  let mut shell = std::process::Command::new("sh")
+    .args(["-c", "sh -c 'i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done'; read line"])
+    .stdin(std::process::Stdio::piped())
+    .spawn()
+    .unwrap();
+  let shell_pid = shell.id();
+  // the state the assertion needs: the child reaped, not a time
+  let times = loop {
+    let times = crate::process_scan::cpu_times(shell_pid).unwrap();
+    if !times.children.is_zero() {
+      break times;
+    }
+    std::thread::yield_now();
+  };
+  assert!(times.children > times.own, "the loop of the child, not the wait of the shell: {times:?}");
+  assert_eq!(times.total(), times.own + times.children);
+  shell.stdin.take().unwrap().write_all(b"done\n").unwrap();
+  shell.wait().unwrap();
+  assert_eq!(crate::process_scan::cpu_times(u32::MAX - 1), None);
 }

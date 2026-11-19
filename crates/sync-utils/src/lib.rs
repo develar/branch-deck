@@ -4,7 +4,8 @@
 //!   while), `paths` (as the shell and git take them), `dir_watch` (the watch of a directory, a hint with a look of its
 //!   own)
 //! - the processes that are not git: `child_process`, `known_tools` (where each is looked for), `process_scan` (the
-//!   processes inside a directory)
+//!   processes inside a directory, the CPU of a process and of its reaped children), `host_cpu` (the busy cores of the
+//!   whole host)
 //! - the grammars of a commit: `commit_subject`, `commit_body` (its Markdown: `markdown_table`, `markdown_inline`,
 //!   `markdown_comments`), `code_spans` (the code in a line of prose), `issue_pattern`
 //! - an operation: `operation_id` (its ULID), `operation_tally` (what it cost), `clock` (the clock of its timers),
@@ -22,6 +23,7 @@ pub mod cores;
 pub mod dir_watch;
 pub mod fs_retry;
 pub mod git_bool;
+pub mod host_cpu;
 pub mod host_ref_name;
 pub mod issue_pattern;
 pub mod known_tools;

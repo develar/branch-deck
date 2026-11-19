@@ -155,8 +155,9 @@ pub fn spawn_on_loopback(mut command: std::process::Command, port: u16, args: &[
 /// client process that a loaded test run held back, the 10 s the check of a debug build, and the test of the
 /// handshake deadline sets its own. The grace of a cancel is 20 s, not 120 s: the teardown of a test cancels each run
 /// that goes on and waits up to its `SETTLE` (60 s), so a command that a SIGINT does not end still gets its SIGKILL
-/// within it (`teardown_test`)
-pub const PROCESS_TEST_ENV: [(&str, &str); 8] = [
+/// within it (`teardown_test`). No sample of the host: the suite keeps the host busy, so a heavy run of a test would wait
+/// for a quiet host, but in the test of the sample
+pub const PROCESS_TEST_ENV: [(&str, &str); 9] = [
   ("GIT_CONFIG_NOSYSTEM", "1"),
   ("BD_HOST_TEST_SHELL", "none"),
   ("BD_HOST_TEST_CAFFEINATE", "none"),
@@ -165,6 +166,7 @@ pub const PROCESS_TEST_ENV: [(&str, &str); 8] = [
   ("BD_HOST_TEST_HANDSHAKE_MS", "60000"),
   ("BD_HOST_TEST_SELF_CHECK_MS", "60000"),
   ("BD_HOST_TEST_GRACE_MS", "20000"),
+  ("BD_HOST_TEST_HOST_SAMPLE_MS", "0"),
 ];
 
 /// Listens on `bind:port` and serves each connection. Prints one JSON line with the address and the fingerprint on `out`
@@ -213,6 +215,12 @@ pub fn serve(options: ServeOptions, out: &mut dyn Write) -> Result<(), Refusal> 
       flushed.flush_tallies();
     }
   }));
+
+  // the busy cores of the whole host for the admissions of the heavy turn
+  if let Some(every) = tuning::host_sample_every() {
+    let sampled = agent.home.clone();
+    thread::spawn(in_current_span(move || crate::turn::sample_host(&sampled, every)));
+  }
 
   let home = agent.home.clone();
   thread::spawn(in_current_span(move || {

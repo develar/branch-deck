@@ -392,6 +392,36 @@ pub fn cpu_time(pid: u32) -> Option<std::time::Duration> {
   platform::cpu_time(pid)
 }
 
+/// The CPU time of a process, user and system, and of its reaped children (`cpu_times`)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CpuTimes {
+  /// What the process used itself, of all its threads
+  pub own: std::time::Duration,
+  /// What its children used, once it reaped them, with what their reaped children used in turn
+  pub children: std::time::Duration,
+}
+
+impl CpuTimes {
+  /// The CPU time of the process and of its reaped children
+  pub fn total(self) -> std::time::Duration {
+    self.own + self.children
+  }
+}
+
+/// The CPU time of the process `pid` and of its reaped children: `proc_pid_rusage` (`RUSAGE_INFO_V2`) on macOS, fields
+/// 14 to 17 of `/proc/<pid>/stat` on Linux; `None` for a gone process, one the system won't describe to this process,
+/// and on another platform. A child counts in it once the process waited for it, so a sampler sees the CPU of a child
+/// that started and ended between two looks. On macOS an exec loses the children reaped before it
+pub fn cpu_times(pid: u32) -> Option<CpuTimes> {
+  #[cfg(any(target_os = "macos", target_os = "linux"))]
+  return platform::cpu_times(pid);
+  #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+  {
+    let _ = pid;
+    None
+  }
+}
+
 /// Every process with its parent, its group and its start, without its working directory and its arguments, which take
 /// most of the time of a full scan (`ProcessScan::scan`): what a sampler of the CPU of a process group reads often;
 /// `None` where the system tells no list
@@ -671,6 +701,30 @@ mod platform {
     let ticks = u128::from(task.pti_total_user) + u128::from(task.pti_total_system);
     let (numer, denom) = timebase()?;
     u64::try_from(ticks * u128::from(numer) / u128::from(denom)).ok().map(std::time::Duration::from_nanos)
+  }
+
+  /// `ri_user_time` and `ri_system_time` of `proc_pid_rusage` and the two of the reaped children, in the ticks of the
+  /// Mach clock as the task info
+  #[expect(unsafe_code, reason = "proc_pid_rusage(3) of libproc, which std does not offer")]
+  pub(super) fn cpu_times(pid: u32) -> Option<super::CpuTimes> {
+    let mut info = MaybeUninit::<libc::rusage_info_v2>::zeroed();
+    // SAFETY: the buffer is one `rusage_info_v2`, which the call writes for the flavor `RUSAGE_INFO_V2`
+    let read = unsafe { libc::proc_pid_rusage(c_int::try_from(pid).ok()?, libc::RUSAGE_INFO_V2, info.as_mut_ptr().cast()) };
+    if read != 0 {
+      return None;
+    }
+    // SAFETY: the call succeeded and filled it; every bit pattern is valid for the plain C struct
+    let info = unsafe { info.assume_init() };
+    let (numer, denom) = timebase()?;
+    let time = |ticks: u64| {
+      u64::try_from(u128::from(ticks) * u128::from(numer) / u128::from(denom))
+        .ok()
+        .map(std::time::Duration::from_nanos)
+    };
+    Some(super::CpuTimes {
+      own: time(info.ri_user_time.saturating_add(info.ri_system_time))?,
+      children: time(info.ri_child_user_time.saturating_add(info.ri_child_system_time))?,
+    })
   }
 
   /// The ratio of the Mach clock to nanoseconds, read once
@@ -1038,6 +1092,16 @@ mod platform {
     Some(std::time::Duration::from_nanos((stat.cpu_ticks.saturating_mul(1_000_000_000)) / ticks))
   }
 
+  pub(super) fn cpu_times(pid: u32) -> Option<super::CpuTimes> {
+    let stat = Stat::read(pid)?;
+    let ticks = clock_ticks()?;
+    let time = |cpu: u64| std::time::Duration::from_nanos(cpu.saturating_mul(1_000_000_000) / ticks);
+    Some(super::CpuTimes {
+      own: time(stat.cpu_ticks),
+      children: time(stat.children_ticks),
+    })
+  }
+
   /// Each thread stopped (`T`, or `t` under a tracer), a zombie (`Z`) or dead (`X`): `/proc/<pid>/stat` has the state of
   /// the main thread, and another one runs on to the end of its call (a fork)
   pub(super) fn halted(pid: u32) -> Option<bool> {
@@ -1106,6 +1170,8 @@ mod platform {
     started: u64,
     /// Fields 14 and 15, `utime` and `stime`: clock ticks of CPU
     cpu_ticks: u64,
+    /// Fields 16 and 17, `cutime` and `cstime`: clock ticks of CPU of the reaped children
+    children_ticks: u64,
     /// Field 3, `state`, is `Z`
     zombie: bool,
     /// Field 3, `state`, is `T`, `t`, `Z` or `X`: the thread forks no more
@@ -1131,6 +1197,7 @@ mod platform {
         group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
         cpu_ticks: fields.get(11)?.parse::<u64>().ok()?.saturating_add(fields.get(12)?.parse::<u64>().ok()?),
+        children_ticks: fields.get(13)?.parse::<u64>().ok()?.saturating_add(fields.get(14)?.parse::<u64>().ok()?),
         zombie: fields.first() == Some(&"Z"),
         halted: fields.first().is_some_and(|state| ["T", "t", "Z", "X"].contains(state)),
       })

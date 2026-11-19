@@ -11,6 +11,13 @@
 //! expectation and its live use (`live`, which its supervisor notes at each sample), so a command that got heavier
 //! holds more at once; the runs that are not heavy note theirs into `light`.
 //!
+//! The samples of the runs miss what no run counts, and the agent samples the busy cores of the whole host every 2 s
+//! into `host.json` ([`note_host`]). An admission counts the larger of `light` and the busy cores of the host outside
+//! the live use of the holders: the load of the runs that are not heavy and of processes no run counts holds a heavy run
+//! back too. A run that takes the whole host waits for a quiet host, busy with at most a fifth of its cores (at least 1)
+//! outside the heavy runs; a run of a measure starts on a free turn while it fits beside that load, or the host is quiet.
+//! A sample older than 10 s counts as none, and an admission then counts `light` only.
+//!
 //! The table is `turn.json` with its lock `turn.lock` in a directory of the agent of its own (`~/.cache/brd-host/heavy/`),
 //! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
 //! do, so a gone process leaves the table without a keeper. The lock is a leaf, held only while the table changes,
@@ -41,6 +48,10 @@ const STATE_FILE: &str = "turn.json";
 pub const LOCK_FILE: &str = "turn.lock";
 /// The table of the build before, of one holder: read for its holder only
 const LEGACY_FILE: &str = "heavy.json";
+/// The busy cores of the whole host, which the agent samples ([`note_host`])
+const HOST_FILE: &str = "host.json";
+/// The age past which a sample of the host counts as none: its agent is gone or stuck
+const HOST_FRESH_MS: u64 = 10_000;
 /// The files whose change can admit a waiting run
 const WAKE_FILES: [&str; 2] = [STATE_FILE, LEGACY_FILE];
 /// The longest command of an entry, in characters
@@ -344,23 +355,62 @@ pub struct TurnQueue {
   pub holders: Vec<TurnEntry>,
   /// The live cores of the runs that are not heavy
   pub light: Cores,
+  /// The busy cores of the host outside the live use of the holders, by the last sample of the host; `None` without a
+  /// fresh one
+  pub outside: Option<Cores>,
   /// The runs before this one in the queue
   pub ahead: Vec<TurnEntry>,
 }
 
-/// Whether the head of the queue `entry` is admitted beside `holders` and `light` on a host of `cores`: always to a turn
-/// without a holder; a run that takes the whole host to none other; a run of a measure only beside holders that do not
-/// take the whole host, while their needs, `light` and its own fit the cores
-fn admits(entry: &TurnEntry, holders: &[TurnEntry], light: Cores, cores: u32) -> bool {
-  if holders.is_empty() {
-    return true;
-  }
+/// A sample of the busy cores of the whole host, by the agent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct HostSample {
+  busy: Cores,
+  at_ms: u64,
+}
+
+/// Notes `busy`, the busy cores of the whole host over the last interval, in `host.json` of `dir` for the admissions
+pub fn note_host(dir: &Path, busy: Cores) -> Result<()> {
+  let sample = HostSample { busy, at_ms: now_ms() };
+  let json = serde_json::to_vec(&sample)?;
+  sync_utils::atomic_file::write_atomically(&dir.join(HOST_FILE), &json, sync_utils::atomic_file::AtomicWrite { private: true, durable: false })?;
+  Ok(())
+}
+
+/// The busy cores of the whole host by its last sample at most 10 s old at `now_ms`; `None` without one
+fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
+  let sample: HostSample = serde_json::from_slice(&std::fs::read(dir.join(HOST_FILE)).ok()?).ok()?;
+  (now_ms.saturating_sub(sample.at_ms) <= HOST_FRESH_MS).then_some(sample.busy)
+}
+
+/// The busy cores of a quiet host of `cores` outside the heavy runs: a fifth of them, at least 1, as a host has a
+/// standing background (a video editor and the window server held 1.2 of the 20 cores of the Studio for days)
+pub fn quiet(cores: u32) -> Cores {
+  Cores(cores.saturating_mul(2).max(10))
+}
+
+/// The busy cores outside the heavy holders: the larger of the live use of the runs that are not heavy and the busy
+/// cores `busy` of the host less the live use of the holders
+fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<Cores> {
+  let live: Cores = holders.iter().filter_map(|holder| holder.live).sum();
+  busy.map(|busy| Cores(busy.0.saturating_sub(live.0)).max(light))
+}
+
+/// Whether the head of the queue `entry` is admitted beside `holders` on a host of `cores` that is busy with `outside`
+/// cores outside them (`light` without a sample of the host): to a turn without a holder when the host is quiet
+/// ([`quiet`]), or when the run has a measure that fits beside `outside`; a run that takes the whole host to no holder;
+/// a run of a measure beside holders that do not take the whole host, while their needs, `outside` and its own fit
+fn admits(entry: &TurnEntry, holders: &[TurnEntry], outside: Cores, cores: u32) -> bool {
   let need = entry.need(cores);
+  let whole = Cores::whole(cores);
+  if holders.is_empty() {
+    return outside <= quiet(cores) || (!need.is_whole_host() && outside.saturating_add(need.cores(cores)) <= whole);
+  }
   if need.is_whole_host() || holders.iter().any(|holder| holder.need(cores).is_whole_host()) {
     return false;
   }
   let held: Cores = holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
-  held.saturating_add(light).saturating_add(need.cores(cores)) <= Cores::whole(cores)
+  held.saturating_add(outside).saturating_add(need.cores(cores)) <= whole
 }
 
 /// Give the turn to the run of `request`, or put it in the queue ([`join`])
@@ -399,7 +449,8 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     table.queue[position].expected = request.expected;
     let holders: Vec<TurnEntry> = legacy.iter().cloned().chain(table.holders.iter().cloned()).collect();
     let light = table.light_cores();
-    if position == 0 && admits(&table.queue[0], &holders, light, params.cores) {
+    let outside = outside(&holders, light, host_busy(params.dir, now_ms()));
+    if position == 0 && admits(&table.queue[0], &holders, outside.unwrap_or(light), params.cores) {
       let mut entry = table.queue.remove(0);
       entry.since_ms = now_ms();
       table.holders.push(entry);
@@ -410,6 +461,7 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       need: table.queue[position].need(params.cores),
       holders,
       light,
+      outside,
       ahead: table.queue[..position].to_vec(),
     });
     Ok(joined)

@@ -423,6 +423,53 @@ fn the_live_use_of_a_holder_and_of_the_runs_that_are_not_heavy_count() {
   assert_eq!(take(&params, &measured("b", &command, 80)).unwrap(), TurnAnswer::Taken);
 }
 
+/// The busy cores of the host outside the live use of the holders hold a heavy run back, whatever their processes: a run
+/// of a measure waits while it does not fit beside them, a run that takes the whole host waits for a quiet host, and a
+/// sample older than 10 s counts as none
+#[test]
+fn the_busy_cores_of_the_host_outside_the_holders_hold_a_heavy_run_back() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  note_host(dir.path(), Cores(150)).unwrap();
+  let TurnAnswer::Queued(queue) = take(&params, &measured("a", &command, 80)).unwrap() else {
+    panic!("15 busy and 8 do not fit 20");
+  };
+  assert_eq!(queue.outside, Some(Cores(150)));
+  assert!(
+    matches!(take(&params, &request("whole", &command)).unwrap(), TurnAnswer::Queued(_)),
+    "a busy host is no quiet one"
+  );
+  assert!(leave(&params, "a").unwrap() || !holders(&read_live(dir.path()).unwrap()).contains(&"a"));
+  note_host(dir.path(), quiet(20)).unwrap();
+  assert_eq!(quiet(20), Cores(40));
+  assert_eq!(take(&params, &request("whole", &command)).unwrap(), TurnAnswer::Taken, "4.0 busy is quiet on 20");
+  assert!(leave(&params, "whole").unwrap());
+
+  assert_eq!(take(&params, &measured("a", &command, 80)).unwrap(), TurnAnswer::Taken);
+  let pid = std::process::id();
+  note_use(
+    &params,
+    &UseNote {
+      run: "a",
+      pid,
+      process_started: sync_utils::process_scan::process_started(pid),
+      repo: "/Users/u/projects/branch-deck",
+      command: &command,
+      live: Cores(60),
+    },
+  )
+  .unwrap();
+  note_host(dir.path(), Cores(160)).unwrap();
+  let TurnAnswer::Queued(queue) = take(&params, &measured("b", &command, 40)).unwrap() else {
+    panic!("8 of a, 10 busy outside its 6 and 4 do not fit 20");
+  };
+  assert_eq!(queue.outside, Some(Cores(100)));
+  note_host(dir.path(), Cores(100)).unwrap();
+  assert_eq!(take(&params, &measured("b", &command, 40)).unwrap(), TurnAnswer::Taken, "8 of a, 4 outside and 4");
+  assert_eq!(host_busy(dir.path(), now_ms() + HOST_FRESH_MS + 1_000), None, "an old sample counts as none");
+}
+
 /// The live holder of `heavy.json` of the build before holds the whole host here: no run of this build joins it, and
 /// `read_live` shows it first; once it is gone, the turn admits again
 #[test]

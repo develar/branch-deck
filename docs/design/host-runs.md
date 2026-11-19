@@ -112,23 +112,30 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   runs that are not heavy and its own expected cores fit the cores of the host (`branchdeck.hostCores` of the global
   git config of the host, else what the system counts). Only the head: a small run never overtakes one that waits for
   more, so none waits forever, and a host that frees cores gives them to the oldest waiting run. A run without a
-  measure, or whose command measured the whole host, takes the whole host: it waits for every holder, and no heavy run
-  joins it. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
+  measure, or whose command measured the whole host, takes the whole host: it waits for every holder and for a quiet
+  host, and no heavy run joins it. The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
+  load of 61 to 84, `top` saying 0 % idle, while the turn counted 8.9 of its 20 cores held), so `serve` samples the busy
+  cores of the whole host every 2 s (`sync_utils::host_cpu`, `host.json` beside the turn), and an admission counts the
+  larger of the live cores of the runs that are not heavy and the busy cores of the host less the live use of the
+  holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
   the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
   from joining a host they already load.
 - **The measure** (`host_agent::cores`, `lease_pool::host_cores`): the supervisor of every run samples the CPU of its
-  command every 10 s, the processes of its command group and the Bazel servers of its slot (a server leaves the group,
-  and its CPU is the work of the run), and at the end takes the larger of the sampled CPU and the CPU of its reaped
-  children (`RUSAGE_CHILDREN`, which counts the short processes between two samples) over the wall time. Each run of
-  10 s or more adds its mean to the last 5 of its repository and command (the key of the supersede), in `cores.json`
-  beside the turn, and a command is expected to use their 80th percentile. So the stats follow the changes, never a
-  calibration of once: a command that got heavier is expected heavier at its next run, one that got lighter (a faster
-  fast lane) frees its cores within a few runs, and a cancelled run counts by its own measure. A holder holds the
-  larger of its expectation and its live use, so a run that grows past its expectation holds more at once, for the
-  admissions that follow, not only at its end. A sample sees the processes that live at two samples in a row: a process shorter than 10 s, a
-  rustc or a test of nextest, counts in the mean through `RUSAGE_CHILDREN` at the end, not in the peak or the live
-  cores. So the expectation, of the means, is the measure; the peak of a command of many short processes reads low
-  (the first `cargo nextest run --workspace` on 2026-11-18: 6.8 cores on average, 8.1 at its peak).
+  command every 10 s: the processes of its command group, the Bazel servers of its slot (a server leaves the group, and
+  its CPU is the work of the run) and every descendant of either (a test of nextest in a group of its own, an action of
+  a Bazel server), each with the CPU of its reaped children (`process_scan::cpu_times`). So a process that starts and
+  ends between two samples, a rustc or a test, counts in the process that waited for it, in the live cores too. A
+  process that a sample saw alive counts once: its parent counts it again when it reaps it, and its time at that sample
+  is a credit that the next growth pays off. At the end the measure takes the larger of the sampled CPU and the CPU of
+  the reaped children of the supervisor (`RUSAGE_CHILDREN`) over the wall time. Neither alone was enough: on 2026-11-19 a
+  cold `cargo build -p git-ops` used 221 s of CPU in 108 s (2.0 cores) and the run measured 0.8, as the samples missed
+  each rustc between two of them and `RUSAGE_CHILDREN` lost the build, since `zsh -c` execs its last command and macOS
+  drops the reaped children of a process at its exec. Each run of 10 s or more adds its mean to the last 5 of its
+  repository and command (the key of the supersede), in `cores.json` beside the turn, and a command is expected to use
+  their 80th percentile. So the stats follow the changes, never a calibration of once: a command that got heavier is
+  expected heavier at its next run, one that got lighter (a faster fast lane) frees its cores within a few runs, and a
+  cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use, so a run that
+  grows past its expectation holds more at once, for the admissions that follow, not only at its end.
 - **The upgrade**: `heavy.json`, the table of one holder of the build before, stays for its supervisors, which go on
   after an upgrade; its live holder holds the whole host for the runs of this build. A supervisor of the build before
   that waits in `heavy.json` takes its turn without seeing the holders of `turn.json`, so for the hours after an

@@ -51,6 +51,12 @@ pub(crate) fn cores() -> Option<u32> {
   std::env::var("BD_HOST_TEST_CORES").ok()?.parse().ok().filter(|cores| *cores > 0)
 }
 
+/// How often `serve` samples the busy cores of the host for the heavy turn: `BD_HOST_TEST_HOST_SAMPLE_MS`, else 2 s;
+/// `None` for 0, as the process tests of `serve` run on a host that their own suite keeps busy
+pub(crate) fn host_sample_every() -> Option<Duration> {
+  Some(from_env("BD_HOST_TEST_HOST_SAMPLE_MS", Duration::from_secs(2))).filter(|every| !every.is_zero())
+}
+
 /// How long a heavy run waits for the heavy turn of the host: `BD_HOST_TEST_HEAVY_WAIT_MS`, else 2 h
 pub(crate) fn heavy_wait() -> Duration {
   from_env("BD_HOST_TEST_HEAVY_WAIT_MS", Duration::from_hours(2))
