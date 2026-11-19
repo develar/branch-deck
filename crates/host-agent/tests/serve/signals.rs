@@ -8,6 +8,9 @@ use pretty_assertions::assert_eq;
 use std::fs;
 use std::process::Command;
 
+/// The refusal of a run that lost its supervisor
+const LOST: &str = "the supervisor of the run ended without an exit code: it was killed, or the host restarted, so whether the command ran to its end is unknown; run it again";
+
 /// A shell loop of up to 60 s that a test interrupts, so a failed test leaves no command behind
 const LOOP: &str = "i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i + 1)); done";
 
@@ -123,8 +126,34 @@ fn a_killed_supervisor_ends_the_run_for_cancel_and_follow() {
   );
   let followed = agent.follow("4-1");
   assert!(
-    matches!(&followed.end, Reply::Refused { code, message } if code == "agent_error" && message == "the supervisor of the run ended without an exit code"),
+    matches!(&followed.end, Reply::Refused { code, message } if code == "agent_error" && message == LOST),
     "{followed:?}"
+  );
+  fs::write(&gate, "").expect("the gate opens");
+}
+
+/// The list of the runs ends a run whose supervisor was killed, as a follow does: it never reads as going on, and its
+/// refusal says what to do
+#[test]
+fn a_killed_supervisor_ends_its_run_in_the_list_of_the_runs() {
+  let world = World::new(1, &[]);
+  let agent = world.serve();
+  let gate = world.home.path().join("gate");
+  agent.start(world.spec("4-2", &format!("echo holding; {}", wait_for(&gate))));
+  agent.follow_until("4-2", "holding");
+  let pid = agent.supervisor_pid("4-2");
+  assert!(Command::new("kill").args(["-9", &pid]).status().expect("kill").success());
+  eventually("the end of the supervisor", || !process_alive(&pid));
+  let lock = world.run_dir("4-2").join("lock");
+  eventually("the release of the run lock", || fs::File::open(&lock).is_ok_and(|file| file.try_lock_shared().is_ok()));
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+    panic!("no list of the runs; {}", agent.dump("4-2"));
+  };
+  let run = runs.iter().find(|run| run.run == "4-2").expect("the run in the list");
+  assert_eq!(run.exit, Some(255), "{run:?}");
+  assert_eq!(
+    run.refused.as_ref().map(|refused| (refused.code.as_str(), refused.message.as_str())),
+    Some(("agent_error", LOST))
   );
   fs::write(&gate, "").expect("the gate opens");
 }

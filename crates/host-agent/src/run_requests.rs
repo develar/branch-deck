@@ -242,10 +242,14 @@ impl Agent {
   }
 
   /// The kept runs, and the heavy turn of the host without the gone runs. A heavy turn that cannot be read is left out,
-  /// and the log says why
+  /// and the log says why. A run that lost its supervisor ends first, as for a follow: it never reads as going on
   pub(crate) fn list_runs(&self) -> Reply {
+    let runs = self.runs().list();
+    for run in runs.iter().filter(|run| run.end_if_lost()) {
+      log(&format!("ended the run {}, which lost its supervisor", run.path().display()));
+    }
     Reply::Runs {
-      runs: self.runs().list().iter().filter_map(|run| run.info().ok()).collect(),
+      runs: runs.iter().filter_map(|run| run.info().ok()).collect(),
       heavy: crate::turn::live(&self.home)
         .inspect_err(|refusal| log(&format!("cannot answer the heavy turn: {refusal}")))
         .ok(),

@@ -48,6 +48,9 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sync_utils::fs_retry;
 
+/// The refusal of a run that lost its supervisor: what happened, and what to do
+const LOST_MESSAGE: &str =
+  "the supervisor of the run ended without an exit code: it was killed, or the host restarted, so whether the command ran to its end is unknown; run it again";
 const SPEC: &str = "spec.json";
 const EVENTS: &str = "events.log";
 const EXIT: &str = "exit.json";
@@ -341,13 +344,14 @@ impl RunDir {
   }
 
   /// Writes the end of a run that lost its supervisor, such as after a kill or a reboot: no process holds its flock, and
-  /// it has no `exit.json`. Answers whether it did
+  /// it has no `exit.json`. Answers whether it did. The flock, not the pid, tells a live supervisor: a pid that another
+  /// process took since holds no flock of the run
   pub(crate) fn end_if_lost(&self) -> bool {
     // the supervisor writes `exit.json` before its flock goes, so the end is read after the flock test
     if self.is_alive() || !matches!(self.exit(), Ok(None)) {
       return false;
     }
-    let lost = Refusal::new(Code::AgentError, "the supervisor of the run ended without an exit code");
+    let lost = Refusal::new(Code::AgentError, LOST_MESSAGE);
     self.write_exit_file(&ExitRecord::refused(&lost), true).is_ok()
   }
 
