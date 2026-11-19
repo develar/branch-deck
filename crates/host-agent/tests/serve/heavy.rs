@@ -419,3 +419,40 @@ fn an_exclusive_run_waits_for_a_run_in_its_command_to_end() {
   fs::write(&gate, "").expect("the gate opens");
   assert_eq!(agent.follow("16-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("16-2"));
 }
+
+/// A new run that is not heavy waits while an exclusive run drains the host for a run in its command, says so with the
+/// most it waits, and starts after the bound while the exclusive run waits on; the exclusive run starts once both ended
+#[test]
+fn a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20"), ("BD_HOST_TEST_DRAIN_BAR_MS", "3000")]);
+  let (gate, marks) = gate_and_marks(&world);
+  let (first, second) = (world.home.path().join("first"), world.home.path().join("second"));
+  agent.start(RunSpec {
+    heavy: false,
+    ..heavy(&world, "17-1", &marks, &first)
+  });
+  eventually("the first run that is not heavy runs its command", || started(&marks) == ["17-1"]);
+  agent.start(RunSpec {
+    exclusive: true,
+    ..heavy(&world, "17-2", &marks, &gate)
+  });
+  eventually("the exclusive run waits for the first", || events(&world, "17-2").contains(", waits for run 17-1 of "));
+  agent.start(RunSpec {
+    heavy: false,
+    ..heavy(&world, "17-3", &marks, &second)
+  });
+  eventually("the new run says it waits for the drain", || {
+    events(&world, "17-3").contains("brd-host: run 17-3 waits 0 s for a measurement: run 17-2 of ") && events(&world, "17-3").contains(" waits for the host to drain (")
+  });
+  eventually("the bar lifts after the bound, and the new run starts", || started(&marks) == ["17-1", "17-3"]);
+  fs::write(&first, "").expect("the first run ends");
+  fs::write(&second, "").expect("the new run ends");
+  assert_eq!(agent.follow("17-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("17-1"));
+  let new = agent.follow("17-3");
+  assert_eq!(new.end, Reply::Exit { code: 0 }, "{}", agent.dump("17-3"));
+  assert_eq!(new.phase_names().first(), Some(&"exclusive"));
+  eventually("the exclusive run takes the host once both ended", || started(&marks) == ["17-1", "17-2", "17-3"]);
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("17-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("17-2"));
+}

@@ -27,7 +27,7 @@ use host_link::heavy::run_key;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
 use lease_pool::host_runs::{holds_text, run_of_repo, span_since, turn_line};
-use lease_pool::host_turn::{Joined, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch};
+use lease_pool::host_turn::{Bar, Joined, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch};
 use serde::Deserialize;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
@@ -136,15 +136,17 @@ pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn(
   }))
 }
 
-/// Waits up to `wait` while an exclusive run holds the turn of the host, for the run `run` that is not heavy, before
-/// its lend: its line at once and once a minute (`lease_pool::host_runs::measurement_line`). Answers `Some(true)` once
-/// no exclusive run holds, `Some(false)` when the time is up, and `None` when `stop` ended the wait
+/// Waits up to `wait` while an exclusive run holds the turn of the host, or drains it for at most
+/// `tuning::drain_bar` (15 min), for the run `run` that is not heavy, before its lend: its line at once, at once again
+/// when the drain becomes a hold, and once a minute (`lease_pool::host_runs::measurement_line`, `drain_line`). Answers
+/// `Some(true)` once nothing bars it, `Some(false)` when the time is up, and `None` when `stop` ended the wait
 pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Option<bool> {
   let dir = heavy_dir(home);
   let started = Instant::now();
-  let mut said: Option<Instant> = None;
+  let mut said: Option<(Instant, bool)> = None;
   loop {
-    let Some(holder) = lease_pool::host_turn::exclusive_holder(&dir) else {
+    let now = now_ms();
+    let Some(bar) = lease_pool::host_turn::bar(&dir, now, tuning::drain_bar()) else {
       return Some(true);
     };
     if stop() {
@@ -154,9 +156,13 @@ pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop:
     if waited >= wait {
       return Some(false);
     }
-    if said.is_none_or(|at| at.elapsed() >= tuning::wait_progress()) {
-      say(&lease_pool::host_runs::measurement_line(run, &holder, waited, now_ms()));
-      said = Some(Instant::now());
+    let holds = matches!(bar, Bar::Holds(_));
+    if said.is_none_or(|(at, held)| held != holds || at.elapsed() >= tuning::wait_progress()) {
+      say(&match &bar {
+        Bar::Holds(holder) => lease_pool::host_runs::measurement_line(run, holder, waited, now),
+        Bar::Drains { entry, until_ms, .. } => lease_pool::host_runs::drain_line(run, entry, waited, *until_ms, now),
+      });
+      said = Some((Instant::now(), holds));
     }
     std::thread::sleep(MEASUREMENT_LOOK.min(wait.saturating_sub(waited)));
   }

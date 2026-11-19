@@ -22,7 +22,9 @@
 //! it is admitted only without a holder, with no run that is not heavy in its command (`light`, which a run joins as its
 //! command starts and leaves as it ends), and when every sample of the host of the last 30 s is quiet, as a bursty run
 //! in a lull of one sample is no quiet host ([`HostWindow`]). While it holds no heavy run is admitted and each new run
-//! that is not heavy waits for its end before its lend ([`exclusive_holder`]). The holder is also in `exclusive.json` beside the table: a
+//! that is not heavy waits for its end before its lend ([`exclusive_holder`]). While it drains, at the head of the queue
+//! with no holder, the new runs that are not heavy wait too, for at most 15 min from the start of the drain, so a host
+//! of steady light runs drains at all ([`bar`], `drain.json`). The holder is also in `exclusive.json` beside the table: a
 //! supervisor of a build before `exclusive` rewrites `turn.json` at each sample of its run and drops the field it does
 //! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry.
 //!
@@ -58,6 +60,10 @@ pub const LOCK_FILE: &str = "turn.lock";
 const LEGACY_FILE: &str = "heavy.json";
 /// The exclusive run that holds the turn, beside the table that an older build rewrites without it
 const EXCLUSIVE_FILE: &str = "exclusive.json";
+/// The exclusive run that drains the host: at the head of the queue, with no holder, since when
+const DRAIN_FILE: &str = "drain.json";
+/// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain
+pub const DRAIN_BAR: Duration = Duration::from_mins(15);
 /// The busy cores of the whole host, which the agent samples ([`note_host`])
 const HOST_FILE: &str = "host.json";
 /// The age past which a sample of the host counts as none: its agent is gone or stuck
@@ -596,9 +602,14 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       entry.since_ms = now_ms();
       if entry.exclusive {
         write_exclusive(params.dir, &entry)?;
+        remove_named(&params.dir.join(DRAIN_FILE), &entry.ticket.run)?;
       }
       table.holders.push(entry);
       return Ok(joined);
+    }
+    // an exclusive run at the head of the queue with no holder drains the host: the new runs that are not heavy wait
+    if position == 0 && request.exclusive && holders.is_empty() {
+      start_drain(params.dir, &table.queue[0], now)?;
     }
     joined.answer = TurnAnswer::Queued(TurnQueue {
       cores: params.cores,
@@ -717,6 +728,7 @@ pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
     let held = table.holders.iter().any(|holder| holder.ticket.run == run);
     table.holders.retain(|holder| holder.ticket.run != run);
     remove_exclusive(params.dir, run)?;
+    remove_named(&params.dir.join(DRAIN_FILE), run)?;
     Ok(held)
   })
 }
@@ -745,6 +757,59 @@ pub fn exclusive_holder(dir: &Path) -> Option<TurnEntry> {
   entry.is_running().then_some(entry)
 }
 
+/// An exclusive run that drains the host, and since when
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Drain {
+  #[serde(flatten)]
+  entry: TurnEntry,
+  /// When the drain began; not `since_ms`, which the entry has for its place in the queue
+  drain_since_ms: u64,
+}
+
+/// Notes that `entry`, an exclusive run at the head of the queue with no holder, drains the host since `now_ms`, or
+/// since it began to, under the lock of the table
+fn start_drain(dir: &Path, entry: &TurnEntry, now_ms: u64) -> Result<()> {
+  let path = dir.join(DRAIN_FILE);
+  let since = std::fs::read(&path)
+    .ok()
+    .and_then(|bytes| serde_json::from_slice::<Drain>(&bytes).ok())
+    .filter(|drain| drain.entry.ticket == entry.ticket)
+    .map(|drain| drain.drain_since_ms);
+  if since.is_some() {
+    return Ok(());
+  }
+  let drain = Drain {
+    entry: entry.clone(),
+    drain_since_ms: now_ms,
+  };
+  sync_utils::atomic_file::write_atomically(&path, &serde_json::to_vec(&drain)?, sync_utils::atomic_file::AtomicWrite { private: true, durable: false })?;
+  Ok(())
+}
+
+/// What keeps a new run that is not heavy from its lend: an exclusive run that holds the host, or one that drains it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bar {
+  /// The measurement holds the host, until its end
+  Holds(TurnEntry),
+  /// The measurement waits for the runs to end, and the bar lifts at `until_ms`
+  Drains { entry: TurnEntry, since_ms: u64, until_ms: u64 },
+}
+
+/// The bar of the new runs that are not heavy at `now_ms` in the turn of `dir`, with a drain that bars them for at most
+/// `drain_bar` from its start ([`DRAIN_BAR`]); `None` when they start
+pub fn bar(dir: &Path, now_ms: u64, drain_bar: Duration) -> Option<Bar> {
+  if let Some(holder) = exclusive_holder(dir) {
+    return Some(Bar::Holds(holder));
+  }
+  let drain: Drain = serde_json::from_slice(&std::fs::read(dir.join(DRAIN_FILE)).ok()?).ok()?;
+  let until_ms = drain.drain_since_ms.saturating_add(u64::try_from(drain_bar.as_millis()).unwrap_or(u64::MAX));
+  (drain.entry.is_running() && now_ms < until_ms).then_some(Bar::Drains {
+    entry: drain.entry,
+    since_ms: drain.drain_since_ms,
+    until_ms,
+  })
+}
+
 /// Writes `entry`, an exclusive run that takes its turn, into `exclusive.json` of `dir`, under the lock of the table
 fn write_exclusive(dir: &Path, entry: &TurnEntry) -> Result<()> {
   let json = serde_json::to_vec(entry)?;
@@ -755,11 +820,16 @@ fn write_exclusive(dir: &Path, entry: &TurnEntry) -> Result<()> {
 /// Removes `exclusive.json` of `dir` when it names the run `run`, or a run whose process is gone, under the lock of the
 /// table
 fn remove_exclusive(dir: &Path, run: &str) -> Result<()> {
-  let path = dir.join(EXCLUSIVE_FILE);
-  let Ok(bytes) = std::fs::read(&path) else { return Ok(()) };
+  remove_named(&dir.join(EXCLUSIVE_FILE), run)
+}
+
+/// Removes the file of an entry at `path` (`exclusive.json`, `drain.json`) when it names the run `run`, a run whose
+/// process is gone, or none, under the lock of the table
+fn remove_named(path: &Path, run: &str) -> Result<()> {
+  let Ok(bytes) = std::fs::read(path) else { return Ok(()) };
   let named = serde_json::from_slice::<TurnEntry>(&bytes).ok();
   if named.is_none_or(|entry| entry.ticket.run == run || !entry.is_running()) {
-    match sync_utils::fs_retry::remove_file(&path) {
+    match sync_utils::fs_retry::remove_file(path) {
       Ok(()) => {}
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
       Err(error) => return Err(error.into()),

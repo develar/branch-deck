@@ -565,6 +565,66 @@ fn an_exclusive_run_waits_for_the_runs_in_their_command_and_a_quiet_window() {
   assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
 }
 
+/// An exclusive run at the head of the queue with no holder drains the host: the new runs that are not heavy wait for
+/// it, for at most `DRAIN_BAR` from the start of the drain, then they start again while it waits on; once admitted it
+/// holds them back to its end. Behind a heavy holder it drains nothing
+#[test]
+fn a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let pid = std::process::id();
+  let bench = vec!["scripts/bench".to_owned(), "ab-run".to_owned()];
+  let light = |run: &str| {
+    note_use(
+      &params,
+      &UseNote {
+        run,
+        pid,
+        process_started: sync_utils::process_scan::process_started(pid),
+        repo: "/Users/u/projects/accio",
+        command: &bench,
+        live: Cores(0),
+      },
+    )
+    .unwrap();
+  };
+  let exclusive = TurnRequest {
+    exclusive: true,
+    ..request("ab", &command)
+  };
+  assert_eq!(take(&params, &measured("heavy", &command, 40)).unwrap(), TurnAnswer::Taken);
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
+  assert_eq!(bar(dir.path(), now_ms(), DRAIN_BAR), None, "behind a heavy holder it drains nothing");
+  assert!(leave(&params, "heavy").unwrap());
+
+  light("bench");
+  let before = now_ms();
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
+  let Some(Bar::Drains { entry, since_ms, until_ms }) = bar(dir.path(), now_ms(), DRAIN_BAR) else {
+    panic!("the exclusive run drains the host");
+  };
+  assert_eq!(entry.ticket.run, "ab");
+  assert!(since_ms >= before && until_ms == since_ms + 900_000, "{since_ms} {until_ms}");
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
+  assert!(
+    matches!(bar(dir.path(), now_ms(), DRAIN_BAR), Some(Bar::Drains { since_ms: again, .. }) if again == since_ms),
+    "a look keeps its start"
+  );
+  assert_eq!(bar(dir.path(), until_ms, DRAIN_BAR), None, "the bar lifts after the bound, and the run waits on");
+
+  assert!(!leave(&params, "bench").unwrap());
+  quiet_for_30_s(dir.path(), Cores(10));
+  assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
+  assert!(
+    matches!(bar(dir.path(), until_ms + 1, DRAIN_BAR), Some(Bar::Holds(holder)) if holder.ticket.run == "ab"),
+    "a hold bars to its end"
+  );
+  assert!(!dir.path().join(DRAIN_FILE).exists());
+  assert!(leave(&params, "ab").unwrap());
+  assert_eq!(bar(dir.path(), now_ms(), DRAIN_BAR), None);
+}
+
 /// The window of the samples of the host keeps the last 30 s
 #[test]
 fn the_window_of_the_host_keeps_the_samples_of_the_last_30_s() {

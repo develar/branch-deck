@@ -361,7 +361,7 @@ the content that the table names.
 | Agent | `~/.config/brd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/brd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/brd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/host.json` (the busy cores of the host every 2 s, with the most of the last 30 s), `heavy/exclusive.json` (the exclusive run that holds the turn), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
+| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/host.json` (the busy cores of the host every 2 s, with the most of the last 30 s), `heavy/exclusive.json` (the exclusive run that holds the turn), `heavy/drain.json` (the exclusive run that drains the host, since when), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -1964,6 +1964,18 @@ also be in `exclusive.json`, which no older build rewrites.
   [@test] crates/lease-pool/src/host_turn_test.rs (`an_exclusive_run_waits_for_a_quiet_host_and_holds_it_alone`, `an_exclusive_run_waits_for_the_runs_in_their_command_and_a_quiet_window`, `the_window_of_the_host_keeps_the_samples_of_the_last_30_s`)
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it`, `the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`an_exclusive_run_waits_for_a_run_in_its_command_to_end`)
+
+#### Scenario: A new run while an exclusive run drains the host
+- **WHEN** a run that is not heavy starts while an exclusive run is at the head of the queue and no heavy run holds
+  cores, so it waits for the runs in their command to end
+- **THEN** the new run waits before its lend, in the step `exclusive`, and its log says `run <id> waits <time> for a
+  measurement: run <id> of <repository> waits for the host to drain (<command>); this run starts when the measurement
+  ends, or in at most <time>`
+- **AND** 15 min after the start of the drain (`heavy/drain.json`) the bar lifts and the new runs start again, while the
+  exclusive run waits on; once it holds the host they wait for its end; behind a heavy holder it drains nothing
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound`)
+  [@test] crates/lease-pool/src/host_runs_test.rs (`the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound`)
 
 #### Scenario: A run that is not heavy and an exclusive run
 - **WHEN** a run that is not heavy starts while an exclusive run holds the turn

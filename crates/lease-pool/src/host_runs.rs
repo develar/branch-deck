@@ -80,6 +80,19 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
   )
 }
 
+/// The line of the run `run` that is not heavy and waited `waited` at `now_ms` while the exclusive run `drainer` drains
+/// the host, until `until_ms` at most: "run 1792-81 waits 2 min for a measurement: run 1788-12 of idea-1 waits for the
+/// host to drain (zsh ./measure-ab.sh); this run starts when the measurement ends, or in at most 13 min"
+pub fn drain_line(run: &str, drainer: &TurnEntry, waited: Duration, until_ms: u64, now_ms: u64) -> String {
+  format!(
+    "run {run} waits {} for a measurement: run {} waits for the host to drain ({}); this run starts when the measurement ends, or in at most {}",
+    span(waited),
+    run_of_repo(drainer),
+    drainer.command,
+    span(Duration::from_millis(until_ms.saturating_sub(now_ms)))
+  )
+}
+
 /// What an exclusive run waits for beyond the holders: each run that is not heavy in its command, and the busy cores of
 /// the host over its last 30 s: ", waits for run 1790-03 of accio to end: scripts/bench ab-run, the host was busy with
 /// up to 11.2 of 20 cores in the last 30 s"
