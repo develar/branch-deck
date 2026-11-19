@@ -283,7 +283,10 @@ the status against the fetched tip goes into the table after it and the moved re
 the next focus syncs nothing. The fetch (`sync_core::moved_remote`) reads the tips (one `for-each-ref`) and which heads
 are here (one `cat-file --batch-check`); a head the tip has already (GitHub shows the older head for a moment after a
 push of the user) fetches nothing, after one `merge-base --is-ancestor`; the rest is one `fetch_remote_branches`, then
-the status of each branch against what it fetched.
+the status of each branch against what it fetched. The status walks against the baseline commit the sync of the table
+built the branches on (`BranchTable::status_baseline`), not its name: a fetch since that took a forced update of the
+baseline to a history unrelated to the branches (a sync then waits, `unrelated_history`) would make the walk of a
+branch its whole history.
 
 - **Once per head**: the session remembers the last fetch of each branch (the head, the tip it left, whether the head is
   in that tip, how many attempts). The same head and tip ask again only while the head is not in the tip (the mirror

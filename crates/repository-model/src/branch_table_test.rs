@@ -126,3 +126,20 @@ async fn the_table_of_a_sync_carries_the_branches_the_fetched_baseline_has_whole
   let (table, _) = synced(&clone).await;
   assert_eq!(table.in_baseline, BTreeSet::from(["auth".to_string()]));
 }
+
+/// The statuses of a table walk against the commit its sync built the branches on, never the name a fetch moved since;
+/// a table no sync built has only the name
+#[test]
+fn the_statuses_of_a_table_walk_against_the_baseline_commit_of_its_sync() {
+  let synced = BranchTable {
+    baseline: "origin/master".to_string(),
+    baseline_commit: "efbb3fc732079af2d850a8284f5e9d26ce54d946".to_string(),
+    ..BranchTable::default()
+  };
+  assert_eq!(synced.status_baseline(), "efbb3fc732079af2d850a8284f5e9d26ce54d946");
+  let of_a_frame = BranchTable {
+    baseline: "origin/master".to_string(),
+    ..BranchTable::default()
+  };
+  assert_eq!(of_a_frame.status_baseline(), "origin/master");
+}

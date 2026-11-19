@@ -157,7 +157,7 @@ pub fn fetch_asked(git_executor: &GitCommandExecutor, git_common_dir: &Path, rep
       my_email: *my_email,
     })
     .collect();
-  match fetch_moved_remotes(git_executor, repository_path, REMOTE, &table.baseline, &moved) {
+  match fetch_moved_remotes(git_executor, repository_path, REMOTE, table.status_baseline(), &moved) {
     Ok(answers) => {
       for ((index, (_, _, _, _, my_email)), answer) in indexes.into_iter().zip(&branches).zip(answers) {
         fetched[index].others = answer.status.as_ref().map_or_default(|status| others_of(status, *my_email));

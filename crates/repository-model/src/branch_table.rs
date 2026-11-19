@@ -114,6 +114,14 @@ impl BranchTable {
     u32::try_from(left).unwrap_or(u32::MAX)
   }
 
+  /// The baseline a status of the table's branches walks against: the commit the sync built them on, so a fetch since
+  /// changes nothing of it (a forced update of the baseline to a history unrelated to them would make the walk of a
+  /// branch its whole history); the name for a table no sync built
+  #[must_use]
+  pub fn status_baseline(&self) -> &str {
+    if self.baseline_commit.is_empty() { &self.baseline } else { &self.baseline_commit }
+  }
+
   /// The tip of the virtual branch of `name`, the build of its commits: `None` for a branch the sync did not build,
   /// whose ref is a build of commits it may no longer have
   pub fn tip_of(&self, name: &str) -> Option<&str> {
