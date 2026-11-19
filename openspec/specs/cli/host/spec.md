@@ -387,6 +387,8 @@ through `sync_utils::fs_retry`.
 #### Scenario: A new directory and a new file
 - **WHEN** brd-host makes a directory or a file
 - **THEN** the directory has the mode 0700, and the file 0600
+  [@test] crates/host-agent/tests/serve/system.rs (`the_files_of_the_agent_are_private`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`the_table_of_the_turn_is_private`)
 
 ### Requirement: The files: The records and patches of old runs go
 

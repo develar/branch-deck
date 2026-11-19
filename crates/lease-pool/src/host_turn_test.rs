@@ -625,6 +625,19 @@ fn a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound() {
   assert_eq!(bar(dir.path(), now_ms(), DRAIN_BAR), None);
 }
 
+/// The table of the turn is private, as every file of the agent of a host
+#[cfg(unix)]
+#[test]
+fn the_table_of_the_turn_is_private() {
+  use std::os::unix::fs::PermissionsExt;
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &request("run-1", &command)).unwrap(), TurnAnswer::Taken);
+  let mode = std::fs::metadata(dir.path().join(STATE_FILE)).unwrap().permissions().mode() & 0o777;
+  assert_eq!(mode, 0o600);
+}
+
 /// The window of the samples of the host keeps the last 30 s
 #[test]
 fn the_window_of_the_host_keeps_the_samples_of_the_last_30_s() {

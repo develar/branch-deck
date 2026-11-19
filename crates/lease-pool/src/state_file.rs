@@ -20,6 +20,8 @@ pub struct StateFile {
   lock: &'static str,
   /// What a read or a write failed on, "the lease state"
   what: &'static str,
+  /// The file is 0600: a table of the agent of a host (`in_dir`), whose every file is private
+  private: bool,
 }
 
 impl StateFile {
@@ -30,16 +32,19 @@ impl StateFile {
       file,
       lock,
       what,
+      private: false,
     }
   }
 
-  /// The file `file` with the lock `lock` in `dir` itself
+  /// The file `file` with the lock `lock` in `dir` itself, private: the tables of the heavy turn and of the measures in
+  /// the directory of the agent of a host
   pub(crate) fn in_dir(dir: &Path, file: &'static str, lock: &'static str, what: &'static str) -> Self {
     Self {
       dir: dir.to_path_buf(),
       file,
       lock,
       what,
+      private: true,
     }
   }
 
@@ -69,7 +74,11 @@ impl StateFile {
     let result = change(&mut state)?;
     if state != before {
       let path = self.dir.join(self.file);
-      write_atomically(&path, &serde_json::to_vec_pretty(&state)?, AtomicWrite::default()).with_context(|| format!("Cannot write {}", path.display()))?;
+      let options = AtomicWrite {
+        private: self.private,
+        ..AtomicWrite::default()
+      };
+      write_atomically(&path, &serde_json::to_vec_pretty(&state)?, options).with_context(|| format!("Cannot write {}", path.display()))?;
     }
     Ok(result)
   }
