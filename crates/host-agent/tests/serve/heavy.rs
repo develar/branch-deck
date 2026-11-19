@@ -328,6 +328,16 @@ fn serve_samples_the_busy_cores_of_the_host_for_the_heavy_turn() {
   });
 }
 
+/// Starts the exclusive run `run` of `world`, whose command marks its start in `marks` and waits for `gate`, and waits
+/// until it holds the host
+fn hold_the_host(agent: &super::Agent<'_>, world: &World, run: &str, marks: &Path, gate: &Path) {
+  agent.start(RunSpec {
+    exclusive: true,
+    ..heavy(world, run, marks, gate)
+  });
+  eventually("the exclusive run holds the host", || started(marks) == [run]);
+}
+
 /// A run that is not heavy waits before its lend while an exclusive run holds the host, says what it waits for, starts
 /// once the exclusive run ends, and books the wait as its step `exclusive`
 #[test]
@@ -335,11 +345,7 @@ fn a_run_that_is_not_heavy_waits_for_an_exclusive_run_and_starts_after_it() {
   let world = World::new(2, &[]);
   let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20")]);
   let (gate, marks) = gate_and_marks(&world);
-  agent.start(RunSpec {
-    exclusive: true,
-    ..heavy(&world, "14-1", &marks, &gate)
-  });
-  eventually("the exclusive run holds the host", || started(&marks) == ["14-1"]);
+  hold_the_host(&agent, &world, "14-1", &marks, &gate);
   let open = world.home.path().join("open");
   agent.start(RunSpec {
     heavy: false,
@@ -356,4 +362,34 @@ fn a_run_that_is_not_heavy_waits_for_an_exclusive_run_and_starts_after_it() {
   assert_eq!(after.end, Reply::Exit { code: 0 }, "{}", agent.dump("14-2"));
   let phases: Vec<&str> = std::iter::once("exclusive").chain(ALL_PHASES).collect();
   assert_eq!(after.phase_names(), phases);
+}
+
+/// A run of another repository that is not heavy waits for an exclusive run too: the measurement holds the whole host,
+/// whatever the repository of a run
+#[test]
+fn a_run_of_another_repository_waits_for_an_exclusive_run() {
+  let world = World::new(1, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20")]);
+  let (gate, marks) = gate_and_marks(&world);
+  hold_the_host(&agent, &world, "15-1", &marks, &gate);
+  let other = test_utils::git_test_utils::TestRepo::new();
+  other.create_commit_with_files("first", &[(".gitignore", "out/\n")]);
+  test_utils::git_test_utils::append_config(other.path(), &[("branchdeck.hostSlots", "1")]);
+  let open = world.home.path().join("open");
+  agent.start(RunSpec {
+    heavy: false,
+    repo: other.path_str().to_owned(),
+    commit: other.head(),
+    ..heavy(&world, "15-2", &marks, &open)
+  });
+  eventually("the run of the other repository says its wait", || {
+    events(&world, "15-2").contains("brd-host: run 15-2 waits 0 s for a measurement: run 15-1 of ")
+  });
+  assert_eq!(started(&marks), ["15-1"], "the run of the other repository waits for the measurement");
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("15-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("15-1"));
+  fs::write(&open, "").expect("the gate of the other run opens");
+  let after = agent.follow("15-2");
+  assert_eq!(after.end, Reply::Exit { code: 0 }, "{}", agent.dump("15-2"));
+  assert_eq!(after.phase_names().first(), Some(&"exclusive"));
 }

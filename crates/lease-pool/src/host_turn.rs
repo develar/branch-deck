@@ -20,7 +20,9 @@
 //!
 //! An exclusive run (`brd-host run --exclusive`, a measurement such as an A/B) takes the whole host of a quiet host:
 //! it is admitted only without a holder, and while it holds no heavy run is admitted and each new run that is not heavy
-//! waits for its end before its lend ([`exclusive_holder`]).
+//! waits for its end before its lend ([`exclusive_holder`]). The holder is also in `exclusive.json` beside the table: a
+//! supervisor of a build before `exclusive` rewrites `turn.json` at each sample of its run and drops the field it does
+//! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry.
 //!
 //! The table is `turn.json` with its lock `turn.lock` in a directory of the agent of its own (`~/.cache/brd-host/heavy/`),
 //! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
@@ -52,6 +54,8 @@ const STATE_FILE: &str = "turn.json";
 pub const LOCK_FILE: &str = "turn.lock";
 /// The table of the build before, of one holder: read for its holder only
 const LEGACY_FILE: &str = "heavy.json";
+/// The exclusive run that holds the turn, beside the table that an older build rewrites without it
+const EXCLUSIVE_FILE: &str = "exclusive.json";
 /// The busy cores of the whole host, which the agent samples ([`note_host`])
 const HOST_FILE: &str = "host.json";
 /// The age past which a sample of the host counts as none: its agent is gone or stuck
@@ -404,6 +408,11 @@ fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
   (now_ms.saturating_sub(sample.at_ms) <= HOST_FRESH_MS).then_some(sample.busy)
 }
 
+/// The busy cores of the whole host by its last sample of at most 10 s ago, as the admissions read it; `None` without one
+pub fn host_busy_now(dir: &Path) -> Option<Cores> {
+  host_busy(dir, now_ms())
+}
+
 /// The busy cores of a quiet host of `cores` outside the heavy runs: a fifth of them, at least 1, as a host has a
 /// standing background (a video editor and the window server held 1.2 of the 20 cores of the Studio for days)
 pub fn quiet(cores: u32) -> Cores {
@@ -461,19 +470,28 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       };
       return Ok(joined);
     }
-    if table.holders.iter().any(|holder| holder.ticket.run == request.run) {
+    if let Some(holder) = table.holders.iter_mut().find(|holder| holder.ticket.run == request.run) {
+      // an older build that rewrote the table dropped the field: the run puts it back, and its file too
+      if request.exclusive && !holder.exclusive {
+        holder.exclusive = true;
+        write_exclusive(params.dir, holder)?;
+      }
       return Ok(joined);
     }
     let queued = table.queue.iter().position(|entry| entry.ticket.run == request.run);
     let position = queued.unwrap_or_else(|| enqueue(table, request, &mut joined));
     // the expectation of a run that waits follows the measures that came while it waited
     table.queue[position].expected = request.expected;
+    table.queue[position].exclusive |= request.exclusive;
     let holders: Vec<TurnEntry> = legacy.iter().cloned().chain(table.holders.iter().cloned()).collect();
     let light = table.light_cores();
     let outside = outside(&holders, light, host_busy(params.dir, now_ms()));
     if position == 0 && admits(&table.queue[0], &holders, outside.unwrap_or(light), params.cores) {
       let mut entry = table.queue.remove(0);
       entry.since_ms = now_ms();
+      if entry.exclusive {
+        write_exclusive(params.dir, &entry)?;
+      }
       table.holders.push(entry);
       return Ok(joined);
     }
@@ -591,6 +609,7 @@ pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
     table.light.retain(|entry| entry.ticket.run != run);
     let held = table.holders.iter().any(|holder| holder.ticket.run == run);
     table.holders.retain(|holder| holder.ticket.run != run);
+    remove_exclusive(params.dir, run)?;
     Ok(held)
   })
 }
@@ -601,6 +620,11 @@ pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
   let mut table: HeavyTurn = table_file(dir).read()?;
   table.of_this_schema(dir)?;
   table.prune();
+  if let Some(exclusive) = exclusive_holder(dir)
+    && let Some(holder) = table.holders.iter_mut().find(|holder| holder.ticket.run == exclusive.ticket.run)
+  {
+    holder.exclusive = true;
+  }
   if let Some(legacy) = legacy_holder(dir) {
     table.holders.insert(0, legacy);
   }
@@ -610,7 +634,31 @@ pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
 /// The exclusive run that holds the turn of the host in `dir`, if one does and its process lives: a new run that is not
 /// heavy waits for its end before its lend. A table that cannot be read holds none, so it stops no run
 pub fn exclusive_holder(dir: &Path) -> Option<TurnEntry> {
-  read_live(dir).ok()?.holders.into_iter().find(|holder| holder.exclusive)
+  let entry: TurnEntry = serde_json::from_slice(&std::fs::read(dir.join(EXCLUSIVE_FILE)).ok()?).ok()?;
+  entry.is_running().then_some(entry)
+}
+
+/// Writes `entry`, an exclusive run that takes its turn, into `exclusive.json` of `dir`, under the lock of the table
+fn write_exclusive(dir: &Path, entry: &TurnEntry) -> Result<()> {
+  let json = serde_json::to_vec(entry)?;
+  sync_utils::atomic_file::write_atomically(&dir.join(EXCLUSIVE_FILE), &json, sync_utils::atomic_file::AtomicWrite { private: true, durable: false })?;
+  Ok(())
+}
+
+/// Removes `exclusive.json` of `dir` when it names the run `run`, or a run whose process is gone, under the lock of the
+/// table
+fn remove_exclusive(dir: &Path, run: &str) -> Result<()> {
+  let path = dir.join(EXCLUSIVE_FILE);
+  let Ok(bytes) = std::fs::read(&path) else { return Ok(()) };
+  let named = serde_json::from_slice::<TurnEntry>(&bytes).ok();
+  if named.is_none_or(|entry| entry.ticket.run == run || !entry.is_running()) {
+    match sync_utils::fs_retry::remove_file(&path) {
+      Ok(()) => {}
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+      Err(error) => return Err(error.into()),
+    }
+  }
+  Ok(())
 }
 
 /// The words of a command as one line, at most `COMMAND_CHARS` characters

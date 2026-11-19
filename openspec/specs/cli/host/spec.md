@@ -361,7 +361,7 @@ the content that the table names.
 | Agent | `~/.config/brd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
 | Agent | `~/.config/brd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
 | Agent | `~/.cache/brd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/host.json` (the busy cores of the host, every 2 s), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
+| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared`, `heavy/turn.json` and `heavy/turn.lock` (the heavy turn of the host, in a directory of its own), `heavy/cores.json` and `heavy/cores.lock` (the measures of the commands), `heavy/host.json` (the busy cores of the host, every 2 s), `heavy/exclusive.json` (the exclusive run that holds the turn), `heavy/heavy.json` (the heavy turn of the build before, which this build only reads), `runs/<run>/cores.json` (the cores of the command of a run) |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
@@ -1913,7 +1913,8 @@ the whole host.
   of <repository> holds <cores> for <time> (<command>, measured)`, `(<command>, live, above its measure)`, or `holds
   the whole host for <time> (<command>, no measure)`; without a holder `no heavy run holds cores`; without a fresh
   sample of the host, `runs that are not heavy use <cores>` instead of the busy cores, and only when they use cores
-- **AND** after the wait it says `took the heavy turn of the host after <n> s`
+- **AND** after the wait it says `took the heavy turn of the host after <n> s`, and with a fresh sample of the host `,
+  the host busy with <cores> of its <cores of the host> cores`, the sample that its admission read
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead`)
   [@test] crates/host-agent/src/turn_test.rs (`a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it`)
   [@test] crates/lease-pool/src/host_turn_test.rs (`the_command_of_an_entry_is_one_line_of_at_most_200_characters`)
@@ -1945,8 +1946,8 @@ the whole host.
 ### Requirement: serve: An exclusive run holds a quiet host alone
 
 An exclusive run MUST be admitted to the heavy turn only without a holder and on a quiet host. While it holds, no heavy
-run MUST be admitted, and each new run that is not heavy MUST wait for its end before its lend, in the step
-`exclusive`, up to 1 h. The runs that already run go on.
+run MUST be admitted, and each new run that is not heavy, of any repository, MUST wait for its end before its lend, in
+the step `exclusive`, up to 1 h. The holder MUST also be in `exclusive.json` of the turn, which no older build rewrites.
 
 #### Scenario: The admission of an exclusive run
 - **WHEN** an exclusive run comes to the head of the queue
@@ -1962,9 +1963,17 @@ run MUST be admitted, and each new run that is not heavy MUST wait for its end b
 - **THEN** at once and then once a minute its log says `run <id> waits <time> for a measurement: run <id> of
   <repository> holds the host for <time> (<command>); a measurement holds the host; this run starts when it ends`
 - **AND** it takes its slot once the exclusive run gave the turn back, with the step `exclusive` first of the host;
-  after 1 h it refuses with `slot_timeout`
-  [@test] crates/host-agent/tests/serve/heavy.rs (`a_run_that_is_not_heavy_waits_for_an_exclusive_run_and_starts_after_it`)
+  after 1 h it refuses with `slot_timeout`; a run of another repository waits the same, and the runs that already run
+  go on
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_run_that_is_not_heavy_waits_for_an_exclusive_run_and_starts_after_it`, `a_run_of_another_repository_waits_for_an_exclusive_run`)
   [@test] crates/host-agent/src/turn_test.rs (`a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run`)
+
+#### Scenario: A table that an older build rewrote
+- **WHEN** a supervisor of a build before `exclusive` rewrites `turn.json` at a sample of its run and drops the field
+  `exclusive` of the holder
+- **THEN** the runs that are not heavy still wait, as they read the holder from `exclusive.json`, and `brd-host runs`
+  still names the measurement; the next look of the exclusive run puts the field back, and its end removes the file
+  [@test] crates/lease-pool/src/host_turn_test.rs (`an_exclusive_holder_outlives_a_rewrite_of_the_table_by_an_older_build`)
 
 #### Scenario: brd-host runs and an exclusive run
 - **WHEN** `brd-host runs` shows the heavy turn while an exclusive run holds it or waits

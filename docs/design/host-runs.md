@@ -124,7 +124,10 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
   is admitted only without a holder on a quiet host, and while it holds no heavy run is admitted and each new run that
   is not heavy waits for its end before its lend, in the step `exclusive`. It is an explicit flag, never a pattern of
-  `[host]`: a check that took the host this way would stop every agent of the host for its whole run.
+  `[host]`: a check that took the host this way would stop every agent of the host for its whole run. The holder is also in
+  `exclusive.json` beside the table: a supervisor of the build before, of a run that began before an upgrade, rewrites
+  `turn.json` at each sample of its run and drops the fields it does not know (on 2026-11-19 the first exclusive run
+  lost its mark that way, and runs of idea-1 and accio started beside it).
 - **The measure** (`host_agent::cores`, `lease_pool::host_cores`): the supervisor of every run samples the CPU of its
   command every 10 s: the processes of its command group, the Bazel servers of its slot (a server leaves the group, and
   its CPU is the work of the run) and every descendant of either (a test of nextest in a group of its own, an action of

@@ -469,7 +469,9 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
     Ok(None) => Ok(false),
     Ok(Some(TurnAnswer::Taken)) => {
       if waited >= Duration::from_secs(1) {
-        context.say(&format!("took the heavy turn of the host after {} s", waited.as_secs()));
+        let busy =
+          lease_pool::host_turn::host_busy_now(&context.home.heavy_dir()).map_or_else(String::new, |busy| format!(", the host busy with {busy} of its {} cores", of.cores));
+        context.say(&format!("took the heavy turn of the host after {} s{busy}", waited.as_secs()));
       }
       Ok(true)
     }

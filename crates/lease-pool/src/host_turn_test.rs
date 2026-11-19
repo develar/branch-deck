@@ -503,6 +503,37 @@ fn an_exclusive_run_waits_for_a_quiet_host_and_holds_it_alone() {
   assert_eq!(take(&params, &measured("tiny", &command, 10)).unwrap(), TurnAnswer::Taken);
 }
 
+/// A supervisor of a build before `exclusive` rewrites the table at each sample of its run and drops the field it does
+/// not know: the exclusive holder stays in `exclusive.json`, so the runs that are not heavy still find it and `read_live`
+/// still names it, the next look of the run puts the field back, and its end takes the file away
+#[test]
+fn an_exclusive_holder_outlives_a_rewrite_of_the_table_by_an_older_build() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let exclusive = TurnRequest {
+    exclusive: true,
+    ..request("ab", &command)
+  };
+  assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
+  let older = |dir: &Path| {
+    let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(STATE_FILE)).unwrap()).unwrap();
+    for holder in table["holders"].as_array_mut().unwrap() {
+      holder.as_object_mut().unwrap().remove("exclusive");
+    }
+    write_table(dir, &table);
+  };
+  older(dir.path());
+  assert_eq!(exclusive_holder(dir.path()).map(|holder| holder.ticket.run), Some("ab".to_owned()));
+  assert!(read_live(dir.path()).unwrap().holders[0].exclusive, "brd-host runs names the measurement");
+  assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
+  let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
+  assert_eq!(table["holders"][0]["exclusive"], serde_json::json!(true), "the look of the run puts the field back");
+  assert!(leave(&params, "ab").unwrap());
+  assert_eq!(exclusive_holder(dir.path()), None);
+  assert!(!dir.path().join(EXCLUSIVE_FILE).exists());
+}
+
 /// The live holder of `heavy.json` of the build before holds the whole host here: no run of this build joins it, and
 /// `read_live` shows it first; once it is gone, the turn admits again
 #[test]
