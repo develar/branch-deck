@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.17.0](https://github.com/develar/branch-deck/compare/v1.16.0...v1.17.0) (2026-11-19)
+
+
+### Features
+
+* **brd-host:** a later heavy run of the same checkout and command supersedes the one that waits for the heavy turn, which ends with superseded before its lend; the agent names the abandoned slots of its host, so a lent slot of a live run is no longer marked abandoned; the lines of a wait, of another build and of a low disk say what to do ([e0d8b3c](https://github.com/develar/branch-deck/commit/e0d8b3c34bbd0fab9c38844c299e1d25e1d37797))
+* **brd-host:** the heavy runs of a host share its cores by what their commands used in their last runs, so a heavy run of a measure goes beside the others while their expected and live cores fit the host, a command without a measure or one that measured the whole host runs alone, and the head of the queue is never overtaken ([a62c9ed](https://github.com/develar/branch-deck/commit/a62c9eded18d77e46d1adfce821eb25ab79ad7f3))
+* **lease:** each step of a get names when it started, on stderr and in the steps of its answer, so a get of 25 minutes shows which step took them ([1782c29](https://github.com/develar/branch-deck/commit/1782c29332395129ac99daebe181bcab73102f99))
+* **next-step:** the landing needs of tips a sync moved on the same baseline keep the steps of the needs before while the new ones are computed, so no step whose needs stay is patched, and every start, Dry Run and fix of what a branch needs waits for the fresh needs instead, Start Anyway lifting only the refusals it showed ([9932272](https://github.com/develar/branch-deck/commit/993227201b9cdec15faa50d6e0ad4e9049be4b35))
+
+
+### Bug Fixes
+
+* **brd-host:** a process that started before the command, a Bazel server of the slot found at a later sample, counts its CPU from that sample on, not its whole life, and a sample counts at most the cores of the machine, so a bt run no longer measures 153 cores on a host of 20 ([92134b4](https://github.com/develar/branch-deck/commit/92134b4fc3a80edfccadc5307fac92d8df63736e))
+* **brd-host:** the heavy turn that only the holder of the build before holds, ahead of the first run that counts the cores of the host, says so in brd-host runs, not 0.0 of 0 cores held ([c05a0b1](https://github.com/develar/branch-deck/commit/c05a0b1819760764189ce082be11922ec10aa6b5))
+* **lease:** a get below the minimum free space deletes no slot for branchdeck.leaseMaxSlots, only the output bases of gone workspaces, so with more leases than the limit it no longer deletes every free slot, the one it would reuse too, and clones one for 25 minutes; the shrink and the eviction free the space by the bytes ([7d9f760](https://github.com/develar/branch-deck/commit/7d9f760d6fe19c7a71124a46a26a13c7d7297c55))
+* **lease:** a get that takes the clones lock moves into the trash what a get killed during its clone left, a number directory of the pool in no state that holds only &lt;repository&gt;.cloning, which nothing deleted and whose number was lost (51 GiB in the idea-1 pool from 2026-11-07) ([bb4fec2](https://github.com/develar/branch-deck/commit/bb4fec2aa3ab3e37f32434d0ff7462036995283a))
+* **tooltip:** the words of a tooltip, a string, are the description of its trigger, its closed tooltip's too, so a screen reader hears why a control is disabled, and a lazy tooltip of a table row adds no node until it is reached ([e0bc16c](https://github.com/develar/branch-deck/commit/e0bc16cc19cc9a6500e38e7c7967bbc13d5d3769))
+
+
+### Performance Improvements
+
+* **row:** a component that shows one field of a part of its row selects that field, an object of it kept while it says the same, so the patches of the next step of every branch, which waits for the landing needs after each sync that moved a tip and then has them, render the step of each row, not the row, its status cell nor an island ([9d19ac0](https://github.com/develar/branch-deck/commit/9d19ac0b59406c1f3f8035dbd07fad8ecbfe9a31))
+
 ## [1.16.0](https://github.com/develar/branch-deck/compare/v1.15.0...v1.16.0) (2026-11-17)
 
 
