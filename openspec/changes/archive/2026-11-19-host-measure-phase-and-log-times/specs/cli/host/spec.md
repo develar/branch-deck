@@ -4,16 +4,16 @@
 
 The steps MUST be `pack` and `upload` of the client; `heavy`, `git`, `slot`, `pack_wait`, `checkout`, `prepare`,
 `command`, `measure` and `stage` of the host; `fetch` and `total` of the client. A run that ends early has only the steps
-up to its last one. Only a heavy run has `heavy`, and only a run that waited for an upgrade of git has `git`. `measure`
-is the time of the measure of the cores of the command outside the command: the cores of the host and the first look at
-the Bazel servers of the slot before it, the last sample and the record of the measure after it, so a volume that hangs
-those looks shows in a step and not in the gap between the steps and `total`.
+up to its last one. Only a heavy run has `heavy`, and only a run that waited for an upgrade of git has `git`.
 
 #### Scenario: The steps of a run
 - **WHEN** a run goes through
 - **THEN** its phases are `pack`, `upload`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `measure`, `stage`,
   `fetch` and `total`, with `heavy` first of the host for a heavy run, and `git` only when it waited for an upgrade of
   git
+- **AND** `measure` is the measure of the cores outside the command: the cores of the host and the first look at the
+  Bazel servers of the slot before it, the last sample and the record of the measure after it, so a volume that hangs
+  those looks shows in a step and not in the gap before `total`
   [@test] crates/host-client/src/phases_test.rs (`the_phases_are_the_steps_of_both_ends_in_their_order`)
   [@test] crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them`)

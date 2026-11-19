@@ -974,16 +974,16 @@ without `--apply`.
 
 The steps MUST be `pack` and `upload` of the client; `heavy`, `git`, `slot`, `pack_wait`, `checkout`, `prepare`,
 `command`, `measure` and `stage` of the host; `fetch` and `total` of the client. A run that ends early has only the steps
-up to its last one. Only a heavy run has `heavy`, and only a run that waited for an upgrade of git has `git`. `measure`
-is the time of the measure of the cores of the command outside the command: the cores of the host and the first look at
-the Bazel servers of the slot before it, the last sample and the record of the measure after it, so a volume that hangs
-those looks shows in a step and not in the gap between the steps and `total`.
+up to its last one. Only a heavy run has `heavy`, and only a run that waited for an upgrade of git has `git`.
 
 #### Scenario: The steps of a run
 - **WHEN** a run goes through
 - **THEN** its phases are `pack`, `upload`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`, `measure`, `stage`,
   `fetch` and `total`, with `heavy` first of the host for a heavy run, and `git` only when it waited for an upgrade of
   git
+- **AND** `measure` is the measure of the cores outside the command: the cores of the host and the first look at the
+  Bazel servers of the slot before it, the last sample and the record of the measure after it, so a volume that hangs
+  those looks shows in a step and not in the gap before `total`
   [@test] crates/host-client/src/phases_test.rs (`the_phases_are_the_steps_of_both_ends_in_their_order`)
   [@test] crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_beside_them`)
@@ -1746,18 +1746,16 @@ The client MUST connect again every 1 s to 5 s for up to 110 s: the previous bui
 
 ### Requirement: upgrade: upgrade and setup warn of slots off the home volume of a macOS agent
 
-After an upgrade or a setup of a macOS agent, the client MUST ask the lend tables of the host (`Request::Slots`), and
-when a slot of a repository is below `/Volumes/`, on another volume than the home of the agent, it MUST say on stderr
-`brd-host: warning: slots on <alias> are on another volume than the home of the agent: <repo> (<paths>); …`, with the
-two ways out: the pools on the home volume (`git config --unset branchdeck.leasePool` in the repository on the host), or
-Full Disk Access given again to `~/.local/bin/brd-host`. macOS keeps Full Disk Access for the code identity of a binary,
-and the ad-hoc signed agent is a new identity after each upgrade, so its runs on such a volume hang in their checkout
-(in `open`, on a consent that a `LaunchAgent` cannot show) until the access is given again. A failed look says nothing:
-the upgrade or the setup went through.
+After an upgrade or a setup of a macOS agent, the client MUST ask the lend tables of the host (`Request::Slots`) and
+warn on stderr of each slot below `/Volumes/`, on another volume than the home of the agent, with the two ways out. The
+ad-hoc signed agent is a new code identity after each upgrade, and macOS keeps Full Disk Access for an identity, so its
+runs on such a volume hang in their checkout. A failed look says nothing.
 
 #### Scenario: A slot on another volume
 - **WHEN** an upgrade or a setup of a macOS agent ends, and a repository of the host has a slot below `/Volumes/`
-- **THEN** stderr gets the warning with the repository, its slots there and the two ways out
+- **THEN** stderr gets `brd-host: warning: slots on <alias> are on another volume than the home of the agent: <repo>
+  (<paths>). …` with the two ways out: the pools on the home volume (`git config --unset branchdeck.leasePool` in the
+  repository on the host), or Full Disk Access given again to `~/.local/bin/brd-host`
   [@test] crates/host-agent/src/table_test.rs (`the_slots_off_the_home_volume_get_the_warning_of_an_upgrade`)
 
 #### Scenario: Every slot on the home volume
@@ -1817,12 +1815,9 @@ A follow MUST send a new event of its run as the supervisor writes it: on macOS 
 ### Requirement: serve: A follow ends a run that lost its supervisor
 
 A run that lost its supervisor changes no file, so the follow MUST look at it at least every 1 s and end it; a cancel,
-a forget and the list of the runs (`Request::Runs`, which `brd-host runs` shows) MUST end it too, so it never reads as
-going on, and the hourly cleanup ends the rest. A run is alive while a process holds the flock of its `lock`, so a pid
-of its supervisor that another process took since keeps no run going. The end refuses with `agent_error` and `the
-supervisor of the run ended without an exit code: it was killed, or the host restarted, so whether the command ran to
-its end is unknown; run it again`. A heavy run that lost its supervisor holds no cores of the heavy turn, which counts
-only the runs whose process lives.
+a forget and the list of the runs (`Request::Runs`, which `brd-host runs` shows) MUST end it too, and the hourly cleanup
+ends the rest. A run is alive while a process holds the flock of its `lock`, so a pid that another process took since
+keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 #### Scenario: A killed supervisor
 - **WHEN** the supervisor of a run is killed
@@ -1831,7 +1826,9 @@ only the runs whose process lives.
 
 #### Scenario: The list of the runs after a killed supervisor
 - **WHEN** `brd-host runs` lists a run whose supervisor was killed
-- **THEN** the run reads as finished, refused `agent_error` with the message that says to run it again, not as running
+- **THEN** the run reads as finished, not as running, refused `agent_error` with `the supervisor of the run ended
+  without an exit code: it was killed, or the host restarted, so whether the command ran to its end is unknown; run it
+  again`
   [@test] crates/host-agent/tests/serve/signals.rs (`a_killed_supervisor_ends_its_run_in_the_list_of_the_runs`)
 
 ### Requirement: serve: Heavy runs share the cores of the host by their measure
