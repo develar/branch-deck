@@ -61,8 +61,8 @@ pub struct BranchSyncContext<P: ProgressReporter> {
   pub signing: Signing,
 }
 
-/// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
-/// that needs them, instead of one per branch
+/// The commits of every existing virtual branch and stack branch above the base of the sync, read with one `log` by the
+/// first build that needs them, instead of one per branch
 pub struct ExistingCommits {
   base: String,
   tips: Vec<String>,
@@ -70,6 +70,11 @@ pub struct ExistingCommits {
 }
 
 impl ExistingCommits {
+  /// The base of the sync, below every commit it reads
+  pub(crate) fn base(&self) -> &str {
+    &self.base
+  }
+
   pub fn new(base: &str, tips: impl IntoIterator<Item = String>) -> Self {
     Self {
       base: base.to_string(),
@@ -80,7 +85,7 @@ impl ExistingCommits {
 
   /// The commits of the branch at `tip` down to `base`, as `read_virtual_commits` of the branch alone reads them:
   /// first parents from the tip until `base` or the base of the sync
-  fn of_branch(&self, git_executor: &GitCommandExecutor, repository_path: &str, tip: &str, base: &str) -> Result<HashMap<String, VirtualCommit>> {
+  pub(crate) fn of_branch(&self, git_executor: &GitCommandExecutor, repository_path: &str, tip: &str, base: &str) -> Result<HashMap<String, VirtualCommit>> {
     let all = self.commits.get_or_init(|| {
       let tips: Vec<&str> = self.tips.iter().map(String::as_str).collect();
       read_virtual_commits(git_executor, repository_path, &tips, &self.base)
@@ -611,4 +616,4 @@ fn process_single_commit<P: ProgressReporter>(
 
 #[cfg(test)]
 #[path = "branch_processor_test.rs"]
-mod branch_processor_test;
+pub(crate) mod branch_processor_test;

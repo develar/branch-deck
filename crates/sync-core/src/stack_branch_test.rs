@@ -157,7 +157,7 @@ fn a_conflicting_build_names_the_commit_and_keeps_the_ref() {
   let git = GitCommandExecutor::new();
   let commits: Vec<Commit> = get_commit_list(&git, &path, &base).unwrap().into_iter().filter(|commit| commit.id == changed).collect();
 
-  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off, Signing::Off).unwrap();
+  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits, None, ResolveMode::Off, Signing::Off).unwrap();
 
   let conflict = StackBuild::Conflict {
     commit: changed.clone(),
@@ -238,8 +238,18 @@ fn a_stack_build_signs_every_copy() {
   let git = repo.git_executor();
   let commits = get_commit_list(git, repo.path_str(), &base).unwrap();
 
-  let StackBuild::Built { tip, signed } = build_stack_branch(git, repo.path_str(), "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off, Signing::On).unwrap()
-  else {
+  let StackBuild::Built { tip, signed } = build_stack_branch(
+    git,
+    repo.path_str(),
+    "test/stack/auth",
+    &TreeIdCache::new(),
+    &base,
+    &commits,
+    None,
+    ResolveMode::Off,
+    Signing::On,
+  )
+  .unwrap() else {
     panic!("the stack must build");
   };
 

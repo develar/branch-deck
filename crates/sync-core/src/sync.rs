@@ -941,11 +941,11 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     failed.insert(job.branch_name.clone(), BlockReason::Blocked);
   }
 
-  // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
-  // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
+  // the notes only save the merges of the commits; a commit of the branch that is the copy is kept without its note
+  // (checked against its tree, see `copy_commit`), and the copies are deterministic, so a lost note costs time, not ids
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
   // a write that lost to another writer (`brd sync` beside the app's) runs once more, then is a warning; an identity git
-  // cannot form fails the sync (`no_identity`): without the notes every sync would copy the commits again
+  // cannot form fails the sync (`no_identity`): without the notes every sync would merge the commits again
   tokio::task::spawn_blocking(in_current_span(move || {
     move_conflict_refs(&context.git_executor, &context.repository_path, &context.conflict_tips, &conflict_refs);
     write_cache_notes("mapping", || {
@@ -961,27 +961,28 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
 }
 
 /// The build of each stack branch of `stacks` on the blocking pool, each task in a slot of `permits`, beside the builds
-/// of the virtual branches: in the order of the plans, `None` for a plan its placement blocks or whose task panicked
+/// of the virtual branches: in the order of the plans, `None` for a plan its placement blocks or whose task panicked.
+/// `existing` has the base of the sync and the commits the branches hold; without a base nothing is built
 async fn build_stack_branches(
   git_executor: GitCommandExecutor,
   repository_path: String,
   stacks: Arc<StackBranchSync>,
   builds: Arc<StackBuilds>,
   tree_id_cache: TreeIdCache,
-  base: Option<String>,
+  existing: Option<Arc<ExistingCommits>>,
   permits: ProcessPermits,
 ) -> Vec<Option<BuildResult>> {
   let mut results: Vec<Option<BuildResult>> = stacks.plans.iter().map(|_| None).collect();
-  let Some(base) = base else { return results };
+  let Some(existing) = existing else { return results };
   let mut tasks = JoinSet::new();
   for index in (0..stacks.plans.len()).filter(|index| stacks.plans[*index].blocked_by.is_none()) {
-    let (stacks, builds, tree_id_cache, permits, base) = (Arc::clone(&stacks), Arc::clone(&builds), tree_id_cache.clone(), permits.clone(), base.clone());
+    let (stacks, builds, tree_id_cache, permits, existing) = (Arc::clone(&stacks), Arc::clone(&builds), tree_id_cache.clone(), permits.clone(), Arc::clone(&existing));
     let (git_executor, repository_path) = (git_executor.clone(), repository_path.clone());
     tasks.spawn_blocking(in_current_span(move || {
       let _permit = permits.acquire();
       let plan = &stacks.plans[index];
       let listed_tip = stacks.tips.get(&plan.full_name).map(String::as_str);
-      (index, build_planned(&git_executor, &repository_path, &tree_id_cache, &builds, &base, plan, listed_tip))
+      (index, build_planned(&git_executor, &repository_path, &tree_id_cache, &builds, plan, listed_tip, &existing))
     }));
   }
   while let Some(joined) = tasks.join_next().await {
@@ -1175,6 +1176,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   });
   let stack_branches = Arc::new(stack_branches);
   let stack_builds = Arc::new(StackBuilds::new(object_cache.clone(), resolve, signing));
+  // the commits of the virtual branches and the stack branches as they are, read once by the first build that needs them
+  let existing_commits = first_parent_id
+    .as_deref()
+    .map(|base| Arc::new(ExistingCommits::new(base, existing_tips.values().chain(stack_branches.tips.values()).cloned())));
   // the stack branches are built beside the virtual branches, from the same originals and trees
   let stack_building = build_stack_branches(
     git_executor.clone(),
@@ -1182,7 +1187,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     Arc::clone(&stack_branches),
     Arc::clone(&stack_builds),
     tree_id_cache.clone(),
-    first_parent_id.clone(),
+    existing_commits.clone(),
     permits.clone(),
   );
   let context_statuses = remote_statuses.clone();
@@ -1200,7 +1205,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress: progress.clone(),
       git_executor: git_executor.clone(),
       tree_id_cache,
-      existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
+      existing_commits,
       existing_tips,
       remote_statuses: context_statuses,
       conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache, resolve)),

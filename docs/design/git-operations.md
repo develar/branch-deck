@@ -1235,7 +1235,8 @@ text or the target's own message and encoding):
    A replayed commit whose new tree and parent tree are the source its mapping note records keeps that note: those
    are the commits after the newest folded one, whose virtual copies the next sync then reuses, since `replay` gave
    them a new committer and a copy made again would get a new id. The squashed commit and the commits between the
-   target and the newest folded one change their trees and keep none; the originals keep theirs, for an undo.
+   target and the newest folded one change their trees and keep none; the originals keep theirs, for an undo. The next
+   sync keeps the copies of those between whose trees stay, by the commit of their branch ("Virtual commit reuse").
 7. Write the carried notes (`PreparedRewrite::ready`: `notes get-ref` and one `fast-import` from `<notes ref>^0`,
    best effort as `write_cache_notes`, whose own compare-and-swap of the notes ref needs no lock), so a sync the move
    wakes finds them; a note on a commit the branch never reaches harms nothing.
@@ -3421,7 +3422,9 @@ none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
   `REBASE_AUTOSQUASH` anyway.
 - **One chain, no notes, no branch events.** The build runs `create_or_update_commit` for each commit in one
   `CommitChain` (one `merge-tree --stdin`, one `fast-import`), with the deterministic committer dates, so a copy is the
-  commit a flat build of the same commits on the same parent writes. Its mapping notes are dropped: the one note of an
+  commit a flat build of the same commits on the same parent writes; it keeps a commit the stack branch holds that is
+  the copy, as a virtual branch does ("Virtual commit reuse"), from the one `log` of the existing branches
+  (`ExistingCommits`, the stack tips with the virtual ones). Its mapping notes are dropped: the one note of an
   original names the copy of its own branch. It sends no event of a branch row (`CommitSynced`, `BranchStatusUpdate`, …),
   only `StackBranchUpdate`. A conflict is reported by its commit and files (`MergeConflictInfo::light`, a tree cache
   with the `LightConflicts` memo), without the analysis of a conflict view.
@@ -3515,11 +3518,11 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
 - **Reuse checks the source.** A note is `v-commit-v1:<copy>` and `v-commit-source-v1:<parent tree> <tree>`, the trees
   of the original it was copied from; the lines are read by their prefixes (`notes.rewriteMode=cat_sort_uniq` sorts
   them), and older binaries read the first. `git notes copy`, `git rebase` and `git commit --amend` with
-  `notes.rewriteRef` carry a note to a commit whose trees or message changed: a source that is not the commit's trees,
-  or a copy whose message (the subject without the prefix and the body) or author (name, email, date) is not the
-  commit's, makes the note stale, and the commit is copied again (`warn!` "mapping note is stale"). The trees come from
-  the commit list (`%T` of every commit ahead of the baseline seeds the tree cache) and the listing of the branch, so
-  the check runs no git.
+  `notes.rewriteRef` carry a note to a commit whose trees or message changed: a copy whose message (the subject without
+  the prefix and the body) or author (name, email, date) is not the commit's makes the note stale, and the commit is
+  copied again (`warn!` "mapping note is stale"); a source that is not the commit's trees is checked by the tree, as an
+  older note is (below). The trees come from the commit list (`%T` of every commit ahead of the baseline seeds the tree
+  cache) and the listing of the branch, so the check of a matching source runs no git.
 - **A resolve by words is in the note.** A copy whose conflict of git resolved by words has a third line,
   `v-commit-resolved-v1:<resolve version> <conflicts> <files>` (`mapped_resolution`); the reuse gives the commit row
   its counts, and `mapping_lines` copies it with the other two. With `branchdeck.resolveByWords` off, such a note is
@@ -3538,6 +3541,15 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   the copy and writes the note with its source, so an older copy (another committer date, from before the
   deterministic dates) is not replaced and its branch doesn't move; the cost is one merge per commit, once. A re-copy
   that writes the commit the note names is `unchanged` too.
+- **The branch's commit that is the copy is kept, with or without a note.** A commit whose note is gone, or names a
+  commit that is not on the new parent, is checked against the branch's commit on that parent (one line of first
+  parents, read with the branch): the tree the copy gets, its message and its author keep that commit, `unchanged`,
+  and its note is written anew. A fold, a squash, a drop or a reword below the original gives it new trees and a new
+  committer and carries no note to it (see "Squash"), while what its copy holds stays; written again, the copy
+  would get a newer date and a new id, a push of the same commits, and a Safe Push that raced the rewrite would start
+  no robot (`plan_changed`, "changed after the push"). The check costs the merge the copy runs anyway, no process more
+  (`process_budget_test::a_sync_after_a_fold_below_a_branch_writes_only_the_folded_branch`). With
+  `commit.gpgsign` only a note says that a copy is signed, so a commit without one is copied again.
 - **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
   and the base (the base's date is read with its tree, once per sync before the builds start, not by each build that
   starts on it). The same originals on the same base give the same ids, even

@@ -15,7 +15,7 @@
 //!   keeps its tip, which no push may send (`StackBranchState`). A stack branch whose stack no longer forks is deleted
 //!   with compare-and-swap in one transaction, unless it has a remote branch or is checked out.
 
-use crate::branch_processor::{BranchMove, move_branch};
+use crate::branch_processor::{BranchMove, ExistingCommits, move_branch};
 use crate::grouping::BranchGrouping;
 use crate::remote_status::RemoteStatusMemo;
 use anyhow::Result;
@@ -23,11 +23,11 @@ use branch_integration::common::ListedBranch;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_stack_branch_name};
 use domain_types::commit::Commit;
 use domain_types::stack::{BlockReason, BranchStack, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
-use domain_types::{BranchError, BranchSyncStatus, RemoteStatusUpdate};
+use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_signing::Signing;
-use git_ops::copy_commit::{CopyCommitError, CreateCommitParams, ProgressInfo, create_or_update_commit};
+use git_ops::copy_commit::{CopyCommitError, CreateCommitParams, ProgressInfo, VirtualCommit, create_or_update_commit};
 use git_ops::merge_memo::MergeMemo;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::short_id;
@@ -265,8 +265,9 @@ impl MergeMemo for LightConflicts {
 
 /// Copies `commits` onto `base` in one `CommitChain`, as a flat virtual branch is built (`create_or_update_commit`,
 /// the deterministic committer dates), without its notes and events. `tree_id_cache` has the trees of the commits and
-/// the date of the base
-#[instrument(skip(git_executor, tree_id_cache, commits), fields(commits = commits.len()))]
+/// the date of the base; `existing`, the commits of the stack branch as it is: a copy it holds on the same parent with
+/// the tree, the message and the author of the build is kept while every copy below it is, as a virtual branch keeps one
+#[instrument(skip(git_executor, tree_id_cache, commits, existing), fields(commits = commits.len()))]
 #[expect(clippy::too_many_arguments, reason = "the stack build takes the sync's inputs and one signing decision")]
 pub fn build_stack_branch(
   git_executor: &GitCommandExecutor,
@@ -275,6 +276,7 @@ pub fn build_stack_branch(
   tree_id_cache: &TreeIdCache,
   base: &str,
   commits: &[Commit],
+  existing: Option<&HashMap<String, VirtualCommit>>,
   resolve: ResolveMode,
   signing: Signing,
 ) -> Result<StackBuild> {
@@ -283,6 +285,7 @@ pub fn build_stack_branch(
   let mut parent = base.to_string();
   let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
   let on_status = |_: BranchSyncStatus| {};
+  let mut reuse = existing.is_some();
   for (index, commit) in commits.iter().enumerate() {
     committer_timestamp = committer_timestamp.max(commit.committer_timestamp);
     let progress_info = ProgressInfo {
@@ -295,14 +298,14 @@ pub fn build_stack_branch(
     let copied = create_or_update_commit(CreateCommitParams {
       commit,
       new_parent_oid: &parent,
-      reuse_if_possible: false,
+      reuse_if_possible: reuse,
       repo_path: repository_path,
       on_status: &on_status,
       progress_info: &progress_info,
       git_executor,
       tree_id_cache: &tree_id_cache,
       chain: &chain,
-      existing_virtual_commits: None,
+      existing_virtual_commits: existing,
       verify_notes: false,
       committer_timestamp,
       signing,
@@ -311,8 +314,11 @@ pub fn build_stack_branch(
       resolve,
     });
     match copied {
-      // its mapping note names the copy of its own branch
-      Ok(copied) => parent = copied.hash,
+      // its mapping note names the copy of its own branch; a new copy moves every copy above it
+      Ok(copied) => {
+        reuse &= copied.status == CommitSyncStatus::Unchanged;
+        parent = copied.hash;
+      }
       Err(CopyCommitError::BranchError(BranchError::MergeConflict(info))) => {
         chain.into_inner().finish()?;
         return Ok(StackBuild::Conflict {
@@ -407,22 +413,24 @@ impl StackBranchSync {
   }
 }
 
-/// The build of a plan without a known block, on the blocking pool: the remembered build of its commits, else a build
-/// now; `None` for a plan the placement blocks. A remembered tip counts only while the ref is at it (`listed_tip`):
-/// elsewhere its commits may be gone (pruned since a delete of the ref, or written in another repository with the same
-/// commits), and they are built again
+/// The build of a plan without a known block, on the blocking pool, on the base of the sync (`existing`): the
+/// remembered build of its commits, else a build now that keeps the copies the branch at `listed_tip` holds (read once
+/// for the sync, `existing`); `None` for a plan the placement blocks. A remembered tip counts only while the ref is at
+/// it (`listed_tip`): elsewhere its commits may be gone (pruned since a delete of the ref, or written in another
+/// repository with the same commits), and they are built again
 pub(crate) fn build_planned(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   tree_id_cache: &TreeIdCache,
   builds: &StackBuilds,
-  base: &str,
   plan: &StackBranchPlan,
   listed_tip: Option<&str>,
+  existing: &ExistingCommits,
 ) -> Option<BuildResult> {
   if plan.blocked_by.is_some() {
     return None;
   }
+  let base = existing.base();
   let key = build_key(base, &plan.commits, builds.resolve);
   match builds.get(&key) {
     Some(StackBuild::Built { tip, .. }) if listed_tip != Some(tip.as_str()) => {
@@ -434,6 +442,12 @@ pub(crate) fn build_planned(
     }
     None => {}
   }
+  let held = listed_tip.and_then(|tip| {
+    existing
+      .of_branch(git_executor, repository_path, tip, base)
+      .inspect_err(|e| warn!(stack = %plan.full_name, error = %e, "cannot read the stack branch, building it anew"))
+      .ok()
+  });
   Some(
     match build_stack_branch(
       git_executor,
@@ -442,6 +456,7 @@ pub(crate) fn build_planned(
       tree_id_cache,
       base,
       &plan.commits,
+      held.as_ref(),
       builds.resolve,
       builds.signing,
     ) {

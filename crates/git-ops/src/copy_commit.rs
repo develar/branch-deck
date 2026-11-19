@@ -1,6 +1,7 @@
 //! One commit of a virtual branch in a sync: the copy its mapping note names, reused while it is still the branch's
-//! copy of the same trees on the same parent, else a cherry-pick written in the branch's `CommitChain`; and the commits
-//! of the existing virtual branches from one `git log`.
+//! copy of the same trees on the same parent; else the branch's commit on that parent that has the tree, the message
+//! and the author the copy gets; else a cherry-pick written in the branch's `CommitChain`; and the commits of the
+//! existing virtual branches from one `git log`.
 
 use crate::cherry_pick::PickedTree;
 use crate::commit_chain::{ChainCommit, CommitChain};
@@ -286,16 +287,13 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       _ if resolve == ResolveMode::Off && commit.mapped_resolution.is_some() => {
         debug!(original_id = %commit.id, mapped_id = %mapped_id, "the copy resolved a conflict by words, which the setting turns off");
       }
-      Some(recorded) if *recorded != source => {
-        warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the commit changed since it was copied");
-      }
-      Some(_) if !verify_notes && !older_resolve => {
+      Some(recorded) if *recorded == source && !verify_notes && !older_resolve => {
         debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
         return Ok(reused(None));
       }
       recorded => {
-        // a note without a source, one not trusted, or one of an older resolve: the mapped commit must have the tree a
-        // copy would get
+        // a note without a source, one not trusted, one of an older resolve, or one whose commit has other trees since
+        // (a rewrite below it carried the note): the mapped commit must have the tree a copy would get
         let copy = copied_tree()?;
         if copy.tree == virtual_commit.tree {
           debug!(original_id = %commit.id, mapped_id = %mapped_id, "the mapped commit is a copy of this commit");
@@ -321,6 +319,33 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     Some(picked) => picked,
     None => copied_tree()?,
   };
+  // the commit of the branch on the same parent with the tree, the message and the author this copy gets is its copy,
+  // with or without a note: a rewrite below the original (a fold of another branch's fixup) gives it new trees and a
+  // new committer, and drops its note, while what it copies stays. Writing it again would give it a new id (the date)
+  // and push the same commits again. Whether an older copy is signed is in its note only
+  if reuse_if_possible
+    && signing == Signing::Off
+    && let Some((kept_id, kept)) = existing_virtual_commits.and_then(|commits| child_of(commits, new_parent_oid))
+    && kept.tree == picked.tree
+    && same_metadata(kept, commit, &commit_message)
+  {
+    debug!(original_id = %commit.id, kept_id = %kept_id, "the branch has this copy already");
+    tree_id_cache.insert(kept_id, &kept.tree);
+    let resolved = picked.resolved.as_ref().map(|resolved| resolved.summary(parent_of(commit), new_parent_oid));
+    let note = MappingNote {
+      original: commit.id.clone(),
+      mapped: kept_id.clone(),
+      source,
+      resolved: resolved.as_ref().map(note_resolution),
+      signed: false,
+    };
+    return Ok(CopiedCommit {
+      hash: kept_id.clone(),
+      status: CommitSyncStatus::Unchanged,
+      note: Some(note),
+      resolved,
+    });
+  }
   let tree_id = picked.tree;
 
   // the author of the original with its timezone; the committer is branch-deck with the author's email
@@ -353,6 +378,11 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     resolved,
     signing == Signing::On,
   ))
+}
+
+/// The commit of a virtual branch on `parent`: a branch is one line of first parents, so it has one
+fn child_of<'a>(commits: &'a HashMap<String, VirtualCommit>, parent: &str) -> Option<(&'a String, &'a VirtualCommit)> {
+  commits.iter().find(|(_, commit)| commit.parent == parent)
 }
 
 /// The parent of a commit that a resolve merged: a root commit has none and never merges

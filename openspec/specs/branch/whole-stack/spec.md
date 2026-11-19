@@ -179,13 +179,21 @@ the declared parent of a branch with a stack problem); a branch whose parents le
 
 It MUST hold the original commits of all its branches in the order of the checked out branch's history, on the base of
 the sync, copied as a flat virtual branch of those commits is (the prefix stripped, `branch-deck` the committer, the
-deterministic dates), so a copy on the same parent is the same commit as the flat build's.
+deterministic dates), so a copy on the same parent is the same commit as the flat build's. As a virtual branch does, it
+MUST keep a commit it holds on the same parent with the tree, the message and the author of the copy while every copy
+below it is kept.
 
 #### Scenario: A forking stack builds its commits in history order
 - **WHEN** the sync builds the stack branch of a stack that forks
 - **THEN** it holds the original commits of all its branches in the order of the checked out branch's history, on the base of the sync
 - **AND** each is copied as a flat build copies it (the prefix stripped, `branch-deck` the committer, the deterministic dates), so a copy on the same parent is the same commit as the flat build's
   [@test] crates/sync-core/src/stack_sync_test.rs (`a_forking_stack_builds_its_commits_in_history_order_as_one_branch`)
+
+#### Scenario: A fold below the stack
+- **GIVEN** a fixup of `docs` above commits of the stack, and the stack branch built
+- **WHEN** the fixup is folded and the branches are synced again
+- **THEN** the stack branch and its members keep their commits
+  [@test] crates/sync-core/src/stack_sync_test.rs (`a_fold_below_a_stack_keeps_the_stack_branch_and_its_members`)
 
 ### Requirement: The stack branch: The build writes no mapping note and no event of a branch row
 
@@ -229,7 +237,7 @@ Without either it MUST be built again, to the same commit, and its ref MUST NOT 
 #### Scenario: Neither the memory nor the object cache has it
 - **GIVEN** a new process without the object cache
 - **WHEN** the sync finds the same commits on the same base
-- **THEN** it builds the stack branch again, to the same commit, and its ref doesn't move
+- **THEN** it builds the stack branch again from the commits it holds, writes no commit, and its ref doesn't move
   [@test] crates/sync-core/src/stack_sync_test.rs (`an_unchanged_stack_reuses_its_stack_branch_without_a_git_process`)
 
 ### Requirement: The stack branch: Its state is Built, Conflict, Blocked or Stale

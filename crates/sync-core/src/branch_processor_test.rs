@@ -2,7 +2,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, BuiltB
 use crate::commit_owners::CommitOwners;
 use crate::sync::{SyncOptions, sync_branches};
 use domain_types::commit::Commit;
-use domain_types::rewrite::{CommitReword, RewordText};
+use domain_types::rewrite::{AutosquashScope, CommitReword, RewordText};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
@@ -10,10 +10,11 @@ use git_ops::commit_signing::Signing;
 use git_ops::notes::write_commit_notes;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use history_rewrite::regroup::RegroupOptions;
-use history_rewrite::repository_lock::LockWait;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::reword_core;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -50,6 +51,24 @@ async fn sync_with(test_repo: &TestRepo, options: SyncOptions) -> BTreeMap<Strin
     }
   }
   statuses
+}
+
+/// Folds every fixup of the history, one, as the app's Fold does
+pub(crate) fn fold_fixups(git_executor: &GitCommandExecutor, repository_path: &str) {
+  let params = SquashFixupsParams {
+    repository_path: repository_path.to_string(),
+    scope: AutosquashScope::All,
+  };
+  let folded = squash_fixup_commits_core(git_executor, &params, &RewriteOptions::default()).unwrap();
+  assert_eq!(folded.squashed_count, 1);
+}
+
+/// A sync after a rewrite of `auth` that leaves what `cache` holds: `auth` is copied again, `cache` keeps its copies
+async fn sync_copies_auth_and_keeps_cache(test_repo: &TestRepo, cache: &[String]) {
+  let statuses = sync(test_repo).await;
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);
+  assert_eq!(statuses["cache"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(virtual_commits(test_repo, "cache"), cache);
 }
 
 /// The commits of the virtual branch, oldest first
@@ -303,8 +322,9 @@ async fn a_rebuild_without_notes_writes_the_same_commits() {
     .git_executor()
     .execute_command(&["update-ref", "-d", "refs/notes/commits"], repo_path(&test_repo))
     .unwrap();
+  // the commits of the branches are the copies, so they are kept without their notes
   let statuses = sync(&test_repo).await;
-  assert_eq!(statuses["auth"], [CommitSyncStatus::Created, CommitSyncStatus::Created]);
+  assert_eq!(statuses["auth"], [CommitSyncStatus::Unchanged, CommitSyncStatus::Unchanged]);
   assert_eq!(virtual_commits(&test_repo, "auth"), auth);
   assert_eq!(virtual_commits(&test_repo, "cache"), cache);
 
@@ -362,6 +382,31 @@ async fn moving_a_commit_to_another_branch_copies_it_there() {
   assert!(test_repo.get_files_in_commit(&moved[1]).unwrap().contains(&"logout.rs".to_string()));
 }
 
+/// A fold of a fixup of `auth` that lies above the commit of `cache` replays that commit: new trees (they hold the
+/// fixup now), a new committer, no note. Its copy on the same parent gets the same tree, message and author, so the
+/// sync keeps it, and its note names it again
+#[tokio::test]
+async fn a_fold_below_a_branch_keeps_the_copies_whose_content_stays() {
+  let (test_repo, _) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN, CACHE]));
+  test_repo.create_commit("fixup! (auth) Add login", "login.rs", "// login, fixed");
+  sync(&test_repo).await;
+  let cache = virtual_commits(&test_repo, "cache");
+  let original = test_repo.log(&["-1", "--format=%H", "--grep=Add cache", "master"]).unwrap();
+
+  fold_fixups(test_repo.git_executor(), repo_path(&test_repo));
+  let replayed = test_repo.log(&["-1", "--format=%H", "--grep=Add cache", "master"]).unwrap();
+  assert_ne!(replayed, original);
+  assert!(test_repo.show_note(&replayed).is_err(), "the fold carries no note to a commit whose trees changed");
+
+  sync_copies_auth_and_keeps_cache(&test_repo, &cache).await;
+  let note = test_repo.show_note(&replayed).unwrap();
+  assert_eq!(git_ops::notes::mapped_commit_id(&note), Some(cache[0].as_str()));
+
+  // and the next sync takes it by the note
+  assert_eq!(sync(&test_repo).await["cache"], [CommitSyncStatus::Unchanged]);
+  assert_eq!(virtual_commits(&test_repo, "cache"), cache);
+}
+
 #[tokio::test]
 async fn a_reworded_body_recopies_the_commit() {
   let (test_repo, [_, login, _]) = TestRepo::with_commits(&one_file_each([INITIAL, LOGIN, CACHE]));
@@ -375,10 +420,7 @@ async fn a_reworded_body_recopies_the_commit() {
   };
   reword_core(test_repo.git_executor(), repo_path(&test_repo), &[reword], &RegroupOptions::default()).unwrap();
 
-  let statuses = sync(&test_repo).await;
-  assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);
-  assert_eq!(statuses["cache"], [CommitSyncStatus::Unchanged]);
-  assert_eq!(virtual_commits(&test_repo, "cache"), cache);
+  sync_copies_auth_and_keeps_cache(&test_repo, &cache).await;
   assert_eq!(
     test_repo.log(&["-1", "--format=%B", "test/virtual/auth"]).unwrap().trim_end(),
     "Add login\n\nWith a remember-me box."

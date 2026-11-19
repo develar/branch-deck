@@ -1,3 +1,4 @@
+use crate::branch_processor::branch_processor_test::fold_fixups;
 use crate::process_budget_test::sync_events;
 use crate::remote_status::forget_statuses;
 use crate::stack_branch::forget_builds;
@@ -300,6 +301,30 @@ fn forking_repo() -> TestRepo {
   test_repo
 }
 
+/// A fold of a fixup of `docs`, whose commit lies below commits of the stack, replays those commits with new trees and a
+/// new committer: the copies of the stack branch get the same trees, messages and authors, so it keeps them, as the
+/// virtual branches keep theirs, and a push of it sends nothing
+#[tokio::test]
+async fn a_fold_below_a_stack_keeps_the_stack_branch_and_its_members() {
+  let test_repo = forking_repo();
+  test_repo.create_commit("fixup! (docs) Document", "docs.md", "docs, fixed");
+  sync(&test_repo).await;
+  let (stack, oauth, docs) = (
+    rev(&test_repo, "test/stack/auth"),
+    rev(&test_repo, "test/virtual/oauth"),
+    rev(&test_repo, "test/virtual/docs"),
+  );
+
+  fold_fixups(test_repo.git_executor(), repo_path(&test_repo));
+  forget_builds();
+
+  let events = sync(&test_repo).await;
+  assert_eq!(stack_updates(&events)["auth"].state, StackBranchState::Built);
+  assert_eq!(rev(&test_repo, "test/stack/auth"), stack);
+  assert_eq!(rev(&test_repo, "test/virtual/oauth"), oauth);
+  assert_ne!(rev(&test_repo, "test/virtual/docs"), docs, "the folded commit has another tree");
+}
+
 #[tokio::test]
 async fn a_forking_stack_builds_its_commits_in_history_order_as_one_branch() {
   let test_repo = forking_repo();
@@ -401,7 +426,8 @@ fn subcommands(git: &GitCommandExecutor) -> Vec<String> {
 }
 
 /// The build of the same commits on the same base is remembered: by the process, and by the object cache for a new
-/// process; without either the stack branch is built again, to the same commit, and the ref doesn't move
+/// process; without either the stack branch is built again, to the same commit (the copies it holds, or the same new
+/// ones once its ref is gone), and the ref doesn't move
 #[tokio::test]
 async fn an_unchanged_stack_reuses_its_stack_branch_without_a_git_process() {
   let test_repo = forking_repo();
@@ -432,14 +458,18 @@ async fn an_unchanged_stack_reuses_its_stack_branch_without_a_git_process() {
   assert_eq!(rev(&test_repo, "test/stack/auth"), tip);
   assert!(subcommands(&git).contains(&"fast-import".to_string()));
 
-  // a new process without the object cache builds it again, the same commit
+  // a new process without the object cache builds it again from the commits it holds: they are the copies, so it
+  // merges and writes nothing
   forget_builds();
   let git = GitCommandExecutor::new().with_process_stats("test");
   let events = sync_events(&git, &test_repo, &ObjectCache::disabled()).await;
   assert_eq!(stack_updates(&events)["auth"].tip.as_deref(), Some(tip.as_str()));
   assert_eq!(rev(&test_repo, "test/stack/auth"), tip);
   let counted = subcommands(&git);
-  assert!(counted.contains(&"fast-import".to_string()) && !counted.contains(&"update-ref".to_string()), "{counted:?}");
+  assert!(counted.contains(&"merge-tree".to_string()), "{counted:?}");
+  for writer in ["fast-import", "update-ref"] {
+    assert!(!counted.contains(&writer.to_string()), "{writer} in {counted:?}");
+  }
 
   // a new commit of a member rebuilds it
   test_repo.create_commit("(session) Expire sessions", "expire.rs", "// expire");

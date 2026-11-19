@@ -6,6 +6,7 @@
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
 use crate::baseline_push::{BaselinePush, push_baseline};
+use crate::branch_processor::branch_processor_test::fold_fixups;
 use crate::companion_write::write_companion;
 use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
@@ -229,6 +230,35 @@ const UNCHANGED_SYNC: [(&str, u32); 8] = [
   ("rev-parse", 1),
   ("symbolic-ref", 1),
 ];
+
+/// A fold of a fixup of `Alpha 1` replays the commits of beta above it with new trees and no notes: the sync merges them
+/// in beta's chain (one `merge-tree`) to see that its copies keep their trees and takes them, so it writes and moves
+/// alpha only (one `fast-import`, one `update-ref`), and the notes of both in one `fast-import`. Writing beta again
+/// would cost one `fast-import` and one `update-ref` more, and give its copies new ids
+#[tokio::test]
+async fn a_sync_after_a_fold_below_a_branch_writes_only_the_folded_branch() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  repo.create_commit("fixup! (alpha) Alpha 1", "alpha-1.txt", "alpha fixed\n");
+  sync(&GitCommandExecutor::new(), &repo).await;
+  fold_fixups(&GitCommandExecutor::new(), &path(&repo));
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(
+    &git,
+    &with_added_processes(
+      &UNCHANGED_SYNC,
+      &[
+        ("fast-import", 2),
+        ("merge-tree", 2),
+        ("notes", 1),
+        ("rev-list", 1),
+        ("show-ref", 1),
+        ("update-ref", 1),
+        ("var", 1),
+      ],
+    ),
+  );
+}
 
 /// A copy that an older resolve by words wrote is checked once by its tree: its merge (the chain's `merge-tree` and the
 /// merge with the messages of its conflict), the resolve (`check-attr`, `cat-file`) and its note, which takes this
