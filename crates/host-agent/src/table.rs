@@ -24,6 +24,32 @@ pub fn parse(table: &serde_json::Value) -> Result<HostSlots, Refusal> {
   serde_json::from_value(table.clone()).map_err(|error| Refusal::new(Code::Link, format!("the agent sent a lend table of another shape: {error}")))
 }
 
+/// The slots of `table` on another volume than the home of a macOS agent: a path below `/Volumes/`, where macOS mounts
+/// every volume but the one of the system and the home. macOS asks Full Disk Access of a process for such a volume, and
+/// keeps the grant for the code identity of the binary; the ad-hoc signed agent is another identity after each upgrade,
+/// so its runs there hang in `open` until the grant is given again
+pub fn slots_off_the_home_volume(table: &HostSlots) -> Vec<&str> {
+  table.slots.iter().map(|slot| slot.path.as_str()).filter(|path| path.starts_with("/Volumes/")).collect()
+}
+
+/// The warning of `brd-host upgrade` and `setup` for the host `alias` of a macOS agent at `agent`, whose repositories
+/// have the slots of `off_home` (each repository with its slots off the home volume, `slots_off_the_home_volume`);
+/// `None` when no slot is there
+pub fn off_home_volume_warning(alias: &str, agent: &str, off_home: &[(String, Vec<String>)]) -> Option<String> {
+  let named: Vec<String> = off_home
+    .iter()
+    .filter(|(_, paths)| !paths.is_empty())
+    .map(|(repo, paths)| format!("{repo} ({})", paths.join(", ")))
+    .collect();
+  if named.is_empty() {
+    return None;
+  }
+  Some(format!(
+    "brd-host: warning: slots on {alias} are on another volume than the home of the agent: {}. macOS keeps Full Disk Access for the code identity of a binary, and the ad-hoc signed agent is a new identity after each upgrade, so its runs there hang in their checkout until the access is given again. Keep the pools on the home volume (`git config --unset branchdeck.leasePool` in the repository on {alias}, and the slots on the other volume removed once idle), or give {agent} Full Disk Access again in System Settings on {alias} after each upgrade",
+    named.join("; ")
+  ))
+}
+
 /// A repository of this machine, for `slots --local`
 pub struct Local {
   repository: Repository,

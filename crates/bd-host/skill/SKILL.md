@@ -258,6 +258,11 @@ version. A watchdog on the host brings back the previous binary when the new one
 in flight go on. `brd-host: <host> runs another build of brd-host (…); runs work across builds, so this is no error: …`
 is a hint, not a failure: go on, and ask the user before an upgrade.
 
+`brd-host: warning: slots on <host> are on another volume than the home of the agent: …` after an upgrade or a setup
+means: macOS keeps Full Disk Access for the code identity of a binary, and the ad-hoc signed agent is a new identity
+after each upgrade, so its runs in those slots hang in their checkout. Tell the user: the pools go to the home volume, or
+the agent gets Full Disk Access again in System Settings on the host.
+
 `brd-host upgrade` also replaces this skill in `~/.claude/skills/brd-host/` when the installed copy is unedited and comes
 from another build. An edited copy stays: `brd-host skill install --force` replaces it.
 

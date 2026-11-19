@@ -64,3 +64,40 @@ fn the_sizes_measure_the_directories_of_the_clean_rules_of_each_slot() {
   assert_eq!((sizes[0].n, sizes[0].rule.as_str()), (1, "delete tests/results"));
   assert!(sizes[0].bytes >= 10_000, "{sizes:?}");
 }
+
+/// A slot below `/Volumes/` is off the home volume of a macOS agent: upgrade and setup name each such slot with its
+/// repository and the two ways out, and say nothing when every slot is on the home volume
+#[test]
+fn the_slots_off_the_home_volume_get_the_warning_of_an_upgrade() {
+  let table = parse(&json!({
+    "slots": [
+      { "n": 1, "lease_id": "l1", "path": "/Volumes/ssd/pool/branch-deck/1/branch-deck", "state": { "kind": "idle" } },
+      { "n": 2, "lease_id": "l2", "path": "/Users/me/.branch-deck/pool/branch-deck-1234/2/branch-deck", "state": { "kind": "idle" } }
+    ]
+  }))
+  .expect("a table");
+  let off_home = slots_off_the_home_volume(&table);
+  assert_eq!(off_home, ["/Volumes/ssd/pool/branch-deck/1/branch-deck"]);
+  let warning = off_home_volume_warning(
+    "studio",
+    "~/.local/bin/brd-host",
+    &[
+      ("~/projects/branch-deck".to_owned(), off_home.iter().map(ToString::to_string).collect()),
+      ("~/projects/idea-1".to_owned(), Vec::new()),
+    ],
+  )
+  .expect("a warning");
+  assert!(
+    warning
+      .starts_with("brd-host: warning: slots on studio are on another volume than the home of the agent: ~/projects/branch-deck (/Volumes/ssd/pool/branch-deck/1/branch-deck). "),
+    "{warning}"
+  );
+  assert!(
+    warning.contains("`git config --unset branchdeck.leasePool`") && warning.contains("give ~/.local/bin/brd-host Full Disk Access again"),
+    "{warning}"
+  );
+  assert_eq!(
+    off_home_volume_warning("studio", "~/.local/bin/brd-host", &[("~/projects/idea-1".to_owned(), Vec::new())]),
+    None
+  );
+}

@@ -521,12 +521,14 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
         say(&said);
       }
       let binary = binary.map_or_else(this_exe, Ok)?;
-      let upgraded = client(&output, &say)?.upgrade(&UpgradeRequest {
+      let client = client(&output, &say)?;
+      let upgraded = client.upgrade(&UpgradeRequest {
         alias: &alias,
         binary: &binary,
         force,
       })?;
       out.line(&upgraded_text(&alias, &upgraded));
+      warn_of_slots_off_the_home_volume(&client, &alias, &upgraded.agent.os);
       Ok(0)
     }
     Command::Version { json: _ } => {
@@ -801,7 +803,8 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
     let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
     let binary = args.binary.clone().map_or_else(this_exe, Ok)?;
     let name = args.name.clone().unwrap_or_else(|| format!("brd-host on {}", local_name(&OsProcesses)));
-    let prepared = client(&output, &say)?.setup(&SetupRequest {
+    let client = client(&output, &say)?;
+    let prepared = client.setup(&SetupRequest {
       alias,
       binary: &binary,
       port: args.port,
@@ -823,6 +826,7 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
       info.arch,
       prepared.host_file.display()
     ));
+    warn_of_slots_off_the_home_volume(&client, alias, &info.os);
     return Ok(0);
   }
   agent_setup(args, out)
@@ -852,6 +856,26 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   setup_agent(&home, &setup, &mut stdout)?;
   out.line(String::from_utf8_lossy(&stdout).trim_end());
   Ok(0)
+}
+
+/// After an upgrade or a setup of a macOS agent: the warning of its slots off its home volume
+/// (`host_agent::table::off_home_volume_warning`). A look that fails says nothing, as the upgrade or the setup went through
+fn warn_of_slots_off_the_home_volume(client: &Client<'_>, alias: &str, os: &str) {
+  if os != "macos" {
+    return;
+  }
+  let Ok(repositories) = client.slots(alias) else { return };
+  let off_home: Vec<(String, Vec<String>)> = repositories
+    .iter()
+    .filter_map(|repository| {
+      let table = host_agent::table::parse(&repository.table).ok()?;
+      let paths = host_agent::table::slots_off_the_home_volume(&table).into_iter().map(str::to_owned).collect();
+      Some((repository.repo.clone(), paths))
+    })
+    .collect();
+  if let Some(warning) = host_agent::table::off_home_volume_warning(alias, &format!("~/{}", host_client::setup::AGENT_PATH), &off_home) {
+    say(&warning);
+  }
 }
 
 /// The answer of `brd-host upgrade`

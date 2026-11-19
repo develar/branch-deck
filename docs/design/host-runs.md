@@ -250,6 +250,12 @@ later keep every byte of the output.
    a rename, answers, drains its requests and exits. launchd starts the new `serve`.
 4. A watchdog brings back the previous binary when the new one does not listen in time (`rolled_back`).
 
+The binary is ad-hoc signed, so each build is another code identity for macOS. Full Disk Access, which macOS asks of a
+process for a volume other than the one of the system and the home, is kept for an identity: after an upgrade the agent
+and its runs have none, and an `open` on such a volume waits on a consent that a `LaunchAgent` cannot show (2026-11-18
+and 19: every checkout of the pools on `/Volumes/ssd` of the Studio hung for 13 to 50 minutes after each upgrade). So
+the pools of a host stay on the home volume, and `upgrade` and `setup` warn of each slot below `/Volumes/`.
+
 The agent links `lease-pool`, so the host needs no `brd` binary of the same version. The strict gates of revision 5
 (an installed app only, `origin/master` only) are left out: the user installs local builds.
 

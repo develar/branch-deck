@@ -281,6 +281,11 @@ It sends the `brd-host` of this Mac to the host over the link, without ssh. The 
 `~/.local/bin/brd-host.previous`, and when the new one does not start listening, it brings the previous one back and
 the command says `rolled_back`. Runs in flight go on. `--force` sends the same build again, or an older one.
 
+Keep the pools of the host on its home volume. macOS keeps Full Disk Access only for one build of the agent, so after
+an upgrade the runs in slots on another volume (below `/Volumes/`) hang in their checkout until you give
+`~/.local/bin/brd-host` Full Disk Access again in System Settings → Privacy & Security on the host. `upgrade` and
+`setup` warn of such slots.
+
 `brd-host skill install` writes the agent skill of this build to `~/.claude/skills/brd-host/`, so a coding agent knows
 how to use the host. `upgrade` refreshes a copy that you did not edit.
 
