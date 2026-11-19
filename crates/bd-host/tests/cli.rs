@@ -731,8 +731,8 @@ fn schema_and_version_answer_one_json_object() {
 /// disk report, the trim and the heavy turn everywhere
 fn features_of_this_platform() -> Value {
   if cfg!(target_os = "macos") {
-    json!(["upgrade", "disk", "trim", "heavy"])
+    json!(["upgrade", "disk", "trim", "heavy", "exclusive"])
   } else {
-    json!(["disk", "trim", "heavy"])
+    json!(["disk", "trim", "heavy", "exclusive"])
   }
 }

@@ -759,6 +759,7 @@ const APPLY: RunOptions = RunOptions {
   apply: true,
   repo_by_name: false,
   heavy: false,
+  exclusive: false,
 };
 
 /// The patch of the changes of a command applies to the files of the working tree, not to the index, and stays in the
@@ -1155,6 +1156,50 @@ fn a_run_is_heavy_by_a_pattern_of_its_commit_or_by_heavy_and_says_why() {
       ]
     )
   );
+}
+
+/// `--exclusive` starts a heavy run that is exclusive and says what it waits for and what it holds; an agent without the
+/// feature `exclusive` would run the measurement beside the others, so the client refuses before the start with
+/// `bad_config` (exit 75) and names the upgrade
+#[test]
+fn an_exclusive_run_is_a_heavy_one_and_an_agent_before_it_refuses_before_the_start() {
+  let exclusive = RunOptions {
+    exclusive: true,
+    ..RunOptions::default()
+  };
+  let agent = Hello {
+    features: vec!["upgrade".to_owned(), "heavy".to_owned(), "exclusive".to_owned()],
+    ..Hello::default()
+  };
+  let repo = TestRepo::new();
+  repo.create_commit("Add a", "a.txt", "a\n");
+  let setup = fetching_agent_with(repo, agent, Vec::new());
+  let said = Said::default();
+  run_in(&setup, &|line: &str| said.push(line), &calm, &[], exclusive).unwrap();
+  let spec = start_spec(&setup);
+  assert_eq!((spec.heavy, spec.exclusive), (true, true));
+  assert!(
+    said.lines().contains(&format!(
+      "brd-host: an exclusive run by --exclusive: on {ALIAS} it waits for a quiet host without another heavy run, and while it runs no heavy run is admitted and each new run that is not heavy waits for its end"
+    )),
+    "{:?}",
+    said.lines()
+  );
+
+  let repo = TestRepo::new();
+  repo.create_commit("Add a", "a.txt", "a\n");
+  let older = Hello {
+    features: vec!["upgrade".to_owned(), "heavy".to_owned()],
+    ..Hello::default()
+  };
+  let setup = fetching_agent_with(repo, older, Vec::new());
+  let failure = run_in(&setup, &|_| {}, &calm, &[], exclusive).unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun));
+  assert_eq!(
+    failure.refusal.message,
+    format!("the agent on {ALIAS} predates exclusive runs, so it would run this measurement beside the others: `brd-host upgrade {ALIAS}` sends this build")
+  );
+  assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
 }
 
 /// An agent without the feature `heavy` refuses every run of a commit whose `[host]` has the key, a light one too, so

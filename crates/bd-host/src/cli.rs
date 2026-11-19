@@ -169,6 +169,10 @@ struct RunArgs {
   /// A heavy run, whatever `heavy` of `[host]` says: it waits until no other heavy run of the host goes
   #[arg(long)]
   heavy: bool,
+  /// A measurement that needs a quiet host, such as an A/B or a benchmark, never an ordinary check: a heavy run that waits
+  /// for a quiet host without another heavy run, and while it runs no heavy run starts and each new run waits for its end
+  #[arg(long)]
+  exclusive: bool,
   /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
@@ -387,6 +391,7 @@ const fn run_options(args: &RunArgs) -> RunOptions {
     apply: args.apply,
     repo_by_name: args.repo.is_none(),
     heavy: args.heavy,
+    exclusive: args.exclusive,
   }
 }
 

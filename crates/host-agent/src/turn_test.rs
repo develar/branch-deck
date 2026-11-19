@@ -92,6 +92,7 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
     affinity: "checkout-0123456789ab",
     command: &command,
     cores: 20,
+    exclusive: false,
   };
   let first = take(&home, &run("run-1", "/r/branch-deck"), Duration::from_mins(1), &never, &mut quiet).unwrap();
   assert_eq!(first, Some(TurnAnswer::Taken));
@@ -135,6 +136,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
     affinity: "checkout-0123456789ab",
     command,
     cores: 20,
+    exclusive: false,
   };
   let never = || false;
   let at_once = || true;
@@ -171,4 +173,54 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
     superseded_message("old", "new"),
     "run old was superseded by run new of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow new: `brd-host follow <host> new`"
   );
+}
+
+/// A run that is not heavy waits while an exclusive run holds the turn, says what it waits for at once, ends its wait
+/// when its time is up or a stop comes, and goes on at once when no exclusive run holds
+#[test]
+fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let command = vec!["zsh".to_owned(), "./measure-ab.sh".to_owned()];
+  let never = || false;
+  let mut quiet = |_: &str| {};
+  let exclusive = TurnRun {
+    run: "ab",
+    repo: "/r/idea-1",
+    affinity: "checkout-0123456789ab",
+    command: &command,
+    cores: 20,
+    exclusive: true,
+  };
+  assert_eq!(take(&home, &exclusive, Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
+  let shown = lines(&live(&home).unwrap()).unwrap();
+  assert!(
+    shown
+      .iter()
+      .any(|line| line.starts_with("  run ab of idea-1 holds the whole host for a measurement for ") && line.ends_with(" (exclusive): zsh ./measure-ab.sh")),
+    "{shown:?}"
+  );
+  assert_eq!(wait_for_measurement(&home, "light", Duration::ZERO, &never, &mut quiet), Some(false), "the time is up");
+  let mut said = Vec::new();
+  let at_once = || true;
+  assert_eq!(
+    wait_for_measurement(&home, "light", Duration::from_mins(1), &at_once, &mut |line| said.push(line.to_owned())),
+    None
+  );
+  assert!(said.is_empty(), "a stop before the first line: {said:?}");
+  let mut said = Vec::new();
+  let looks = AtomicU32::new(0);
+  let second_look = || looks.fetch_add(1, Ordering::Relaxed) >= 1;
+  assert_eq!(
+    wait_for_measurement(&home, "light", Duration::from_mins(1), &second_look, &mut |line| said.push(line.to_owned())),
+    None
+  );
+  assert_eq!(said.len(), 1, "{said:?}");
+  assert!(
+    said[0].starts_with("run light waits 0 s for a measurement: run ab of idea-1 holds the host for ")
+      && said[0].ends_with(" (zsh ./measure-ab.sh); a measurement holds the host; this run starts when it ends"),
+    "{said:?}"
+  );
+  assert!(leave(&home, "ab").unwrap());
+  assert_eq!(wait_for_measurement(&home, "light", Duration::from_mins(1), &never, &mut quiet), Some(true));
 }

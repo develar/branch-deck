@@ -18,6 +18,10 @@
 //! outside the heavy runs; a run of a measure starts on a free turn while it fits beside that load, or the host is quiet.
 //! A sample older than 10 s counts as none, and an admission then counts `light` only.
 //!
+//! An exclusive run (`brd-host run --exclusive`, a measurement such as an A/B) takes the whole host of a quiet host:
+//! it is admitted only without a holder, and while it holds no heavy run is admitted and each new run that is not heavy
+//! waits for its end before its lend ([`exclusive_holder`]).
+//!
 //! The table is `turn.json` with its lock `turn.lock` in a directory of the agent of its own (`~/.cache/brd-host/heavy/`),
 //! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
 //! do, so a gone process leaves the table without a keeper. The lock is a leaf, held only while the table changes,
@@ -128,6 +132,15 @@ pub struct TurnEntry {
   /// The cores of its last sample, while it holds cores
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub live: Option<Cores>,
+  /// A measurement that needs a quiet host (`brd-host run --exclusive`): it takes the whole host, and while it holds,
+  /// the new runs that are not heavy wait too
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub exclusive: bool,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+const fn is_false(value: &bool) -> bool {
+  !*value
 }
 
 /// How much of the host an entry takes, for the admission and the lines
@@ -139,6 +152,8 @@ pub enum Need {
   Unmeasured,
   /// The whole host: its command measured these cores, the cores of the host or more
   Measured(Cores),
+  /// The whole host of a quiet host, for a measurement: an exclusive run
+  Exclusive,
 }
 
 impl Need {
@@ -146,7 +161,7 @@ impl Need {
   pub const fn cores(self, cores: u32) -> Cores {
     match self {
       Self::Cores { cores, .. } => cores,
-      Self::Unmeasured | Self::Measured(_) => Cores::whole(cores),
+      Self::Unmeasured | Self::Measured(_) | Self::Exclusive => Cores::whole(cores),
     }
   }
 
@@ -202,6 +217,9 @@ impl TurnEntry {
 
   /// What the entry takes of a host of `cores`: a holder the larger of its expectation and its live use
   pub fn need(&self, cores: u32) -> Need {
+    if self.exclusive {
+      return Need::Exclusive;
+    }
     match self.expected {
       None => Need::Unmeasured,
       Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
@@ -300,6 +318,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     command_key: None,
     expected: None,
     live: None,
+    exclusive: false,
   })
 }
 
@@ -321,6 +340,8 @@ pub struct TurnRequest<'a> {
   pub command_key: &'a str,
   /// The cores that the last runs of the command lead to expect (`host_cores::expected`), `None` without a measure
   pub expected: Option<Cores>,
+  /// A measurement that needs a quiet host (`brd-host run --exclusive`)
+  pub exclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -494,6 +515,7 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     command_key: Some(request.command_key.to_owned()),
     expected: request.expected,
     live: None,
+    exclusive: request.exclusive,
   };
   // the place of the first superseded run: the runs before it are before it still
   let position = place.unwrap_or(table.queue.len()).min(table.queue.len());
@@ -583,6 +605,12 @@ pub fn read_live(dir: &Path) -> Result<HeavyTurn> {
     table.holders.insert(0, legacy);
   }
   Ok(table)
+}
+
+/// The exclusive run that holds the turn of the host in `dir`, if one does and its process lives: a new run that is not
+/// heavy waits for its end before its lend. A table that cannot be read holds none, so it stops no run
+pub fn exclusive_holder(dir: &Path) -> Option<TurnEntry> {
+  read_live(dir).ok()?.holders.into_iter().find(|holder| holder.exclusive)
 }
 
 /// The words of a command as one line, at most `COMMAND_CHARS` characters

@@ -83,18 +83,33 @@ pub fn need_text(need: Need, cores: u32) -> String {
     Need::Cores { cores: need, .. } => format!("{need} of its {cores} cores"),
     Need::Unmeasured => format!("all its {cores} cores, as the command has no measure yet"),
     Need::Measured(measured) => format!("all its {cores} cores, as the command measured {measured}"),
+    Need::Exclusive => format!("all its {cores} cores of a quiet host, as an exclusive run"),
   }
 }
 
 /// What a holder holds and why: (`holds 12.0`, `measured`), (`holds 14.0`, `live, above its measure`), (`holds the
-/// whole host`, `no measure`)
+/// whole host`, `no measure`), (`holds the whole host for a measurement`, `exclusive`)
 pub fn holds_text(need: Need) -> (String, String) {
   match need {
     Need::Cores { cores, live: false } => (format!("holds {cores}"), "measured".to_owned()),
     Need::Cores { cores, live: true } => (format!("holds {cores}"), "live, above its measure".to_owned()),
     Need::Unmeasured => ("holds the whole host".to_owned(), "no measure".to_owned()),
     Need::Measured(measured) => ("holds the whole host".to_owned(), format!("measured {measured}")),
+    Need::Exclusive => ("holds the whole host for a measurement".to_owned(), "exclusive".to_owned()),
   }
+}
+
+/// The line of the run `run` that is not heavy and waited `waited` at `now_ms` for the end of the exclusive run
+/// `holder`: "run 1792-81 waits 3 min for a measurement: run 1788-12 of idea-1 holds the host for 12 min (zsh
+/// ./measure-ab.sh); a measurement holds the host; this run starts when it ends"
+pub fn measurement_line(run: &str, holder: &TurnEntry, waited: Duration, now_ms: u64) -> String {
+  format!(
+    "run {run} waits {} for a measurement: run {} holds the host for {} ({}); a measurement holds the host; this run starts when it ends",
+    span(waited),
+    run_of_repo(holder),
+    span_since(holder.since_ms, now_ms),
+    holder.command
+  )
 }
 
 /// `1788-12 of branch-deck`: the run and the name of its repository

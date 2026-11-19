@@ -52,6 +52,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     command_key: None,
     expected: expected.map(Cores),
     live: None,
+    exclusive: false,
   };
   let now_ms = 1_000_000_000;
   let live = TurnEntry {
@@ -101,5 +102,33 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
   assert_eq!(
     turn_line("c", &busy, Duration::from_secs(5), Duration::from_secs(119), now_ms),
     "run c waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, the host is busy with 18.3 of 20 cores outside the heavy runs, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
+  );
+}
+
+/// An exclusive run waits for all the cores of a quiet host and holds the whole host for a measurement, and a run that is
+/// not heavy says what it waits for
+#[test]
+fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
+  assert_eq!(need_text(Need::Exclusive, 20), "all its 20 cores of a quiet host, as an exclusive run");
+  assert_eq!(holds_text(Need::Exclusive), ("holds the whole host for a measurement".to_owned(), "exclusive".to_owned()));
+  let now_ms = 1_000_000_000;
+  let holder = TurnEntry {
+    ticket: Ticket {
+      run: "1788-12".to_owned(),
+      pid: 1,
+      process_started: None,
+    },
+    repo: "~/projects/idea-1".to_owned(),
+    command: "zsh ./measure-ab.sh".to_owned(),
+    since_ms: now_ms - 720_000,
+    affinity: None,
+    command_key: None,
+    expected: None,
+    live: None,
+    exclusive: true,
+  };
+  assert_eq!(
+    measurement_line("1792-81", &holder, Duration::from_mins(3), now_ms),
+    "run 1792-81 waits 3 min for a measurement: run 1788-12 of idea-1 holds the host for 12 min (zsh ./measure-ab.sh); a measurement holds the host; this run starts when it ends"
   );
 }

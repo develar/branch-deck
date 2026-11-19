@@ -109,6 +109,9 @@ pub struct RunOptions {
   pub repo_by_name: bool,
   /// A heavy run whatever `heavy` of `[host]` says: it waits for the other heavy runs of the host
   pub heavy: bool,
+  /// A measurement that needs a quiet host (`--exclusive`), heavy too: it waits for a quiet host without another heavy
+  /// run, and while it runs the other runs of the host wait
+  pub exclusive: bool,
 }
 
 /// The runs that an agent keeps, and the heavy turn of its host
@@ -270,7 +273,9 @@ impl Client<'_> {
     let commit = snapshot.commit.clone();
     let files = RunFiles::new(&checkout.runs_dir()).map_err(|refusal| before(refusal, &facts))?;
     let config = checkout.host_config(&commit).map_err(|refusal| before(refusal, &facts))?;
-    let heavy = if options.heavy {
+    let heavy = if options.exclusive {
+      Some("--exclusive".to_owned())
+    } else if options.heavy {
       Some("--heavy".to_owned())
     } else {
       // a shell may run a heavy command in its script, or in a script file of the working tree that the run ships
@@ -302,13 +307,18 @@ impl Client<'_> {
       outputs: options.outputs,
       changes: options.apply,
       heavy: heavy.is_some(),
+      exclusive: options.exclusive,
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     facts.run = Some(run.clone());
     // A start whose reply did not come is cancelled, and the checkout of the run waits for a pack that never comes
     self.start(&mut host, spec, &needs).map_err(|refusal| before(refusal, &facts))?;
     (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
-    if let Some(why) = &heavy {
+    if options.exclusive {
+      (self.say)(&format!(
+        "brd-host: an exclusive run by --exclusive: on {alias} it waits for a quiet host without another heavy run, and while it runs no heavy run is admitted and each new run that is not heavy waits for its end"
+      ));
+    } else if let Some(why) = &heavy {
       (self.say)(&format!(
         "brd-host: a heavy run by {why}: on {alias} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
       ));
@@ -531,6 +541,15 @@ impl Client<'_> {
         Code::BadConfig,
         format!(
           "the agent on {alias} predates `{lacking}` of [host] of .branchdeck.toml, so it refuses every run of this commit: `brd-host upgrade {alias}` sends this build",
+          alias = host.alias()
+        ),
+      ));
+    }
+    if spec.exclusive && !agent.features.iter().any(|known| known == feature::EXCLUSIVE) {
+      return Err(Refusal::new(
+        Code::BadConfig,
+        format!(
+          "the agent on {alias} predates exclusive runs, so it would run this measurement beside the others: `brd-host upgrade {alias}` sends this build",
           alias = host.alias()
         ),
       ));

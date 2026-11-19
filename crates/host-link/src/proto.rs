@@ -72,14 +72,17 @@ pub mod feature {
   pub const TRIM: &str = "trim";
   /// `RunSpec::heavy`: the heavy runs of the host run one at a time, and `Reply::Runs` names the heavy turn
   pub const HEAVY: &str = "heavy";
+  /// `RunSpec::exclusive`: a measurement takes a quiet host, and while it runs the other runs wait
+  pub const EXCLUSIVE: &str = "exclusive";
 }
 
-/// The features of an agent of this build on this platform: `disk`, `trim` and `heavy` everywhere, `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy` and `exclusive` everywhere, `upgrade`
+/// on macOS
 pub fn features() -> Vec<&'static str> {
   if cfg!(target_os = "macos") {
-    vec![feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY]
+    vec![feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]
   } else {
-    vec![feature::DISK, feature::TRIM, feature::HEAVY]
+    vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]
   }
 }
 
@@ -180,6 +183,10 @@ impl PackTarget {
 
 /// What one run does. The JSON of a field after `fetch` is optional, and its default is left out
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "the wire shape of a run: each flag is an optional field that an older end ignores, not a state of the run"
+)]
 pub struct RunSpec {
   /// The id that the client chose: `<epoch ms>-<pid>`. It names the run directory and the ref of the pack of the run,
   /// so it has the rules of a host ref name (`is_run_id`)
@@ -213,6 +220,11 @@ pub struct RunSpec {
   /// an older agent ignores it)
   #[serde(default, skip_serializing_if = "is_false")]
   pub heavy: bool,
+  /// A measurement that needs a quiet host (`brd-host run --exclusive`, heavy too): it takes the heavy turn of a quiet
+  /// host without another holder, and while it holds, the new runs that are not heavy wait for its end before their lend
+  /// (feature `feature::EXCLUSIVE`; the client refuses the run on an older agent)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub exclusive: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -75,6 +75,8 @@ pub(crate) struct TurnRun<'a> {
   pub(crate) affinity: &'a str,
   pub(crate) command: &'a [String],
   pub(crate) cores: u32,
+  /// A measurement that needs a quiet host (`RunSpec::exclusive`)
+  pub(crate) exclusive: bool,
 }
 
 /// What an agent tells a run that waits, after the line of its wait: the wait goes on by itself, and a cancel or a run
@@ -105,6 +107,7 @@ pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn(
     affinity: of.affinity,
     command_key: &command_key,
     expected,
+    exclusive: of.exclusive,
   };
   let params = params(&dir, of.cores);
   // the watch starts before the first look, so no change between a look and the wait after it is lost
@@ -132,6 +135,35 @@ pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn(
     Look::Queued(queue) => TurnAnswer::Queued(queue),
   }))
 }
+
+/// Waits up to `wait` while an exclusive run holds the turn of the host, for the run `run` that is not heavy, before
+/// its lend: its line at once and once a minute (`lease_pool::host_runs::measurement_line`). Answers `Some(true)` once
+/// no exclusive run holds, `Some(false)` when the time is up, and `None` when `stop` ended the wait
+pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Option<bool> {
+  let dir = heavy_dir(home);
+  let started = Instant::now();
+  let mut said: Option<Instant> = None;
+  loop {
+    let Some(holder) = lease_pool::host_turn::exclusive_holder(&dir) else {
+      return Some(true);
+    };
+    if stop() {
+      return None;
+    }
+    let waited = started.elapsed();
+    if waited >= wait {
+      return Some(false);
+    }
+    if said.is_none_or(|at| at.elapsed() >= tuning::wait_progress()) {
+      say(&lease_pool::host_runs::measurement_line(run, &holder, waited, now_ms()));
+      said = Some(Instant::now());
+    }
+    std::thread::sleep(MEASUREMENT_LOOK.min(wait.saturating_sub(waited)));
+  }
+}
+
+/// How often a run that waits for a measurement looks at the turn: the end of the holder makes no event it would see
+const MEASUREMENT_LOOK: Duration = Duration::from_millis(500);
 
 /// The lines of what the first ask of a run did to the queue at `now_ms`: each run of the same checkout and command that
 /// it superseded, and each run of the checkout that waits with another command
@@ -295,6 +327,7 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
       Need::Cores { cores, .. } => format!("{cores} (measured)"),
       Need::Unmeasured => "the whole host (no measure)".to_owned(),
       Need::Measured(measured) => format!("the whole host (measured {measured})"),
+      Need::Exclusive => "a quiet host (exclusive)".to_owned(),
     };
     lines.push(format!(
       "  run {} waits {} for {need}: {}",

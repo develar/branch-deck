@@ -297,6 +297,9 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   if spec.heavy && !take_turn(context, &mut phases, stop)? {
     return Ok(INTERRUPTED);
   }
+  if !spec.heavy && !wait_for_measurement(context, &mut phases, stop)? {
+    return Ok(INTERRUPTED);
+  }
   let Some(lent) = take_slot(context, &mut phases, stop)? else {
     return Ok(INTERRUPTED);
   };
@@ -392,6 +395,35 @@ fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Samp
   }
 }
 
+/// A run that is not heavy waits before its lend while an exclusive run holds the turn of the host, in the phase
+/// `exclusive`, which only such a wait has: up to the wait for a slot, with its line at once and once a minute. Answers
+/// `false` when a cancel ended the wait; a wait whose time is up refuses with `slot_timeout`
+fn wait_for_measurement(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> bool) -> Result<bool, Refusal> {
+  if lease_pool::host_turn::exclusive_holder(&context.home.heavy_dir()).is_none() {
+    return Ok(true);
+  }
+  let started = Instant::now();
+  let waited = phases.time("exclusive", || {
+    turn::wait_for_measurement(context.home, &context.spec.run, SLOT_WAIT, stop, &mut |line| context.say(line))
+  });
+  match waited {
+    None => Ok(false),
+    Some(true) => {
+      if started.elapsed() >= Duration::from_secs(1) {
+        context.say(&format!("the measurement ended after {} s; this run starts", started.elapsed().as_secs()));
+      }
+      Ok(true)
+    }
+    Some(false) => Err(Refusal::new(
+      Code::SlotTimeout,
+      format!(
+        "a measurement held the host for {} min, so this run got no slot: run it again later",
+        SLOT_WAIT.as_secs() / 60
+      ),
+    )),
+  }
+}
+
 /// The run of `context` as the heavy turn knows it, of the main repository `repo`
 fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
   let spec = context.spec;
@@ -401,6 +433,7 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
     affinity: &spec.affinity,
     command: &spec.command,
     cores: host_cores(context.repo),
+    exclusive: spec.exclusive,
   }
 }
 

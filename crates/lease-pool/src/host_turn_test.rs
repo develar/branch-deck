@@ -32,6 +32,7 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
     affinity: run,
     command_key: if command == ["pnpm", "e2e"] { "key-of-e2e" } else { "key-of-nextest" },
     expected: None,
+    exclusive: false,
   }
 }
 
@@ -222,6 +223,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     command_key: None,
     expected: None,
     live: None,
+    exclusive: false,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 2, "queue": [joined] }));
   let before = now_ms();
@@ -468,6 +470,37 @@ fn the_busy_cores_of_the_host_outside_the_holders_hold_a_heavy_run_back() {
   note_host(dir.path(), Cores(100)).unwrap();
   assert_eq!(take(&params, &measured("b", &command, 40)).unwrap(), TurnAnswer::Taken, "8 of a, 4 outside and 4");
   assert_eq!(host_busy(dir.path(), now_ms() + HOST_FRESH_MS + 1_000), None, "an old sample counts as none");
+}
+
+/// An exclusive run takes the whole host of a quiet host: it waits for every holder and for a quiet host, and while it
+/// holds no heavy run is admitted, a run of a measure that would fit neither; the runs that are not heavy find it
+#[test]
+fn an_exclusive_run_waits_for_a_quiet_host_and_holds_it_alone() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let exclusive = |run| TurnRequest {
+    exclusive: true,
+    ..measured(run, &command, 40)
+  };
+  assert_eq!(take(&params, &measured("small", &command, 40)).unwrap(), TurnAnswer::Taken);
+  let TurnAnswer::Queued(queue) = take(&params, &exclusive("ab")).unwrap() else {
+    panic!("an exclusive run waits for every holder");
+  };
+  assert_eq!(queue.need, Need::Exclusive);
+  assert!(leave(&params, "small").unwrap());
+  note_host(dir.path(), Cores(60)).unwrap();
+  assert!(matches!(take(&params, &exclusive("ab")).unwrap(), TurnAnswer::Queued(_)), "6.0 busy is no quiet host");
+  note_host(dir.path(), Cores(30)).unwrap();
+  assert_eq!(take(&params, &exclusive("ab")).unwrap(), TurnAnswer::Taken);
+  assert_eq!(exclusive_holder(dir.path()).map(|holder| holder.ticket.run), Some("ab".to_owned()));
+  assert!(
+    matches!(take(&params, &measured("tiny", &command, 10)).unwrap(), TurnAnswer::Queued(_)),
+    "no heavy run joins it"
+  );
+  assert!(leave(&params, "ab").unwrap());
+  assert_eq!(exclusive_holder(dir.path()), None);
+  assert_eq!(take(&params, &measured("tiny", &command, 10)).unwrap(), TurnAnswer::Taken);
 }
 
 /// The live holder of `heavy.json` of the build before holds the whole host here: no run of this build joins it, and
