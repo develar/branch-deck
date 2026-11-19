@@ -1,6 +1,6 @@
 use super::*;
 use crate::host_slots::{HostProcess, Ticket};
-use crate::host_turn::Need;
+use crate::host_turn::{LightEntry, Need};
 use pretty_assertions::assert_eq;
 use sync_utils::cores::Cores;
 
@@ -65,6 +65,8 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     holders: vec![entry("1788-12", "/Users/u/projects/branch-deck", "pnpm e2e", now_ms - 250_000, Some(120)), live],
     light: Cores(20),
     outside: None,
+    window: None,
+    light_runs: Vec::new(),
     ahead: vec![entry("1790-03", "~/projects/idea-1", "./community/tools/bt.cmd --lane fast", now_ms - 60_000, None)],
   };
   assert_eq!(
@@ -77,6 +79,8 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     holders: vec![entry("h", "/r/one", "bt --lane fast", now_ms, Some(210))],
     light: Cores(0),
     outside: None,
+    window: None,
+    light_runs: Vec::new(),
     ahead: Vec::new(),
   };
   assert_eq!(
@@ -89,6 +93,8 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     holders: Vec::new(),
     light: Cores(0),
     outside: None,
+    window: None,
+    light_runs: Vec::new(),
     ahead: vec![entry("a", "/r/one", "pnpm e2e", now_ms, None), entry("b", "/r/two", "pnpm lint", now_ms, None)],
   };
   assert_eq!(
@@ -130,5 +136,46 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
   assert_eq!(
     measurement_line("1792-81", &holder, Duration::from_mins(3), now_ms),
     "run 1792-81 waits 3 min for a measurement: run 1788-12 of idea-1 holds the host for 12 min (zsh ./measure-ab.sh); a measurement holds the host; this run starts when it ends"
+  );
+}
+
+/// The wait of an exclusive run names each run that is not heavy in its command, and the busy cores of the host over its
+/// last 30 s
+#[test]
+fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window() {
+  let light = |run: &str, repo: &str, command: &str| LightEntry {
+    ticket: Ticket {
+      run: run.to_owned(),
+      pid: 1,
+      process_started: None,
+    },
+    repo: repo.to_owned(),
+    command: command.to_owned(),
+    live: Cores(0),
+  };
+  let queue = TurnQueue {
+    cores: 20,
+    need: Need::Exclusive,
+    holders: Vec::new(),
+    light: Cores(0),
+    outside: Some(Cores(12)),
+    window: Some(Cores(112)),
+    light_runs: vec![light("1790-03", "/Users/u/projects/accio", "scripts/bench ab-run")],
+    ahead: Vec::new(),
+  };
+  assert_eq!(
+    turn_line("ab", &queue, Duration::from_secs(5), Duration::from_secs(119), 1_000_000_000),
+    "run ab waits 5 s for the heavy turn of the host, all its 20 cores of a quiet host, as an exclusive run, 119 s left: no heavy run holds cores, the host is busy with 1.2 of 20 cores outside the heavy runs, waits for run 1790-03 of accio to end: scripts/bench ab-run, the host was busy with up to 11.2 of 20 cores in the last 30 s, no run ahead"
+  );
+  let two = TurnQueue {
+    light_runs: vec![light("1790-03", "/r/accio", "scripts/bench ab-run"), light("1791-04", "/r/idea-1", "bt --lane fast")],
+    window: None,
+    ..queue
+  };
+  assert!(
+    turn_line("ab", &two, Duration::ZERO, Duration::ZERO, 1_000_000_000)
+      .contains(", waits for 2 runs to end: run 1790-03 of accio (scripts/bench ab-run), run 1791-04 of idea-1 (bt --lane fast), no run ahead"),
+    "{}",
+    turn_line("ab", &two, Duration::ZERO, Duration::ZERO, 1_000_000_000)
   );
 }

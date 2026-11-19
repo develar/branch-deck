@@ -392,7 +392,10 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   );
   let text_runs = world.bd_host(&["runs", ALIAS]);
   assert!(text(&text_runs.stdout).starts_with(&format!("{id}  running, started ")), "{}", text(&text_runs.stdout));
-  assert!(text(&text_runs.stdout).ends_with("\nheavy turn: free\n"), "{}", text(&text_runs.stdout));
+  // a run that is not heavy is in the turn for the time of its command, from its start
+  let turn = text(&text_runs.stdout);
+  assert!(turn.contains("\nheavy turn: free"), "{turn}");
+  assert!(turn.contains(&format!("\n  run {id} of ")) && turn.contains(", not heavy, uses 0.0: /bin/sh -c "), "{turn}");
 
   let fetch = world.bd_host(&["fetch", ALIAS, &id, "--fetch", "out"]);
   assert_eq!(fetch.status.code(), Some(255), "a fetch of a run that goes on");

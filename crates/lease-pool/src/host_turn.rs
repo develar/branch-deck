@@ -19,8 +19,10 @@
 //! A sample older than 10 s counts as none, and an admission then counts `light` only.
 //!
 //! An exclusive run (`brd-host run --exclusive`, a measurement such as an A/B) takes the whole host of a quiet host:
-//! it is admitted only without a holder, and while it holds no heavy run is admitted and each new run that is not heavy
-//! waits for its end before its lend ([`exclusive_holder`]). The holder is also in `exclusive.json` beside the table: a
+//! it is admitted only without a holder, with no run that is not heavy in its command (`light`, which a run joins as its
+//! command starts and leaves as it ends), and when every sample of the host of the last 30 s is quiet, as a bursty run
+//! in a lull of one sample is no quiet host ([`HostWindow`]). While it holds no heavy run is admitted and each new run
+//! that is not heavy waits for its end before its lend ([`exclusive_holder`]). The holder is also in `exclusive.json` beside the table: a
 //! supervisor of a build before `exclusive` rewrites `turn.json` at each sample of its run and drops the field it does
 //! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry.
 //!
@@ -383,6 +385,10 @@ pub struct TurnQueue {
   /// The busy cores of the host outside the live use of the holders, by the last sample of the host; `None` without a
   /// fresh one
   pub outside: Option<Cores>,
+  /// The most busy cores of the host over its last 30 s, when its samples span them: what an exclusive run waits on
+  pub window: Option<Cores>,
+  /// The runs that are not heavy in their command: an exclusive run waits for each to end
+  pub light_runs: Vec<LightEntry>,
   /// The runs before this one in the queue
   pub ahead: Vec<TurnEntry>,
 }
@@ -392,20 +398,80 @@ pub struct TurnQueue {
 struct HostSample {
   busy: Cores,
   at_ms: u64,
+  /// The most busy cores of the samples of the last 30 s, and the time from the first of them to the last; none from an
+  /// agent of the build before the window
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  window_max: Option<Cores>,
+  #[serde(default)]
+  window_ms: u64,
 }
 
-/// Notes `busy`, the busy cores of the whole host over the last interval, in `host.json` of `dir` for the admissions
+/// The span of the samples of the host that an exclusive run reads: every sample of the last 30 s must be quiet, as a
+/// bursty run in a lull of one sample is no quiet host
+pub const QUIET_WINDOW_MS: u64 = 30_000;
+/// The least span of a window that counts: the samples of an agent that began less than this ago tell no quiet yet
+const QUIET_WINDOW_MIN_MS: u64 = 28_000;
+
+/// The samples of the busy cores of the whole host of the last 30 s, which `serve` keeps and notes ([`note_host_window`])
+#[derive(Debug, Default)]
+pub struct HostWindow {
+  samples: std::collections::VecDeque<(u64, Cores)>,
+}
+
+impl HostWindow {
+  /// Adds the sample `busy` at `at_ms`, and leaves out the samples more than 30 s before it
+  pub fn push(&mut self, at_ms: u64, busy: Cores) {
+    self.samples.push_back((at_ms, busy));
+    while self.samples.front().is_some_and(|&(first, _)| at_ms.saturating_sub(first) > QUIET_WINDOW_MS) {
+      self.samples.pop_front();
+    }
+  }
+
+  fn sample(&self) -> Option<HostSample> {
+    let &(at_ms, busy) = self.samples.back()?;
+    let first = self.samples.front()?.0;
+    Some(HostSample {
+      busy,
+      at_ms,
+      window_max: self.samples.iter().map(|&(_, busy)| busy).max(),
+      window_ms: at_ms.saturating_sub(first),
+    })
+  }
+}
+
+/// Notes `busy`, the busy cores of the whole host over the last interval, as a window of that one sample in `host.json`
+/// of `dir` for the admissions
 pub fn note_host(dir: &Path, busy: Cores) -> Result<()> {
-  let sample = HostSample { busy, at_ms: now_ms() };
+  let mut window = HostWindow::default();
+  window.push(now_ms(), busy);
+  note_host_window(dir, &window)
+}
+
+/// Notes the last sample of `window` and the most of its samples in `host.json` of `dir`, for the admissions
+pub fn note_host_window(dir: &Path, window: &HostWindow) -> Result<()> {
+  let Some(sample) = window.sample() else { return Ok(()) };
   let json = serde_json::to_vec(&sample)?;
   sync_utils::atomic_file::write_atomically(&dir.join(HOST_FILE), &json, sync_utils::atomic_file::AtomicWrite { private: true, durable: false })?;
   Ok(())
 }
 
+/// The sample of the whole host at most 10 s old at `now_ms`; `None` without one
+fn host_sample(dir: &Path, now_ms: u64) -> Option<HostSample> {
+  let sample: HostSample = serde_json::from_slice(&std::fs::read(dir.join(HOST_FILE)).ok()?).ok()?;
+  (now_ms.saturating_sub(sample.at_ms) <= HOST_FRESH_MS).then_some(sample)
+}
+
 /// The busy cores of the whole host by its last sample at most 10 s old at `now_ms`; `None` without one
 fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
-  let sample: HostSample = serde_json::from_slice(&std::fs::read(dir.join(HOST_FILE)).ok()?).ok()?;
-  (now_ms.saturating_sub(sample.at_ms) <= HOST_FRESH_MS).then_some(sample.busy)
+  host_sample(dir, now_ms).map(|sample| sample.busy)
+}
+
+/// The most busy cores of the whole host over the last 30 s at `now_ms`, when its samples span them; `None` without
+/// such a window
+fn host_window(dir: &Path, now_ms: u64) -> Option<Cores> {
+  host_sample(dir, now_ms)
+    .filter(|sample| sample.window_ms >= QUIET_WINDOW_MIN_MS)
+    .and_then(|sample| sample.window_max)
 }
 
 /// The busy cores of the whole host by its last sample of at most 10 s ago, as the admissions read it; `None` without one
@@ -430,9 +496,15 @@ fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<C
 /// cores outside them (`light` without a sample of the host): to a turn without a holder when the host is quiet
 /// ([`quiet`]), or when the run has a measure that fits beside `outside`; a run that takes the whole host to no holder;
 /// a run of a measure beside holders that do not take the whole host, while their needs, `outside` and its own fit
-fn admits(entry: &TurnEntry, holders: &[TurnEntry], outside: Cores, cores: u32) -> bool {
+fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32) -> bool {
   let need = entry.need(cores);
   let whole = Cores::whole(cores);
+  let outside = load.outside;
+  if need == Need::Exclusive {
+    // no other run in its command, of any repository, and a quiet host over its window: a lull of one sample of a
+    // bursty run is no quiet host
+    return holders.is_empty() && load.light.is_empty() && load.quiet_over_window(cores);
+  }
   if holders.is_empty() {
     return outside <= quiet(cores) || (!need.is_whole_host() && outside.saturating_add(need.cores(cores)) <= whole);
   }
@@ -441,6 +513,30 @@ fn admits(entry: &TurnEntry, holders: &[TurnEntry], outside: Cores, cores: u32) 
   }
   let held: Cores = holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
   held.saturating_add(outside).saturating_add(need.cores(cores)) <= whole
+}
+
+/// What an admission reads of the load of the host beside the holders
+struct Load<'a> {
+  /// The busy cores outside the holders (`light` without a sample of the host)
+  outside: Cores,
+  /// The most busy cores of the host over its last 30 s, when its samples span them
+  window: Option<Cores>,
+  /// Whether the agent noted a sample of the host at all: without one an exclusive run reads `outside`
+  sampled: bool,
+  /// The runs that are not heavy in their command
+  light: &'a [LightEntry],
+}
+
+impl Load<'_> {
+  /// Every sample of the last 30 s is quiet; without a sample of the host, `outside` is; with a window shorter than 30 s,
+  /// none is
+  fn quiet_over_window(&self, cores: u32) -> bool {
+    match (self.sampled, self.window) {
+      (false, _) => self.outside <= quiet(cores),
+      (true, Some(window)) => window <= quiet(cores),
+      (true, None) => false,
+    }
+  }
 }
 
 /// Give the turn to the run of `request`, or put it in the queue ([`join`])
@@ -485,8 +581,17 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     table.queue[position].exclusive |= request.exclusive;
     let holders: Vec<TurnEntry> = legacy.iter().cloned().chain(table.holders.iter().cloned()).collect();
     let light = table.light_cores();
-    let outside = outside(&holders, light, host_busy(params.dir, now_ms()));
-    if position == 0 && admits(&table.queue[0], &holders, outside.unwrap_or(light), params.cores) {
+    let now = now_ms();
+    let sample = host_sample(params.dir, now);
+    let outside = outside(&holders, light, sample.map(|sample| sample.busy));
+    let window = host_window(params.dir, now);
+    let load = Load {
+      outside: outside.unwrap_or(light),
+      window,
+      sampled: sample.is_some(),
+      light: &table.light,
+    };
+    if position == 0 && admits(&table.queue[0], &holders, &load, params.cores) {
       let mut entry = table.queue.remove(0);
       entry.since_ms = now_ms();
       if entry.exclusive {
@@ -501,6 +606,8 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       holders,
       light,
       outside,
+      window,
+      light_runs: table.light.clone(),
       ahead: table.queue[..position].to_vec(),
     });
     Ok(joined)

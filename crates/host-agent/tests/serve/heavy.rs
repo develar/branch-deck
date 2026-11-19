@@ -393,3 +393,29 @@ fn a_run_of_another_repository_waits_for_an_exclusive_run() {
   assert_eq!(after.end, Reply::Exit { code: 0 }, "{}", agent.dump("15-2"));
   assert_eq!(after.phase_names().first(), Some(&"exclusive"));
 }
+
+/// A run that is not heavy in its command holds an exclusive run back, whose wait names it, and the exclusive run starts
+/// once that run ended: a bursty run in a lull is no quiet host
+#[test]
+fn an_exclusive_run_waits_for_a_run_in_its_command_to_end() {
+  let world = World::new(2, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20")]);
+  let (gate, marks) = gate_and_marks(&world);
+  let open = world.home.path().join("open");
+  agent.start(RunSpec {
+    heavy: false,
+    ..heavy(&world, "16-1", &marks, &open)
+  });
+  eventually("the run that is not heavy runs its command", || started(&marks) == ["16-1"]);
+  agent.start(RunSpec {
+    exclusive: true,
+    ..heavy(&world, "16-2", &marks, &gate)
+  });
+  eventually("the exclusive run says whom it waits for", || events(&world, "16-2").contains(", waits for run 16-1 of "));
+  assert_eq!(started(&marks), ["16-1"], "the exclusive run waits for the run in its command");
+  fs::write(&open, "").expect("the run that is not heavy ends");
+  assert_eq!(agent.follow("16-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("16-1"));
+  eventually("the exclusive run takes the host", || started(&marks) == ["16-1", "16-2"]);
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("16-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("16-2"));
+}

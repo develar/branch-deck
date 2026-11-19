@@ -232,11 +232,17 @@ pub(crate) fn sample_host(home: &Home, every: Duration) {
   let cores = std::thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX));
   let Some(mut before) = sync_utils::host_cpu::host_ticks() else { return };
   let mut said = false;
+  // the samples of the last 30 s: an exclusive run reads the most of them
+  let mut window = lease_pool::host_turn::HostWindow::default();
   loop {
     std::thread::sleep(every);
     let Some(after) = sync_utils::host_cpu::host_ticks() else { continue };
-    if let Some(busy) = sync_utils::host_cpu::busy_cores(before, after, cores)
-      && let Err(error) = lease_pool::host_turn::note_host(&heavy_dir(home), busy)
+    let Some(busy) = sync_utils::host_cpu::busy_cores(before, after, cores) else {
+      before = after;
+      continue;
+    };
+    window.push(now_ms(), busy);
+    if let Err(error) = lease_pool::host_turn::note_host_window(&heavy_dir(home), &window)
       && !said
     {
       crate::log::log(&format!("cannot note the busy cores of the host for the heavy turn: {error:#}"));

@@ -122,8 +122,11 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   from joining a host they already load.
 - **An exclusive run** (`brd-host run --exclusive`): a measurement such as the A/B pair of a fast lane needs a quiet
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
-  is admitted only without a holder on a quiet host, and while it holds no heavy run is admitted and each new run that
-  is not heavy waits for its end before its lend, in the step `exclusive`. It is an explicit flag, never a pattern of
+  is admitted only without a holder, with no run that is not heavy in its command (a run is in `light` of the turn for
+  the time of its command), and when every sample of the host of the last 30 s is quiet: one sample let it in during a
+  lull of a bursty `scripts/bench ab-run` twice on 2026-11-19 (0 to 1.8 cores in its lulls, 10 to 11 at its peaks), and
+  the load median of the measured lane doubled. While it holds no heavy run is admitted and each new run that is not
+  heavy waits for its end before its lend, in the step `exclusive`. It is an explicit flag, never a pattern of
   `[host]`: a check that took the host this way would stop every agent of the host for its whole run. The holder is also in
   `exclusive.json` beside the table: a supervisor of the build before, of a run that began before an upgrade, rewrites
   `turn.json` at each sample of its run and drops the fields it does not know (on 2026-11-19 the first exclusive run

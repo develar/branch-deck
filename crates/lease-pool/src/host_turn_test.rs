@@ -491,7 +491,7 @@ fn an_exclusive_run_waits_for_a_quiet_host_and_holds_it_alone() {
   assert!(leave(&params, "small").unwrap());
   note_host(dir.path(), Cores(60)).unwrap();
   assert!(matches!(take(&params, &exclusive("ab")).unwrap(), TurnAnswer::Queued(_)), "6.0 busy is no quiet host");
-  note_host(dir.path(), Cores(30)).unwrap();
+  quiet_for_30_s(dir.path(), Cores(30));
   assert_eq!(take(&params, &exclusive("ab")).unwrap(), TurnAnswer::Taken);
   assert_eq!(exclusive_holder(dir.path()).map(|holder| holder.ticket.run), Some("ab".to_owned()));
   assert!(
@@ -501,6 +501,82 @@ fn an_exclusive_run_waits_for_a_quiet_host_and_holds_it_alone() {
   assert!(leave(&params, "ab").unwrap());
   assert_eq!(exclusive_holder(dir.path()), None);
   assert_eq!(take(&params, &measured("tiny", &command, 10)).unwrap(), TurnAnswer::Taken);
+}
+
+/// Samples of the host of 30 s, each `busy`, as `serve` keeps them
+fn quiet_for_30_s(dir: &Path, busy: Cores) {
+  let now = now_ms();
+  let mut window = HostWindow::default();
+  for at in (0..=30_000).step_by(2_000) {
+    window.push(now - 30_000 + at, busy);
+  }
+  note_host_window(dir, &window).unwrap();
+}
+
+/// An exclusive run waits until no run that is not heavy is in its command, of any repository, and its line names each;
+/// then it waits until every sample of the last 30 s is quiet: a lull of one sample of a bursty run does not admit it,
+/// nor a window that spans less than 30 s
+#[test]
+fn an_exclusive_run_waits_for_the_runs_in_their_command_and_a_quiet_window() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let bench = vec!["scripts/bench".to_owned(), "ab-run".to_owned()];
+  let pid = std::process::id();
+  note_use(
+    &params,
+    &UseNote {
+      run: "bench",
+      pid,
+      process_started: sync_utils::process_scan::process_started(pid),
+      repo: "/Users/u/projects/accio",
+      command: &bench,
+      live: Cores(0),
+    },
+  )
+  .unwrap();
+  quiet_for_30_s(dir.path(), Cores(10));
+  let exclusive = TurnRequest {
+    exclusive: true,
+    ..request("ab", &command)
+  };
+  let TurnAnswer::Queued(queue) = take(&params, &exclusive).unwrap() else {
+    panic!("a run in its command holds an exclusive run back, at 0 cores in a lull too");
+  };
+  assert_eq!(queue.light_runs.iter().map(|light| light.ticket.run.as_str()).collect::<Vec<_>>(), ["bench"]);
+  assert!(!leave(&params, "bench").unwrap());
+
+  let now = now_ms();
+  let mut lull = HostWindow::default();
+  for (at, busy) in [(now - 30_000, 110), (now - 20_000, 105), (now - 10_000, 98), (now, 10)] {
+    lull.push(at, Cores(busy));
+  }
+  note_host_window(dir.path(), &lull).unwrap();
+  let TurnAnswer::Queued(queue) = take(&params, &exclusive).unwrap() else {
+    panic!("a lull of one sample is no quiet host");
+  };
+  assert_eq!(queue.window, Some(Cores(110)));
+  let mut short = HostWindow::default();
+  short.push(now - 10_000, Cores(10));
+  short.push(now, Cores(10));
+  note_host_window(dir.path(), &short).unwrap();
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)), "10 s of samples tell no quiet yet");
+  quiet_for_30_s(dir.path(), Cores(10));
+  assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
+}
+
+/// The window of the samples of the host keeps the last 30 s
+#[test]
+fn the_window_of_the_host_keeps_the_samples_of_the_last_30_s() {
+  let mut window = HostWindow::default();
+  for (at, busy) in [(0, 150), (10_000, 20), (31_000, 30), (40_000, 25)] {
+    window.push(at, Cores(busy));
+  }
+  let sample = window.sample().unwrap();
+  assert_eq!(
+    (sample.busy, sample.at_ms, sample.window_max, sample.window_ms),
+    (Cores(25), 40_000, Some(Cores(30)), 30_000)
+  );
 }
 
 /// A supervisor of a build before `exclusive` rewrites the table at each sample of its run and drops the field it does

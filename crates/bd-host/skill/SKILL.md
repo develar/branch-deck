@@ -86,12 +86,14 @@ again later. A run that is not heavy runs at once.
 ### Exclusive runs
 
 `brd-host run <host> --exclusive -- <command>` is for measurements only (an A/B pair, a benchmark, a timing that a
-neighbour would spoil), never for an ordinary check or gate. It is a heavy run that waits for a quiet host without
-another heavy run; its wait line says `all its 20 cores of a quiet host, as an exclusive run` and what keeps the host
-busy. While it holds the turn no heavy run is admitted, and each new run that is not heavy waits before its slot with
+neighbour would spoil), never for an ordinary check or gate. It is a heavy run that waits until no other run is in its
+command, of any repository, and every sample of the host of the last 30 s is quiet; its wait line says `all its 20 cores
+of a quiet host, as an exclusive run`, `waits for run <run> of <repo> to end: <command>` and `the host was busy with up
+to 11.2 of 20 cores in the last 30 s`. While it holds the turn no heavy run is admitted, and each new run that is not heavy waits before its slot with
 `brd-host: run <run> waits 2 min for a measurement: run <run> of <repo> holds the host for 5 min (<command>); a
 measurement holds the host; this run starts when it ends` (the step `exclusive` of its phases, at most 1 h, then
-`slot_timeout`). The runs that already ran go on, so the measurement still reads the busy line of its wait first. An
+`slot_timeout`). A process of no run can still load the host: read the line `took the heavy turn of the host after
+<n> s, the host busy with <x> of its 20 cores` before the numbers. An
 agent of an older build refuses it before the start with `bad_config`: `brd-host upgrade <host>` after the user agrees.
 
 One heavy run is one check: `cargo nextest run --workspace`, `pnpm lint:backend` and `pnpm e2e` go as three runs, never

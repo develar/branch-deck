@@ -368,9 +368,21 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
       }
     }
   };
+  // a run that is not heavy is in `light` of the turn for the time of its command, from its start, not its first sample:
+  // an exclusive run waits until no run is in its command
+  if !spec.heavy
+    && let Err(refusal) = turn::note_use(context.home, &of, sync_utils::cores::Cores(0))
+  {
+    supervisor(&format!("run {}: {refusal}", spec.run));
+  }
   let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
   let measure_ended = Instant::now();
   measure_end(context, &of, &mut sampler, sampled_group);
+  if !spec.heavy
+    && let Err(refusal) = turn::leave(context.home, &spec.run)
+  {
+    supervisor(&format!("run {}: {refusal}", spec.run));
+  }
   phases.record("measure", measured_before + measure_ended.elapsed());
   let code = ran?;
   for error in phases.time("stage", || stage_run(context, &slot, &launch, &before)) {

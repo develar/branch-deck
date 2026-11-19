@@ -58,11 +58,14 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
       .collect();
     holders.join(", ")
   };
-  let light = match queue.outside {
+  let mut light = match queue.outside {
     Some(outside) => format!(", the host is busy with {outside} of {} cores outside the heavy runs", queue.cores),
     None if queue.light == Cores(0) => String::new(),
     None => format!(", runs that are not heavy use {}", queue.light),
   };
+  if queue.need == Need::Exclusive {
+    light.push_str(&exclusive_wait_text(queue));
+  }
   let ahead: Vec<String> = queue.ahead.iter().map(|entry| format!("{} ({})", run_of_repo(entry), entry.command)).collect();
   let ahead = match ahead.len() {
     0 => "no run ahead".to_owned(),
@@ -75,6 +78,25 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
     need_text(queue.need, queue.cores),
     span(left)
   )
+}
+
+/// What an exclusive run waits for beyond the holders: each run that is not heavy in its command, and the busy cores of
+/// the host over its last 30 s: ", waits for run 1790-03 of accio to end: scripts/bench ab-run, the host was busy with
+/// up to 11.2 of 20 cores in the last 30 s"
+fn exclusive_wait_text(queue: &TurnQueue) -> String {
+  let runs: Vec<String> = queue.light_runs.iter().map(|run| format!("run {} of {}", run.ticket.run, repo_name(&run.repo))).collect();
+  let ends = match runs.as_slice() {
+    [] => String::new(),
+    [one] => format!(", waits for {one} to end: {}", queue.light_runs[0].command),
+    _ => {
+      let each: Vec<String> = runs.iter().zip(&queue.light_runs).map(|(run, light)| format!("{run} ({})", light.command)).collect();
+      format!(", waits for {} runs to end: {}", runs.len(), each.join(", "))
+    }
+  };
+  let window = queue.window.map_or_else(String::new, |window| {
+    format!(", the host was busy with up to {window} of {} cores in the last 30 s", queue.cores)
+  });
+  format!("{ends}{window}")
 }
 
 /// What a run waits for: `7.5 of its 20 cores`, `all its 20 cores, as the command has no measure yet`
@@ -114,10 +136,12 @@ pub fn measurement_line(run: &str, holder: &TurnEntry, waited: Duration, now_ms:
 
 /// `1788-12 of branch-deck`: the run and the name of its repository
 pub fn run_of_repo(entry: &TurnEntry) -> String {
-  let repo = Path::new(&entry.repo)
-    .file_name()
-    .map_or_else(|| entry.repo.clone(), |name| name.to_string_lossy().into_owned());
-  format!("{} of {repo}", entry.ticket.run)
+  format!("{} of {}", entry.ticket.run, repo_name(&entry.repo))
+}
+
+/// The name of the repository `repo`: its last component
+fn repo_name(repo: &str) -> String {
+  Path::new(repo).file_name().map_or_else(|| repo.to_owned(), |name| name.to_string_lossy().into_owned())
 }
 
 /// The time since `since_ms` at `now_ms`, as `span` says it
