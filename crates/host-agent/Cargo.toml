@@ -37,6 +37,8 @@ serde_json.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 # flock, process groups, the open-files limit, the niceness, kqueue (`sys`)
 libc = "0.2.191"
+# the local time at the start of each line of the log (`log`)
+jiff = { workspace = true, features = ["tz-system"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 pretty_assertions.workspace = true

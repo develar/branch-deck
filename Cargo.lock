@@ -3127,6 +3127,7 @@ dependencies = [
  "git-ops",
  "history-rewrite",
  "host-link",
+ "jiff",
  "lease-pool",
  "libc",
  "pool-disk",

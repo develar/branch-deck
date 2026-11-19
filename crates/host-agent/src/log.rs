@@ -4,19 +4,23 @@
 //! run once it ended and never reads `supervisor.log`, and the run goes from the host a day later. So does a panic
 //! after the end
 //! (`panics_reach_the_agent_log`). A `serve` by hand whose stderr is a pipe that nothing reads holds such a line at a
-//! full pipe, as it holds its own lines; under launchd the log is a file
+//! full pipe, as it holds its own lines; under launchd the log is a file.
+//!
+//! Each line starts with the local time of the host to the millisecond (`2026-11-19 07:10:02.123`), so a stall of a
+//! run can be set against the other lines and the system log; each line is one write, so the lines of several processes
+//! in one file never mix
 
 use std::io::Write;
 use std::panic;
 
 /// A line of the log of `serve`
 pub(crate) fn log(message: &str) {
-  let _ = writeln!(std::io::stderr(), "brd-host: {message}");
+  write_line(&mut std::io::stderr(), &format!("brd-host: {message}"));
 }
 
 /// A line of the log of a supervisor
 pub(crate) fn supervisor(message: &str) {
-  let _ = writeln!(std::io::stderr(), "brd-host supervise: {message}");
+  write_line(&mut std::io::stderr(), &format!("brd-host supervise: {message}"));
 }
 
 /// A line of the supervisor of `run` after the end of the run: into `supervisor.log`, and with the id of the run into
@@ -28,7 +32,17 @@ pub(crate) fn supervisor_after_end(run: &str, message: &str) {
 
 /// The line of the supervisor of `run` in the log of the agent, `out`
 fn agent_log_line(out: &mut impl Write, run: &str, message: &str) {
-  let _ = writeln!(out, "brd-host supervise {run}: {message}");
+  write_line(out, &format!("brd-host supervise {run}: {message}"));
+}
+
+/// `text` as one line of `out`, after the local time of now, in one write
+fn write_line(out: &mut impl Write, text: &str) {
+  let _ = out.write_all(stamped(&jiff::Zoned::now(), text).as_bytes());
+}
+
+/// The line of `text` at `now`: `2026-11-19 07:10:02.123 <text>` and its line end
+fn stamped(now: &jiff::Zoned, text: &str) -> String {
+  format!("{} {text}\n", now.strftime("%Y-%m-%d %H:%M:%S%.3f"))
 }
 
 /// From now on a panic of this supervisor goes to the log of the agent too, as the line of `supervisor_after_end` with

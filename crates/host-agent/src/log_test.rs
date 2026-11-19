@@ -1,4 +1,5 @@
-use super::panics_reach;
+use super::{panics_reach, stamped};
+use pretty_assertions::assert_eq;
 use std::io::{self, Write};
 use std::sync::{Mutex, PoisonError};
 
@@ -41,9 +42,19 @@ fn a_panic_after_the_end_of_a_run_reaches_the_log_of_the_agent_with_the_id_of_th
   let written = WRITTEN.lock().unwrap_or_else(PoisonError::into_inner).clone();
   assert_eq!(written.len(), 2, "{written:?}");
   assert_eq!(written[0], "the hook before");
-  let line = &written[1];
+  let line = written[1].strip_prefix("agent log: ").unwrap();
+  let (stamp, line) = line.split_once(" brd-host").unwrap();
+  assert!(jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S%.f", stamp).is_ok(), "{stamp:?}");
   assert!(
-    line.starts_with("agent log: brd-host supervise 1-1: panicked: panicked at crates/host-agent/src/log_test.rs:") && line.ends_with(" the give-back broke\n"),
+    line.starts_with(" supervise 1-1: panicked: panicked at crates/host-agent/src/log_test.rs:") && line.ends_with(" the give-back broke\n"),
     "{line:?}"
   );
+}
+
+/// A line of the log starts with the local time of the host to the millisecond, so a stall of a run can be set against
+/// the other lines and the system log
+#[test]
+fn a_line_of_the_log_starts_with_the_local_time_to_the_millisecond() {
+  let now = jiff::civil::date(2026, 11, 19).at(7, 10, 2, 123_456_789).to_zoned(jiff::tz::TimeZone::UTC).unwrap();
+  assert_eq!(stamped(&now, "brd-host: started the run 1-1"), "2026-11-19 07:10:02.123 brd-host: started the run 1-1\n");
 }

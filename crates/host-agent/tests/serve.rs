@@ -57,7 +57,7 @@ const DEADLINE: Duration = Duration::from_secs(60);
 const AFFINITY: &str = "checkout-0123456789ab";
 
 /// The phases of a run that ran its command, in their order
-const ALL_PHASES: [&str; 6] = ["slot", "pack_wait", "checkout", "prepare", "command", "stage"];
+const ALL_PHASES: [&str; 7] = ["slot", "pack_wait", "checkout", "prepare", "command", "measure", "stage"];
 
 /// The start of the line that the agent writes right before the command
 const START_LINE: &str = "brd-host: running in ";

@@ -346,8 +346,12 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     context.say(&warning);
   }
   let repo = context.repo.path.display().to_string();
+  // the phase `measure`: the cores of the host and the first look at the Bazel servers of the slot before the command,
+  // the last sample and the record of the measure after it, so a volume that hangs them shows in the phases
+  let measure_started = Instant::now();
   let of = turn_run(context, &repo);
   let mut sampler = Sampler::start(&slot, tuning::sample_every());
+  let measured_before = measure_started.elapsed();
   let mut sampled_group = 0;
   let mut on_poll = |group: u32| {
     sampled_group = group;
@@ -362,7 +366,9 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     }
   };
   let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
+  let measure_ended = Instant::now();
   measure_end(context, &of, &mut sampler, sampled_group);
+  phases.record("measure", measured_before + measure_ended.elapsed());
   let code = ran?;
   for error in phases.time("stage", || stage_run(context, &slot, &launch, &before)) {
     context.say(&error);

@@ -115,9 +115,10 @@ line. `brd-host upgrade <host>` replaces it after the user agrees.
 | `git` | host | Branch Deck upgraded the git of the host with Homebrew, and the run waited for it. |
 | `slot` | host | Every slot was lent, and the run waited in the queue. |
 | `pack_wait` | host | The slot was ready before the pack came. |
-| `checkout` | host | A diff with many files, or a forced checkout. The log then says why. |
+| `checkout` | host | A diff with many files, or a forced checkout: the log then says why. Minutes for a small diff: the volume of the slot hangs, and every git on it waits. |
 | `prepare` | host | A `[[host.prepare]]` step of `.branchdeck.toml` ran, because its inputs changed. |
 | `command` | host | The command itself. |
+| `measure` | host | The cores of the command were measured outside it: a look at the Bazel servers of the slot before it, the last sample after it. Minutes: the volume of the slot or of a Bazel output base hangs. |
 | `stage`, `fetch` | host, here | The outputs and the fetched files are large. |
 | `total` | here | The whole call. |
 

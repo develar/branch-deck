@@ -30,6 +30,7 @@ fn the_report_of_a_run_is_the_golden_json_of_the_spec() {
     ("checkout", 4200),
     ("prepare", 0),
     ("command", 600_000),
+    ("measure", 300),
     ("stage", 800),
     ("fetch", 900),
     ("total", 612_000),
