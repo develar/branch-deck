@@ -1013,6 +1013,7 @@
             "x-air-app/viewClosed",
             "notifications/progress",
             "notifications/message",
+            "notifications/tools/list_changed",
             "x-air-app/viewChanged",
             "x-air-app/viewEnded",
             "x-air-app/event",

@@ -130,3 +130,12 @@
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"error":{"code":-32009,"message":"${any}","data":{"reason":"notHolder"}}},"conn":2}
 {"link":"ide","from":"ide","message":{"jsonrpc":"2.0","id":3,"method":"x-air-ide/appResourceRead","params":{"channel":"x-air-ide:/apps/1","app":"fixture","uri":"ui://fixture/main"}},"conn":2}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"error":{"code":-32008,"message":"${any}","data":{"reason":"unknownChannel"}}},"conn":2}
+{"comment":"The page link calls only a tool of the last tools/list that the app sees, by the checks of appToolCall. After notifications/tools/list_changed air-ide reads tools/list again, and a call waits for its answer. A tool that the new list lacks is refused with unknownTool, and a tool whose visibility lacks app with modelOnly. The app gets no call. The WebSocket 3 of the good ticket still holds main:1."}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":5,"result":{"tools":[{"name":"invoke","description":"Runs one command of the page.","inputSchema":{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"object"}},"required":["command"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"summary","description":"Summarizes the fixture for an agent.","inputSchema":{"type":"object"},"_meta":{"ui":{"visibility":["model"]}}}]}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"refresh","arguments":{}}},"conn":3}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"${any}","data":{"reason":"unknownTool"}}},"conn":3}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":4,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"summary","arguments":{}}},"conn":3}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"error":{"code":-32009,"message":"${any}","data":{"reason":"modelOnly"}}},"conn":3}
+{"step":"httpRequest","method":"GET","path":"/","host":"[::1]:${port}","origin":null,"expect":403}
