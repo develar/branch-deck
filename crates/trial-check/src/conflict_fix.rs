@@ -226,8 +226,23 @@ impl Change {
         return None;
       }
     }
-    merged.steps.extend(other.steps.iter().cloned());
+    // a candidate of a later round carries what an earlier one did (a restack of the chain it builds on, a commit it
+    // moves along): a step whose effect the change has already is no step of the fix again
+    for step in &other.steps {
+      if !self.has_effect_of(step) && !merged.steps.contains(step) {
+        merged.steps.push(step.clone());
+      }
+    }
     Some(merged)
+  }
+
+  /// The change already does what `step` does: restacks its branch on the same parent, or moves each of its commits to
+  /// the same branch
+  fn has_effect_of(&self, step: &FixStep) -> bool {
+    match step.kind {
+      FixStepKind::Restack => self.restacks.get(&step.fixes) == Some(&step.to),
+      FixStepKind::Move | FixStepKind::PullIn => !step.commits.is_empty() && step.commits.iter().all(|id| self.moves.get(id) == Some(&step.to)),
+    }
   }
 }
 

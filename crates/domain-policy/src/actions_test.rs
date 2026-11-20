@@ -331,16 +331,17 @@ fn problem(fixes: Vec<StackFix>) -> StackProblemView {
   }
 }
 
-/// A rewrite needs commits and a build, and no sync holds it back (the session admits it at once, C14); the fixes of a
-/// stack problem run while the problem blocks the rest; Add Issue Reference says when every commit has one; Unstack only
-/// of a stacked branch or where a fix offers it
+/// A rewrite needs commits and no error of the last sync, and no sync holds it back (the session admits it at once, C14);
+/// the fixes of a stack problem run while the problem blocks the rest; Add Issue Reference says when every commit has
+/// one; Unstack only of a stacked branch or where a fix offers it
 #[test]
-fn a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest() {
+fn a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest() {
   let step = ready_step();
   let status = remote(PushAction::Push);
   let cycle = problem(vec![StackFix::StackOn("main".to_string()), StackFix::Unstack]);
   let failed = BranchFacts {
     row: Row {
+      status: BranchStatus::Error,
       sync_failed: true,
       problem: Some(&cycle),
       ..row("auth")
@@ -358,6 +359,7 @@ fn a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_pro
   let rebuilt = branch_actions(&BranchFacts {
     row: Row {
       syncing: true,
+      status: BranchStatus::Error,
       sync_failed: true,
       problem: Some(&cycle),
       ..row("auth")
@@ -390,6 +392,43 @@ fn a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_pro
   assert_eq!(reason_of(&referenced, AddIssueReference), Some(ActionBlocker::AllReferenced));
   assert_eq!(reason_of(&referenced, Unstack), None, "a stacked branch unstacks");
   assert!(!ids(&branch_actions(&facts(&step, &status))).contains(&Unstack), "a root has nothing to unstack from");
+}
+
+/// A merge conflict is a grouping the copies don't apply in: every rewrite of the original commits runs, a restack onto
+/// the branch it needs first of all, and the sync it asks builds the branch again; what reads the build (Unapply, the
+/// push, the review) waits for one, as after an error of the sync, which holds back every rewrite
+#[test]
+fn a_merge_conflict_holds_back_only_what_reads_the_build_and_the_rewrites_of_the_original_commits_run() {
+  let step = ready_step();
+  let status = remote(PushAction::Push);
+  let failed = |status: BranchStatus| Row {
+    status,
+    sync_failed: true,
+    declared_parent: Some("core"),
+    ..row("auth")
+  };
+  let failure = Some(ActionBlocker::SyncFailed { problem: None });
+  let originals = [Rename, MoveTo, StackOn, Unstack, Ungroup, AmendChanges, AddIssueReference, SquashFixups];
+  let build = [Unapply, Push, ReviewChanges];
+
+  let conflict = branch_actions(&BranchFacts {
+    row: failed(BranchStatus::MergeConflict),
+    ..facts(&step, &status)
+  });
+  for id in originals {
+    assert_eq!(reason_of(&conflict, id), None, "{id:?} reads the original commits");
+  }
+  for id in build {
+    assert_eq!(reason_of(&conflict, id), failure, "{id:?} reads the build");
+  }
+
+  let error = branch_actions(&BranchFacts {
+    row: failed(BranchStatus::Error),
+    ..facts(&step, &status)
+  });
+  for id in originals.into_iter().chain(build) {
+    assert_eq!(reason_of(&error, id), failure, "{id:?} after an error of the sync");
+  }
 }
 
 /// Add Need… is a line of a branch that groups commits; Remove Need is offered while the branch declared a need, also

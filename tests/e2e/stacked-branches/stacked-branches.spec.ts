@@ -488,6 +488,36 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
+  test("should stack a branch whose sync conflicts on the branch it needs from the menu and by a drop on its Stack on chip, the conflict gone", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // ui changes the timeout api raised: built on master it conflicts, stacked on api it applies
+    await setupRepo("conflict_fix")
+    await syncAndWaitForBranches()
+    const status = findBranchRow(page, "ui").getByTestId("branch-status")
+    await expect(status).toHaveText("merge conflict")
+
+    await openContextMenu(page, findBranchRow(page, "ui"))
+    await openSubmenu(page, "Stack On…")
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "api"))
+    await expect(page.getByText("Stacked ui on api")).toBeVisible()
+    await expect.poll(() => branchTree(page)).toEqual(["core@0", "api@1", "ui@2"])
+    await expect(status).not.toHaveText("merge conflict")
+
+    // back to the conflict, then the same restack by a drop
+    await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
+    await expect(status).toHaveText("merge conflict")
+    await startDrag(page, findBranchRow(page, "ui"))
+    await findBranchRow(page, "api").hover()
+    const chip = findBranchRow(page, "api").getByTestId("stack-on-drop-chip")
+    await expect(chip).toHaveText("Stack on api")
+    await runAndWaitForSync(page, () => dropOn(page, chip))
+    await expect.poll(() => branchTree(page)).toEqual(["core@0", "api@1", "ui@2"])
+    await expect(status).not.toHaveText("merge conflict")
+  })
+
   test("should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone", async ({
     page,
     setupRepo,

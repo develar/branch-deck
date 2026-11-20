@@ -86,6 +86,29 @@ fn a_single_commit_branch_is_restacked_on_the_branch_it_needs() {
   assert_applies(&repo, &fix);
 }
 
+/// Each of `b`, `c` and `d` changes the line the branch before it wrote: each round restacks one, and a candidate of a
+/// later round that carries a restack of an earlier one adds no step twice
+#[test]
+fn a_chain_of_branches_each_needing_the_one_before_is_restacked_once_each() {
+  let repo = baseline_repo();
+  repo.create_commit("(a) Add lib", "lib.txt", "1\n");
+  repo.create_commit("(b) Change lib", "lib.txt", "2\n");
+  repo.create_commit("(c) Change lib again", "lib.txt", "3\n");
+  repo.create_commit("(d) Change lib once more", "lib.txt", "4\n");
+
+  let fix = find_fix(&repo, FixBudget::default());
+
+  assert_eq!(
+    fix.components[0].steps,
+    [
+      step(FixStepKind::Restack, &[], &[], "a", "b"),
+      step(FixStepKind::Restack, &[], &[], "b", "c"),
+      step(FixStepKind::Restack, &[], &[], "c", "d"),
+    ]
+  );
+  assert_applies(&repo, &fix);
+}
+
 #[test]
 fn an_unassigned_commit_the_branch_needs_is_pulled_in() {
   let repo = baseline_repo();

@@ -2472,6 +2472,19 @@ The branch menu MUST offer "Stack On…", a submenu of the other branches withou
 - **AND** with none left it is disabled with "No other branch to stack on"
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should not offer a branch's own descendants to stack on`)
 
+### Requirement: UI: A branch whose sync conflicts restacks on what it needs
+
+A branch whose commits conflict on the baseline because they need a branch it is not built on MUST be restacked on it
+the way any branch is: Stack On…, the drop on the "Stack on ‹name›" chip, Stack Together and Unstack run on it, the
+sync after the restack builds it on its new parent, and Undo brings the conflict back.
+
+#### Scenario: Stack On… of a conflicting branch
+- **GIVEN** `ui` conflicts on master because it changes a line `api` changed
+- **WHEN** the user stacks `ui` on `api` with Stack On… or by a drop on the "Stack on api" chip
+- **THEN** `ui` is stacked on `api` and applies cleanly
+- **AND** Undo brings the conflict back
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch whose sync conflicts on the branch it needs from the menu and by a drop on its Stack on chip, the conflict gone`)
+
 ### Requirement: UI: The branch menu offers Unstack of a stacked branch
 
 The branch menu MUST offer "Unstack from <parent>" for a stacked branch (the rewrite `unstack` of the engine, with an
@@ -2674,7 +2687,7 @@ The branch menu MUST offer the same fixes enabled: "Stack On…" lists the paren
 - **WHEN** the user opens the menu of a branch with conflicting parents
 - **THEN** "Stack On…" lists the parents of the fixes, the stack parent too, and Unstack is enabled
   [@test] tests/e2e/stacked-branches/stack-problems.spec.ts (`should offer the fixes in the menu and block the other rewrites with the problem`, `should unstack a branch with conflicting parents from the menu`)
-  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
 
 ### Requirement: UI: The other actions of a branch with a stack problem say its reason
 
@@ -2686,7 +2699,7 @@ parents") instead of "The branch failed to sync".
 - **THEN** every other rewrite, Unapply, Review Changes and Safe Push are disabled with "publish-viewer has conflicting
   parents" instead of "The branch failed to sync"
   [@test] tests/e2e/stacked-branches/stack-problems.spec.ts (`should offer the fixes in the menu and block the other rewrites with the problem`)
-  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
 
 ### Requirement: UI: A drag takes the fixes of a stack problem too
 

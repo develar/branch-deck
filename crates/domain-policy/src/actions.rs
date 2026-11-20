@@ -11,9 +11,11 @@
 //!   Auto-Merge (`cancel-auto-merge`).
 //! - The push waits for the facts its button reads: parked, blocked, failed, held, a sync that rebuilds the branch,
 //!   nothing to push. Push with Children says what it lacks beyond the branch (`NothingBeyond`).
-//! - A rewrite needs commits and a build; the fixes of a stack problem run while the problem blocks the rest. A sync
-//!   holds no rewrite back: the session admits it at once, named on the table its window showed (`TableWitness`), and
-//!   decides it on HEAD as it is then (C14).
+//! - A rewrite needs commits, and says what it reads of the branch (`Reads`): its original commits, which a merge
+//!   conflict leaves as they are (the conflict is a grouping, and a regroup is its fix), or its build (Unapply), which
+//!   any failed sync holds back, as it holds back the push and the review; the fixes of a stack problem run while the
+//!   problem blocks the rest. A sync holds no rewrite back: the session admits it at once, named on the table its window
+//!   showed (`TableWitness`), and decides it on HEAD as it is then (C14).
 //! - A robot's restart waits for why it failed and for the approvals its step misses; a fact without an answer is never
 //!   "no": `Pending`.
 //! - On a frame nobody checked yet (the cached frame of an earlier run, a fact that is a value of it: `on_cached_frame`)
@@ -178,7 +180,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     };
     offer(ActionId::CreatePullRequest, reason);
   }
-  let rewrite = rewrite_blocker(row);
+  let rewrite = rewrite_blocker(row, Reads::Originals);
   // a fix of the stack problem runs while the problem blocks the rest: a regroup keeps a problem it finds
   let fix = |fix: &dyn Fn(&StackFix) -> bool| {
     if row.problem.is_some_and(|problem| problem.fixes.iter().any(fix)) {
@@ -200,7 +202,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     rewrite.clone().or_else(|| row.all_referenced.then_some(ActionBlocker::AllReferenced)),
   );
   offer(ActionId::SquashFixups, rewrite.clone());
-  offer(ActionId::Unapply, rewrite);
+  offer(ActionId::Unapply, rewrite_blocker(row, Reads::Build));
   // a need is a line of a branch that groups commits; one declared is taken back also of a branch without them
   offer(ActionId::AddNeed, (row.commit_count == 0).then_some(ActionBlocker::NoCommits));
   if !row.needs.is_empty() {
@@ -312,10 +314,8 @@ fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
     return Some(aside);
   }
   // the last sync did not build it: its virtual branch is an older build, which no push takes
-  if row.sync_failed {
-    return Some(ActionBlocker::SyncFailed {
-      problem: row.problem.map(|problem| problem.reason.clone()),
-    });
+  if let Some(failed) = failed_sync(row, Reads::Build) {
+    return Some(failed);
   }
   if row.commit_count == 0 {
     return Some(ActionBlocker::NoCommits);
@@ -400,22 +400,35 @@ pub fn review_blocker(row: &Row<'_>) -> Option<ActionBlocker> {
   if row.commit_count == 0 {
     return Some(ActionBlocker::NoCommits);
   }
-  blocked(row).or_else(|| {
-    row.sync_failed.then(|| ActionBlocker::SyncFailed {
-      problem: row.problem.map(|problem| problem.reason.clone()),
-    })
+  blocked(row).or_else(|| failed_sync(row, Reads::Build))
+}
+
+/// What an action reads of the branch, so what a failed sync holds back of it
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reads {
+  /// Its original commits and the stores: a merge conflict leaves them as they are (the conflict is a grouping the
+  /// copies don't apply in, a regroup is its fix, and the sync it asks builds the branch again); an error of the sync
+  /// leaves them unknown
+  Originals,
+  /// Its build, the virtual branch: any failed sync left an older one
+  Build,
+}
+
+/// Why a failed sync holds back an action that reads `reads` of the branch
+fn failed_sync(row: &Row<'_>, reads: Reads) -> Option<ActionBlocker> {
+  let conflict = row.status == BranchStatus::MergeConflict;
+  (row.sync_failed && !(conflict && reads == Reads::Originals)).then(|| ActionBlocker::SyncFailed {
+    problem: row.problem.map(|problem| problem.reason.clone()),
   })
 }
 
-/// Why a rewrite of the branch can't run: no commits, it failed to sync (only the fixes of its stack problem run); a sync
-/// that rebuilds it is no reason (C14)
-fn rewrite_blocker(row: &Row<'_>) -> Option<ActionBlocker> {
+/// Why a rewrite of the branch can't run: no commits, a failed sync holds back what it reads (only the fixes of its stack
+/// problem run); a sync that rebuilds it is no reason (C14)
+fn rewrite_blocker(row: &Row<'_>, reads: Reads) -> Option<ActionBlocker> {
   if row.commit_count == 0 {
     return Some(ActionBlocker::NoCommits);
   }
-  row.sync_failed.then(|| ActionBlocker::SyncFailed {
-    problem: row.problem.map(|problem| problem.reason.clone()),
-  })
+  failed_sync(row, reads)
 }
 
 /// What the whole stack of a root is, as its actions read it

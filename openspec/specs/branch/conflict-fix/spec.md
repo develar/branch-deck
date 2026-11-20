@@ -337,6 +337,17 @@ MUST keep what it fixes, or they become one.
 - **THEN** they are grouped into one component per set
 - **AND** a component whose plan alone does not keep what it fixes becomes one with the others
 
+### Requirement: Verification and choice: A step of the fix is named once
+
+A step MUST be named once in the fix: a candidate of a later conflict that carries what the change does already (a
+restack of the chain it builds on, a commit moved to the same branch) adds no step for it.
+
+#### Scenario: A chain of branches each needing the one before
+- **GIVEN** `b`, `c` and `d` each change the line the branch before wrote, each built on the baseline
+- **WHEN** the fix is found
+- **THEN** its steps are three restacks, `b` on `a`, `c` on `b`, `d` on `c`, each once
+  [@test] crates/trial-check/src/conflict_fix_test.rs (`a_chain_of_branches_each_needing_the_one_before_is_restacked_once_each`)
+
 ### Requirement: `brd check --fix`: The fix in the JSON of the check
 
 `brd check --fix` MUST add `fix` `{search, trials, components, unresolved}`, each component with its `steps`, the

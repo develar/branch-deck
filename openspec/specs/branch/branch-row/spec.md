@@ -2050,7 +2050,7 @@ blocker in words); an action is disabled with its reason, never hidden for it.
 #### Scenario: An action that can't run now
 - **WHEN** an action of the branch or of its whole stack can't run now
 - **THEN** it is disabled with its reason, never hidden for it
-  [@test] crates/domain-policy/src/actions_test.rs (`the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
+  [@test] crates/domain-policy/src/actions_test.rs (`the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`)
 
 #### Scenario: Every surface by the stable ids
@@ -2210,7 +2210,8 @@ step, and "Whole Stack ›" of a root offers the push of the whole stack ([Landi
 
 The menu of a branch that can't change now (no commits, a sync error) MUST keep every item: the rewrites are disabled
 with the reason, as Rust decides them, except the fixes of a stack problem, which run while it blocks the rest
-([Stacked Branches](../stacked-branches/spec.md#ui)); what rewrites nothing on the branch stays as it is.
+([Stacked Branches](../stacked-branches/spec.md#ui)); what rewrites nothing on the branch stays as it is. A merge
+conflict holds back only Unapply among the rewrites.
 
 #### Scenario: The rewrites of a branch that can't change
 - **WHEN** the menu of a branch without commits or with a sync error opens
@@ -2218,7 +2219,15 @@ with the reason, as Rust decides them, except the fixes of a stack problem, whic
   to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash Fixups…) are disabled with
   the reason ("The branch failed to sync", the reason of a stack problem, "The branch has no commits")
 - **AND** the fixes of a stack problem run while it blocks the rest
-  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+
+#### Scenario: The rewrites of a branch whose sync conflicts
+- **WHEN** the menu of a branch with a merge conflict opens
+- **THEN** Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes… and Squash Fixups… are
+  enabled, and the sync each asks builds the branch again
+- **AND** Unapply…, Review Changes and Push Branch are disabled with "The branch failed to sync"
+  [@test] crates/domain-policy/src/actions_test.rs (`a_merge_conflict_holds_back_only_what_reads_the_build_and_the_rewrites_of_the_original_commits_run`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch whose sync conflicts on the branch it needs from the menu and by a drop on its Stack on chip, the conflict gone`)
 
 #### Scenario: What rewrites nothing on the branch
 - **WHEN** the menu of such a branch opens
@@ -2236,7 +2245,7 @@ refuses it, and each rewrite asks one sync after it.
 - **THEN** every item is kept, the rewrites enabled, and the rest stays as it is
 - **AND** the rewrite runs once that sync ended, without a refusal, with one sync for the rewrite
   [@test] src/hooks/useBranchContextActions.test.ts (`keeps every item during a sync, the rewrites enabled: the session admits them at once; the rest stays as it is`)
-  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_and_no_error_of_the_sync_never_a_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
   [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites enabled`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack from the menu during a held sync once that sync ended, without a refusal, one sync for the rewrite`)
 
