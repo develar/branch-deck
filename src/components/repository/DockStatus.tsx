@@ -22,10 +22,11 @@ export function DockStatus() {
 /** The progress of the running update in the Dock, set when its whole percent changes */
 function UpdateDockProgress({ shown }: { shown: RunningUpdate }) {
   const percent = progressPercent(useRunProgress(shown))
+  const kind = shown.run.kind
   useEffect(() => {
     if (isMainWindow) {
-      void setDockProgress({ status: "normal", progress: percent })
+      void setDockProgress({ status: "normal", progress: percent, kind })
     }
-  }, [percent])
+  }, [percent, kind])
   return null
 }

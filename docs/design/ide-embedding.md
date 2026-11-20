@@ -179,15 +179,20 @@ sequenceDiagram
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
-  folderDialog: false, viewTabs: true}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
+  folderDialog: false, viewTabs: true, progressText: true}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
   so the page offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots
-  of the project are its repositories. `viewTabs` says that Branches, Reviews and Landing are tabs of the tool window.
+  of the project are its repositories. `viewTabs` says that Branches, Reviews and Landing are tabs of the tool window,
+  and `progressText` that the tab of the main view names its progress.
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
   `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
   window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
   of the plugin calls of Tauri (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
   `plugin:notification|notify` → `setBadge`,
-  `setProgress` of `main`, `notify`). A switch to the view of another tab (`showMainView` of `src/stores/main-view.ts`)
+  `setProgress` of `main`, `notify`). In the IDE the value of the progress bar has the `text` of what runs (Safe
+  Push, Dry Run, Update, Fetch; `setDockProgress`), which the Tauri call of the desktop app has not: a normal one is
+  `{fraction, text}`, an indeterminate one `{text}` without `fraction`, a progress without a percent, and
+  `fraction: null` the clear. An IDE before that form reads a progress without a fraction as the clear, so a robot
+  without an estimate shows no progress there, as before. A switch to the view of another tab (`showMainView` of `src/stores/main-view.ts`)
   is `bd_invoke` of `plugin:air|show_view {view, event?, payload?}`: brd asks `openView {view}` and tells the instance
   the IDE answers the event, such as `reveal-branch` for a branch of Reviews, the same show of a view as Show in Branch
   Deck (`Server::show_view`). The page of the tab of Reviews or Landing (`src/pages/MainViewTabPage.tsx`, `/reviews`

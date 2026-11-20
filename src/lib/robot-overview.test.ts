@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, RobotAttention } from "@/lib/bindings"
 import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry, RowRobots } from "@/lib/robot-overview"
-import { NO_ROW_ROBOTS, collectRobotOverview, countConflicts, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
+import { NO_ROW_ROBOTS, collectRobotOverview, countConflicts, dockRobotKind, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { testBranch, testTip } from "@/stores/test-branch"
@@ -196,18 +196,24 @@ describe("collectRobotOverview", () => {
 })
 
 describe("getDockProgress", () => {
-  it("shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs", () => {
+  it("shows the running robot nearest to finishing with its kind, indeterminate without an estimate, nothing while none runs", () => {
     const start = { startTime: NOW_SECONDS - 600 }
     expect(getDockProgress([])).toEqual({ status: "none" })
     const usual = (seconds: number) => ({ seconds, basis: { kind: "mode" } as const })
-    expect(getDockProgress([getRobotTiming(start, null, NOW)])).toEqual({ status: "indeterminate" })
+    const safePush = (seconds: number | null) => ({ timing: getRobotTiming(start, seconds === null ? null : usual(seconds), NOW), kind: "safePush" as const })
+    expect(getDockProgress([safePush(null)])).toEqual({ status: "indeterminate", kind: "safePush" })
     // past its usual time it has no estimate left either
-    expect(getDockProgress([getRobotTiming(start, usual(300), NOW)])).toEqual({ status: "indeterminate" })
-    // 10 of 40 minutes, 30 left; 10 of 20 minutes, 10 left: the second is nearer
-    expect(getDockProgress([getRobotTiming(start, usual(2400), NOW), getRobotTiming(start, usual(1200), NOW), getRobotTiming(start, null, NOW)])).toEqual({
-      status: "normal",
-      progress: 50,
-    })
+    expect(getDockProgress([{ ...safePush(300), kind: "dryRun" }])).toEqual({ status: "indeterminate", kind: "dryRun" })
+    // 10 of 40 minutes, 30 left; a Dry Run of 10 of 20 minutes, 10 left: the second is nearer
+    expect(getDockProgress([safePush(2400), { ...safePush(1200), kind: "dryRun" }, safePush(null)])).toEqual({ status: "normal", progress: 50, kind: "dryRun" })
+  })
+
+  it("names a Dry Run by its push mode, every other push mode a Safe Push", () => {
+    expect([dockRobotKind({ pushMode: "dryRun" }), dockRobotKind({ pushMode: "rebase" }), dockRobotKind({ pushMode: "rebaseAutosquash" })]).toEqual([
+      "dryRun",
+      "safePush",
+      "safePush",
+    ])
   })
 
   it("queues the Safe Pushes nearest to finishing first, those without an estimate last, then the Dry Runs", () => {

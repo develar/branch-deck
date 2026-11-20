@@ -527,11 +527,7 @@ impl Server {
         let count = args["value"].as_u64().filter(|count| *count > 0);
         self.link.ask("x-air-app/setBadge", json!({ "view": MAIN_VIEW, "count": count }));
       }
-      "plugin:window|set_progress_bar" => {
-        let value = &args["value"];
-        let fraction = (value["status"].as_str() == Some("normal")).then(|| value["progress"].as_f64().unwrap_or(0.0).clamp(0.0, 100.0) / 100.0);
-        self.link.ask("x-air-app/setProgress", json!({ "view": MAIN_VIEW, "fraction": fraction }));
-      }
+      "plugin:window|set_progress_bar" => self.link.ask("x-air-app/setProgress", progress_of(&args["value"])),
       "plugin:notification|notify" => {
         if let Some(notification) = self.notices.page_notification(&args["options"]) {
           self.link.ask("x-air-app/notify", notification);
@@ -595,9 +591,16 @@ impl Server {
       values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
     }
     // the place of the view is the IDE's, the page draws no title bar of its own; the app updates with the desktop app,
-    // the roots of the project name the repositories where the host has no folder dialog, and the views of the main
-    // window are tabs of the tool window, each its own page (`viewTabs`)
-    let title_bar = json!({ "kind": "native", "checkForUpdates": false, "folderDialog": self.ctx.desktop.dialog.has_folder_dialog(), "viewTabs": true });
+    // the roots of the project name the repositories where the host has no folder dialog, the views of the main window
+    // are tabs of the tool window, each its own page (`viewTabs`), and the tab of the main view names its progress by
+    // a text (`progressText`)
+    let title_bar = json!({
+      "kind": "native",
+      "checkForUpdates": false,
+      "folderDialog": self.ctx.desktop.dialog.has_folder_dialog(),
+      "viewTabs": true,
+      "progressText": true,
+    });
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
     let (warm_frame, init_data) = if view == MAIN_VIEW || instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
       let repository = self.main_repository();
@@ -912,6 +915,23 @@ fn tools() -> Value {
       "_meta": app_only,
     },
   ])
+}
+
+/// `x-air-app/setProgress` of the main view for the progress bar of the Dock (`ProgressBarState` of Tauri with the
+/// `text` of what runs, which the page in the IDE adds, `setDockProgress`): a normal one is its fraction with the text,
+/// an indeterminate one with a text is the text without a fraction, a progress without a percent; anything else, an
+/// indeterminate one without a text too, clears the progress (`fraction: null`)
+fn progress_of(value: &Value) -> Value {
+  let text = value["text"].as_str().filter(|text| !text.is_empty());
+  let mut params = match value["status"].as_str() {
+    Some("normal") => json!({ "view": MAIN_VIEW, "fraction": value["progress"].as_f64().unwrap_or(0.0).clamp(0.0, 100.0) / 100.0 }),
+    Some("indeterminate") if text.is_some() => json!({ "view": MAIN_VIEW }),
+    _ => return json!({ "view": MAIN_VIEW, "fraction": null }),
+  };
+  if let Some(text) = text {
+    params["text"] = json!(text);
+  }
+  params
 }
 
 /// The result of a call whose command failed: its `ApiError`, which the page acts on by its code

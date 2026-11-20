@@ -41,6 +41,7 @@ export function applyBootstrap(target: Window, bootstrap: Bootstrap): void {
     }
   }
   // the IDE draws the frame of every place: the row of the page is no title bar, the app updates with the desktop app,
-  // the roots of the project name the repositories, and each view of the main window is a tab of the tool window
-  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false, folderDialog: false, viewTabs: true }
+  // the roots of the project name the repositories, each view of the main window is a tab of the tool window, and the
+  // progress of the Dock has a text in its tab
+  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false, folderDialog: false, viewTabs: true, progressText: true }
 }

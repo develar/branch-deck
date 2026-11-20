@@ -1,4 +1,4 @@
-use super::{Mirror, MirrorPatches, Resync, Slot, mirror_window, path_of_uri, tools};
+use super::{Mirror, MirrorPatches, Resync, Slot, mirror_window, path_of_uri, progress_of, tools};
 use crate::hosts::Instances;
 use crate::link::Link;
 use crate::mirror::MirrorView;
@@ -249,4 +249,26 @@ fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
   assert_eq!(mirror.demand(), Some(main));
   // the last view leaves: the subscription ends with the mirror, no demand is sent
   assert_eq!(mirror.leave("main:1"), None);
+}
+
+/// The progress of the Dock is `setProgress` of the main view: a normal one its fraction with the text of what runs, an
+/// indeterminate one with a text the text alone (a progress without a percent), the rest the clear. An IDE before a
+/// progress without a fraction reads that request as the clear
+#[test]
+fn the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs() {
+  assert_eq!(
+    progress_of(&json!({ "status": "normal", "progress": 37, "text": "Safe Push" })),
+    json!({ "view": "main", "fraction": 0.37, "text": "Safe Push" })
+  );
+  assert_eq!(progress_of(&json!({ "status": "normal", "progress": 40 })), json!({ "view": "main", "fraction": 0.4 }));
+  assert_eq!(
+    progress_of(&json!({ "status": "indeterminate", "text": "Dry Run" })),
+    json!({ "view": "main", "text": "Dry Run" })
+  );
+  // an indeterminate one without a text, as the desktop page sends it, and none: the clear
+  assert_eq!(
+    progress_of(&json!({ "status": "indeterminate", "progress": 0 })),
+    json!({ "view": "main", "fraction": null })
+  );
+  assert_eq!(progress_of(&json!({ "status": "none", "text": "Safe Push" })), json!({ "view": "main", "fraction": null }));
 }

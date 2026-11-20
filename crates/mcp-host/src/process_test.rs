@@ -32,10 +32,10 @@ async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
   to_brd.write_all(format!("{bootstrap}\n").as_bytes()).await.unwrap();
   let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
   assert_eq!(answer["result"]["structuredContent"]["settings"]["values"]["theme"], "dark", "{answer:#}");
-  // the title bar of the IDE: no updates, no folder dialog, the views of the main window as tabs
+  // the title bar of the IDE: no updates, no folder dialog, the views of the main window as tabs, a text of the progress
   assert_eq!(
     answer["result"]["structuredContent"]["titleBar"],
-    json!({ "kind": "native", "checkForUpdates": false, "folderDialog": false, "viewTabs": true })
+    json!({ "kind": "native", "checkForUpdates": false, "folderDialog": false, "viewTabs": true, "progressText": true })
   );
 
   drop(to_brd);

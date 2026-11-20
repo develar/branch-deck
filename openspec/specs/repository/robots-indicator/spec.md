@@ -60,19 +60,19 @@ empty bar); none while nothing runs.
 #### Scenario: Several robots run
 - **WHEN** several robots run and some have an estimate left
 - **THEN** the progress bar shows the one with the least time left, 0 to 100 of its usual time
-  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
+  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing with its kind, indeterminate without an estimate, nothing while none runs`)
   [@test] tests/e2e/patronus/dock.spec.ts (`should show the progress of the robot nearest to finishing, and a badge only for what needs the user`)
 
 #### Scenario: No running robot has an estimate left
 - **WHEN** no running robot has an estimate left, as it has no history or is past its usual time
 - **THEN** the progress bar is indeterminate (macOS draws it as an empty bar)
-  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
+  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing with its kind, indeterminate without an estimate, nothing while none runs`)
   [@test] tests/e2e/patronus/dock.spec.ts (`should show an indeterminate progress without history, and no badge for a running robot`)
 
 #### Scenario: Nothing runs
 - **WHEN** no robot runs
 - **THEN** there is no progress bar
-  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
+  [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing with its kind, indeterminate without an estimate, nothing while none runs`)
 
 ### Requirement: Dock: A failing robot is left out of the progress
 

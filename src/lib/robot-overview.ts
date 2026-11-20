@@ -198,19 +198,40 @@ export function collectRobotOverview(
   return { running, attention, finished }
 }
 
-/** What the Dock (the taskbar on Windows) shows of the running robots (`setProgressBar`) */
-export type DockProgress = { readonly status: "none" } | { readonly status: "indeterminate" } | { readonly status: "normal"; readonly progress: number }
+/**
+ * What runs behind a progress of the Dock: a Safe Push or a Dry Run of a robot, an Update Project or its fetch alone.
+ * The Dock shows no text; the tool window of the IDE names the progress by it (`setDockProgress`)
+ */
+export type DockProgressKind = "safePush" | "dryRun" | "update" | "fetch"
+
+/** What the Dock (the taskbar on Windows) shows of the running robots (`setProgressBar`), and of what runs */
+export type DockProgress =
+  | { readonly status: "none" }
+  | { readonly status: "indeterminate"; readonly kind?: DockProgressKind }
+  | { readonly status: "normal"; readonly progress: number; readonly kind?: DockProgressKind }
+
+/** A running robot as the Dock sees it: its timing, and whether it is a Safe Push or a Dry Run */
+export interface DockRobot {
+  readonly timing: RobotTiming
+  readonly kind: "safePush" | "dryRun"
+}
+
+/** The kind of `robot` as the Dock names it: a Dry Run tests and lands nothing, every other push mode is a Safe Push */
+export function dockRobotKind(robot: Pick<PatronusRobot, "pushMode">): DockRobot["kind"] {
+  return robot.pushMode === "dryRun" ? "dryRun" : "safePush"
+}
 
 /**
- * The progress of the running robot nearest to finishing, 0 to 100; indeterminate when no running robot has an
- * estimate left (no history, or past its usual time); none while nothing runs
+ * The progress of the running robot nearest to finishing, 0 to 100, with its kind; indeterminate when no running robot
+ * has an estimate left (no history, or past its usual time); none while nothing runs
  */
-export function getDockProgress(timings: readonly RobotTiming[]): DockProgress {
-  const nearest = timings.toSorted(compareByFinish)[0]
+export function getDockProgress(robots: readonly DockRobot[]): DockProgress {
+  const nearest = robots.toSorted((a, b) => compareByFinish(a.timing, b.timing))[0]
   if (nearest === undefined) {
     return { status: "none" }
   }
-  return nearest.remaining === null ? { status: "indeterminate" } : { status: "normal", progress: Math.round(nearest.progress! * 100) }
+  const { timing, kind } = nearest
+  return timing.remaining === null ? { status: "indeterminate", kind } : { status: "normal", progress: Math.round(timing.progress! * 100), kind }
 }
 
 /** Nearer to finishing first, by the time left; a robot without an estimate left (no history, past its usual time) last */

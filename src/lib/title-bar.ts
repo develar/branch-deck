@@ -8,8 +8,9 @@
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
  *
  * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`), whether
- * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`) and whether the host shows each view of
- * the main window in a tab of its own (`viewTabs`, `brd mcp`)
+ * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`), whether the host shows each view of
+ * the main window in a tab of its own (`viewTabs`, `brd mcp`) and whether it shows a text beside the progress of the
+ * Dock (`progressText`, `brd mcp`)
  */
 export type TitleBar = (
   | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
@@ -38,6 +39,11 @@ export type TitleBar = (
    * (`showMainView`); absent in the desktop app, whose main window switches its views
    */
   readonly viewTabs?: boolean
+  /**
+   * The host shows the progress of the Dock with a text before its percent (the tab of the main view in the IDE):
+   * `setDockProgress` names what runs; absent in the desktop app, whose Dock shows no text
+   */
+  readonly progressText?: boolean
 }
 
 export type WindowButton = "minimize" | "maximize" | "close"
@@ -77,3 +83,6 @@ export const hasFolderDialog = titleBar.folderDialog !== false
 
 /** The host shows each view of the main window in a tab of its own, as the backend says (`TitleBar.viewTabs`) */
 export const hasViewTabs = titleBar.viewTabs === true
+
+/** The host shows a text beside the progress of the Dock, as the backend says (`TitleBar.progressText`) */
+export const hasProgressText = titleBar.progressText === true

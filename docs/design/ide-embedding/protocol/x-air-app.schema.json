@@ -970,7 +970,8 @@
             "properties": {
               "params": {
                 "type": "object",
-                "required": ["view", "fraction"],
+                "required": ["view"],
+                "description": "A progress has a fraction, a text, or both. A text without a fraction is a progress without a percent. Neither a fraction nor a text clears it.",
                 "properties": {
                   "view": {
                     "$ref": "#/$defs/ViewId"
