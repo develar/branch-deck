@@ -55,6 +55,9 @@ fn a_panic_after_the_end_of_a_run_reaches_the_log_of_the_agent_with_the_id_of_th
 /// the other lines and the system log
 #[test]
 fn a_line_of_the_log_starts_with_the_local_time_to_the_millisecond() {
-  let now = jiff::civil::date(2026, 11, 19).at(7, 10, 2, 123_456_789).to_zoned(jiff::tz::TimeZone::UTC).unwrap();
+  let now = jiff::civil::date(2026, 11, 19)
+    .at(7, 10, 2, 123_456_789)
+    .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+    .unwrap();
   assert_eq!(stamped(&now, "brd-host: started the run 1-1"), "2026-11-19 07:10:02.123 brd-host: started the run 1-1\n");
 }

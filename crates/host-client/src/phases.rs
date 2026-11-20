@@ -64,7 +64,7 @@ pub fn run_lines_in(runs: &[RunInfo], alias: &str, zone: &TimeZone) -> Vec<Strin
 pub fn run_line(run: &RunInfo, zone: &TimeZone) -> String {
   let started = Timestamp::from_millisecond(i64::try_from(run.started_ms).unwrap_or(i64::MAX)).map_or_else(
     |_| "at an unknown time".to_owned(),
-    |at| at.to_zoned(zone.clone()).strftime("%Y-%m-%d %H:%M:%S").to_string(),
+    |at| at.to_zoned_datetime(zone.clone()).strftime("%Y-%m-%d %H:%M:%S").to_string(),
   );
   let mut state = match (run.exit, &run.refused) {
     (None, _) => format!("running, started {started}"),

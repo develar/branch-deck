@@ -98,7 +98,7 @@ const LOG_FILES_KEPT: usize = 3;
 /// The version of `tauri_plugin_log` whose rotation the comment above describes; after an update, read `RotatingFile::new`,
 /// `rotate` and `flush` of the new one, correct the comment and move this
 #[cfg(test)]
-const LOG_PLUGIN_VERSION: &str = "2.10.1";
+const LOG_PLUGIN_VERSION: &str = "2.10.2";
 
 /// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
 /// draws the title bar) and not the visibility (a window shows once its page drew its content, `show_when_settled`)

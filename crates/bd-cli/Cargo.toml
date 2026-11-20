@@ -74,7 +74,7 @@ github = { path = "../github", features = ["fake"] }
 review-plan = { path = "../review-plan" }
 test-utils = { path = "../test-utils" }
 # the app file of the IDE read as the IDE reads it, beside the example of the contract (`install_test`)
-serde-saphyr = "2.1.1"
+serde-saphyr = "2.2.0"
 pretty_assertions.workspace = true
 tempfile.workspace = true
 test-log.workspace = true

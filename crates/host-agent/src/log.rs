@@ -37,11 +37,11 @@ fn agent_log_line(out: &mut impl Write, run: &str, message: &str) {
 
 /// `text` as one line of `out`, after the local time of now, in one write
 fn write_line(out: &mut impl Write, text: &str) {
-  let _ = out.write_all(stamped(&jiff::Zoned::now(), text).as_bytes());
+  let _ = out.write_all(stamped(&jiff::ZonedDateTime::now(), text).as_bytes());
 }
 
 /// The line of `text` at `now`: `2026-11-19 07:10:02.123 <text>` and its line end
-fn stamped(now: &jiff::Zoned, text: &str) -> String {
+fn stamped(now: &jiff::ZonedDateTime, text: &str) -> String {
   format!("{} {text}\n", now.strftime("%Y-%m-%d %H:%M:%S%.3f"))
 }
 

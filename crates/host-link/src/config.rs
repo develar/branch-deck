@@ -91,7 +91,7 @@ impl RepoConfig {
 /// against, by `pnpm --help`, `pnpm run --help` and `pnpm exec --help`. A test holds it equal to the `packageManager` of
 /// package.json, so an update of pnpm fails it until the three tables are checked again
 #[cfg(test)]
-pub(crate) const PNPM_OPTIONS_CHECKED_WITH: &str = "12.18.0";
+pub(crate) const PNPM_OPTIONS_CHECKED_WITH: &str = "12.21.0";
 
 /// The options of pnpm that name a value in the next word (`-C web`, `--filter app`), before its script, in pnpm
 /// `PNPM_OPTIONS_CHECKED_WITH` (an option with a `<VALUE>` in its help) and in pnpm 10 alike, and `--resume-from

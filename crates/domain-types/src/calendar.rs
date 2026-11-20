@@ -49,7 +49,7 @@ impl Calendar {
       .checked_sub(jiff::Span::new().days(local.weekday().to_monday_zero_offset()))
       .unwrap_or_else(|_| local.date());
     monday
-      .to_zoned(self.zone.clone())
+      .to_zoned_datetime(self.zone.clone())
       .ok()
       .and_then(|zoned| u32::try_from(zoned.timestamp().as_second()).ok())
       .unwrap_or(unix_seconds)
