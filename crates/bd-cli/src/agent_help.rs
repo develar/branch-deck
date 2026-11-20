@@ -921,11 +921,12 @@ wins over it:
   request: the pick is the landing. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way.
 - All three are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`,
   `branchdeck.agentPullRequest`): never change them.
-- The diff shows what changed; the body says why. After the subject (the behaviour change): a lead of 1–3 sentences
-  with the new state and its cause, then a paragraph per decision: what you chose, what not, why. Code names in
-  backticks as the code spells them (`Owner.member`, a path) link to the diffs; `brd review-plan` lists those that
-  resolve nothing (`target: null`). Ask with `Look closely:` where the reviewer must decide; then `Tests:`, `Evidence:`,
-  `Left out:` each right before its list, measurements indented by four spaces, the trailers last.
+- The diff shows what changed; the body says why. The body has the form of the repository too: its agent
+  instructions, else its `git log`. Code names in backticks as the code spells them (`Owner.member`, a path) link to
+  the diffs; `brd review-plan` lists those that resolve nothing (`target: null`). Ask with `Look closely:` where the
+  reviewer must decide. With no form of the repository: a lead of 1–3 sentences with the new state and its cause, a
+  paragraph per decision (what you chose, what not, why), then `Tests:`, `Evidence:`, `Left out:` each right before
+  its list, measurements indented by four spaces; the trailers last.
 - A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
   when a brd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
   (`path`, `lease_id`, `holder`).

@@ -1,6 +1,6 @@
 # The Commit Body a Review Reads
 
-**Updated:** 2026-11-06  
+**Updated:** 2026-11-20  
 **Tags:** [commits, review, agents, writing]
 
 The body of a commit is the one place where the author of a change, a person or an agent, tells its story at the
@@ -49,6 +49,11 @@ it: `(dev-dist-cache) setup build: write the pinned Qodana date`. The push drops
 pass the commit rules of the repository; `brd pick` refuses a message that they reject (`message_format`).
 
 The diff shows what changed; the body says why. A body that only retells the diff gives a review nothing to judge.
+
+The body has the form of the repository too. When its agent instructions give the form of a body, that form wins over
+this guide: the IntelliJ monorepo has no `Tests:`, `Evidence:` or `Left out:` in a body, because a commit in its
+master compiles and passes its tests. Code names in backticks and `Look closely:` fit every form. The rest of this
+guide is the form of a repository with no form of its own.
 
 ## The lead
 

@@ -526,8 +526,9 @@ fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
 }
 
 /// Below the commit subject and its settings the skill says how to write the body a review reads
-/// (docs/guide/commit-bodies.md): why, the lead, a paragraph per decision, code names in backticks that `brd
-/// review-plan` resolves, `Look closely:`, the labels of the verification and the trailers last, in five lines
+/// (docs/guide/commit-bodies.md), in six lines: why, the form of the repository first, code names in backticks that
+/// `brd review-plan` resolves, `Look closely:`; with no form of the repository the lead, a paragraph per decision, the
+/// labels of the verification and the trailers last
 #[test]
 fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject() {
   let skill = skill_text("brd");
@@ -536,18 +537,22 @@ fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject(
   let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
   let body = &skill[start..=end];
   assert!(subject < start, "{skill}");
-  assert_eq!(body.lines().count(), 5, "{body}");
+  assert_eq!(body.lines().count(), 6, "{body}");
   for words in [
-    "a lead of 1–3 sentences\n  with the new state and its cause",
-    "a paragraph per decision: what you chose, what not, why",
-    "Code names in\n  backticks as the code spells them (`Owner.member`, a path)",
-    "`brd review-plan` lists those that\n  resolve nothing (`target: null`)",
-    "`Look closely:` where the reviewer must decide",
-    "`Tests:`, `Evidence:`,\n  `Left out:` each right before its list",
+    "The body has the form of the repository too: its agent\n  instructions, else its `git log`.",
+    "Code names in backticks as the code spells them (`Owner.member`, a path) link to\n  the diffs",
+    "`brd review-plan` lists those that resolve nothing (`target: null`)",
+    "`Look closely:` where the\n  reviewer must decide",
+    "With no form of the repository: a lead of 1–3 sentences with the new state and its cause",
+    "paragraph per decision (what you chose, what not, why)",
+    "`Tests:`, `Evidence:`, `Left out:` each right before\n  its list",
     "the trailers last",
   ] {
     assert!(body.contains(words), "{words}: {body}");
   }
+  let repository_form = body.find("the form of the repository too").unwrap();
+  let labels = body.find("`Tests:`").unwrap();
+  assert!(repository_form < labels, "{body}");
 }
 
 /// A pick lands on the local branch only; `brd land --dry-run` names the route of the repository, and a Safe Push is
