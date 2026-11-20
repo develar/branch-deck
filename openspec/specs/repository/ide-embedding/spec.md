@@ -89,6 +89,7 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 - **WHEN** air-ide sends `initialize` with `x-air-app` 1.0.0
 - **THEN** brd answers the server `branch-deck` with the tools, the resources and `x-air-app` 1.0.0
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+  [@test] crates/bd-cli/tests/mcp.rs (`brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin`)
 
 #### Scenario: The app link corpus
 - **WHEN** a test runs `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson` against `brd mcp` on the fixtures
@@ -124,6 +125,7 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 - **WHEN** the stdin of `brd mcp` ends
 - **THEN** the process exits with 0
   [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/bd-cli/tests/mcp.rs (`brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin`)
 
 ### Requirement: Tools: Every tool of brd mcp is only for the app
 
