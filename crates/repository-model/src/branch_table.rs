@@ -24,6 +24,10 @@ pub struct BranchTable {
   pub prefix: String,
   /// The baseline as the sync named it (`origin/master`)
   pub baseline: String,
+  /// The branch the robots push into and a pull request goes into, as the sync found it (`SyncReport::target_branch`);
+  /// `None` for a baseline that is no branch of origin or of the GitHub repository of the branches, which no start
+  /// takes
+  pub target_branch: Option<String>,
   /// The commit of the baseline the sync built the virtual branches on (`SyncReport::baseline_commit`); empty for a table
   /// no sync built (one rebuilt from a frame, a grouping without a sync): the landing needs of another table never stand
   /// for it (`facts::NeedsBasis`)
@@ -62,6 +66,7 @@ impl BranchTable {
     Self {
       prefix: prefix.to_string(),
       baseline: report.baseline.clone(),
+      target_branch: report.target_branch.clone(),
       baseline_commit: report.baseline_commit.clone(),
       branches: report.branches.clone(),
       tips: report.tips.clone(),

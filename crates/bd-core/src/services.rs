@@ -20,7 +20,7 @@ use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::session::SessionKey;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::patronus::SpaceRepository;
+use sync_core::patronus::{SpaceRepository, no_target_message};
 use sync_utils::timestamp::unix_now;
 
 /// How `bd` names itself to Patronus, GitHub and YouTrack
@@ -78,8 +78,8 @@ pub struct BdServices {
   pub github: Arc<GitHubService>,
   pub space: Option<SpaceRepository>,
   pub github_repository: Option<GitHubRepository>,
-  /// The branch of origin the baseline tracks (`target_branch_of` the upstream the sync read); `None` for a baseline
-  /// that is no branch of origin
+  /// The branch the robots push into and a pull request goes into, as the sync found it (`SyncReport::target_branch`);
+  /// `None` for a baseline without one
   pub target: Option<String>,
   pub new_api: bool,
   pub cache: ObjectCache,
@@ -135,14 +135,12 @@ impl ServiceHost for BdServices {
     Box::pin(std::future::ready(Ok(self.github_repository.clone())))
   }
 
-  /// The target the sync's upstream names: no git process
+  /// The target the sync found (`SyncReport::target_branch`): no git process
   fn target<'a>(&'a self, _key: &'a SessionKey, baseline: &'a str) -> Read<'a, Result<String, ApiError>> {
-    let target = self.target.clone().ok_or_else(|| {
-      ApiError::new(
-        ErrorCode::NotOnSpace,
-        format!("The baseline {baseline} is not a branch of origin: Patronus pushes into a branch of origin"),
-      )
-    });
+    let target = self
+      .target
+      .clone()
+      .ok_or_else(|| ApiError::new(ErrorCode::NotOnSpace, no_target_message(baseline, self.github_repository.as_ref())));
     Box::pin(std::future::ready(target))
   }
 

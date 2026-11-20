@@ -7,9 +7,9 @@
 use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::CONFLICT_REFS;
-use crate::github_repository::{parse_github_repository, resolve_github_repository_with};
+use crate::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use crate::lease_state::{LEASE_DIR, LeasePaths};
-use crate::patronus::parse_space_repository;
+use crate::patronus::{parse_space_repository, target_branch_of};
 use anyhow::{Result, anyhow, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use domain_types::landing_route::{LandingRemote, LandingSetting, LocalGitHub};
@@ -32,6 +32,8 @@ pub(crate) struct RepoFacts {
   /// Remote -> the push URL `git remote -v` names first (`url.<base>.pushInsteadOf` applied), as `remote get-url
   /// --push` answers it
   pub push_urls: HashMap<String, String>,
+  /// Remote -> the URL `git remote -v` names to fetch from (`Remotes::fetch_urls`)
+  pub fetch_urls: HashMap<String, String>,
   /// The baseline as `detect_baseline_branch` names it: `origin/master`, `origin/develop` (the upstream), `master`
   pub baseline: String,
   /// The commit of the baseline: the remote statuses, the placement of stacked branches, the integration detection and
@@ -56,6 +58,13 @@ pub(crate) struct RepoFacts {
 }
 
 impl RepoFacts {
+  /// The branch the robots push into and a pull request goes into (`patronus::target_branch_of`), of the baseline these
+  /// facts name and the GitHub repository of the branches `github`: no process
+  pub(crate) fn target_branch(&self, github: Option<&GitHubRepository>) -> Option<String> {
+    let fetch_url = self.upstream.as_ref().and_then(|upstream| self.fetch_urls.get(&upstream.remote)).map(String::as_str);
+    target_branch_of(self.upstream.as_ref(), fetch_url, github)
+  }
+
   /// Whether HEAD is the local baseline branch itself (`commit_list::is_on_local_baseline`), from the facts: no process
   pub(crate) fn is_on_local_baseline(&self) -> bool {
     on_local_baseline(&self.baseline, &self.branch)
@@ -123,6 +132,9 @@ pub struct Remotes {
   /// Remote -> the push URL `git remote -v` names first (`url.<base>.pushInsteadOf` applied), as `remote get-url
   /// --push` answers it
   pub push_urls: HashMap<String, String>,
+  /// Remote -> the URL `git remote -v` names to fetch from (`url.<base>.insteadOf` applied): what its remote-tracking
+  /// refs are copies of, which tells the remote of the GitHub repository of the branches (`patronus::target_branch_of`)
+  pub fetch_urls: HashMap<String, String>,
 }
 
 impl Remotes {
@@ -130,6 +142,12 @@ impl Remotes {
   #[must_use]
   pub fn push_url(&self, remote: &str) -> Option<&str> {
     self.push_urls.get(remote).map(String::as_str)
+  }
+
+  /// The URL `remote` fetches from; `None` without that remote
+  #[must_use]
+  pub fn fetch_url(&self, remote: &str) -> Option<&str> {
+    self.fetch_urls.get(remote).map(String::as_str)
   }
 }
 
@@ -283,12 +301,13 @@ pub(crate) fn read_baseline_listing(
   })
 }
 
-/// The remotes of `git remote -v` in its order (that of `git remote`), each with its first push URL: a line
-/// `<name>\t<url> (fetch)` or `<name>\t<url> (push)` per URL. A remote without a URL has no line, and nothing to fetch
-/// or push either
+/// The remotes of `git remote -v` in its order (that of `git remote`), each with its fetch URL and its first push URL:
+/// a line `<name>\t<url> (fetch)` or `<name>\t<url> (push)` per URL. A remote without a URL has no line, and nothing to
+/// fetch or push either
 pub(crate) fn parse_remotes(lines: &[String]) -> Remotes {
   let mut remotes: Vec<String> = Vec::new();
   let mut push_urls = HashMap::new();
+  let mut fetch_urls = HashMap::new();
   for line in lines {
     let Some((name, rest)) = line.split_once('\t') else {
       continue;
@@ -298,9 +317,15 @@ pub(crate) fn parse_remotes(lines: &[String]) -> Remotes {
     }
     if let Some(url) = rest.strip_suffix(" (push)") {
       push_urls.entry(name.to_string()).or_insert_with(|| url.to_string());
+    } else if let Some(url) = rest.strip_suffix(" (fetch)") {
+      fetch_urls.entry(name.to_string()).or_insert_with(|| url.to_string());
     }
   }
-  Remotes { names: remotes, push_urls }
+  Remotes {
+    names: remotes,
+    push_urls,
+    fetch_urls,
+  }
 }
 
 /// The baseline of the checked out branch, as `detect_baseline_branch` names it, and the remote branch behind it, as
@@ -389,7 +414,11 @@ pub fn read_listed_baseline(git_executor: &GitCommandExecutor, repo_path: &str, 
 #[instrument(skip(git_executor, known_remotes))]
 pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, branch_prefix: &str, known_remotes: Option<Remotes>) -> Result<RepoFacts> {
   let BaselineListing {
-    remotes: Remotes { names: remotes, push_urls },
+    remotes: Remotes {
+      names: remotes,
+      push_urls,
+      fetch_urls,
+    },
     baseline,
     baseline_ref,
     upstream,
@@ -410,6 +439,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     upstream,
     remotes,
     push_urls,
+    fetch_urls,
     baseline,
     baseline_commit,
     head,

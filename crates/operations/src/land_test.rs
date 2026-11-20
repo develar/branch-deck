@@ -225,3 +225,39 @@ async fn soon<T>(what: &str, body: impl Future<Output = T>) -> T {
     .await
     .unwrap_or_else(|_elapsed| panic!("{what} within a minute"))
 }
+
+/// A start takes the target the sync of the session's table found (`BranchTable::target_branch`), not a read of git: a
+/// baseline on the remote of the GitHub repository of the branches has the branch of that name, as one of origin; a
+/// fork none, which refuses the start with the words of every host
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_takes_the_target_the_sync_found_on_the_remote_of_the_github_repository_of_the_branches_too() {
+  use crate::push::push_test::{OFFLINE, host_with_needs, registry_on};
+  use domain_types::error::ErrorCode;
+  use domain_types::session::SyncReason;
+  use std::sync::Arc;
+  use sync_core::patronus::no_target_message;
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  test_utils::git_test_utils::append_config(repo.path(), &[("branchdeck.githubRepository", "owner/repository")]);
+  repo.add_remote("github", "https://github.com/owner/repository").unwrap();
+  repo.add_remote("fork", "https://github.com/someone/repository").unwrap();
+  let origin_master = repo.rev_parse("refs/remotes/origin/master").unwrap();
+  for remote in ["github", "fork"] {
+    repo.git(&["update-ref", &format!("refs/remotes/{remote}/master"), &origin_master]);
+  }
+  repo.git(&["branch", "--set-upstream-to=github/master"]);
+  let (registry, key) = registry_on(&repo, host_with_needs(Arc::default()), true).await;
+  let sessions = registry.sessions();
+
+  let (_, run) = crate::land_session::pull_request_start(&OFFLINE, sessions, &key).await.unwrap();
+  assert_eq!(run.target, "master");
+
+  // the table's, not git's: an upstream changed since the sync changes nothing until the next one
+  repo.git(&["branch", "--set-upstream-to=fork/master"]);
+  let (_, run) = crate::land_session::pull_request_start(&OFFLINE, sessions, &key).await.unwrap();
+  assert_eq!(run.target, "master");
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let Err(refused) = crate::land_session::pull_request_start(&OFFLINE, sessions, &key).await else {
+    panic!("a start on the branch of a fork");
+  };
+  assert_eq!((refused.code, refused.message), (ErrorCode::NotOnSpace, no_target_message("fork/master", None)));
+}

@@ -74,7 +74,8 @@ fn ask(tip: &str) -> ReviewReadinessBranch {
 }
 
 /// The one composition of the inputs every host reads the readiness with: the tips are checked, the target is the
-/// branch of origin the baseline tracks, a local baseline is refused
+/// branch the baseline tracks on origin or on the remote of the GitHub repository of the branches the host knows, a
+/// local baseline is refused
 #[test(tokio::test(flavor = "multi_thread"))]
 async fn the_inputs_of_the_readiness_are_composed_once_for_every_host() {
   let repo = TestRepo::new();
@@ -104,6 +105,11 @@ async fn the_inputs_of_the_readiness_are_composed_once_for_every_host() {
   assert_eq!(refused.message, "Not a commit id: HEAD");
   let local = sources.readiness_inputs(&key, "master", &[ask(&tip)]).await.unwrap_err();
   assert!(local.message.contains("not a branch of origin"), "{local:?}");
+
+  let url = format!("https://github.com/{}", github().full_name());
+  git.execute_command(&["remote", "add", "github", &url], path).unwrap();
+  let on_github = sources.readiness_inputs(&key, "github/master", &[ask(&tip)]).await.unwrap();
+  assert_eq!((on_github.target.as_str(), on_github.baseline.as_str()), ("master", "github/master"));
 }
 
 /// A host without a Patronus service answers the robots as signed out, and fails the reads of a robot; one without a

@@ -10302,8 +10302,8 @@ export type TableHeader = {
 	/**  The issue links of the IntelliJ IDEA configuration, the last a sync found */
 	issueNavigationConfig: IssueNavigationConfig | null,
 	/**
-	 *  The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
-	 *  baseline that is no branch of origin
+	 *  The branch Patronus pushes into and a pull request goes into, the branch the baseline tracks on origin or on the
+	 *  remote of the GitHub repository of the branches; none before the first grouping and for a baseline without one
 	 */
 	targetBranch: string | null,
 	/**  The commit HEAD pointed at when the commits were grouped; empty before the first grouping */

@@ -93,8 +93,8 @@ pub fn kept_branch_name<'a>(full_branch_name: &'a str, branch_prefix: &str) -> O
 
 /// The branch of the remote a baseline names, the part after its remote (`origin/master` -> `master`, a local `master`
 /// -> `master`): the target the page names the readiness by (`baselineOnRemote` of `src/lib/stack.ts`), and the base of
-/// a pull request whose base is unknown (empty). The Patronus target of a start is git's (the branch the baseline
-/// tracks, `sync_core::patronus::find_target_branch`)
+/// a pull request whose base is unknown (empty). The target of a start is the sync's (the branch the baseline tracks,
+/// `sync_core::patronus::target_branch_of`)
 pub fn baseline_on_remote(baseline: &str) -> &str {
   baseline.split_once('/').map_or(baseline, |(_, branch)| branch)
 }

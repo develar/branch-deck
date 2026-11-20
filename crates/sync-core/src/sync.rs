@@ -308,6 +308,10 @@ pub struct SyncReport {
   /// The GitHub repository of the branches, as the sync read it with the remotes (`LandingRemote::github`): a command
   /// after the sync takes it instead of reading the Space settings again
   pub github: Option<GitHubRepository>,
+  /// The branch the robots push into and a pull request goes into (`patronus::target_branch_of`): the branch the
+  /// baseline tracks on origin or on the remote of `github`; `None` for a local baseline or one of another remote. A
+  /// start takes it instead of reading the upstream again
+  pub target_branch: Option<String>,
 }
 
 impl SyncReport {
@@ -611,6 +615,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
   let idle_needs: Vec<String> = local_targets(&grouping.needs.entries).into_iter().filter(|name| !branches.contains_key(name)).collect();
   let companion_needed: Vec<String> = companion_targets(&grouping.needs.entries).into_iter().collect();
+  let github = landing.github.repository().and_then(GitHubRepository::of_full_name);
+  let target_branch = facts.target_branch(github.as_ref());
   let mut report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
@@ -630,7 +636,8 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     companion_needs: BTreeMap::new(),
     retry: false,
     base: None,
-    github: landing.github.repository().and_then(GitHubRepository::of_full_name),
+    github,
+    target_branch: target_branch.clone(),
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -647,7 +654,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     parked: grouping.parked.entries,
     needs: grouping.needs.entries,
     stack_branches: stack_branches.reported_roots(),
-    target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
+    target_branch,
     landing: Box::new(landing),
     review_experimental,
     companions,

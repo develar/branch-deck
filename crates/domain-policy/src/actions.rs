@@ -666,7 +666,7 @@ pub enum Target<'a> {
   Pending,
   /// Before the first sync
   Unread,
-  /// The baseline is no branch of origin
+  /// The baseline has no target: no branch of origin or of the GitHub repository of the branches
   None,
   Branch(&'a str),
 }

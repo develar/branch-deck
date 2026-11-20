@@ -293,8 +293,9 @@ pub enum SyncEvent {
     /// and the stack branches kept for their remote branch; any other stack branch is gone
     #[cfg_attr(feature = "specta", specta(optional))]
     stack_branches: Vec<String>,
-    /// The branch of origin the baseline tracks, which the robots of Patronus push into (`master` for
-    /// `origin/master`); none for a baseline that is no branch of origin
+    /// The branch the robots of Patronus push into and a pull request goes into: the branch the baseline tracks on origin
+    /// or on the remote of the GitHub repository of the branches (`master` for `origin/master` or `github/master`); none
+    /// for a local baseline or one of another remote (`sync_core::patronus::target_branch_of`)
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     target_branch: Option<String>,

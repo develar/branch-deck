@@ -1,7 +1,9 @@
 //! The git side of Patronus: which Space repository (`git.jetbrains.team`) the virtual branches are pushed to. The HTTP side is
 //! the `patronus` crate.
 
-use crate::baseline::{BaselineUpstream, resolve_baseline_upstream};
+use crate::baseline::{BaselineUpstream, resolve_baseline_upstream_with};
+use crate::github_repository::{GitHubRepository, parse_github_repository};
+use crate::push::PUSH_REMOTE;
 use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
 use domain_types::patronus::{PatronusReviewRequirement, ReviewPathsSource};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -43,26 +45,41 @@ pub fn find_space_repository(git_executor: &GitCommandExecutor, repository_path:
   Ok(origin_push_url(git_executor, repository_path)?.as_deref().and_then(parse_space_repository))
 }
 
-/// The branch a robot of the repository pushes to: the branch of `origin` the baseline tracks, e.g. `master` for
-/// `origin/master`; None for a local baseline or one on another remote (Patronus works on the push remote)
-pub fn find_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<Option<String>> {
-  Ok(target_branch_of(resolve_baseline_upstream(git_executor, repository_path, baseline_branch)?.as_ref()))
+/// The branch the robots push into and a pull request goes into, for an action: `target_branch_of` the upstream of
+/// `baseline_branch`, read with the remotes (`resolve_baseline_upstream_with`: three processes) and the GitHub
+/// repository of the branches the caller knows (`resolve_github_repository`); a baseline without one is an error
+/// (`no_target_message`)
+pub fn required_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, github: Option<&GitHubRepository>) -> anyhow::Result<String> {
+  let (upstream, remotes) = resolve_baseline_upstream_with(git_executor, repository_path, baseline_branch)?;
+  let fetch_url = upstream.as_ref().and_then(|upstream| remotes.fetch_url(&upstream.remote));
+  target_branch_of(upstream.as_ref(), fetch_url, github).ok_or_else(|| anyhow::anyhow!(no_target_message(baseline_branch, github)))
 }
 
-/// `find_target_branch` for an action: a baseline that is no branch of origin is an error
-pub fn required_target_branch(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str) -> anyhow::Result<String> {
-  required_target_branch_of(baseline_branch, resolve_baseline_upstream(git_executor, repository_path, baseline_branch)?.as_ref())
-}
-
-/// `required_target_branch` of the upstream of the baseline a caller read (`Baseline::upstream`): no git process
-pub fn required_target_branch_of(baseline_branch: &str, upstream: Option<&BaselineUpstream>) -> anyhow::Result<String> {
-  target_branch_of(upstream).ok_or_else(|| anyhow::anyhow!("The baseline {baseline_branch} is not a branch of origin: Patronus pushes into a branch of origin"))
-}
-
-/// `find_target_branch` of the upstream of the baseline a caller read (`SyncReport::upstream`): no git process
-pub fn target_branch_of(upstream: Option<&BaselineUpstream>) -> Option<String> {
-  let upstream = upstream.filter(|upstream| upstream.remote == "origin")?;
+/// The branch the robots push into and a pull request goes into: the branch the baseline tracks on `origin`, or on the
+/// remote that fetches from the GitHub repository of the branches, where the pull requests go and which holds the
+/// branches of origin under their names (`github/master` → `master`). None for a local baseline or a branch of another
+/// remote (a fork, whose branch origin may lack). `fetch_url` is the URL the baseline's remote fetches from
+/// (`Remotes::fetch_url`), `github` the repository of the branches (`SyncReport::github`): no process
+pub fn target_branch_of(upstream: Option<&BaselineUpstream>, fetch_url: Option<&str>, github: Option<&GitHubRepository>) -> Option<String> {
+  let upstream = upstream?;
+  if upstream.remote != PUSH_REMOTE && !fetches_from(fetch_url, github) {
+    return None;
+  }
   upstream.remote_ref.strip_prefix("refs/heads/").map(str::to_string)
+}
+
+/// Whether `fetch_url` is a URL of `github`; GitHub names a repository in any case
+fn fetches_from(fetch_url: Option<&str>, github: Option<&GitHubRepository>) -> bool {
+  match (fetch_url.and_then(parse_github_repository), github) {
+    (Some(fetched), Some(github)) => fetched.full_name().eq_ignore_ascii_case(&github.full_name()),
+    _ => false,
+  }
+}
+
+/// Why a baseline has no target (`target_branch_of`), as every action that needs one refuses it
+pub fn no_target_message(baseline_branch: &str, github: Option<&GitHubRepository>) -> String {
+  let of = github.map_or_else(|| "origin".to_string(), |github| format!("origin or of {}", github.full_name()));
+  format!("The baseline {baseline_branch} is not a branch of {of}: a robot pushes into a branch of origin, and a pull request goes into it")
 }
 
 /// A commit of a virtual branch as the code-owner review check of Patronus reads it: who changed which paths

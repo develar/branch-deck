@@ -878,8 +878,8 @@ pub struct TableHeader {
   pub companions: Vec<RepositoryLink>,
   /// The issue links of the IntelliJ IDEA configuration, the last a sync found
   pub issue_navigation_config: Option<IssueNavigationConfig>,
-  /// The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
-  /// baseline that is no branch of origin
+  /// The branch Patronus pushes into and a pull request goes into, the branch the baseline tracks on origin or on the
+  /// remote of the GitHub repository of the branches; none before the first grouping and for a baseline without one
   pub target_branch: Option<String>,
   /// The commit HEAD pointed at when the commits were grouped; empty before the first grouping
   pub head: String,

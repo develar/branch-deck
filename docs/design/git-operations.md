@@ -4943,8 +4943,11 @@ sync, before anything is asked of Patronus.
    another it is a failed fetch (`fetched: false`, the message names the upstream fetched).
    `--create-pull-request` starts no robot and fetches nothing.
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the sync took, which
-   the push and the GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
-   `target_branch_of`: no process), the stack and the tips from the sync's report, as for `brd push`.
+   the push and the GitHub repository share), the target branch the sync found (`SyncReport::target_branch`: the branch
+   the baseline tracks on origin or on the remote that fetches from the GitHub repository of the branches,
+   `target_branch_of` of the URLs of `remote -v` and `SyncReport::github`: no process), the stack and the tips from the
+   sync's report, as for `brd push`. The app's start takes the same target from the table of its session
+   (`BranchTable::target_branch`), no git of its own.
 2. The facts of the remote are read as the app's session reads them, through its one reader
    (`remote_facts::service_sources::ServiceFactSources` over `bd_core::services::BdServices`, which answers the Space
    and GitHub repositories and the target from step 1, so a read runs no git of its own) into a one-shot session of

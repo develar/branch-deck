@@ -1060,6 +1060,36 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
   Ok(())
 }
 
+/// The repository of #245: origin on Space, whose committed settings name the GitHub repository of the branches, and
+/// HEAD's branch tracking the branch of that repository on its own remote
+#[test(tokio::test)]
+async fn a_baseline_on_the_remote_of_the_github_repository_of_the_branches_has_its_target() -> anyhow::Result<()> {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit(
+    "Space settings",
+    ".space/repository-settings.json",
+    r#"{"mirror":{"url":"git@github.com:JetBrains/ultimate.git"}}"#,
+  );
+  test_repo.add_remote("origin", "ssh://git@git.jetbrains.team/ij/ultimate.git").unwrap();
+  test_repo.add_remote("github", "https://github.com/JetBrains/ultimate").unwrap();
+  test_repo.git(&["update-ref", "refs/remotes/github/master", &test_repo.head()]);
+  test_repo.git(&["branch", "--set-upstream-to=github/master"]);
+  test_repo.create_commit("(a) Add file", "a.txt", "a\n");
+  let progress = TestReporter::new();
+  let report = sync_branches(&GitCommandExecutor::new(), test_repo.path_str(), "test", progress.clone(), SyncOptions::default()).await?;
+
+  assert_eq!(report.baseline, "github/master");
+  assert_eq!(report.github.map(|github| github.full_name()).as_deref(), Some("JetBrains/ultimate"));
+  assert_eq!(report.target_branch.as_deref(), Some("master"));
+  // the session takes it from the event
+  let sent = progress.get_events().into_iter().find_map(|event| match event {
+    SyncEvent::BranchesGrouped { target_branch, .. } => Some(target_branch),
+    _ => None,
+  });
+  assert_eq!(sent, Some(Some("master".to_string())));
+  Ok(())
+}
+
 /// The conflict error of branch `b` a sync reported, as JSON
 async fn conflict_of_b(git_executor: &GitCommandExecutor, test_repo: &TestRepo, object_cache: &ObjectCache) -> serde_json::Value {
   let progress = TestReporter::new();

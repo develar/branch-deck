@@ -39,7 +39,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::sync::Arc;
 use sync_core::github_repository::resolve_github_repository_with;
-use sync_core::patronus::target_branch_of;
+use sync_core::patronus::no_target_message;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct RequestReviewArgs {
@@ -134,15 +134,11 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   if !synced.branches.iter().any(|branch| branch.name == name) {
     return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
   }
-  let target = target_branch_of(synced.report.upstream.as_ref()).ok_or_else(|| {
-    CliError::new(
-      ErrorCode::InvalidArguments,
-      format!(
-        "The baseline {} is not a branch of origin: a pull request of a virtual branch goes into a branch of origin",
-        synced.baseline
-      ),
-    )
-  })?;
+  let target = synced
+    .report
+    .target_branch
+    .clone()
+    .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, no_target_message(&synced.baseline, synced.report.github.as_ref())))?;
   let table = compared_table(context, &synced);
   let services = BdServices {
     patronus: patronus.clone(),

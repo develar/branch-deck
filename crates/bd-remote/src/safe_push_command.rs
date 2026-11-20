@@ -87,7 +87,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::patronus::{SpaceRepository, target_branch_of};
+use sync_core::patronus::{SpaceRepository, no_target_message};
 use sync_core::patronus_start::{join_names, push_mode_name};
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
@@ -953,7 +953,7 @@ fn landing_of(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, s
         })
         .into_iter()
         .collect();
-      let base = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
+      let base = synced.report.target_branch.clone().unwrap_or_default();
       Ok(Landing {
         name: root.to_string(),
         what: Subject::whole_stack(root).words(),
@@ -1190,12 +1190,11 @@ fn plan(
   let space = context
     .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it"))?;
-  let target = target_branch_of(synced.report.upstream.as_ref()).ok_or_else(|| {
-    CliError::new(
-      ErrorCode::NotOnSpace,
-      format!("The baseline {} is not a branch of origin: Patronus pushes into a branch of origin", synced.baseline),
-    )
-  })?;
+  let target = synced
+    .report
+    .target_branch
+    .clone()
+    .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, no_target_message(&synced.baseline, synced.report.github.as_ref())))?;
   let github = github_repository(&synced.report);
   let mut land = Land {
     subject: subject.clone(),

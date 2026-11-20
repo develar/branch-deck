@@ -2264,7 +2264,7 @@ names before the start. The row's menu and the review MUST decide alike, by the 
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should offer no Safe Push of a layer into the branch below where Patronus merges, and the Safe Push of the bottom`)
 
 #### Scenario: Before the first sync, a baseline that is no branch of origin
-- **WHEN** the sync has not read the target yet, or the baseline is no branch of origin
+- **WHEN** the sync has not read the target yet, or the baseline has none: no branch of origin or of the GitHub repository of the branches
 - **THEN** it is disabled with "Reading the branch Patronus pushes into…" before the first sync, or "Patronus pushes into a branch of origin: the baseline is none"
   [@test] crates/domain-policy/src/actions_test.rs (`an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into`)
 

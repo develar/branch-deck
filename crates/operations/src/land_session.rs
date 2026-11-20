@@ -41,6 +41,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::no_target_message;
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetOutcome, check_target, fetch_target};
 use sync_utils::span::in_current_span;
@@ -438,8 +439,8 @@ pub(crate) async fn robots_since(patronus: &PatronusService, space: &str, prefix
 /// session, its robot looked for until it is listed
 ///
 /// # Errors
-/// A session that is not open or has no table yet, a repository not on Space, a baseline that is no branch of
-/// `origin`, git failing
+/// A session that is not open or has no table yet, a repository not on Space, a baseline without a target (no branch
+/// of `origin` or of the GitHub repository of the branches, `BranchTable::target_branch`), git failing
 pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
   let space = services
     .space_repository(key)
@@ -493,12 +494,12 @@ async fn optional_services(
   Ok((patronus, github))
 }
 
-/// Whether a run needs the branch of origin its robots push into
+/// Whether a run needs the branch its robots push into and its pull requests go into (`BranchTable::target_branch`)
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Target {
   /// It starts a robot, or opens a pull request into it
   Required,
-  /// A push: no git process asks for it
+  /// A push: it needs none
   None,
 }
 
@@ -512,14 +513,15 @@ async fn start_of(
   github: Option<(Arc<GitHubService>, GitHubRepository)>,
   target: Target,
 ) -> Result<(SessionStart, StartServices), ApiError> {
-  let baseline = sessions
+  let (baseline, target_branch) = sessions
     .table(key)
     .await
-    .map(|table| table.table.baseline.clone())
+    .map(|table| (table.table.baseline.clone(), table.table.target_branch.clone()))
     .ok_or_else(|| ApiError::new(ErrorCode::NoSession, "The repository has no open session with a sync yet"))?;
   let (patronus, space) = patronus.map_or((None, String::new()), |(patronus, space)| (Some(patronus), space));
+  // the target the sync of the table found, as every view of the session shows it: no git
   let target = match target {
-    Target::Required => services.target(key, &baseline).await?,
+    Target::Required => target_branch.ok_or_else(|| ApiError::new(ErrorCode::NotOnSpace, no_target_message(&baseline, github.as_ref().map(|(_, repository)| repository))))?,
     Target::None => String::new(),
   };
   let (git, config_git, path) = (services.git(), services.config_git(key), key.worktree.clone());

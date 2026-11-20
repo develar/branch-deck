@@ -204,8 +204,8 @@ fn the_listing_reads_no_commit_of_the_branches_it_lists() {
   assert_eq!(processes, 3, "git processes");
 }
 
-/// The remotes in the order of `git remote`, each with its first push URL; a fetch URL alone is the push URL too, as
-/// `git remote -v` names it
+/// The remotes in the order of `git remote`, each with its fetch URL and its first push URL; a fetch URL alone is the
+/// push URL too, as `git remote -v` names it
 #[test]
 fn the_remotes_come_with_their_push_urls() {
   let lines: Vec<String> = [
@@ -222,6 +222,9 @@ fn the_remotes_come_with_their_push_urls() {
   assert_eq!(remotes.push_url("origin"), Some("ssh://git@git.jetbrains.team/ij/app.git"));
   assert_eq!(remotes.push_url("fork"), Some("https://github.com/jane/app"));
   assert_eq!(remotes.push_url("upstream"), None);
+  assert_eq!(remotes.fetch_url("origin"), Some("git@github.com:acme/app.git"));
+  assert_eq!(remotes.fetch_url("fork"), Some("https://github.com/jane/app"));
+  assert_eq!(remotes.fetch_url("upstream"), None);
 }
 
 /// The landing remote of a sync of `repo` with the config it has now and the test seam of the E2E server

@@ -150,6 +150,7 @@ impl CachedBuild {
     BranchTable {
       prefix: prefix.to_owned(),
       baseline: self.baseline,
+      target_branch: parts.header.target_branch.clone(),
       // the frame keeps no commit of the baseline: the needs of its table stand for no other until a sync built one
       baseline_commit: String::new(),
       branches,

@@ -62,7 +62,6 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
-use sync_core::patronus::target_branch_of;
 use trial_check::landing_gate::check_landing_gate;
 
 #[derive(Debug, Default, clap::Args)]
@@ -301,7 +300,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
       return Err(table_error(context, &synced, &start, &reason));
     }
   }
-  let target = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_else(|| synced.baseline.clone());
+  let target = synced.report.target_branch.clone().unwrap_or_else(|| synced.baseline.clone());
   let github = github_repository(&synced.report);
   // on Space the robots refuse it as they refuse a Safe Push (one on its commit, one that lands it)
   let space = context.space_repository()?;

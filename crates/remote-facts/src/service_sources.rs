@@ -70,12 +70,19 @@ pub trait ServiceHost: Send + Sync + 'static {
   /// The GitHub repository the branches of the worktree are mirrored to; `None` when nothing names one
   fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>>;
 
-  /// The branch of origin `baseline` tracks, which the robots push into: one git process on the blocking pool
-  /// (`required_target_branch`), unless the host knows it (`bd` from the upstream its sync read)
+  /// The branch the robots push into and a pull request goes into for `baseline` (`target_branch_of`): of the remotes
+  /// and the upstream (three git processes on the blocking pool, `required_target_branch`) and the GitHub repository of
+  /// the branches the host knows, unless the host knows it (`bd` from its sync). A start takes it from the table of the
+  /// session instead (`BranchTable::target_branch`)
   fn target<'a>(&'a self, key: &'a SessionKey, baseline: &'a str) -> Read<'a, Result<String, ApiError>> {
     let (git, path, baseline) = (self.git(), key.worktree.clone(), baseline.to_owned());
     Box::pin(async move {
-      match tokio::task::spawn_blocking(in_current_span(move || required_target_branch(&git, &path, &baseline))).await {
+      // without it a branch of origin is still the target
+      let github = self.github_repository(key).await.unwrap_or_else(|error| {
+        warn!(error = ?error, "the target is read without the GitHub repository of the branches: it can't be read");
+        None
+      });
+      match tokio::task::spawn_blocking(in_current_span(move || required_target_branch(&git, &path, &baseline, github.as_ref()))).await {
         Ok(target) => target.map_err(|error| self.api_error(error)),
         Err(error) => Err(ApiError::internal(format!("The target of the baseline failed: {error}"))),
       }
@@ -158,7 +165,7 @@ impl<H: ServiceHost> ServiceFactSources<H> {
   /// every host: the Space and GitHub repositories, the target of the baseline; a tip that is no commit id is refused
   ///
   /// # Errors
-  /// Off Space, a baseline that is no branch of origin, a tip that is no commit id
+  /// Off Space, a baseline without a target (`target`), a tip that is no commit id
   pub async fn readiness_inputs(&self, key: &SessionKey, baseline: &str, asks: &[ReviewReadinessBranch]) -> Result<ReadinessInputs, ApiError> {
     let space = self.required_space(key).await?;
     let github = self.host.github_repository(key).await?;

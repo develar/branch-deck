@@ -3,6 +3,7 @@
 //! of a period against everyone else's, where the time went, why they failed and the hours they ran fastest.
 //! Read only: no lock, no sync; what Patronus answered is kept in the object cache (none with --no-cache).
 
+use crate::push_command::github_repository_of;
 use crate::safe_push_command::patronus_error;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
@@ -16,7 +17,8 @@ use domain_types::robot_stats::{RobotStats, StatsPeriod};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::patronus::required_target_branch_of;
+use sync_core::patronus::{no_target_message, target_branch_of};
+use sync_core::push::PUSH_REMOTE;
 use sync_utils::timestamp::unix_now;
 
 #[derive(Debug, Default, clap::Args)]
@@ -54,9 +56,16 @@ pub fn robot_stats(context: &RepoContext, args: &RobotStatsArgs, environment: &E
     .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
   // the baseline and its upstream from the remotes the Space repository was read with: one `symbolic-ref` and one
-  // `for-each-ref` more
+  // `for-each-ref` more; the GitHub repository of the branches only for a baseline of another remote than origin
   let baseline = context.baseline()?;
-  let target = required_target_branch_of(&baseline.name, baseline.upstream.as_ref()).map_err(|e| CliError::new(ErrorCode::NoBaseline, e.to_string()))?;
+  let remotes = context.remotes()?;
+  let upstream = baseline.upstream.as_ref();
+  let github = match upstream {
+    Some(upstream) if upstream.remote != PUSH_REMOTE => github_repository_of(context, &context.config()?)?,
+    _ => None,
+  };
+  let fetch_url = upstream.and_then(|upstream| remotes.fetch_url(&upstream.remote));
+  let target = target_branch_of(upstream, fetch_url, github.as_ref()).ok_or_else(|| CliError::new(ErrorCode::NoBaseline, no_target_message(&baseline.name, github.as_ref())))?;
   let cache = context.cache();
   let source = RobotStatsSource {
     service: &service,

@@ -8,7 +8,7 @@ use crate::config_snapshot::ConfigSnapshot;
 use crate::fetch_lock::{FetchTurn, take_fetch_turn};
 use crate::landed::find_landing;
 use crate::remote_command::execute_remote_command_with_progress;
-use crate::repo_facts::{Baseline, read_baseline};
+use crate::repo_facts::{Baseline, Remotes, read_baseline, read_remotes};
 use crate::transfer_progress::TransferProgress;
 use anyhow::Result;
 use domain_types::landed::LandedBranch;
@@ -39,11 +39,17 @@ pub struct BaselineUpstream {
 /// The remote branch behind `baseline_branch` (as `detect_baseline_branch` returns it); `None` for a local baseline.
 /// The upstream configuration of the checked out branch gives the remote and the remote branch name when it tracks
 /// the baseline; otherwise `<remote>/<branch>` is read with the default refspec.
-#[instrument(skip(git_executor))]
 pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineUpstream>> {
-  let remotes = git_executor.execute_command_lines(&["remote"], repo_path)?;
-  if !remotes.iter().any(|remote| remote_of(baseline_branch, remote).is_some()) {
-    return Ok(None);
+  Ok(resolve_baseline_upstream_with(git_executor, repo_path, baseline_branch)?.0)
+}
+
+/// `resolve_baseline_upstream` with the remotes it read (`read_remotes`: `remote -v`, the one process `remote` would
+/// cost), whose URLs tell the remote of the baseline (`patronus::required_target_branch`)
+#[instrument(skip(git_executor))]
+pub fn resolve_baseline_upstream_with(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<(Option<BaselineUpstream>, Remotes)> {
+  let remotes = read_remotes(git_executor, repo_path)?;
+  if !remotes.names.iter().any(|remote| remote_of(baseline_branch, remote).is_some()) {
+    return Ok((None, remotes));
   }
   let tracked = match current_branch(git_executor, repo_path)? {
     Some(branch) => git_executor.execute_command(
@@ -61,7 +67,7 @@ pub fn resolve_baseline_upstream(git_executor: &GitCommandExecutor, repo_path: &
     (Some(upstream), Some(remote), Some(remote_ref)) => Some(TrackedUpstream { upstream, remote, remote_ref }),
     _ => None,
   };
-  Ok(baseline_upstream_of(&remotes, baseline_branch, tracked))
+  Ok((baseline_upstream_of(&remotes.names, baseline_branch, tracked), remotes))
 }
 
 /// The upstream configuration of the checked out branch: `%(upstream)`, `%(upstream:remotename)` and
