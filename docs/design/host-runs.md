@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-15
+**Updated:** 2026-11-20
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -343,6 +343,12 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     Branch Deck.
 - **`brd host` as a family of `brd`** (revision 5): one binary for everything.
   - Why not: the app binary grows, and the upgrade of a host must then replace the whole `brd`.
+- **`--nowatchfs` in each host slot** (idea-1, 2026-11-20): a `[[host.prepare]]` step adds `common --nowatchfs` to
+  `.bazelrc-user.bazelrc` of the slot. Each Bazel command then stats every file that it knows.
+  - Why not: a hung fseventsd of the Studio caused the failures, not `--watchfs`. The Bazel servers of three slots
+    missed events of a checkout. They built with an old `MODULE.bazel.lock` or without a `.bzl` file of the commit. A
+    restart of fseventsd ended the failures. The scan costs about 1.7 s for each Bazel command of each run: a no-op
+    build took 2.58 s instead of 0.87 s. A fault of the host does not justify that cost.
 
 ## Risks
 
