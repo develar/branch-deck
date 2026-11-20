@@ -51,11 +51,11 @@
       "const": "ahp-root://"
     },
     "Origin": {
-      "description": "Who asked for a call. click: a frame of a view. action: an action of the app file or of a notification. agent: the proxy tool air_app of a session.",
+      "description": "Who asked for a call. click: a frame of a view, or a view of the Session View through x-air-ide/appToolCall of the holder. action: an action of the app file or of a notification. agent: the proxy tool air_app of a session.",
       "enum": ["click", "action", "agent"]
     },
     "Reason": {
-      "description": "The kind of an error of the x-air-app vocabulary, in data.reason. A receiver ignores a field that it does not know.",
+      "description": "The kind of an error of the x-air-app vocabulary, in data.reason. A receiver ignores a field that it does not know. appError is an error that an app answered to a call of the IDE: it keeps the code of the app and its message cut to 1 KiB, and no other field of the app.",
       "enum": [
         "parse",
         "invalidRequest",
@@ -79,9 +79,23 @@
         "modelOnly",
         "unknownView",
         "unknownInstance",
+        "unknownApp",
         "unknownAction",
         "unknownTool",
-        "badResponse"
+        "badResponse",
+        "tooManyCalls",
+        "internal",
+        "approvalPending",
+        "denied",
+        "toolApprovalPending",
+        "toolDenied",
+        "appProblem",
+        "badResource",
+        "otherView",
+        "resourceRead",
+        "noViews",
+        "viewsTimeout",
+        "appError"
       ]
     },
     "ErrorData": {
@@ -92,12 +106,20 @@
           "$ref": "#/$defs/Reason"
         },
         "stderrTail": {
-          "description": "The last lines of the stderr of a process that exited, at most 20.",
+          "description": "The last lines of the stderr of a process, at most 20: of the process that exited for serverExited. For notStarted of a holder call, they are the lines of the process that starts now, else of its last exit.",
           "type": "array",
           "maxItems": 20,
           "items": {
             "type": "string"
           }
+        },
+        "problem": {
+          "description": "The problem of the entry of the app, as its state shows it: for appProblem a problem of the registry or of the scan, which no answer of the user allows, and for notStarted of a holder call the problem of the entry or of its run. Its message holds at most 1 KiB, with the count of its bytes after a cut.",
+          "$ref": "#/$defs/AppProblem"
+        },
+        "request": {
+          "description": "The id of the consent request of the session for approvalPending and toolApprovalPending, a key of consentRequests of the apps state. The banner of the session answers it.",
+          "$ref": "#/$defs/RequestId"
         },
         "supportedVersions": {
           "type": "array",
@@ -108,7 +130,7 @@
       }
     },
     "ErrorObject": {
-      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32008 unknownChannel and unknownInstance, -32009 noConsent, agentOrigin, notHolder and modelOnly, -32601 unknownMethod and unknownTool, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
+      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32008 unknownChannel, unknownInstance and unknownApp, -32009 noConsent, agentOrigin, notHolder, modelOnly, approvalPending, denied, toolApprovalPending, toolDenied and appProblem, -32011 tooManyCalls, -32601 unknownMethod and unknownTool, -32602 badResource and otherView, -32603 internal, resourceRead, noViews and viewsTimeout, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
       "type": "object",
       "required": ["code", "message"],
       "properties": {
@@ -352,7 +374,7 @@
       ]
     },
     "CallMeta": {
-      "description": "_meta[\"x-air-app\"] of a tools/call that air-ide sends: the origin and the app; the view and the instance of a click; the action of an action, and the view and the instance of a title action.",
+      "description": "_meta[\"x-air-app\"] of a tools/call that air-ide sends: the origin and the app; the session block of the view of x-air-ide/appToolCall; the view and the instance of a click of a page; the action of an action, and the view and the instance of a title action.",
       "type": "object",
       "required": ["origin"],
       "properties": {
@@ -362,6 +384,9 @@
         "app": {
           "$ref": "#/$defs/AppId"
         },
+        "session": {
+          "$ref": "#/$defs/SessionBlock"
+        },
         "view": {
           "$ref": "#/$defs/ViewId"
         },
@@ -370,6 +395,36 @@
         },
         "action": {
           "type": "string"
+        }
+      }
+    },
+    "SessionBlock": {
+      "description": "The base of the view of an x-air-ide/appToolCall, which the views channel of the IDE gives: the view, its revision, the verdict, the surface with the tail after it, and the data model. status is null while the revision has no verdict. A new view has the revision 0, no surface and no tail, and the form state of the call as its data model.",
+      "type": "object",
+      "required": ["viewId", "revision", "status", "surface", "tail", "dataModel"],
+      "properties": {
+        "viewId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "enum": ["RENDERED", "FAILED", null]
+        },
+        "surface": {
+          "type": ["object", "null"]
+        },
+        "tail": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "dataModel": {
+          "type": "object"
         }
       }
     },
@@ -494,8 +549,9 @@
           "type": "string"
         },
         "capabilities": {
+          "description": "air-ide offers x-air-app to an app of the user. A project entry is a plain MCP server, so its initialize offers no experimental capability.",
           "type": "object",
-          "required": ["experimental"],
+          "required": [],
           "properties": {
             "roots": {
               "type": "object"
@@ -535,7 +591,7 @@
       }
     },
     "AppInitializeResult": {
-      "description": "An app without experimental[\"x-air-app\"] is a plain MCP server: it serves tools, and no view.",
+      "description": "A project entry is a plain MCP server whatever it answers. Its link reads no x-air-app of this result, and it lists the tools of the app. An app of the user without experimental[\"x-air-app\"] of the major of air-ide is a plain MCP server too. It serves no view and no tool. An error of tools/list refuses a project entry, and an app of the user that answers with capabilities.tools.",
       "type": "object",
       "required": ["protocolVersion", "capabilities", "serverInfo"],
       "properties": {
@@ -2572,7 +2628,7 @@
       "required": ["reason", "message"],
       "properties": {
         "reason": {
-          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "invalidExecutable", "invalidCover", "uncoveredCode", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
+          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "invalidExecutable", "invalidCover", "uncoveredCode", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused", "tooLarge"]
         },
         "message": {
           "type": "string",
@@ -2596,6 +2652,10 @@
           "minLength": 1
         },
         "name": {
+          "type": "string"
+        },
+        "description": {
+          "description": "The description of a project entry, which the agents read. A text over 1 KiB keeps its first 1 KiB and names its length. A text of an app in a log entry or a problem has the same cut. Only when the entry has one.",
           "type": "string"
         },
         "icon": {
@@ -2636,8 +2696,9 @@
           ]
         },
         "consent": {
+          "description": "The consent of the command. commandText, envText and coversText are command, env and covers as each banner shows them. Each code point of the general categories Cc, Cf, Cn, Co, Cs, Zl, Zp and Zs but U+0020 is \\u{<hex>}, by shown-text.ranges. A text quotes each argument and each value of a variable as ParametersListUtil.escape of the IDE does. A U+0020 after a U+0020 is \\u{20}. The three texts hold at most 64 KiB together, and an entry over it has the problem tooLarge, an empty commandText and no fingerprint.",
           "type": "object",
-          "required": ["state", "command"],
+          "required": ["state", "command", "commandText"],
           "properties": {
             "state": {
               "enum": ["unknown", "allowedOnce", "allowed", "denied"]
@@ -2663,6 +2724,20 @@
               "items": {
                 "type": "string"
               }
+            },
+            "commandText": {
+              "description": "The executable and each argument, quoted and joined by one space.",
+              "type": "string"
+            },
+            "envText": {
+              "description": "Each variable as NAME=value by name, the value quoted, joined by one space. Only when the command has one.",
+              "type": "string",
+              "minLength": 1
+            },
+            "coversText": {
+              "description": "Each path of covers, quoted and joined by one space. Only when the entry has one.",
+              "type": "string",
+              "minLength": 1
             },
             "agentTools": {
               "enum": ["unknown", "allowed", "denied"]
@@ -2748,6 +2823,50 @@
         }
       }
     },
+    "CallId": {
+      "description": "The id of an x-air-ide/appToolCall, which x-air-ide/appToolCancel names: a UUID of the IDE, at most 64 ASCII letters, digits and dashes. A call whose callId is in flight gets badParams.",
+      "type": "string",
+      "pattern": "^[0-9A-Za-z-]{1,64}$"
+    },
+    "RequestId": {
+      "description": "The id of a consent request, r<n>. One counter of the host of air-ide gives n, so an id is unique in the host.",
+      "type": "string",
+      "pattern": "^r[1-9][0-9]*$"
+    },
+    "ConsentRequest": {
+      "description": "A consent request of a session: a holder call that the consent refused. A session has at most one for each target, the entry or the entry and a destructive tool. It names no field of its entry, and the banner reads consent and source of the entry. It lives while its entry keeps the command key, the covers and the source of its start, and while the entry has no problem. An answer of its target ends it, and so does the removal of the app.",
+      "type": "object",
+      "required": ["owner", "app", "reason"],
+      "properties": {
+        "owner": {
+          "description": "The session of the call, by the keys of LocalSessionIdentity.",
+          "type": "object",
+          "required": ["sessionProjectDirectory", "localSessionId"],
+          "properties": {
+            "sessionProjectDirectory": {
+              "type": "string",
+              "minLength": 1
+            },
+            "localSessionId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "app": {
+          "$ref": "#/$defs/AppId"
+        },
+        "reason": {
+          "description": "entry: the consent of the command, and for a project entry the agent consent of its answer. destructiveTool: the tool consent of tool.",
+          "enum": ["entry", "destructiveTool"]
+        },
+        "tool": {
+          "description": "The destructive tool of the reason destructiveTool.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "AppsState": {
       "type": "object",
       "required": ["apps"],
@@ -2757,6 +2876,17 @@
           "additionalProperties": {
             "$ref": "#/$defs/AppEntry"
           }
+        },
+        "consentRequests": {
+          "description": "The consent requests of the sessions by their ids, the oldest first, at most 64. A new one over the bound removes the oldest. The part is absent until the first request of the channel, and appConsentRequestsChanged replaces it whole.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "#/$defs/RequestId"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ConsentRequest"
+          }
         }
       }
     },
@@ -2764,7 +2894,7 @@
       "oneOf": [
         {
           "type": "object",
-          "description": "The answer of the user to the consent banner. It names the command, the variables and the covers that the banner showed: another of them in the entry refuses it with the reason stale before any write, and an answer without them gets badParams.",
+          "description": "The answer of the user to the consent banner. It names the command, the variables and the covers that the banner showed: another of them in the entry refuses it with the reason stale before any write, and an answer without them gets badParams. Then an entry without a fingerprint gives the reason of its problem, or noCommand, but a Deny: a Deny of a command whose code no scan read holds by its command key, and air-ide reads no code for it. Last, a request that is gone, or that names another app or the reason destructiveTool, gives stale. An answer ends each consent request of the entry of the app.",
           "required": ["type", "app", "answer", "command", "env", "covers"],
           "properties": {
             "type": {
@@ -2796,11 +2926,61 @@
               "items": {
                 "type": "string"
               }
+            },
+            "agent": {
+              "description": "Whether the answer of a project entry also allows the agents to call it: for the process of Allow Once, or in the record of Always Allow. An app of the user gets badParams.",
+              "type": "boolean"
+            },
+            "request": {
+              "description": "The consent request of a session that the banner answers. An answer with it that allows starts the stopped entry.",
+              "$ref": "#/$defs/RequestId"
             }
           }
         },
         {
           "type": "object",
+          "description": "The answer of the user to the consent request of a destructive tool, with the command, the variables and the covers that the banner showed, as appConsent names them, and checked in its order. The request must name the app, the reason destructiveTool and the tool, else stale, so an answer for one tool never allows another. allowOnce covers the next agent call of the tool. alwaysAllow joins tools of the record of the fingerprint, and without a record it holds for the process. deny holds while the channel is open. The result of the echo is {changed}.",
+          "required": ["type", "app", "tool", "answer", "request", "command", "env", "covers"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appToolConsent"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "answer": {
+              "enum": ["allowOnce", "alwaysAllow", "deny"]
+            },
+            "request": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "covers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "The agent consent of an app of the user, in the memory of the channel. A project entry gets badParams: its answer names the agent.",
           "required": ["type", "app", "answer"],
           "properties": {
             "type": {
@@ -2922,8 +3102,27 @@
       ]
     },
     "AppsAction": {
-      "description": "A state action of the apps channel by the table rule: one app entry set or removed by its id.",
+      "description": "A state action of the apps channel by the table rule: one app entry set or removed by its id, or the part consentRequests replaced whole.",
       "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "consentRequests"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appConsentRequestsChanged"
+            },
+            "consentRequests": {
+              "type": "object",
+              "maxProperties": 64,
+              "propertyNames": {
+                "$ref": "#/$defs/RequestId"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/ConsentRequest"
+              }
+            }
+          }
+        },
         {
           "type": "object",
           "required": ["type", "key", "value"],
@@ -2974,6 +3173,171 @@
         }
       }
     },
+    "Session": {
+      "description": "The session of a holder call, by the keys of the session of a view of the views channel of air-ide.",
+      "type": "object",
+      "required": ["sessionProjectDirectory", "localSessionId", "projectDirectory"],
+      "properties": {
+        "sessionProjectDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "localSessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectDirectory": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "AppsListResult": {
+      "description": "The answer of x-air-ide/appsList, one message of the IDE. The apps come in the order of their ids. Their tools and instructions hold at most 12 MiB, by the encoded bytes. An app over the rest gets the problem tooLarge and no tools. The descriptions, the problems, the refused entries and the file errors hold at most 1 MiB. Over that budget, a problem keeps its reasons with the message: the message is over the budget of the answer. It then has no tail, a description drops, and a refused entry counts into refusedMore.",
+      "type": "object",
+      "required": ["apps", "refused", "errors"],
+      "properties": {
+        "apps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["app", "tools"],
+            "properties": {
+              "app": {
+                "$ref": "#/$defs/AppId"
+              },
+              "description": {
+                "description": "The description of a project entry, cut to 1 KiB.",
+                "type": "string"
+              },
+              "instructions": {
+                "description": "The instructions of the answer of the app to initialize, cut to 64 KiB. Only for a ready app that gave them.",
+                "type": "string"
+              },
+              "tools": {
+                "description": "The tools that the model sees, of each page of tools/list of the ready run. The input schema and ui of _meta stay as the app wrote them. A tool without an input schema gets the empty object schema. An app with a problem has none.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "inputSchema"],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "inputSchema": {
+                      "type": "object"
+                    },
+                    "ui": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "problem": {
+                "description": "The data of the error that an agent call of the app gets now, such as agentOrigin or noConsent. notStarted has the stderr tail and the problem of the entry. tooLarge: the tools of the app are over the budget of the answer.",
+                "$ref": "#/$defs/ErrorData"
+              }
+            }
+          }
+        },
+        "refused": {
+          "description": "The refused entries of the project registry files, in the order of their names. A file keeps its first 64 refused entries by name.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "reason", "message"],
+            "properties": {
+              "name": {
+                "description": "The name of the entry, cut to 1 KiB.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "invalidId: the name is no id. remoteServer: the entry names url. tooManyApps: the entry comes after the first 64 apps of its file. invalidEntry: the entry or a field of it is wrong.",
+                "enum": ["invalidId", "remoteServer", "tooManyApps", "invalidEntry"]
+              },
+              "message": {
+                "description": "A sentence of the refusal, cut to 1 KiB.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "refusedMore": {
+          "description": "The count of the refused entries that the answer does not name: those past the first 64 of each file, and those over the budget. It can count an entry of the committed file whose name a local app takes. Only when there are some.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "errors": {
+          "description": "Each project registry file that air-apps cannot read or parse. The file keeps the apps of its last good content.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "message"],
+            "properties": {
+              "file": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "description": "Why the file cannot be read or its bytes do not parse, cut to 1 KiB.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "AppToolCallResult": {
+      "description": "The answer of x-air-ide/appToolCall: the CallToolResult of the app, and the UI kind of the tool. ui is null for an error result and for a tool without a UI resource, a2ui for ui://air/a2ui, and resource for a resource of the app with its text, which air-apps reads once for each run. A result and a text over one message of the IDE give -32004 tooLarge. A failed read or one with no text gives -32603 resourceRead.",
+      "type": "object",
+      "required": ["result", "ui"],
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/CallToolResult"
+        },
+        "ui": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": ["kind", "uri"],
+              "properties": {
+                "kind": {
+                  "const": "a2ui"
+                },
+                "uri": {
+                  "const": "ui://air/a2ui"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["kind", "uri", "text"],
+              "properties": {
+                "kind": {
+                  "const": "resource"
+                },
+                "uri": {
+                  "type": "string",
+                  "pattern": "^ui://"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
     "IdeRequest": {
       "type": "object",
       "required": ["jsonrpc", "id", "method", "params"],
@@ -2992,7 +3356,8 @@
             "x-air-ide/appResourceRead",
             "x-air-ide/appNotify",
             "x-air-ide/appHostTool",
-            "x-air-ide/appToolCall"
+            "x-air-ide/appToolCall",
+            "x-air-ide/appsList"
           ]
         },
         "params": {
@@ -3081,6 +3446,22 @@
                     "type": "array",
                     "items": {
                       "$ref": "#/$defs/Root_"
+                    }
+                  },
+                  "userApps": {
+                    "description": "Whether the channel holds the apps of the user of ~/.air/apps. The IDE opens the apps channel of its sessions with false. That channel reads and watches no file of ~/.air/apps, so it holds the project entries only.",
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "environment": {
+                    "description": "The base environment of each process of the channel, in place of the environment of the IDE process. The IDE gives the shell environment of the user. Each process gets the variables of its entry, one PATH and PYTHONPYCACHEPREFIX over it. The launch drops each PATH of the base, in any case. It also drops each variable by which a program loads or finds code, when its value has a place mark. A place mark is a part . or .. of a path, a ~ at the start of a word, or a place of the process. A mark after a leading short switch or in quotes counts too, as in -I./lib or \"./x.js\". The PATH of the process is that of the entry, else of the base, else of the IDE. It loses each empty or relative directory, each place of the process and each directory in the project. The check reads the text and the real path of each directory. On Unix it also compares the device and the inode of each ancestor with the project. A PATH with no directory left starts no process, since an empty PATH finds a program in the project. A NUL, an empty name or a name with = gets badParams.",
+                    "type": "object",
+                    "propertyNames": {
+                      "pattern": "^[^=\\u0000]+$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[^\\u0000]*$"
                     }
                   }
                 }
@@ -3226,8 +3607,9 @@
           "then": {
             "properties": {
               "params": {
+                "description": "A command of the apps channel: a call of an agent through the proxy tool air_app, or a click of a view of the Session View, which only the holder sends. A call whose callId is in flight gets badParams. Before the call reaches the app, a worker compares each mark of the run with its path now. The run has the mark of each path that its start read. The run of a project entry also has the mark of each path of an argument. Each project registry file has a mark too. A change waits for one scan. A channel holds at most 64 such calls, and one more gets -32011 tooManyCalls. A failed scan gives -32603 internal, and so does a wait of 30 s for a check or a scan. A call of a stopped project entry with the consent starts it. The call waits for one run: the run that it starts, the run whose start goes on, or the next run of the backoff. The call reaches a run only after a check of the marks that starts while the run is ready. A run that ends first, a failed app and a wait of 30 s give -32002 notStarted with the stderr tail of now. At 30 s the start goes on. Before the start, an entry with a problem of the registry or of the scan gets -32009 appProblem with the problem. A Deny gives -32009 denied. A command that the consent does not cover, or an agent call of a project entry whose answer does not name the agent, gives -32009 approvalPending with the consent request of the session and the entry. At the ready link, a tool that tools/list lacks gets -32601 unknownTool. A click of a tool that the app does not see gets -32009 modelOnly, and an agent call of a tool that the model does not see -32009 agentOrigin. An agent call of a destructive tool needs the tool consent: a Deny gives -32009 toolDenied, and no answer -32009 toolApprovalPending with the consent request of the tool. A tool is destructive unless readOnlyHint is true or destructiveHint is false. A click never asks. A UI resource of the tool that is not ui://air/a2ui and whose host is not the app gets -32602 badResource. Last, the reader of the views gives the session block of the view: else its error, such as -32602 otherView, or -32603 noViews, or -32603 viewsTimeout after 10 s. The answer is AppToolCallResult.",
                 "type": "object",
-                "required": ["channel", "app", "name", "origin"],
+                "required": ["channel", "app", "name", "origin", "session", "view", "callId"],
                 "properties": {
                   "channel": {
                     "$ref": "#/$defs/AppsChannel"
@@ -3243,7 +3625,64 @@
                     "type": "object"
                   },
                   "origin": {
-                    "const": "agent"
+                    "enum": ["agent", "click"]
+                  },
+                  "session": {
+                    "description": "The session of the call, which owns each consent request that the call sets.",
+                    "$ref": "#/$defs/Session"
+                  },
+                  "view": {
+                    "description": "The view of the call in the views channel of the IDE: the view of the app, or a new id.",
+                    "type": "object",
+                    "required": ["channel", "viewId"],
+                    "properties": {
+                      "channel": {
+                        "type": "string",
+                        "pattern": "^x-air-ide:/genuiViews/[1-9][0-9]*$"
+                      },
+                      "viewId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "formState": {
+                    "description": "The form state of the call, the data model of a new view.",
+                    "type": "object"
+                  },
+                  "callId": {
+                    "$ref": "#/$defs/CallId"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appsList"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "description": "A command of the apps channel: the apps of the channel for the proxy tool air_app, or the one app of app. The list checks the marks of each run, and it starts each stopped project entry with the consent, as an agent call does. Its answer is AppsListResult. An app that is no entry and no refused entry of the channel gets -32008 unknownApp.",
+                "type": "object",
+                "required": ["channel", "session"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "session": {
+                    "$ref": "#/$defs/Session"
+                  },
+                  "app": {
+                    "description": "The one app of the list: an id, or the name of a refused entry.",
+                    "type": "string",
+                    "minLength": 1
                   }
                 }
               }
@@ -3282,14 +3721,18 @@
             "required": ["params"],
             "properties": {
               "params": {
+                "description": "A root notification of the holder: it cancels its x-air-ide/appToolCall callId in the apps channel apps. The call gets -32800 cancelled at once, and a call that reached the app gets notifications/cancelled there once. A parked call never reaches the app. A cancel of another connection, of an unknown call or of an answered call changes nothing.",
                 "type": "object",
-                "required": ["channel", "requestId"],
+                "required": ["channel", "apps", "callId"],
                 "properties": {
                   "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "apps": {
                     "$ref": "#/$defs/AppsChannel"
                   },
-                  "requestId": {
-                    "$ref": "#/$defs/Id"
+                  "callId": {
+                    "$ref": "#/$defs/CallId"
                   }
                 }
               }

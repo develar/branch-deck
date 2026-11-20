@@ -34,7 +34,7 @@ function def(name: string): ValidateFunction {
 
 /** The def of the result of each request, by its link and its method (the README of the copy, "A line") */
 const RESULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  ide: { "x-air-ide/appViewTicket": "AppViewTicketResult" },
+  ide: { "x-air-ide/appViewTicket": "AppViewTicketResult", "x-air-ide/appsList": "AppsListResult", "x-air-ide/appToolCall": "AppToolCallResult" },
   page: { initialize: "PageInitializeResult", "x-air-app/viewOpen": "ViewOpenResult" },
   app: { initialize: "AppInitializeResult", "x-air-app/subscribe": "AppSubscribeResult", "x-air-app/openView": "AppOpenViewResult" },
   frame: { "ui/initialize": "FrameInitializeResult", "x-air-app/subscribe": "FrameSubscribeResult" },
@@ -82,6 +82,9 @@ interface Line {
   readonly text?: string
   readonly state?: { readonly link: string; readonly state: unknown }
 }
+
+/** The types of the state actions of the apps channel, the def `AppsAction`; each other action is an intent */
+const STATE_ACTIONS = new Set(["x-air-ide/appEntrySet", "x-air-ide/appEntryRemoved", "x-air-ide/appConsentRequestsChanged"])
 
 /** The reasons of a problem of an app file that a schema sees: the file does not parse, or its format is another */
 const INVALID_FILE = new Set(["invalidFile", "unsupportedFormat"])
@@ -138,7 +141,7 @@ function corpusProblems(name: string, text: string): string[] {
       }
       const action = message.params?.action
       if (line.link === "ide" && message.method === "action" && action !== undefined) {
-        const shape = action.type === "x-air-ide/appEntrySet" || action.type === "x-air-ide/appEntryRemoved" ? "AppsAction" : "AppsIntent"
+        const shape = STATE_ACTIONS.has(action.type ?? "") ? "AppsAction" : "AppsIntent"
         found.push(...problems(def(shape), action).map(problem => `${where} the action (${shape}): ${problem}`))
       }
       const snapshot = (message.result as { snapshot?: { state?: { apps?: unknown } } } | undefined)?.snapshot

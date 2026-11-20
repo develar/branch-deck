@@ -9,6 +9,7 @@ These files pin the wire.
 | `air-app.schema.json` | The app file `~/.air/apps/<id>.yaml`, format 1, with the defaults that the registry fills in |
 | `examples/branch-deck.yaml` | The app file that the installer of Branch Deck writes |
 | `genui-apps.schema.json` | The project registry `.air/genui-apps.json` and `.awb/genui-apps.json` of the apps of a session, with the files that `covers` adds to the fingerprint of an entry |
+| `shown-text.ranges` | The code points that a text of a consent banner shows as `\u{<hex>}`: the categories Cc, Cf, Cn, Co, Cs, Zl, Zp and Zs, by Unicode 16.0 as the JDK 25 gives them. `air-apps` embeds the file, and a test of the IDE compares it with the JDK |
 | `x-air-app.schema.json` | One line of the corpus. The defs `AppMessage`, `PageMessage`, `FrameMessage` and `IdeMessage` are the messages of the four links |
 | `corpus/*.ndjson` | The golden frames, one JSON object per line |
 
@@ -53,6 +54,9 @@ These files pin the wire.
   `${home}`, `${dir}`, `${project}` and `${port}` are given by the runner. Only the end under test writes `${any}`.
 - The files with the fixture app (`registry`, `consent-and-start`, `page-connection`, `view-mirror`, `calls`,
   `requests-to-ide`, `failures`) test `air-ide`: a runner plays the IDE, the host page and a scripted app.
+- `session-apps.ndjson` tests the apps channel of the sessions of `air-ide`: a runner plays the IDE and the scripted app
+  of a project entry. Its `appsOpen` has `userApps: false` and a fixed base environment with no placeholder, so a writer
+  of the IDE can compare its frame with the line.
 - `frame-bridge.ndjson` tests the host page: a runner serves the host document on `http://127.0.0.1:${port}`, plays
   the frame, `air-ide` and the calls of the IDE into the page.
 - An app pins its own side of the app link in a corpus file of its repository, such as
