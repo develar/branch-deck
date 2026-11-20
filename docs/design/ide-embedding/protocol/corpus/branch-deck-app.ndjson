@@ -92,6 +92,11 @@
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":9,"result":{"instance":"main:1"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"reviews:1"}}}
+{"comment":"The focus of the window of the main view (a reveal that Activity asked, the palette) shows the tool window with the tab of the main view."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"plugin:window|set_focus","args":{"label":"main"}},"_meta":{"progressToken":33,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":10,"method":"x-air-app/openView","params":{"view":"main"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":33,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":10,"result":{"instance":"main:1"}}}
 {"comment":"The life of the place reaches the window registry: viewClosed forgets the page and the window of the instance."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewHidden","params":{"instance":"main:1"}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":21,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}

@@ -327,14 +327,15 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(main.getByTestId("main-view-switcher")).toHaveCount(0)
     const opened = async () => (await ide.calls()).filter(call => call.method === "x-air-app/openView").map(call => call.params)
 
-    // Reviews of the palette of the main view: brd asks the IDE for the tab of Reviews, whose page shows the repository
+    // Reviews of the palette of the main view: brd asks the IDE for the tab of Reviews, whose page shows the repository;
+    // the palette opens in the tab of the main view, which the IDE shows first
     await ide.runAction("command-palette", "open_command_palette")
     await main
       .getByTestId("command-palette")
       .getByRole("option", { name: /^Reviews/ })
       .click()
     await expect.poll(async () => (await ide.views()).map(view => view.instance)).toEqual(["main:1", "reviews:1"])
-    expect(await opened()).toEqual([{ view: "reviews" }])
+    await expect.poll(opened).toEqual([{ view: "main" }, { view: "reviews" }])
     const reviews = ide.frame("reviews:1")
     await expect(reviews.getByRole("combobox")).toContainText(nameOf(repo.path))
     const entry = reviews.getByTestId("reviews-section-authored").locator('[data-testid=review-request-row][data-review-number="203"]')
@@ -348,7 +349,7 @@ test.describe("Branch Deck in the IDE", () => {
     // a click on the own pull request: the IDE shows the tab of the branches, whose page reveals the branch, the focused
     // element of its frame (the frame of Reviews keeps the focus of the page: the fake IDE focuses no frame)
     await entry.click()
-    await expect.poll(opened).toEqual([{ view: "reviews" }, { view: "main" }])
+    await expect.poll(opened).toEqual([{ view: "main" }, { view: "reviews" }, { view: "main" }])
     await expect.poll(() => row.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
 
     // Landing: a tab of its own too
@@ -358,7 +359,55 @@ test.describe("Branch Deck in the IDE", () => {
       .getByRole("option", { name: /^Landing/ })
       .click()
     await expect(ide.frame("landing:1").getByTestId("landing-view")).toBeVisible()
-    expect(await opened()).toEqual([{ view: "reviews" }, { view: "main" }, { view: "landing" }])
+    await expect.poll(opened).toEqual([{ view: "main" }, { view: "reviews" }, { view: "main" }, { view: "main" }, { view: "landing" }])
+  })
+
+  test("Add Pull Request by Link… focuses the field of a Reviews tab never shown", async ({ page, repo }) => {
+    await repo.setReviewRequests(availableReviewRequests([]))
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path })
+    await syncedFeatureRow(ide)
+    const main = ide.frame("main:1")
+    expect((await ide.views()).map(view => view.instance)).toEqual(["main:1"])
+
+    await ide.runAction("command-palette", "open_command_palette")
+    await main.getByTestId("command-palette").getByRole("option", { name: "Add Pull Request by Link…" }).click()
+    // the IDE builds the tab for the open and holds the event of brd until the page of the tab listens (`initialized`)
+    const field = ide.frame("reviews:1").getByTestId("reviews-filter-input")
+    await expect(field).toBeVisible()
+    await expect.poll(() => field.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+  })
+
+  test("a branch that the tab of Activity reveals shows in the tab of the branches: the main view comes to the front, and the IDE shows its tab with the row open", async ({
+    page,
+    repo,
+  }) => {
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path })
+    const row = await syncedFeatureRow(ide)
+    const main = ide.frame("main:1")
+    // an agent's brd pushed `feature`: an entry of the log names the branch
+    await repo.journalAgentOperation(
+      { kind: "push", subject: { kind: "branch", name: "feature" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false },
+      [{ kind: "push", branches: ["feature"], force: false }],
+    )
+    await ide.runAction("command-palette", "open_command_palette")
+    await main.getByTestId("command-palette").getByRole("option", { name: "Activity Window" }).click()
+    const activity = ide.frame("activity:1")
+    // the push of an agent is behind its chip
+    await activity
+      .getByTestId("activity-filter")
+      .getByRole("button", { name: /Agents/ })
+      .click()
+    const branch = activity.getByTestId("activity-branch").filter({ hasText: "feature" }).first()
+    await expect(branch).toBeVisible()
+    const showsOfMain = async () => (await ide.calls()).filter(call => call.method === "x-air-app/openView" && call.params.view === "main").length
+    const before = await showsOfMain()
+
+    // the branch name in the tab of Activity: the main view expands its row, as in the desktop app, and the focus of its
+    // window asks the IDE for the tab of the branches
+    await expect(row).toHaveAttribute("data-state", "closed")
+    await branch.click()
+    await expect.poll(showsOfMain).toBe(before + 1)
+    await expect(row).toHaveAttribute("data-state", "open")
   })
 
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {

@@ -1,8 +1,10 @@
 /**
  * The start of the page of a view of the IDE (`src/air-main.ts`): `ui/initialize` on the frame link with the extension
  * `x-air-app`, the theme of the host context, `bd_bootstrap` of the view, the globals of its init script and the
- * internals of Tauri; then the usual main runs on the path of the page of the view
+ * internals of Tauri; then the usual main runs on the path of the page of the view, and `ui/notifications/initialized`
+ * follows once the page listens (`whenPageStarted`)
  */
+import { whenPageStarted } from "@/lib/page-start"
 import { applyBootstrap, pagePathOf } from "@/platform/air/bootstrap"
 import type { Bootstrap } from "@/platform/air/bootstrap"
 import { FrameLink, parentEndpoint } from "@/platform/air/frame-link"
@@ -40,7 +42,9 @@ export async function startAirPage(target: Window, endpoint: FrameEndpoint = par
     throw new Error("The host serves no x-air-app: Branch Deck runs only in a view of the IDE")
   }
   theme.apply(initialized.hostContext ?? {})
-  link.notify("ui/notifications/initialized")
+  // the IDE holds the events of the view until the page listens: `initialized` once the first render of the page ran its
+  // effects, after the listens they asked for (a task later)
+  whenPageStarted(() => setTimeout(() => link.notify("ui/notifications/initialized"), 0))
 
   const page = new AirPage(link, context, PAGE_COMMANDS)
   const bootstrap = await page.callTool(BD_BOOTSTRAP, { view: context.view })

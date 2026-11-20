@@ -418,7 +418,8 @@ impl Server {
   /// Asks the IDE to show `view`, then tells the instance it answered `event` with its payload, when there is one: Show
   /// in Branch Deck of a notification shows the main view, which reveals the branch (`reveal-branch`), and a page shows
   /// the tab of another view of the main window (`SHOW_VIEW_CALL`), such as the main view that reveals a branch of
-  /// Reviews. An event reaches a page that runs: a tab the IDE builds for the open loads without it
+  /// Reviews. brd tells the event at once: the IDE holds an event for an instance until its page sent
+  /// `ui/notifications/initialized`, which the page sends once it listens
   fn show_view(&self, view: &str, event: Option<(String, Value)>) {
     let answer = self.link.request("x-air-app/openView", Some(json!({ "view": view })));
     let link = Arc::clone(&self.link);
@@ -511,6 +512,13 @@ impl Server {
   /// the tab of another view of the main window (`SHOW_VIEW_CALL {view, event?, payload?}`). None for a command of app-api
   fn host_command(&self, command: &str, args: &Value, instance: Option<&str>) -> Option<Value> {
     match command {
+      // the window of the page comes to the front (a reveal that Activity or a review asked, the palette): the IDE shows
+      // the tool window with the tab of the main view; the place of another view is the IDE's to show
+      "plugin:window|set_focus" => {
+        if instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
+          self.show_view(MAIN_VIEW, None);
+        }
+      }
       SHOW_VIEW_CALL => {
         let view = args["view"].as_str().unwrap_or(MAIN_VIEW);
         let event = args["event"].as_str().map(|event| (event.to_owned(), args.get("payload").cloned().unwrap_or(Value::Null)));

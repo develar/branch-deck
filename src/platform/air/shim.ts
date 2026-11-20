@@ -34,10 +34,11 @@ export const HOST_TOOLS = {
 
 /**
  * The plugin calls of Tauri that `brd mcp` answers as the desktop of the IDE (`bd_invoke`), with their arguments as the
- * page sends them: it asks the IDE for the badge and the progress of the tool window, a notification, the close of the
- * place of the view
+ * page sends them: it asks the IDE for the show of the tool window (the focus of the main window), the badge and the
+ * progress of the tool window, a notification, the close of the place of the view
  */
 const DESKTOP_CALLS: ReadonlySet<string> = new Set([
+  "plugin:window|set_focus",
   "plugin:window|set_badge_count",
   "plugin:window|set_progress_bar",
   "plugin:window|close",

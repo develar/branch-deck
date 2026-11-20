@@ -195,7 +195,11 @@ sequenceDiagram
   without an estimate shows no progress there, as before. A switch to the view of another tab (`showMainView` of `src/stores/main-view.ts`)
   is `bd_invoke` of `plugin:air|show_view {view, event?, payload?}`: brd asks `openView {view}` and tells the instance
   the IDE answers the event, such as `reveal-branch` for a branch of Reviews, the same show of a view as Show in Branch
-  Deck (`Server::show_view`). The page of the tab of Reviews or Landing (`src/pages/MainViewTabPage.tsx`, `/reviews`
+  Deck (`Server::show_view`). brd tells an event at once: the IDE holds an event for a view until its page sent
+  `ui/notifications/initialized`, and the page sends it only once the first render of its page ran its effects
+  (`markPageStarted`), after the listens they asked for, so a tab that the IDE builds for the open gets its event too.
+  `plugin:window|set_focus` of the main view (the main window comes to the front: a reveal that Activity or a review
+  asks, the palette) is `openView {view: "main"}`, so the IDE shows the tab of the branches. The page of the tab of Reviews or Landing (`src/pages/MainViewTabPage.tsx`, `/reviews`
   and `/landing`) holds the session of the repository of the main view and the stores of its facts, as the review
   window does; the Dock, the sync of the start and the update stay with the main view. The actions of the app file are tools only for the app, which `tools/list`
   names: Sync Virtual Branches is `sync`, Branch Deck Command Palette is `open_command_palette`, which sends the main
@@ -232,7 +236,7 @@ sequenceDiagram
   `pnpm test:unit` and needs no crate.
 - Settings in two processes: a write under an inter-process lock merges only the changed keys, and a watch tells the
   other process ([Distributed Settings](distributed-settings.md)).
-- The page: `src/air-main.ts` answers `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits
+- The page: `src/air-main.ts` sends `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits
   `bd_bootstrap {view}` (the globals of the init script of a window: `__TAURI_STORE__`, `__BD_MODEL__`,
   `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`), installs the shim and runs `src/main.tsx` on the page of
   its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `brd mcp` embeds and serves as

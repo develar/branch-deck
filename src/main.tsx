@@ -11,6 +11,7 @@ import "@/lib/review-window-start"
 import { App } from "@/App"
 import { PageFailure } from "@/components/shared/PageFailure"
 import { logUncaughtError } from "@/lib/page-errors"
+import { markPageStarted } from "@/lib/page-start"
 import { markWindowContentReady, markWindowShellDrawn } from "@/lib/sub-window"
 import { loadWindowPage } from "@/router"
 
@@ -47,6 +48,7 @@ function showFailure(title: string, error: unknown) {
     root.render(<PageFailure title={title} error={error} />)
     markWindowShellDrawn()
     markWindowContentReady()
+    markPageStarted()
   })
 }
 

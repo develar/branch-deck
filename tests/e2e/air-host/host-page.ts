@@ -264,6 +264,11 @@ interface OpenView {
   readonly frame: HTMLIFrameElement
   readonly bridge: AppBridge
   title: string | null
+  /**
+   * The events for the frame until it sent `ui/notifications/initialized`, in order, as the IDE holds them until the page
+   * listens; null once it did, and an event goes to it at once
+   */
+  held: Record<string, unknown>[] | null
 }
 
 const views = new Map<string, OpenView>()
@@ -463,6 +468,7 @@ async function openView(view: string, key: string | null, params: Record<string,
   const existing = [...views.values()].find(open => open.info.view === view && (key === null ? SINGLE_VIEWS.has(view) : open.info.key === key))
   if (existing !== undefined) {
     existing.frame.dataset.focused = "true"
+    showPlace(existing.frame)
     // the place of an instance the IDE hid shows again
     if (hidden.delete(existing.info.instance)) {
       await app.notify("x-air-app/viewShown", {
@@ -488,9 +494,28 @@ async function openView(view: string, key: string | null, params: Record<string,
   frame.style.cssText = "display: block; width: 1280px; height: 800px; border: 0"
   document.body.append(frame)
   const bridge = bridgeOf(info)
-  views.set(info.instance, { info, frame, bridge, title })
+  const open: OpenView = { info, frame, bridge, title, held: [] }
+  views.set(info.instance, open)
+  bridge.oninitialized = () => {
+    const held = open.held ?? []
+    open.held = null
+    for (const params of held) {
+      void bridge.notification({ method: "x-air-app/event", params })
+    }
+  }
   await bridge.connect(new PostMessageTransport(frame.contentWindow!, frame.contentWindow!))
+  showPlace(frame)
   return info.instance
+}
+
+/**
+ * The IDE shows the place of a view it opens and moves the focus into it, as it activates a tool window: the frame comes
+ * into the viewport of the fake IDE (Chromium runs no animation frame of a cross-origin frame out of view) and takes the
+ * focus
+ */
+function showPlace(frame: HTMLIFrameElement): void {
+  frame.scrollIntoView()
+  frame.focus()
 }
 
 // === What the app link tells and asks ===
@@ -520,7 +545,12 @@ app.onNotification = (method, params) => {
     case "x-air-app/event": {
       const target = params.instance === undefined ? [...views.values()] : [views.get(params.instance as string)].filter(open => open !== undefined)
       for (const open of target) {
-        void open.bridge.notification({ method: "x-air-app/event", params: { event: params.event, payload: params.payload ?? null } })
+        const event = { event: params.event, payload: params.payload ?? null }
+        if (open.held === null) {
+          void open.bridge.notification({ method: "x-air-app/event", params: event })
+        } else {
+          open.held.push(event)
+        }
       }
       return
     }
