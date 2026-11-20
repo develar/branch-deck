@@ -35,7 +35,9 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/viewChanged","params":{"mirror":"/r","ops":[{"op":"set","part":"branches","key":"b","value":{"n":1}}]}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"event":"settings-changed","payload":{"key":"theme"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"toast","payload":{"text":"Renamed"}}}}
+{"comment":"An event that names an instance that is not open, such as review:9, reaches no page, and the apps channel logs one warning."}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"review:9","event":"toast","payload":{"text":"Not for this view"}}}}
+{"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/apps/1","level":"warn","category":"apps","message":"${any}","dropped":0}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"callId":4,"event":{"step":"rename"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":4,"progress":1,"total":2}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":4,"result":{"content":[],"structuredContent":{"value":{"renamed":true}}}}}
