@@ -312,7 +312,9 @@ pub struct ProcessOutput {
   /// The arguments as one line, at most 200 characters
   pub argv: String,
   /// `bazel_server`: it serves only this worktree, and `brd lease return` stops it itself once no other process is in
-  /// the worktree; `other`: wait until it is done
+  /// the worktree; `holder`: a command of your own session (a background command of the agent that holds the lease):
+  /// stop it yourself, or `brd lease return --stop-own` ends it, once you no longer need its output; `other`: a process
+  /// of another session, wait until it is done
   pub kind: ProcessKind,
   /// The `--workspace_directory` of a Bazel server
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -327,6 +329,7 @@ pub struct ProcessOutput {
 #[serde(rename_all = "snake_case")]
 pub enum ProcessKind {
   BazelServer,
+  Holder,
   Other,
 }
 

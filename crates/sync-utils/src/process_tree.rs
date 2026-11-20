@@ -239,6 +239,24 @@ fn kill_tree(root: (u32, u64)) -> KillReport {
   report
 }
 
+/// Kills the running process `pid`, started at `started`, and every process below it: a process that another process
+/// started, such as a command that a coding agent runs in the background, killed as the tree of a child is (the module
+/// header), its root last. Its parent reaps it, so the kill waits until it `exited` (a zombie counts), at most
+/// `EXIT_WAIT`; one that did not is `Unsettled::ExitWait`. A pid that another process got since is never signalled
+#[cfg(unix)]
+pub fn kill_running_tree(pid: u32, started: u64) -> KillReport {
+  let mut report = kill_tree((pid, started));
+  crate::process_scan::kill(pid, started);
+  let exit_deadline = std::time::Instant::now() + EXIT_WAIT;
+  while !crate::process_scan::exited(pid, started) {
+    if !wait_until(exit_deadline) {
+      report.unsettled_by(Unsettled::ExitWait);
+      break;
+    }
+  }
+  report
+}
+
 /// The scan after the kill: something outside the kill may have continued `root` after the last round (an external
 /// `SIGCONT`: the job control of a terminal, Ctrl+Z and `fg`, as the child shares the group of its caller), and what it
 /// started since is killed now, without waiting (`KillReport::left`, `Unsettled::Left`). A scan that reads no list is

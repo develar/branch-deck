@@ -99,6 +99,7 @@ fn server(pid: u32, started: Option<u64>) -> ProcessInfo {
     cwd: None,
     argv: vec!["bazel(fake)".to_string(), "--workspace_directory=/slot".to_string()],
     started,
+    terminal: false,
   }
 }
 

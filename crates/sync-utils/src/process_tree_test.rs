@@ -63,3 +63,37 @@ fn a_process_that_does_not_exit_holds_the_kill_only_until_the_wait_gives_up() {
   assert_eq!(pids, [4, 5, 3, 2]);
   assert_eq!(waits, 11, "{order:?}");
 }
+
+/// A process that another process started, such as a command that an agent runs in the background, is killed with what
+/// it started, its root last; its parent, this test here, reaps it
+#[cfg(unix)]
+#[test]
+fn a_running_tree_of_another_parent_is_killed_with_its_root() {
+  use std::os::unix::process::CommandExt;
+  use std::process::Stdio;
+  let mut root = test_utils::killed::Killed(
+    std::process::Command::new("sh")
+      .args(["-c", "sleep 30 & wait"])
+      .process_group(0)
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null())
+      .spawn()
+      .unwrap(),
+  );
+  let started = crate::process_scan::process_started(root.id()).unwrap();
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+  let below = loop {
+    let below = crate::process_scan::descendants(root.id(), started).unwrap();
+    if !below.is_empty() || std::time::Instant::now() > deadline {
+      break below;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1));
+  };
+  assert_eq!(below.len(), 1, "the sleep of the shell: {below:?}");
+  let report = crate::process_tree::kill_running_tree(root.id(), started);
+  assert!(report.settled(), "{report:?}");
+  assert!(crate::process_scan::exited(below[0].pid, below[0].started), "the sleep below the root");
+  let status = root.wait().unwrap();
+  assert_eq!(std::os::unix::process::ExitStatusExt::signal(&status), Some(libc::SIGKILL), "{status:?}");
+}

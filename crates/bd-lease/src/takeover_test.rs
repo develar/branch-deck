@@ -34,7 +34,7 @@ fn another_session(dir: &str) -> test_utils::killed::Killed {
 }
 
 /// Change the lease of the slot at `path` in the state file
-fn update_lease(fixture: &Fixture, path: &str, change: impl FnOnce(&mut Value)) {
+pub(crate) fn update_lease(fixture: &Fixture, path: &str, change: impl FnOnce(&mut Value)) {
   let mut state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
   let path = slot_path(path);
   let slot = state["slots"].as_array_mut().unwrap().iter_mut().find(|slot| slot["path"] == json!(path)).unwrap();
@@ -104,7 +104,7 @@ fn a_get_takes_over_an_idle_lease_whose_commits_landed() {
 }
 
 /// `output` has every field the schema of `name` (`brd schema --all`) requires, and no other
-fn assert_matches_schema(fixture: &Fixture, name: &str, output: &Value) {
+pub(crate) fn assert_matches_schema(fixture: &Fixture, name: &str, output: &Value) {
   let (_, schema) = fixture.run(&["schema", "--all"]);
   let schema = &schema["outputs"][name];
   assert_covered(schema, schema, output, name);

@@ -39,7 +39,7 @@ use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryL
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fmt::Write;
@@ -595,6 +595,9 @@ pub struct BusyProcess {
   /// Why a Bazel server that still runs was not asked to exit: its `bazel shutdown` could not run (no `bazel` on the
   /// `PATH`) or failed (Windows)
   pub stop_error: Option<String>,
+  /// A command of the session that holds the lease, seen by a return that this session runs (`HolderProcesses`):
+  /// `--stop-own` ends it
+  pub holder: bool,
 }
 
 impl BusyProcess {
@@ -605,6 +608,7 @@ impl BusyProcess {
       command: process.command_line(COMMAND_LIMIT),
       bazel_workspace: process.bazel_workspace().map(|workspace| display_path(&workspace)),
       stop_error: None,
+      holder: false,
     }
   }
 }
@@ -652,7 +656,12 @@ pub enum LeaseRefusal {
   Returning { path: String, pid: u32 },
   #[error("The lease of {path} is {actual}, not {expected}")]
   LeaseMismatch { path: String, expected: String, actual: String },
-  #[error("Processes work in {path}: {}; wait until they are done{}", describe_processes(.processes), servers_note(.processes))]
+  #[error(
+    "Processes work in {path}: {}; wait until they are done{}{}",
+    describe_processes(.processes),
+    holders_note(.processes),
+    servers_note(.processes)
+  )]
   SlotBusy { path: String, processes: Vec<BusyProcess> },
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
@@ -761,10 +770,22 @@ fn describe_processes(processes: &[BusyProcess]) -> String {
         Some(error) => format!("{} ({}, the Bazel server of {workspace}: {error})", process.name, process.pid),
         None => format!("{} ({}, the Bazel server of {workspace})", process.name, process.pid),
       },
+      None if process.holder => format!("{} ({}, a command of your own session: {})", process.name, process.pid, process.command),
       None => format!("{} ({}: {})", process.name, process.pid, process.command),
     })
     .collect::<Vec<_>>()
     .join(", ")
+}
+
+/// What a return can do about the commands of the session that holds the lease, among the processes of a busy slot
+fn holders_note(processes: &[BusyProcess]) -> &'static str {
+  let holders = processes.iter().any(|process| process.holder);
+  let others = processes.iter().any(|process| !process.holder && process.bazel_workspace.is_none());
+  match (holders, others) {
+    (true, false) => "; once you no longer need the output of the commands of your own session, `brd lease return --stop-own` ends them",
+    (true, true) => "; `--stop-own` ends only the commands of your own session, never those of another session",
+    (false, _) => "",
+  }
 }
 
 /// What a return does about the Bazel servers among `processes`: each serves only its slot, so the return stops it
@@ -3061,6 +3082,9 @@ pub struct LeaseReturnParams<'a> {
   pub find_by_lease_id: bool,
   /// Give up the unlanded commits and discard the local changes
   pub confirm_preserved: bool,
+  /// End the commands of the session that holds the lease in the slot (`HolderProcesses`), once nothing else refuses
+  /// the return, and check the slot again without them; a process of another session still refuses as `slot_busy`
+  pub stop_own: bool,
   /// How long the return waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
   /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
@@ -3090,6 +3114,9 @@ pub struct LeaseReturned {
   pub joined: bool,
   /// The Bazel servers of the slot that exited when the return asked them (SIGTERM; `bazel shutdown` on Windows)
   pub stopped_servers: Vec<StoppedServer>,
+  /// The commands of the session that holds the lease that `--stop-own` ended: the processes of their trees that the
+  /// scan saw in the slot
+  pub stopped_processes: Vec<BusyProcess>,
   /// git's background maintenance in the slot, which does not keep it busy
   pub maintenance: Vec<u32>,
   /// `branchdeck.leaseMaintenance` is true, and the return started `git maintenance run --auto --detach` once the slot
@@ -3154,26 +3181,158 @@ fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_
   }
   // the slot with the lease of the return this one waited for
   let mut waited_for: Option<Slot> = None;
+  // what `--stop-own` ended; it ends the commands of the holder once, so a pass after it never ends any
+  let mut stopped: Vec<BusyProcess> = Vec::new();
+  let mut stops_holders = params.stop_own;
   loop {
-    let mut checked = None;
-    let step = match return_once(git_executor, params, returning_as, &pool, &path, waited_for.as_ref(), &mut checked) {
+    let mut pass = Pass { stops_holders, checked: None };
+    let step = match return_once(git_executor, params, returning_as, &pool, &path, waited_for.as_ref(), &mut pass) {
       Ok(step) => step,
       // a check refused the slot after another return of the lease gave it back (a get may have leased it again):
       // the refusal is of the next lease, the lease of this return was returned
-      Err(error) => match checked.filter(|slot| !holds_lease(&pool, slot).unwrap_or(true)) {
-        Some(slot) => return Ok(joined_return(slot, None, false)),
-        None => return Err(error),
+      Err(error) => match pass.checked.filter(|slot| !holds_lease(&pool, slot).unwrap_or(true)) {
+        Some(slot) => {
+          return Ok(LeaseReturned {
+            stopped_processes: stopped,
+            ..joined_return(slot, None, false)
+          });
+        }
+        None => return Err(stopped_before(error, &stopped)),
       },
     };
     match step {
-      ReturnStep::Done(returned) => return Ok(*returned),
+      ReturnStep::Done(returned) => {
+        return Ok(LeaseReturned {
+          stopped_processes: stopped,
+          ..*returned
+        });
+      }
       ReturnStep::WaitFor(slot) => {
         if let Some(lease) = &slot.lease {
           wait_while_freeing(&pool, &path, &lease.id)?;
         }
         waited_for = Some(*slot);
       }
+      ReturnStep::StopHolders { roots, processes } => {
+        stop_trees(&roots);
+        stopped.extend(processes);
+        stops_holders = false;
+      }
     }
+  }
+}
+
+/// What one pass of a return is given, and what it tells the loop of `return_lease`
+struct Pass {
+  /// Whether it ends the commands of the holder in the slot once nothing else refuses: `--stop-own`, and no pass before
+  /// it ended them
+  stops_holders: bool,
+  /// The slot with the lease it checks, once no other return of it runs
+  checked: Option<Slot>,
+}
+
+/// A refusal of a pass after `--stop-own` ended the commands of the holder: it names them, as the refusal no longer
+/// changed nothing
+fn stopped_before(error: anyhow::Error, stopped: &[BusyProcess]) -> anyhow::Error {
+  if stopped.is_empty() {
+    return error;
+  }
+  error.context(format!("`--stop-own` ended {}", describe_processes(stopped)))
+}
+
+/// Kills each tree of the commands of the holder in the slot, its root last (`kill_running_tree`); a process whose pid
+/// another process got since is never signalled. A tree that a kill is not sure of is a warning: the next pass of the
+/// return scans the slot again and refuses what is left
+fn stop_trees(roots: &[(u32, u64)]) {
+  #[cfg(unix)]
+  for &(pid, started) in roots {
+    let report = sync_utils::process_tree::kill_running_tree(pid, started);
+    if report.settled() {
+      debug!(pid, rounds = ?report.rounds, "ended a command of the holder in the slot");
+    } else {
+      warn!(pid, rounds = ?report.rounds, unsettled = ?report.unsettled, left = ?report.left, "a kill of a command of the holder is not sure of its tree");
+    }
+  }
+  // no process scan, so no command of the holder is known in the slot
+  #[cfg(not(unix))]
+  let _ = roots;
+}
+
+/// The processes of a slot but its Bazel servers, by whose they are: the commands of the session that holds the lease,
+/// seen by a `brd` of that session, and every other process
+struct HolderProcesses<'a> {
+  /// The commands of the holder: a process that runs below the holder process of the lease (`holder_pid` with
+  /// `holder_started`) by the chain of its parents, with a start the scan read, in a tree whose root has no controlling
+  /// terminal. A coding agent runs each command in a session of its own without one; an interactive shell of a terminal
+  /// tab, of tmux or of the terminal of an IDE has one, and is the user's
+  holders: Vec<&'a ProcessInfo>,
+  /// The root of each tree of `holders`: no other of them is above it, below the holder
+  roots: Vec<&'a ProcessInfo>,
+  /// Every other process: of another session, an orphan, or seen by a `brd` that the holder does not run (a coordinator,
+  /// a resumed session, which runs as another process)
+  others: Vec<&'a ProcessInfo>,
+}
+
+impl<'a> HolderProcesses<'a> {
+  fn of(scan: &ProcessScan, lease: &Lease, processes: Vec<&'a ProcessInfo>) -> Self {
+    let holder = lease
+      .holder_pid
+      .zip(lease.holder_started)
+      .filter(|&(pid, started)| scan.has_ancestor(pid, Some(started)) == Some(true));
+    let Some(holder) = holder else {
+      return Self {
+        holders: Vec::new(),
+        roots: Vec::new(),
+        others: processes,
+      };
+    };
+    // the processes between each one and the holder, for one below it with a known start
+    let paths: Vec<Option<Vec<u32>>> = processes
+      .iter()
+      .map(|process| {
+        process.started?;
+        Some(scan.path_to(process.pid, holder)?.iter().map(|between| between.pid).collect())
+      })
+      .collect();
+    let below: HashMap<u32, &ProcessInfo> = processes
+      .iter()
+      .zip(&paths)
+      .filter(|(_, path)| path.is_some())
+      .map(|(process, _)| (process.pid, *process))
+      .collect();
+    let mut split = Self {
+      holders: Vec::new(),
+      roots: Vec::new(),
+      others: Vec::new(),
+    };
+    for (process, path) in processes.into_iter().zip(paths) {
+      let Some(path) = path else {
+        split.others.push(process);
+        continue;
+      };
+      // the farthest from it of the processes of the slot below the holder on its chain, or itself
+      let root = path.iter().rev().find_map(|pid| below.get(pid).copied()).unwrap_or(process);
+      if root.terminal {
+        split.others.push(process);
+        continue;
+      }
+      if root.pid == process.pid {
+        split.roots.push(process);
+      }
+      split.holders.push(process);
+    }
+    split
+  }
+
+  /// The processes of the slot as a `slot_busy` names them, the commands of the holder marked
+  fn busy(&self, inside: &[&ProcessInfo]) -> Vec<BusyProcess> {
+    inside
+      .iter()
+      .map(|process| BusyProcess {
+        holder: self.holders.iter().any(|holder| holder.pid == process.pid),
+        ..BusyProcess::of(process)
+      })
+      .collect()
   }
 }
 
@@ -3192,6 +3351,12 @@ enum ReturnStep {
   Done(Box<LeaseReturned>),
   /// Another return of the lease runs: wait for it, then look again
   WaitFor(Box<Slot>),
+  /// `--stop-own`, and nothing else refused: end the trees of these roots (pid and start), then look again; `processes`
+  /// are the commands of the holder of those trees in the slot
+  StopHolders {
+    roots: Vec<(u32, u64)>,
+    processes: Vec<BusyProcess>,
+  },
 }
 
 /// The answer of a return whose lease another return of it gave back: nothing changed
@@ -3204,6 +3369,7 @@ const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_sc
     landed_check,
     joined: true,
     stopped_servers: Vec::new(),
+    stopped_processes: Vec::new(),
     maintenance: Vec::new(),
     maintenance_started: false,
     trash_left: Vec::new(),
@@ -3245,7 +3411,7 @@ fn wait_while_freeing(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
   }
 }
 
-/// One pass of a return; `checked` is the slot with the lease it checks, once no other return of it runs
+/// One pass of a return (`Pass`)
 fn return_once(
   git_executor: &GitCommandExecutor,
   params: &LeaseReturnParams<'_>,
@@ -3253,7 +3419,7 @@ fn return_once(
   pool: &Pool,
   path: &str,
   waited_for: Option<&Slot>,
-  checked: &mut Option<Slot>,
+  pass: &mut Pass,
 ) -> Result<ReturnStep> {
   let path = path.to_string();
   let mut store = pool.read()?;
@@ -3290,16 +3456,18 @@ fn return_once(
     Some(refusal) => bail!(refusal),
     None => {}
   }
-  *checked = Some(slot.clone());
+  pass.checked = Some(slot.clone());
   let scan = ProcessScan::scan();
   let inside = scan.inside(Path::new(&path));
   let maintenance = scan.maintenance_inside(Path::new(&path));
-  // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
+  // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy, but the commands of the
+  // holder when the pass ends them
   let (servers, others) = slot_servers(&scan, Path::new(&path));
-  if !others.is_empty() {
+  let split = HolderProcesses::of(&scan, &lease, others);
+  if !split.others.is_empty() || (!split.holders.is_empty() && !pass.stops_holders) {
     bail!(LeaseRefusal::SlotBusy {
       path,
-      processes: busy_processes(&inside),
+      processes: split.busy(&inside),
     });
   }
   // a resolve session of the slot (`brd lease pick` opens one onto its home): the next lease of the slot would find it
@@ -3328,6 +3496,21 @@ fn return_once(
   };
   if !changes.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
+  }
+  // `--stop-own`, and nothing else refuses: the commands of the holder end now, and the next pass checks the slot again
+  // without them, with what they wrote or committed before they ended
+  if !split.roots.is_empty() {
+    return Ok(ReturnStep::StopHolders {
+      roots: split.roots.iter().filter_map(|root| Some((root.pid, root.started?))).collect(),
+      processes: split
+        .holders
+        .iter()
+        .map(|process| BusyProcess {
+          holder: true,
+          ..BusyProcess::of(process)
+        })
+        .collect(),
+    });
   }
   // only now, when nothing else refuses: a server that does not exit keeps the slot busy
   let servers: Vec<&ProcessInfo> = servers.iter().collect();
@@ -3413,6 +3596,7 @@ fn return_once(
     landed_check: Some(landed_check),
     joined: false,
     stopped_servers,
+    stopped_processes: Vec::new(),
     maintenance,
     maintenance_started,
     trash_left,

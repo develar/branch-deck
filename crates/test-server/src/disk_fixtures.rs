@@ -170,6 +170,7 @@ fn return_slot(git: &GitCommandExecutor, slot: &str, lease_id: Option<&str>) -> 
       lease_id,
       find_by_lease_id: false,
       confirm_preserved: lease_id.is_none(),
+      stop_own: false,
       server_timeout: Duration::from_secs(5),
       bazel: None,
       clean: Some(CleanOverrides::default()),

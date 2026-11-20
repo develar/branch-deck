@@ -14,6 +14,7 @@ fn process(pid: u32, argv: &[&str], cwd: &Path) -> ProcessInfo {
     cwd: Some(cwd.to_path_buf()),
     argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
     started: Some(1),
+    terminal: false,
   }
 }
 

@@ -396,8 +396,11 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land
    them with step 2 first; `resolve_in_progress` (exit 4): the
    resolve session of a pick is open in it, finish it (`brd update --continue`, then `brd lease pick`) or close it (`brd update --abort`); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
-   `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
-   read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
+   `processes`: each with `argv` and `kind`): a process works in it; read `processes`, never `ps` or `lsof`. `kind:
+   holder` is a command of your own session (a Monitor, a command run in the background): stop it with your own tool, or
+   once you no longer need its output, `brd lease return --stop-own` ends it and every process it started, then
+   returns (`stopped_processes`; it ends nothing while another refusal stands). `kind: other` is a process of another
+   session (a shell, a build, a test run): wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
    the worktree is a host slot (holder `bd-host/<n>`) that `bd-host` lends to the runs of other machines, never yours. A repeat after a timed-out call is
    safe: it waits for the running return and answers `joined: true`. Not counted: your own session (brd, its ancestors
    and their process groups: the `jq` of `brd lease return | jq`), git's background maintenance (`maintenance`: a

@@ -70,7 +70,8 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   `brd lease trim` and the keeper of a host. The notes may be on another volume than the slot (`branchdeck.leasePool`
   on another disk): the moves copy there, so nothing changes for the agent.
 - **Release**: `brd lease return --workspace <path>` refuses local changes, a commit that no branch holds and that
-  `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so
+  `master` lacks by content, or a process inside. A background command of your own session there is `kind: holder`:
+  stop it, or pass `--stop-own` once you no longer need its output; a process of another session (`other`) never. `--confirm-preserved` discards the changes and commits it reports, so
   pass it only when they are preserved elsewhere. The branch survives; the next get moves the worktree.
   `brd lease status` lists the pool. A worktree leased from the old Treehouse pool (`~/.treehouse/<repo>-<hash>/`)
   goes back with `treehouse return <path>`.

@@ -1243,6 +1243,29 @@ fn leased_slot(environment: &bd_core::context::Environment) -> std::path::PathBu
   std::path::PathBuf::from(lease_get(&context, environment, &LeaseGetArgs::default()).unwrap().path)
 }
 
+/// `brd lease return --stop-own` that ends a background command of the holder: the checks of the return (the resolve
+/// session, the unlanded commits, the untracked mode, the `status`) before the kill, then once more on the slot without
+/// the command, as it may have written or committed before it ended; the detach of HEAD once
+#[cfg(unix)]
+#[test]
+fn a_lease_return_that_stops_a_command_of_the_holder() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let slot = leased_slot(&environment);
+  let _command = test_utils::session::spawn_in_session(std::process::Command::new("sleep").arg("30").current_dir(&slot));
+  let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
+  let returned = lease_return(
+    &context,
+    &LeaseReturnArgs {
+      stop_own: true,
+      ..LeaseReturnArgs::default()
+    },
+  )
+  .unwrap();
+  assert_eq!(returned.stopped_processes.len(), 1, "{returned:?}");
+  assert_git_processes(&context.git, &[("config", 2), ("log", 2), ("rev-parse", 2), ("show-ref", 2), ("status", 2)]);
+}
+
 /// `count` slots of the pool of `environment`, each leased beside the others, then returned
 fn free_slots(environment: &bd_core::context::Environment, count: usize) -> Vec<String> {
   let slots: Vec<String> = (0..count).map(|_| leased_slot(environment).to_string_lossy().into_owned()).collect();

@@ -103,6 +103,7 @@ fn a_return_that_meets_a_held_cargo_lock_frees_the_slot_and_names_it() {
       lease_id: got["lease_id"].as_str(),
       find_by_lease_id: false,
       confirm_preserved: false,
+      stop_own: false,
       server_timeout: context.server_stop_timeout,
       bazel: None,
       clean: Some(lease_pool::lease_clean::CleanOverrides::default()),

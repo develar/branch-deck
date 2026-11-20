@@ -138,6 +138,11 @@ pub struct LeaseReturnArgs {
   /// Give up the unlanded commits and discard the local changes (`reset --hard`, `clean -fd`; ignored files stay)
   #[arg(long)]
   pub confirm_preserved: bool,
+  /// End the commands of your own session in the worktree (`kind: holder` of `slot_busy`: a background command of the
+  /// agent) once nothing else refuses the return, when you no longer need their output; never a process of another
+  /// session
+  #[arg(long)]
+  pub stop_own: bool,
   /// Apply none of the clean rules of `.branchdeck.toml`
   #[arg(long, conflicts_with_all = ["keep", "age"])]
   pub no_clean: bool,
@@ -683,6 +688,8 @@ pub(crate) fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> 
       argv: process.command.clone(),
       kind: if process.bazel_workspace.is_some() {
         ProcessKind::BazelServer
+      } else if process.holder {
+        ProcessKind::Holder
       } else {
         ProcessKind::Other
       },
@@ -880,6 +887,10 @@ pub struct LeaseReturnOutput {
   /// their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
+  /// The commands of your own session that `--stop-own` ended (`kind: holder` of `slot_busy`): each process of their
+  /// trees that was in the worktree
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stopped_processes: Vec<StoppedProcessOutput>,
   /// The pids of git's background maintenance in the worktree (a repack after a commit), which keeps no worktree busy
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub maintenance: Vec<u32>,
@@ -956,6 +967,16 @@ pub struct StoppedServerOutput {
   /// Its `--output_base`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub output_base: Option<String>,
+}
+
+/// A command of your own session that `brd lease return --stop-own` ended
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StoppedProcessOutput {
+  pub pid: u32,
+  /// The command name, as `ps -o comm` shows it
+  pub command: String,
+  /// The arguments as one line, at most 200 characters
+  pub argv: String,
 }
 
 /// A commit of a lease that the home branch has
@@ -1035,6 +1056,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     lease_id: args.lease_id.as_deref(),
     find_by_lease_id: args.workspace.is_none(),
     confirm_preserved: args.confirm_preserved,
+    stop_own: args.stop_own,
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
     bazel: None,
@@ -1070,6 +1092,15 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     }),
     joined: returned.joined,
     stopped_servers: stopped_output(&returned.stopped_servers),
+    stopped_processes: returned
+      .stopped_processes
+      .iter()
+      .map(|process| StoppedProcessOutput {
+        pid: process.pid,
+        command: process.name.clone(),
+        argv: process.command.clone(),
+      })
+      .collect(),
     maintenance: returned.maintenance.clone(),
     maintenance_started: returned.maintenance_started,
     trash_left: returned.trash_left.clone(),

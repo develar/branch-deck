@@ -117,12 +117,218 @@ pub(crate) fn states(status: &Value) -> Vec<(String, String)> {
     .collect()
 }
 
-/// A `sleep` with its working directory in `dir`, in a process group of its own: a process of another session, which
-/// keeps a slot busy (a child in the test's group is of the session that runs bd, as the `jq` of its pipeline)
+/// A `sleep` with its working directory in `dir`, in a process group of its own, which keeps a slot busy (a child in the
+/// test's group is of the session that runs bd, as the `jq` of its pipeline). A return of a lease of the test may see it
+/// as a command of the holder (`kind: holder`), as this process runs below the holder: `busy_of_another_session` is
+/// another session's for every command
 #[cfg(unix)]
 pub(crate) fn busy_in(dir: &str) -> Killed {
   use std::os::unix::process::CommandExt;
   Killed(std::process::Command::new("sleep").arg("30").current_dir(dir).process_group(0).spawn().unwrap())
+}
+
+/// A process of another session, killed when dropped: it runs below no process of this one
+#[cfg(unix)]
+pub(crate) struct OtherSession {
+  pid: u32,
+  started: u64,
+}
+
+#[cfg(unix)]
+impl OtherSession {
+  pub(crate) const fn id(&self) -> u32 {
+    self.pid
+  }
+
+  pub(crate) fn running(&self) -> bool {
+    sync_utils::process_scan::is_running(self.pid, Some(self.started))
+  }
+}
+
+#[cfg(unix)]
+impl Drop for OtherSession {
+  fn drop(&mut self) {
+    sync_utils::process_scan::kill(self.pid, self.started);
+  }
+}
+
+/// A `sleep 30` with its working directory in `dir` whose shell exited at once, so it runs below the init process, as
+/// a command of a session that is gone or that no process of this one started
+#[cfg(unix)]
+pub(crate) fn busy_of_another_session(dir: &str) -> OtherSession {
+  use std::os::unix::process::CommandExt;
+  let output = std::process::Command::new("sh")
+    .args(["-c", "sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+    .current_dir(dir)
+    .process_group(0)
+    .stdin(std::process::Stdio::null())
+    .output()
+    .unwrap();
+  let pid: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap();
+  let started = sync_utils::process_scan::process_started(pid).unwrap();
+  OtherSession { pid, started }
+}
+
+/// A command of the session that holds a lease of the test, as a coding agent runs one in the background: a shell in
+/// `dir` with a `sleep` below it, in a session of its own without a terminal; with the start of the shell and the
+/// `sleep`, once it runs
+#[cfg(unix)]
+pub(crate) fn holder_command(dir: &str) -> (Killed, u64, sync_utils::process_scan::Descendant) {
+  let shell = test_utils::session::spawn_in_session(std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).current_dir(dir));
+  let started = sync_utils::process_scan::process_started(shell.id()).unwrap();
+  let deadline = std::time::Instant::now() + Duration::from_secs(10);
+  loop {
+    let below = sync_utils::process_scan::descendants(shell.id(), started).unwrap();
+    if let Some(sleep) = below.first() {
+      return (shell, started, *sleep);
+    }
+    assert!(std::time::Instant::now() < deadline, "the shell started no sleep");
+    std::thread::sleep(Duration::from_millis(1));
+  }
+}
+
+/// The `pid` and `kind` of each process of a `slot_busy`, by pid
+#[cfg(unix)]
+fn busy_kinds(output: &Value) -> Vec<(u64, String)> {
+  let mut processes: Vec<(u64, String)> = output["error"]["processes"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{output}"))
+    .iter()
+    .map(|process| (process["pid"].as_u64().unwrap(), process["kind"].as_str().unwrap().to_string()))
+    .collect();
+  processes.sort();
+  processes
+}
+
+/// A command of the holder pid by pid, of a shell and its sleep, as `busy_kinds` lists them
+#[cfg(unix)]
+fn holder_kinds(shell: &Killed, sleep: &sync_utils::process_scan::Descendant, kind: &str) -> Vec<(u64, String)> {
+  let mut kinds = vec![(u64::from(shell.id()), kind.to_string()), (u64::from(sleep.pid), kind.to_string())];
+  kinds.sort();
+  kinds
+}
+
+/// A background command of the agent that holds the lease (a Monitor, a run in the background: in a session of its own,
+/// below the agent) keeps the slot busy as `kind: holder`, and the message names `--stop-own`; nothing is signalled
+#[cfg(unix)]
+#[test_log::test]
+fn a_background_command_of_the_holder_is_named_holder_and_keeps_the_slot_without_stop_own() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let (mut shell, _, sleep) = holder_command(&path);
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert_eq!(busy_kinds(&output), holder_kinds(&shell, &sleep, "holder"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("sleep ({}, a command of your own session: sleep 30)", sleep.pid)) && message.contains("`brd lease return --stop-own` ends them"),
+    "{output}"
+  );
+  assert!(shell.try_wait().unwrap().is_none(), "a refusal signals no command");
+  assert!(sync_utils::process_scan::is_running(sleep.pid, Some(sleep.started)));
+  assert_eq!(states(&fixture.status())[0].1, "ready");
+}
+
+/// `--stop-own` ends each tree of the commands of the holder in the slot, its root last, and returns the slot, naming
+/// the processes it ended
+#[cfg(unix)]
+#[test_log::test]
+fn stop_own_ends_the_trees_of_the_holder_and_returns_the_slot() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let (mut shell, _, sleep) = holder_command(&path);
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--stop-own"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let mut stopped: Vec<(u64, String)> = output["stopped_processes"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{output}"))
+    .iter()
+    .map(|process| (process["pid"].as_u64().unwrap(), process["argv"].as_str().unwrap().to_string()))
+    .collect();
+  stopped.sort();
+  let mut expected = vec![(u64::from(shell.id()), "sh -c sleep 30 & wait".to_string()), (u64::from(sleep.pid), "sleep 30".to_string())];
+  expected.sort();
+  assert_eq!(stopped, expected);
+  let status = shell.wait().unwrap();
+  assert_eq!(std::os::unix::process::ExitStatusExt::signal(&status), Some(9), "SIGKILL: {status:?}");
+  assert!(sync_utils::process_scan::exited(sleep.pid, sleep.started));
+  assert_eq!(states(&fixture.status())[0].1, "free");
+  crate::takeover_test::assert_matches_schema(&fixture, "lease_return", &output);
+}
+
+/// `--stop-own` never ends a process of another session: with one in the slot the return refuses as `slot_busy`, and
+/// the command of the holder runs on too
+#[cfg(unix)]
+#[test_log::test]
+fn stop_own_never_ends_a_process_of_another_session() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let (mut shell, _, sleep) = holder_command(&path);
+  let other = busy_of_another_session(&path);
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--stop-own"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  let mut expected = holder_kinds(&shell, &sleep, "holder");
+  expected.push((u64::from(other.id()), "other".to_string()));
+  expected.sort();
+  assert_eq!(busy_kinds(&output), expected);
+  assert!(output["error"]["message"].as_str().unwrap().contains("never those of another session"), "{output}");
+  assert!(other.running() && shell.try_wait().unwrap().is_none());
+  assert_eq!(states(&fixture.status())[0].1, "ready");
+}
+
+/// `--stop-own` ends nothing while another check refuses the return: an unlanded commit refuses first, with the command
+/// of the holder still running
+#[cfg(unix)]
+#[test_log::test]
+fn stop_own_stops_nothing_when_a_check_refuses() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  std::fs::write(
+    Path::new(&path).join("c.txt"),
+    "c
+",
+  )
+  .unwrap();
+  slot_git(&path, &["add", "c.txt"]);
+  slot_git(&path, &["commit", "-q", "-m", "(lane) Add c"]);
+  let (mut shell, _, sleep) = holder_command(&path);
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--stop-own"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert!(shell.try_wait().unwrap().is_none());
+  assert!(sync_utils::process_scan::is_running(sleep.pid, Some(sleep.started)));
+}
+
+/// A command whose session has a controlling terminal (the shell of a terminal tab, of tmux, of the terminal of an IDE)
+/// is the user's, never a command of the holder: `kind: other`, and `--stop-own` ends nothing
+#[cfg(unix)]
+#[test_log::test]
+fn a_command_with_a_terminal_stays_other() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let tab = test_utils::session::spawn_in_terminal(std::process::Command::new("sleep").arg("30").current_dir(&path));
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--stop-own"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert_eq!(busy_kinds(&output), vec![(u64::from(tab.child.id()), "other".to_string())]);
+  assert!(sync_utils::process_scan::is_running(tab.child.id(), None));
+}
+
+/// A `brd` that the holder of the lease does not run (a coordinator, a resumed session, which runs as another process)
+/// sees every process of the slot as another session's
+#[cfg(unix)]
+#[test_log::test]
+fn a_caller_that_is_not_the_holder_sees_other() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let (mut shell, _, sleep) = holder_command(&path);
+  let holder = busy_of_another_session(fixture.repo.path().to_str().unwrap());
+  crate::takeover_test::update_lease(&fixture, &path, |lease| {
+    lease["holder_pid"] = json!(holder.id());
+    lease["holder_started"] = json!(sync_utils::process_scan::process_started(holder.id()).unwrap());
+  });
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--stop-own"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert_eq!(busy_kinds(&output), holder_kinds(&shell, &sleep, "other"));
+  assert!(shell.try_wait().unwrap().is_none());
 }
 
 /// The bug of the Treehouse pool: a free slot parked at a commit that a rewrite of master made unreachable was never
@@ -1418,24 +1624,17 @@ fn a_return_signals_no_other_process_and_a_server_that_does_not_exit_keeps_the_s
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   let mut server = FakeServer::start(&path, Path::new(&path), false);
-  let mut other = busy_in(&path);
+  let other = busy_of_another_session(&path);
   let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
-  let _ = other.kill();
-  let _ = other.wait();
+  let other_pid = other.id();
+  drop(other);
   assert_error(&output, exit_code, (4, "slot_busy"));
-  let mut processes: Vec<(u64, String)> = output["error"]["processes"]
-    .as_array()
-    .unwrap_or_else(|| panic!("{output}"))
-    .iter()
-    .map(|process| (process["pid"].as_u64().unwrap(), process["kind"].as_str().unwrap().to_string()))
-    .collect();
-  processes.sort();
-  let mut expected = vec![(u64::from(other.id()), "other".to_string()), (u64::from(server.pid()), "bazel_server".to_string())];
+  let mut expected = vec![(u64::from(other_pid), "other".to_string()), (u64::from(server.pid()), "bazel_server".to_string())];
   expected.sort();
-  assert_eq!(processes, expected);
+  assert_eq!(busy_kinds(&output), expected);
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
-    message.contains(&format!("sleep ({}: sleep 30)", other.id())) && message.contains("stops the Bazel servers"),
+    message.contains(&format!("sleep ({other_pid}: sleep 30)")) && message.contains("stops the Bazel servers"),
     "{output}"
   );
   assert!(server.running(), "a refusal signals no server");
@@ -2401,15 +2600,12 @@ fn a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot() {
 
   #[cfg(unix)]
   {
-    let mut sleep = busy_in(&path);
+    let sleep = busy_of_another_session(&path);
     let (exit_code, output) = fixture.run(&["lease", "return", "--workspace", &path, "--confirm-preserved"]);
-    sleep.kill().unwrap();
-    sleep.wait().unwrap();
+    let sleep_pid = sleep.id();
+    drop(sleep);
     assert_error(&output, exit_code, (4, "slot_busy"));
-    assert!(
-      output["error"]["message"].as_str().unwrap().contains(&format!("sleep ({}: sleep 30)", sleep.id())),
-      "{output}"
-    );
+    assert!(output["error"]["message"].as_str().unwrap().contains(&format!("sleep ({sleep_pid}: sleep 30)")), "{output}");
   }
   assert_eq!(states(&fixture.status())[0].1, "ready");
 

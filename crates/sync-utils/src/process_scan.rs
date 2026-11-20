@@ -33,6 +33,9 @@ pub struct ProcessInfo {
   pub argv: Vec<String>,
   /// When it started (`process_started`)
   pub started: Option<u64>,
+  /// Whether it has a controlling terminal, as `ps -o tty` shows one: an interactive shell, the command of a terminal tab;
+  /// a command that a coding agent runs, a daemon and a service have none. `false` on Windows and where unknown
+  pub terminal: bool,
 }
 
 const WORKSPACE_DIRECTORY: &str = "--workspace_directory=";
@@ -323,6 +326,21 @@ impl ProcessScan {
   /// be told: no list of the processes, or a chain cut below the init process (`Ancestors::contains`)
   pub fn has_ancestor(&self, pid: u32, started: Option<u64>) -> Option<bool> {
     self.ancestors()?.contains(pid, started)
+  }
+
+  /// The processes between the process `pid` of the scan and its ancestor `ancestor` (its pid and start), the parent of
+  /// `pid` first: empty for a child of `ancestor`. `None` when `pid` runs below no such process, as far as the chain of
+  /// its parents tells: another process with the pid of a gone ancestor is none, and a chain cut at a pid seen twice
+  /// tells nothing; `None` without a scan too
+  pub fn path_to(&self, pid: u32, ancestor: (u32, u64)) -> Option<Vec<&ProcessInfo>> {
+    let Self::Done { processes, .. } = self else { return None };
+    let ancestors = chain(processes, pid, |process| process.started, false);
+    let at = ancestors
+      .links
+      .iter()
+      .position(|process| process.pid == ancestor.0 && process.started == Some(ancestor.1))?;
+    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
+    ancestors.links[..at].iter().map(|link| by_pid.get(&link.pid).copied()).collect()
   }
 }
 
@@ -684,6 +702,7 @@ mod platform {
             cwd: None,
             argv: Vec::new(),
             started: Some(start_time(&info)),
+            terminal: has_terminal(&info),
           })
         })
         .collect(),
@@ -692,6 +711,11 @@ mod platform {
 
   pub(super) fn started(pid: u32) -> Option<u64> {
     bsd_info(pid).map(|info| start_time(&info))
+  }
+
+  /// `e_tdev`, the device of the controlling terminal of its session, is one: `NODEV` (all bits set) when it has none
+  const fn has_terminal(info: &libc::proc_bsdinfo) -> bool {
+    info.e_tdev != u32::MAX && info.e_tdev != 0
   }
 
   /// `pti_total_user` and `pti_total_system` of `PROC_PIDTASKINFO`, in the ticks of the Mach clock, which
@@ -1074,6 +1098,7 @@ mod platform {
             cwd: None,
             argv: Vec::new(),
             started: Some(stat.started),
+            terminal: stat.terminal,
           })
         })
         .collect(),
@@ -1168,6 +1193,8 @@ mod platform {
     group: u32,
     /// Field 22, `starttime`: clock ticks since boot
     started: u64,
+    /// Field 7, `tty_nr`, names a device: the process has a controlling terminal
+    terminal: bool,
     /// Fields 14 and 15, `utime` and `stime`: clock ticks of CPU
     cpu_ticks: u64,
     /// Fields 16 and 17, `cutime` and `cstime`: clock ticks of CPU of the reaped children
@@ -1196,6 +1223,7 @@ mod platform {
         parent: fields.get(1)?.parse().ok()?,
         group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
+        terminal: fields.get(4)?.parse::<i64>().ok()? != 0,
         cpu_ticks: fields.get(11)?.parse::<u64>().ok()?.saturating_add(fields.get(12)?.parse::<u64>().ok()?),
         children_ticks: fields.get(13)?.parse::<u64>().ok()?.saturating_add(fields.get(14)?.parse::<u64>().ok()?),
         zombie: fields.first() == Some(&"Z"),
@@ -1246,6 +1274,7 @@ mod platform {
         cwd: None,
         argv: Vec::new(),
         started: None,
+        terminal: false,
       });
       // SAFETY: as for the first entry
       read = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) };

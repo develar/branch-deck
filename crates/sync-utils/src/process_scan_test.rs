@@ -105,6 +105,7 @@ fn process(pid: u32, parent: u32, argv: &[&str]) -> crate::process_scan::Process
     cwd: None,
     argv: argv.iter().map(|arg| (*arg).to_string()).collect(),
     started: Some(1),
+    terminal: false,
   }
 }
 
@@ -216,6 +217,31 @@ fn an_ancestor_is_a_process_above_this_one_with_its_start_time() {
   assert_eq!(scan.has_ancestor(100, Some(8)), Some(false), "another process with the pid of the holder");
   assert_eq!(scan.has_ancestor(300, None), Some(false), "a sibling of the same group");
   assert_ne!(ProcessScan::Unavailable.has_ancestor(100, None), Some(true));
+}
+
+/// The path from a process to an ancestor names the processes between them, the parent first: a child of the ancestor
+/// has an empty one; a sibling, a process above it and another process with the pid of the ancestor have none
+#[test]
+fn the_path_to_an_ancestor_names_the_processes_between_them() {
+  let mut processes = vec![
+    process(1, 0, &["launchd"]),
+    process(100, 1, &["claude"]),
+    process(200, 100, &["zsh", "-c", "tail -F log | grep x"]),
+    process(300, 200, &["tail", "-F", "log"]),
+    process(400, 1, &["sleep", "30"]),
+  ];
+  processes[1].started = Some(7);
+  let scan = ProcessScan::Done {
+    processes,
+    own: std::collections::HashSet::new(),
+  };
+  let pids = |path: Option<Vec<&crate::process_scan::ProcessInfo>>| path.map(|path| path.iter().map(|process| process.pid).collect::<Vec<_>>());
+  assert_eq!(pids(scan.path_to(300, (100, 7))), Some(vec![200]));
+  assert_eq!(pids(scan.path_to(200, (100, 7))), Some(vec![]), "a child of the ancestor");
+  assert_eq!(pids(scan.path_to(400, (100, 7))), None, "an orphan of launchd");
+  assert_eq!(pids(scan.path_to(100, (100, 7))), None, "the ancestor itself");
+  assert_eq!(pids(scan.path_to(300, (100, 8))), None, "another process with the pid of the ancestor");
+  assert_eq!(pids(ProcessScan::Unavailable.path_to(300, (100, 7))), None);
 }
 
 /// The chain of Windows: exes without `.exe`, a runner whatever its case (`Bash`, `cmd`), the agent above them. A parent
@@ -470,4 +496,17 @@ fn the_cpu_times_of_a_process_count_its_reaped_children() {
   shell.stdin.take().unwrap().write_all(b"done\n").unwrap();
   shell.wait().unwrap();
   assert_eq!(crate::process_scan::cpu_times(u32::MAX - 1), None);
+}
+
+/// A process has a terminal when its session has a controlling terminal, as the shell of a terminal tab; a command in a
+/// session of its own without one, as a coding agent runs each, has none
+#[cfg(unix)]
+#[test]
+fn a_process_has_a_terminal_only_when_its_session_has_one() {
+  let detached = test_utils::session::spawn_in_session(std::process::Command::new("sleep").arg("30"));
+  let tab = test_utils::session::spawn_in_terminal(std::process::Command::new("sleep").arg("30"));
+  let ProcessScan::Done { processes, .. } = ProcessScan::scan() else { panic!("no scan") };
+  let terminal = |pid: u32| processes.iter().find(|process| process.pid == pid).map(|process| process.terminal);
+  assert_eq!(terminal(detached.id()), Some(false));
+  assert_eq!(terminal(tab.child.id()), Some(true));
 }
