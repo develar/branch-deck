@@ -16,6 +16,7 @@ use domain_types::update_project::UpdateCheck;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{current_branch, known_dirs};
 use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedLookup, UpdatePlan, UpstreamRef, check_update, check_update_of, with_attribute_files};
+use git_ops::update_resolve::LostBindingRule;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -195,13 +196,39 @@ pub struct BaselineCheck {
   pub landing: Vec<LandedBranch>,
 }
 
-/// Check the checked out branch against the last fetched state of its baseline, without the network.
+/// Check the checked out branch against the last fetched state of its baseline, without the network, and without the
+/// lost bindings of its replay (`check_baseline_update_checking`).
 /// `None` for a local baseline: there is nothing to update from.
 pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
+  check_baseline_update_checking(git_executor, repo_path, baseline_branch, None)
+}
+
+/// `check_baseline_update` with the lost-binding rule (`brd update --dry-run`): a clean rebase whose replay loses a
+/// binding is a conflict, as the update answers it
+pub fn check_baseline_update_checking(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  baseline_branch: &str,
+  lost_bindings: Option<&'static dyn LostBindingRule>,
+) -> Result<Option<BaselineCheck>> {
   let config = ConfigSnapshot::read(git_executor, repo_path)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;
   let git_executor = with_attribute_files(git_executor, repo_path, config.attributes_file());
-  check_baseline_update_with(&git_executor, repo_path, baseline_branch, &grouping, config.resolve_mode()?)
+  let inputs = CheckInputs {
+    grouping: &grouping,
+    resolve: config.resolve_mode()?,
+    lost_bindings,
+  };
+  check_baseline_update_with(&git_executor, repo_path, baseline_branch, inputs)
+}
+
+/// What the update check of a sync takes besides the state: the issue groups, the resolve by words and the
+/// lost-binding rule
+#[derive(Clone, Copy)]
+pub struct CheckInputs<'a> {
+  pub grouping: &'a GroupingInputs,
+  pub resolve: ResolveMode,
+  pub lost_bindings: Option<&'static dyn LostBindingRule>,
 }
 
 /// The inputs of an update check from one read of the config: the issue groups, and the resolve by words (`branchdeck.resolveByWords`)
@@ -212,14 +239,8 @@ pub fn read_check_inputs(git_executor: &GitCommandExecutor, repo_path: &str) -> 
 
 /// `check_baseline_update` with the issue groups and the resolve mode already read, and the files of attributes on
 /// `git_executor` (`with_attribute_files`) for its probe to answer in the next check
-#[instrument(skip(git_executor, grouping))]
-pub fn check_baseline_update_with(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  baseline_branch: &str,
-  grouping: &GroupingInputs,
-  resolve: ResolveMode,
-) -> Result<Option<BaselineCheck>> {
+#[instrument(skip(git_executor, inputs))]
+pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, inputs: CheckInputs<'_>) -> Result<Option<BaselineCheck>> {
   let Some(upstream) = resolve_baseline_upstream(git_executor, repo_path, baseline_branch)? else {
     return Ok(None);
   };
@@ -230,9 +251,10 @@ pub fn check_baseline_update_with(
     local: false,
   };
   let landed = LandedLookup::ByKey;
-  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
+  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, inputs.resolve)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
-  Ok(Some(with_landing(git_executor, repo_path, plan, grouping)))
+  check_lost_bindings(git_executor, repo_path, &mut plan, inputs.lost_bindings);
+  Ok(Some(with_landing(git_executor, repo_path, plan, inputs.grouping)))
 }
 
 /// What a sync read at its start for its update check (`RepoFacts`): its guards passed for `branch`, and HEAD and the
@@ -250,14 +272,8 @@ pub struct KnownBaseline {
 }
 
 /// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again
-#[instrument(skip(git_executor, grouping))]
-pub fn check_known_baseline_update(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  known: &KnownBaseline,
-  grouping: &GroupingInputs,
-  resolve: ResolveMode,
-) -> Result<BaselineCheck> {
+#[instrument(skip(git_executor, inputs))]
+pub fn check_known_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, known: &KnownBaseline, inputs: CheckInputs<'_>) -> Result<BaselineCheck> {
   let upstream_ref = UpstreamRef {
     tracking_ref: &known.upstream.tracking_ref,
     name: &known.upstream.name,
@@ -270,9 +286,20 @@ pub fn check_known_baseline_update(
     upstream_head: &known.upstream_head,
   };
   let landed = LandedLookup::ByKey;
-  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
+  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, landed, inputs.resolve)?;
   plan.check.fetched_at = known.fetched_at;
-  Ok(with_landing(git_executor, repo_path, plan, grouping))
+  check_lost_bindings(git_executor, repo_path, &mut plan, inputs.lost_bindings);
+  Ok(with_landing(git_executor, repo_path, plan, inputs.grouping))
+}
+
+/// The lost bindings of the replay of a preview (`UpdatePlan::check_lost_bindings`): a finding makes it the conflict the
+/// update would answer. Like the landing, a detail of the check that must not fail it: a failure is logged, the check
+/// stays as the replay found it
+fn check_lost_bindings(git_executor: &GitCommandExecutor, repo_path: &str, plan: &mut UpdatePlan, rule: Option<&'static dyn LostBindingRule>) {
+  let Some(rule) = rule else { return };
+  if let Err(e) = plan.check_lost_bindings(git_executor, repo_path, rule, &[]) {
+    warn!(error = %format!("{e:#}"), "can't read the lost bindings of the update");
+  }
 }
 
 /// The check of `plan` with the local commits the upstream already has

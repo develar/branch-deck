@@ -62,6 +62,16 @@ pub struct FirstConflict {
   pub lost_bindings: Vec<UpdateLostBinding>,
 }
 
+/// A name of a file the user keeps unbound, a lost binding the user says resolves another way: Update Anyway of the app
+/// (`Intent::UpdateProject::keep`), `--keep-name` of `brd update`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct KeptLostBinding {
+  pub file: String,
+  pub name: String,
+}
+
 /// A name whose binding a local commit removes while the upstream added a use of it in the same file: git merges the
 /// replay, and the file fails to compile
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +162,10 @@ pub struct UpdateProjectResult {
   pub applied: Option<AppliedUpdate>,
   /// The local commits this update dropped because the upstream has them, by branch
   pub landed: Vec<LandedBranch>,
+  /// The lost bindings an applied update kept unbound on the user's word (Update Anyway): the build has to prove them
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub kept_lost_bindings: Vec<UpdateLostBinding>,
 }
 
 /// A local commit whose conflict of git an update resolved by words

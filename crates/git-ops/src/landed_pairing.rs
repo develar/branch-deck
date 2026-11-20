@@ -18,7 +18,7 @@ use crate::commit_list::parse_single_commit;
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::resolve_check::MAX_REPORTED_LINES;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use domain_types::commit::Commit;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -197,12 +197,65 @@ pub struct LandedReads {
 
 /// The local commits of `scope` and the upstream commits by their authors: two `log`, one without local commits
 pub fn read_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<LandedReads> {
-  let local = read_local(git_executor, repo_path, &scope.local_revs())?;
+  Ok(read_landed_with_paths(git_executor, repo_path, scope)?.0)
+}
+
+/// `read_landed` with every path the local commits change (a rename as its two paths), from the same `log` of the local
+/// commits: which files of an update the local commits change too, the only ones whose replay can lose a binding
+/// (`UpdatePlan::check_lost_bindings`)
+pub fn read_landed_with_paths(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<(LandedReads, HashSet<String>)> {
+  let (local, paths) = read_local_with_paths(git_executor, repo_path, &scope.local_revs())?;
   if local.is_empty() {
-    return Ok(LandedReads::default());
+    return Ok((LandedReads::default(), paths));
   }
   let upstream = read_upstream(git_executor, repo_path, &local, scope.base, scope.upstream_head)?;
-  Ok(LandedReads { local, upstream })
+  Ok((LandedReads { local, upstream }, paths))
+}
+
+/// `read_local` with the paths the commits change, from the same `log` (`--name-only -z --no-renames`): after each
+/// record, a line end and the paths, each NUL-terminated, then one NUL between two commits
+fn read_local_with_paths(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String]) -> Result<(Vec<Commit>, HashSet<String>)> {
+  let format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
+  let mut args = vec!["log", "--reverse", "--no-merges", format.as_str(), "--name-only", "-z", "--no-renames", "--end-of-options"];
+  args.extend(revs.iter().map(String::as_str));
+  args.push("--");
+  let output = git_executor.cmd(&args, repo_path).bytes()?;
+  parse_local_with_paths(&output)
+}
+
+/// The output of `read_local_with_paths`
+pub(crate) fn parse_local_with_paths(output: &[u8]) -> Result<(Vec<Commit>, HashSet<String>)> {
+  let mut commits = Vec::new();
+  let mut paths = HashSet::new();
+  let mut rest = output;
+  loop {
+    // the NUL between two commits
+    while let Some(after) = rest.strip_prefix(b"\0") {
+      rest = after;
+    }
+    if rest.is_empty() {
+      break;
+    }
+    let end = rest.iter().position(|&byte| byte == 0x1e).ok_or_else(|| anyhow!("A commit record without its end"))?;
+    let record = String::from_utf8_lossy(&rest[..end]);
+    let record = record.trim();
+    if !record.is_empty() {
+      commits.push(parse_single_commit(record)?);
+    }
+    rest = &rest[end + 1..];
+    if let Some(after) = rest.strip_prefix(b"\n") {
+      rest = after;
+      // the paths of the commit, up to the NUL that ends the commit
+      while let Some(nul) = rest.iter().position(|&byte| byte == 0) {
+        if nul == 0 {
+          break;
+        }
+        paths.insert(String::from_utf8_lossy(&rest[..nul]).into_owned());
+        rest = &rest[nul + 1..];
+      }
+    }
+  }
+  Ok((commits, paths))
 }
 
 /// A commit of the upstream, or one that stays local

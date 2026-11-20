@@ -3,12 +3,13 @@ use crate::resolve_session::{SessionOutcome, SessionView};
 #[cfg(unix)]
 use crate::update_project::{BdUpdate, update_and_resolve};
 use crate::update_project::{
-  FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateUndoToken, undo_update_core, update_project_core, update_project_with,
+  FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateUndoToken, preview_update, undo_update_core, update_project_core,
+  update_project_with,
 };
 use domain_types::SyncEvent;
 use domain_types::error::ErrorCode;
 use domain_types::landing::BindingKind;
-use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateProjectResult, UpdateState};
+use domain_types::update_project::{FirstConflict, KeptLostBinding, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
 use git_ops::rewrite_guard::HeadMoved;
@@ -64,6 +65,7 @@ pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
       repository_path: path(repo).to_string(),
       fetch: true,
       lease: LeaseGuard::any(),
+      keep: Vec::new(),
     },
     &|_| {},
     LockWait::default(),
@@ -79,6 +81,7 @@ fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectRe
       repository_path: path(repo).to_string(),
       fetch: true,
       lease: LeaseGuard::any(),
+      keep: Vec::new(),
     },
     &|it| progress.borrow_mut().push(it),
     LockWait::default(),
@@ -339,6 +342,77 @@ fn a_clean_replay_that_loses_bindings_is_a_conflict_that_moves_nothing() {
   assert_eq!(read(&clone, "src/Launch.kt"), launch_without_old_path());
   assert_eq!(status(&clone), "");
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "", "the check writes no ref");
+}
+
+/// Update Project of `repo` keeping the names `keep` unbound (Update Anyway), with its fetch
+fn update_keeping(repo: &TestRepo, keep: &[(&str, &str)]) -> UpdateProjectResult {
+  update_project_core(
+    repo.git_executor(),
+    &UpdateProjectParams {
+      repository_path: path(repo).to_string(),
+      fetch: true,
+      lease: LeaseGuard::any(),
+      keep: keep
+        .iter()
+        .map(|(file, name)| KeptLostBinding {
+          file: (*file).to_string(),
+          name: (*name).to_string(),
+        })
+        .collect(),
+    },
+    &|_| {},
+    LockWait::default(),
+  )
+  .unwrap()
+}
+
+/// Update Anyway keeps the lost bindings of the dialog unbound on the user's word: the update applies and names them; a
+/// lost binding of another name still refuses it, and nothing moves
+#[test]
+fn update_anyway_applies_and_names_the_bindings_it_kept() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let head = clone.head();
+  let refused = update_keeping(&clone, &[("src/Launch.kt", "backend")]);
+  let UpdateState::Conflict { first_conflict } = &refused.check.state else {
+    panic!("not a conflict: {refused:?}");
+  };
+  assert_eq!(first_conflict.lost_bindings.iter().map(|lost| lost.name.as_str()).collect::<Vec<_>>(), ["rethrow"]);
+  assert_eq!(clone.head(), head);
+
+  let result = update_keeping(&clone, &[("src/Launch.kt", "backend"), ("src/Launch.kt", "rethrow")]);
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }, "{result:?}");
+  assert_eq!(result.applied.as_ref().map(|applied| applied.replayed), Some(1));
+  assert_eq!(
+    result.kept_lost_bindings.iter().map(|lost| (lost.name.as_str(), lost.use_line)).collect::<Vec<_>>(),
+    [("backend", 11), ("rethrow", 12)]
+  );
+  assert_ne!(clone.head(), head);
+  assert_eq!(
+    read(&clone, "src/Launch.kt"),
+    LAUNCH_KT
+      .replace("  fun more() = name\n", &format!("{LAUNCH_START}  fun more() = name\n"))
+      .replace("import b.rethrow\n", "")
+      .replace("  private val backend: () -> Int,\n", "")
+      .replace("  fun old() {\n    backend()\n    rethrow()\n  }\n\n", "")
+  );
+}
+
+/// The check inside every sync and of `brd update --dry-run` reads the lost bindings too: the header says the conflict
+/// the update would answer, never "Rebases cleanly"
+#[test]
+fn the_check_of_a_sync_finds_the_lost_bindings_of_the_replay() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  git(&clone, &["fetch", "origin"]);
+  // without the rule (a test of sync-core): the replay is clean
+  assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
+  let check = preview_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap().check;
+  let UpdateState::Conflict { first_conflict } = &check.state else {
+    panic!("not a conflict: {check:?}");
+  };
+  assert_eq!(
+    first_conflict.lost_bindings.iter().map(|lost| lost.name.as_str()).collect::<Vec<_>>(),
+    ["backend", "rethrow"]
+  );
 }
 
 /// An upstream of `LAUNCH_KT` with the commit `upstream`, and its clone with the commits `local` (each the whole file)
@@ -700,6 +774,7 @@ fn e2e_templates_have_the_expected_update_states() {
       repository_path: repo.clone(),
       fetch: true,
       lease: LeaseGuard::any(),
+      keep: Vec::new(),
     },
     &|_| {},
     LockWait::default(),
@@ -732,16 +807,21 @@ fn e2e_templates_have_the_expected_update_states() {
   let (_, state) = check("update_blocked", templates::update_blocked());
   assert_eq!(state, blocked_state(vec!["src/app.txt".to_string()]));
 
-  // the preview of a sync rebases cleanly; the update refuses the replay for its lost bindings, used by the upstream's one
-  // commit of the file
-  let (repo, state) = check("update_lost_bindings", templates::update_lost_bindings());
-  assert_eq!(state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  // the check of a sync with the rule finds the lost bindings, and so does the update, used by the upstream's one commit
+  // of the file
+  let (repo, _) = check("update_lost_bindings", templates::update_lost_bindings());
+  let state = preview_update(&git_executor, &repo, "origin/master").unwrap().unwrap().check.state;
+  assert!(
+    matches!(&state, UpdateState::Conflict { first_conflict } if first_conflict.lost_bindings.len() == 2),
+    "{state:?}"
+  );
   let result = update_project_core(
     &git_executor,
     &UpdateProjectParams {
       repository_path: repo,
       fetch: true,
       lease: LeaseGuard::any(),
+      keep: Vec::new(),
     },
     &|_| {},
     LockWait::default(),
@@ -1308,6 +1388,7 @@ const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
   lock_wait: LockWait::Bounded(Duration::from_millis(200)),
   onto: None,
   lease: &LeaseGuard::any(),
+  keep: &[],
 };
 
 /// `update_project_with` in `repo`, with the phases it told, each once
@@ -1358,6 +1439,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
     lock_wait: LockWait::Bounded(Duration::from_secs(60)),
     onto: None,
     lease: &LeaseGuard::any(),
+    keep: &[],
   };
   let result = std::thread::scope(|scope| {
     let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
@@ -1415,6 +1497,7 @@ fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
     lock_wait: LockWait::Bounded(Duration::from_millis(200)),
     onto: None,
     lease: &LeaseGuard::any(),
+    keep: &[],
   };
 
   let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
@@ -1667,6 +1750,7 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
     lock_wait: LockWait::Bounded(Duration::from_secs(10)),
     onto: Some("master"),
     lease: &LeaseGuard::any(),
+    keep: &[],
   };
 
   let result = update_project_with(repo.git_executor(), &lane.path, options, &|_| {}).unwrap();
@@ -1715,6 +1799,7 @@ fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_
     repository_path: path(&clone).to_string(),
     fetch: false,
     lease: LeaseGuard::any(),
+    keep: Vec::new(),
   };
   let result = update_project_core(span.executor(), &params, &|_| {}, LockWait::default()).unwrap();
   assert!(result.applied.is_some(), "{result:?}");
@@ -1778,6 +1863,7 @@ fn start_a_session(git_executor: &GitCommandExecutor, repo: &TestRepo) -> Sessio
     lock_wait: LockWait::Bounded(Duration::from_secs(10)),
     onto: None,
     lease: &LeaseGuard::any(),
+    keep: &[],
   };
   match update_and_resolve(git_executor, path(repo), options, None).unwrap() {
     BdUpdate::Session(outcome) => match *outcome {

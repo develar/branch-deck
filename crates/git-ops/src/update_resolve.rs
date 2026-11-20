@@ -29,7 +29,7 @@ use crate::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
 use domain_types::landing::BindingKind;
-use domain_types::update_project::UpdateCommit;
+use domain_types::update_project::{KeptLostBinding, UpdateCommit};
 use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -205,16 +205,37 @@ pub struct LostBindingFinding {
   pub use_line: u32,
 }
 
-/// The lost-binding rule a session asks, which lives above git-ops (`trial_check::lost_bindings`, through
-/// `update_core::resolve_session`): what the replay of a session brought before it finishes, and what the edit of a
-/// lost-bindings round still leaves
-pub trait LostBindingRule {
-  /// The lost bindings of the copies `<state.tip> ^<state.upstream_head>` that the local commits lack and the tip still
-  /// has, but the names a lost-bindings round kept (`FixupResolution::kept`), by the order of the local commits
+/// A replay as the lost-binding rule reads it: the copies `tip ^upstream_head` against the local commits `head
+/// ^upstream_head ^excluded`
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayTips<'a> {
+  pub tip: &'a str,
+  pub head: &'a str,
+  pub upstream_head: &'a str,
+  pub excluded: &'a [String],
+}
+
+/// What `LostBindingRule::replayed` found
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReplayedLostBindings {
+  /// The lost bindings, by the order of the local commits
+  pub found: Vec<LostBindingFinding>,
+  /// The lost bindings the names kept accepted: what the build still has to prove
+  pub kept: Vec<LostBindingFinding>,
+  /// The local commits, oldest first
+  pub originals: Vec<String>,
+}
+
+/// The lost-binding rule, which lives above git-ops (`trial_check::lost_bindings::REPLAY_RULE`), asked by the update
+/// check (`UpdatePlan::check_lost_bindings`, of an apply and of the check inside a sync) and by a resolve session: what a
+/// replay brought, and what the edit of a lost-bindings round still leaves
+pub trait LostBindingRule: Send + Sync {
+  /// The lost bindings of the copies of `tips` that the local commits lack and the tip still has, but those of the
+  /// `kept` names, which `ReplayedLostBindings::kept` lists apart
   ///
   /// # Errors
   /// git failed
-  fn replayed(&self, git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<Vec<LostBindingFinding>>;
+  fn replayed(&self, git_executor: &GitCommandExecutor, repo_path: &str, tips: ReplayTips<'_>, kept: &[KeptLostBinding]) -> Result<ReplayedLostBindings>;
 
   /// The names that `before` (the file before the copy) binds and `edited` binds by nothing while it still uses them,
   /// each with its first use in `edited`
@@ -225,8 +246,8 @@ pub trait LostBindingRule {
 pub struct NoLostBindings;
 
 impl LostBindingRule for NoLostBindings {
-  fn replayed(&self, _: &GitCommandExecutor, _: &str, _: &SessionState) -> Result<Vec<LostBindingFinding>> {
-    Ok(Vec::new())
+  fn replayed(&self, _: &GitCommandExecutor, _: &str, _: ReplayTips<'_>, _: &[KeptLostBinding]) -> Result<ReplayedLostBindings> {
+    Ok(ReplayedLostBindings::default())
   }
 
   fn left_in_edit(&self, _: &str, _: &[u8], _: &[u8]) -> Vec<(String, u32)> {
@@ -2141,7 +2162,23 @@ fn check_fixup_round(
 /// at its tip: the round of the first local commit with one (`open_fixup_round`); `None` without one, and the session
 /// finishes. One `log` (`LostBindingRule::replayed`), and a round's objects only when it opens
 fn lost_bindings_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, rule: &dyn LostBindingRule) -> Result<Option<RoundObjects>> {
-  let found = rule.replayed(git_executor, repo_path, state)?;
+  let kept: Vec<KeptLostBinding> = state
+    .resolutions
+    .iter()
+    .filter_map(|resolution| resolution.fixup.as_ref())
+    .flat_map(|fixup| &fixup.kept)
+    .map(|kept| KeptLostBinding {
+      file: kept.file.clone(),
+      name: kept.name.clone(),
+    })
+    .collect();
+  let tips = ReplayTips {
+    tip: &state.tip,
+    head: &state.head,
+    upstream_head: &state.upstream_head,
+    excluded: &state.excluded,
+  };
+  let found = rule.replayed(git_executor, repo_path, tips, &kept)?.found;
   if found.is_empty() {
     return Ok(None);
   }

@@ -1,0 +1,123 @@
+<div aria-labelledby="base-ui-[ID]" class="fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-[min(var(--radius-4xl),24px)] bg-popover text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-h-[min(80vh,48rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 sm:max-w-[min(56rem,calc(100%-4rem))]" data-base-ui-focusable="" data-open="" data-slot="dialog-content" data-testid="update-blocked-dialog" id="[ID]" role="dialog" style="--nested-dialogs: 0" tabindex="-1">
+  <div class="flex items-start gap-4 border-b border-border py-4 pr-14 pl-6">
+    <div class="flex min-w-0 flex-1 flex-col gap-1">
+      <h2 class="font-heading text-base font-medium leading-5" data-slot="dialog-title" id="base-ui-[ID]">
+        Your commits remove names that origin/master uses
+      </h2>
+      <p class="text-xs text-muted-foreground">
+        Nothing was changed. origin/master was fetched just now.
+      </p>
+    </div>
+  </div>
+  <div class="overflow-y-auto overscroll-contain px-6 py-5 outline-none" data-testid="update-blocked-body" tabindex="-1">
+    <div class="flex flex-col gap-4 text-sm">
+      <p class="text-muted-foreground">
+        Git merges your commits, but the result would not compile. Hand it to a coding agent: the prompt keeps each name in a fixup commit with bd, outside the working tree. When a name resolves another way, Update Anyway updates and keeps it as it is.
+      </p>
+      <ul class="flex flex-col gap-0.5" data-testid="update-lost-bindings">
+        <li data-name="backend" title="src/Launch.kt:11">
+          [SHA] removes the declaration of backend, which [SHA] uses at Launch.kt:11
+        </li>
+        <li data-name="rethrow" title="src/Launch.kt:12">
+          [SHA] removes the import of rethrow, which [SHA] uses at Launch.kt:12
+        </li>
+      </ul>
+      <div class="flex flex-col gap-1.5">
+        <ul class="flex flex-col gap-3" data-testid="update-conflict-files">
+          <li class="flex flex-col gap-1" data-path="src/Launch.kt" data-testid="update-conflict-file">
+            <span class="group/path flex min-w-0 items-center gap-2 font-mono text-xs">
+              <span class="shrink-0 text-foreground">
+                Launch.kt
+              </span>
+              <span class="min-w-0 truncate text-left text-muted-foreground" dir="rtl" title="src/Launch.kt">
+                <bdi dir="ltr">
+                  src/
+                </bdi>
+              </span>
+              <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 -my-1 shrink-0 group-hover/path:opacity-100">
+                <button aria-label="Copy path" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                  <svg aria-hidden="true" class="lucide lucide-copy" />
+                </button>
+              </div>
+            </span>
+            <ul class="grid grid-cols-[max-content_max-content_minmax(0,1fr)_max-content] gap-x-3 gap-y-1 pl-4">
+              <li class="col-span-full grid grid-cols-subgrid items-baseline" data-side="local">
+                <span class="text-xs text-muted-foreground">
+                  yours
+                </span>
+                <span class="font-mono text-xs text-muted-foreground">
+                  [SHA]
+                </span>
+                <span class="min-w-0 truncate">
+                  <span class="text-sm text-pretty text-foreground">
+                    <span class="font-mono font-normal text-muted-foreground" data-slot="commit-subject-prefix">
+                      feature-auth
+                    </span>
+                    <span>
+                      Drop the old path
+                    </span>
+                  </span>
+                </span>
+                <span class="text-xs whitespace-nowrap text-muted-foreground">
+                  19 hours ago
+                </span>
+              </li>
+              <li class="col-span-full grid grid-cols-subgrid items-baseline" data-side="upstream">
+                <span class="text-xs text-muted-foreground">
+                  origin/master
+                </span>
+                <span class="font-mono text-xs text-muted-foreground">
+                  [SHA]
+                </span>
+                <span class="min-w-0 truncate">
+                  <span class="text-sm text-pretty text-foreground">
+                    <span>
+                      Start with the backend
+                    </span>
+                  </span>
+                </span>
+                <span class="text-xs whitespace-nowrap text-muted-foreground">
+                  Dana Lee · authored 18 hours ago · landed 3 hours ago
+                </span>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-border px-6 py-2 text-xs text-muted-foreground">
+    <div class="flex flex-1 items-center self-center">
+      <span>
+        master ← origin/master
+      </span>
+    </div>
+    <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+      <span class="flex items-center gap-1.5">
+        <kbd class="inline-flex items-center gap-1" data-slot="kbd-group">
+          <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
+            Esc
+          </kbd>
+        </kbd>
+        Close
+      </span>
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" data-testid="update-anyway" tabindex="0" type="button">
+        Update Anyway
+      </button>
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/80 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" data-testid="copy-agent-prompt" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-copy" data-icon="inline-start" />
+        <span class="grid before:invisible before:col-start-1 before:row-start-1 before:content-[attr(data-widest)]" data-widest="Copy Prompt for Agent">
+          <span class="col-start-1 row-start-1">
+            Copy Prompt for Agent
+          </span>
+        </span>
+      </button>
+    </div>
+  </div>
+  <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-disabled:not-aria-busy:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-7 absolute top-4 right-4 bg-secondary" data-slot="dialog-close" tabindex="0" type="button">
+    <svg aria-hidden="true" class="lucide lucide-x" />
+    <span class="sr-only">
+      Close
+    </span>
+  </button>
+</div>

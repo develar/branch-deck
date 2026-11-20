@@ -35,7 +35,9 @@ use anyhow::{Result, bail};
 use code_symbols::extract::summarize;
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::{DeclKind, FileSummary, ImportTarget, Reach, Role};
+use domain_types::update_project::KeptLostBinding;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::update_resolve::{LostBindingFinding, LostBindingRule, ReplayTips, ReplayedLostBindings};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::FileChange;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -203,6 +205,8 @@ pub struct ReplayedLostBinding {
 pub struct ReplayLostBindings {
   /// By the order of the originals, each commit's by file and line
   pub found: Vec<ReplayedLostBinding>,
+  /// The lost bindings of the `kept` names, apart: what the build has to prove
+  pub kept: Vec<ReplayedLostBinding>,
   /// The originals, oldest first
   pub originals: Vec<String>,
 }
@@ -255,6 +259,7 @@ pub fn replay_lost_bindings(
   }
   let mut result = ReplayLostBindings {
     found: Vec::new(),
+    kept: Vec::new(),
     originals: originals.iter().map(|(_, diff)| diff.id.clone()).collect(),
   };
 
@@ -315,7 +320,7 @@ pub fn replay_lost_bindings(
       .map(|(file, lost)| (file, lost.name))
       .collect();
     for (file, lost) in lost_of_diff(copy, &summaries, |path| changed.contains(path)) {
-      if own.contains(&(file, lost.name.clone())) || kept.iter().any(|(path, name)| path == file && *name == lost.name) {
+      if own.contains(&(file, lost.name.clone())) {
         continue;
       }
       let before = copy
@@ -329,7 +334,8 @@ pub fn replay_lost_bindings(
       let Some(at_tip) = lost_in(before, tip).into_iter().find(|it| it.name == lost.name) else {
         continue;
       };
-      result.found.push(ReplayedLostBinding {
+      let kept = kept.iter().any(|(path, name)| path == file && *name == lost.name);
+      let found = ReplayedLostBinding {
         original: original.id.clone(),
         copy: copy.id.clone(),
         file: file.to_string(),
@@ -337,10 +343,57 @@ pub fn replay_lost_bindings(
         kind: lost.kind,
         binding_line: lost.binding_line,
         use_line: at_tip.use_line,
-      });
+      };
+      if kept { result.kept.push(found) } else { result.found.push(found) }
     }
   }
   Ok(result)
+}
+
+/// The rule of `replay_lost_bindings` for the update check and the resolve sessions of git-ops
+/// (`git_ops::update_resolve::LostBindingRule`), without an object cache: the blobs it reads are of the files a replay
+/// merged, which no cache has; the summary of an edit parsed in process (`lost_names_in_edit`)
+pub struct ReplayRule;
+
+/// The one `ReplayRule`, which the update, the sync and `brd` pass
+pub static REPLAY_RULE: ReplayRule = ReplayRule;
+
+impl LostBindingRule for ReplayRule {
+  fn replayed(&self, git_executor: &GitCommandExecutor, repo_path: &str, tips: ReplayTips<'_>, kept: &[KeptLostBinding]) -> Result<ReplayedLostBindings> {
+    let ranges = ReplayRanges {
+      tip: tips.tip,
+      head: tips.head,
+      upstream_head: tips.upstream_head,
+      excluded: tips.excluded,
+    };
+    let kept: Vec<(String, String)> = kept.iter().map(|kept| (kept.file.clone(), kept.name.clone())).collect();
+    let replayed = replay_lost_bindings(git_executor, repo_path, &ObjectCache::disabled(), ranges, &kept)?;
+    Ok(ReplayedLostBindings {
+      found: replayed.found.into_iter().map(finding_of).collect(),
+      kept: replayed.kept.into_iter().map(finding_of).collect(),
+      originals: replayed.originals,
+    })
+  }
+
+  fn left_in_edit(&self, path: &str, before: &[u8], edited: &[u8]) -> Vec<(String, u32)> {
+    lost_names_in_edit(path, before, edited).into_iter().map(|lost| (lost.name, lost.use_line)).collect()
+  }
+}
+
+/// A lost binding as git-ops keeps it
+fn finding_of(lost: ReplayedLostBinding) -> LostBindingFinding {
+  LostBindingFinding {
+    original: lost.original,
+    copy: lost.copy,
+    file: lost.file,
+    name: lost.name,
+    binding: match lost.kind {
+      BindingKind::Import => domain_types::landing::BindingKind::Import,
+      BindingKind::Declaration => domain_types::landing::BindingKind::Declaration,
+    },
+    binding_line: lost.binding_line,
+    use_line: lost.use_line,
+  }
 }
 
 /// A change that only names the blob of `path` at a tip, for `read_change_summaries`

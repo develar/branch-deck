@@ -17,7 +17,7 @@ use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::landing::BindingKind;
 use domain_types::operation::Intent;
-use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
+use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::generated::GeneratedFile;
 use git_ops::index_lock::IndexLocked;
@@ -34,7 +34,6 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use sync_core::baseline::check_baseline_update;
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
 use update_core::resolve_copies::Materialize;
@@ -42,7 +41,7 @@ use update_core::resolve_session::{
   ContinueOptions, DropProof as CoreDropProof, DroppedCommit, LandedTwin, NoSession, SessionOutcome, SessionView, ViewDetail, abort_resolve, continue_resolve, session_status,
   unapply_branch_suggestion,
 };
-use update_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
+use update_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, preview_update, undo_update_core, update_and_resolve};
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -648,6 +647,10 @@ pub struct UpdateConflict {
   pub commits: Vec<UpdateConflictCommit>,
   /// The baseline commits that changed those files, oldest first, at most the newest 50
   pub upstream_commits: Vec<UpdateConflictCommit>,
+  /// The replay merges without a conflict of git, but the commit removes the binding of a name that the baseline uses
+  /// again in the same file: each such name (`brd update` opens a lost-bindings round for them)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lost_bindings: Vec<LostBindingOutput>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -664,7 +667,16 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
   let fetch = !(args.no_fetch || args.resume || args.abort || args.status);
   // a dry run and a status read only: no record
   let reads_only = args.dry_run || (args.status && !args.materialize);
-  recorded_unless(context, reads_only, &Intent::UpdateProject { fetch, epoch: None }, || updated(context, args))
+  recorded_unless(
+    context,
+    reads_only,
+    &Intent::UpdateProject {
+      fetch,
+      epoch: None,
+      keep: Vec::new(),
+    },
+    || updated(context, args),
+  )
 }
 
 /// `update`, recorded unless it reads only
@@ -719,7 +731,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
   }
   if args.dry_run {
     let baseline = detect_baseline_branch(&context.git, &context.repository)?;
-    let preview = check_baseline_update(&context.git, &context.repository, &baseline).map_err(core_error)?.ok_or_else(|| {
+    let preview = preview_update(&context.git, &context.repository, &baseline).map_err(core_error)?.ok_or_else(|| {
       CliError::new(
         ErrorCode::NoBaseline,
         format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
@@ -733,6 +745,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     lock_wait: LockWait::Bounded(context.lock_timeout),
     onto: None,
     lease: &context.lease,
+    keep: &[],
   };
   let output = update_or_resolve(context, options, args.dir.as_deref())?;
   Ok(UpdateCommandOutput::Update(Box::new(output)))
@@ -758,6 +771,7 @@ pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOu
     lock_wait: LockWait::Bounded(context.lock_timeout),
     onto: Some(branch),
     lease: &context.lease,
+    keep: &[],
   };
   let mut output = update_or_resolve(context, options, None)?;
   if matches!(output.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
@@ -1045,22 +1059,40 @@ fn lost_binding_hint(subject: &str) -> String {
   )
 }
 
+const fn binding_output(binding: BindingKind) -> BindingOutput {
+  match binding {
+    BindingKind::Import => BindingOutput::Import,
+    BindingKind::Declaration => BindingOutput::Declaration,
+  }
+}
+
 /// Each lost binding with its local commit
 fn lost_bindings_output(lost: &[LostBindingFinding], short: &ShortIds) -> Vec<LostBindingOutput> {
   lost
     .iter()
-    .map(|lost| LostBindingOutput {
-      file: lost.file.clone(),
-      name: lost.name.clone(),
-      binding: match lost.binding {
-        BindingKind::Import => BindingOutput::Import,
-        BindingKind::Declaration => BindingOutput::Declaration,
-      },
-      binding_line: lost.binding_line,
-      use_line: lost.use_line,
-      commit: short.get(&lost.original).to_string(),
+    .map(|lost| {
+      let binding = UpdateLostBinding {
+        file: lost.file.clone(),
+        name: lost.name.clone(),
+        binding: lost.binding,
+        use_line: lost.use_line,
+        binding_line: lost.binding_line,
+      };
+      lost_binding_output(&binding, short.get(&lost.original))
     })
     .collect()
+}
+
+/// A lost binding of the local commit `commit` (its short id)
+fn lost_binding_output(lost: &UpdateLostBinding, commit: &str) -> LostBindingOutput {
+  LostBindingOutput {
+    file: lost.file.clone(),
+    name: lost.name.clone(),
+    binding: binding_output(lost.binding),
+    binding_line: lost.binding_line,
+    use_line: lost.use_line,
+    commit: commit.to_string(),
+  }
 }
 
 fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>, commit_path: Option<&str>) -> String {
@@ -1472,6 +1504,11 @@ fn output(
       files_omitted: omitted(first_conflict.file_count as usize, first_conflict.files.len()),
       commits: conflict_commits(std::slice::from_ref(&first_conflict.commit), &short),
       upstream_commits: conflict_commits(&first_conflict.upstream_commits, &short),
+      lost_bindings: first_conflict
+        .lost_bindings
+        .iter()
+        .map(|lost| lost_binding_output(lost, short.get(&first_conflict.commit.id)))
+        .collect(),
     }),
     _ => None,
   };

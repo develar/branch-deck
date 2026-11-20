@@ -27,7 +27,7 @@ use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, FetchedBaseline, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Resource};
 use domain_types::rewrite::{UndoKind, UndoToken};
 use domain_types::session::SyncReason;
-use domain_types::update_project::UpdateProjectResult;
+use domain_types::update_project::{KeptLostBinding, UpdateProjectResult};
 use history_rewrite::repository_lock::LockWait;
 use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -209,14 +209,29 @@ impl EventSink for Relay {
 /// a stopped wait for the lock
 #[instrument(skip_all, fields(fetch))]
 pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, epoch: Option<u32>, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
+  execute_update_keeping(registry, key, (fetch, epoch, Vec::new()), hosts, events).await
+}
+
+/// `execute_update` of `Intent::UpdateProject` with its `keep`: Update Anyway keeps those lost bindings unbound
+/// (`UpdateProjectParams::keep`), and the journal records the intent with them
+///
+/// # Errors
+/// As `execute_update`
+pub async fn execute_update_keeping(
+  registry: &Registry,
+  key: &SessionKey,
+  (fetch, epoch, keep): (bool, Option<u32>, Vec<KeptLostBinding>),
+  hosts: Hosts<'_>,
+  events: Arc<dyn EventSink>,
+) -> Answer {
   let sessions = registry.sessions();
-  let intent = Intent::UpdateProject { fetch, epoch };
+  let intent = Intent::UpdateProject { fetch, epoch, keep: keep.clone() };
   let request = update_request(&intent, "");
   let asked = Mutex::new(None);
   let answer = run(registry, key, request, events, async |guard| {
     // asked on the view of a lease of the slot before: refused, before the fetch
     let lease = under_its_lease(sessions, key, &intent, epoch).await?;
-    let (answer, sync) = update_under_guard(Some(registry), sessions, key, guard, fetch, &lease, hosts, false).await;
+    let (answer, sync) = update_under_guard(Some(registry), sessions, key, guard, (fetch, &keep), &lease, hosts, false).await;
     *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
     answer
   })
@@ -233,8 +248,13 @@ pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, 
 /// before returning so the caller keeps its resources until the new facts are visible
 pub(crate) async fn execute_update_in(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, fetch: bool, hosts: Hosts<'_>) -> Answer {
   // the follow-up of an operation of the session: under the lease of its view
-  let answer = match under_its_lease(sessions, key, &Intent::UpdateProject { fetch, epoch: None }, None).await {
-    Ok(lease) => update_under_guard(None, sessions, key, guard, fetch, &lease, hosts, true).await,
+  let intent = Intent::UpdateProject {
+    fetch,
+    epoch: None,
+    keep: Vec::new(),
+  };
+  let answer = match under_its_lease(sessions, key, &intent, None).await {
+    Ok(lease) => update_under_guard(None, sessions, key, guard, (fetch, &[]), &lease, hosts, true).await,
     Err(error) => (Err(error), None),
   };
   let (answer, sync) = answer;
@@ -267,7 +287,7 @@ async fn update_under_guard(
   sessions: &Sessions,
   key: &SessionKey,
   guard: &RunningGuard,
-  should_fetch: bool,
+  (should_fetch, keep): (bool, &[KeptLostBinding]),
   lease: &LeaseGuard,
   hosts: Hosts<'_>,
   wait_for_sync: bool,
@@ -305,7 +325,7 @@ async fn update_under_guard(
   {
     return (Err(error), None);
   }
-  let updated = update(guard, key, lease, hosts).await;
+  let updated = update(guard, key, lease, keep, hosts).await;
   let applied = updated.as_ref().is_ok_and(|result| result.applied.is_some());
   // the fetch moved the baseline also when nothing moved here: integration, the remote status, what landed
   let sync = (should_fetch || applied).then(|| sessions.sync(key, SyncReason::AfterRewrite));
@@ -362,12 +382,13 @@ fn undo_of(result: &UpdateProjectResult) -> Option<UndoToken> {
 ///
 /// # Errors
 /// The core's failure as the host words it; `canceled` once the user stopped the wait for the lock
-async fn update(guard: &RunningGuard, key: &SessionKey, lease: &LeaseGuard, hosts: Hosts<'_>) -> Result<UpdateProjectResult, ApiError> {
+async fn update(guard: &RunningGuard, key: &SessionKey, lease: &LeaseGuard, keep: &[KeptLostBinding], hosts: Hosts<'_>) -> Result<UpdateProjectResult, ApiError> {
   let (git, stepper) = (hosts.services.git(), guard.stepper());
   let params = UpdateProjectParams {
     repository_path: key.worktree.clone(),
     fetch: false,
     lease: lease.clone(),
+    keep: keep.to_vec(),
   };
   let waiter = Arc::new(StepWaiter::new(guard, OperationStep::Updating));
   let core_waiter = Arc::clone(&waiter);

@@ -103,6 +103,11 @@ pub enum Intent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "specta", specta(optional))]
     epoch: Option<u32>,
+    /// Update Anyway of the dialog of a conflict of lost bindings: these names stay unbound on the user's word, so an
+    /// update whose replay loses only them applies; a lost binding of another name still refuses it
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    keep: Vec<crate::update_project::KeptLostBinding>,
   },
   /// The report of the commits that landed with an update is cleared (the user has seen it); `epoch` as of
   /// `UpdateProject`: a report of another lease is no report the user saw

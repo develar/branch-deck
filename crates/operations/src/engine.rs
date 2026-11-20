@@ -159,7 +159,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     // the run of a rewrite is a large future: on the heap
     Intent::Rewrite(rewrite) => Box::pin(execute_rewrite(registry, key, *rewrite, hosts, events)).await,
     Intent::FetchBaseline => Box::pin(update::execute_fetch(registry, key, hosts, events)).await,
-    Intent::UpdateProject { fetch, epoch } => Box::pin(update::execute_update(registry, key, fetch, epoch, hosts, events)).await,
+    Intent::UpdateProject { fetch, epoch, keep } => Box::pin(update::execute_update_keeping(registry, key, (fetch, epoch, keep), hosts, events)).await,
     Intent::DismissLanded { epoch } => update::execute_dismiss(registry, key, epoch, hosts, events).await,
     Intent::FetchReview { number } => review_fetch::execute_review_fetch(registry, key, number, hosts, events).await,
     Intent::FetchReviewStack { top, bottom } => review_fetch::execute_review_stack_fetch(registry, key, top, bottom, hosts, events).await,

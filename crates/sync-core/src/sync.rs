@@ -3,7 +3,7 @@
 //! notes write and the stack branches' refs; the events reach the app as they happen (docs/design/git-operations.md,
 //! "Virtual branch sync").
 
-use crate::baseline::{BaselineCheck, BaselineUpstream, KnownBaseline, check_known_baseline_update};
+use crate::baseline::{BaselineCheck, BaselineUpstream, CheckInputs, KnownBaseline, check_known_baseline_update};
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
 use crate::commit_owners::CommitOwners;
@@ -43,6 +43,7 @@ use git_ops::revs::{current_branch, with_dirs_of};
 use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::update_branch::with_attribute_files;
+use git_ops::update_resolve::LostBindingRule;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use history_rewrite::needs::{companion_targets, local_targets, needs_drop};
@@ -100,6 +101,10 @@ pub struct SyncOptions {
   /// by default, as `brd sync` writes; the app's session writes only while the slot of a lease pool holds the lease the
   /// run began under, as a slot leased again during the run is a worktree this run did not sync
   pub lease: LeaseGuard,
+  /// The lost-binding rule of the update check of the sync (`trial_check::lost_bindings::REPLAY_RULE`, which sync-core
+  /// can't reach): a clean rebase whose replay loses a binding is a conflict in the header as at the click
+  /// (`UpdatePlan::check_lost_bindings`); `None` checks no binding
+  pub lost_bindings: Option<&'static dyn LostBindingRule>,
 }
 
 impl Default for SyncOptions {
@@ -114,6 +119,7 @@ impl Default for SyncOptions {
       facts: None,
       test_patronus: None,
       lease: LeaseGuard::any(),
+      lost_bindings: None,
     }
   }
 }
@@ -467,7 +473,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
-  lease: &LeaseGuard,
+  (lease, lost_bindings): (&LeaseGuard, Option<&'static dyn LostBindingRule>),
   progress: &P,
 ) -> Result<PreparedSync> {
   // the directories once: the guards find the markers of an operation in progress, the facts `FETCH_HEAD` and the
@@ -545,7 +551,14 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let grouping = grouping.clone();
     let progress = progress.clone();
     let lease = lease.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &lease, &progress)
+    move || {
+      let inputs = CheckInputs {
+        grouping: &grouping,
+        resolve,
+        lost_bindings,
+      };
+      send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), inputs, &lease, &progress)
+    }
   }));
 
   // The virtual branches are rebuilt on top of the parent of the oldest commit
@@ -1072,6 +1085,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     facts: command_facts,
     test_patronus,
     lease,
+    lost_bindings,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1123,7 +1137,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           detection_strategy,
           archive_retention_days,
           &object_cache,
-          &lease,
+          (&lease, lost_bindings),
           progress,
         )
       }
@@ -1387,21 +1401,18 @@ fn virtual_tips(branches: &[ListedBranch], branch_prefix: &str) -> HashMap<Strin
 /// Check the update of the checked out branch onto the baseline (`known`, as the sync read it; `None` for a local
 /// baseline), record what landed since the previous sync while `lease` holds and send `BaselineStatus`. A failed check
 /// is logged and reported in the event, it never fails the sync; only a failure to send the event does.
-#[expect(clippy::too_many_arguments, reason = "the inputs of the update check of a sync")]
 fn send_baseline_status(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   baseline_branch: String,
   known: Option<&KnownBaseline>,
-  grouping: &GroupingInputs,
-  resolve: ResolveMode,
+  inputs: CheckInputs<'_>,
   lease: &LeaseGuard,
   progress: &dyn ProgressReporter,
 ) -> Result<()> {
+  let grouping = inputs.grouping;
   let start = std::time::Instant::now();
-  let result = known
-    .map(|known| check_known_baseline_update(git_executor, repository_path, known, grouping, resolve))
-    .transpose();
+  let result = known.map(|known| check_known_baseline_update(git_executor, repository_path, known, inputs)).transpose();
   info!(elapsed_ms = start.elapsed().as_millis(), ok = result.is_ok(), "update check done");
   let (baseline_check, check_error) = match result {
     Ok(baseline_check) => (baseline_check, None),

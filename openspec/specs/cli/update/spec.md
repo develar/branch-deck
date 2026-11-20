@@ -547,6 +547,17 @@ The finish of a resolve session MUST print the same token, and the same undo MUS
 - **THEN** it prints the token `update:<previous head>..<new head>`, and `brd undo` with it takes the update back
   [@test] crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 
+### Requirement: Update: `--dry-run` names the lost bindings of the replay
+
+`brd update --dry-run` MUST read the lost bindings of its replay as the update does: a clean replay that loses one is
+`state: "conflict"` (exit 1) whose `conflict.lost_bindings` names each (`file`, `name`, `binding`, `binding_line`,
+`use_line`, `commit`), nothing written.
+
+#### Scenario: The dry run of the incident
+- **WHEN** `brd update --dry-run` checks the replay of a commit that drops a property and an import the upstream uses again
+- **THEN** it exits with 1, `conflict.lost_bindings` names `backend` and `rethrow`, and nothing is written
+  [@test] crates/bd-update/src/resolve_test.rs (`a_dry_run_names_the_lost_bindings_of_the_replay`)
+
 ### Requirement: In a lease: An update onto the baseline is `lease_follows_home`
 
 In a lease of the pool `brd update` onto the baseline MUST be refused as `lease_follows_home` (exit 4), the message
@@ -1797,6 +1808,16 @@ the message MUST name `git update-ref -d <session ref> <commit>` as the way out.
 - **WHEN** `--continue` or `--abort` runs
 - **THEN** it is `finish_pending` (exit 4), the message naming `git update-ref -d <session ref> <commit>`
   [@test] crates/bd-update/src/resolve_test.rs (`a_moved_branch_without_its_files_is_finish_pending`)
+
+### Requirement: Finish: `replayed` counts no `fixup!` commit
+
+`replayed` of a finish MUST count the local commits on the baseline, never the `fixup!` commits of its lost-bindings
+rounds.
+
+#### Scenario: A finish after a lost-bindings round
+- **WHEN** a session finishes after a lost-bindings round wrote its fixup
+- **THEN** `replayed` is the count of the local commits replayed, 1 for one commit
+  [@test] crates/bd-update/src/resolve_test.rs (`a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_finishes_the_update`)
 
 ### Requirement: `--abort` and `--status`: `--abort` deletes the session ref, then the copies
 

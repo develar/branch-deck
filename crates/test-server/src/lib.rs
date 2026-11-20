@@ -1000,6 +1000,7 @@ pub async fn sync_outside_the_app(
   // as `brd -C <slot> sync`: under the lease the slot holds as it starts
   let options = sync_core::sync::SyncOptions {
     lease: lease_pool::epoch::lease_guard(std::path::Path::new(&path)),
+    lost_bindings: Some(&trial_check::lost_bindings::REPLAY_RULE),
     ..sync_core::sync::SyncOptions::default()
   };
   let synced = sync_core::sync::sync_branches(&state.git_of(&id), &path, &key.prefix, UnreadEvents, options).await;
@@ -1028,6 +1029,7 @@ pub async fn update_outside_the_app(axum::extract::Path(id): axum::extract::Path
     lease: lease_pool::epoch::lease_guard(std::path::Path::new(&path)),
     repository_path: path,
     fetch: false,
+    keep: Vec::new(),
   };
   let update = move || update_core::update_project::update_project_core(&git, &params, &|_| {}, history_rewrite::repository_lock::LockWait::default());
   let updated = tokio::task::spawn_blocking(in_current_span(update)).await;

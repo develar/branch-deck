@@ -278,7 +278,7 @@ function tellOutcome(repositoryPath: string, outcome: Outcome): void {
 
 /** The result of an update: its toast, the state of the baseline it leaves, what landed, the dialog of a refusal */
 function tellUpdate(repositoryPath: string, result: UpdateProjectResult): void {
-  const { check, applied, landed } = result
+  const { check, applied, landed, keptLostBindings } = result
   recordUpdate(repositoryPath, result)
   switch (check.state.status) {
     case "upToDate":
@@ -288,7 +288,7 @@ function tellUpdate(repositoryPath: string, result: UpdateProjectResult): void {
     case "clean":
       if (applied !== null) {
         setBaselineUpdate(repositoryPath, { ...check, head: applied.newHead, state: { status: "upToDate" } })
-        showUpdateToast(repositoryPath, { type: "success", ...appliedUpdateToast(check, applied, landed) })
+        showUpdateToast(repositoryPath, { type: "success", ...appliedUpdateToast(check, applied, landed, keptLostBindings) })
         // the island of what landed shows at once, the sync that follows confirms it
         addLandedUpdate(repositoryPath, landed, check.upstream)
       }
@@ -414,6 +414,20 @@ export function retryUpdateWithoutFetch(repositoryPath: string): Promise<void> {
   return isSelectedRepository(repositoryPath)
     ? runIntentOf(repositoryPath, { kind: "updateProject", fetch: false, epoch: getViewEpoch(repositoryPath) }, "update", APPLY_PLAN)
     : Promise.resolve()
+}
+
+/**
+ * "Update Anyway" of the dialog of a conflict of lost bindings (`check`): the update without a fetch, onto the baseline
+ * the dialog shows, its lost bindings kept unbound on the user's word (`Intent::UpdateProject::keep`); a lost binding of
+ * another name refuses it again. Only while the main window shows the repository, as Update Project
+ */
+export function updateAnyway(repositoryPath: string, check: UpdateCheck): Promise<void> {
+  if (check.state.status !== "conflict" || !isSelectedRepository(repositoryPath)) {
+    return Promise.resolve()
+  }
+  const keep = (check.state.firstConflict.lostBindings ?? []).map(({ file, name }) => ({ file, name }))
+  closeRefusedUpdate()
+  return runIntentOf(repositoryPath, { kind: "updateProject", fetch: false, epoch: getViewEpoch(repositoryPath), keep }, "update", APPLY_PLAN)
 }
 
 /**

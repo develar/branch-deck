@@ -118,7 +118,16 @@ impl Fixture {
 async fn locked() -> (Fixture, RepositoryLock, Arc<Heard>, Intent) {
   let fixture = fixture().await;
   let held = fixture.hold_the_lock();
-  (fixture, held, Arc::new(Heard::default()), Intent::UpdateProject { fetch: true, epoch: None })
+  (
+    fixture,
+    held,
+    Arc::new(Heard::default()),
+    Intent::UpdateProject {
+      fetch: true,
+      epoch: None,
+      keep: Vec::new(),
+    },
+  )
 }
 
 /// A push-route session with no Patronus or GitHub gate
@@ -240,7 +249,11 @@ async fn a_second_update_joins_the_update_and_a_fetch_joins_its_fetch() {
   let fixture = fixture().await;
   let held = fixture.hold_the_fetch();
   let heard = Arc::new(Heard::default());
-  let update = Intent::UpdateProject { fetch: true, epoch: None };
+  let update = Intent::UpdateProject {
+    fetch: true,
+    epoch: None,
+    keep: Vec::new(),
+  };
   let release = async {
     fixture
       .until(|operations| operation_of(operations, &update).is_some_and(|it| it.joined == 1) && operation_of(operations, &Intent::FetchBaseline).is_some_and(|it| it.joined == 1))
@@ -337,7 +350,11 @@ async fn stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved
   let head = fixture.clone.head();
   let _held = fixture.hold_the_lock();
   let heard = Arc::new(Heard::default());
-  let update = Intent::UpdateProject { fetch: true, epoch: None };
+  let update = Intent::UpdateProject {
+    fetch: true,
+    epoch: None,
+    keep: Vec::new(),
+  };
   let stop = async {
     let operations = fixture
       .until(|operations| operation_of(operations, &update).is_some_and(|it| matches!(it.step, OperationStep::WaitingForLock { holder: Some(_) })))
@@ -573,7 +590,11 @@ async fn an_intent_of_a_slot_leased_again_writes_nothing_into_the_files_of_the_n
 async fn an_update_whose_slot_changed_its_lease_while_it_waited_records_nothing_of_what_it_landed() {
   let (_upstream, clone, lease, registry, key) = landed_in_a_slot().await;
   let held = lock_repository_as_another_process(&clone.path().join(".git"), AGENT_PUSH).unwrap();
-  let update = Intent::UpdateProject { fetch: true, epoch: None };
+  let update = Intent::UpdateProject {
+    fetch: true,
+    epoch: None,
+    keep: Vec::new(),
+  };
   let during = async {
     within_a_minute(operations_until(registry.sessions(), &key, |operations| {
       operation_of(operations, &update).is_some_and(|it| matches!(it.step, OperationStep::WaitingForLock { .. }))

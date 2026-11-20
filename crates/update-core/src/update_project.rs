@@ -3,14 +3,11 @@
 //! check that every sync runs against the last fetched state are `baseline`.
 
 use crate::resolve_copies::{Materialize, prepare_dir};
-use crate::resolve_session::{
-  DroppedCommit, Record, ReplayRule, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects,
-};
+use crate::resolve_session::{DroppedCommit, Record, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::managed_branch_kind;
 use domain_types::landed::LandedBranch;
-use domain_types::landing::BindingKind;
-use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
+use domain_types::update_project::{KeptLostBinding, UpdateCheck, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::generated::GeneratedFile;
@@ -25,10 +22,9 @@ use git_ops::update_resolve::{LostBindingFinding, PreparedStart, prepare_session
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, lock_checked_undo, lock_for_files};
-use object_cache::cache::ObjectCache;
 use std::path::Path;
 use std::time::Duration;
-use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
+use sync_core::baseline::{BaselineCheck, BaselineUpstream, check_baseline_update_checking, fetch_baseline, last_fetch_time, read_check_inputs};
 use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::landed::{LandedQuery, find_landed, local_revs, record_update, remaining_revs, restore_before_update};
 use sync_core::lease_state::LeaseGuard;
@@ -36,7 +32,7 @@ use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
 use tracing::{info, instrument, warn};
-use trial_check::lost_bindings::{BindingKind as RuleBindingKind, ReplayRanges, ReplayedLostBinding, replay_lost_bindings};
+use trial_check::lost_bindings::REPLAY_RULE;
 
 /// An update of the app's (`operations::update`)
 #[derive(Debug, Clone)]
@@ -48,6 +44,9 @@ pub struct UpdateProjectParams {
   pub fetch: bool,
   /// The guard of the record of what landed (`landed::record_update`): the lease of the view the update was asked on
   pub lease: LeaseGuard,
+  /// The lost bindings the user keeps unbound (Update Anyway of the dialog of their conflict): an update whose replay
+  /// loses only these applies, and its result names them (`UpdateProjectResult::kept_lost_bindings`)
+  pub keep: Vec<KeptLostBinding>,
 }
 
 /// The step an update is at
@@ -88,6 +87,8 @@ pub struct UpdateOptions<'a> {
   /// The guard of the record of what landed (`landed::record_update`): the lease the update began under
   /// (`lease_pool::epoch::lease_guard`)
   pub lease: &'a LeaseGuard,
+  /// The lost bindings kept unbound (`UpdateProjectParams::keep`); none for `brd`, whose session keeps names by round
+  pub keep: &'a [KeptLostBinding],
 }
 
 /// The fetch of an update failed; nothing was changed
@@ -120,6 +121,7 @@ pub fn update_project_core(
     lock_wait,
     onto: None,
     lease: &params.lease,
+    keep: &params.keep,
   };
   update_project_with(git_executor, &params.repository_path, options, on_progress)
 }
@@ -241,7 +243,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // the check (the replay, the resolution by words, the landed candidates) on the HEAD and the upstream it reads once,
   // before the lock: the lock is held only for the witness, the local changes and the move
   on_progress(UpdatePhase::Checking.into());
-  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, signing)?;
+  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options.keep)?;
   // nothing to move (up to date, blocked, or a conflict that starts no session): the check is the answer, and no lock
   // is waited for, unless a crash left files to follow
   if moves_nothing(&prepared.plan.check.state, resolve) && pending_update(git_executor, repo_path)?.is_none() {
@@ -254,6 +256,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
         check,
         applied: None,
         landed: Vec::new(),
+        kept_lost_bindings: Vec::new(),
       }),
       dropped: Vec::new(),
       regenerate: Vec::new(),
@@ -303,7 +306,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     prepared.plan.discard(git_executor, repo_path);
     drop(lock);
     info!("the branch or its upstream moved during the check: it checks again without the lock");
-    prepared = prepare_update(git_executor, repo_path, upstream_ref, signing)?;
+    prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options.keep)?;
     start = session_start(git_executor, repo_path, &prepared, resolve, signing)?;
     checks += 1;
   };
@@ -369,6 +372,11 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   };
   Ok(BdUpdate::Update {
     result: Box::new(UpdateProjectResult {
+      kept_lost_bindings: if applied.is_some() {
+        plan.kept_lost_bindings().iter().map(update_lost_binding).collect()
+      } else {
+        Vec::new()
+      },
       check: plan.check,
       applied,
       landed,
@@ -383,7 +391,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
 fn session_start(git_executor: &GitCommandExecutor, repo_path: &str, prepared: &Prepared, resolve: Resolve<'_>, signing: Signing) -> Result<Option<PreparedStart>> {
   match (&prepared.plan.check.state, resolve) {
     (UpdateState::Conflict { .. }, Resolve::Yes { worktree, .. }) => {
-      prepare_session_start(git_executor, repo_path, &prepared.plan, worktree, prepared.resolve_mode, signing, &ReplayRule).map(Some)
+      prepare_session_start(git_executor, repo_path, &prepared.plan, worktree, prepared.resolve_mode, signing, &REPLAY_RULE).map(Some)
     }
     _ => Ok(None),
   }
@@ -427,55 +435,30 @@ struct Prepared {
   plan: UpdatePlan,
 }
 
-/// The inputs of the check, then the check of `upstream` for an apply, whose clean replay must not lose a binding
-/// (`check_lost_bindings`)
-fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing) -> Result<Prepared> {
+/// The inputs of the check, then the check of `upstream` for an apply. A clean rebase whose replay lost a binding is a
+/// conflict (`UpdatePlan::check_lost_bindings` with `trial_check::lost_bindings::REPLAY_RULE`): the copy of a local
+/// commit removes the import or the private declaration of a name that the upstream uses again in the same file, git
+/// merged it, and the file would not compile. Nothing moves then: the app's update answers the conflict with its lost
+/// bindings, `brd update` starts a session at their round. The `keep` names (Update Anyway) are kept unbound
+fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing, keep: &[KeptLostBinding]) -> Result<Prepared> {
   let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
   let landed = LandedLookup::ByKey;
   let mut plan = check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve_mode, signing)?;
-  if let Err(error) = check_lost_bindings(git_executor, repo_path, &mut plan) {
+  if let Err(error) = plan.check_lost_bindings(git_executor, repo_path, &REPLAY_RULE, keep) {
     plan.discard(git_executor, repo_path);
     return Err(error);
   }
   Ok(Prepared { grouping, resolve_mode, plan })
 }
 
-/// A clean rebase whose replay lost a binding is a conflict: the copy of a local commit removes the import or the
-/// private declaration of a name that the upstream added a use of in the same file, git merged it, and the file would
-/// not compile (`trial_check::lost_bindings::replay_lost_bindings`, the copies on the unsigned replayed head against the
-/// local commits). Nothing moves: the app's update answers the conflict with its lost bindings, `brd update` starts a
-/// session at their round. A fast-forward and an update that is up to date replay nothing. One `log`; the summaries of
-/// the files the upstream changed too, from one `cat-file --batch` (the copies' blobs are merge results no cache has)
-fn check_lost_bindings(git_executor: &GitCommandExecutor, repo_path: &str, plan: &mut UpdatePlan) -> Result<()> {
-  let Some(tip) = plan.unsigned_head() else { return Ok(()) };
-  let ranges = ReplayRanges {
-    tip,
-    head: &plan.check.head,
-    upstream_head: &plan.check.upstream_head,
-    excluded: plan.excluded(),
-  };
-  let replayed = replay_lost_bindings(git_executor, repo_path, &ObjectCache::disabled(), ranges, &[])?;
-  if replayed.found.is_empty() {
-    return Ok(());
-  }
-  info!(lost = replayed.found.len(), "the clean replay of the update loses bindings: a conflict");
-  let found = replayed.found.into_iter().map(finding_of).collect();
-  plan.into_lost_bindings_conflict(git_executor, repo_path, found, replayed.originals)
-}
-
-/// A lost binding of the rule as the session engine keeps it
-pub(crate) fn finding_of(lost: ReplayedLostBinding) -> LostBindingFinding {
-  LostBindingFinding {
-    original: lost.original,
-    copy: lost.copy,
-    file: lost.file,
-    name: lost.name,
-    binding: match lost.kind {
-      RuleBindingKind::Import => BindingKind::Import,
-      RuleBindingKind::Declaration => BindingKind::Declaration,
-    },
-    binding_line: lost.binding_line,
+/// A lost binding as the result of an update names it
+fn update_lost_binding(lost: &LostBindingFinding) -> UpdateLostBinding {
+  UpdateLostBinding {
+    file: lost.file.clone(),
+    name: lost.name.clone(),
+    binding: lost.binding,
     use_line: lost.use_line,
+    binding_line: lost.binding_line,
   }
 }
 
@@ -541,6 +524,12 @@ pub(crate) fn record_landed_update(
     warn!(error = %format!("{e:#}"), "can't record the landed commits");
     Vec::new()
   })
+}
+
+/// The check of `brd update --dry-run`: the check inside every sync (`check_baseline_update_checking`), with the lost
+/// bindings of its replay, as the update answers them. `None` for a local baseline
+pub fn preview_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
+  check_baseline_update_checking(git_executor, repo_path, baseline_branch, Some(&REPLAY_RULE))
 }
 
 /// The undo token of an applied update: `update:<previous head>..<new head>`, with full ids

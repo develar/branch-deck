@@ -22,6 +22,7 @@ import { lastFetchTime } from "@/lib/update-state"
 import { describeLostBinding, lostBindingsOf } from "@/presenters/lost-bindings"
 import { useSelectedProject } from "@/stores/repository"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
+import { updateAnyway } from "@/stores/update-project"
 
 export interface UpdateBlockedDialogProps {
   /** The conflicting or blocked update; null while closed */
@@ -216,7 +217,8 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
               <p className="text-muted-foreground">
                 {bd === null
                   ? "Git merges your commits, but the result would not compile. Copy a prompt for a coding agent, which keeps each name in a fixup commit."
-                  : "Git merges your commits, but the result would not compile. Hand it to a coding agent: the prompt keeps each name in a fixup commit with bd, outside the working tree."}
+                  : "Git merges your commits, but the result would not compile. Hand it to a coding agent: the prompt keeps each name in a fixup commit with bd, outside the working tree."}{" "}
+                When a name resolves another way, Update Anyway updates and keeps it as it is.
               </p>
               <LostBindingList first={state.firstConflict} upstream={upstream} />
             </>
@@ -266,6 +268,12 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
 
       <PreviewDialogFooter start={<span>{`${shown.branch} ← ${upstream}`}</span>}>
         <KeyHint keys={<Kbd>Esc</Kbd>}>Close</KeyHint>
+        {/* a false finding of the rule: the user says the names resolve another way, and the build proves it */}
+        {state.status === "conflict" && lostBindingsOf(state.firstConflict).length > 0 && project !== null && (
+          <Button size="xs" variant="outline" data-testid="update-anyway" onClick={() => void updateAnyway(project.path, shown)}>
+            Update Anyway
+          </Button>
+        )}
         {/* both prompts name bd: wait until it is known */}
         <Button size="xs" data-testid="copy-agent-prompt" disabled={bd === undefined} onClick={() => void copyPrompt()}>
           {isCopied ? <CopyCheckIcon data-icon="inline-start" /> : <CopyIcon data-icon="inline-start" />}

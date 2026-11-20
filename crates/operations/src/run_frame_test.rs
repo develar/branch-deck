@@ -114,7 +114,11 @@ async fn queued_operation_is_waited(sync: SyncWait) -> bool {
     run(
       &first_registry,
       &first_key,
-      request(Intent::UpdateProject { fetch: false, epoch: None }),
+      request(Intent::UpdateProject {
+        fetch: false,
+        epoch: None,
+        keep: Vec::new(),
+      }),
       Arc::new(NoEvents),
       async move |_| {
         started.send(()).expect("the test is waiting for the first operation");

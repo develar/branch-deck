@@ -1,6 +1,7 @@
 // @spec openspec/specs/repository/update-project/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
+import { captureModalSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { boxOf, getDockCalls } from "../helpers/header-helpers"
@@ -461,12 +462,14 @@ test.describe("Update Project", () => {
     await setupRepo("update_lost_bindings")
     await syncAndWaitForBranches()
     const button = updateButton(page)
-    // the check of a sync rebases cleanly: only the update reads what its replay loses
-    await expect(button).toHaveAttribute("data-status", "clean")
+    // the check of a sync reads what the replay loses, as the update does: never "Rebases cleanly"
+    await expect(button).toHaveAttribute("data-status", "conflict")
+    await expectTooltip(page, "Your commits remove names that origin/master uses in src/Launch.kt")
 
     await runAndWaitForUpdate(page, () => button.click())
     const dialog = refusedDialog(page)
     await expect(dialog.getByRole("heading")).toHaveText("Your commits remove names that origin/master uses")
+    await captureModalSnapshot(page, "update-lost-bindings-dialog")
     await expect(dialog.getByTestId("update-lost-bindings").getByRole("listitem")).toHaveText([
       /^[0-9a-f]{8} removes the declaration of backend, which [0-9a-f]{8} uses at Launch\.kt:11$/,
       /^[0-9a-f]{8} removes the import of rethrow, which [0-9a-f]{8} uses at Launch\.kt:12$/,
@@ -486,6 +489,26 @@ test.describe("Update Project", () => {
     await expectClosed(dialog)
     // nothing changed
     await verifyCommitCount(findBranchRow(page, "feature-auth"), 2)
+  })
+
+  test("should update anyway, keeping the lost bindings the dialog names", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `update_lost_bindings`, whose names resolve another way on the user's word
+    const repo = await setupRepo("update_lost_bindings")
+    await syncAndWaitForBranches()
+    const head = await repo.revision("HEAD")
+    await runAndWaitForUpdate(page, () => updateButton(page).click())
+    const dialog = refusedDialog(page)
+    await expect(dialog).toContainText("When a name resolves another way, Update Anyway updates and keeps it as it is.")
+
+    // the update without a fetch, onto the baseline the dialog shows, with the names kept
+    await runAndWaitForUpdate(page, () => dialog.getByRole("button", { name: "Update Anyway" }).click())
+    await expectClosed(dialog)
+    const toast = page.locator("[data-slot=toast]", { hasText: "Updated master: rebased 2 commits onto origin/master" })
+    await expect(toast).toContainText("Kept backend and rethrow unbound")
+    // HEAD moved onto the baseline
+    expect(await repo.revision("HEAD")).not.toBe(head)
+    expect(await repo.revision("HEAD~2")).toBe(await repo.revision("origin/master"))
+    await expect(updateButton(page)).toHaveAttribute("data-status", "upToDate")
   })
 
   test("should list the first files of a wide conflict and count the rest", async ({ page, setupRepo, syncAndWaitForBranches }) => {

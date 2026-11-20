@@ -97,6 +97,18 @@ describe("appliedUpdateToast", () => {
     expect(appliedUpdateToast(check, rebase, [branch(null, 40, 12)]).title).toBe("40 of your commits landed · 12 stay local")
   })
 
+  it("names the lost bindings Update Anyway kept unbound", () => {
+    const kept = [
+      { file: "src/Launch.kt", name: "backend", binding: "declaration" as const, useLine: 11, bindingLine: 8 },
+      { file: "src/Launch.kt", name: "rethrow", binding: "import" as const, useLine: 12, bindingLine: 4 },
+    ]
+    expect(appliedUpdateToast(check, rebase, [], kept)).toEqual({
+      title: "Updated master: rebased 116 commits onto origin/master",
+      description: "Kept backend and rethrow unbound",
+    })
+    expect(appliedUpdateToast(check, rebase, [branch("wsm", 5)], kept).description).toBe("Updated master: rebased 116 commits · kept backend and rethrow unbound")
+  })
+
   it("keeps the fast-forward wording", () => {
     const fastForward: AppliedUpdate = { kind: "fastForward", newHead: "n", replayed: 0, droppedAlreadyUpstream: 0 }
     expect(appliedUpdateToast(check, fastForward, []).title).toBe("Updated master: fast-forwarded to origin/master")

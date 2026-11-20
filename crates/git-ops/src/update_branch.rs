@@ -11,7 +11,7 @@ use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
-use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
+use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed_with_paths, with_patch_identical};
 use crate::lfs::WorktreeMove;
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
@@ -19,14 +19,14 @@ use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of, replay_range_with_env};
 use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, known_dirs, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
-use crate::update_resolve::{LostBindingFinding, RESOLVE_NOTES_REF};
+use crate::update_resolve::{LostBindingFinding, LostBindingRule, RESOLVE_NOTES_REF, ReplayTips, ReplayedLostBindings};
 use crate::word_replay::{WordsOutcome, replay_resolving_words, resolve_note};
 use crate::word_resolve::ResolveMode;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update, prepare_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use domain_types::error::ErrorCode;
-use domain_types::update_project::{AppliedUpdate, FirstConflict, UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
+use domain_types::update_project::{AppliedUpdate, FirstConflict, KeptLostBinding, UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
@@ -92,6 +92,7 @@ const PREVIEW_COMMITTER_DATE: [(&str, &str); 1] = [("GIT_COMMITTER_DATE", "@0 +0
 
 /// A checked update; `apply_update` applies a clean one
 #[derive(Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of one check: the files, the blocks, the index, the lost bindings")]
 pub struct UpdatePlan {
   pub check: UpdateCheck,
   purpose: CheckPurpose,
@@ -104,6 +105,12 @@ pub struct UpdatePlan {
   unsigned_head: Option<String>,
   /// The lost bindings of a clean replay (`into_lost_bindings_conflict`): a resolve session starts at their round
   lost: Option<LostBindingsStart>,
+  /// The replay may lose a binding: a file it changes is one a local commit changes too (`ReplayOutcome::Applies`)
+  may_lose_bindings: bool,
+  /// The lost bindings of the names the caller kept (`check_lost_bindings`): an update that applies keeps them unbound
+  kept_lost: Vec<LostBindingFinding>,
+  /// The entry of the check in the preview cache, of a preview: the lost bindings are cached with its replay
+  preview_key: Option<ReplayKey>,
   /// The update changes HEAD's tree, so the index and the working tree must follow
   files_change: bool,
   /// The paths a clean update changes, whose local changes `recheck_update` reads under the lock
@@ -255,6 +262,48 @@ impl UpdatePlan {
       .unsigned_head
       .as_deref()
       .filter(|_| matches!(self.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }))
+  }
+
+  /// The lost bindings the kept names of `check_lost_bindings` accepted: an applied update keeps them unbound
+  pub fn kept_lost_bindings(&self) -> &[LostBindingFinding] {
+    &self.kept_lost
+  }
+
+  /// The lost bindings of a clean rebase by `rule` (`LostBindingRule::replayed` on `unsigned_head`, but the `kept`
+  /// names): a finding makes the plan a conflict (`into_lost_bindings_conflict`). Nothing is read for any other check,
+  /// nor when no file the update changes is one a local commit changes (the paths of the local commits come with the
+  /// `log` of the pairing, `read_landed_with_paths`), so most updates pay nothing. A preview keeps what the rule found
+  /// with its replay in the preview cache: a sync of the same state asks it no more
+  ///
+  /// # Errors
+  /// The rule or git failed
+  pub fn check_lost_bindings(&mut self, git_executor: &GitCommandExecutor, repo_path: &str, rule: &dyn LostBindingRule, kept: &[KeptLostBinding]) -> Result<()> {
+    let Some(tip) = self.unsigned_head().map(str::to_string) else { return Ok(()) };
+    if !self.may_lose_bindings {
+      return Ok(());
+    }
+    let cached = self.preview_key.as_ref().and_then(|key| preview_cache().lost_bindings(key));
+    let replayed = if let Some(cached) = cached {
+      debug!("update check: the lost bindings of this state are cached");
+      cached
+    } else {
+      let tips = ReplayTips {
+        tip: &tip,
+        head: &self.check.head,
+        upstream_head: &self.check.upstream_head,
+        excluded: &self.excluded,
+      };
+      let replayed = rule.replayed(git_executor, repo_path, tips, kept)?;
+      if let Some(key) = &self.preview_key {
+        preview_cache().put_lost_bindings(key, replayed.clone());
+      }
+      replayed
+    };
+    self.kept_lost = replayed.kept;
+    if replayed.found.is_empty() {
+      return Ok(());
+    }
+    self.into_lost_bindings_conflict(git_executor, repo_path, replayed.found, replayed.originals)
   }
 
   /// The start of a session from a clean replay that lost bindings (`into_lost_bindings_conflict`)
@@ -514,6 +563,9 @@ fn check_update_with(
     replayed_head: None,
     unsigned_head: None,
     lost: None,
+    may_lose_bindings: false,
+    kept_lost: Vec::new(),
+    preview_key: None,
     files_change: false,
     changed: Vec::new(),
     blocks_unchecked: false,
@@ -581,8 +633,10 @@ fn check_update_with(
       changed,
       resolved,
       plan: replay,
+      may_lose_bindings,
       ..
     } => {
+      plan.may_lose_bindings = *may_lose_bindings;
       plan.check.resolved_by_words.clone_from(resolved);
       plan.replay.clone_from(replay);
       let blocked = match purpose {
@@ -599,7 +653,8 @@ fn check_update_with(
   };
   let files_change = !changed.is_empty();
   if purpose == CheckPurpose::Preview {
-    preview_cache().put(key, outcome.clone(), probe);
+    preview_cache().put(key.clone(), outcome.clone(), probe);
+    plan.preview_key = Some(key);
   }
   let Some(mut new_head) = new_head else { return Ok(plan) };
   plan.replayed_head = Some(new_head.clone());
@@ -674,6 +729,9 @@ enum ReplayOutcome {
     /// The plan, when the pairing left a commit out or the replay conflicted
     plan: Option<ReplayPlan>,
     landed_reads: Option<Arc<LandedReads>>,
+    /// A file the update changes is one a local commit changes too: only then can the replay lose a binding
+    /// (`UpdatePlan::check_lost_bindings`); true when the check read no paths of the local commits
+    may_lose_bindings: bool,
   },
 }
 
@@ -706,6 +764,7 @@ fn replay_outcome(
   let mut resolved = Vec::new();
   let mut replay_plan = None;
   let mut landed_reads = None;
+  let mut local_paths: Option<HashSet<String>> = None;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
     UpdateKind::Rebase => {
@@ -722,7 +781,8 @@ fn replay_outcome(
       };
       let twins = match landed {
         LandedLookup::ByKey => {
-          let reads = read_landed(git_executor, repo_path, landed_scope(plan))?;
+          let (reads, paths) = read_landed_with_paths(git_executor, repo_path, landed_scope(plan))?;
+          local_paths = Some(paths);
           let twins = pair_before_replay(git_executor, repo_path, &reads)?;
           landed_reads = Some(Arc::new(reads));
           Some(twins)
@@ -771,12 +831,15 @@ fn replay_outcome(
     }
   };
   let changed = changed_paths(git_executor, repo_path, head, &new_head)?;
+  // a fast-forward replays nothing
+  let may_lose_bindings = kind == UpdateKind::Rebase && local_paths.is_none_or(|paths| changed.iter().any(|change| paths.contains(String::from_utf8_lossy(&change.path).as_ref())));
   Ok(ReplayOutcome::Applies {
     new_head,
     changed,
     resolved,
     plan: replay_plan,
     landed_reads,
+    may_lose_bindings,
   })
 }
 
@@ -1007,6 +1070,8 @@ struct PreviewEntry {
   repo_path: String,
   replay: (ReplayKey, ReplayOutcome),
   probe: LocalProbe,
+  /// What the lost-binding rule found of the replay (`UpdatePlan::check_lost_bindings`), once asked
+  lost: Option<ReplayedLostBindings>,
 }
 
 /// At most this many repositories keep a cached check
@@ -1025,6 +1090,11 @@ impl PreviewCache {
 
   fn put(&self, key: ReplayKey, outcome: ReplayOutcome, probe: LocalProbe) {
     let mut entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // the lost bindings of the same replay stay
+    let lost = entries
+      .iter()
+      .find(|entry| entry.repo_path == key.repo_path && entry.replay.0 == key)
+      .and_then(|entry| entry.lost.clone());
     entries.retain(|entry| entry.repo_path != key.repo_path);
     if entries.len() >= PREVIEW_CACHE_SIZE {
       entries.remove(0);
@@ -1033,7 +1103,21 @@ impl PreviewCache {
       repo_path: key.repo_path.clone(),
       replay: (key, outcome),
       probe,
+      lost,
     });
+  }
+
+  /// What the lost-binding rule found of the cached replay of `key`, once asked
+  fn lost_bindings(&self, key: &ReplayKey) -> Option<ReplayedLostBindings> {
+    let entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    entries.iter().find(|entry| entry.replay.0 == *key).and_then(|entry| entry.lost.clone())
+  }
+
+  fn put_lost_bindings(&self, key: &ReplayKey, lost: ReplayedLostBindings) {
+    let mut entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(entry) = entries.iter_mut().find(|entry| entry.replay.0 == *key) {
+      entry.lost = Some(lost);
+    }
   }
 }
 

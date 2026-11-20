@@ -163,6 +163,7 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
         issue_config: IssueConfigSource::Cached((*ctx.repository_state.issue_config(&key.worktree)).clone()),
         object_cache: ctx.repository_state.object_cache(&ctx.git, &key.worktree),
         config: Some(config),
+        lost_bindings: Some(&trial_check::lost_bindings::REPLAY_RULE),
         ..Default::default()
       },
       prefix: resolved.prefix,

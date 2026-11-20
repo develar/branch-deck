@@ -1,4 +1,4 @@
-import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
+import type { AppliedUpdate, LandedBranch, UpdateCheck, UpdateLostBinding } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { updateResolvedWords } from "@/lib/resolved-by-words"
 import { capitalize, joinNames } from "@/lib/text"
@@ -160,10 +160,12 @@ export function foundLandedNews(found: readonly LandedBranch[], upstream: string
  * anything landed, the title says how the branch was updated, as before. The conflicts of git that the update resolved
  * by words come last: "Resolved 1 conflict by words in “Capitalize line 2”".
  */
-export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, landed: readonly LandedBranch[]): UpdateToast {
+export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, landed: readonly LandedBranch[], kept: readonly UpdateLostBinding[] = []): UpdateToast {
   const { branch, upstream } = check
   const news = landedNews(landed, upstream)
-  const words = updateResolvedWords(check.resolvedByWords)
+  // Update Anyway kept lost bindings unbound: the build proves them
+  const keptWords = kept.length === 0 ? null : `kept ${joinNames([...new Set(kept.map(lost => lost.name))])} unbound`
+  const words = [updateResolvedWords(check.resolvedByWords), keptWords].filter(part => part !== null).join(" · ") || null
   if (news === null) {
     return {
       title:

@@ -1,12 +1,12 @@
 use crate::landed_pairing::{
   CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_before_replay, pair_landed, pair_twins, read_landed,
-  walk_commits, with_patch_identical,
+  read_landed_with_paths, walk_commits, with_patch_identical,
 };
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::history::{HistoryCommit, numbered_lines};
-use test_utils::process_budget::{counting, processes};
+use test_utils::process_budget::{assert_processes, counting, processes};
 
 /// `(mark, id, author, key, subject)` of each commit
 fn fields(repo: &TestRepo, options: &[&str], revs: &[&str]) -> Vec<(char, String, String, CommitKey, String)> {
@@ -393,4 +393,32 @@ fn interdiffs_compare_multiple_local_commits_to_the_same_upstream() {
   let diffs = interdiffs(repo.git_executor(), repo.path_str(), &pairs).unwrap();
   assert_eq!(diffs.len(), 2);
   assert!(diffs.iter().all(|diff| diff.local_only.is_empty()), "{diffs:?}");
+}
+
+/// The log of the local commits of the pairing names every path they change, a rename as its two paths, from the same
+/// process: the files of an update whose replay can lose a binding (`UpdatePlan::check_lost_bindings`)
+#[test]
+fn the_local_commits_come_with_the_paths_they_change() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "old name.kt", "a\n");
+  repo.git(&["mv", "old name.kt", "new name.kt"]);
+  repo.create_commit_with_files("rename and add", &[("new name.kt", "a\n"), ("src/b.kt", "b\n")]);
+  repo.git(&["commit", "--allow-empty", "-m", "nothing"]);
+  repo.create_commit("change", "src/b.kt", "b2\n");
+  let git = counting();
+  let scope = LandedScope {
+    head: &repo.head(),
+    upstream_head: &base,
+    base: &base,
+    excluded: &[],
+  };
+  let (reads, paths) = read_landed_with_paths(&git, repo.path_str(), scope).unwrap();
+  assert_eq!(
+    reads.local.iter().map(|commit| commit.subject.as_str()).collect::<Vec<_>>(),
+    ["rename and add", "nothing", "change"]
+  );
+  let mut paths: Vec<String> = paths.into_iter().collect();
+  paths.sort();
+  assert_eq!(paths, ["new name.kt", "old name.kt", "src/b.kt"]);
+  assert_processes(&git, &[("log", 2)]);
 }

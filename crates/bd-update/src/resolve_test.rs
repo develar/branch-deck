@@ -1962,6 +1962,8 @@ fn a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_fi
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--round", "1"]);
   assert_eq!(exit_code, 0, "{done}");
   assert_eq!(done["state"], json!("rebase"));
+  // the fixup is on top, but one local commit replayed
+  assert_eq!(done["replayed"], json!(1), "{done}");
   assert_eq!(git(&clone, &["log", "-2", "--format=%s"]), "fixup! (launch) Drop the old path\n(launch) Drop the old path");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
   let [author, committer] = [git(&clone, &["log", "-1", "--format=%an <%ae>"]), git(&clone, &["log", "-1", "--format=%cn <%ce>"])];
@@ -1975,6 +1977,21 @@ fn a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_fi
   assert_eq!(done["verify"], json!({ "paths": ["src/Launch.kt"] }));
   assert!(done["next"][0].as_str().unwrap().ends_with(" fold"), "{done}");
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("lost-binding\tsrc/Launch.kt\tbackend"));
+}
+
+/// `brd update --dry-run` reads the lost bindings of its replay as the update does: a conflict (exit 1) that names
+/// each, nothing written
+#[test_log::test]
+fn a_dry_run_names_the_lost_bindings_of_the_replay() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  git(&clone, &["fetch", "--quiet", "origin"]);
+  let head = clone.head();
+  let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
+  assert_eq!((exit_code, &output["state"]), (1, &json!("conflict")), "{output}");
+  let names: Vec<&Value> = output["conflict"]["lost_bindings"].as_array().unwrap().iter().map(|lost| &lost["name"]).collect();
+  assert_eq!(names, [&json!("backend"), &json!("rethrow")]);
+  assert_eq!(output["conflict"]["files"], json!(["src/Launch.kt"]));
+  assert_eq!((clone.head(), git(&clone, &["for-each-ref", "refs/branch-deck/"])), (head, String::new()));
 }
 
 /// The incident as it happened: the replay conflicts on a block of the commit while its other hunks drop the import and

@@ -359,12 +359,12 @@ function noteLanded(repositoryPath: string, report: readonly LandedBranch[]): vo
 }
 
 /** An Update Project: applied (with what landed), or refused for a conflict or uncommitted changes; up to date is no news */
-export function recordUpdate(repositoryPath: string, { check, applied, landed }: UpdateProjectResult): void {
+export function recordUpdate(repositoryPath: string, { check, applied, landed, keptLostBindings }: UpdateProjectResult): void {
   const status = check.state.status
   if (status === "clean" && applied !== null) {
     noteLanded(repositoryPath, landed)
     const details: PageInput["details"] = landed.length === 0 ? undefined : { type: "landed", upstream: check.upstream, report: landed }
-    void recordActivity(repositoryPath, { kind: "update", ...appliedUpdateToast(check, applied, landed), details })
+    void recordActivity(repositoryPath, { kind: "update", ...appliedUpdateToast(check, applied, landed, keptLostBindings), details })
   } else if (status === "conflict" || status === "blocked") {
     const description = `${describeUpdateState(check.state, check.upstream).summary}. Nothing was changed.`
     void recordActivity(repositoryPath, { kind: "update", title: `Didn't update ${check.branch}`, description, warning: true })

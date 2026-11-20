@@ -1397,7 +1397,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
-| 6b. Lost bindings | a clean rebase only (not a fast-forward, not the check inside a sync): one `log --stdin --topo-order --reverse --raw` of `N` and `HEAD` without `U` and the previous tips, `%S` telling the copies from the local commits; with a file that a copy and its local commit change from other blobs, one `cat-file --batch` of their sides and of the file at `N` (`trial_check::lost_bindings::replay_lost_bindings`); with lost bindings, `log --no-walk` of the commit and the `log` of the upstream commits of its files | `Conflict` with `lost_bindings`, see below |
+| 6b. Lost bindings | a clean rebase (not a fast-forward), also in the check inside a sync, only when a path of `diff-tree H N` is one the local commits change: their paths come with the `log` of the local commits of the pairing (`--name-only -z --no-renames`, `read_landed_with_paths`), so no process more without one. Then one `log --stdin --topo-order --reverse --raw` of `N` and `HEAD` without `U` and the previous tips, `%S` telling the copies from the local commits; with a file that a copy and its local commit change from other blobs, one `cat-file --batch` of their sides and of the file at `N` (`trial_check::lost_bindings::replay_lost_bindings`); with lost bindings, `log --no-walk` of the commit and the `log` of the upstream commits of its files | `Conflict` with `lost_bindings`, see below |
 | 7. Dry run | the app's under the lock: `update-index -q --refresh` of the real index (the one stat pass under the lock, which step 10 takes as it is), then on a copy of it `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}`; `brd update`'s before the lock, on a copy of the index refreshed itself, which writes nothing | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
 | 9. Move | `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
@@ -1453,8 +1453,20 @@ Details:
   its files, the upstream commits that change them and `lost_bindings` (file, name, binding, the use at `N`, the
   binding before the copy). The app's update answers it as any conflict ("Conflict and blocked dialog" of Update
   Project); `brd update` starts a resolve session at its lost-bindings round on `N`, with nothing replayed again
-  ("Resolve session" below). The check inside a sync reads none of it: the header may say "Rebases cleanly" until a
-  click finds the lost bindings.
+  ("Resolve session" below). The check inside a sync and `brd update --dry-run` read them too (the rule passed as
+  `SyncOptions::lost_bindings` and by `update_project::preview_update`, as sync-core can't reach trial-check), so the
+  header says the conflict the update answers; a preview keeps what the rule found with its replay in the preview
+  cache, and a sync of the same state asks it no more. The rule is asked only when a file the update changes is one a
+  local commit changes, the only files whose copy can differ from its original: the update of `an_update_after_its_fetch`
+  and the check of a sync of a clean rebase whose upstream changes no local file run no process more (`process_budget_test.rs`
+  of update-core: `the_check_of_a_sync_whose_upstream_changes_no_local_file_asks_no_rule`); the incident costs one `log`
+  and one `cat-file` more, and `log --no-walk` and a `log` for its conflict
+  (`the_check_of_a_sync_reads_the_lost_bindings_once_per_state`: 5 `log` and 3 `cat-file` in all, then from the cache
+  the description's 2 `log` alone). **Update Anyway** of the app's dialog (`Intent::UpdateProject::keep`, its
+  `UpdateProjectParams::keep`) updates without a fetch with the lost bindings of the dialog kept unbound on the user's
+  word: a name may resolve another way, which only the build proves. The rule lists them apart
+  (`ReplayedLostBindings::kept`), the result names them (`UpdateProjectResult::kept_lost_bindings`, in the toast and
+  Activity), and a lost binding of another name, after a witness that missed too, refuses the update again.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)

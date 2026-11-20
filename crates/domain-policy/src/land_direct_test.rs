@@ -412,12 +412,26 @@ fn bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags() {
 #[test]
 fn the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved() {
   let pushed = |status| vec![EffectRecord::new(push_effect("login-tip"), status)];
-  assert_eq!(update_after(&pushed(EffectStatus::Done)), Some(Intent::UpdateProject { fetch: false, epoch: None }));
+  assert_eq!(
+    update_after(&pushed(EffectStatus::Done)),
+    Some(Intent::UpdateProject {
+      fetch: false,
+      epoch: None,
+      keep: Vec::new()
+    })
+  );
   // the copy is built on the fork point: only the update onto the moved target builds it anew
   let moved = EffectStatus::Failed {
     error: ApiError::new(ErrorCode::BaselineMoved, "master moved"),
   };
-  assert_eq!(update_after(&pushed(moved)), Some(Intent::UpdateProject { fetch: true, epoch: None }));
+  assert_eq!(
+    update_after(&pushed(moved)),
+    Some(Intent::UpdateProject {
+      fetch: true,
+      epoch: None,
+      keep: Vec::new()
+    })
+  );
   let refused = EffectStatus::Failed {
     error: ApiError::new(ErrorCode::BaselineRefused, "remote: master is protected"),
   };
@@ -662,7 +676,11 @@ fn the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge() {
   let ran = |effect: PlannedEffect, status| vec![EffectRecord::new(effect, status)];
   assert_eq!(
     update_after(&ran(merge_effect(MergeMethod::Rebase), EffectStatus::Done)),
-    Some(Intent::UpdateProject { fetch: true, epoch: None })
+    Some(Intent::UpdateProject {
+      fetch: true,
+      epoch: None,
+      keep: Vec::new()
+    })
   );
   let refused = EffectStatus::Failed {
     error: ApiError::new(ErrorCode::NotMergeable, "Pull request is not mergeable"),

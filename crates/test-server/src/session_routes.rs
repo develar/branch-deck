@@ -80,6 +80,7 @@ impl SessionEnvironment for TestSessionEnvironment {
         // `origin` is a path here: the fake Patronus says whether it knows the repository (the test seam of
         // `LandingRemote::patronus`)
         test_patronus: Some(space_of(&state, &key.worktree).ok().flatten().is_some()),
+        lost_bindings: Some(&trial_check::lost_bindings::REPLAY_RULE),
         ..Default::default()
       },
       prefix,
