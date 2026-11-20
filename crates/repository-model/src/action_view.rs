@@ -10,8 +10,8 @@
 //! robots or pull requests that are values of it, hold the remote actions back (`on_cached_frame`, by what each reads:
 //! `reads_cached_frame`, which the engine refuses their intents by too).
 
-use crate::derive::{landing_route_of, live_hold, row_of_view};
-use crate::facts::FactStore;
+use crate::derive::{Holds, landing_route_of, live_hold, row_of_view, stack_push_blocker};
+use crate::facts::{FactStore, TableFacts, listed_robots};
 use crate::table::TableState;
 use domain_policy::actions::{
   BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, review_blocker, robot_actions, stack_actions, start_actions,
@@ -154,6 +154,7 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
       pull_request: pull_requests.pull_requests.get(name),
       open_pull_request: sources.open_pull_requests.get(name),
       listing,
+      first_push: sources.pushes.get(name).and_then(|push| push.action_blocker.as_ref()),
       links_stack: sources.github_layers.get(name).is_some_and(|layer| {
         let chain: Vec<&str> = layer.chain.iter().map(String::as_str).collect();
         let open = |name: &str| pull_requests.pull_requests.get(name).filter(|pull_request| pull_request.state == PullRequestState::Open);
@@ -178,6 +179,10 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
     };
     actions.insert(name.clone(), with_operations(branch_actions(&facts), of, operations));
   }
+  // the push of a stack branch is decided over the table and the robots as they are, as the engine decides it
+  // read once, and only for a stack that forks
+  let mut table: Option<Option<TableFacts>> = None;
+  let mut listed: Option<Vec<PatronusRobot>> = None;
   for (root, branch) in &parts.branches {
     let stack_pull_request = pull_requests.stack_pull_requests.get(root);
     // a root no branch is built on any more, whose stack branch still has an open pull request, is a chain of one: the
@@ -223,6 +228,19 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
         leaf_step,
       ),
     };
+    let table = matches!(shape, StackShape::Forking { .. }).then(|| table.get_or_insert_with(|| facts.table_facts(state)).as_ref()).flatten();
+    let first_push = match table {
+      Some(table) => table.table.stack(root).and_then(|stack| {
+        let holds = Holds {
+          view: &part.view,
+          robots: listed.get_or_insert_with(|| listed_robots(robots)),
+        };
+        stack_push_blocker(holds, &table.table.repository(), stack, table.remote.stacks.get(root), |member| {
+          table.table.branch(member).map(|branch| branch.commits.as_slice())
+        })
+      }),
+      None => None,
+    };
     let facts = StackFacts {
       root,
       patronus,
@@ -231,6 +249,7 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
       pull_request: stack_pull_request,
       open_pull_request: sources.open_pull_requests.get(&key),
       listing,
+      first_push: first_push.as_ref(),
       repository,
       landed: sources.landed.get(&key),
       root_landed: sources.landed.get(root),

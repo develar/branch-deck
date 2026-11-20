@@ -101,6 +101,7 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     pull_request: None,
     open_pull_request: None,
     listing: Listing::Listed,
+    first_push: None,
     links_stack: false,
     repository: true,
     comment_route: None,
@@ -507,6 +508,76 @@ fn a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks() 
   assert!(!ids(&carried).contains(&Park));
 }
 
+/// A pull request write pushes first what the remote lacks: Create Pull Request… and Request Review… of a branch and of a
+/// whole stack wait for that push while it can't be made, as the engine refuses them by it (an unbuilt branch, a hold);
+/// a draft says so first; a push that drops remote commits is the user's decision, which the dialog says at its submit
+#[test]
+fn a_pull_request_write_waits_for_the_push_it_makes_first_as_the_engine_refuses_it() {
+  let step = ready_step();
+  let status = remote(PushAction::Push);
+  let cant_push = Reason::CantPush {
+    branch: "auth".to_string(),
+    block: domain_types::stack::BlockReason::Conflict,
+  };
+  let waits = Some(ActionBlocker::Rule { reason: cant_push.clone() });
+  let unbuilt = branch_actions(&BranchFacts {
+    first_push: Some(&cant_push),
+    ..facts(&step, &status)
+  });
+  assert_eq!(reason_of(&unbuilt, CreatePullRequest), waits);
+
+  let open = pull_request("auth", 7);
+  let ready = view_of(&open, false);
+  let requested = branch_actions(&BranchFacts {
+    pull_request: Some(&open),
+    open_pull_request: Some(&ready),
+    first_push: Some(&cant_push),
+    ..facts(&step, &status)
+  });
+  assert_eq!(reason_of(&requested, RequestReview), waits);
+  let draft = view_of(&open, true);
+  let drafted = branch_actions(&BranchFacts {
+    pull_request: Some(&open),
+    open_pull_request: Some(&draft),
+    first_push: Some(&cant_push),
+    ..facts(&step, &status)
+  });
+  assert_eq!(reason_of(&drafted, RequestReview), Some(ActionBlocker::Draft { number: 7 }), "a draft asks nobody whatever the push");
+
+  let drops = Reason::DropsRemote {
+    branch: "auth".to_string(),
+    behind: 2,
+  };
+  let asks_first = branch_actions(&BranchFacts {
+    first_push: Some(&drops),
+    ..facts(&step, &status)
+  });
+  assert_eq!(reason_of(&asks_first, CreatePullRequest), None, "a push that drops remote commits is the user's decision, which the dialog says");
+
+  let stack_held = held(HoldKind::Own);
+  let waits = Some(ActionBlocker::Rule { reason: stack_held.clone() });
+  let leaf = ready_step();
+  let built = || StackShape::Forking {
+    not_built: None,
+    tip: true,
+    main_line: Some(&leaf),
+  };
+  let stack = stack_actions(&StackFacts {
+    first_push: Some(&stack_held),
+    ..stack_facts(built(), Some(&step))
+  });
+  assert_eq!(reason_of(&stack, CreateStackPullRequest), waits);
+  let open_stack_pull_request = pull_request("stack/air", 12);
+  let open_stack = view_of(&open_stack_pull_request, false);
+  let stack_review = stack_actions(&StackFacts {
+    pull_request: Some(&open_stack_pull_request),
+    open_pull_request: Some(&open_stack),
+    first_push: Some(&stack_held),
+    ..stack_facts(built(), Some(&step))
+  });
+  assert_eq!(reason_of(&stack_review, RequestReview), waits);
+}
+
 fn view_of(pull_request: &PullRequest, draft: bool) -> PullRequestView {
   PullRequestView {
     number: pull_request.number,
@@ -740,6 +811,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     pull_request: None,
     open_pull_request: None,
     listing: Listing::Listed,
+    first_push: None,
     repository: true,
     landed: None,
     root_landed: None,

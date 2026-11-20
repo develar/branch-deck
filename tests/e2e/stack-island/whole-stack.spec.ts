@@ -31,7 +31,7 @@ import {
   stackPullRequest,
   withStackPullRequests,
 } from "../helpers/pull-request-helpers"
-import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, remotePushes, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
+import { branchOf, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, remotePushes, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { openReviewWindow, pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
@@ -628,11 +628,14 @@ test.describe("Whole stack", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("stack_island", {
+    const repo = await setupRepo("stack_island", {
       patronus: { ...availableRobots(wholeStackRobot("air", "whole")), githubRepository: "acme/monorepo" },
       pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
     })
     await syncAndWaitForBranches()
+    // the start of the robot pushed the stack branch: the request has nothing to push, which the robot would hold
+    await repo.pushInTerminal(branchOf(stackBranchOf("air")))
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     const actions = island(page, "air").getByTestId("stack-island-actions")
     await expect(island(page, "air").getByTestId("stack-island-landing")).toHaveText("Safe Push of the whole stack lands 7 branches")
     await expect(actions.getByTestId("next-step-slot")).toHaveCount(0)

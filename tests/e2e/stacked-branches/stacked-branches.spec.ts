@@ -1923,7 +1923,7 @@ test.describe("Stacked branches", () => {
     })
 
     // the menus, the preview and the review window: one test of them all took 38 s under load
-    test("should disable Create Pull Request… in the menus of the branches a merged Safe Push landed: nothing of them is left to review", async ({
+    test("should disable Create Pull Request… in the menus of the branches a running Safe Push holds, and of those it landed once merged: nothing of them is left to review", async ({
       page,
       setupRepo,
       syncAndWaitForBranches,
@@ -1934,9 +1934,14 @@ test.describe("Stacked branches", () => {
       await syncAndWaitForBranches()
       const authRow = findBranchRow(page, "auth")
       await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
-      // auth has work to review while it runs
+      // while it runs, the push of auth its pull request makes first is the robot's: the item says so, as the engine
+      // refuses the creation
       await authRow.click({ button: "right" })
-      await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).not.toHaveAttribute("aria-disabled", "true")
+      const create = page.getByRole("menuitem", { name: "Create Pull Request…" })
+      await expect(create).toHaveAttribute("aria-disabled", "true")
+      await create.hover()
+      await expect(openTooltip(page).last()).toContainText("oauth")
+      await expect(openTooltip(page).last()).not.toContainText("Landed")
       await page.keyboard.press("Escape")
       await expectClosed(page.getByRole("menu"))
 

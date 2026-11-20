@@ -337,6 +337,31 @@ impl<'a> Holds<'a> {
   }
 }
 
+/// Why the push of the stack branch of `stack`, which a pull request of the whole stack (its creation, its review
+/// request) makes first, can't be made over `holds`, `repo` and `commits_of`, the table as it is: no build of its
+/// commits (no pull request of them, pushed or not); while the remote lacks it, a hold of its push or the remote commits
+/// it drops. The engine refuses those writes by it (`operations::pull_request`) and the menus disable them by it
+/// (`domain_policy::actions::StackFacts::first_push`)
+#[must_use]
+pub fn stack_push_blocker<'c>(holds: Holds<'_>, repo: &Repository<'_>, stack: &StackBranchUpdate, remote: Option<&RemoteFact>, commits_of: impl Fn(&str) -> Option<&'c [Commit]>) -> Option<Reason> {
+  let not_built = stack_not_built(stack);
+  if !stack_pushes(remote) {
+    return not_built;
+  }
+  not_built.or_else(|| holds.stack_hold(repo, stack, commits_of)).or_else(|| {
+    remote.filter(|remote| remote.drops > 0).map(|remote| Reason::DropsRemote {
+      branch: stack.root.clone(),
+      behind: remote.drops,
+    })
+  })
+}
+
+/// A pull request of the whole stack pushes its stack branch first: the remote lacks it, or its status is not known
+#[must_use]
+pub fn stack_pushes(remote: Option<&RemoteFact>) -> bool {
+  remote.is_none_or(|remote| !remote.known || !remote.up_to_date)
+}
+
 /// The hold of the push of a branch now, with its robot: the hold of the view (`BranchLanding::hold`, `facts`) while
 /// its robot (`robot_of`) still holds pushes; a hold of what landed while the robot merged and the branch, `commits` as
 /// it is now, is what landed (`LandedByView::is_whole_of`: a view derived for another table says nothing of a branch

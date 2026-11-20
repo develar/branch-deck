@@ -31,7 +31,6 @@ use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
 use domain_policy::github_stack::stack_writes;
 use domain_policy::pull_request::{creation_blocker, layer_base_of};
-use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
 use domain_types::branch_names::{baseline_on_remote, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
@@ -48,7 +47,7 @@ use remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE;
 use remote_facts::pull_request_writes::retarget_pull_request;
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{ActionPushView, Holds, LandSources, action_push_of, with_pull_request_sources};
+use repository_model::derive::{ActionPushView, Holds, LandSources, action_push_of, stack_push_blocker, stack_pushes, with_pull_request_sources};
 use repository_model::one_shot::OneShot;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::{SessionKey, Sessions};
@@ -331,25 +330,18 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
     Subject::WholeStack { root } => {
       let stack = sources.table.stack(root)?;
       let remote = sources.remote.stacks.get(root);
-      let pushes_it = remote.is_none_or(|remote| !remote.known || !remote.up_to_date);
-      // a stack branch that is no build of its commits is no pull request of them, pushed or not
-      let mut blocker = stack_not_built(stack);
+      // of the table and the robots as they are now: what a view of another table says holds nothing; the menus disable
+      // the write by the same blocker
+      let holds = Holds {
+        view: sources.view,
+        robots: sources.robots,
+      };
+      let blocker = stack_push_blocker(holds, &sources.table.repository(), stack, remote, |member| {
+        sources.table.branch(member).map(|branch| branch.commits.as_slice())
+      });
       let mut effects = Vec::new();
       let mut pushes = Vec::new();
-      if pushes_it {
-        // of the table and the robots as they are now: what a view of another table says holds nothing
-        let holds = Holds {
-          view: sources.view,
-          robots: sources.robots,
-        };
-        let held = holds.stack_hold(&sources.table.repository(), stack, |member| {
-          sources.table.branch(member).map(|branch| branch.commits.as_slice())
-        });
-        let drops = remote.filter(|remote| remote.drops > 0).map(|remote| Reason::DropsRemote {
-          branch: root.clone(),
-          behind: remote.drops,
-        });
-        blocker = blocker.or(held).or(drops);
+      if stack_pushes(remote) {
         lease(&stack.branch_name, stack.tip.clone(), remote.and_then(|remote| remote.remote_tip.clone()));
         pushes.push(PushedRef::stack_branch(stack, PushLease::Frozen));
         effects.push(PlannedEffect::Push {

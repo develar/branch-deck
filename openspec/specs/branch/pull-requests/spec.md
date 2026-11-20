@@ -1037,6 +1037,24 @@ MUST NOT close the dialog meanwhile.
 - **AND** no push toast shows; Activity records it
   [@test] crates/operations/src/pull_request_test.rs (`a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request`)
 
+### Requirement: Creating a pull request: A write whose push can't be made is disabled with why
+
+"Create Pull Request…" and "Request Review…" MUST be disabled with the reason while the push they make first can't be
+made, by the blocker the engine refuses them by (`BranchPush::action_blocker`): the sync did not build the branch or a
+branch of its chain, a running Safe Push holds it. A push that drops remote commits is the user's decision: the write
+stays offered and its dialog says it at the submit.
+
+#### Scenario: The branch is not built
+- **WHEN** the sync did not build a branch the remote lacks, or a running Safe Push holds its push
+- **THEN** "Create Pull Request…" and "Request Review…" are disabled with that reason
+  [@test] crates/domain-policy/src/actions_test.rs (`a_pull_request_write_waits_for_the_push_it_makes_first_as_the_engine_refuses_it`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… in the menus of the branches a running Safe Push holds, and of those it landed once merged: nothing of them is left to review`)
+
+#### Scenario: The push drops remote commits
+- **WHEN** the push of the creation would drop commits of the remote branch
+- **THEN** "Create Pull Request…" stays enabled, and its dialog says it at Create
+  [@test] crates/domain-policy/src/actions_test.rs (`a_pull_request_write_waits_for_the_push_it_makes_first_as_the_engine_refuses_it`)
+
 ### Requirement: Creating a pull request: A push the user decides is never made for them
 
 A push the user decides MUST NOT be made for them: one that drops commits of the remote branch refuses the plan, and
@@ -1607,7 +1625,7 @@ reason: a pull request of commits that are in the target has nothing to review.
 - **WHEN** nothing of the branch is left to land
 - **THEN** "Create Pull Request…" is disabled in its menu, its preview and its review window
 - **AND** it says the reason ("Landed in master with oauth", "Merged by Patronus")
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… in the menus of the branches a merged Safe Push landed: nothing of them is left to review`, `should disable Create Pull Request… in the preview of a branch a merged Safe Push landed, and open it of one built on it with work left`, `should disable Create Pull Request… in the review window of a branch a merged Safe Push landed`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… in the menus of the branches a running Safe Push holds, and of those it landed once merged: nothing of them is left to review`, `should disable Create Pull Request… in the preview of a branch a merged Safe Push landed, and open it of one built on it with work left`, `should disable Create Pull Request… in the review window of a branch a merged Safe Push landed`)
   [@test] crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`)
   [@test] src/presenters/next-step.test.ts (`row 1: offers nothing, every surface says the reason of the subject: a sync, a failure, no commits, parked, landed`)
 
