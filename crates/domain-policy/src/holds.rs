@@ -8,6 +8,9 @@
 //! - `stack_branch_hold`: the stack branch of a whole stack holds the commits of every member, so a parked member keeps
 //!   it local; merged Safe Pushes that landed every member whole leave nothing to push; its own robot runs on it; a
 //!   stack branch the sync did not build is no build of its commits
+//! - `fix_hold`: a fix of a conflict is local and never disturbs a robot, so a hold of a branch it changes only says
+//!   whether waiting fixes the conflict instead: a running Safe Push that lands it (`Lands`), one that will fail
+//!   (`Failing`: waiting lands nothing), a merged one that landed it all (`Landed`: Update Project brings it)
 //! - `restart_action`: Patronus restarts a robot on the newest commit of its remote branch; a branch with work the
 //!   remote lacks is pushed first ("Push and Restart", also for a running robot, which the push cancels first)
 //!
@@ -19,7 +22,7 @@ use crate::reasons::{stack_landed, stack_not_built};
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{HoldKind, HoldView, LandedByView, RestartAction, RobotOf, SpanView};
+use domain_types::repository_view::{FixHold, HoldKind, HoldView, LandedByView, RestartAction, RobotOf, SpanView};
 use domain_types::session::ParkedMember;
 use domain_types::stack::StackBranchUpdate;
 
@@ -66,6 +69,18 @@ pub fn branch_hold(name: &str, landed: Option<&LandedByView>, robot: Option<&Pat
     by: span.by.clone(),
     carried: span.carried.clone(),
   })
+}
+
+/// What `hold` of a branch means for a fix of a conflict that changes it: a merged Safe Push landed it all (`Landed`),
+/// else the running one that holds it will fail (`failing`, a required check of it failed) or lands it (`Lands`)
+#[must_use]
+pub fn fix_hold(hold: &HoldView, failing: bool) -> FixHold {
+  let by = hold.by.clone();
+  match hold.kind {
+    HoldKind::Landed => FixHold::Landed { by },
+    HoldKind::Own | HoldKind::Span if failing => FixHold::Failing { by },
+    HoldKind::Own | HoldKind::Span => FixHold::Lands { by },
+  }
 }
 
 /// What the hold of the stack branch of a whole stack is decided on

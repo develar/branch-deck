@@ -8,7 +8,7 @@ use crate::landing::{Landed, LandingRefusal};
 use crate::patronus::MissingReviewGroup;
 use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
-use crate::repository_view::{HoldView, RobotOf, WholeStackRest};
+use crate::repository_view::{FixHold, HoldView, RobotOf, WholeStackRest};
 use crate::session::{BranchStatus, Parked};
 use serde::Serialize;
 
@@ -573,4 +573,9 @@ pub struct NextStepView {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub hold: Option<HoldView>,
+  /// Of a branch, what its hold means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`):
+  /// `None` while nothing holds it, and of a whole stack
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub fix_hold: Option<FixHold>,
 }

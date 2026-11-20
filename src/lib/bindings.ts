@@ -3678,7 +3678,31 @@ export type FixComponent = {
 	orphanedChildren: string[],
 	/**  The subjects the plan rewrites */
 	rewritten: number,
+	/**
+	 *  The branches that hold what the steps bring (`FixStep::holder`), in the order of the steps: once a Safe Push lands
+	 *  them, the branches the fix is for have what they need from the baseline, without the fix
+	 */
+	holders: string[],
 };
+
+/**
+ *  What the hold of a branch means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`,
+ *  openspec/specs/branch/conflict-fix/spec.md): the fix is local and never disturbs the robot, which lands the remote copy
+ *  it took, so no hold disables it; the hold says whether waiting fixes the conflict instead
+ */
+export type FixHold = 
+/**
+ *  A running Safe Push lands the branch: once it merges and the project updates, the conflict is gone without a
+ *  rewrite; the fix now lands the rest of the conflicting branch sooner, the moved commits in a robot after it
+ */
+{ kind: "lands"; by: RobotOf } | 
+/**
+ *  The running Safe Push that lands the branch will fail (a required check failed): waiting lands nothing, the fix
+ *  is the way, the robot's restart or cancel beside it
+ */
+{ kind: "failing"; by: RobotOf } | 
+/**  A merged Safe Push landed all of the branch: Update Project brings it, after which the conflict is gone */
+{ kind: "landed"; by: RobotOf };
 
 export type FixStep = {
 	kind: FixStepKind,
@@ -5502,6 +5526,11 @@ export type NextStepView = {
 	 *  another table says. `None` while nothing holds it, and of a whole stack
 	 */
 	hold?: HoldView | null,
+	/**
+	 *  Of a branch, what its hold means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`):
+	 *  `None` while nothing holds it, and of a whole stack
+	 */
+	fixHold?: FixHold | null,
 };
 
 /**  Why the node is what it is, with the facts its words need */

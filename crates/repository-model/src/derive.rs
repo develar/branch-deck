@@ -57,7 +57,7 @@ use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, br
 use domain_policy::declared_needs::declared_refusals;
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::github_stack::chain_of;
-use domain_policy::holds::{StackHoldFacts, branch_hold, holds_pushes, is_active, restart_action, stack_branch_hold};
+use domain_policy::holds::{StackHoldFacts, branch_hold, fix_hold, holds_pushes, is_active, restart_action, stack_branch_hold};
 use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, patronus_lands,
   restart_refusal, standing, start_refusal,
@@ -1811,6 +1811,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       status: row_status(&node),
       rest: None,
       hold: hold.map(|(hold, _)| hold.clone()),
+      fix_hold: hold.map(|(hold, _)| fix_hold(hold, sources.robots.failing.contains(&hold.by.robot_id))),
     };
     steps.push((name.clone(), view));
   }
@@ -1909,6 +1910,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       status: RowStatus::default(),
       rest: Some(rest),
       hold: own_robot,
+      fix_hold: None,
     };
     steps.push((key, view));
   }

@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/conflict-fix/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { FixComponent, FixStep } from "@/lib/bindings"
-import { componentFixing, describeFixGrouping, describeFixResult, describeFixStep, fixTitle } from "@/lib/conflict-fix"
+import { componentFixing, describeFixGrouping, describeFixHold, describeFixResult, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
 
 const subjects: Record<string, string> = { a1: "Add login", b1: "Add tokens" }
@@ -12,7 +12,7 @@ function step(kind: FixStep["kind"], commits: string[], from: string[], to: stri
 }
 
 function component(overrides: Partial<FixComponent>): FixComponent {
-  return { steps: [], plan: {}, fixed: [], unblocked: [], emptied: [], orphanedChildren: [], rewritten: 0, ...overrides }
+  return { steps: [], plan: {}, fixed: [], unblocked: [], emptied: [], orphanedChildren: [], rewritten: 0, holders: [], ...overrides }
 }
 
 describe("describeFixStep", () => {
@@ -85,5 +85,40 @@ describe("buildConflictPrompt", () => {
 
   it("works without brd", () => {
     expect(buildConflictPrompt({ ...input, bd: null })).toContain("Show it to me before you rewrite anything.")
+  })
+})
+
+describe("describeFixHold", () => {
+  const span = { branch: "git-worktrees", robotId: "r", wholeStack: false }
+  const own = { branch: "a2ui-v1", robotId: "r", wholeStack: false }
+
+  it("says the wait for a robot that lands what the fix brings, the fix below it", () => {
+    expect(describeFixHold({ kind: "lands", by: span }, "a2ui-v1", ["apps-context-root"])).toEqual({
+      title: "Wait for the Safe Push of git-worktrees",
+      detail: "It lands a2ui-v1, which has what apps-context-root needs: once it merges, Update Project applies apps-context-root cleanly, without a fix.",
+    })
+    expect(describeFixHold({ kind: "lands", by: own }, "a2ui-v1", ["x", "y"])).toEqual({
+      title: "Wait for the Safe Push of a2ui-v1",
+      detail: "a2ui-v1 has what x and y need: once its Safe Push merges, Update Project applies x and y cleanly, without a fix.",
+    })
+    expect(describeFixHold({ kind: "lands", by: { branch: "air", robotId: "r", wholeStack: true } }, "a2ui-v1", ["x"]).title).toBe("Wait for the Safe Push of the whole air stack")
+  })
+
+  it("says that a failing robot lands nothing, the fix the way", () => {
+    expect(describeFixHold({ kind: "failing", by: span }, "a2ui-v1", ["apps-context-root"])).toEqual({
+      title: null,
+      detail: "The Safe Push of git-worktrees is failing, so a2ui-v1 doesn't land with it: fix the conflict now, or restart the Safe Push.",
+    })
+    expect(describeFixHold({ kind: "failing", by: own }, "a2ui-v1", ["x"]).detail).toBe(
+      "The Safe Push of a2ui-v1 is failing, so waiting for it lands nothing: fix the conflict now, or restart the Safe Push.",
+    )
+  })
+
+  it("says that Update Project brings what landed, in place of the fix", () => {
+    expect(describeFixHold({ kind: "landed", by: span }, "a2ui-v1", ["apps-context-root"])).toEqual({
+      title: "a2ui-v1 landed with git-worktrees",
+      detail: "Update Project applies apps-context-root cleanly, without a fix.",
+    })
+    expect(describeFixHold({ kind: "landed", by: own }, "a2ui-v1", ["x"]).title).toBe("a2ui-v1 is merged by Patronus")
   })
 })

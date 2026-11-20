@@ -37,7 +37,7 @@ import { watchRobotInDemand } from "@/model/demand"
 import { getRowPart, refreshSessionFacts, useRowPart } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
 import { recordRobotNews } from "@/stores/activity"
-import { branchSyncStore, getStackAncestors, useBranchSync, useLandedState, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, getStackAncestors, useLandedState, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -472,22 +472,6 @@ export function usePushHold(branchName: string): PushHold | null {
   const key = useRepositoryKey()
   const robot = useStore(patronusStore, state => (hold == null ? undefined : state.repositories[key]?.robots[hold.by.robotId]))
   return pushHoldOf(hold, robot)
-}
-
-/** Every push hold of the selected repository, branch → its hold (`usePushHold` of every row) */
-export function usePushHolds(): ReadonlyMap<string, PushHold> {
-  const steps = useBranchSync(state => state.nextSteps)
-  const robots = useRepositoryRobots()
-  return useMemo(() => {
-    const holds = new Map<string, PushHold>()
-    for (const [name, view] of Object.entries(steps)) {
-      const hold = pushHoldOf(view.hold, view.hold == null ? undefined : robots?.[view.hold.by.robotId])
-      if (hold !== null) {
-        holds.set(name, hold)
-      }
-    }
-    return holds
-  }, [steps, robots])
 }
 
 /** Non-hook variant of `usePushHold`, for menus built on open and the push itself */

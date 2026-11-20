@@ -70,6 +70,7 @@ fn a_commit_moves_to_the_branch_whose_stack_has_what_it_needs() {
   assert_eq!(fix.unresolved, Vec::<String>::new());
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
   assert_eq!(fix.components[0].fixed, ["other"]);
+  assert_eq!(fix.components[0].holders, ["feature"], "what the commit needs is in feature");
   assert_applies(&repo, &fix);
 }
 
@@ -81,6 +82,7 @@ fn a_single_commit_branch_is_restacked_on_the_branch_it_needs() {
 
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "feature", "other")]);
   assert_eq!(fix.components[0].rewritten, 0, "a restack rewrites no subject");
+  assert_eq!(fix.components[0].holders, ["feature"], "the new parent holds what it needs");
   assert_applies(&repo, &fix);
 }
 
@@ -93,6 +95,7 @@ fn an_unassigned_commit_the_branch_needs_is_pulled_in() {
   let fix = find_fix(&repo, FixBudget::default());
 
   assert_eq!(fix.components[0].steps, [step(FixStepKind::PullIn, &[&add], &[], "x", "x")]);
+  assert_eq!(fix.components[0].holders, Vec::<String>::new(), "no branch holds an unassigned commit");
   assert_applies(&repo, &fix);
 }
 

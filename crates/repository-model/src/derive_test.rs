@@ -21,7 +21,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, StackLanding, StackPatronus, WholeStackRest};
+use domain_types::repository_view::{BranchLanding, BranchPatronus, FixHold, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, StackLanding, StackPatronus, WholeStackRest};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, StackBranchAlong,
   SubjectReadiness, TableHeader, WholeStackView,
@@ -1851,6 +1851,63 @@ fn a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed() {
   let steps = merged_robot_steps_of(&state, &facts);
   assert_eq!(steps["grown"].hold, None);
   assert_eq!(steps["notes"].hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Landed));
+  // a fix that changes notes: Update Project brings what landed it; grown is no hold of a fix
+  assert_eq!(steps["grown"].fix_hold, None);
+  assert!(matches!(steps["notes"].fix_hold, Some(FixHold::Landed { .. })), "{:?}", steps["notes"].fix_hold);
+}
+
+/// What the hold of a branch means for a fix that changes it, as the view sends it (`domain_policy::holds::fix_hold`):
+/// the running Safe Push of auth lands it, so the conflict waits for it; once Patronus tells that a required check of it
+/// failed, waiting lands nothing
+#[test]
+fn the_view_says_whether_the_robot_that_holds_a_branch_of_a_fix_lands_it_or_fails() {
+  let mut state = TableState::with_prefix("user");
+  run_sync(
+    &mut state,
+    vec![
+      grouping(vec![on("auth", None)], &[], &[]),
+      SyncEvent::RemoteStatusUpdate(remote_status("auth", &["copy-auth-1"])),
+    ],
+  );
+  let table = BranchTable {
+    prefix: "user".to_string(),
+    baseline: "origin/master".to_string(),
+    branches: vec![on("auth", None)],
+    ..BranchTable::default()
+  };
+  let mut facts = synced_facts(&table);
+  facts.apply(
+    at(2),
+    FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: PatronusRobotsResult {
+        availability: PatronusAvailability::Available,
+        robots: vec![robot("r", Some("auth"), PatronusRobotStatus::Running, 10)],
+        github_repository: None,
+      },
+    },
+  );
+  let by = robot_of("auth", "r");
+  let held = BranchPatronus {
+    robot_id: Some("r".to_string()),
+    landing: BranchLanding {
+      hold: Some(HoldView {
+        kind: HoldKind::Own,
+        by: by.clone(),
+        carried: None,
+      }),
+      ..BranchLanding::default()
+    },
+    ..BranchPatronus::default()
+  };
+  let view = PatronusView {
+    branches: BTreeMap::from([("auth".to_string(), held)]),
+    ..PatronusView::default()
+  };
+  answer_patronus(&mut facts, 3, view, &table);
+  assert_eq!(merged_robot_steps_of(&state, &facts)["auth"].fix_hold, Some(FixHold::Lands { by: by.clone() }));
+  facts.apply(at(4), FactResult::Failing(Ok(vec!["r".to_string()])));
+  assert_eq!(merged_robot_steps_of(&state, &facts)["auth"].fix_hold, Some(FixHold::Failing { by }));
 }
 
 /// The whole stack of air: air-child and air-side on air, newest first, the commits of each `<name>-1`, air-child with a

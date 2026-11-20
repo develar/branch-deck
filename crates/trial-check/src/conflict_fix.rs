@@ -133,6 +133,18 @@ pub struct FixStep {
   pub fixes: String,
 }
 
+impl FixStep {
+  /// The branches that hold what the step brings: the one a move or a restack goes to, whose stack has what the commits
+  /// need; the ones a pull in takes the commits from (none for unassigned commits, which nothing lands)
+  #[must_use]
+  pub fn holder(&self) -> &[String] {
+    match self.kind {
+      FixStepKind::Move | FixStepKind::Restack => std::slice::from_ref(&self.to),
+      FixStepKind::PullIn => &self.from,
+    }
+  }
+}
+
 /// Steps that belong together: they share a branch, and their plan alone has the result
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -150,6 +162,9 @@ pub struct FixComponent {
   pub orphaned_children: Vec<String>,
   /// The subjects the plan rewrites
   pub rewritten: u32,
+  /// The branches that hold what the steps bring (`FixStep::holder`), in the order of the steps: once a Safe Push lands
+  /// them, the branches the fix is for have what they need from the baseline, without the fix
+  pub holders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1146,7 +1161,14 @@ fn component(base: &CheckReport, after: &CheckReport, steps: Vec<FixStep>, plan:
     .map(|check| check.name.clone())
     .filter(|name| after_facts.branch(name).is_none())
     .collect();
+  let mut holders: Vec<String> = Vec::new();
+  for holder in steps.iter().flat_map(FixStep::holder) {
+    if !holders.contains(holder) {
+      holders.push(holder.clone());
+    }
+  }
   FixComponent {
+    holders,
     steps,
     plan,
     fixed,

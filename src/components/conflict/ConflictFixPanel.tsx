@@ -1,25 +1,29 @@
 import type { ReactNode } from "react"
-import { CopyCheckIcon, CopyIcon, RotateCwIcon, WandSparklesIcon } from "lucide-react"
+import { ArrowDownIcon, CopyCheckIcon, CopyIcon, RotateCwIcon, WandSparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { HintList } from "@/components/conflict/ConflictResolutionHint"
 import { Callout } from "@/components/shared/Callout"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import type { FixComponent, MergeConflictInfo } from "@/lib/bindings"
-import { branchesOfFix, componentFixing, describeFixGrouping, describeFixResult, describeFixStep } from "@/lib/conflict-fix"
+import { componentFixing, describeFixGrouping, describeFixHold, describeFixResult, describeFixStep } from "@/lib/conflict-fix"
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { formatPendingFact, formatViewFailure } from "@/presenters/next-step"
-import { APPLY_FIX_SURFACE, applyConflictFix, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
+import { requestReveal } from "@/stores/commit-move"
+import { APPLY_FIX_SURFACE, applyConflictFix, requestConflictFix, useConflictFix, useHolderHold, useSubjectOf } from "@/stores/conflict-fix"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
-import { usePatronusPending, usePatronusViewFailure, usePushHolds } from "@/stores/patronus"
+import { usePatronusPending, usePatronusViewFailure, useRepositoryRobots } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProject } from "@/stores/repository"
+import { runUpdateProjectOf } from "@/stores/update-project"
 
 export interface ConflictFixPanelProps {
   conflict: MergeConflictInfo
@@ -89,26 +93,54 @@ function FixCallout({ title, state, children }: { title: string; state: "searchi
   )
 }
 
+/** The robot actions beside a hold of a branch of a fix, by id: of a running robot that lands it the robot alone (its cancel is on its row), of a failing one its restart and cancel too */
+const LANDS_ACTIONS: ReadonlySet<string> = new Set(["open-robot"])
+const FAILING_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "cancel-robot", "open-robot"])
+
 function FixSteps({ component }: { component: FixComponent }) {
-  const holds = usePushHolds()
-  // what the robots hold is known only once Patronus answered with its view: the fix waits for it, never on "none"
+  // what the robots hold is known only once Patronus answered with its view: the offer waits for it, never on "none"
   const holdsPending = usePatronusPending()
   const viewFailure = usePatronusViewFailure()
   const subjectOf = useSubjectOf()
   const pullRequests = useRepositoryPullRequestMap()
+  // the hold of a branch that has what the fix brings: a robot that lands it makes the conflict go without the fix
+  const holderHold = useHolderHold(component)
+  const robots = useRepositoryRobots()
+  const robot = holderHold === null ? undefined : robots?.[holderHold.hold.by.robotId]
+  const robotParts = useRobotParts(robot)
+  const project = useSelectedProject()
   useIndicatorClaim(APPLY_FIX_SURFACE)
   const applying = useSurfaceBusy(APPLY_FIX_SURFACE) !== null
-  // another rewrite of the repository runs: the fix waits for it in the queue, its button shows what it waits for
-  const held = branchesOfFix(component).find(branch => holds.has(branch))
-  const reason =
-    held !== undefined ? `A Safe Push of ${held} is running` : holdsPending ? formatPendingFact("patronus") : viewFailure === null ? null : formatViewFailure(viewFailure)
+  const reason = holdsPending ? formatPendingFact("patronus") : viewFailure === null ? null : formatViewFailure(viewFailure)
   const steps = component.steps.map(step => describeFixStep(step, subjectOf))
   const grouping = describeFixGrouping(component)
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")
+  const kind = holderHold?.hold.kind
+  const words = holderHold === null ? null : describeFixHold(holderHold.hold, holderHold.holder, component.fixed)
+
+  if (kind === "landed" && words !== null) {
+    return (
+      <FixCallout title={words.title ?? ""} state="found">
+        <p data-testid="fix-hold">{words.detail}</p>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button size="sm" disabled={project === null} onClick={() => project !== null && void runUpdateProjectOf(project.path)} data-testid="fix-update-project">
+            <ArrowDownIcon data-icon="inline-start" />
+            Update Project
+          </Button>
+        </div>
+      </FixCallout>
+    )
+  }
+
+  // waiting is the way while a robot lands what the fix brings: the fix goes below it, as the other choice
+  const waits = kind === "lands"
+  const robotActions = robot === undefined ? [] : getRobotItems(robot, robotParts).filter(it => (waits ? LANDS_ACTIONS : FAILING_ACTIONS).has(it.id))
   const apply = (
     <>
       <Button
-        size="sm"
+        // the other choice beside a wait is as small as the robot's buttons
+        size={waits ? "xs" : "sm"}
+        variant={waits ? "outline" : "default"}
         disabled={applying || reason !== null}
         // busy, it keeps the focus, which Stop Waiting of its wait gives back to it (`LockWaitNotice`)
         focusableWhenDisabled={applying}
@@ -122,18 +154,22 @@ function FixSteps({ component }: { component: FixComponent }) {
       <LockWaitNotice surface={APPLY_FIX_SURFACE} />
     </>
   )
+  const stepsTitle = steps.length === 1 ? steps[0]! : `Fix in ${steps.length} steps`
+  const stepList = steps.length > 1 && (
+    <HintList>
+      {steps.map((step, index) => (
+        <li key={index} data-testid="fix-step">
+          {step}
+        </li>
+      ))}
+    </HintList>
+  )
   return (
-    // one step is the title; more are a list under "Fix: N steps"
-    <FixCallout title={steps.length === 1 ? steps[0]! : `Fix in ${steps.length} steps`} state="found">
-      {steps.length > 1 && (
-        <HintList>
-          {steps.map((step, index) => (
-            <li key={index} data-testid="fix-step">
-              {step}
-            </li>
-          ))}
-        </HintList>
-      )}
+    // one step is the title; more are a list under "Fix in N steps"; a wait for a robot is the title above the fix
+    <FixCallout title={waits && words?.title != null ? words.title : stepsTitle} state="found">
+      {words !== null && <p data-testid="fix-hold">{words.detail}</p>}
+      {waits && <p className="font-medium">{`Or fix it now: ${stepsTitle}`}</p>}
+      {stepList}
       {grouping.length > 0 && <p>{`${grouping.join(". ")}.`}</p>}
       {result !== "" && <p data-testid="fix-result">{result}</p>}
       <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -144,6 +180,14 @@ function FixSteps({ component }: { component: FixComponent }) {
             <TooltipTrigger render={<span tabIndex={0} />}>{apply}</TooltipTrigger>
             <TooltipContent>{reason}</TooltipContent>
           </Tooltip>
+        )}
+        {robotActions.map(action => (
+          <RobotActionButton key={action.id} action={action} />
+        ))}
+        {waits && holderHold !== null && (
+          <Button size="xs" variant="outline" onClick={() => requestReveal({ branchName: holderHold.hold.by.branch, commitIds: [] })}>
+            {`Show ${holderHold.hold.by.branch}`}
+          </Button>
         )}
         <span className="text-xs">{reason ?? "Undo is in the toast and in Activity"}</span>
       </div>

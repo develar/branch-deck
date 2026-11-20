@@ -3,7 +3,7 @@ import { createStore, useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { undoRegroup } from "@/hooks/useStackActions"
 import { getErrorDetails } from "@/lib/api-error"
-import type { Commit, ConflictFix, FixComponent, MoveCommitsResult } from "@/lib/bindings"
+import type { Commit, ConflictFix, FixComponent, FixHold, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getShownSubject } from "@/lib/commit"
 import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
@@ -109,6 +109,23 @@ export function useSubjectOf(): SubjectOf {
   const branches = useBranchSync(state => state.branches)
   const unassigned = useBranchSync(state => state.unassignedCommits)
   return useMemo(() => subjectsOf(branches, unassigned), [branches, unassigned])
+}
+
+/** The hold of a branch that holds what a fix brings, with that branch */
+export interface HolderHold {
+  readonly holder: string
+  readonly hold: FixHold
+}
+
+/**
+ * The hold the view sends (`NextStepView.fixHold`) of the first branch of `component` that holds what it brings
+ * (`FixComponent.holders`); null while none is held
+ */
+export function useHolderHold(component: FixComponent): HolderHold | null {
+  const steps = useBranchSync(state => state.nextSteps)
+  const holder = component.holders.find(name => steps[name]?.fixHold != null)
+  const hold = holder === undefined ? undefined : steps[holder]?.fixHold
+  return holder === undefined || hold == null ? null : { holder, hold }
 }
 
 /** The steps of the found fix of `branch`, for a conflict window that shows them; undefined without one */

@@ -118,6 +118,23 @@ pub struct HoldView {
   pub carried: Option<Carried>,
 }
 
+/// What the hold of a branch means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`,
+/// openspec/specs/branch/conflict-fix/spec.md): the fix is local and never disturbs the robot, which lands the remote copy
+/// it took, so no hold disables it; the hold says whether waiting fixes the conflict instead
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FixHold {
+  /// A running Safe Push lands the branch: once it merges and the project updates, the conflict is gone without a
+  /// rewrite; the fix now lands the rest of the conflicting branch sooner, the moved commits in a robot after it
+  Lands { by: RobotOf },
+  /// The running Safe Push that lands the branch will fail (a required check failed): waiting lands nothing, the fix
+  /// is the way, the robot's restart or cancel beside it
+  Failing { by: RobotOf },
+  /// A merged Safe Push landed all of the branch: Update Project brings it, after which the conflict is gone
+  Landed { by: RobotOf },
+}
+
 /// What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
 /// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. A fact
 /// of the session computed after a sync (`PatronusPart::landing_needs` says how it stands): unknown until then, never

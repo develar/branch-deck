@@ -1,9 +1,9 @@
 use crate::facts::RemoteBranch;
-use crate::holds::{StackHoldFacts, branch_hold, restart_action, stack_branch_hold};
+use crate::holds::{StackHoldFacts, branch_hold, fix_hold, restart_action, stack_branch_hold};
 use domain_types::fixtures::{robot, robot_of, stack_robot, whole_stack_robot_of};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{Carried, HoldKind, LandedByView, RestartAction, RobotOf, SpanView};
+use domain_types::repository_view::{Carried, FixHold, HoldKind, HoldView, LandedByView, RestartAction, RobotOf, SpanView};
 use domain_types::session::{Parked, ParkedMember};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use pretty_assertions::assert_eq;
@@ -268,4 +268,28 @@ fn a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has() {
     restart_action(&whole_stack, Some("stack-tip"), Some(remote("stack-tip", true)), false, false),
     Some(RestartAction::Restart)
   );
+}
+
+/// What a hold of a branch means for a fix that changes it, by its kind and whether its robot fails: a merged Safe Push
+/// that landed it all is an update, a running one that lands it a wait, one that will fail no wait at all
+#[test]
+fn a_hold_of_a_branch_of_a_fix_is_a_wait_for_its_robot_unless_it_fails_or_landed() {
+  let by = whole_stack_robot_of("a2ui-v1", "r");
+  let hold = |kind: HoldKind| HoldView {
+    kind,
+    by: by.clone(),
+    carried: None,
+  };
+  let cases = [
+    (HoldKind::Span, false, FixHold::Lands { by: by.clone() }),
+    (HoldKind::Own, false, FixHold::Lands { by: by.clone() }),
+    (HoldKind::Span, true, FixHold::Failing { by: by.clone() }),
+    (HoldKind::Own, true, FixHold::Failing { by: by.clone() }),
+    (HoldKind::Landed, false, FixHold::Landed { by: by.clone() }),
+    // a merged robot fails no more: what it landed is in the target
+    (HoldKind::Landed, true, FixHold::Landed { by: by.clone() }),
+  ];
+  for (kind, failing, expected) in cases {
+    assert_eq!(fix_hold(&hold(kind), failing), expected, "{kind:?}, failing {failing}");
+  }
 }
