@@ -15,6 +15,10 @@ pub struct HostTicks {
 
 /// The CPU ticks of the host now: `host_statistics` (`HOST_CPU_LOAD_INFO`) on macOS, the line `cpu` of `/proc/stat` on
 /// Linux; `None` elsewhere, and where the system won't tell them
+#[cfg_attr(
+  not(any(target_os = "macos", target_os = "linux")),
+  expect(clippy::missing_const_for_fn, reason = "const only where the system tells no ticks")
+)]
 pub fn host_ticks() -> Option<HostTicks> {
   platform::host_ticks()
 }

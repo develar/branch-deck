@@ -430,6 +430,10 @@ impl CpuTimes {
 /// 14 to 17 of `/proc/<pid>/stat` on Linux; `None` for a gone process, one the system won't describe to this process,
 /// and on another platform. A child counts in it once the process waited for it, so a sampler sees the CPU of a child
 /// that started and ended between two looks. On macOS an exec loses the children reaped before it
+#[cfg_attr(
+  not(any(target_os = "macos", target_os = "linux")),
+  expect(clippy::missing_const_for_fn, reason = "const only where the system tells no CPU time")
+)]
 pub fn cpu_times(pid: u32) -> Option<CpuTimes> {
   #[cfg(any(target_os = "macos", target_os = "linux"))]
   return platform::cpu_times(pid);
