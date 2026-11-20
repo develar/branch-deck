@@ -73,11 +73,21 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":19,"result":{"content":[],"structuredContent":{"value":null}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":6,"result":{"instance":"main:1"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
+{"comment":"The views of the main window are tabs of the tool window, each its own page: Reviews and Landing are views of the app file, each the page. A page asks for the tab of another view with bd_invoke of plugin:air|show_view: brd asks openView of that view and answers, and it tells the instance the IDE answers the event of the call, here the reveal of a branch of Reviews in the main view."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"ui://branch-deck/reviews"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":20,"result":{"contents":[{"uri":"ui://branch-deck/reviews","mimeType":"text/html;profile=mcp-app","text":"${any}"}]}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewShown","params":{"instance":"reviews:1","view":"reviews","params":{}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"plugin:air|show_view","args":{"view":"main","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}},"_meta":{"progressToken":30,"x-air-app":{"origin":"click","app":"branch-deck","view":"reviews","instance":"reviews:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":7,"method":"x-air-app/openView","params":{"view":"main"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":30,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":7,"result":{"instance":"main:1"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"reviews:1"}}}
 {"comment":"The life of the place reaches the window registry: viewClosed forgets the page and the window of the instance."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewHidden","params":{"instance":"main:1"}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":20,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":20,"result":{}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":21,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":21,"result":{}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"main:1"}}}
 {"comment":"A tool that Branch Deck has not gets unknownTool, -32601 as the contract gives it, and runs nothing."}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"nothing","arguments":{},"_meta":{"x-air-app":{"origin":"action","app":"branch-deck"}}}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":21,"error":{"code":-32601,"message":"${any}","data":{"reason":"unknownTool"}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"nothing","arguments":{},"_meta":{"x-air-app":{"origin":"action","app":"branch-deck"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":22,"error":{"code":-32601,"message":"${any}","data":{"reason":"unknownTool"}}}}

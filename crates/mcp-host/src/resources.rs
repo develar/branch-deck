@@ -14,7 +14,7 @@ include!(concat!(env!("OUT_DIR"), "/resources.rs"));
 pub const PREFIX: &str = "ui://branch-deck/";
 
 /// The views of the app file (`docs/design/ide-embedding/protocol/examples/branch-deck.yaml`), each the page
-pub const VIEWS: &[&str] = &["main", "activity", "review", "settings", "conflicting-files", "missing-commits"];
+pub const VIEWS: &[&str] = &["main", "reviews", "landing", "activity", "review", "settings", "conflicting-files", "missing-commits"];
 
 /// The type of the page of a view (SEP-1865)
 const PAGE_TYPE: &str = "text/html;profile=mcp-app";

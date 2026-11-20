@@ -5,8 +5,8 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// The settings of the app data directory that the desktop app saved, as `bd_bootstrap` gives them; the end of the
-/// input ends `brd mcp` with 0
+/// The settings of the app data directory that the desktop app saved, as `bd_bootstrap` gives them with the title bar
+/// of the IDE; the end of the input ends `brd mcp` with 0
 #[tokio::test]
 async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
   let app_data = tempfile::tempdir().unwrap();
@@ -32,6 +32,11 @@ async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
   to_brd.write_all(format!("{bootstrap}\n").as_bytes()).await.unwrap();
   let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
   assert_eq!(answer["result"]["structuredContent"]["settings"]["values"]["theme"], "dark", "{answer:#}");
+  // the title bar of the IDE: no updates, no folder dialog, the views of the main window as tabs
+  assert_eq!(
+    answer["result"]["structuredContent"]["titleBar"],
+    json!({ "kind": "native", "checkForUpdates": false, "folderDialog": false, "viewTabs": true })
+  );
 
   drop(to_brd);
   assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(30), brd).await.unwrap().unwrap(), 0);

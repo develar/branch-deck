@@ -16,6 +16,9 @@ const PAGES: Readonly<Record<string, () => Promise<ComponentType>>> = {
   "/review": async () => (await import("@/pages/ReviewPage")).ReviewPage,
   "/settings": async () => (await import("@/pages/SettingsPage")).SettingsPage,
   "/activity": async () => (await import("@/pages/ActivityPage")).ActivityPage,
+  // the tabs of Reviews and Landing of the tool window of the IDE, each a page of its own (`MainViewTabPage`)
+  "/reviews": async () => (await import("@/pages/MainViewTabPage")).ReviewsTabPage,
+  "/landing": async () => (await import("@/pages/MainViewTabPage")).LandingTabPage,
 }
 
 /**

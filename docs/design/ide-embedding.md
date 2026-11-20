@@ -1,7 +1,7 @@
 # IDE Embedding
 
 **Status:** Draft  
-**Updated:** 2026-11-13  
+**Updated:** 2026-11-20  
 **Tags:** [ide, air, mcp, protocol, windows]
 
 ## Problem
@@ -126,8 +126,10 @@ sequenceDiagram
    by brd. The close of a window of the page (`plugin:window|close`, Escape in the review and the dialogs) is
    `x-air-app/closeView` of its instance. The menu of the desktop app is the title of the tool window: the actions
    Sync Virtual Branches, Branch Deck Command Palette and Branch Deck Settings of the app file (`titleActions`). The
-   tool window has two tabs: Branches, the main view (`tabTitle`), and Activity.
-   **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one.
+   tool window has four tabs: Branches, the main view (`tabTitle`), Reviews, Landing and Activity. The three views of
+   the main window are a page each, and no page has the switch of the desktop app.
+   **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one. A
+   switch inside the main tab would repeat the name of the tab (Branches) beside the tabs of the IDE.
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
    schemas and the golden corpus of idea-1 byte for byte (the formatter of the page leaves the directory alone) plus
@@ -157,7 +159,9 @@ sequenceDiagram
 - **A mirror** subscribes the session once for all the views of a repository, under a window of its own
   (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
   subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a
-  view names the subscription of its mirror (brd puts it in). The session dropping the subscription of a shown mirror
+  view names the subscription of its mirror (brd puts it in), and its demand is the union of the demands of the views
+  of the mirror (`Demand::union`), which brd keeps by instance: the main view and the tab of Reviews share one
+  subscription, so the demand of one never takes back what the other asks. The session dropping the subscription of a shown mirror
   is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
   is gone from a session that closed. Air ends the channel of the mirror for each view of it with that reason, and
   an exit of brd ends each mirror with `serverExited` before it fails the calls in flight. A subscription again to a
@@ -175,15 +179,20 @@ sequenceDiagram
 - **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
-  folderDialog: false}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`), so the page
-  offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots of the
-  project are its repositories.
+  folderDialog: false, viewTabs: true}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
+  so the page offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots
+  of the project are its repositories. `viewTabs` says that Branches, Reviews and Landing are tabs of the tool window.
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
   `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
   window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
   of the plugin calls of Tauri (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
   `plugin:notification|notify` → `setBadge`,
-  `setProgress` of `main`, `notify`). The actions of the app file are tools only for the app, which `tools/list`
+  `setProgress` of `main`, `notify`). A switch to the view of another tab (`showMainView` of `src/stores/main-view.ts`)
+  is `bd_invoke` of `plugin:air|show_view {view, event?, payload?}`: brd asks `openView {view}` and tells the instance
+  the IDE answers the event, such as `reveal-branch` for a branch of Reviews, the same show of a view as Show in Branch
+  Deck (`Server::show_view`). The page of the tab of Reviews or Landing (`src/pages/MainViewTabPage.tsx`, `/reviews`
+  and `/landing`) holds the session of the repository of the main view and the stores of its facts, as the review
+  window does; the Dock, the sync of the start and the update stay with the main view. The actions of the app file are tools only for the app, which `tools/list`
   names: Sync Virtual Branches is `sync`, Branch Deck Command Palette is `open_command_palette`, which sends the main
   view the event `open_command_palette` as the menu of the desktop app does, and Branch Deck Settings opens the view
   `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of

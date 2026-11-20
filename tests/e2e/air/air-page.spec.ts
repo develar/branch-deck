@@ -6,6 +6,8 @@ import type { FakeIde } from "../air-host/fake-host"
 import type { HostContextTheme } from "../air-host/host-page"
 import { expect } from "../fixtures/base-test"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
+import { availableReviewRequests, reviewRequest } from "../helpers/review-request-helpers"
 import { moveClockUntil } from "../helpers/sync-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
@@ -305,6 +307,58 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(row).toBeFocused()
     expect((await ide.calls()).filter(call => call.method === "x-air-app/openView")).toEqual([{ method: "x-air-app/openView", params: { view: "main" } }])
     expect((await ide.views()).map(view => view.instance)).toEqual(["main:1"])
+  })
+
+  test("Branches, Reviews and Landing are tabs of the tool window: the main view has no switch of the views, a view of its palette shows its tab, which reads Reviews while it shows, and a branch of Reviews shows in the tab of the branches", async ({
+    page,
+    repo,
+  }) => {
+    // the user's own pull request #203 of the branch `feature`, in the section of the authored ones of Reviews
+    await repo.setPullRequests(availablePullRequests(pullRequest("feature", 203)))
+    const own = reviewRequest("feature", 203, 5, { title: "Add the login", author: "user-name" })
+    await repo.setReviewRequests({
+      ...availableReviewRequests([]),
+      others: { authored: { totalCount: 1, entries: [{ request: own, involvement: { kind: "authored", reviewers: [], isDraft: false, branch: "feature" } }] } },
+    })
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path })
+    const row = await syncedFeatureRow(ide)
+    const main = ide.frame("main:1")
+    await expect(main.getByRole("combobox")).toBeVisible()
+    await expect(main.getByTestId("main-view-switcher")).toHaveCount(0)
+    const opened = async () => (await ide.calls()).filter(call => call.method === "x-air-app/openView").map(call => call.params)
+
+    // Reviews of the palette of the main view: brd asks the IDE for the tab of Reviews, whose page shows the repository
+    await ide.runAction("command-palette", "open_command_palette")
+    await main
+      .getByTestId("command-palette")
+      .getByRole("option", { name: /^Reviews/ })
+      .click()
+    await expect.poll(async () => (await ide.views()).map(view => view.instance)).toEqual(["main:1", "reviews:1"])
+    expect(await opened()).toEqual([{ view: "reviews" }])
+    const reviews = ide.frame("reviews:1")
+    await expect(reviews.getByRole("combobox")).toContainText(nameOf(repo.path))
+    const entry = reviews.getByTestId("reviews-section-authored").locator('[data-testid=review-request-row][data-review-number="203"]')
+    await expect(entry).toBeVisible()
+    // the session read the rest of Reviews for the demand of the tab, and both views share one mirror
+    expect(await repo.getReviewsCalls()).toBeGreaterThan(0)
+    const subscribed = (await ide.mirrorLog()).filter(item => item.kind === "subscribed")
+    expect(subscribed.map(item => item.instance)).toEqual(["main:1", "reviews:1"])
+    expect(new Set(subscribed.map(item => item.channel)).size).toBe(1)
+
+    // a click on the own pull request: the IDE shows the tab of the branches, whose page reveals the branch, the focused
+    // element of its frame (the frame of Reviews keeps the focus of the page: the fake IDE focuses no frame)
+    await entry.click()
+    await expect.poll(opened).toEqual([{ view: "reviews" }, { view: "main" }])
+    await expect.poll(() => row.evaluate(element => element === element.ownerDocument.activeElement)).toBe(true)
+
+    // Landing: a tab of its own too
+    await ide.runAction("command-palette", "open_command_palette")
+    await main
+      .getByTestId("command-palette")
+      .getByRole("option", { name: /^Landing/ })
+      .click()
+    await expect(ide.frame("landing:1").getByTestId("landing-view")).toBeVisible()
+    expect(await opened()).toEqual([{ view: "reviews" }, { view: "main" }, { view: "landing" }])
   })
 
   test("the page shows the theme of the IDE and follows its switch from Light to Dark without a reload", async ({ ide }) => {

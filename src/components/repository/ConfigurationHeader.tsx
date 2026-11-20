@@ -17,7 +17,7 @@ import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useHasFilterBar } from "@/hooks/useBranchFilter"
 import { readsLater } from "@/lib/time"
-import { hasCustomTitleBar } from "@/lib/title-bar"
+import { hasCustomTitleBar, hasViewTabs } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
@@ -112,8 +112,8 @@ export function ConfigurationHeader() {
             the title bar takes of the row (the traffic lights, or ☰ and the window buttons) */}
         <div className="@container flex min-w-0 flex-1 items-center gap-3">
           <RepositorySelector disabled={isSyncing} />
-          {/* where the user is: the view of the repository (Branches · Landing) */}
-          {hasSelectedProject && pathValidation.valid && <MainViewSwitcher />}
+          {/* where the user is: the view of the repository (Branches · Landing); in the IDE each view is a tab */}
+          {hasSelectedProject && pathValidation.valid && !hasViewTabs && <MainViewSwitcher />}
 
           {/* the filter bar says it from FILTER_BAR_MIN_BRANCHES on ("All 35") */}
           {hasSelectedProject && branchCount > 0 && !hasFilterBar && pathValidation.valid && (

@@ -392,6 +392,8 @@ projects:
   require: [git]
 views:
   main: {{ resource: ui://branch-deck/main, place: toolWindow, toolWindow: {{ anchor: bottom, title: Branch Deck, tabTitle: Branches, titleActions: [sync, command-palette, settings] }} }}
+  reviews: {{ resource: ui://branch-deck/reviews, place: toolWindowTab, toolWindowTab: {{ of: main, title: Reviews }} }}
+  landing: {{ resource: ui://branch-deck/landing, place: toolWindowTab, toolWindowTab: {{ of: main, title: Landing }} }}
   activity: {{ resource: ui://branch-deck/activity, place: toolWindowTab, toolWindowTab: {{ of: main, title: Activity }} }}
   review: {{ resource: ui://branch-deck/review, place: editor, instances: many }}
   settings: {{ resource: ui://branch-deck/settings, place: window, window: {{ width: 880, height: 640 }} }}

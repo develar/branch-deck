@@ -113,6 +113,12 @@ export async function unlinkPullRequest(repositoryPath: string, number: number):
   }
 }
 
+/**
+ * The event that asks the field of a link of Reviews for the focus in the tab of Reviews of the IDE, as the palette of
+ * the main view asks it there (`showMainView`); the tab hears it and asks the field (`requestLinkFieldFocus`)
+ */
+export const LINK_FIELD_FOCUS_EVENT = "focus-review-link"
+
 /** The field of a link takes the focus once it shows (the palette's "Add Pull Request by Link…"): one ask, once */
 let linkFieldFocus = false
 const linkFieldListeners = new Set<() => void>()

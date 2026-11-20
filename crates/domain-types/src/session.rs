@@ -40,7 +40,7 @@ use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The version of what a window holds of a session. `epoch` is random per process and session, `seq` grows by one with
 /// each patch. A patch applies only to the view at its `base`; any other view (a lost patch, another epoch) asks for a
@@ -150,6 +150,34 @@ pub struct Demand {
   /// also once no listing has them any more
   #[serde(default)]
   pub review_windows: Vec<u32>,
+}
+
+impl Demand {
+  /// The demand of several windows as one: focused or online when one of them is, each list the union of theirs,
+  /// sorted. The session asks for the facts of the union of its subscriptions, and `brd mcp` sends the union of the
+  /// views of a mirror, which share one subscription
+  pub fn union<'a>(demands: impl IntoIterator<Item = &'a Self>) -> Self {
+    fn names<'a>(lists: impl Iterator<Item = &'a Vec<String>>) -> Vec<String> {
+      lists.flatten().cloned().collect::<BTreeSet<String>>().into_iter().collect()
+    }
+    let demands: Vec<&Self> = demands.into_iter().collect();
+    Self {
+      focused: demands.iter().any(|demand| demand.focused),
+      online: demands.iter().any(|demand| demand.online),
+      visible_branches: names(demands.iter().map(|demand| &demand.visible_branches)),
+      visible_stacks: names(demands.iter().map(|demand| &demand.visible_stacks)),
+      needed: names(demands.iter().map(|demand| &demand.needed)),
+      robot_details: names(demands.iter().map(|demand| &demand.robot_details)),
+      watched_robots: names(demands.iter().map(|demand| &demand.watched_robots)),
+      reviews: demands.iter().any(|demand| demand.reviews),
+      review_windows: demands
+        .iter()
+        .flat_map(|demand| demand.review_windows.iter().copied())
+        .collect::<BTreeSet<u32>>()
+        .into_iter()
+        .collect(),
+    }
+  }
 }
 
 /// The demand of a window, by its subscription to the session (`ViewSubscription::id`)

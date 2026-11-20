@@ -19,7 +19,7 @@ import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/com
 import { openDiskUsageDialog } from "@/stores/disk-usage-dialog"
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
 import { browseRepository, useSelectedProjectPath } from "@/stores/repository"
-import { requestLinkFieldFocus } from "@/stores/reviews"
+import { LINK_FIELD_FOCUS_EVENT, requestLinkFieldFocus } from "@/stores/reviews"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
 /** Expands the row of a branch an action of the palette shows the commits of (Amend Changes…, Unapply…) */
@@ -111,8 +111,9 @@ export function CommandPalette() {
         goToBranch,
         branchMenu: actionBranch === null || branchGroups === null ? null : { name: actionBranch, groups: branchGroups },
         addPullRequestByLink: () => {
+          // here, or in the tab of Reviews of the IDE, which hears the event
           requestLinkFieldFocus()
-          showMainView("reviews")
+          showMainView("reviews", { event: LINK_FIELD_FOCUS_EVENT })
         },
         ...(repositoryPath !== undefined && repositoryPath !== "" && { showDiskUsage: () => openDiskUsageDialog(repositoryPath) }),
         ...(hasFolderDialog && { openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() } }),

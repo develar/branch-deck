@@ -16,7 +16,7 @@ export interface Bootstrap {
   readonly titleBar?: TitleBar | null
 }
 
-/** The path of the page of a view in the router of the page (`src/router.ts`): `main` is `/` */
+/** The path of the page of a view in the router of the page (`src/router.ts`): `main` is `/`, the tab `reviews` `/reviews` */
 export function pagePathOf(view: string): string {
   return view === "main" ? "/" : `/${view}`
 }
@@ -41,6 +41,6 @@ export function applyBootstrap(target: Window, bootstrap: Bootstrap): void {
     }
   }
   // the IDE draws the frame of every place: the row of the page is no title bar, the app updates with the desktop app,
-  // and the roots of the project name the repositories
-  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false, folderDialog: false }
+  // the roots of the project name the repositories, and each view of the main window is a tab of the tool window
+  target.__BD_TITLE_BAR__ = bootstrap.titleBar ?? { kind: "native", checkForUpdates: false, folderDialog: false, viewTabs: true }
 }

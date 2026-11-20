@@ -11,7 +11,8 @@
 //!   runs to its end, its answer left out.
 //! - **Mirrors** (`mirror.rs`): `x-air-app/subscribe` of a repository subscribes its session once for every view of it,
 //!   under a window of its own (`mirror:<path>`), so the close of one view ends no other's mirror; the last
-//!   `x-air-app/unsubscribe` ends it. A subscription again to a mirror brd holds, by another view or by `bd_invoke` of
+//!   `x-air-app/unsubscribe` ends it, and the session gets the union of the demands of its views. A subscription again
+//!   to a mirror brd holds, by another view or by `bd_invoke` of
 //!   `subscribe_view` (a frame holds one view, so the page asks it so), follows the prefix the git config names now: a
 //!   mirror of another prefix moves to the session of the new one in one change of every part. A patch into another
 //!   epoch of its session (a slot of a lease pool leased again, which opens the session anew) moves the mirror the same
@@ -153,8 +154,29 @@ struct Mirror {
   subscription: u32,
   instances: HashSet<String>,
   slot: Arc<Mutex<Slot>>,
-  /// The demand a view set last, which the session of another prefix takes when the mirror moves to it
-  demand: Option<Demand>,
+  /// The demand of each view of the mirror, by its instance: the views share one subscription, so the session gets the
+  /// union of them (`Demand::union`), which the session of another prefix takes when the mirror moves to it
+  demands: HashMap<String, Demand>,
+}
+
+impl Mirror {
+  /// The demand of the views of the mirror as one; none before a view set one
+  fn demand(&self) -> Option<Demand> {
+    (!self.demands.is_empty()).then(|| Demand::union(self.demands.values()))
+  }
+
+  /// `instance` set `demand`: the demand of the mirror now, the union of its views
+  fn set_demand(&mut self, instance: &str, demand: Demand) -> Demand {
+    self.demands.insert(instance.to_owned(), demand);
+    Demand::union(self.demands.values())
+  }
+
+  /// `instance` leaves the mirror: the demand of the views that stay, when `instance` had set one and a view stays
+  fn leave(&mut self, instance: &str) -> Option<Demand> {
+    self.instances.remove(instance);
+    let had = self.demands.remove(instance).is_some();
+    (had && !self.instances.is_empty()).then(|| self.demand().unwrap_or_default())
+  }
 }
 
 /// The subscription of a session that answered its view, before the view goes live in its slot
@@ -383,7 +405,8 @@ impl Server {
       }
       // Show in Branch Deck of a notification of brd: the main view shows, and reveals the branch
       Some(REVEAL_BRANCH_TOOL) => {
-        self.reveal_branch(&arguments);
+        let payload = json!({ "repositoryPath": arguments["repositoryPath"], "branchName": arguments["branchName"] });
+        self.show_view(MAIN_VIEW, Some((REVEAL_BRANCH_EVENT.to_owned(), payload)));
         self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } }));
       }
       name => self
@@ -392,21 +415,23 @@ impl Server {
     }
   }
 
-  /// Asks the IDE to show the main view, then tells the instance it answered to reveal the branch of `arguments`
-  /// (`{repositoryPath, branchName}`), which the page does when it shows that repository
-  fn reveal_branch(&self, arguments: &Value) {
-    let payload = json!({ "repositoryPath": arguments["repositoryPath"], "branchName": arguments["branchName"] });
-    let answer = self.link.request("x-air-app/openView", Some(json!({ "view": MAIN_VIEW })));
+  /// Asks the IDE to show `view`, then tells the instance it answered `event` with its payload, when there is one: Show
+  /// in Branch Deck of a notification shows the main view, which reveals the branch (`reveal-branch`), and a page shows
+  /// the tab of another view of the main window (`SHOW_VIEW_CALL`), such as the main view that reveals a branch of
+  /// Reviews. An event reaches a page that runs: a tab the IDE builds for the open loads without it
+  fn show_view(&self, view: &str, event: Option<(String, Value)>) {
+    let answer = self.link.request("x-air-app/openView", Some(json!({ "view": view })));
     let link = Arc::clone(&self.link);
+    let view = view.to_owned();
     tokio::spawn(
       async move {
         match answer.await {
           Ok(Ok(result)) => {
-            if let Some(instance) = result["instance"].as_str() {
-              link.notify("x-air-app/event", json!({ "instance": instance, "event": REVEAL_BRANCH_EVENT, "payload": payload }));
+            if let (Some(instance), Some((event, payload))) = (result["instance"].as_str(), event) {
+              link.notify("x-air-app/event", json!({ "instance": instance, "event": event, "payload": payload }));
             }
           }
-          Ok(Err(error)) => tracing::warn!(%error, "the IDE shows no main view"),
+          Ok(Err(error)) => tracing::warn!(%error, view, "the IDE shows no view"),
           Err(_) => {}
         }
       }
@@ -482,9 +507,15 @@ impl Server {
   /// makes in the desktop app: an event the page emits goes to the views of the app (to one window with a target), the
   /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE (none of a news
   /// brd told itself, `Notices::page_notification`), and the close
-  /// of the window of `instance` (Escape in a review or a dialog) closes its place. None for a command of app-api
+  /// of the window of `instance` (Escape in a review or a dialog) closes its place. The page in the IDE alone asks for
+  /// the tab of another view of the main window (`SHOW_VIEW_CALL {view, event?, payload?}`). None for a command of app-api
   fn host_command(&self, command: &str, args: &Value, instance: Option<&str>) -> Option<Value> {
     match command {
+      SHOW_VIEW_CALL => {
+        let view = args["view"].as_str().unwrap_or(MAIN_VIEW);
+        let event = args["event"].as_str().map(|event| (event.to_owned(), args.get("payload").cloned().unwrap_or(Value::Null)));
+        self.show_view(view, event);
+      }
       "plugin:event|emit" => {
         let (event, payload) = (args["event"].as_str().unwrap_or_default(), args.get("payload").cloned().unwrap_or(Value::Null));
         match args["target"].as_str() {
@@ -517,20 +548,23 @@ impl Server {
   }
 
   /// `set_demand` of a view names the subscription of its mirror, which the page does not know: the mirror of the
-  /// instance gives it, and keeps the demand for the session it moves to
+  /// instance gives it. The views of a mirror share its subscription (the main view and the tabs of Reviews and
+  /// Landing, a review), so the mirror keeps the demand of each view and the session gets the union of them
   fn with_subscription(&self, command: &str, mut args: Value, instance: Option<&str>) -> Value {
     if command != "set_demand" {
       return args;
     }
-    let demand = serde_json::from_value::<Demand>(args["params"]["demand"].clone()).ok();
-    let subscription = instance.and_then(|instance| {
+    let Some(demand) = serde_json::from_value::<Demand>(args["params"]["demand"].clone()).ok() else {
+      return args;
+    };
+    let mirrored = instance.and_then(|instance| {
       let mut mirrors = locked(&self.mirrors);
       let mirror = mirrors.values_mut().find(|mirror| mirror.instances.contains(instance))?;
-      mirror.demand.clone_from(&demand);
-      Some(mirror.subscription)
+      Some((mirror.subscription, mirror.set_demand(instance, demand)))
     });
-    if let Some(subscription) = subscription {
+    if let Some((subscription, union)) = mirrored {
       args["params"]["subscription"] = json!(subscription);
+      args["params"]["demand"] = json!(union);
     }
     args
   }
@@ -561,8 +595,9 @@ impl Server {
       values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
     }
     // the place of the view is the IDE's, the page draws no title bar of its own; the app updates with the desktop app,
-    // and the roots of the project name the repositories where the host has no folder dialog
-    let title_bar = json!({ "kind": "native", "checkForUpdates": false, "folderDialog": self.ctx.desktop.dialog.has_folder_dialog() });
+    // the roots of the project name the repositories where the host has no folder dialog, and the views of the main
+    // window are tabs of the tool window, each its own page (`viewTabs`)
+    let title_bar = json!({ "kind": "native", "checkForUpdates": false, "folderDialog": self.ctx.desktop.dialog.has_folder_dialog(), "viewTabs": true });
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
     let (warm_frame, init_data) = if view == MAIN_VIEW || instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
       let repository = self.main_repository();
@@ -622,7 +657,7 @@ impl Server {
         subscription: opened.subscription,
         instances: HashSet::from([instance]),
         slot: opened.slot,
-        demand: None,
+        demands: HashMap::new(),
       },
     );
   }
@@ -697,7 +732,7 @@ impl Server {
     let moved = locked(&self.mirrors).get_mut(path).map(|mirror| {
       let left = std::mem::replace(&mut mirror.slot, Arc::clone(&opened.slot));
       let old = std::mem::replace(&mut mirror.subscription, opened.subscription);
-      (left, old, mirror.demand.clone())
+      (left, old, mirror.demand())
     });
     let Some((left, old, demand)) = moved else {
       // the views left the mirror meanwhile
@@ -765,16 +800,23 @@ impl Server {
     }));
   }
 
-  /// `instance` leaves its mirror; the last view of a mirror ends its subscription
+  /// `instance` leaves its mirror; the last view of a mirror ends its subscription, and the session of a mirror that
+  /// other views keep gets the union of their demands without the one of `instance`
   fn leave(&self, instance: &str) {
+    let mut kept = Vec::new();
     let ended: Vec<Mirror> = {
       let mut mirrors = locked(&self.mirrors);
       for mirror in mirrors.values_mut() {
-        mirror.instances.remove(instance);
+        if let Some(demand) = mirror.leave(instance) {
+          kept.push((mirror.subscription, demand));
+        }
       }
       let empty: Vec<String> = mirrors.iter().filter(|(_, mirror)| mirror.instances.is_empty()).map(|(path, _)| path.clone()).collect();
       empty.iter().filter_map(|path| mirrors.remove(path)).collect()
     };
+    for (subscription, demand) in kept {
+      self.ctx.sessions.set_demand(SubscriptionId(subscription), &demand);
+    }
     for mirror in ended {
       *locked(&mirror.slot) = Slot::Ended;
       self.ctx.forget_page(&mirror.window);
@@ -822,6 +864,9 @@ const SETTINGS_COMMANDS: [&str; 3] = ["set_setting", "get_settings_changes", "su
 
 /// The tool of the action Sync Virtual Branches of the app file
 const SYNC_TOOL: &str = "sync";
+/// The call of a page in the IDE that shows the tab of another view of the main window, with an event for its page
+/// (`showMainView` of `src/stores/main-view.ts`); the desktop app has one window, which switches its views itself
+const SHOW_VIEW_CALL: &str = "plugin:air|show_view";
 /// The tool of the action Branch Deck Command Palette of the app file, and the event it sends the main view
 const COMMAND_PALETTE_TOOL: &str = "open_command_palette";
 

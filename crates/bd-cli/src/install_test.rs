@@ -341,7 +341,14 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
   let command = "/Applications/BranchDeck.app/Contents/MacOS/branch-deck";
   expected["server"]["command"] = command.into();
   expected["server"]["args"] = json!(["cli", "mcp"]);
-  assert_eq!(read_yaml(&ide_app_text(Path::new(command), &["cli", "mcp"])), expected);
+  let text = ide_app_text(Path::new(command), &["cli", "mcp"]);
+  assert_eq!(read_yaml(&text), expected);
+  // the order of the views is the order of the tabs of the tool window: Branches (the main view), Reviews, Landing, Activity
+  let tabs: Vec<usize> = ["\n  main:", "\n  reviews:", "\n  landing:", "\n  activity:"]
+    .iter()
+    .map(|view| text.find(view).unwrap())
+    .collect();
+  assert!(tabs.is_sorted(), "{text}");
 
   // a Windows path keeps its backslashes
   let windows = r"C:\Program Files\Branch Deck\brd.exe";

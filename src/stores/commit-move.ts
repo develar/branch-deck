@@ -2,8 +2,16 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { selectBranchRange, toggleBranch } from "@/lib/branch-selection"
-import { showMainViewNow } from "@/stores/main-view"
+import { isInAnotherTab, showMainView, showMainViewNow } from "@/stores/main-view"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 import { onRowsForgotten } from "@/stores/view-rows"
+
+/**
+ * The event that reveals a branch in the main view of the IDE (`useRevealBranchEvent`): `brd mcp` tells it for Show in
+ * Branch Deck of a notification (`REVEAL_BRANCH_EVENT` of `crates/mcp-host/src/notices.rs`), and a page of another tab
+ * asks it with the tab of the branches (`requestReveal`)
+ */
+export const REVEAL_BRANCH_EVENT = "reveal-branch"
 
 /** Source key of the unassigned commits list; branch lists use the branch name (never empty). */
 export const UNASSIGNED_SOURCE = ""
@@ -209,9 +217,14 @@ export function setNewBranchDrop(drop: NewBranchDrop | null): void {
 
 /**
  * Shows a branch (a toast, the Activity window, a review window, F2, the palette): the main window switches to the
- * branches first, committed at once, so the caller can focus the row next
+ * branches first, committed at once, so the caller can focus the row next. In a tab of the IDE other than the branches
+ * (Reviews, Landing), the IDE shows the tab of the branches, whose page reveals the branch (`REVEAL_BRANCH_EVENT`)
  */
 export function requestReveal(reveal: RevealRequest | null): void {
+  if (reveal !== null && isInAnotherTab("branches")) {
+    showMainView("branches", { event: REVEAL_BRANCH_EVENT, payload: { repositoryPath: getSelectedRepositoryPath(), branchName: reveal.branchName } })
+    return
+  }
   if (reveal !== null) {
     showMainViewNow("branches")
   }

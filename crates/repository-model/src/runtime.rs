@@ -1226,28 +1226,9 @@ impl Actor {
     robots_digest(&self.state, self.facts.robots.view(), asked_robots(&self.demand()))
   }
 
-  /// The demand of all the windows of the session: focused or online when one of them is, each list the union of
-  /// theirs, sorted
+  /// The demand of all the windows of the session (`Demand::union`)
   fn demand(&self) -> Demand {
-    fn union<'a>(lists: impl Iterator<Item = &'a Vec<String>>) -> Vec<String> {
-      lists.flatten().cloned().collect::<BTreeSet<String>>().into_iter().collect()
-    }
-    let demands = || self.demands.values();
-    Demand {
-      focused: demands().any(|demand| demand.focused),
-      online: demands().any(|demand| demand.online),
-      visible_branches: union(demands().map(|demand| &demand.visible_branches)),
-      visible_stacks: union(demands().map(|demand| &demand.visible_stacks)),
-      needed: union(demands().map(|demand| &demand.needed)),
-      robot_details: union(demands().map(|demand| &demand.robot_details)),
-      watched_robots: union(demands().map(|demand| &demand.watched_robots)),
-      reviews: demands().any(|demand| demand.reviews),
-      review_windows: demands()
-        .flat_map(|demand| demand.review_windows.iter().copied())
-        .collect::<BTreeSet<u32>>()
-        .into_iter()
-        .collect(),
-    }
+    Demand::union(self.demands.values())
   }
 
   fn apply_event(&mut self, run: RunId, event: SyncEvent) {

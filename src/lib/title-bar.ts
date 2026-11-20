@@ -7,8 +7,9 @@
  * - `native`: the system title bar above the row, on Linux where a custom one doesn't fit (WSL, a tiling window
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
  *
- * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`) and whether
- * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`)
+ * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`), whether
+ * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`) and whether the host shows each view of
+ * the main window in a tab of its own (`viewTabs`, `brd mcp`)
  */
 export type TitleBar = (
   | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
@@ -31,6 +32,12 @@ export type TitleBar = (
    * Repository… and Add Companion…; false in the IDE, whose roots name the repositories. Offered unless false
    */
   readonly folderDialog?: boolean
+  /**
+   * The host shows Branches, Reviews and Landing each in a tab of its own, a page each (the tool window of the IDE): no
+   * page has the switch of the views, and a switch to the view of another tab asks the host for that tab
+   * (`showMainView`); absent in the desktop app, whose main window switches its views
+   */
+  readonly viewTabs?: boolean
 }
 
 export type WindowButton = "minimize" | "maximize" | "close"
@@ -50,7 +57,8 @@ export type DoubleClickAction = "toggle-maximize" | "minimize" | "none"
 /** Why the system title bar stays */
 export type NativeTitleBarReason = "env" | "wsl" | "no-desktop" | "tiling-wm" | "setting"
 
-export const titleBar: TitleBar = window.__BD_TITLE_BAR__ ?? { kind: "native", checkForUpdates: false }
+/** As the backend set it; the native one without a page (a unit test in Node, which reads the stores of views) */
+export const titleBar: TitleBar = (typeof window === "undefined" ? undefined : window.__BD_TITLE_BAR__) ?? { kind: "native", checkForUpdates: false }
 
 /** The page draws the title bar: its empty parts drag the window */
 export const drawsTitleBar = titleBar.kind !== "native"
@@ -66,3 +74,6 @@ export const updatesItself = titleBar.checkForUpdates
 
 /** The host has a folder dialog, as the backend says: Open Repository… and Add Companion… pick a folder in it */
 export const hasFolderDialog = titleBar.folderDialog !== false
+
+/** The host shows each view of the main window in a tab of its own, as the backend says (`TitleBar.viewTabs`) */
+export const hasViewTabs = titleBar.viewTabs === true

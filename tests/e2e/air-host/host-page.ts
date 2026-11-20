@@ -450,8 +450,11 @@ function bridgeOf(info: HostView): AppBridge {
   return bridge
 }
 
-/** The views of one instance: the tool window of the app file (`main`, `place: toolWindow`) */
-const SINGLE_VIEWS = new Set(["main"])
+/**
+ * The views of one instance: the tool window of the app file (`main`, `place: toolWindow`) and its tabs (`place:
+ * toolWindowTab`), as the contract has a tool window and a tab always one
+ */
+const SINGLE_VIEWS = new Set(["main", "reviews", "landing", "activity"])
 
 /** The instances whose place the IDE hides (another tab, a hidden tool window) */
 const hidden = new Set<string>()
