@@ -19,14 +19,14 @@ use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of, replay_range_with_env};
 use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, known_dirs, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
-use crate::update_resolve::RESOLVE_NOTES_REF;
+use crate::update_resolve::{LostBindingFinding, RESOLVE_NOTES_REF};
 use crate::word_replay::{WordsOutcome, replay_resolving_words, resolve_note};
 use crate::word_resolve::ResolveMode;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update, prepare_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use domain_types::error::ErrorCode;
-use domain_types::update_project::{AppliedUpdate, FirstConflict, UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
+use domain_types::update_project::{AppliedUpdate, FirstConflict, UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
@@ -99,6 +99,11 @@ pub struct UpdatePlan {
   new_head: Option<String>,
   /// HEAD after the replay, also when local changes block it; `None` up to date and on a conflict
   replayed_head: Option<String>,
+  /// HEAD after the replay of a clean rebase, before the signature pass: what the lost bindings of the replay are read
+  /// on (`unsigned_head`)
+  unsigned_head: Option<String>,
+  /// The lost bindings of a clean replay (`into_lost_bindings_conflict`): a resolve session starts at their round
+  lost: Option<LostBindingsStart>,
   /// The update changes HEAD's tree, so the index and the working tree must follow
   files_change: bool,
   /// The paths a clean update changes, whose local changes `recheck_update` reads under the lock
@@ -171,6 +176,14 @@ impl ReplayPlan {
   }
 }
 
+/// What a resolve session starts from when the clean replay of its check lost bindings: the tip the replay wrote, every
+/// local commit on it, and the lost bindings (`update_resolve::LostBindingFinding`) of its round
+#[derive(Debug, Clone)]
+pub struct LostBindingsStart {
+  pub tip: String,
+  pub findings: Vec<LostBindingFinding>,
+}
+
 /// The branch and the commits a check read
 #[derive(Debug, Clone)]
 pub(crate) struct CheckedState {
@@ -232,6 +245,84 @@ impl UpdatePlan {
   /// paired nothing (no rebase, `LandedLookup::Off`)
   pub fn landed_reads(&self) -> Option<&LandedReads> {
     self.landed_reads.as_deref()
+  }
+
+  /// HEAD after the replay of a clean rebase without the signature pass, with the identities of the local commits: the
+  /// copies a caller reads the lost bindings of (`trial_check::lost_bindings::replay_lost_bindings`); `None` for any
+  /// other check
+  pub fn unsigned_head(&self) -> Option<&str> {
+    self
+      .unsigned_head
+      .as_deref()
+      .filter(|_| matches!(self.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }))
+  }
+
+  /// The start of a session from a clean replay that lost bindings (`into_lost_bindings_conflict`)
+  pub const fn lost_bindings_start(&self) -> Option<&LostBindingsStart> {
+    self.lost.as_ref()
+  }
+
+  /// Turn a clean rebase whose replay lost bindings (`found`, by the order of the local commits, as the caller's rule
+  /// read them on `unsigned_head`) into a conflict that moves nothing: the first local commit with one, with the files of
+  /// its lost bindings and the upstream commits that change them (one `log --no-walk` and one `log` of the upstream), and
+  /// the lost bindings (`FirstConflict::lost_bindings`). A resolve session starts from it at the lost-bindings round of
+  /// that commit, on the tip the replay wrote. `local` are the local commits the replay replayed, oldest first, for a
+  /// replay that left none out (no `ReplayPlan`)
+  ///
+  /// # Errors
+  /// The plan is no clean rebase, git failed
+  pub fn into_lost_bindings_conflict(&mut self, git_executor: &GitCommandExecutor, repo_path: &str, found: Vec<LostBindingFinding>, local: Vec<String>) -> Result<()> {
+    let Some(tip) = self.unsigned_head().map(str::to_string) else {
+      bail!("Only the check of a clean rebase can lose bindings");
+    };
+    let Some(original) = found.first().map(|lost| lost.original.clone()) else {
+      bail!("No lost binding to turn into a conflict");
+    };
+    let lost: Vec<&LostBindingFinding> = found.iter().filter(|lost| lost.original == original).collect();
+    let mut files: Vec<String> = Vec::new();
+    for finding in &lost {
+      if !files.contains(&finding.file) {
+        files.push(finding.file.clone());
+      }
+    }
+    let mut commit = local_commits(git_executor, repo_path, &["--no-walk", &original])?
+      .pop()
+      .ok_or_else(|| anyhow!("git log printed no commit {original}"))?;
+    commit.files.clone_from(&files);
+    let upstream_range = format!("{}..{}", self.check.base, self.check.upstream_head);
+    let upstream_commits = commits_touching(git_executor, repo_path, &[&upstream_range], &files, Some(MAX_UPSTREAM_COMMITS))?;
+    debug!(commit = %original, lost = lost.len(), "the replay loses bindings");
+    self.check.state = UpdateState::Conflict {
+      first_conflict: FirstConflict {
+        commit,
+        file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
+        files,
+        upstream_commits,
+        lost_bindings: lost
+          .iter()
+          .map(|lost| UpdateLostBinding {
+            file: lost.file.clone(),
+            name: lost.name.clone(),
+            binding: lost.binding,
+            use_line: lost.use_line,
+            binding_line: lost.binding_line,
+          })
+          .collect(),
+      },
+    };
+    self.check.resolved_by_words.clear();
+    if self.replay.is_none() {
+      self.replay = Some(ReplayPlan::of(LandedPairing::unpaired(local)));
+    }
+    // the session signs its tip at its finish; the signature pass of the check is of no use
+    self.discard(git_executor, repo_path);
+    self.new_head = None;
+    self.replayed_head = None;
+    self.files_change = false;
+    self.changed.clear();
+    self.blocks_unchecked = false;
+    self.lost = Some(LostBindingsStart { tip, findings: found });
+    Ok(())
   }
 
   /// Delete the temporary ref of the signature pass when the prepared update is abandoned
@@ -421,6 +512,8 @@ fn check_update_with(
     purpose,
     new_head: None,
     replayed_head: None,
+    unsigned_head: None,
+    lost: None,
     files_change: false,
     changed: Vec::new(),
     blocks_unchecked: false,
@@ -510,6 +603,7 @@ fn check_update_with(
   }
   let Some(mut new_head) = new_head else { return Ok(plan) };
   plan.replayed_head = Some(new_head.clone());
+  plan.unsigned_head = Some(new_head.clone());
   if !blocked.is_empty() {
     plan.check.state = blocked_state(blocked);
     return Ok(plan);
@@ -761,6 +855,7 @@ fn conflict_outcome(
       files,
       file_count,
       upstream_commits,
+      lost_bindings: Vec::new(),
     },
     plan,
     landed_reads,

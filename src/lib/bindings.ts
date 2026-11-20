@@ -2986,8 +2986,8 @@ export type ErrorCode =
  *  `brd safe-push`, `brd land`: a commit of what the robot lands removes the import or the private declaration of a
  *  name that its file in the tree that lands still uses, which the commit on HEAD doesn't (the branch is built without
  *  a commit that changed the use); git merges it, the build would fail. `--allow-dangling` starts anyway.
- *  `brd update --continue`: the resolution of a round leaves such a name (`lost_bindings` of the round); keep the
- *  binding in the copy, or `--keep-name <name>` when the user says it resolves another way
+ *  `brd update --continue`: the edit of a lost-bindings round still leaves a name of `session.lost_bindings` unbound;
+ *  keep the binding in the copy (or drop the use), or `--keep-name <name>` when the user says it resolves another way
  */
 "lost_binding" | 
 /**
@@ -3678,6 +3678,12 @@ export type FirstConflict = {
 	 *  `MAX_UPSTREAM_COMMITS`
 	 */
 	upstreamCommits: UpdateCommit[],
+	/**
+	 *  The replay merges without a conflict of git, but the copy of `commit` removes the binding of a name that the
+	 *  upstream added a use of: these names, whose `files` would not compile (`trial_check::lost_bindings`). Empty for a
+	 *  conflict of git
+	 */
+	lostBindings?: UpdateLostBinding[],
 };
 
 /**  Steps that belong together: they share a branch, and their plan alone has the result */
@@ -10865,6 +10871,21 @@ export type UpdateKind =
 "fastForward" | 
 /**  The local commits are replayed onto the upstream */
 "rebase";
+
+/**
+ *  A name whose binding a local commit removes while the upstream added a use of it in the same file: git merges the
+ *  replay, and the file fails to compile
+ */
+export type UpdateLostBinding = {
+	file: string,
+	name: string,
+	/**  What bound it: an import, or a `private` declaration of the file */
+	binding: BindingKind,
+	/**  The first line that uses it in the file after the replay, 1-based */
+	useLine: number,
+	/**  The line of the binding before the commit, 1-based */
+	bindingLine: number,
+};
 
 /**
  *  What an update answered (`Intent::UpdateProject`): the check against the fetched upstream, what it changed and the

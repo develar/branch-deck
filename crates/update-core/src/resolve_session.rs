@@ -5,6 +5,7 @@
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
+use crate::update_project::finding_of;
 use crate::update_project::{LandedReport, record_landed_update};
 use anyhow::{Result, anyhow};
 use domain_types::conflict::ResolvedFileSummary;
@@ -21,13 +22,14 @@ use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_resolve::{
-  ConflictKind, EditCopy, LandedInput, Outcome, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects, Session, SessionState,
-  SessionStatus, Side, Stage, Step, abort_session, apply_prepared_round, commit_patch, finish_prepared, list_sessions, prepare_continue_session, read_round_objects, read_session,
-  round_upstream_commits, session_blocked_paths,
+  ConflictKind, EditCopy, LandedInput, LostBindingFinding, LostBindingRule, Outcome, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects,
+  Session, SessionState, SessionStatus, Side, Stage, Step, abort_session, apply_prepared_round, commit_patch, finish_prepared, list_sessions, prepare_continue_session,
+  read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
 };
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{LockWait, RepositoryLock, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
+use object_cache::cache::ObjectCache;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,6 +38,7 @@ use sync_core::lease_state::LeaseGuard;
 use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
+use trial_check::lost_bindings::{ReplayRanges, lost_names_in_edit, replay_lost_bindings};
 
 /// A branch whose unapply is a safe next step after an unsupported conflict, when its dry run succeeds
 pub fn unapply_branch_suggestion(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, commit: &str, lock_wait: LockWait) -> Option<String> {
@@ -54,6 +57,33 @@ pub fn unapply_branch_suggestion(git_executor: &GitCommandExecutor, repository_p
   };
   unapply_branch_core(git_executor, params, branch_prefix, &options).ok()?;
   Some(branch)
+}
+
+/// The lost-binding rule of the resolve sessions (`trial_check::lost_bindings`): before a session finishes, the copies of
+/// its tip against the local commits, but the names a round kept; in a lost-bindings round, the edit of each file
+pub(crate) struct ReplayRule;
+
+impl LostBindingRule for ReplayRule {
+  fn replayed(&self, git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<Vec<LostBindingFinding>> {
+    let kept: Vec<(String, String)> = state
+      .resolutions
+      .iter()
+      .filter_map(|resolution| resolution.fixup.as_ref())
+      .flat_map(|fixup| fixup.kept.iter().map(|kept| (kept.file.clone(), kept.name.clone())))
+      .collect();
+    let ranges = ReplayRanges {
+      tip: &state.tip,
+      head: &state.head,
+      upstream_head: &state.upstream_head,
+      excluded: &state.excluded,
+    };
+    let replayed = replay_lost_bindings(git_executor, repo_path, &ObjectCache::disabled(), ranges, &kept)?;
+    Ok(replayed.found.into_iter().map(finding_of).collect())
+  }
+
+  fn left_in_edit(&self, path: &str, before: &[u8], edited: &[u8]) -> Vec<(String, u32)> {
+    lost_names_in_edit(path, before, edited).into_iter().map(|lost| (lost.name, lost.use_line)).collect()
+  }
 }
 
 /// No resolve session for this worktree
@@ -532,6 +562,8 @@ pub struct ContinueOptions {
   pub drop_empty: Option<String>,
   /// `--landed <commit> [--user]`: take `onto` for every file and drop the round's commit as its upstream twin
   pub landed: Option<LandedInput>,
+  /// `--keep-name <name>`: a lost-bindings round accepts the name unbound, on the user's word
+  pub keep_names: Vec<String>,
   /// The guard of the record of what landed, once the session finishes: the lease `brd` began under
   /// (`lease_pool::epoch::lease_guard`)
   pub lease: LeaseGuard,
@@ -581,10 +613,22 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     allow_empty: options.allow_empty,
     drop_empty: options.drop_empty.clone(),
     landed: options.landed.clone(),
+    keep_names: options.keep_names.clone(),
   };
   let resolve = config.resolve_mode()?;
-  let step = prepare_continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve, signing)
-    .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
+  let step = prepare_continue_session(
+    git_executor,
+    repo_path,
+    &worktree,
+    session,
+    options.round,
+    &input,
+    options.dry_run,
+    resolve,
+    signing,
+    &ReplayRule,
+  )
+  .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
   let step = match step {
     Step::PreparedRound(prepared) => {
       let held = lock_and_recheck_edits(git_executor, repo_path, lock_timeout, lock.take(), &previous, &input, || {
@@ -806,6 +850,7 @@ fn outcome(
       let taken_onto: Vec<String> = state
         .resolutions
         .iter()
+        .filter(|resolution| resolution.fixup.is_none())
         .filter(|resolution| !resolution.dropped() || (resolution.landed.is_none() && state.candidate_of(&resolution.commit).is_none()))
         .flat_map(|resolution| &resolution.paths)
         .filter(|path| path.outcome == Outcome::Onto)

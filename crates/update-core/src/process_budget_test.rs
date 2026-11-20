@@ -5,7 +5,7 @@
 use crate::resolve_session::unapply_branch_suggestion;
 use crate::update_project::update_project_test::{Setup, path, setup};
 use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, update_and_resolve, update_project_core};
-use domain_types::update_project::UpdateState;
+use domain_types::update_project::{UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::LockWait;
 use sync_core::lease_state::LeaseGuard;
@@ -13,13 +13,15 @@ use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, assert_signed_commits, counting, with_added_processes};
 
 /// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`): one `update-index`, the
-/// refresh of the user's index that the dry run of the local changes copies and the move takes as it is
+/// refresh of the user's index that the dry run of the local changes copies and the move takes as it is; one `log` of
+/// the copies of the clean replay and the local commits, for the lost bindings the replay brought
+/// (`check_lost_bindings`): the upstream changes no file the local commit changes, so no summary is read
 const UPDATE: &[(&str, u32)] = &[
   ("cat-file", 1),
   ("config", 2),
   ("diff-tree", 2),
   ("for-each-ref", 1),
-  ("log", 3),
+  ("log", 4),
   ("merge-base", 2),
   ("read-tree", 2),
   ("remote", 1),
@@ -39,8 +41,9 @@ fn with_fetch(processes: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
   all
 }
 
-fn run_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) {
-  let result = update_project_core(
+/// Update Project of `repo` on `git`, with its fetch or without
+fn app_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) -> UpdateProjectResult {
+  update_project_core(
     git,
     &UpdateProjectParams {
       repository_path: path(repo).to_string(),
@@ -50,7 +53,11 @@ fn run_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) {
     &|_| {},
     LockWait::default(),
   )
-  .unwrap();
+  .unwrap()
+}
+
+fn run_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) {
+  let result = app_update(git, repo, fetch);
   assert!(result.applied.is_some(), "{result:?}");
 }
 
@@ -152,17 +159,7 @@ fn a_conflicting_update_pairs_its_commits_once() {
   let (_upstream, clone, _, _) = TestRepo::upstream_and_clone_with_twins(false);
   clone.git(&["fetch", "--quiet", "origin"]);
   let git = counting();
-  let result = update_project_core(
-    &git,
-    &UpdateProjectParams {
-      repository_path: path(&clone).to_string(),
-      fetch: false,
-      lease: LeaseGuard::any(),
-    },
-    &|_| {},
-    LockWait::default(),
-  )
-  .unwrap();
+  let result = app_update(&git, &clone, false);
   assert!(matches!(result.check.state, UpdateState::Conflict { .. }), "{result:?}");
   assert_processes(
     &git,
@@ -182,6 +179,145 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("rev-parse", 4),
       ("symbolic-ref", 2),
       ("var", 1),
+    ],
+  );
+}
+
+/// Update Project of the incident (`TestRepo::upstream_and_clone_losing_bindings`) after its fetch: the check of
+/// `an_update_after_its_fetch` up to its clean replay (the pairing compares the patch ids of the local commit and the
+/// upstream one by the same author, which change the same file: one `diff-tree -p` with `patch-id`), whose `log` of
+/// the copies and the local commits finds the file both changed; its summaries before and after the copy and the local
+/// commit, and at the tip, from one `cat-file --batch` (no cache: the copy's blobs are merge results). The lost bindings
+/// make it a conflict, described by the commit (`log --no-walk`) and the upstream commits that change its file (`log`).
+/// A conflict moves nothing: no lock, no witness, no files
+#[test]
+fn an_update_whose_clean_replay_loses_bindings() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  let result = app_update(&git, &clone, false);
+  let UpdateState::Conflict { first_conflict } = &result.check.state else {
+    panic!("not a conflict: {result:?}");
+  };
+  assert_eq!(first_conflict.lost_bindings.len(), 2);
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 2),
+      ("config", 2),
+      ("diff-tree", 3),
+      ("for-each-ref", 1),
+      ("log", 5),
+      ("merge-base", 2),
+      ("patch-id", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 1),
+      ("rev-parse", 3),
+      ("symbolic-ref", 2),
+    ],
+  );
+}
+
+/// `brd update` of `repo` without a fetch on `git`: the round of the resolve session it starts
+fn lost_bindings_round(git: &GitCommandExecutor, repo: &TestRepo) -> crate::resolve_session::SessionView {
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::default(),
+    onto: None,
+    lease: &LeaseGuard::any(),
+  };
+  let BdUpdate::Session(outcome) = update_and_resolve(git, path(repo), options, None).unwrap() else {
+    panic!("no session");
+  };
+  match *outcome {
+    crate::resolve_session::SessionOutcome::Round(view) => view,
+    other => panic!("no round: {other:?}"),
+  }
+}
+
+/// `brd update` of the incident: the check of `an_update_whose_clean_replay_loses_bindings` after the look for a
+/// resolve session of the worktree (`cat-file`), then the session starts at the lost-bindings round on the tip the check
+/// replayed, with no replay of its own: after the sweep of stale temporary refs (`for-each-ref`) and the committer
+/// (`var`), the ids and modes of the round's file at the tip, before and in the copy (`cat-file --batch-check`) and its
+/// objects (`cat-file --batch`); under the lock the witness (`rev-parse`, `symbolic-ref`), the state commit and the
+/// session ref (`fast-import`, `update-ref`) and the patch of the copies (`log`). The view after the lock reads the local
+/// changes that will block the finish (two `diff-tree`, the sizes and the hashes of the files) and the upstream commits
+/// of the file (`log`)
+#[test]
+fn a_bd_update_whose_clean_replay_loses_bindings_opens_its_round() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  lost_bindings_round(&git, &clone);
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 6),
+      ("config", 2),
+      ("diff-tree", 5),
+      ("fast-import", 1),
+      ("for-each-ref", 2),
+      ("hash-object", 1),
+      ("log", 7),
+      ("merge-base", 2),
+      ("patch-id", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 1),
+      ("rev-parse", 4),
+      ("symbolic-ref", 3),
+      ("update-ref", 1),
+      ("var", 1),
+    ],
+  );
+}
+
+/// `brd update --continue` of the lost-bindings round of `a_bd_update_whose_clean_replay_loses_bindings_opens_its_round`
+/// with an edit that binds both names again: the session (`cat-file`), the config once, the objects of the round
+/// (`cat-file --batch`), whose edit the rule reads in process; the edit as one `fixup!` commit on the tip
+/// (`fast-import`); the replay is done, so before the finish the rule reads the copies and the local commits once more
+/// (`log`): the tip binds the names, nothing is left, and the session finishes as every finish does
+#[test]
+fn the_fixup_of_a_lost_bindings_round_finishes_the_update() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let view = lost_bindings_round(clone.git_executor(), &clone);
+  let edit = &view.round.as_ref().unwrap().files[0].edit;
+  let content = std::fs::read_to_string(edit).unwrap();
+  let fixed = content
+    .replace("import b.keep\n", "import b.keep\nimport b.rethrow\n")
+    .replace("  private val name: String,\n", "  private val name: String,\n  private val backend: () -> Int,\n");
+  std::fs::write(edit, fixed).unwrap();
+
+  let git = counting();
+  let continued = crate::resolve_session::continue_resolve(
+    &git,
+    path(&clone),
+    &crate::resolve_session::ContinueOptions {
+      lease: LeaseGuard::any(),
+      ..crate::resolve_session::ContinueOptions::default()
+    },
+    std::time::Duration::from_secs(10),
+  )
+  .unwrap();
+  assert!(matches!(continued, crate::resolve_session::SessionOutcome::Applied { .. }), "{continued:?}");
+  assert_eq!(clone.git(&["log", "-1", "--format=%s"]), "fixup! (launch) Drop the old path");
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 5),
+      ("check-attr", 1),
+      ("config", 2),
+      ("diff-tree", 3),
+      ("fast-import", 2),
+      ("log", 4),
+      ("read-tree", 2),
+      ("rev-list", 1),
+      ("rev-parse", 3),
+      ("symbolic-ref", 2),
+      ("update-index", 2),
+      ("update-ref", 3),
     ],
   );
 }

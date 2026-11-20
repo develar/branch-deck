@@ -23,16 +23,22 @@
 //!   either side, a declaration in a parse error or an `override` one tells nothing.
 //! - **Cost**: the changes of the commits from one `log --raw` (`diff_scan::read_commit_changes`), the summaries from
 //!   the object cache or one `cat-file --batch` of the misses (`symbol_scan::read_change_summaries`).
+//! - **The update** (`replay_lost_bindings`): the copies of its replay against the local commits, both ranges from one
+//!   `log --raw`, and only the files a copy and its original change from other blobs (the upstream changed them too)
+//!   summarized; a finding counts only while the file at the tip still lacks the binding, so a later commit that binds
+//!   the name again, the `fixup!` of a lost-bindings round of `brd update` among them, leaves none
+//!   (docs/design/git-operations.md, "Update project"). `lost_names_in_edit` checks the edit of such a round.
 
-use crate::diff_scan::{CommitDiff, Renames, read_commit_changes};
+use crate::diff_scan::{CommitDiff, DIFF_OPTIONS, Renames, parse_commit_diffs, read_commit_changes};
 use crate::symbol_scan::read_change_summaries;
-use anyhow::Result;
+use anyhow::{Result, bail};
+use code_symbols::extract::summarize;
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::{DeclKind, FileSummary, ImportTarget, Reach, Role};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::FileChange;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -80,37 +86,49 @@ pub fn find_lost_bindings(git: &GitCommandExecutor, repository_path: &str, cache
 
 /// The lost bindings of the commits of `diffs`, each with its position in `diffs` as its `index`
 fn lost_of_diffs(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, diffs: &[CommitDiff]) -> Result<Vec<LostBinding>> {
-  let candidate = |change: &&FileChange| change.status == 'M' && change.old_blob.is_some() && change.new_blob.is_some() && is_checked(&change.path);
   // the modified files on both sides, the files a commit adds for the names that moved into them
   let read = |change: &&FileChange| change.new_blob.is_some() && is_checked(&change.path);
-  let has_candidates = diffs.iter().flat_map(|diff| &diff.files).any(|change| candidate(&change));
+  let has_candidates = diffs.iter().flat_map(|diff| &diff.files).any(is_candidate);
   if !has_candidates {
     return Ok(Vec::new());
   }
   let summaries = read_change_summaries(git, repository_path, cache, diffs.iter().flat_map(|diff| &diff.files).filter(read))?;
   let mut found = Vec::new();
   for (index, diff) in diffs.iter().enumerate() {
-    for change in diff.files.iter().filter(candidate) {
-      let (Some(before), Some(after)) = (summary(&summaries, change.old_blob.as_deref()), summary(&summaries, change.new_blob.as_deref())) else {
-        continue;
-      };
-      for lost in lost_in(before, after) {
-        if moved(diff, &summaries, &change.path, &lost.name) {
-          continue;
-        }
-        found.push(LostBinding {
-          commit: diff.id.clone(),
-          index,
-          file: change.path.clone(),
-          name: lost.name,
-          kind: lost.kind,
-          binding_line: lost.binding_line,
-          use_line: lost.use_line,
-        });
-      }
+    for (file, lost) in lost_of_diff(diff, &summaries, |_| true) {
+      found.push(LostBinding {
+        commit: diff.id.clone(),
+        index,
+        file: file.to_string(),
+        name: lost.name,
+        kind: lost.kind,
+        binding_line: lost.binding_line,
+        use_line: lost.use_line,
+      });
     }
   }
   Ok(found)
+}
+
+/// The lost bindings of the commit of `diff` in the files `checked` takes, by file, with the summaries of its files
+fn lost_of_diff<'a>(diff: &'a CommitDiff, summaries: &HashMap<String, Arc<FileSummary>>, checked: impl Fn(&str) -> bool) -> Vec<(&'a str, LostName)> {
+  let mut found = Vec::new();
+  for change in diff.files.iter().filter(|change| is_candidate(change) && checked(&change.path)) {
+    let (Some(before), Some(after)) = (summary(summaries, change.old_blob.as_deref()), summary(summaries, change.new_blob.as_deref())) else {
+      continue;
+    };
+    for lost in lost_in(before, after) {
+      if !moved(diff, summaries, &change.path, &lost.name) {
+        found.push((change.path.as_str(), lost));
+      }
+    }
+  }
+  found
+}
+
+/// A change the rule reads: a Kotlin or Java file modified, with its blob on both sides
+fn is_candidate(change: &FileChange) -> bool {
+  change.status == 'M' && change.old_blob.is_some() && change.new_blob.is_some() && is_checked(&change.path)
 }
 
 /// The lost bindings that the copies of commits have and their originals don't, each with the index of its pair in
@@ -148,6 +166,207 @@ pub fn introduced_lost_bindings(git: &GitCommandExecutor, repository_path: &str,
       .map(|(pair, lost)| (pair, lost.clone()))
       .collect(),
   )
+}
+
+/// A replay: the copies of the local commits on the upstream and the originals they copy, as two ranges
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayRanges<'a> {
+  /// The tip of the copies: the upstream with the replayed commits (and the commits a resolve session added) on it
+  pub tip: &'a str,
+  /// The tip of the originals: HEAD before the update
+  pub head: &'a str,
+  /// The upstream the copies are on: neither range has its commits
+  pub upstream_head: &'a str,
+  /// The previous upstream tips the originals leave out (`git_ops::update_branch::UpdatePlan::excluded`)
+  pub excluded: &'a [String],
+}
+
+/// A lost binding that a replay brought: the copy of a local commit removes the binding of a name the file at the tip
+/// still uses, and the original doesn't
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayedLostBinding {
+  /// The local commit, its full id
+  pub original: String,
+  /// Its copy on the upstream
+  pub copy: String,
+  pub file: String,
+  pub name: String,
+  pub kind: BindingKind,
+  /// The line of the binding before the copy, 1-based
+  pub binding_line: u32,
+  /// The first line at the tip that uses the name, 1-based
+  pub use_line: u32,
+}
+
+/// What `replay_lost_bindings` read
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReplayLostBindings {
+  /// By the order of the originals, each commit's by file and line
+  pub found: Vec<ReplayedLostBinding>,
+  /// The originals, oldest first
+  pub originals: Vec<String>,
+}
+
+/// The format of a commit of `replay_lost_bindings`: the id, the tip it was reached from (`%S`, the copies' or the
+/// originals'), and its identity (author email, author time, subject), split by `UNIT`
+const REPLAY_FORMAT: &str = "--format=%x1e%H%x1f%S%x1f%ae%x1f%at%x1f%s";
+const UNIT: char = '\x1f';
+
+/// The lost bindings a replay brought (`ReplayRanges`): of a copy, which its original lacks, whose name the file at the
+/// tip still uses without a binding, but the `kept` ones (file, name: the user said they resolve another way). A copy is
+/// paired with its original by identity, the author's email and time and the subject (`git replay` drops a commit that
+/// becomes empty, so positions shift); a copy without one (a `fixup!` a resolve session wrote) is no finding.
+///
+/// Only a file that the copy and its original change from other blobs can differ in the rule's answer: the upstream
+/// changed it too. So both ranges come from one `log --raw` (`%S` tells them apart), and the summaries of the commits
+/// with such a file from the object cache or one `cat-file --batch` of the misses: none at all when the upstream changed
+/// no file a local commit changes
+#[instrument(skip_all, fields(tip = ranges.tip, head = ranges.head))]
+pub fn replay_lost_bindings(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  ranges: ReplayRanges<'_>,
+  kept: &[(String, String)],
+) -> Result<ReplayLostBindings> {
+  let mut input = format!("{}\n{}\n^{}\n", ranges.tip, ranges.head, ranges.upstream_head);
+  for excluded in ranges.excluded {
+    input.push('^');
+    input.push_str(excluded);
+    input.push('\n');
+  }
+  let mut args = vec!["log", "--stdin", "--topo-order", "--reverse", REPLAY_FORMAT, "-z", "--raw", "--no-abbrev", "--no-renames"];
+  args.extend(DIFF_OPTIONS);
+  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
+  let mut copies: Vec<(String, CommitDiff)> = Vec::new();
+  let mut originals: Vec<(String, CommitDiff)> = Vec::new();
+  for mut diff in parse_commit_diffs(&output)? {
+    let record = std::mem::take(&mut diff.id);
+    let mut fields = record.splitn(3, UNIT);
+    let (Some(id), Some(source), Some(identity)) = (fields.next(), fields.next(), fields.next()) else {
+      bail!("Unexpected log record {record:?}");
+    };
+    diff.id = id.to_string();
+    if source == ranges.tip {
+      copies.push((identity.to_string(), diff));
+    } else {
+      originals.push((identity.to_string(), diff));
+    }
+  }
+  let mut result = ReplayLostBindings {
+    found: Vec::new(),
+    originals: originals.iter().map(|(_, diff)| diff.id.clone()).collect(),
+  };
+
+  // each copy with its original, the oldest original of an identity first
+  let mut by_identity: HashMap<&str, VecDeque<usize>> = HashMap::new();
+  for (index, (identity, _)) in originals.iter().enumerate() {
+    by_identity.entry(identity.as_str()).or_default().push_back(index);
+  }
+  let mut pairs: Vec<(&CommitDiff, &CommitDiff, HashSet<&str>)> = Vec::new();
+  for (identity, copy) in &copies {
+    let Some(original) = by_identity.get_mut(identity.as_str()).and_then(VecDeque::pop_front).map(|index| &originals[index].1) else {
+      continue;
+    };
+    let changed: HashSet<&str> = copy
+      .files
+      .iter()
+      .filter(|change| is_candidate(change))
+      .filter(|change| {
+        !original
+          .files
+          .iter()
+          .any(|it| it.path == change.path && it.old_blob == change.old_blob && it.new_blob == change.new_blob)
+      })
+      .map(|change| change.path.as_str())
+      .collect();
+    if !changed.is_empty() {
+      pairs.push((copy, original, changed));
+    }
+  }
+  if pairs.is_empty() {
+    return Ok(result);
+  }
+
+  // the file of each path at the tip: the last copy that changes it has it
+  let mut at_tip: HashMap<&str, Option<&str>> = HashMap::new();
+  for (_, copy) in &copies {
+    for change in &copy.files {
+      at_tip.insert(change.path.as_str(), change.new_blob.as_deref());
+    }
+  }
+  let tip_files: Vec<FileChange> = pairs
+    .iter()
+    .flat_map(|(_, _, changed)| changed.iter())
+    .filter_map(|path| at_tip.get(path).copied().flatten().map(|blob| tip_change(path, blob)))
+    .collect();
+  // every file of each pair for the names that moved into another one, and the files at the tip
+  let read = |change: &&FileChange| (change.old_blob.is_some() || change.new_blob.is_some()) && is_checked(&change.path);
+  let changes = pairs
+    .iter()
+    .flat_map(|(copy, original, _)| copy.files.iter().chain(&original.files))
+    .chain(&tip_files)
+    .filter(read);
+  let summaries = read_change_summaries(git, repository_path, cache, changes)?;
+
+  for (copy, original, changed) in &pairs {
+    let own: HashSet<(&str, String)> = lost_of_diff(original, &summaries, |path| changed.contains(path))
+      .into_iter()
+      .map(|(file, lost)| (file, lost.name))
+      .collect();
+    for (file, lost) in lost_of_diff(copy, &summaries, |path| changed.contains(path)) {
+      if own.contains(&(file, lost.name.clone())) || kept.iter().any(|(path, name)| path == file && *name == lost.name) {
+        continue;
+      }
+      let before = copy
+        .files
+        .iter()
+        .find(|change| change.path == file)
+        .and_then(|change| summary(&summaries, change.old_blob.as_deref()));
+      let tip = summary(&summaries, at_tip.get(file).copied().flatten());
+      let (Some(before), Some(tip)) = (before, tip) else { continue };
+      // a later copy may bind the name again or drop its use: only what the tip still lacks fails the build
+      let Some(at_tip) = lost_in(before, tip).into_iter().find(|it| it.name == lost.name) else {
+        continue;
+      };
+      result.found.push(ReplayedLostBinding {
+        original: original.id.clone(),
+        copy: copy.id.clone(),
+        file: file.to_string(),
+        name: lost.name,
+        kind: lost.kind,
+        binding_line: lost.binding_line,
+        use_line: at_tip.use_line,
+      });
+    }
+  }
+  Ok(result)
+}
+
+/// A change that only names the blob of `path` at a tip, for `read_change_summaries`
+fn tip_change(path: &str, blob: &str) -> FileChange {
+  FileChange {
+    status: 'A',
+    path: path.to_string(),
+    old_path: None,
+    additions: 0,
+    deletions: 0,
+    git_additions: 0,
+    git_deletions: 0,
+    binary: false,
+    old_blob: None,
+    new_blob: Some(blob.to_string()),
+    hunks: Vec::new(),
+  }
+}
+
+/// The names that `before` binds and `edited` binds by nothing while it still uses them bare: the rule of one file on
+/// an edit of it, both parsed in process. Nothing for a file of another language than Kotlin and Java
+pub fn lost_names_in_edit(path: &str, before: &[u8], edited: &[u8]) -> Vec<LostName> {
+  match language_of(path) {
+    Some(language @ (Language::Kotlin | Language::Java)) => lost_in(&summarize(language, path, before), &summarize(language, path, edited)),
+    _ => Vec::new(),
+  }
 }
 
 /// Whether the commit of `diff` adds a declaration of `name` to another file of the package of `file`: the name moved

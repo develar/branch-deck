@@ -1397,6 +1397,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
+| 6b. Lost bindings | a clean rebase only (not a fast-forward, not the check inside a sync): one `log --stdin --topo-order --reverse --raw` of `N` and `HEAD` without `U` and the previous tips, `%S` telling the copies from the local commits; with a file that a copy and its local commit change from other blobs, one `cat-file --batch` of their sides and of the file at `N` (`trial_check::lost_bindings::replay_lost_bindings`); with lost bindings, `log --no-walk` of the commit and the `log` of the upstream commits of its files | `Conflict` with `lost_bindings`, see below |
 | 7. Dry run | the app's under the lock: `update-index -q --refresh` of the real index (the one stat pass under the lock, which step 10 takes as it is), then on a copy of it `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}`; `brd update`'s before the lock, on a copy of the index refreshed itself, which writes nothing | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
 | 9. Move | `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
@@ -1437,6 +1438,23 @@ Details:
   missed releases the lock and computes the check and the round once more without it ("Resolve session" below,
   `a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`).
   `brd update --dry-run` is the check inside sync (below): no fetch, no lock, no move.
+- **Lost bindings.** A clean rebase can still not compile: the incident of robot 1137287182 (2026-11-20) replayed a
+  local commit that removed a private constructor property and an import with their last use onto an upstream commit
+  that used both again in other hunks; git conflicted only on a nearby block, merged the removals, and the update
+  applied a HEAD that did not compile. So before the lock the update reads the lost bindings of its replay (step 6b,
+  `update_project::check_lost_bindings`, on the replayed head before the signature pass): a copy of a local commit that
+  removes the import or the `private` declaration of a name its file still uses, which the local commit itself does
+  not (the rule of one file has false positives a difference has none of: Symbol Dependencies, decision 28), and which
+  the file at `N` still lacks, so a later local commit that binds the name again leaves none. A copy is paired with
+  its local commit by identity (author email and time, subject), as `git replay` drops a commit that becomes empty;
+  only a file both change from other blobs, one the upstream changed too, is summarized, so an update whose upstream
+  changed no file of the local commits reads one `log` and nothing else. A finding makes the check a `Conflict` that
+  moves nothing (`UpdatePlan::into_lost_bindings_conflict`): `FirstConflict` names the first local commit with one,
+  its files, the upstream commits that change them and `lost_bindings` (file, name, binding, the use at `N`, the
+  binding before the copy). The app's update answers it as any conflict ("Conflict and blocked dialog" of Update
+  Project); `brd update` starts a resolve session at its lost-bindings round on `N`, with nothing replayed again
+  ("Resolve session" below). The check inside a sync reads none of it: the header may say "Rebases cleanly" until a
+  click finds the lost bindings.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
   where the last push saw them, so the `--force-with-lease` of the virtual branches keeps protecting work pushed from
   elsewhere. `--porcelain` prints `<flag> <old> <new> <ref>` per updated ref (` ` fast-forward, `+` forced, `*` new)
@@ -1740,8 +1758,9 @@ grouping inputs, then suggests `brd unapply <branch>` only when `sync_core::unap
   linked worktree. It is a shared ref, not a `refs/worktree/` ref: a probe showed that a `gc --prune=now` in another
   worktree prunes the objects of a `refs/worktree/` ref, because the gc of one worktree does not see the per-worktree
   refs of another.
-- The ref points at a state commit. Its tree holds `state.json` (version 3 since a `rename_rename` file has the
-  commit-side path as well as `path` and `renamed_from`;
+- The ref points at a state commit. Its tree holds `state.json` (version 4 since a round can be a lost-bindings round:
+  `RoundConflict::lost_bindings`, `ConflictKind::LostBinding`, `Resolution::fixup`; version 3 gave a `rename_rename`
+  file the commit-side path as well as `path` and `renamed_from`;
   the only file that readers parse, its `version` first, so a brd of another version refuses it by that number),
   `round/merge` (a `040000` entry of the round's merge tree, which keeps the `edit` copies rebuildable) and
   `round/{before,onto,commit}/<path>` (the stage blobs, by id; for rename/rename, the onto and commit entries hold
@@ -1788,6 +1807,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
 | The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
 | `--continue` | one `cat-file --batch` of HEAD and the session, the guards (2); one `cat-file --batch -Z` of the round's objects for the checks; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; then the next round as above, or the finish |
+| Before the finish | every replayed session, at its start too: the lost bindings of its copies `<tip> ^U` against the local commits (`LostBindingRule::replayed`, the rule of step 6b of "Update project": one `log`, a `cat-file --batch` only for a file both change from other blobs), but the names a round kept; a finding opens the lost-bindings round of the first local commit with one instead of the finish: one `cat-file --batch-check` of the ids and modes of its files at the tip, before and in the copy, and one `cat-file --batch -Z` of its objects |
 
 Measured on a middle round of a fixture with three local commits, `--continue` runs 20 git processes after the 3 of
 brd's own start: 2 replays, 5 for `blocked_paths`, 1 `merge-tree`, 2 `cat-file -Z`, 2 `fast-import`, 1 `update-ref`, 2
@@ -1795,6 +1815,23 @@ brd's own start: 2 replays, 5 for `blocked_paths`, 1 `merge-tree`, 2 `cat-file -
 `check-attr` more). The plan's estimate of about 9 plus the replays is not reached; the check for `blocked_paths` is
 the largest share.
 
+- **Lost-bindings round.** Every commit is replayed and git merged them, but the copy of a local commit removes the
+  binding of a name its file at the tip still uses (the rule above): the build would fail, the incident of robot
+  1137287182. The round (`RoundConflict::lost_bindings`, its files `ConflictKind::LostBinding`) is of that local
+  commit on the tip: `edit` is the file at the tip without markers, `before` the file before the copy, `commit` the
+  copy's. It opens at the start when the check's clean replay lost bindings (no replay again, `state.tip` is the tip of
+  the check) and before every finish otherwise, so in the incident the round of git comes first and the lost-bindings
+  round of the same commit after it. The agent edits anywhere in these files: no `resolution_outside_conflict`, no
+  takes, deletes or `--landed`. `--continue` reads the round's objects as any round, summarizes each edit in process
+  (`LostBindingRule::left_in_edit`, `trial_check::lost_bindings::lost_names_in_edit`) and refuses a name of the round
+  the edit still leaves unbound as `lost_binding` (exit 4), nothing written; `--keep-name <name>` keeps one on the
+  user's word (`FixupResolution::kept`, in the note and `verify.kept_names`), and no later finish names it again. The
+  edits become one new commit `fixup! <subject of the local commit>` on top of the tip, by the session's committer as
+  author and committer (one `fast-import`); the replayed commits stay as they are, and the finish names `brd fold` in
+  `next`. No file changed and every name kept: no commit. The finish asks the rule again: the tip binds the names now,
+  so the finding is gone and the session finishes (one `log` more than a finish without the rule:
+  `the_fixup_of_a_lost_bindings_round_finishes_the_update` of `process_budget_test.rs`). The note of the fixup commit
+  lists its lost bindings and kept names.
 - **Fixed committer.** Every commit the session writes, by `replay` (`GIT_COMMITTER_NAME`, `_EMAIL`, `_DATE`) and by
   `fast-import`, has the committer and the date of the session start. So the same input gives the same ids: a rerun
   after a failed step writes the same objects, and `--continue --dry-run` reports the id that `--continue` writes.

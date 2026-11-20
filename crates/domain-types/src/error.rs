@@ -234,8 +234,8 @@ pub enum ErrorCode {
   /// `brd safe-push`, `brd land`: a commit of what the robot lands removes the import or the private declaration of a
   /// name that its file in the tree that lands still uses, which the commit on HEAD doesn't (the branch is built without
   /// a commit that changed the use); git merges it, the build would fail. `--allow-dangling` starts anyway.
-  /// `brd update --continue`: the resolution of a round leaves such a name (`lost_bindings` of the round); keep the
-  /// binding in the copy, or `--keep-name <name>` when the user says it resolves another way
+  /// `brd update --continue`: the edit of a lost-bindings round still leaves a name of `session.lost_bindings` unbound;
+  /// keep the binding in the copy (or drop the use), or `--keep-name <name>` when the user says it resolves another way
   LostBinding,
   /// `brd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
   /// Safe Push landed (`brd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root

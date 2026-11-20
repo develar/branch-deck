@@ -3,6 +3,7 @@ import { formatShortHash } from "@/lib/hash"
 import { bullets, numbered, RULES, shellWord, UPDATE_RULES } from "@/lib/prompt-text"
 import { cutList } from "@/lib/text"
 import { groupConflictFiles } from "@/lib/update-conflict"
+import { describeLostBinding, lostBindingsOf } from "@/presenters/lost-bindings"
 
 export interface AgentPromptInput {
   repositoryPath: string
@@ -138,6 +139,20 @@ function firstConflictLine(state: ConflictState): string {
 }
 
 /**
+ * The lost bindings of a replay that git merges (`FirstConflict.lostBindings`): each name the commit removes and where
+ * the upstream uses it, with the whole path; null for a conflict of git
+ */
+function lostBindingsSection(state: ConflictState, upstream: string): string | null {
+  const first = state.firstConflict
+  const lost = lostBindingsOf(first)
+  if (lost.length === 0) {
+    return null
+  }
+  const lines = lost.map(it => describeLostBinding(it, first, upstream, true))
+  return `The rebase merges my commit ${formatShortHash(first.commit.id)} ${first.commit.subject} without a conflict, but the result would not compile:\n${bullets(lines)}`
+}
+
+/**
  * The upstream commits the files name, each once, newest first: at most `MAX_DESCRIBED_UPSTREAM_COMMITS` lines, then the
  * `git log` that lists the rest
  */
@@ -164,7 +179,7 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
   return [
     `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's brd, and resolve the conflicts. brd replays my commits outside the working tree.`,
     `brd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`brd\` stands for it. Run \`brd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
-    [`State${fetched}: ${heads}`, firstConflictLine(state)].join("\n"),
+    [`State${fetched}: ${heads}`, lostBindingsSection(state, upstream) ?? firstConflictLine(state)].join("\n"),
     `Steps:\n${numbered([
       "`brd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
       "While it exits 1: follow the `hint` of each file and of `session.commit`, edit only the copies at `edit`, and run `session.next`.",
@@ -201,7 +216,24 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
     return conflictPromptWithBd(repositoryPath, check, state, fetchTime, bd)
   }
   const sections: string[] = []
-  if (state.status === "conflict") {
+  const lost = state.status === "conflict" ? lostBindingsSection(state, upstream) : null
+  if (state.status === "conflict" && lost !== null) {
+    sections.push(
+      `Rebase the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` and fix what the rebase breaks.`,
+      stateLines(check, fetchTime),
+      lost,
+      `Rules:\n${bullets([
+        ...RULES,
+        "Other sessions may work in this tree: if `git status` shows uncommitted changes, stop and ask me what to do with them. Never stash, reset, check out or commit them.",
+      ])}`,
+      `Steps:\n${numbered([
+        `\`git rebase ${upstream}\`.`,
+        `Keep each name: bring back the import or the private declaration my commit removed, or drop the use, and commit only those files as \`fixup! ${state.firstConflict.commit.subject}\`.`,
+        "Build and run the tests of the code you touched.",
+        "Report each name you kept and how.",
+      ])}`,
+    )
+  } else if (state.status === "conflict") {
     const outline = conflictOutline(state)
     sections.push(
       `Rebase the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` and resolve the conflicts.`,

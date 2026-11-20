@@ -108,6 +108,35 @@ pub fn object_ids_and_types<S: AsRef<str>>(git: &GitCommandExecutor, repository_
   Ok(entries)
 }
 
+/// The id and the mode of the object each of `names` names (`<rev>:<path>`: the mode of the entry, e.g. `100755`; empty
+/// for a name without one, as `<rev>^{tree}`), `None` for a name git cannot resolve: one
+/// `cat-file --batch-check='%(objecttype) %(objectname) %(objectmode)' -Z`, in the order of `names`
+pub fn object_ids_and_modes<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, names: &[S]) -> Result<Vec<Option<(String, String)>>> {
+  if names.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input = nul_terminated(names)?;
+  let output = git
+    .cmd(&["cat-file", "--batch-check=%(objecttype) %(objectname) %(objectmode)", "-Z"], repository_path)
+    .stdin(&input)
+    .bytes()?;
+  // `<type> <id> <mode>` each, the mode maybe empty, or `<name> missing` (`ambiguous`)
+  let entries: Vec<Option<(String, String)>> = output
+    .split(|&byte| byte == 0)
+    .take(names.len())
+    .map(|reply| {
+      let reply = std::str::from_utf8(reply).ok()?;
+      let mut parts = reply.splitn(3, ' ');
+      let (kind, id, mode) = (parts.next()?, parts.next()?, parts.next()?);
+      matches!(kind, "blob" | "tree" | "commit" | "tag").then(|| (id.to_string(), mode.to_string()))
+    })
+    .collect();
+  if entries.len() != names.len() {
+    bail!("cat-file --batch-check answered {} of {} names", entries.len(), names.len());
+  }
+  Ok(entries)
+}
+
 /// The size of the object each of `ids` names, uncompressed, `None` for one git cannot resolve: one
 /// `cat-file --batch-check='%(objectname) %(objectsize)' -Z`, in the order of `ids`
 pub fn object_sizes<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, ids: &[S]) -> Result<Vec<Option<u64>>> {

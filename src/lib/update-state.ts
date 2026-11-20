@@ -49,7 +49,11 @@ export function describeUpdateState(state: UpdateState, upstream: string, resolv
         : { tone: "success", summary: `Rebases onto ${upstream}, ${resolvingWords(resolved)}`, short: `rebases, ${resolvingWords(resolved)}` }
     case "conflict": {
       // the files of the first commit that conflicts: where the rebase stops first
-      const { files, fileCount } = state.firstConflict
+      const { files, fileCount, lostBindings } = state.firstConflict
+      if ((lostBindings ?? []).length > 0) {
+        // git merges the replay, but the files would not compile
+        return { tone: "warning", summary: `Your commits remove names that ${upstream} uses in ${formatFileList(files, fileCount)}`, short: "removes names in use" }
+      }
       return {
         tone: "warning",
         summary: fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${formatFileCount(fileCount)}: ${formatFileList(files, fileCount)}`,

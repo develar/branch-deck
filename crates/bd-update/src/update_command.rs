@@ -15,6 +15,7 @@ use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortId
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
+use domain_types::landing::BindingKind;
 use domain_types::operation::Intent;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use generated_files::generated_by::GeneratedBy;
@@ -26,7 +27,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
-use git_ops::update_resolve::{ConflictKind, LandedInput, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
+use git_ops::update_resolve::{ConflictKind, LandedInput, LostBindingFinding, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
 use schemars::JsonSchema;
@@ -84,6 +85,10 @@ pub struct UpdateArgs {
   /// dropped too. Only once the user said yes
   #[arg(long, requires = "landed")]
   pub user: bool,
+  /// With --continue: in a lost-bindings round, accept this name unbound (`session.lost_bindings`): it resolves another
+  /// way. Only once the user said so; repeatable
+  #[arg(long, value_name = "NAME", requires = "resume")]
+  pub keep_name: Vec<String>,
   /// Remove the resolve session and its copies; nothing else changes
   #[arg(long, conflicts_with_all = ["status", "no_fetch", "dry_run", "dir"])]
   pub abort: bool,
@@ -225,6 +230,10 @@ pub enum AskCode {
 /// What to build and test after an update that resolved conflicts, and what to generate again
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct VerifyOutput {
+  /// The names that a lost-bindings round kept unbound on the user's word (`--keep-name`): the build proves that they
+  /// resolve another way
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub kept_names: Vec<KeptNameOutput>,
   /// The files whose content no side had as it is: `edited`, `commit` and `deleted` resolutions and the files that the
   /// words resolved; not `onto`, which is the baseline's. The first 100 (all 101 rather than one left out)
   pub paths: Vec<String>,
@@ -237,6 +246,49 @@ pub struct VerifyOutput {
   /// `fixup! <subject>` of the local commit that changes the file
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub regenerate: Vec<RegenerateOutput>,
+}
+
+/// A name a lost-bindings round kept unbound
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct KeptNameOutput {
+  pub file: String,
+  pub name: String,
+  /// Its first use in the file, 1-based
+  pub line: u32,
+}
+
+/// A name whose binding the copy of a local commit removes while the file still uses it: git merged the file, the build
+/// would fail
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LostBindingOutput {
+  pub file: String,
+  pub name: String,
+  /// What bound it before the commit: `import`, or `declaration` (a private one of the file)
+  pub binding: BindingOutput,
+  /// The line of the binding before the commit, 1-based
+  pub binding_line: u32,
+  /// The first line of the file that uses the name, 1-based
+  pub use_line: u32,
+  /// The local commit whose copy removes the binding
+  pub commit: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BindingOutput {
+  Import,
+  Declaration,
+}
+
+/// What a round of a resolve session resolves
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RoundKind {
+  /// A conflict of git: the commit's replay conflicts
+  Conflict,
+  /// Every commit is replayed, but the copy of `session.commit` removes the binding of a name its file still uses
+  /// (`session.lost_bindings`): the edits become one `fixup! <subject>` commit on top
+  LostBindings,
 }
 
 /// A generated file to generate again
@@ -282,6 +334,13 @@ pub struct UpdateSession {
   pub state: SessionStateName,
   /// The open round, counted from 1
   pub round: u32,
+  /// What the open round resolves: `conflict` (of git) or `lost_bindings`; absent without an open round
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub round_kind: Option<RoundKind>,
+  /// In a `lost_bindings` round: each name whose binding the commit's copy removes while its file still uses it. Keep
+  /// the binding in the `edit` copy (the import, or the private declaration) or drop the use
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lost_bindings: Vec<LostBindingOutput>,
   /// The local commits replayed (or resolved) so far
   pub replayed: usize,
   pub total: usize,
@@ -475,6 +534,13 @@ pub struct UpdateResolution {
   /// agent saw it; omitted for a round you resolved
   #[serde(skip_serializing_if = "Option::is_none")]
   pub words: Option<u32>,
+  /// A lost-bindings round: the names it was opened for. Its `new_id` is the `fixup!` commit it wrote on top (null when
+  /// no file changed); `how` of a file is `edited`, or `onto` when it kept the file as it was
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lost_bindings: Vec<LostBindingOutput>,
+  /// The names of `lost_bindings` that --keep-name kept unbound
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub kept_names: Vec<String>,
   pub files: Vec<ResolvedFile>,
 }
 
@@ -645,6 +711,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
         commit: commit.clone(),
         user: args.user,
       }),
+      keep_names: args.keep_name.clone(),
       lease: context.lease.clone(),
     };
     let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(|error| update_core_error(context, error))?;
@@ -758,6 +825,7 @@ const fn session_state(status: SessionStatus) -> SessionStateName {
 fn view_ids(view: &SessionView) -> Vec<&str> {
   let state = &view.state;
   let mut ids = vec![state.head.as_str(), state.tip.as_str(), state.upstream_head.as_str()];
+  ids.extend(state.conflict.iter().flat_map(|conflict| &conflict.lost_bindings).map(|lost| lost.original.as_str()));
   if let Some(round) = &view.round {
     ids.push(&round.commit.id);
     ids.extend(round.files.iter().flat_map(|file| file.upstream_commits.iter().map(|commit| commit.id.as_str())));
@@ -812,6 +880,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
         ConflictKind::ModifyDelete => "modify_delete",
         ConflictKind::RenameDelete => "rename_delete",
         ConflictKind::RenameRename => "rename_rename",
+        ConflictKind::LostBinding => "lost_binding",
       }
       .to_string(),
       renamed_from: file.renamed_from.clone(),
@@ -826,6 +895,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
       hint: {
         let hint = match (&file.generated_by, view.round.as_ref()) {
           (Some(generated_by), Some(round)) => generated_hint(generated_by, &file.path, file.commit_path.as_deref(), &round.commit.subject),
+          (None, Some(round)) if file.kind == ConflictKind::LostBinding => lost_binding_hint(&round.commit.subject),
           _ => file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref(), file.commit_path.as_deref()),
         };
         if twin.is_some() {
@@ -844,10 +914,16 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
     (SessionStatus::Resolving, _) => format!("{bd} update --continue --round {}", state.round),
     _ => format!("{bd} update --continue"),
   };
+  let lost_bindings = state.conflict.as_ref().map_or_default(|conflict| lost_bindings_output(&conflict.lost_bindings, short));
   UpdateSession {
     worktree: state.worktree.clone(),
     state: session_state(state.status),
     round: state.round,
+    round_kind: state
+      .conflict
+      .as_ref()
+      .map(|conflict| if conflict.is_lost_bindings() { RoundKind::LostBindings } else { RoundKind::Conflict }),
+    lost_bindings,
     replayed: state.replayed,
     total: state.total(),
     dir: display_path(&view.root),
@@ -962,6 +1038,31 @@ fn ask_reasons(view: &SessionView) -> Vec<AskReason> {
   reasons
 }
 
+/// How to resolve a file of a lost-bindings round
+fn lost_binding_hint(subject: &str) -> String {
+  format!(
+    "git merged this file, but the copy of the commit removes the binding of a name the file still uses (`session.lost_bindings`): edit `edit` anywhere to keep the binding (the import, or the private declaration) or to drop the use. --continue writes the edits as one new commit `fixup! {subject}` on top; once the update is done, `brd fold` folds it"
+  )
+}
+
+/// Each lost binding with its local commit
+fn lost_bindings_output(lost: &[LostBindingFinding], short: &ShortIds) -> Vec<LostBindingOutput> {
+  lost
+    .iter()
+    .map(|lost| LostBindingOutput {
+      file: lost.file.clone(),
+      name: lost.name.clone(),
+      binding: match lost.binding {
+        BindingKind::Import => BindingOutput::Import,
+        BindingKind::Declaration => BindingOutput::Declaration,
+      },
+      binding_line: lost.binding_line,
+      use_line: lost.use_line,
+      commit: short.get(&lost.original).to_string(),
+    })
+    .collect()
+}
+
 fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>, commit_path: Option<&str>) -> String {
   let from = renamed_from.unwrap_or(path);
   match kind {
@@ -986,6 +1087,7 @@ fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Op
     ConflictKind::ModifyDelete => {
       format!("`onto` deleted the file that the commit changes: --delete {path} keeps the delete, --take commit:{path} keeps the commit's file, or edit `edit`")
     }
+    ConflictKind::LostBinding => "Edit `edit` to keep the binding of the names of `session.lost_bindings`, or drop their use".to_string(),
   }
 }
 
@@ -1010,6 +1112,8 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
       landed_as: resolution.landed.as_ref().map(|landed| short.get(&landed.upstream).to_string()),
       local_only: resolution.landed.as_ref().map_or_default(|landed| path_lines(&landed.local_only)),
       words: resolution.words,
+      lost_bindings: resolution.fixup.as_ref().map_or_default(|fixup| lost_bindings_output(&fixup.lost, short)),
+      kept_names: resolution.fixup.as_ref().map_or_default(|fixup| fixup.kept.iter().map(|kept| kept.name.clone()).collect()),
       files: resolution
         .paths
         .iter()
@@ -1037,6 +1141,16 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
 /// `commit`, `deleted`, and `words`, which nobody saw), and those of the commits an update resolved by words (a round
 /// that dropped its commit changed nothing); and the generated files to generate again (`regenerate`)
 fn verify_paths(resolutions: &[Resolution], resolved: &[UpdateResolvedCommit], regenerate: &[GeneratedFile]) -> Option<VerifyOutput> {
+  let kept_names: Vec<KeptNameOutput> = resolutions
+    .iter()
+    .filter_map(|resolution| resolution.fixup.as_ref())
+    .flat_map(|fixup| &fixup.kept)
+    .map(|kept| KeptNameOutput {
+      file: kept.file.clone(),
+      name: kept.name.clone(),
+      line: kept.line,
+    })
+    .collect();
   let mut paths: Vec<String> = Vec::new();
   let rounds = resolutions
     .iter()
@@ -1049,12 +1163,13 @@ fn verify_paths(resolutions: &[Resolution], resolved: &[UpdateResolvedCommit], r
       paths.push(path.to_string());
     }
   }
-  if paths.is_empty() && regenerate.is_empty() {
+  if paths.is_empty() && regenerate.is_empty() && kept_names.is_empty() {
     return None;
   }
   let count = paths.len();
   paths.truncate(kept(count, MAX_BLOCKED_PATHS));
   Some(VerifyOutput {
+    kept_names,
     paths_omitted: omitted(count, paths.len()),
     paths,
     regenerate: regenerate
@@ -1185,8 +1300,12 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.resolutions = resolutions_of(&state.resolutions, &short);
       output.resolved = resolved_rounds(&state.resolutions, &short);
       output.verify = verify_paths(&state.resolutions, &[], &regenerate);
+      // the `fixup!` commits of the lost-bindings rounds fold into their copies
+      if state.resolutions.iter().any(|resolution| resolution.fixup.is_some() && resolution.resolved.is_some()) {
+        output.next.push(format!("{bd} -C {} fold", shell_word(&context.repository)));
+      }
       if state.local_upstream {
-        output.next = vec![lease_pick_command(context)];
+        output.next.push(lease_pick_command(context));
       }
     }
     None => output.session = Some(session_of(&view, &short, bd, false)),
@@ -1295,9 +1414,10 @@ fn classified(error: anyhow::Error, undo: bool) -> CliError {
       ResolveError::RoundMoved { .. } => ErrorCode::RoundMoved,
       ResolveError::InvalidInput { .. } => ErrorCode::InvalidArguments,
       ResolveError::FinishPending { .. } => ErrorCode::FinishPending,
+      ResolveError::LostBinding { .. } => ErrorCode::LostBinding,
     };
     let mut cli_error = CliError::new(code, refusal.to_string());
-    cli_error.paths = refusal.paths().to_vec();
+    cli_error.paths = refusal.paths();
     cli_error.commits = refusal.commit().map(|commit| short_id(commit).to_string()).into_iter().collect();
     return cli_error;
   } else {

@@ -1,6 +1,10 @@
-use crate::lost_bindings::{BindingKind, LostName, lost_in};
+use crate::lost_bindings::{BindingKind, LostName, ReplayLostBindings, ReplayRanges, lost_in, replay_lost_bindings};
 use code_symbols::extract::summarize;
 use code_symbols::language::Language;
+use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
+use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::{assert_processes, counting};
 
 fn lost(language: Language, path: &str, before: &str, after: &str) -> Vec<LostName> {
   lost_in(&summarize(language, path, before.as_bytes()), &summarize(language, path, after.as_bytes()))
@@ -170,8 +174,7 @@ fn a_degraded_side_tells_nothing() {
 #[test]
 fn the_lost_bindings_of_commits_in_two_processes() {
   use crate::lost_bindings::find_lost_bindings;
-  use test_utils::git_test_utils::TestRepo;
-  use test_utils::process_budget::{assert_processes, cache_in, counting};
+  use test_utils::process_budget::cache_in;
 
   let repo = TestRepo::new();
   repo.create_commit_with_files(
@@ -220,7 +223,6 @@ fn the_lost_bindings_of_commits_in_two_processes() {
 #[ignore = "a measurement on a real repository: LOST_BINDINGS_REPO, LOST_BINDINGS_RANGE"]
 fn lost_bindings_of_a_range() {
   use crate::lost_bindings::find_lost_bindings;
-  use git_executor::git_command_executor::GitCommandExecutor;
   let (Ok(repo), Ok(range)) = (std::env::var("LOST_BINDINGS_REPO"), std::env::var("LOST_BINDINGS_RANGE")) else {
     return;
   };
@@ -247,4 +249,94 @@ fn lost_bindings_of_a_range() {
       lost.binding_line
     );
   }
+}
+
+/// The local commits of `clone` rebased onto its fetched upstream: HEAD before, the tip after, and the upstream
+struct Rebased {
+  original: String,
+  tip: String,
+  upstream_head: String,
+}
+
+fn rebase(clone: &TestRepo) -> Rebased {
+  let original = clone.head();
+  clone.git(&["fetch", "--quiet", "origin"]);
+  clone.git(&["rebase", "--quiet", "origin/master"]);
+  Rebased {
+    original,
+    tip: clone.head(),
+    upstream_head: clone.git(&["rev-parse", "origin/master"]),
+  }
+}
+
+/// `replay_lost_bindings` of `rebased` on `git`, without a cache, but the `kept` names
+fn replay(git: &GitCommandExecutor, clone: &TestRepo, rebased: &Rebased, kept: &[(String, String)]) -> ReplayLostBindings {
+  let ranges = ReplayRanges {
+    tip: &rebased.tip,
+    head: &rebased.original,
+    upstream_head: &rebased.upstream_head,
+    excluded: &[],
+  };
+  replay_lost_bindings(git, clone.path_str(), &ObjectCache::disabled(), ranges, kept).unwrap()
+}
+
+/// The copy of `TestRepo::upstream_and_clone_losing_bindings` (the incident) and its original from one `log`, the
+/// summaries of the file the upstream changed too from one `cat-file --batch` (no cache): the copy loses what its
+/// original doesn't, each use at the tip; a name the user kept is no finding
+#[test]
+fn a_replay_brings_the_lost_bindings_of_its_copy_in_two_processes() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let rebased = rebase(&clone);
+  let git = counting();
+  let replayed = replay(&git, &clone, &rebased, &[]);
+  let (original, tip) = (rebased.original.as_str(), rebased.tip.as_str());
+  assert_eq!(
+    replayed
+      .found
+      .iter()
+      .map(|it| (it.original.as_str(), it.copy.as_str(), it.name.as_str(), it.kind, it.binding_line, it.use_line))
+      .collect::<Vec<_>>(),
+    vec![
+      (original, tip, "backend", BindingKind::Declaration, 8, 11),
+      (original, tip, "rethrow", BindingKind::Import, 4, 12)
+    ]
+  );
+  assert_eq!(replayed.originals, vec![original.to_string()]);
+  assert_processes(&git, &[("cat-file", 1), ("log", 1)]);
+
+  let kept = [("src/Launch.kt".to_string(), "backend".to_string())];
+  let names: Vec<String> = replay(&git, &clone, &rebased, &kept).found.into_iter().map(|it| it.name).collect();
+  assert_eq!(names, ["rethrow"]);
+}
+
+/// A replay onto an upstream that changed no file of the local commits reads one `log` and no summary
+#[test]
+fn a_replay_that_changes_no_file_of_a_copy_reads_no_summary() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("src/Launch.kt", INCIDENT_BEFORE), ("other.txt", "other\n")]);
+  upstream.create_commit("Upstream change", "other.txt", "changed\n");
+  clone.create_commit("(launch) Drop the old path", "src/Launch.kt", &incident_after());
+  let rebased = rebase(&clone);
+  let git = counting();
+  assert_eq!(replay(&git, &clone, &rebased, &[]).found, Vec::new());
+  assert_processes(&git, &[("log", 1)]);
+}
+
+/// The edit of a lost-bindings round, by the rule of one file: the binding kept, the name stays lost no more
+#[test]
+fn an_edit_that_keeps_the_binding_loses_nothing() {
+  use crate::lost_bindings::lost_names_in_edit;
+  let after = incident_after();
+  let names = |edited: &str| -> Vec<String> {
+    lost_names_in_edit("src/Launch.kt", INCIDENT_BEFORE.as_bytes(), edited.as_bytes())
+      .into_iter()
+      .map(|it| it.name)
+      .collect()
+  };
+  assert_eq!(names(&after), ["backend", "rethrowControlFlowException"]);
+  let fixed = after.replace(
+    "import com.intellij.air.backend.prompt.api.hostOnWriterHost\n",
+    "import com.intellij.air.backend.prompt.api.hostOnWriterHost\nimport com.intellij.diagnostic.rethrowControlFlowException\n",
+  );
+  assert_eq!(names(&fixed), ["backend"]);
+  assert_eq!(lost_names_in_edit("notes.txt", b"a", b"b"), Vec::new());
 }

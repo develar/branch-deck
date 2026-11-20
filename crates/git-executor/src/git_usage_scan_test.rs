@@ -197,8 +197,8 @@ fn objects_are_read_through_cat_file_batch() {
     &[
       Exemption {
         path: "crates/git-ops/src/cat_file_batch.rs",
-        hits: 3,
-        reason: "the shared reader itself: the objects, their ids and types, their sizes",
+        hits: 4,
+        reason: "the shared reader itself: the objects, their ids and types, their ids and modes, their sizes",
       },
       Exemption {
         path: "crates/git-ops/src/update_branch.rs",

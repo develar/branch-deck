@@ -7,6 +7,7 @@
 
 use crate::conflict::ResolvedFileSummary;
 use crate::landed::LandedBranch;
+use crate::landing::BindingKind;
 use serde::{Deserialize, Serialize};
 
 /// How the branch reaches the upstream
@@ -53,6 +54,28 @@ pub struct FirstConflict {
   /// The upstream commits since the merge base that changed `files`, oldest first, at most the newest
   /// `MAX_UPSTREAM_COMMITS`
   pub upstream_commits: Vec<UpdateCommit>,
+  /// The replay merges without a conflict of git, but the copy of `commit` removes the binding of a name that the
+  /// upstream added a use of: these names, whose `files` would not compile (`trial_check::lost_bindings`). Empty for a
+  /// conflict of git
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub lost_bindings: Vec<UpdateLostBinding>,
+}
+
+/// A name whose binding a local commit removes while the upstream added a use of it in the same file: git merges the
+/// replay, and the file fails to compile
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateLostBinding {
+  pub file: String,
+  pub name: String,
+  /// What bound it: an import, or a `private` declaration of the file
+  pub binding: BindingKind,
+  /// The first line that uses it in the file after the replay, 1-based
+  pub use_line: u32,
+  /// The line of the binding before the commit, 1-based
+  pub binding_line: u32,
 }
 
 /// Whether the branch can be updated, relative to the last fetch of the upstream

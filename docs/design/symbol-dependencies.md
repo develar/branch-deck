@@ -863,9 +863,13 @@ flowchart TD
     changed `package`, helpers of the package and of a test base class. Each of them is a finding of its original too, so
     the difference of a copy and its original drops them all and keeps the incident, whose original had no use left.
     A branch is built on the merge base of HEAD with the baseline, so the gate sees what the build of a branch without
-    the other branches brings; a replay onto a newer baseline is the update's to check.
+    the other branches brings; a replay onto a newer baseline is the update's to check: Update Project and `brd update`
+    read the copies of their replay against the local commits (`replay_lost_bindings`, both ranges from one `log`, the
+    summaries only of a file both change from other blobs) and count a finding only while the file at the tip still
+    lacks the binding (docs/design/git-operations.md, "Update project", "Resolve session").
 
     [@test] crates/trial-check/src/lost_bindings_test.rs (`the_replayed_commit_of_the_incident_loses_the_property_and_the_import`, `the_lost_bindings_of_commits_in_two_processes`)
+    [@test] crates/trial-check/src/lost_bindings_test.rs (`a_replay_brings_the_lost_bindings_of_its_copy_in_two_processes`, `a_replay_that_changes_no_file_of_a_copy_reads_no_summary`)
     [@test] crates/trial-check/src/landing_gate_test.rs (`a_commit_whose_branch_keeps_a_use_of_what_it_removes_refuses_the_start`)
 
 ### Implementation Notes

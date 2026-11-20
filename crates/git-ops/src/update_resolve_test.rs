@@ -439,8 +439,19 @@ fn a_words_resolved_finish_is_signed_before_its_ref_moves() {
     ..RoundInput::default()
   };
 
-  let Step::PreparedFinish(prepared) = prepare_continue_session(git, path, &worktree, session, None, &input, false, ResolveMode::On, crate::commit_signing::Signing::On).unwrap()
-  else {
+  let Step::PreparedFinish(prepared) = prepare_continue_session(
+    git,
+    path,
+    &worktree,
+    session,
+    None,
+    &input,
+    false,
+    ResolveMode::On,
+    crate::commit_signing::Signing::On,
+    &crate::update_resolve::NoLostBindings,
+  )
+  .unwrap() else {
     panic!("the final round must be prepared for the locked finish");
   };
   assert_ne!(prepared.state.tip, before);
@@ -513,7 +524,7 @@ fn a_state_of_another_version_is_refused_by_its_version_before_its_fields_are_re
 }
 
 #[test]
-fn a_rename_rename_round_round_trips_in_state_version_three() {
+fn a_rename_rename_round_round_trips_in_the_state() {
   let repo = TestRepo::new();
   let head = repo.create_commit("one", "a.txt", "a\n");
   let mut state = session_state(&repo, &head);
@@ -542,10 +553,11 @@ fn a_rename_rename_round_round_trips_in_state_version_three() {
       commit_path: Some("commit.txt".to_string()),
       generated_by: None,
     }],
+    lost_bindings: Vec::new(),
   });
   let encoded = serde_json::to_value(&state).unwrap();
   let decoded: SessionState = serde_json::from_value(encoded).unwrap();
-  assert_eq!(decoded.version, 3);
+  assert_eq!(decoded.version, 4);
   let file = &decoded.conflict.unwrap().files[0];
   assert_eq!((file.kind, file.path.as_str()), (ConflictKind::RenameRename, "onto.txt"));
   assert_eq!((file.renamed_from.as_deref(), file.commit_path.as_deref()), (Some("base.txt"), Some("commit.txt")));

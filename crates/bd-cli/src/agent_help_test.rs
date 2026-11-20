@@ -224,7 +224,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::PullRequestOtherBase
     | ErrorCode::ReviewUnknown
     | ErrorCode::NotLoggedIn => &["safe-push"],
-    ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown | ErrorCode::LostBinding => &["help agent", "safe-push"],
+    ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown => &["help agent", "safe-push"],
+    ErrorCode::LostBinding => &["help agent", "safe-push", "help update"],
     ErrorCode::NoWriteAccess
     | ErrorCode::BaselineRequiresPullRequest
     | ErrorCode::BaselineRefused

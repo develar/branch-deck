@@ -11,7 +11,7 @@ import { WidestLabel } from "@/components/shared/WidestLabel"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
-import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
+import type { FirstConflict, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { cutList } from "@/lib/text"
@@ -19,6 +19,7 @@ import { formatRelativeTime } from "@/lib/time"
 import { describeUpstreamCommit, groupConflictFiles, splitPath } from "@/lib/update-conflict"
 import type { ConflictFile } from "@/lib/update-conflict"
 import { lastFetchTime } from "@/lib/update-state"
+import { describeLostBinding, lostBindingsOf } from "@/presenters/lost-bindings"
 import { useSelectedProject } from "@/stores/repository"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 
@@ -135,9 +136,25 @@ function FirstConflictLine({ commit }: { commit: UpdateCommit }) {
   )
 }
 
+/** What the commit of a conflict without a conflict of git removes, each with where the upstream uses it */
+function LostBindingList({ first, upstream }: { first: FirstConflict; upstream: string }) {
+  return (
+    <ul data-testid="update-lost-bindings" className="flex flex-col gap-0.5">
+      {lostBindingsOf(first).map(lost => (
+        <li key={`${lost.file}:${lost.name}`} data-name={lost.name} title={`${lost.file}:${lost.useLine}`}>
+          {describeLostBinding(lost, first, upstream)}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function dialogTitle({ state, upstream }: UpdateCheck): string {
   if (state.status !== "conflict") {
     return "Your uncommitted changes block the update"
+  }
+  if (lostBindingsOf(state.firstConflict).length > 0) {
+    return `Your commits remove names that ${upstream} uses`
   }
   const { fileCount } = state.firstConflict
   if (fileCount === 0) {
@@ -147,8 +164,10 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
 }
 
 /**
- * Explains why Update Project changed nothing: the local commits conflict with the upstream, or uncommitted changes
- * sit on files the upstream changed. The primary action copies a prompt that hands the update to a coding agent.
+ * Explains why Update Project changed nothing: the local commits conflict with the upstream, their replay merges but
+ * removes names the upstream uses (lost bindings: no rebase in a terminal helps, the commit needs a fixup), or
+ * uncommitted changes sit on files the upstream changed. The primary action copies a prompt that hands the update to a
+ * coding agent.
  *
  * Keep it mounted while closed (see `PreviewDialogFrame`).
  */
@@ -192,14 +211,29 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
 
       <PreviewDialogBody ref={bodyRef} itemKey={`${shown.head}-${shown.upstreamHead}`} data-testid="update-blocked-body">
         <div className="flex flex-col gap-4 text-sm">
-          {state.status === "conflict" && (
+          {state.status === "conflict" && lostBindingsOf(state.firstConflict).length > 0 && (
             <>
               <p className="text-muted-foreground">
                 {bd === null
-                  ? "Rebase in a terminal or your IDE, or copy a prompt for a coding agent."
-                  : "Rebase in a terminal or your IDE, or hand it to a coding agent: the prompt resolves each commit with bd, outside the working tree."}
+                  ? "Git merges your commits, but the result would not compile. Copy a prompt for a coding agent, which keeps each name in a fixup commit."
+                  : "Git merges your commits, but the result would not compile. Hand it to a coding agent: the prompt keeps each name in a fixup commit with bd, outside the working tree."}
               </p>
-              <FirstConflictLine commit={state.firstConflict.commit} />
+              <LostBindingList first={state.firstConflict} upstream={upstream} />
+            </>
+          )}
+          {state.status === "conflict" && (
+            <>
+              {/* a conflict of git: where the rebase stops first; lost bindings name their commit themselves */}
+              {lostBindingsOf(state.firstConflict).length === 0 && (
+                <>
+                  <p className="text-muted-foreground">
+                    {bd === null
+                      ? "Rebase in a terminal or your IDE, or copy a prompt for a coding agent."
+                      : "Rebase in a terminal or your IDE, or hand it to a coding agent: the prompt resolves each commit with bd, outside the working tree."}
+                  </p>
+                  <FirstConflictLine commit={state.firstConflict.commit} />
+                </>
+              )}
               {state.firstConflict.files.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                   <ul data-testid="update-conflict-files" className="flex flex-col gap-3">

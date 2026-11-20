@@ -36,6 +36,18 @@ describe("describeUpdateState", () => {
     })
   })
 
+  it("says that a replay that loses bindings removes names the upstream uses, not that it conflicts", () => {
+    const state = conflictState(["src/Launch.kt"], 1)
+    if (state.status === "conflict") {
+      state.firstConflict.lostBindings = [{ file: "src/Launch.kt", name: "backend", binding: "declaration", useLine: 11, bindingLine: 8 }]
+    }
+    expect(describeUpdateState(state, "origin/master")).toEqual({
+      tone: "warning",
+      summary: "Your commits remove names that origin/master uses in src/Launch.kt",
+      short: "removes names in use",
+    })
+  })
+
   it("names at most three files, four of four: never 'and 1 more'", () => {
     const one = describeUpdateState(conflictState(["a.txt"], 1), "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })

@@ -606,6 +606,8 @@ pub enum RepositoryTemplate {
   UpdateConflictWide,
   #[serde(rename = "update_blocked")]
   UpdateBlocked,
+  #[serde(rename = "update_lost_bindings")]
+  UpdateLostBindings,
   #[serde(rename = "landed_upstream")]
   LandedUpstream,
   #[serde(rename = "empty-non-git")]
@@ -681,6 +683,7 @@ impl RepositoryTemplate {
       Self::UpdateWords => "update_words",
       Self::UpdateConflictWide => "update_conflict_wide",
       Self::UpdateBlocked => "update_blocked",
+      Self::UpdateLostBindings => "update_lost_bindings",
       Self::LandedUpstream => "landed_upstream",
       Self::EmptyNonGit => "empty-non-git",
       Self::EmptyGit => "empty_git",

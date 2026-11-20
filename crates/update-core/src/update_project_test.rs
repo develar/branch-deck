@@ -7,7 +7,8 @@ use crate::update_project::{
 };
 use domain_types::SyncEvent;
 use domain_types::error::ErrorCode;
-use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateProjectResult, UpdateState};
+use domain_types::landing::BindingKind;
+use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
 use git_ops::rewrite_guard::HeadMoved;
@@ -20,6 +21,7 @@ use git_ops::word_resolve::ResolveMode;
 #[cfg(unix)]
 use history_rewrite::regroup::{RegroupOptions, rename_branch_core};
 use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository_as_another_process};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -29,9 +31,10 @@ use sync_core::baseline::{check_baseline_update, previous_tip_of_forced_update};
 use sync_core::lease_state::LeaseGuard;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::{LAUNCH_KT, LAUNCH_START, TestRepo, append_config, launch_without_old_path};
 use test_utils::history::{HistoryCommit, one_file_each};
 use test_utils::sync_fixtures::TestReporter;
+use trial_check::lost_bindings::find_lost_bindings;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
 pub(crate) struct Setup {
@@ -292,6 +295,109 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
   assert_eq!(status(&clone), "");
 }
 
+/// The incident of robot 1137287182: the clean replay of a local commit that drops a private property and an import with
+/// their last use, onto an upstream that uses both again in another hunk, would not compile. The update answers a
+/// conflict that names the commit, its file with the upstream commit that changes it, and each lost binding with its use
+/// after the replay; nothing moves and no ref is written
+#[test]
+fn a_clean_replay_that_loses_bindings_is_a_conflict_that_moves_nothing() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let head = clone.head();
+  let result = update(&clone).unwrap();
+  let UpdateState::Conflict { first_conflict } = &result.check.state else {
+    panic!("not a conflict: {result:?}");
+  };
+  assert_eq!(
+    (first_conflict.commit.id.as_str(), first_conflict.commit.subject.as_str(), first_conflict.files.as_slice()),
+    (head.as_str(), "(launch) Drop the old path", ["src/Launch.kt".to_string()].as_slice())
+  );
+  assert_eq!(
+    first_conflict.upstream_commits.iter().map(|commit| commit.subject.as_str()).collect::<Vec<_>>(),
+    ["Start with the backend"]
+  );
+  assert_eq!(
+    first_conflict.lost_bindings,
+    vec![
+      UpdateLostBinding {
+        file: "src/Launch.kt".to_string(),
+        name: "backend".to_string(),
+        binding: BindingKind::Declaration,
+        use_line: 11,
+        binding_line: 8,
+      },
+      UpdateLostBinding {
+        file: "src/Launch.kt".to_string(),
+        name: "rethrow".to_string(),
+        binding: BindingKind::Import,
+        use_line: 12,
+        binding_line: 4,
+      },
+    ]
+  );
+  assert!(result.applied.is_none());
+  assert_eq!(clone.head(), head);
+  assert_eq!(read(&clone, "src/Launch.kt"), launch_without_old_path());
+  assert_eq!(status(&clone), "");
+  assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/"]), "", "the check writes no ref");
+}
+
+/// An upstream of `LAUNCH_KT` with the commit `upstream`, and its clone with the commits `local` (each the whole file)
+fn launch_clone(upstream: &str, local: &[&str]) -> Setup {
+  let (origin, clone) = TestRepo::upstream_and_clone(&[("src/Launch.kt", LAUNCH_KT)]);
+  origin.create_commit("Upstream change", "src/Launch.kt", upstream);
+  for (index, content) in local.iter().enumerate() {
+    clone.create_commit(&format!("(launch) Change {index}"), "src/Launch.kt", content);
+  }
+  Setup { upstream: origin, clone }
+}
+
+/// A replay that brings no lost binding applies: the upstream changes the file without a use of what the commit
+/// removes
+#[test]
+fn an_upstream_change_without_a_use_of_what_the_commit_removes_applies() {
+  let Setup { upstream: _upstream, clone } = launch_clone(&LAUNCH_KT.replace("fun more() = name", "fun more() = name + \"?\""), &[&launch_without_old_path()]);
+  let result = update(&clone).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }, "{result:?}");
+  assert!(result.applied.is_some());
+}
+
+/// A lost binding the local commit had where it was authored resolves another way there (an extension, a default
+/// import): the replay brought nothing, and the update applies
+#[test]
+fn a_lost_binding_the_commit_had_where_it_was_authored_is_no_finding() {
+  let Setup { upstream: _upstream, clone } = launch_clone(
+    &LAUNCH_KT.replace("fun more() = name", "fun more() = name + \"?\""),
+    &[&LAUNCH_KT.replace("import b.keep\n", "")],
+  );
+  // the commit loses `keep` where it was authored
+  assert_eq!(lost_names(&clone, &clone.head()), ["keep"]);
+  let result = update(&clone).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }, "{result:?}");
+}
+
+/// The names the commit `id` of `repo` loses by the rule of one file (`find_lost_bindings`)
+fn lost_names(repo: &TestRepo, id: &str) -> Vec<String> {
+  find_lost_bindings(repo.git_executor(), path(repo), &ObjectCache::disabled(), &[id.to_string()])
+    .unwrap()
+    .into_iter()
+    .map(|lost| lost.name)
+    .collect()
+}
+
+/// A later local commit that binds the names again leaves the tip whole: only what the tip lacks fails the build
+#[test]
+fn a_later_commit_that_binds_the_name_again_leaves_nothing_lost() {
+  let upstream = LAUNCH_KT.replace("  fun more() = name\n", &format!("{LAUNCH_START}  fun more() = name\n"));
+  let restored = launch_without_old_path()
+    .replace("import b.keep\n", "import b.keep\nimport b.rethrow\n")
+    .replace("  private val name: String,\n", "  private val name: String,\n  private val backend: () -> Int,\n");
+  let Setup { upstream: _upstream, clone } = launch_clone(&upstream, &[&launch_without_old_path(), &restored]);
+  let result = update(&clone).unwrap();
+  assert_eq!(result.check.state, UpdateState::Clean { kind: UpdateKind::Rebase }, "{result:?}");
+  // the copy of the first commit loses both; the second binds them again
+  assert_eq!(lost_names(&clone, &git(&clone, &["rev-parse", "HEAD~1"])), ["backend", "rethrow"]);
+}
+
 /// The first local commit that conflicts, with the files of its merge onto the commits before it and the upstream
 /// commits that change those files; the commit before it replays and is not named
 #[test]
@@ -349,6 +455,7 @@ fn same_line_conflict_reports_the_first_conflict_and_changes_nothing() {
           ("Patronus", 1_700_090_000),
           &["shared.txt"]
         )],
+        lost_bindings: Vec::new(),
       },
     }
   );
@@ -624,6 +731,27 @@ fn e2e_templates_have_the_expected_update_states() {
 
   let (_, state) = check("update_blocked", templates::update_blocked());
   assert_eq!(state, blocked_state(vec!["src/app.txt".to_string()]));
+
+  // the preview of a sync rebases cleanly; the update refuses the replay for its lost bindings, used by the upstream's one
+  // commit of the file
+  let (repo, state) = check("update_lost_bindings", templates::update_lost_bindings());
+  assert_eq!(state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let result = update_project_core(
+    &git_executor,
+    &UpdateProjectParams {
+      repository_path: repo,
+      fetch: true,
+      lease: LeaseGuard::any(),
+    },
+    &|_| {},
+    LockWait::default(),
+  )
+  .unwrap();
+  assert!(
+    matches!(&result.check.state, UpdateState::Conflict { first_conflict: FirstConflict { files, lost_bindings, upstream_commits, .. } }
+      if files == &["src/Launch.kt"] && lost_bindings.len() == 2 && upstream_commits.len() == 1),
+    "{result:?}"
+  );
 }
 
 /// The state of the check inside a sync: the preview, without the network
@@ -1423,6 +1551,7 @@ fn wide_conflict_reports_the_first_files_with_their_commits_and_counts_all() {
       files,
       file_count,
       upstream_commits,
+      ..
     },
   } = preview(&clone)
   else {

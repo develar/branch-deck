@@ -23,7 +23,7 @@ pub struct CommitDiff {
 }
 
 /// Diff options that make the raw part independent of the user's diff config
-const DIFF_OPTIONS: [&str; 4] = ["--no-color", "--no-ext-diff", "--no-textconv", "--no-relative"];
+pub(crate) const DIFF_OPTIONS: [&str; 4] = ["--no-color", "--no-ext-diff", "--no-textconv", "--no-relative"];
 
 /// Git's counts of each file (`FileChange::git_additions`) with git's default algorithm, whatever `diff.algorithm` says:
 /// `log` reads that config, `diff-tree` does not, and a cached count must not depend on it

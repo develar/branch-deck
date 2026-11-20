@@ -138,7 +138,7 @@ impl RepoTemplate {
 /// Pre-defined test repository templates
 pub mod templates {
   use super::RepoTemplate;
-  use crate::git_test_utils::{NO_BACKGROUND_MAINTENANCE, append_config, disable_background_maintenance, git_command};
+  use crate::git_test_utils::{LAUNCH_KT, LAUNCH_START, NO_BACKGROUND_MAINTENANCE, append_config, disable_background_maintenance, git_command, launch_without_old_path};
   use crate::remote_git::{BARE_ORIGIN, add_bare_origin};
   use anyhow::Result;
   use std::fmt::Write;
@@ -1871,6 +1871,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     WideConflict,
     /// The local commits rebase cleanly, but the file the upstream changed has uncommitted changes
     Blocked,
+    /// A local commit drops the private property `backend` and the import of `rethrow` of `src/Launch.kt` with their last
+    /// use, while the upstream uses both again in another hunk: git merges the replay, and the update refuses it for its
+    /// lost bindings (`git_test_utils::LAUNCH_KT`)
+    LostBindings,
     /// A robot pushed `feature-auth` and the first of the two `search` commits: the upstream has them rebased, without
     /// the prefix, with their author and author time and the committer `Patronus`; `ui` stays local. The `search` commit
     /// names `JIRA-42`, which the `.idea/vcs.xml` of the issue links template links
@@ -1913,11 +1917,18 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     UpdateTemplate(UpdateScenario::Blocked)
   }
 
+  pub const fn update_lost_bindings() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::LostBindings)
+  }
+
   pub const fn landed_upstream() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Landed)
   }
 
   pub const UPDATE_APP_FILE: &str = "src/app.txt";
+
+  /// The Kotlin file of `update_lost_bindings`
+  pub const LAUNCH_FILE: &str = "src/Launch.kt";
 
   impl UpdateTemplate {
     pub fn build(self, output_path: &Path) -> Result<()> {
@@ -1975,6 +1986,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         // the issue key of a landed commit is a link
         initial_files.push((".idea/vcs.xml", ISSUE_LINKS_VCS_XML));
       }
+      if scenario == UpdateScenario::LostBindings {
+        initial_files.push((LAUNCH_FILE, LAUNCH_KT));
+      }
       commit("Initial commit", &initial_files, 1704117600)?;
 
       git(&["init", "-q", "--bare", "--template=", "--initial-branch=master", BARE_ORIGIN], None)?;
@@ -2002,6 +2016,15 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         (1704121200, 1704175200),
       )?;
       commit("Add the guide", &[("docs/guide.md", "# Guide\n")], 1704175500)?;
+      if scenario == UpdateScenario::LostBindings {
+        let started = LAUNCH_KT.replace("  fun more() = name\n", &format!("{LAUNCH_START}  fun more() = name\n"));
+        commit_as(
+          "Dana Lee <dana@example.com>",
+          "Start with the backend",
+          &[(LAUNCH_FILE, &started)],
+          (1704121300, 1704175400),
+        )?;
+      }
       if scenario == UpdateScenario::WideConflict {
         for round in 0..7 {
           let time = 1704175600 + round * 60;
@@ -2046,6 +2069,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       if scenario == UpdateScenario::WideConflict {
         commit("(feature-auth) Add the wide files", &as_refs(&wide_files("local\n")), 1704118800)?;
       }
+      if scenario == UpdateScenario::LostBindings {
+        commit("(feature-auth) Drop the old path", &[(LAUNCH_FILE, &launch_without_old_path())], 1704118800)?;
+      }
       if scenario == UpdateScenario::Landed {
         commit("(search) Add index for JIRA-42", &[("src/search.txt", "index\n")], 1704118600)?;
         commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
@@ -2056,7 +2082,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       match scenario {
         UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
         UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
-        UpdateScenario::Conflict | UpdateScenario::ResolvesByWords | UpdateScenario::WideConflict | UpdateScenario::Landed => {}
+        UpdateScenario::Conflict | UpdateScenario::ResolvesByWords | UpdateScenario::WideConflict | UpdateScenario::Landed | UpdateScenario::LostBindings => {}
       }
       Ok(())
     }

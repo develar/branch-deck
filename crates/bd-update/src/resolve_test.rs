@@ -3,7 +3,7 @@ use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::{LAUNCH_START, TestRepo, append_config, launch_without_old_path};
 #[cfg(unix)]
 use test_utils::history::HistoryCommit;
 use test_utils::history::{numbered_lines, one_file_each};
@@ -1900,4 +1900,155 @@ fn an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_dele
   assert_eq!(exit_code, 0, "{aborted}");
   assert_eq!(clone.head(), head);
   assert_eq!(under_the_lock(&wrapped), ["cat-file", "for-each-ref", "update-ref"], "{:#?}", wrapped.commands());
+}
+
+/// The file of `TestRepo::upstream_and_clone_losing_bindings` after the replay: the local commit's removals and the
+/// upstream's `start`, which uses what they removed
+fn launch_at_the_tip() -> String {
+  launch_without_old_path().replace("  fun more() = name\n", &format!("{LAUNCH_START}  fun more() = name\n"))
+}
+
+/// `content` with the import of `rethrow` and the property `backend` back
+fn with_the_bindings(content: &str) -> String {
+  content
+    .replace("import b.keep\n", "import b.keep\nimport b.rethrow\n")
+    .replace("  private val name: String,\n", "  private val name: String,\n  private val backend: () -> Int,\n")
+}
+
+/// The incident of robot 1137287182 in `brd update`: the clean replay loses a private property and an import whose new
+/// uses the upstream added, so a lost-bindings round opens with every commit replayed. Its copy is the file at the tip,
+/// without markers; an edit that binds nothing is refused as `lost_binding` and keeps the round; the edit that binds both
+/// again becomes one new commit `fixup! <subject>` by the committer on top of the replayed commit, and `next` folds it
+#[test_log::test]
+fn a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_finishes_the_update() {
+  let (upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let head = clone.head();
+
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let session = &round["session"];
+  assert_eq!(
+    (&round["state"], &session["round"], &session["round_kind"], &session["replayed"], &session["total"]),
+    (&json!("conflict"), &json!(1), &json!("lost_bindings"), &json!(1), &json!(1)),
+    "{round}"
+  );
+  assert_eq!(
+    session["lost_bindings"],
+    json!([
+      { "file": "src/Launch.kt", "name": "backend", "binding": "declaration", "binding_line": 8, "use_line": 11, "commit": head },
+      { "file": "src/Launch.kt", "name": "rethrow", "binding": "import", "binding_line": 4, "use_line": 12, "commit": head },
+    ])
+  );
+  assert_eq!(session["commit"]["subject"], json!("(launch) Drop the old path"));
+  let file = file_of(&round, "src/Launch.kt");
+  assert_eq!(file["kind"], json!("lost_binding"));
+  assert!(file["hint"].as_str().unwrap().contains("fixup! (launch) Drop the old path"), "{file}");
+  let edit = edit_of(&round, "src/Launch.kt");
+  assert_eq!(read(&edit), launch_at_the_tip());
+  // the file before the copy: the upstream's, with what the commit removes
+  assert_eq!(
+    read(file["before"].as_str().unwrap()),
+    with_the_bindings(&launch_at_the_tip().replace("  fun stays", "  fun old() {\n    backend()\n    rethrow()\n  }\n\n  fun stays"))
+  );
+  assert_eq!((clone.head(), worktree_status(&clone)), (head.clone(), String::new()));
+
+  std::fs::write(&edit, launch_at_the_tip().replace("  fun stays", "  // the old path is gone\n  fun stays")).unwrap();
+  let (exit_code, refused) = run_in(&clone, &["update", "--continue", "--round", "1"]);
+  assert_error(&refused, exit_code, (4, "lost_binding"));
+  assert_eq!(refused["error"]["paths"], json!(["src/Launch.kt"]), "{refused}");
+  assert_eq!(clone.head(), head);
+
+  std::fs::write(&edit, with_the_bindings(&launch_at_the_tip())).unwrap();
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--round", "1"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(done["state"], json!("rebase"));
+  assert_eq!(git(&clone, &["log", "-2", "--format=%s"]), "fixup! (launch) Drop the old path\n(launch) Drop the old path");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
+  let [author, committer] = [git(&clone, &["log", "-1", "--format=%an <%ae>"]), git(&clone, &["log", "-1", "--format=%cn <%ce>"])];
+  assert_eq!(author, committer, "the fixup is the committer's");
+  assert_eq!(read(clone.path().join("src/Launch.kt").to_str().unwrap()), with_the_bindings(&launch_at_the_tip()));
+  assert_eq!(worktree_status(&clone), "");
+  let resolution = &done["resolutions"][0];
+  assert_eq!((&resolution["round"], &resolution["new_id"]), (&json!(1), &json!(clone.head())), "{done}");
+  assert_eq!(resolution["lost_bindings"].as_array().map(Vec::len), Some(2));
+  assert_eq!(resolution["files"], json!([{ "path": "src/Launch.kt", "how": "edited" }]));
+  assert_eq!(done["verify"], json!({ "paths": ["src/Launch.kt"] }));
+  assert!(done["next"][0].as_str().unwrap().ends_with(" fold"), "{done}");
+  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("lost-binding\tsrc/Launch.kt\tbackend"));
+}
+
+/// The incident as it happened: the replay conflicts on a block of the commit while its other hunks drop the import and
+/// the property cleanly; the agent resolves the block, and the finish finds the bindings that the copy of the resolved
+/// commit lost, so a lost-bindings round of the same commit opens after the round of git
+#[test_log::test]
+fn a_conflict_round_whose_clean_hunks_drop_the_bindings_is_followed_by_a_lost_bindings_round() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(true);
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (&round["session"]["round_kind"], &file_of(&round, "src/Launch.kt")["kind"]),
+    (&json!("conflict"), &json!("content"))
+  );
+
+  // the block resolved as the agent of the incident did: the upstream's side with the commit's change of `more`
+  let edit = edit_of(&round, "src/Launch.kt");
+  let merged = read(&edit);
+  let start = merged.find("<<<<<<<").unwrap();
+  let end = merged[start..].find(">>>>>>>").map(|at| start + at).unwrap();
+  let end = end + merged[end..].find('\n').unwrap() + 1;
+  let onto: String = merged[start..end]
+    .lines()
+    .skip(1)
+    .take_while(|line| !line.starts_with("|||||||"))
+    .flat_map(|line| [line, "\n"])
+    .collect();
+  let resolved = format!("{}{}{}", &merged[..start], onto.replace("name + \"!\"", "name.trim() + \"!\""), &merged[end..]);
+  assert!(resolved.contains("  fun start() {\n    backend()\n    rethrow()\n  }\n"), "{resolved}");
+  std::fs::write(&edit, &resolved).unwrap();
+  let (exit_code, second) = run_in(&clone, &["update", "--continue", "--round", "1"]);
+  assert_eq!(exit_code, 1, "{second}");
+  let session = &second["session"];
+  assert_eq!(
+    (&session["round"], &session["round_kind"], &session["replayed"]),
+    (&json!(2), &json!("lost_bindings"), &json!(1)),
+    "{second}"
+  );
+  let names: Vec<&Value> = session["lost_bindings"].as_array().unwrap().iter().map(|lost| &lost["name"]).collect();
+  assert_eq!(names, [&json!("backend"), &json!("rethrow")]);
+
+  let edit = edit_of(&second, "src/Launch.kt");
+  assert_eq!(read(&edit), resolved);
+  std::fs::write(&edit, with_the_bindings(&resolved)).unwrap();
+  let (exit_code, done) = run_in(&clone, &["update", "--continue", "--round", "2"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(git(&clone, &["log", "-2", "--format=%s"]), "fixup! (launch) Drop the old path\n(launch) Drop the old path");
+  assert_eq!(read(clone.path().join("src/Launch.kt").to_str().unwrap()), with_the_bindings(&resolved));
+}
+
+/// `--keep-name` accepts a lost name unbound on the user's word: a name of the round only; with every name kept and no
+/// copy edited, the round writes no commit, the update applies as replayed, and `verify.kept_names` names each name
+/// for the build. No later finish names a kept name again
+#[test_log::test]
+fn keep_name_keeps_a_name_unbound_on_the_users_word() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!((exit_code, &round["session"]["round_kind"]), (1, &json!("lost_bindings")), "{round}");
+
+  let (exit_code, refused) = run_in(&clone, &["update", "--continue", "--keep-name", "other"]);
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
+  let (exit_code, refused) = run_in(&clone, &["update", "--continue", "--keep-name", "backend"]);
+  assert_error(&refused, exit_code, (4, "lost_binding"));
+  assert!(refused["error"]["message"].as_str().unwrap().contains("rethrow"), "{refused}");
+
+  let (exit_code, done) = run_in(&clone, &["update", "--continue", "--keep-name", "backend", "--keep-name", "rethrow"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(launch) Drop the old path");
+  assert_eq!(read(clone.path().join("src/Launch.kt").to_str().unwrap()), launch_at_the_tip());
+  assert_eq!(done["resolutions"][0]["kept_names"], json!(["backend", "rethrow"]));
+  assert_eq!(done["resolutions"][0]["new_id"], json!(null));
+  assert_eq!(
+    done["verify"]["kept_names"],
+    json!([{ "file": "src/Launch.kt", "name": "backend", "line": 11 }, { "file": "src/Launch.kt", "name": "rethrow", "line": 12 }])
+  );
+  assert_eq!(done.get("next"), None, "nothing to fold: {done}");
 }

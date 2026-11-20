@@ -625,6 +625,25 @@ impl TestRepo {
     (upstream, clone)
   }
 
+  /// `upstream_and_clone` of `LAUNCH_KT` at `src/Launch.kt`, whose upstream adds `start` with new uses of the private
+  /// property `backend` and of the import `rethrow`, and whose clone drops both with their last use (`old`), as commit
+  /// `(launch) Drop the old path`: the replay merges cleanly and loses both bindings (the incident of robot 1137287182,
+  /// openspec/specs/cli/update/spec.md). With `conflict`, both also change `more`, so the replay conflicts there while
+  /// its other hunks drop the bindings
+  pub fn upstream_and_clone_losing_bindings(conflict: bool) -> (Self, Self) {
+    let (upstream, clone) = Self::upstream_and_clone(&[("src/Launch.kt", LAUNCH_KT), ("other.txt", "other\n")]);
+    let (upstream_more, local_more) = if conflict {
+      ("  fun more() = name + \"!\"\n", "  fun more() = name.trim()\n")
+    } else {
+      ("  fun more() = name\n", "  fun more() = name\n")
+    };
+    let upstream_file = LAUNCH_KT.replace("  fun more() = name\n", &format!("{LAUNCH_START}{upstream_more}"));
+    upstream.create_commit("Start with the backend", "src/Launch.kt", &upstream_file);
+    let local_file = launch_without_old_path().replace("  fun more() = name\n", local_more);
+    clone.create_commit("(launch) Drop the old path", "src/Launch.kt", &local_file);
+    (upstream, clone)
+  }
+
   /// `upstream_and_clone` with local commits that landed upstream in another order (openspec/specs/repository/landed-commits/spec.md,
   /// "The proof"): `f.txt` after an upstream change of a line of its context, so its cherry-pick writes the upstream
   /// commit's tree; with `fixup`, a local fixup of it; `g.txt` after an upstream change of the line next to it, so its
@@ -965,3 +984,43 @@ pub fn setup_deletion_conflict(repo: &TestRepo) -> ConflictScenario {
 #[cfg(test)]
 #[path = "git_test_utils_test.rs"]
 mod git_test_utils_test;
+
+/// `src/Launch.kt` of `TestRepo::upstream_and_clone_losing_bindings`: the import of `rethrow` (line 4) and the private
+/// property `backend` (line 8), whose only use is `old`
+pub const LAUNCH_KT: &str = "package a
+
+import b.keep
+import b.rethrow
+
+class Launch(
+  private val name: String,
+  private val backend: () -> Int,
+) {
+  fun old() {
+    backend()
+    rethrow()
+  }
+
+  fun stays() = keep(name)
+
+  fun more() = name
+}
+";
+
+/// What the upstream of `TestRepo::upstream_and_clone_losing_bindings` adds before `more`: new uses of `backend` and
+/// `rethrow`
+pub const LAUNCH_START: &str = "  fun start() {
+    backend()
+    rethrow()
+  }
+
+";
+
+/// `LAUNCH_KT` without `old`, the import of `rethrow` and the property `backend`: the local commit of
+/// `TestRepo::upstream_and_clone_losing_bindings`
+pub fn launch_without_old_path() -> String {
+  LAUNCH_KT
+    .replace("import b.rethrow\n", "")
+    .replace("  private val backend: () -> Int,\n", "")
+    .replace("  fun old() {\n    backend()\n    rethrow()\n  }\n\n", "")
+}

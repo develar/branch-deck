@@ -186,7 +186,7 @@ A round (`state: conflict`, `session`):
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
-  update, folded with brd fold. Write a copy as UTF-8 without a byte order mark: in Windows PowerShell with
+  update, folded with brd fold; a lost-bindings round (below) is the exception. Write a copy as UTF-8 without a byte order mark: in Windows PowerShell with
   `[IO.File]::WriteAllText(<edit>, $text)`, because `Set-Content` and `Out-File` add a BOM or write UTF-16.
 - `kind` content: edit `edit`. `kind` modify_delete or rename_delete (one side deleted the file; `renamed_from`
   names its path before a rename): `--take onto:<path>`,
@@ -194,6 +194,15 @@ A round (`state: conflict`, `session`):
   takes keep the selected side's name and delete the other, while `--delete` removes both names; use
   `--rename-to <path> <new-path>` to write the checked `edit` copy under a new name. Every file needs a resolution:
   a missing file is never a delete.
+
+A lost-bindings round (`session.round_kind: lost_bindings`): every commit is replayed and git merged them, but the copy
+of `session.commit` removes the import or the private declaration of a name that the upstream uses again in the same
+file, and the build would fail. `session.lost_bindings[]` names each (`file`, `name`, `binding`: import or declaration,
+`binding_line`, `use_line`, `commit`); a conflict round of the same commit comes first. `kind` lost_binding: `edit` is
+the file at the session's tip, without markers; edit it anywhere to keep the binding or drop the use.
+`brd update --continue` writes the edits as one new commit `fixup! <subject>` on top (the replayed commits stay) and
+refuses a name the edit still leaves unbound (`lost_binding`, exit 4); --keep-name <name> (repeatable) keeps a name
+unbound only when the user says it resolves another way (`verify.kept_names`). After the update `next` names `brd fold`.
 
 `brd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
 or applies the update (exit 0). --take, --delete and --rename-to resolve files without editing the working tree

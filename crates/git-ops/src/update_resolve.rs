@@ -5,7 +5,7 @@
 //! step moves the ref with compare-and-swap; nothing else moves until the finish, which moves the branch with the
 //! files through `update_branch` (the guarded working-tree update) and only then deletes the ref.
 
-use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use crate::cat_file_batch::{BatchEntry, NO_LIMIT, object_ids_and_modes, read_objects};
 use crate::commit_signing::{Signing, sign_range};
 use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenCommits, WrittenEdit, WrittenStore, current_committer,
@@ -28,6 +28,7 @@ use crate::word_replay::resolve_merge_onto;
 use crate::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
+use domain_types::landing::BindingKind;
 use domain_types::update_project::UpdateCommit;
 use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -43,9 +44,10 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
-/// The version of `state.json`: 3 since a file of a round can have two new names (`ConflictFile::commit_path`).
-/// brd is one binary for every session of a machine, so a brd of another version refuses a session by this number
-const STATE_VERSION: u32 = 3;
+/// The version of `state.json`: 4 since a round can be a lost-bindings round (`ConflictKind::LostBinding`,
+/// `RoundConflict::lost_bindings`, `Resolution::fixup`). brd is one binary for every session of a machine, so a brd of
+/// another version refuses a session by this number
+const STATE_VERSION: u32 = 4;
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -80,6 +82,10 @@ pub enum ConflictKind {
   RenameDelete,
   /// Both sides renamed the file (`renamed_from` to `path` and `commit_path`)
   RenameRename,
+  /// A file of a lost-bindings round (`RoundConflict::lost_bindings`): git merged it, and the copy of the commit removes
+  /// the binding of a name the file still uses. `edit` is the file at the session's tip, without markers, edited
+  /// anywhere; `before` is the file before the copy, `commit` the copy's, `onto` the tip's
+  LostBinding,
 }
 
 /// A rename/rename message that remains unsupported, in merge-ort's path order
@@ -181,18 +187,76 @@ fn shortened(name: &str) -> String {
   format!("{}{extension}", &name[..end])
 }
 
-/// The open round: the local commit that conflicts, replayed onto `onto`
+/// A name whose binding the copy of a local commit removes while the file at the session's tip (or the update's replay)
+/// still uses it: what the replay brought, which the local commit lacks (`trial_check::lost_bindings`, the rule a
+/// caller passes as `LostBindingRule`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LostBindingFinding {
+  /// The local commit
+  pub original: String,
+  /// Its copy on the upstream
+  pub copy: String,
+  pub file: String,
+  pub name: String,
+  pub binding: BindingKind,
+  /// The line of the binding before the copy, 1-based
+  pub binding_line: u32,
+  /// The first line of the file at the tip that uses the name, 1-based
+  pub use_line: u32,
+}
+
+/// The lost-binding rule a session asks, which lives above git-ops (`trial_check::lost_bindings`, through
+/// `update_core::resolve_session`): what the replay of a session brought before it finishes, and what the edit of a
+/// lost-bindings round still leaves
+pub trait LostBindingRule {
+  /// The lost bindings of the copies `<state.tip> ^<state.upstream_head>` that the local commits lack and the tip still
+  /// has, but the names a lost-bindings round kept (`FixupResolution::kept`), by the order of the local commits
+  ///
+  /// # Errors
+  /// git failed
+  fn replayed(&self, git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<Vec<LostBindingFinding>>;
+
+  /// The names that `before` (the file before the copy) binds and `edited` binds by nothing while it still uses them,
+  /// each with its first use in `edited`
+  fn left_in_edit(&self, path: &str, before: &[u8], edited: &[u8]) -> Vec<(String, u32)>;
+}
+
+/// No lost-binding rule: a session that never opens a lost-bindings round
+pub struct NoLostBindings;
+
+impl LostBindingRule for NoLostBindings {
+  fn replayed(&self, _: &GitCommandExecutor, _: &str, _: &SessionState) -> Result<Vec<LostBindingFinding>> {
+    Ok(Vec::new())
+  }
+
+  fn left_in_edit(&self, _: &str, _: &[u8], _: &[u8]) -> Vec<(String, u32)> {
+    Vec::new()
+  }
+}
+
+/// The open round: the local commit that conflicts, replayed onto `onto`; or, with `lost_bindings`, a lost-bindings
+/// round of the local commit whose copy on `onto` (the session's tip, every commit replayed) loses a binding
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoundConflict {
   pub commit: String,
   /// The tip it replays onto: the upstream and the local commits replayed so far
   pub onto: String,
-  /// `merge-tree --merge-base <commit>^ <onto> <commit>`: the merge result, with markers in the conflicting files
+  /// `merge-tree --merge-base <commit>^ <onto> <commit>`: the merge result, with markers in the conflicting files; the
+  /// tree of `onto` in a lost-bindings round
   pub merge_tree: String,
   pub files: Vec<ConflictFile>,
+  /// The lost bindings of a lost-bindings round, of the copy of `commit`: its files are theirs (`ConflictKind::LostBinding`),
+  /// and `--continue` writes the edits as one new commit `fixup! <subject of commit>` on top of `onto`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lost_bindings: Vec<LostBindingFinding>,
 }
 
 impl RoundConflict {
+  /// A lost-bindings round, not a conflict of git
+  pub const fn is_lost_bindings(&self) -> bool {
+    !self.lost_bindings.is_empty()
+  }
+
   /// The label after the base markers: the commit's parent, as brd passed it to `merge-tree`
   pub fn base_label(&self) -> String {
     format!("{}^", self.commit)
@@ -281,6 +345,30 @@ pub struct Resolution {
   /// `--landed`: the round dropped its commit as landed, as this upstream commit
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed: Option<LandedResolution>,
+  /// A lost-bindings round: `resolved` is the `fixup!` commit it wrote on top of the tip (`None` when no copy was edited
+  /// and every name was kept), `commit` the local commit whose copy lost the bindings
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub fixup: Option<FixupResolution>,
+}
+
+/// The resolution of a lost-bindings round
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixupResolution {
+  /// The lost bindings the round was opened for
+  pub lost: Vec<LostBindingFinding>,
+  /// The names `--keep-name` kept unbound on the user's word: they resolve another way, and no later finish names them
+  /// again
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub kept: Vec<KeptName>,
+}
+
+/// A name of a file that a lost-bindings round kept unbound (`--keep-name`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptName {
+  pub file: String,
+  pub name: String,
+  /// Its first use in the file the round wrote, 1-based
+  pub line: u32,
 }
 
 /// A round that `--landed` resolved: the commit is dropped as its upstream twin (`SessionState::landed_candidates`)
@@ -562,6 +650,14 @@ pub enum ResolveError {
   InvalidInput { message: String },
   /// The branch moved, but the files did not follow and the session can't finish them here
   FinishPending { message: String },
+  /// The edit of a lost-bindings round still leaves `left` unbound while the file uses them, and no `--keep-name` kept
+  /// them; each with its first use in the edit
+  LostBinding {
+    round: u32,
+    commit: String,
+    subject: String,
+    left: Vec<LostBindingFinding>,
+  },
 }
 
 impl fmt::Display for ResolveError {
@@ -631,6 +727,27 @@ impl fmt::Display for ResolveError {
         short_id(upstream),
         unchanged(*round)
       ),
+      Self::LostBinding { round, commit, subject, left } => {
+        let names = left
+          .iter()
+          .map(|lost| {
+            let binding = match lost.binding {
+              BindingKind::Import => "import",
+              BindingKind::Declaration => "declaration",
+            };
+            format!("{} ({}:{} uses it, its {binding} is gone)", lost.name, lost.file, lost.use_line)
+          })
+          .collect::<Vec<_>>()
+          .join(", ");
+        write!(
+          f,
+          "Round {round}, commit {} {subject}: the edit still leaves {names} unbound. Keep the binding in the edit copy (the \
+           import, or the private declaration the commit removed) or drop the use; `--keep-name <name>` keeps a name only \
+           when the user says it resolves another way. {}",
+          short_id(commit),
+          unchanged(*round)
+        )
+      }
       Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } | Self::FinishPending { message } => f.write_str(message),
       Self::RoundMoved { expected, actual } => write!(
         f,
@@ -647,18 +764,31 @@ impl ResolveError {
   pub fn commit(&self) -> Option<&str> {
     match self {
       Self::Refused(refusal) => Some(&refusal.commit),
-      Self::EmptyResolution { commit, .. } | Self::NotLandedRound { commit, .. } | Self::LandedDiffers { commit, .. } | Self::LandedNotEmpty { commit, .. } => Some(commit),
+      Self::EmptyResolution { commit, .. }
+      | Self::NotLandedRound { commit, .. }
+      | Self::LandedDiffers { commit, .. }
+      | Self::LandedNotEmpty { commit, .. }
+      | Self::LostBinding { commit, .. } => Some(commit),
       Self::Unsupported { commit, .. } => commit.as_deref(),
       _ => None,
     }
   }
 
   /// The paths the refusal is about
-  pub fn paths(&self) -> &[String] {
+  pub fn paths(&self) -> Vec<String> {
     match self {
-      Self::Refused(refusal) => &refusal.paths,
-      Self::Unsupported { paths, .. } | Self::LandedNotEmpty { paths, .. } => paths,
-      _ => &[],
+      Self::Refused(refusal) => refusal.paths.clone(),
+      Self::Unsupported { paths, .. } | Self::LandedNotEmpty { paths, .. } => paths.clone(),
+      Self::LostBinding { left, .. } => {
+        let mut paths: Vec<String> = Vec::new();
+        for lost in left {
+          if !paths.contains(&lost.file) {
+            paths.push(lost.file.clone());
+          }
+        }
+        paths
+      }
+      _ => Vec::new(),
     }
   }
 }
@@ -812,7 +942,12 @@ pub struct SessionStart<'a> {
 /// `PreparedStart::start`, with nothing between
 #[instrument(skip(git_executor, start), fields(branch = start.plan.checked.branch))]
 pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: SessionStart<'_>) -> Result<Step> {
-  prepare_session_start(git_executor, repo_path, start.plan, start.worktree, start.resolve, Signing::Off)?.start(git_executor, repo_path, start.dir, start.dir_created)
+  prepare_session_start(git_executor, repo_path, start.plan, start.worktree, start.resolve, Signing::Off, &NoLostBindings)?.start(
+    git_executor,
+    repo_path,
+    start.dir,
+    start.dir_created,
+  )
 }
 
 /// The first round of a new session, computed and its objects written, while no ref names it yet: `start` writes its
@@ -916,8 +1051,10 @@ impl PreparedStart {
 /// again. Its first round opens at the first conflict the check found (`ReplayPlan::first_conflict`), after one replay
 /// per run of the commits before it; with `ResolveMode::On`, a conflicting commit that its words resolve is a round
 /// that resolves itself (`advance`). Only objects are written, and the temporary refs of the resolved commits.
-/// `Unsupported` when the first conflict can't be resolved in a round
-#[instrument(skip(git_executor, plan, worktree), fields(branch = plan.checked.branch))]
+/// `Unsupported` when the first conflict can't be resolved in a round. A session whose replay is done asks `rule`
+/// before it finishes: a lost binding opens a lost-bindings round (`lost_bindings_round`); a check whose clean replay
+/// lost bindings (`UpdatePlan::into_lost_bindings_conflict`) starts at that round, on the tip the check replayed
+#[instrument(skip(git_executor, plan, worktree, rule), fields(branch = plan.checked.branch))]
 pub fn prepare_session_start(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -925,6 +1062,7 @@ pub fn prepare_session_start(
   worktree: &Worktree,
   resolve: ResolveMode,
   signing: Signing,
+  rule: &dyn LostBindingRule,
 ) -> Result<PreparedStart> {
   if !plan.is_applicable_conflict() {
     bail!("A resolve session starts only from the check of an update that conflicts");
@@ -965,8 +1103,21 @@ pub fn prepare_session_start(
   if !state.landed_dropped.is_empty() {
     info!(left_out = state.landed_dropped.len(), "local commits the upstream proves it has are left out");
   }
-  // the round of the check's first conflict opens without a search
-  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, replay.first_conflict, resolve)?;
+  let (mut objects, words_refs) = if let Some(lost) = plan.lost_bindings_start() {
+    // the clean replay of the check lost bindings: every commit is replayed onto the tip it wrote
+    state.tip.clone_from(&lost.tip);
+    state.replayed = state.local.len();
+    (Some(open_fixup_round(git_executor, repo_path, &mut state, lost.findings.clone())?), Vec::new())
+  } else {
+    // the round of the check's first conflict opens without a search
+    advance(git_executor, repo_path, &mut state, replay.first_conflict, resolve)?
+  };
+  if state.status == SessionStatus::Ready {
+    match lost_bindings_round(git_executor, repo_path, &mut state, rule) {
+      Ok(round) => objects = round.or(objects),
+      Err(error) => return discard_resolved_error(git_executor, repo_path, &words_refs, error),
+    }
+  }
   let signed = if state.status == SessionStatus::Ready {
     sign_range_or_discard(git_executor, repo_path, Some(&state.upstream_head), &state.tip, signing, &words_refs)?
   } else {
@@ -1015,6 +1166,8 @@ pub struct RoundInput {
   pub drop_empty: Option<String>,
   /// `--landed <commit>`: drop the round's commit as its upstream twin
   pub landed: Option<LandedInput>,
+  /// `--keep-name <name>`: a lost-bindings round accepts these names unbound, on the user's word
+  pub keep_names: Vec<String>,
 }
 
 /// `--landed <commit> [--user]`: take `onto` for every file of the round and drop its commit as landed
@@ -1044,7 +1197,19 @@ pub fn continue_session(
   dry_run: bool,
   resolve: ResolveMode,
 ) -> Result<Step> {
-  let step = continue_session_inner(git_executor, repo_path, worktree, session, round, input, dry_run, resolve, Signing::Off, false)?;
+  let step = continue_session_inner(
+    git_executor,
+    repo_path,
+    worktree,
+    session,
+    round,
+    input,
+    dry_run,
+    resolve,
+    Signing::Off,
+    false,
+    &NoLostBindings,
+  )?;
   match step {
     Step::PreparedRound(prepared) => apply_prepared_round(git_executor, repo_path, prepared),
     Step::PreparedFinish(prepared) => finish_prepared(git_executor, repo_path, prepared),
@@ -1052,8 +1217,9 @@ pub fn continue_session(
   }
 }
 
-/// Prepare a continuation without moving refs; a final finish is returned for the caller to apply under the repository lock
-#[instrument(skip(git_executor, worktree, session, input))]
+/// Prepare a continuation without moving refs; a final finish is returned for the caller to apply under the repository
+/// lock. A replay that is done asks `rule` first: a lost binding opens a lost-bindings round instead of the finish
+#[instrument(skip(git_executor, worktree, session, input, rule))]
 #[expect(clippy::too_many_arguments, reason = "the session continuation takes the caller's single signing decision")]
 pub fn prepare_continue_session(
   git_executor: &GitCommandExecutor,
@@ -1065,11 +1231,12 @@ pub fn prepare_continue_session(
   dry_run: bool,
   resolve: ResolveMode,
   signing: Signing,
+  rule: &dyn LostBindingRule,
 ) -> Result<Step> {
-  continue_session_inner(git_executor, repo_path, worktree, session, round, input, dry_run, resolve, signing, true)
+  continue_session_inner(git_executor, repo_path, worktree, session, round, input, dry_run, resolve, signing, true, rule)
 }
 
-#[instrument(skip(git_executor, worktree, session, input))]
+#[instrument(skip(git_executor, worktree, session, input, rule))]
 #[expect(clippy::too_many_arguments, reason = "the step of a session: what the caller read and decided")]
 fn continue_session_inner(
   git_executor: &GitCommandExecutor,
@@ -1082,6 +1249,7 @@ fn continue_session_inner(
   resolve: ResolveMode,
   signing: Signing,
   defer_finish: bool,
+  rule: &dyn LostBindingRule,
 ) -> Result<Step> {
   let mut state = session.state.clone();
   if let Some(round) = round
@@ -1109,6 +1277,42 @@ fn continue_session_inner(
 
   let mut resolved_ref = None;
   let resolution = match state.conflict.clone() {
+    Some(conflict) if conflict.is_lost_bindings() => {
+      let (mut resolution, edits, objects) = check_fixup_round(git_executor, repo_path, &state, &conflict, input, rule)?;
+      if dry_run {
+        return Ok(Step::Checked {
+          session,
+          resolution: Some(resolution),
+        });
+      }
+      // the edits go into one new commit on top of the tip, by the session's committer: the replayed commits stay as
+      // they are, and `brd fold` folds it into the copy after the update
+      if !edits.is_empty() {
+        let tree_edits: Vec<TreeEdit<'_>> = edits.iter().map(PathEdit::as_tree_edit).collect();
+        let message = format!("fixup! {}\n", subject_of(&objects.commit));
+        let written = write_edited_commit(
+          git_executor,
+          repo_path,
+          &EditedCommit {
+            tree: &conflict.merge_tree,
+            edits: &tree_edits,
+            parent: &conflict.onto,
+            author: &state.committer,
+            committer: &state.committer,
+            encoding: None,
+            message: message.as_bytes(),
+          },
+          Signing::Off,
+        )?;
+        resolution.resolved = Some(written.commit.clone());
+        state.tip.clone_from(&written.commit);
+        resolved_ref = Some(ResolvedRef::of(&written));
+      }
+      debug!(commit = %short_id(&conflict.commit), fixup = resolution.resolved.is_some(), "resolved a lost-bindings round");
+      state.conflict = None;
+      state.resolutions.push(resolution.clone());
+      Some(resolution)
+    }
     Some(conflict) => {
       // `--landed`: `onto` for every file, then the decision on the commit
       let landed_takes;
@@ -1215,7 +1419,7 @@ fn continue_session_inner(
   }
 
   let mut resolved_refs: Vec<ResolvedRef> = resolved_ref.into_iter().collect();
-  let objects = match advance(git_executor, repo_path, &mut state, None, resolve) {
+  let mut objects = match advance(git_executor, repo_path, &mut state, None, resolve) {
     Ok((objects, words_refs)) => {
       resolved_refs.extend(words_refs);
       objects
@@ -1226,6 +1430,13 @@ fn continue_session_inner(
       return Err(e);
     }
   };
+  // a replay that is done, before its finish: a lost binding opens a lost-bindings round
+  if state.status != SessionStatus::Resolving {
+    match lost_bindings_round(git_executor, repo_path, &mut state, rule) {
+      Ok(round) => objects = round.or(objects),
+      Err(error) => return discard_resolved_error(git_executor, repo_path, &resolved_refs, error),
+    }
+  }
   if state.status != SessionStatus::Resolving {
     let unsaved = state != session.state;
     let prepared = prepare_finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, resolved_refs, signing)?;
@@ -1780,7 +1991,22 @@ fn check_round(
     });
     edits.extend(file_edits);
   }
-  // one kind at a time, the one the agent fixes first
+  refuse_first_kind(&refused, state, conflict, &objects)?;
+  let resolution = Resolution {
+    round: state.round,
+    commit: conflict.commit.clone(),
+    resolved: None,
+    empty: false,
+    paths,
+    words: None,
+    landed: None,
+    fixup: None,
+  };
+  Ok((resolution, edits, objects))
+}
+
+/// The refusal of the paths of the first kind of `refused` there is, in the order the agent fixes them; one kind at a time
+fn refuse_first_kind(refused: &[(RefusalKind, String)], state: &SessionState, conflict: &RoundConflict, objects: &RoundObjects) -> Result<()> {
   for kind in [
     RefusalKind::MissingResolution,
     RefusalKind::Encoding,
@@ -1801,6 +2027,100 @@ fn check_round(
       })));
     }
   }
+  Ok(())
+}
+
+/// Check the input of a lost-bindings round: an edit copy for every file (`--take`, `--delete`, `--rename-to`,
+/// `--landed` and `--drop-empty` resolve a conflict of git), changed anywhere, which `rule` reads again: a name of the
+/// round that the edit still leaves unbound refuses it (`ResolveError::LostBinding`) unless `--keep-name` keeps it.
+/// The resolution (without the commit), the edits of the files that changed, and the objects of the round, read with one
+/// `cat-file --batch -Z`
+fn check_fixup_round(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &SessionState,
+  conflict: &RoundConflict,
+  input: &RoundInput,
+  rule: &dyn LostBindingRule,
+) -> Result<(Resolution, Vec<PathEdit>, RoundObjects)> {
+  if !input.takes.is_empty() || !input.deletes.is_empty() || !input.renames.is_empty() || input.landed.is_some() || input.drop_empty.is_some() {
+    return Err(invalid_input(&format!(
+      "Round {} is a lost-bindings round: edit the copies at `edit` and run --continue, or keep a name with --keep-name <name>; --take, \
+       --delete, --rename-to, --landed and --drop-empty resolve a conflict of git",
+      state.round
+    )));
+  }
+  if let Some(name) = input.keep_names.iter().find(|name| !conflict.lost_bindings.iter().any(|lost| lost.name == **name)) {
+    let names: Vec<&str> = conflict.lost_bindings.iter().map(|lost| lost.name.as_str()).collect();
+    return Err(invalid_input(&format!(
+      "--keep-name {name} names no lost binding of round {}: {}",
+      state.round,
+      names.join(", ")
+    )));
+  }
+  let objects = read_round_objects(git_executor, repo_path, conflict)?;
+  let labels_base = conflict.base_label();
+  let labels = conflict.labels(&labels_base);
+  let mut refused: Vec<(RefusalKind, String)> = Vec::new();
+  let mut left = Vec::new();
+  let mut kept = Vec::new();
+  let mut paths = Vec::new();
+  let mut edits = Vec::new();
+  for file in &conflict.files {
+    let Some(content) = content_edit(input, &file.path, file.path.clone(), &mut refused) else {
+      continue;
+    };
+    let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
+    if has_foreign_encoding(merged, content) {
+      refuse_check_failure(&mut refused, CheckFailure::Encoding, file.path.clone());
+      continue;
+    }
+    if has_markers(content, labels) {
+      refuse_check_failure(&mut refused, CheckFailure::UnresolvedMarkers, file.path.clone());
+      continue;
+    }
+    let before = file.before.as_ref().and_then(|stage| objects.blobs.get(&stage.id)).map_or(&[][..], Vec::as_slice);
+    let still = rule.left_in_edit(&file.path, before, content);
+    for lost in conflict.lost_bindings.iter().filter(|lost| lost.file == file.path) {
+      let Some((_, line)) = still.iter().find(|(name, _)| *name == lost.name) else {
+        continue;
+      };
+      if input.keep_names.contains(&lost.name) {
+        kept.push(KeptName {
+          file: lost.file.clone(),
+          name: lost.name.clone(),
+          line: *line,
+        });
+      } else {
+        left.push(LostBindingFinding { use_line: *line, ..lost.clone() });
+      }
+    }
+    let changed = content.as_slice() != merged;
+    if changed {
+      edits.push(PathEdit::Content {
+        path: file.path.clone(),
+        mode: file.mode().to_string(),
+        content: content.clone(),
+      });
+    }
+    paths.push(ResolvedPath {
+      path: file.path.clone(),
+      outcome: if changed { Outcome::Edited } else { Outcome::Onto },
+      renamed_to: None,
+      dropped_upstream_lines: Vec::new(),
+      dropped_commit_lines: Vec::new(),
+      conflicts: None,
+    });
+  }
+  refuse_first_kind(&refused, state, conflict, &objects)?;
+  if !left.is_empty() {
+    return Err(anyhow::Error::new(ResolveError::LostBinding {
+      round: state.round,
+      commit: conflict.commit.clone(),
+      subject: subject_of(&objects.commit),
+      left,
+    }));
+  }
   let resolution = Resolution {
     round: state.round,
     commit: conflict.commit.clone(),
@@ -1809,8 +2129,86 @@ fn check_round(
     paths,
     words: None,
     landed: None,
+    fixup: Some(FixupResolution {
+      lost: conflict.lost_bindings.clone(),
+      kept,
+    }),
   };
   Ok((resolution, edits, objects))
+}
+
+/// The lost-bindings round of a session whose replay is done (`SessionStatus::Ready`), when `rule` finds a lost binding
+/// at its tip: the round of the first local commit with one (`open_fixup_round`); `None` without one, and the session
+/// finishes. One `log` (`LostBindingRule::replayed`), and a round's objects only when it opens
+fn lost_bindings_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, rule: &dyn LostBindingRule) -> Result<Option<RoundObjects>> {
+  let found = rule.replayed(git_executor, repo_path, state)?;
+  if found.is_empty() {
+    return Ok(None);
+  }
+  info!(lost = found.len(), "the replay lost bindings: a lost-bindings round opens");
+  open_fixup_round(git_executor, repo_path, state, found).map(Some)
+}
+
+/// Open the lost-bindings round of the first local commit of `found` (those of the others open after its fixup, at the
+/// next finish) on the session's tip: its files are the files of its lost bindings, each at the tip (`edit`, no
+/// markers), before the copy and in the copy; the ids and modes from one `cat-file --batch-check`, the objects from one
+/// `cat-file --batch`
+fn open_fixup_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, found: Vec<LostBindingFinding>) -> Result<RoundObjects> {
+  let original = found
+    .first()
+    .map(|lost| lost.original.clone())
+    .ok_or_else(|| anyhow!("A lost-bindings round without a lost binding"))?;
+  let lost: Vec<LostBindingFinding> = found.into_iter().filter(|lost| lost.original == original).collect();
+  let copy = lost[0].copy.clone();
+  let mut paths: Vec<&str> = Vec::new();
+  for finding in &lost {
+    if !paths.contains(&finding.file.as_str()) {
+      paths.push(&finding.file);
+    }
+  }
+  let tip = state.tip.clone();
+  let mut names = vec![format!("{tip}^{{tree}}")];
+  for path in &paths {
+    names.extend([format!("{copy}^:{path}"), format!("{copy}:{path}"), format!("{tip}:{path}")]);
+  }
+  let entries = object_ids_and_modes(git_executor, repo_path, &names)?;
+  let tree = entries[0].as_ref().map(|(id, _)| id.clone()).ok_or_else(|| anyhow!("No tree of {}", short_id(&tip)))?;
+  let stage = |entry: &Option<(String, String)>| {
+    entry.as_ref().filter(|(_, mode)| FILE_MODES.contains(&mode.as_str())).map(|(id, mode)| Stage {
+      mode: mode.clone(),
+      id: id.clone(),
+    })
+  };
+  let mut files = Vec::with_capacity(paths.len());
+  for (index, path) in paths.iter().enumerate() {
+    let [before, commit, onto] = [&entries[1 + 3 * index], &entries[2 + 3 * index], &entries[3 + 3 * index]];
+    let onto = stage(onto).ok_or_else(|| anyhow!("{path} is no regular file at {}", short_id(&tip)))?;
+    files.push(ConflictFile {
+      key: index + 1,
+      path: (*path).to_string(),
+      kind: ConflictKind::LostBinding,
+      before: stage(before),
+      mode: onto.mode.clone(),
+      onto: Some(onto),
+      commit: stage(commit),
+      renamed_from: None,
+      commit_path: None,
+      generated_by: None,
+    });
+  }
+  let conflict = RoundConflict {
+    commit: original,
+    onto: tip,
+    merge_tree: tree,
+    files,
+    lost_bindings: lost,
+  };
+  let objects = read_round_objects(git_executor, repo_path, &conflict)?;
+  state.round += 1;
+  state.status = SessionStatus::Resolving;
+  debug!(round = state.round, commit = %short_id(&conflict.commit), "a lost-bindings round opens");
+  state.conflict = Some(conflict);
+  Ok(objects)
 }
 
 /// The objects of a round for its copies and its output: the commit and every blob of every conflicting path
@@ -1984,6 +2382,7 @@ fn advance_resolving(
           .collect(),
         words: Some(words.resolution.conflicts()),
         landed: None,
+        fixup: None,
       };
       if !empty {
         state.tip.clone_from(&written.commit);
@@ -2068,6 +2467,7 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     onto: state.tip.clone(),
     files,
     merge_tree: merge.tree,
+    lost_bindings: Vec::new(),
   };
   let objects = read_round_objects(git_executor, repo_path, &conflict)?;
   // why a file is generated, by its name, its attributes and the headers of its sides
@@ -2402,6 +2802,14 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
   );
   if let Some(conflicts) = resolution.words {
     let _ = writeln!(note, "resolved-by-words: {RESOLVE_VERSION} {conflicts}");
+  }
+  if let Some(fixup) = &resolution.fixup {
+    for lost in &fixup.lost {
+      let _ = writeln!(note, "lost-binding\t{}\t{}", lost.file, lost.name);
+    }
+    for kept in &fixup.kept {
+      let _ = writeln!(note, "kept-name\t{}\t{}", kept.file, kept.name);
+    }
   }
   for path in &resolution.paths {
     let _ = writeln!(note, "{}\t{}", path.outcome.as_str(), path.path);

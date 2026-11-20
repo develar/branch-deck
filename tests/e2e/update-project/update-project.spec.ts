@@ -9,9 +9,9 @@ import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWai
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
-// The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
-// at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
-// added docs/guide.md; already fetched.
+// The `behind_upstream`, `update_conflict`, `update_lost_bindings` and `update_blocked` templates: `master` tracks
+// `origin/master` of an upstream at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored
+// 2024-01-01, landed 2024-01-02) and added docs/guide.md; already fetched.
 
 function updateButton(page: Page): Locator {
   return page.getByTestId("update-project-button")
@@ -453,6 +453,39 @@ test.describe("Update Project", () => {
     // nothing changed
     await verifyCommitCount(findBranchRow(page, "feature-auth"), 2)
     await expect(button).toHaveAttribute("data-status", "conflict")
+  })
+
+  test("should name the bindings a clean replay loses and copy a prompt that keeps them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `update_lost_bindings`: the local commit drops the private property `backend` and the import of `rethrow` of
+    // src/Launch.kt with their last use; the upstream uses both again in another hunk, so git merges the replay
+    await setupRepo("update_lost_bindings")
+    await syncAndWaitForBranches()
+    const button = updateButton(page)
+    // the check of a sync rebases cleanly: only the update reads what its replay loses
+    await expect(button).toHaveAttribute("data-status", "clean")
+
+    await runAndWaitForUpdate(page, () => button.click())
+    const dialog = refusedDialog(page)
+    await expect(dialog.getByRole("heading")).toHaveText("Your commits remove names that origin/master uses")
+    await expect(dialog.getByTestId("update-lost-bindings").getByRole("listitem")).toHaveText([
+      /^[0-9a-f]{8} removes the declaration of backend, which [0-9a-f]{8} uses at Launch\.kt:11$/,
+      /^[0-9a-f]{8} removes the import of rethrow, which [0-9a-f]{8} uses at Launch\.kt:12$/,
+    ])
+    await expect(dialog.getByTestId("update-conflict-file")).toHaveAttribute("data-path", "src/Launch.kt")
+    // no rebase in a terminal helps: git merges it; the prompt keeps each name with bd
+    await expect(dialog).toContainText("Git merges your commits, but the result would not compile.")
+    await expect(dialog).not.toContainText("Rebase in a terminal")
+
+    await dialog.getByTestId("copy-agent-prompt").click()
+    const prompt = await readClipboard(page)
+    expect(prompt).toMatch(/The rebase merges my commit [0-9a-f]{8} \(feature-auth\) Drop the old path without a conflict, but the result would not compile:/)
+    expect(prompt).toMatch(/- [0-9a-f]{8} removes the import of rethrow, which [0-9a-f]{8} uses at src\/Launch\.kt:12/)
+    expect(prompt).toContain("1. `brd update --no-fetch`.")
+
+    await page.keyboard.press("Escape")
+    await expectClosed(dialog)
+    // nothing changed
+    await verifyCommitCount(findBranchRow(page, "feature-auth"), 2)
   })
 
   test("should list the first files of a wide conflict and count the rest", async ({ page, setupRepo, syncAndWaitForBranches }) => {

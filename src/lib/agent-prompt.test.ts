@@ -156,6 +156,43 @@ describe("buildAgentPrompt", () => {
     expect(prompt.split(bd.command).length - 1).toBe(1)
   })
 
+  // the replay of `(launch) Drop the old path` merges, but removes what the upstream commit of its file uses again
+  const lost = check({
+    status: "conflict",
+    firstConflict: {
+      commit: commit("b", "(launch) Drop the old path", "Me", ["src/Launch.kt"]),
+      files: ["src/Launch.kt"],
+      fileCount: 1,
+      upstreamCommits: [commit("c", "Start with the backend", "Dana Lee", ["src/Launch.kt"])],
+      lostBindings: [
+        { file: "src/Launch.kt", name: "backend", binding: "declaration", useLine: 11, bindingLine: 8 },
+        { file: "src/Launch.kt", name: "rethrow", binding: "import", useLine: 12, bindingLine: 4 },
+      ],
+    },
+  })
+  const lostLines = [
+    "The rebase merges my commit bbbbbbbb (launch) Drop the old path without a conflict, but the result would not compile:",
+    "- bbbbbbbb removes the declaration of backend, which cccccccc uses at src/Launch.kt:11",
+    "- bbbbbbbb removes the import of rethrow, which cccccccc uses at src/Launch.kt:12",
+  ].join("\n")
+
+  it("with brd, names the lost bindings instead of a first conflict: brd opens their round", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: lost, fetchTime: null, bd })
+    expect(prompt).toContain(`State: HEAD (master) 11111111, origin/master 22222222.\n${lostLines}\n`)
+    expect(prompt).not.toContain("First conflict")
+    expect(prompt).toContain("1. `brd update --no-fetch`.")
+  })
+
+  it("without brd, rebases and keeps each lost name in a fixup commit", () => {
+    const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: lost, fetchTime: null, bd: null })
+    expect(prompt).toContain("Rebase the branch `master` of the Git repository at /work/repo onto `origin/master` and fix what the rebase breaks.")
+    expect(prompt).toContain(lostLines)
+    expect(prompt).toContain(
+      "2. Keep each name: bring back the import or the private declaration my commit removed, or drop the use, and commit only those files as `fixup! (launch) Drop the old path`.",
+    )
+    expect(prompt).not.toContain("Resolve each conflict")
+  })
+
   it("names PowerShell for a conflict on Windows", () => {
     const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\brd.exe' -C 'C:\\work\\repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "C:\\work\\repo", check: conflict, fetchTime: null, bd: powershell })
