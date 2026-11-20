@@ -3,6 +3,7 @@ name: Branch Row
 description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in columns shared by the table and its stack islands, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push" with its popover) and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
+  - crates/domain-policy/src/push_slot.rs
   - src/components/branch/BranchTableCard.tsx
   - crates/sync-core/src/delete_archived_branch.rs
   - crates/history-rewrite/src/repository_lock.rs
@@ -1335,20 +1336,20 @@ Children of a root.
 - **WHEN** the remote lacks the branch, Patronus answers or GitHub lists the pull requests, and it has no live pull request
 - **THEN** it has no push button: Safe Push or Create Pull Request pushes it first
 - **AND** the menu and P offer the push, and Push with Children of a root
-  [@test] src/presenters/push-button.test.ts (`leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it`)
+  [@test] crates/domain-policy/src/push_slot_test.rs (`the_first_push_of_a_branch_its_landing_pushes_is_left_to_the_landing`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
 
 #### Scenario: A push that updates the remote branch, a push nothing else makes
 - **WHEN** the push updates the remote branch, or nothing else pushes the branch
 - **THEN** the push keeps its button
-  [@test] src/presenters/push-button.test.ts (`keeps a push that updates the remote branch, and the first push where nothing else pushes`)
+  [@test] crates/domain-policy/src/push_slot_test.rs (`a_push_that_updates_the_remote_shows_and_a_held_one_shows_on_no_row`, `the_first_push_of_a_branch_its_landing_pushes_is_left_to_the_landing`)
 
 #### Scenario: A branch a Safe Push holds
 - **WHEN** a Safe Push holds a branch the remote lacks
 - **THEN** its push is no first push of its landing: the row shows no push button, as for every branch a running Safe Push holds
 - **AND** where the push keeps its place (the branch preview, the review window) it is disabled, and its description says why it won't land and offers the robot
-  [@test] src/presenters/push-button.test.ts (`keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
+  [@test] crates/domain-policy/src/push_slot_test.rs (`a_push_that_updates_the_remote_shows_and_a_held_one_shows_on_no_row`)
 
 ### Requirement: Actions cell: No push button until the landing answers are in
 
@@ -1366,6 +1367,7 @@ answers from git; elsewhere the settled layout keeps the track from the next sta
 - **WHEN** GitHub or Patronus has not answered whether the landing of a branch the remote lacks pushes it
 - **THEN** its push track names that answer (`data-waits-for`) and holds no button, until the answer comes
   [@test] tests/e2e/branch-row-layout/late-facts.spec.ts (`should name the answer a first push waits for on its track, and show the push with it`)
+  [@test] crates/domain-policy/src/push_slot_test.rs (`a_first_push_waits_for_the_answers_and_names_the_one_to_come`)
 
 #### Scenario: The facts come back after a start
 - **WHEN** the app starts and Your Turn, the pull requests and the approvals come back

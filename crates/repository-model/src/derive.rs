@@ -81,7 +81,7 @@ use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute};
-use domain_types::next_step::{NextStepView, RowStatus, StackPullRequest};
+use domain_types::next_step::{NextStepView, PushSlot, RowStatus, StackPullRequest};
 use domain_types::operation::{Resource, RunningOperation};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
@@ -343,7 +343,13 @@ impl<'a> Holds<'a> {
 /// it drops. The engine refuses those writes by it (`operations::pull_request`) and the menus disable them by it
 /// (`domain_policy::actions::StackFacts::first_push`)
 #[must_use]
-pub fn stack_push_blocker<'c>(holds: Holds<'_>, repo: &Repository<'_>, stack: &StackBranchUpdate, remote: Option<&RemoteFact>, commits_of: impl Fn(&str) -> Option<&'c [Commit]>) -> Option<Reason> {
+pub fn stack_push_blocker<'c>(
+  holds: Holds<'_>,
+  repo: &Repository<'_>,
+  stack: &StackBranchUpdate,
+  remote: Option<&RemoteFact>,
+  commits_of: impl Fn(&str) -> Option<&'c [Commit]>,
+) -> Option<Reason> {
   let not_built = stack_not_built(stack);
   if !stack_pushes(remote) {
     return not_built;
@@ -1837,6 +1843,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       rest: None,
       hold: hold.map(|(hold, _)| hold.clone()),
       fix_hold: hold.map(|(hold, _)| fix_hold(hold, sources.robots.failing.contains(&hold.by.robot_id))),
+      push: PushSlot::default(),
     };
     steps.push((name.clone(), view));
   }
@@ -1936,6 +1943,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       rest: Some(rest),
       hold: own_robot,
       fix_hold: None,
+      push: PushSlot::default(),
     };
     steps.push((key, view));
   }

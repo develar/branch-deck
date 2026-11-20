@@ -1,5 +1,9 @@
 use crate::facts::{Placed, Repository};
-use crate::stack::{WholeStack, build_ancestors, build_parent, children, declared_parent, descendants, main_line, root_of, whole_stack_members, whole_stack_of, whole_stack_rest};
+use crate::stack::{
+  QuietFacts, WholeStack, build_ancestors, build_parent, children, declared_parent, descendants, is_quiet, main_line, root_of, whole_stack_members, whole_stack_of,
+  whole_stack_rest,
+};
+use domain_types::PushAction;
 use domain_types::repository_view::{LandedByView, RobotOf};
 use domain_types::stack::BranchStack;
 use pretty_assertions::assert_eq;
@@ -202,4 +206,33 @@ fn the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it() {
   let by_own = landed_by("auth", true, &[]);
   let rest = whole_stack_rest("auth", &members, 9, |_| (Some(&by_own), 0));
   assert!(rest.members.is_empty() && rest.by_own_robot, "{rest:?}");
+}
+
+/// A branch is quiet with nothing wrong and nothing for the remote: synced, not blocked, no commits or up to date with
+/// its remote; one whose remote status is not in yet, one with work for the remote, a failed or a blocked one is not
+#[test]
+fn a_branch_is_quiet_with_nothing_wrong_and_nothing_for_the_remote() {
+  let pushed = QuietFacts {
+    sync_failed: false,
+    blocked: false,
+    commit_count: 2,
+    action: Some(PushAction::UpToDate),
+  };
+  assert!(is_quiet(&pushed));
+  assert!(is_quiet(&QuietFacts {
+    commit_count: 0,
+    action: None,
+    ..pushed
+  }));
+  for not_quiet in [
+    QuietFacts { action: None, ..pushed },
+    QuietFacts {
+      action: Some(PushAction::Push),
+      ..pushed
+    },
+    QuietFacts { sync_failed: true, ..pushed },
+    QuietFacts { blocked: true, ..pushed },
+  ] {
+    assert!(!is_quiet(&not_quiet), "{not_quiet:?}");
+  }
 }

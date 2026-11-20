@@ -8,17 +8,15 @@ import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
-import { useChildrenPush, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/useBranchPushes"
+import { useChildrenPush, useStackBranchPushAlone } from "@/hooks/useBranchPushes"
 import { useRowOperation, useUnclaimedOperation } from "@/hooks/useRowOperation"
 import type { MenuItemGroups } from "@/lib/menu"
 import { cancelIntent } from "@/model/intents"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
-import { firstPushPending, isFirstPushInLanding } from "@/presenters/push-button"
+import { rowPushOf } from "@/presenters/push-button"
 import type { BranchRowFacts } from "@/stores/branch-sync"
-import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useIsBranchPushing, usePushSlot, useStackPush } from "@/stores/branch-sync"
 import { operationBusyOf } from "@/stores/indicators"
-import { usePatronusPending, usePushHold } from "@/stores/patronus"
-import { usePullRequestsLoading } from "@/stores/pull-requests"
 
 export interface BranchActionsProps {
   /** What the row shows of the branch (`Branch.row`): the cell renders again only when that changes, not its status */
@@ -32,8 +30,8 @@ export interface BranchActionsProps {
  * The Actions cell of an active branch row, each kind in its track of the Actions column (`ColumnTrack`), so it lines up
  * across the rows of every card: the compact push ("↑ 3", disabled for a blocked stacked branch; none while the remote
  * branch is up to date, unless a branch stacked on it has work: it is Push with Children then, "↑ 4 with children"; while a
- * Safe Push holds the branch, `PushHold`, which the status says, and while the remote lacks the branch and its landing
- * pushes it, `isFirstPushInLanding`, or may: Patronus and GitHub haven't answered yet), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
+ * Safe Push holds the branch, which the status says, and while the remote lacks the branch and its landing pushes it,
+ * or may: Patronus and GitHub haven't answered yet; Rust decides it, `PushSlot`), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
  * approvals) and "⋯" with the branch menu. A click in the cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
@@ -47,37 +45,20 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // of the stack branch of the whole stack the branch heads, unless the start of its Safe Push shows it in the slot
   const stackPush = stackPushInHeader ? null : startedStackPush
   const stackBranchPush = useStackBranchPushAlone(branch.name) && !stackPushInHeader
-  const hold = usePushHold(branch.name)
-  const canPush = !branch.hasError && branch.commitCount > 0
-  // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
-  // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
+  // where the row shows its push and in what shape, as Rust decides it (`PushSlot`, `domain_policy::push_slot`): the root of
+  // an island leaves Push with Children to its header; what runs lies over it, its progress kept until it finished
+  const slot = usePushSlot(branch.name)
+  const row = rowPushOf(slot, stackPushInHeader)
+  const canPush = slot !== null && slot.none !== true
+  // a running push keeps its button, with its progress, until it finished
   const idle = !isPushing && stackPush === null && !stackBranchPush
-  // the branches stacked on it have work for the remote: the push of a branch with nothing of its own to send is Push
-  // with Children (the island header offers it for an island root), the description of any other offers it
-  const unpushedChildren = useUnpushedChildren(branch.name)
-  const childrenToPush = unpushedChildren !== null && !stackPushInHeader
-  // the first push is a step of Safe Push and Create Pull Request: only the menu offers it; unless Push with Children
-  // takes the stack branch of the whole stack along, whose open pull request it updates
-  const landingPushes = useLandingPushes(branch.name) && (unpushedChildren?.stackBranch ?? null) === null
-  const firstPush = isFirstPushInLanding(branch, { landingPushes })
-  // until Patronus and GitHub answer whether the landing pushes it, a first push shows no button either: one shown now
-  // would leave at their answer and move the columns under the pointer (the settled layout keeps the track where it shows)
-  const landingPending = firstPushPending(usePatronusPending(), usePullRequestsLoading())
-  const pushAction = branch.remoteStatus?.action.kind
-  const firstPushWaits = !landingPushes && landingPending !== null && pushAction === "create"
-  // Push with Children in the place of the push waits for the answers of Patronus and GitHub as a first push does: a
-  // robot holds the children, a merged one landed them, an open pull request of the whole stack takes its stack branch
-  // along, so a button shown before them could leave or come at them; the settled layout keeps the track meanwhile
-  const offersChildren = childrenToPush && landingPending === null
-  const upToDate = idle && ((pushAction === "upToDate" && !branch.blocked && !offersChildren) || hold !== null || firstPush || firstPushWaits)
-  // the branch has nothing of its own to send, the branches stacked on it have: its push is Push with Children, as the
-  // header of an island, also while that push runs
-  const pushesChildren =
-    !upToDate && !stackPushInHeader && pushAction === "upToDate" && !branch.blocked && hold === null && !isPushing && (offersChildren || startedStackPush !== null)
-  // the fact the push waits for to show (a first push, Push with Children), named on its track as a pending step names
-  // its own: none while a Safe Push holds the branch or the push runs, which show or hide it whatever the answers say
-  const childrenWait = childrenToPush && pushAction === "upToDate" && !branch.blocked
-  const pushWaitsFor = canPush && idle && hold === null && (firstPushWaits || childrenWait) ? landingPending : null
+  const upToDate = idle && row.kind === "none"
+  // the branch has nothing of its own to send, the branches stacked on it have: its push is Push with Children, also
+  // while a push of the stack started from the row runs
+  const pushesChildren = !upToDate && !isPushing && row.shape === "children" && (row.kind === "withChildren" || startedStackPush !== null)
+  // the answer the push waits for to show (a first push, Push with Children), named on its track as a pending step names
+  // its own; none while a push runs, which shows whatever the answers say
+  const pushWaitsFor = idle ? row.waitsFor : null
   return (
     <ActionTracks>
       <ColumnTrack track="push" waitsFor={pushWaitsFor}>

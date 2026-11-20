@@ -22,18 +22,20 @@ use domain_policy::kept::{KeptFacts, KeptKind, kept_actions};
 use domain_policy::land::{merges_on_github, patronus_lands};
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_policy::pull_request::github_repository_known;
+use domain_policy::push_slot::{PushSlotFacts, push_slot};
+use domain_policy::stack::{QuietFacts, is_quiet};
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::branch_names::{baseline_on_remote, kept_branch_name, to_final_branch_name};
 use domain_types::commit::Commit;
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
-use domain_types::next_step::NextStepView;
+use domain_types::next_step::{NextStepView, PushSlot};
 use domain_types::operation::RunningOperation;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
-use domain_types::session::{BranchPush, BranchView, GitHubLayer, RobotsView, SyncState, WholeStackView, stack_readiness_key};
+use domain_types::session::{BranchPush, BranchStatus, BranchView, GitHubLayer, RobotsView, SyncState, WholeStackView, stack_readiness_key};
 use std::collections::{BTreeMap, HashSet};
 
 /// What of the session the remote actions of a subject read, and their intents with them, which the cached frame of an
@@ -87,6 +89,68 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
 #[must_use]
 pub fn actions_without_operations(state: &TableState, facts: &FactStore, sources: &ActionSources<'_>) -> BTreeMap<String, Vec<ActionState>> {
   actions_over(state, facts, sources, &[])
+}
+
+/// Of each branch of `state`, whether it and every branch stacked on it have nothing wrong and nothing for the remote
+/// (`domain_policy::stack::is_quiet`), as its row shows it
+fn quiet_stacks_of(state: &TableState) -> HashSet<String> {
+  let branches = &state.parts.branches;
+  let quiet = |name: &str| {
+    branches.get(name).is_none_or(|branch| {
+      let row = row_of_view(branch);
+      is_quiet(&QuietFacts {
+        sync_failed: row.sync_failed,
+        blocked: row.status == BranchStatus::Blocked,
+        commit_count: row.commit_count,
+        action: branch.remote.status.as_ref().map(|status| status.action),
+      })
+    })
+  };
+  branches
+    .iter()
+    .filter(|(name, branch)| quiet(name) && branch.structure.descendants.iter().all(|descendant| quiet(descendant)))
+    .map(|(name, _)| name.clone())
+    .collect()
+}
+
+/// Where the page shows the push of each branch of `state` (`domain_policy::push_slot`), over the same facts as its
+/// actions: its row, the hold of its next step (`NextStepView::hold`), its remote status, Push with Children of the
+/// pushes of the view, how Patronus answers and GitHub lists, its pull request; and whether the side stack it heads is
+/// quiet (`quiet_stacks_of`)
+#[must_use]
+pub fn push_slots_of(state: &TableState, facts: &FactStore, pushes: &BTreeMap<String, BranchPush>, steps: &BTreeMap<String, NextStepView>) -> BTreeMap<String, PushSlot> {
+  let quiet = quiet_stacks_of(state);
+  let parts = &state.parts;
+  let robots = facts.robots.view();
+  let pull_requests = facts.pull_requests.view();
+  let landing = &parts.header.landing;
+  let patronus = PatronusStanding::of_remote(&robots.head, &facts.patronus.part().state, landing);
+  let listing = Listing::of_remote(&pull_requests.head, landing);
+  parts
+    .branches
+    .iter()
+    .map(|(name, branch)| {
+      let row = row_of_view(branch);
+      let slot = push_slot(&PushSlotFacts {
+        sync_failed: row.sync_failed,
+        commit_count: row.commit_count,
+        blocked: row.status == BranchStatus::Blocked,
+        held: steps.get(name).is_some_and(|step| step.hold.is_some()),
+        action: branch.remote.status.as_ref().map(|status| status.action),
+        children: pushes.get(name).and_then(|push| push.children.as_ref()),
+        patronus: patronus.answer(),
+        listing,
+        pull_request: pull_requests.pull_requests.get(name),
+      });
+      (
+        name.clone(),
+        PushSlot {
+          quiet: quiet.contains(name),
+          ..slot
+        },
+      )
+    })
+    .collect()
 }
 
 /// `actions_of` with `operations` laid over the actions
@@ -228,7 +292,9 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
         leaf_step,
       ),
     };
-    let table = matches!(shape, StackShape::Forking { .. }).then(|| table.get_or_insert_with(|| facts.table_facts(state)).as_ref()).flatten();
+    let table = matches!(shape, StackShape::Forking { .. })
+      .then(|| table.get_or_insert_with(|| facts.table_facts(state)).as_ref())
+      .flatten();
     let first_push = match table {
       Some(table) => table.table.stack(root).and_then(|stack| {
         let holds = Holds {

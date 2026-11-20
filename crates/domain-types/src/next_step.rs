@@ -520,6 +520,124 @@ pub struct LandingNode {
   pub ring: bool,
 }
 
+/// Where the page shows the push of a branch and in what shape (`domain_policy::push_slot`): the push track of its row,
+/// the row of an island root whose header shows the push of its stack, and the surfaces that keep the push in its place
+/// (the preview, the review window). What runs lies over it on the page: a push of the row shows its progress. Each field
+/// absent is the common answer, a push on its row and where it keeps its place, so most branches send none
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PushSlot {
+  #[serde(skip_serializing_if = "RowPush::is_push")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub row: RowPush,
+  /// The row of an island root, whose header shows Push with Children, the row the push of the branch alone; absent
+  /// while it is `row`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub in_header: Option<RowPush>,
+  /// The branch has no push anywhere, nor where the push keeps its place: its sync failed, or it has no commits
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub none: bool,
+  /// Why the push waits where it keeps its place: its first push is a step of its landing, or the answer that tells it
+  /// is to come; absent while it pushes
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub first: Option<FirstPush>,
+  /// It and every branch stacked on it have nothing wrong and nothing for the remote (`domain_policy::stack::is_quiet`):
+  /// the side stack it heads is collapsed until the user expands it
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub quiet: bool,
+}
+
+impl PushSlot {
+  /// The common answer, which the view leaves out
+  #[must_use]
+  pub fn is_default(&self) -> bool {
+    *self == Self::default()
+  }
+}
+
+/// The push track of a row
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RowPush {
+  /// What it shows while nothing of the row runs; absent: the push of the branch
+  #[serde(skip_serializing_if = "RowPushKind::is_push")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub kind: RowPushKind,
+  /// What a push of the row shows while it runs: the push of the branch (absent), or Push with Children of a branch with
+  /// nothing of its own to send
+  #[serde(skip_serializing_if = "PushShape::is_own")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub shape: PushShape,
+  /// The answer the track waits for before it shows a push, which a push shown before it would leave with
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub waits_for: Option<StepFact>,
+}
+
+impl RowPush {
+  /// The push of the branch on the row, nothing it waits for: the common one
+  #[must_use]
+  pub fn is_push(&self) -> bool {
+    *self == Self::default()
+  }
+}
+
+/// What the push track of a row shows
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum RowPushKind {
+  /// No push: nothing to push, its landing makes its first push, a Safe Push holds it, or an answer is to come
+  None,
+  /// The push of the branch
+  #[default]
+  Push,
+  /// Push with Children of a branch up to date with its remote whose children have work
+  WithChildren,
+}
+
+impl RowPushKind {
+  #[must_use]
+  pub fn is_push(&self) -> bool {
+    *self == Self::Push
+  }
+}
+
+/// The push a run of the row shows
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum PushShape {
+  #[default]
+  Own,
+  Children,
+}
+
+impl PushShape {
+  /// The push of the branch, which the view leaves out
+  #[must_use]
+  pub fn is_own(&self) -> bool {
+    *self == Self::Own
+  }
+}
+
+/// Why the first push of a branch the remote lacks waits where the push keeps its place
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum FirstPush {
+  /// Its landing pushes it: Create Pull Request…, and Safe Push where Patronus answers (`patronus`)
+  Landing { patronus: bool },
+  /// The answer that tells whether its landing pushes it is to come
+  Waits { fact: StepFact },
+}
+
 /// The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";
 /// `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
 /// mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
@@ -578,4 +696,10 @@ pub struct NextStepView {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub fix_hold: Option<FixHold>,
+  /// Of a branch, where the page shows its push and whether the side stack it heads is quiet (`domain_policy::push_slot`),
+  /// derived with its actions over the pushes of the view; absent while it is the common one (a push on its row and where
+  /// the push keeps its place), and of a whole stack
+  #[serde(skip_serializing_if = "PushSlot::is_default")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub push: PushSlot,
 }

@@ -3,6 +3,7 @@ name: Outgoing Commits
 description: Requirements for what a branch has for the remote (the commits whose content the remote lacks), the colours of a push and the push button of the branch row; the header says where the work is on its way into master instead (Landing Overview).
 style: plain-1
 targets:
+  - crates/domain-policy/src/push_slot.rs
   - src/components/branch/BranchPushButton.tsx
   - src/components/branch/DroppedCommitList.tsx
   - src/components/branch/BranchRow.tsx

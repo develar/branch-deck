@@ -5,7 +5,7 @@
 // (`RepositoryView.pushes`, `domain_policy::push`) and what a press does (`prepare` of the intent `Push`,
 // `operations::push`); the page words the remote status of the row and those answers (openspec/specs/repository/outgoing/spec.md,
 // "Push").
-import type { ActionBlocker, ActionState, DroppedCommit } from "@/lib/bindings"
+import type { ActionBlocker, ActionState, DroppedCommit, FirstPush, PushShape, PushSlot, RowPushKind, StepFact } from "@/lib/bindings"
 import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
@@ -13,7 +13,6 @@ import { formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
 import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { ACTION_LOOKS, findAction, formatActionBlocker } from "@/presenters/actions"
-import type { PendingFact } from "@/presenters/next-step"
 import { formatPendingFact } from "@/presenters/next-step"
 import type { OperationNames, SessionOperations } from "@/presenters/operations"
 import { formatStackPushLine } from "@/presenters/push"
@@ -353,45 +352,40 @@ export function childrenPushEnabled(actions: readonly ActionState[] | undefined)
   return findAction(actions, "push-with-children")?.availability.kind === "enabled"
 }
 
+/** The push track of a row as Rust places it, every field said */
+export interface RowPushShown {
+  readonly kind: RowPushKind
+  readonly shape: PushShape
+  readonly waitsFor: StepFact | null
+}
+
 /**
- * The first push of a branch is a step of its landing: Safe Push and Create Pull Request push the branch themselves
- * (`pushForAction`), so the row, the preview and the review window offer no push of a branch the remote lacks, only
- * its menu does, with Push with Children of a root. A push stays while it runs, while a Safe Push holds the branch
- * (the disabled push says why and offers the robot), for a branch with a live pull request, which the push updates
- * (`useLandingPushes`; a root whose Push with Children updates the open pull request of its whole stack, the callers),
- * and in a repository with neither Patronus nor GitHub, where it is the one way to share the branch.
+ * The push track of a row as Rust places it (`PushSlot.row`; `inHeader` of the row of an island root, whose header shows
+ * Push with Children): a field the view leaves out is the push of the branch; none while the view has no slot of it
  */
-export function isFirstPushInLanding(branch: Pick<Branch, "remoteStatus">, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
-  return landingPushes && !held && branch.remoteStatus?.action.kind === "create"
+export function rowPushOf(slot: PushSlot | null, inHeader: boolean): RowPushShown {
+  if (slot === null) {
+    return { kind: "none", shape: "own", waitsFor: null }
+  }
+  const row = (inHeader ? (slot.inHeader ?? slot.row) : slot.row) ?? {}
+  return { kind: row.kind ?? "push", shape: row.shape ?? "own", waitsFor: row.waitsFor ?? null }
 }
 
 /**
  * Why the push of the preview footer and of the review window's title bar is disabled, so the button keeps its place
- * where it acts on its own and where it doesn't: a first push that the landing of the branch makes
- * (`isFirstPushInLanding`: Safe Push and Create Pull Request… push it first, "⋯" pushes it alone), or, while Patronus
- * or GitHub haven't answered whether it does, what it waits for (`pending`). Null: the push acts
+ * where it acts on its own and where it doesn't, as Rust decides it (`PushSlot.first`, `domain_policy::push_slot`):
+ * a first push that the landing of the branch makes (Safe Push and Create Pull Request… push it first, "⋯" pushes it
+ * alone), or, while Patronus or GitHub haven't answered whether it does, what it waits for. Null: the push acts
  */
-export function firstPushWait(
-  branch: Branch,
-  { landingPushes, patronus, held, pending }: { landingPushes: boolean; patronus: boolean; held: boolean; pending: PendingFact | null },
-): string | null {
-  if (held || branch.remoteStatus?.action.kind !== "create") {
-    return null
+export function formatFirstPush(first: FirstPush | null | undefined, branchName: string): string | null {
+  switch (first?.kind) {
+    case undefined:
+      return null
+    case "landing":
+      return `${first.patronus ? "Safe Push and Create Pull Request… push" : "Create Pull Request… pushes"} ${branchName} first: "⋯" pushes it alone`
+    case "waits":
+      return formatPendingFact(first.fact)
   }
-  if (landingPushes) {
-    return `${patronus ? "Safe Push and Create Pull Request… push" : "Create Pull Request… pushes"} ${branch.name} first: "⋯" pushes it alone`
-  }
-  return pending === null ? null : formatPendingFact(pending)
-}
-
-/** What a first push waits for to know whether the landing of the branch makes it: Patronus, then the pull requests */
-export function firstPushPending(patronusPending: boolean, pullRequestsLoading: boolean): PendingFact | null {
-  return patronusPending ? "patronus" : pullRequestsLoading ? "pullRequests" : null
-}
-
-/** Whether Safe Push or Create Pull Request is there to push the branch, and no live pull request shows it (`useLandingPushes`) */
-export function landingPushes(patronus: boolean, gitHub: boolean, pullRequestState: string | undefined): boolean {
-  return (patronus || gitHub) && (pullRequestState === undefined || pullRequestState === "closed")
 }
 
 /** The branches whose pull requests the push button may retarget: those of its stack push, root first, else the branch */

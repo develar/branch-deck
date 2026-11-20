@@ -162,8 +162,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::OpenPullRequest, None);
   }
   if let Some(open) = facts.open_pull_request {
-    let draft = open.draft.then_some(ActionBlocker::Draft { number: open.number });
-    offer(ActionId::RequestReview, draft.or_else(|| first_push(facts.first_push)));
+    offer(ActionId::RequestReview, review_request_blocker(open, facts.first_push));
   } else if facts.repository {
     // its place from the first view where git names the GitHub repository: the review is asked on a pull request
     offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
@@ -304,6 +303,12 @@ fn checked(actions: Vec<ActionState>, cached: bool) -> Vec<ActionState> {
 /// A reason of the next step of the subject, which the step words
 fn of_step(blocker: &StepBlocker) -> ActionBlocker {
   ActionBlocker::Step { blocker: blocker.clone() }
+}
+
+/// Why Request Review… of the open pull request `open` can't ask anybody now: a draft asks nobody, else the push it makes
+/// first can't be made
+fn review_request_blocker(open: &PullRequestView, first: Option<&Reason>) -> Option<ActionBlocker> {
+  open.draft.then_some(ActionBlocker::Draft { number: open.number }).or_else(|| first_push(first))
 }
 
 /// Why the push a pull request write makes first can't be made, as the engine refuses the write by it: no build, a hold
@@ -538,8 +543,7 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::OpenStackPullRequest, None);
   }
   if let Some(open) = facts.open_pull_request {
-    let draft = open.draft.then_some(ActionBlocker::Draft { number: open.number });
-    offer(ActionId::RequestReview, draft.or_else(|| first_push(facts.first_push)));
+    offer(ActionId::RequestReview, review_request_blocker(open, facts.first_push));
   } else if matches!(facts.shape, StackShape::Forking { .. }) && facts.repository && pull_request.is_none() {
     // in its place beside Create Stack Pull Request… from the first view, as of a branch
     offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
@@ -551,7 +555,9 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
     // the pull request of its stack branch is not known yet: never a second one of a stack that has one
     let listing = matches!(facts.listing, Listing::Loading).then_some(ActionBlocker::Pending { fact: StepFact::PullRequests });
     // a stack branch that is no build of its commits is no pull request of them, pushed or not; else its push first
-    let reason = not_built.map(|reason| ActionBlocker::Rule { reason: reason.clone() }).or_else(|| first_push(facts.first_push));
+    let reason = not_built
+      .map(|reason| ActionBlocker::Rule { reason: reason.clone() })
+      .or_else(|| first_push(facts.first_push));
     let landed = landed_whole(facts.landed).or_else(|| facts.root_landed.map(|landed| ActionBlocker::Landed { landed: landed.clone() }));
     offer(ActionId::CreateStackPullRequest, listing.or(reason).or(landed));
   }

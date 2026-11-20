@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ActionBlocker, DroppedCommit, HoldKind, RunningOperation } from "@/lib/bindings"
+import { formatPendingFact } from "@/presenters/next-step"
 import type { PushButtonContext } from "@/presenters/push-button"
-import { getPushButtonState, isFirstPushInLanding } from "@/presenters/push-button"
+import { formatFirstPush, getPushButtonState } from "@/presenters/push-button"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -337,22 +338,11 @@ describe("getPushButtonState", () => {
   })
 })
 
-describe("isFirstPushInLanding", () => {
-  const remote = (status: Partial<RemoteStatus>): Branch => testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(status) })
-
-  it("leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it", () => {
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: true })).toBe(true)
-  })
-
-  it("keeps a push that updates the remote branch, and the first push where nothing else pushes", () => {
-    // the remote branch is what the pull request and the other people see
-    expect(isFirstPushInLanding(remote({ commitsAhead: 2, action: PUSH }), { landingPushes: true })).toBe(false)
-    expect(isFirstPushInLanding(remote({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true }) }), { landingPushes: true })).toBe(false)
-    // neither Patronus nor GitHub: the push is the one way to share the branch
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: false })).toBe(false)
-  })
-
-  it("keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot", () => {
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: true, held: true })).toBe(false)
+describe("formatFirstPush", () => {
+  it("words the first push of a branch its landing makes, and the answer it waits for, as Rust decides them", () => {
+    expect(formatFirstPush({ kind: "landing", patronus: true }, "login")).toBe('Safe Push and Create Pull Request… push login first: "⋯" pushes it alone')
+    expect(formatFirstPush({ kind: "landing", patronus: false }, "login")).toBe('Create Pull Request… pushes login first: "⋯" pushes it alone')
+    expect(formatFirstPush({ kind: "waits", fact: "patronus" }, "login")).toBe(formatPendingFact("patronus"))
+    expect(formatFirstPush(null, "login")).toBeNull()
   })
 })

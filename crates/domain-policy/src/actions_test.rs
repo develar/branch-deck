@@ -542,7 +542,11 @@ fn a_pull_request_write_waits_for_the_push_it_makes_first_as_the_engine_refuses_
     first_push: Some(&cant_push),
     ..facts(&step, &status)
   });
-  assert_eq!(reason_of(&drafted, RequestReview), Some(ActionBlocker::Draft { number: 7 }), "a draft asks nobody whatever the push");
+  assert_eq!(
+    reason_of(&drafted, RequestReview),
+    Some(ActionBlocker::Draft { number: 7 }),
+    "a draft asks nobody whatever the push"
+  );
 
   let drops = Reason::DropsRemote {
     branch: "auth".to_string(),
@@ -552,7 +556,11 @@ fn a_pull_request_write_waits_for_the_push_it_makes_first_as_the_engine_refuses_
     first_push: Some(&drops),
     ..facts(&step, &status)
   });
-  assert_eq!(reason_of(&asks_first, CreatePullRequest), None, "a push that drops remote commits is the user's decision, which the dialog says");
+  assert_eq!(
+    reason_of(&asks_first, CreatePullRequest),
+    None,
+    "a push that drops remote commits is the user's decision, which the dialog says"
+  );
 
   let stack_held = held(HoldKind::Own);
   let waits = Some(ActionBlocker::Rule { reason: stack_held.clone() });

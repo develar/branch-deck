@@ -19,9 +19,13 @@
 //! - `whole_stack_members`, `whole_stack_rest`: the branches of a whole stack as a sentence names them (the main line
 //!   first, then the side branches, which only the whole stack lands), and what its Safe Push lands once merged Safe
 //!   Pushes landed branches of it whole
+//! - `is_quiet`: a branch with nothing wrong and nothing for the remote, as a quiet side stack is collapsed until the
+//!   user expands it (openspec/specs/branch/stacked-branches/spec.md, "A quiet side stack is collapsed until the user
+//!   expands it"): it synced without an error, is not blocked, and has no commits or a remote that has them as they are
 
 use crate::facts::Repository;
 use crate::parked::parked_state;
+use domain_types::PushAction;
 use domain_types::repository_view::{LandedByView, RobotOf, WholeStackRest};
 use std::collections::{HashMap, HashSet};
 
@@ -252,4 +256,21 @@ pub fn whole_stack_rest<'v>(root: &str, members: &[&str], commit_count: u32, of:
 /// Two robots of the same subject: a sentence names them once
 fn same_subject(a: &RobotOf, b: &RobotOf) -> bool {
   a.branch == b.branch && a.whole_stack == b.whole_stack
+}
+
+/// What a branch is, as a quiet side stack reads it
+#[derive(Clone, Copy, Debug)]
+pub struct QuietFacts {
+  pub sync_failed: bool,
+  pub blocked: bool,
+  pub commit_count: usize,
+  /// What a push does to its remote branch (`RemoteStatusUpdate::push_action`); `None` before its remote status
+  pub action: Option<PushAction>,
+}
+
+/// The branch has nothing wrong and nothing for the remote: it synced without an error, is not blocked, and has no
+/// commits or a remote that has them as they are; one whose remote status is not in yet is not quiet
+#[must_use]
+pub fn is_quiet(facts: &QuietFacts) -> bool {
+  !facts.sync_failed && !facts.blocked && (facts.commit_count == 0 || facts.action == Some(PushAction::UpToDate))
 }

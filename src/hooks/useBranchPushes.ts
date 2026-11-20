@@ -5,7 +5,6 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useOperationWordsWhile } from "@/hooks/useOperationWords"
-import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { getPushRetargets } from "@/lib/pull-request-now"
 import { pushBranch, pushStack, pushWithChildren } from "@/lib/push-run"
 import { sameJson } from "@/lib/record"
@@ -16,22 +15,11 @@ import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
 import type { PushButtonRuns, PushButtonState, PushedBranch, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
-import { childrenPushEnabled, getPushButtonState, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
+import { childrenPushEnabled, getPushButtonState, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
 import type { ChildrenPushOrder } from "@/stores/branch-sync"
 import { pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
-import { usePatronusAvailable } from "@/stores/patronus"
-import { pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
+import { pullRequestsStore } from "@/stores/pull-requests"
 import { useLandRun } from "@/stores/safe-push"
-
-/**
- * Safe Push or Create Pull Request is there to push the branch, and no live pull request shows it: a push of a branch
- * with one updates it (`isFirstPushInLanding`)
- */
-export function useLandingPushes(branchName: string): boolean {
-  const patronus = usePatronusAvailable()
-  const gitHub = gitHubRepositoryOf(usePullRequestAvailability()) !== null
-  return landingPushes(patronus, gitHub, usePullRequest(branchName)?.state)
-}
 
 /** What the pushes the description of the push button of `name` offers run: the push alone, the stack, the children */
 export function pushRunsOf(name: string): PushButtonRuns {

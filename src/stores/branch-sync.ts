@@ -25,6 +25,7 @@ import type {
   OperationId,
   PullRequestView,
   PushAction,
+  PushSlot,
   Reason,
   RepositoryLink,
   ReviewerGroupView,
@@ -975,6 +976,28 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
 /** `pushOrdersIn` of the stores now */
 export function getPushOrders(name: string): PushOrders {
   return pushOrdersIn(branchSyncStore.getState(), name)
+}
+
+/** The common place of a push, which the view leaves out (`NextStepView.push` absent): on its row and where it keeps its place */
+const COMMON_PUSH_SLOT: PushSlot = {}
+
+/**
+ * Where the page shows the push of `name` and whether the side stack it heads is quiet, as Rust decides it
+ * (`NextStepView.push`, `domain_policy::push_slot`); null while the view has no next step of it
+ */
+export function pushSlotIn(state: BranchSyncState, name: string): PushSlot | null {
+  const step = state.nextSteps[name]
+  return step === undefined ? null : (step.push ?? COMMON_PUSH_SLOT)
+}
+
+/** `pushSlotIn` of the stores now */
+export function getPushSlot(name: string): PushSlot | null {
+  return pushSlotIn(branchSyncStore.getState(), name)
+}
+
+/** `pushSlotIn`, re-rendering when it changes */
+export function usePushSlot(name: string): PushSlot | null {
+  return useBranchSyncEntry("nextSteps", name, step => (step === undefined ? null : (step.push ?? COMMON_PUSH_SLOT)))
 }
 
 /** The open pull request of `subject` (a branch, `stackReadinessKey(root)`) as Rust reads it; undefined without one */

@@ -14,7 +14,7 @@
 //! window is the page's to know (a Tauri channel to a page that went away never fails a send, so the session can't tell
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
-use crate::action_view::{ActionSources, actions_of, actions_without_operations};
+use crate::action_view::{ActionSources, actions_of, actions_without_operations, push_slots_of};
 use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
@@ -260,6 +260,14 @@ impl Derived {
       open,
       steps,
     } = Bases::of(state, facts);
+    // where the page shows the push of each branch, and whether the side stack it heads is quiet, as its row is now
+    // (a sync included): over the pushes the view keeps through a sync, the next step of the row as its part
+    let mut steps = steps;
+    for (name, slot) in push_slots_of(state, facts, pushes.as_ref().unwrap_or(&last.pushes), &steps) {
+      if let Some(step) = steps.get_mut(&name) {
+        step.push = slot;
+      }
+    }
     // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
     let lands = (!syncing).then(|| lands_of(state, facts, prefix));
     // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes

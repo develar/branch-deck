@@ -106,6 +106,7 @@ landing of a session](../design/git-operations.md#the-landing-of-a-session)), wh
 | The next step of a branch and of a whole stack | `next_step.rs` | `RepositoryView.nextSteps` (`derive::next_steps`); `brd status`, `brd safe-push --dry-run` (`next_step`) |
 | The node of a row and of a stack header: whose move it is | `landing_node.rs` | `NextStepView.node` |
 | The Status cell of a branch row: what happens to it first, the facts it covers beside it | `row_status.rs` | `NextStepView.status`; `brd status` (`next_step.status`) |
+| Where the page shows the push of a branch: its row, the row of an island root, the preview and the review window | `push_slot.rs` | `NextStepView.push` (`action_view::push_slots_of`) |
 | The facts of a branch itself (its robot, its sync, its parent, what landed it, parked), collected once for the node and the cell | `own_facts.rs` | `landing_node`, `row_status` |
 | The actions of a branch, a whole stack, a robot and a pull request to review, each enabled or disabled with its reason | `actions.rs` | `RepositoryView.actions` (`action_view::actions_of`, `review_view::review_actions_of` by `pull:<n>`); `brd`: none yet |
 | The stacks of the requests of Your Turn: a chain of requests, each into the head branch of the one below, as one row; the layers of a stack a review window shows (`stack_layers`) | `review_request_chains.rs` | `ReviewRequestsView.rows`, `ReviewRequestsFact::stack` (`review_request_facts`); `brd`: none yet |

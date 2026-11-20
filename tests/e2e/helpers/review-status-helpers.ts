@@ -11,7 +11,7 @@ export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 /**
  * Pushes the branch to the remote of the repository with the push of its row's menu and waits for its answer
  * (`execute`). The menu, not the push button: the first push of a branch whose landing pushes it has no button on the
- * row (`isFirstPushInLanding`).
+ * row (`PushSlot`, `domain_policy::push_slot`).
  */
 export async function pushBranchFromRow(page: Page, branchName: string): Promise<void> {
   await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, branchName))

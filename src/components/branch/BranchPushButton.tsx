@@ -55,7 +55,7 @@ export interface BranchPushButtonProps {
    */
   stackPushInHeader?: boolean
   /**
-   * Why the button is disabled where it keeps its place without acting (`firstPushWait`: a first push the landing of
+   * Why the button is disabled where it keeps its place without acting (`formatFirstPush`: a first push the landing of
    * the branch makes, the answer it waits for); its description says it
    */
   waits?: string | null

@@ -2425,6 +2425,7 @@ it, in the table and in an island, for the session. The main line has no chip.
 - **WHEN** a branch forked off the lane of its parent has a branch stacked on it
 - **THEN** its row has the chip "2 branches" ("· 1 to push" while collapsed), which collapses the side stack into it
   [@test] src/stores/branch-table-rows.test.ts (`collapses a side stack into its root, and keeps a quiet one collapsed until the user expands it`)
+  [@test] crates/domain-policy/src/stack_test.rs (`a_branch_is_quiet_with_nothing_wrong_and_nothing_for_the_remote`)
   [@test] tests/e2e/stack-island/stack-island.spec.ts (`should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack`)
 
 #### Scenario: The main line

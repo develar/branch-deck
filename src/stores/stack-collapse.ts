@@ -11,7 +11,7 @@ import {
   getBranchTableRows,
   getParkedTableRows,
   getStackIslandRoots,
-  structureIn,
+  pushSlotIn,
   useBranchSync,
   useStackIslandRoots,
   useVisibleBranchTableRows,
@@ -145,15 +145,11 @@ const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boo
 onRowsForgotten(() => sideStackStore.setState({ overrides: new Map() }))
 
 /**
- * A side stack whose branches have nothing wrong and nothing for the remote: collapsed until the user expands it. Each
- * synced without an error, is not blocked, and has no commits or a remote that has them as they are (the push action
- * Rust decides of its remote status, `RemoteStatusUpdate::push_action`); one whose remote status is not in yet is not quiet
+ * A side stack whose branches have nothing wrong and nothing for the remote, as Rust decides it of its root
+ * (`PushSlot.quiet`, `domain_policy::stack::is_quiet`): collapsed until the user expands it
  */
 function isQuiet(state: BranchSyncState, root: string): boolean {
-  return [root, ...structureIn(state, root).descendants].every(name => {
-    const branch = state.branches[name]
-    return branch === undefined || (!branch.hasError && branch.status !== "Blocked" && (branch.commitCount === 0 || branch.remoteStatus?.action.kind === "upToDate"))
-  })
+  return pushSlotIn(state, root)?.quiet === true
 }
 
 /** The collapsed side stacks of all rows, one per line, so a store change notifies only when they change */

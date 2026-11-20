@@ -112,6 +112,7 @@ mod own_facts;
 pub mod parked;
 pub mod pull_request;
 pub mod push;
+pub mod push_slot;
 pub mod range_reading;
 pub mod readiness;
 pub mod reasons;
@@ -165,6 +166,8 @@ mod next_step_test;
 mod parked_test;
 #[cfg(test)]
 mod pull_request_test;
+#[cfg(test)]
+mod push_slot_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

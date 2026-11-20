@@ -27,6 +27,9 @@
 //   them, so this is the second guard) in src (its tests and test-support aside): the view may be of another table,
 //   stale while the view of this one is derived; the page reads what Rust decides of the table as it is
 //   (`landedStates`, `NextStepView.rest`, `NextStepView.hold`, `NextStep.lands`, `BranchPush.actionBlocker`).
+// - `failed-read`: a read of whether the last sync failed a branch (`.hasError`) in src (its tests, test-support and the
+//   projection of the view, src/model, aside): what a branch whose sync failed offers is Rust's, its actions, its push
+//   and its side stack (`NextStepView.push`); an entry of ALLOWLIST names a layout that reads it.
 // The operations are the session's (docs/design/operations.md): Rust admits, joins and queues every one of them and lays
 // them over the actions of the view; the page only knows which of its surfaces started one (`src/stores/indicators.ts`):
 // - `operations-store`: the deleted registry of the page comes back (`src/stores/operations.ts`), or src/stores or
@@ -168,6 +171,7 @@ export const ALLOWLIST = [
     reason: "the names suggested for the commits of an inline form, by the commits, what a commit is; the form goes with forgetRows",
   },
   { file: "src/hooks/useSettledLayout.ts", rule: "row-store", reason: "the layouts the page settled, by the key of an element, of no row" },
+  { file: "src/components/branch/BranchRow.tsx", rule: "failed-read", reason: "the row of a failed branch opens to the error of its sync: a layout, no action" },
   {
     file: "tests/e2e/next-step/next-step.spec.ts",
     rule: "e2e-remote-poll",
@@ -189,7 +193,7 @@ const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
  * The rules an entry of ALLOWLIST may except: a timer of the UI, which `poll-timer` cannot tell from a poll, and a write a
  * running operation makes while it waits for the test, which `e2e-remote-poll` cannot tell from one after its answer
  */
-const EXCEPTED_RULES = new Set(["poll-timer", "e2e-remote-poll", "row-store"])
+const EXCEPTED_RULES = new Set(["poll-timer", "e2e-remote-poll", "row-store", "failed-read"])
 /** The rules whose entry of ALLOWLIST names the exact count of its findings in the file */
 const COUNTED_RULES = new Set(["e2e-remote-poll"])
 
@@ -217,6 +221,10 @@ const LANDING_RULED = /^src\/(?:lib|hooks|stores)\/(?!.*\.test\.tsx?$)/
 const VIEW_LANDING_READ = /\blandedBy(?:Robot)?\b|\b(?:get|use)(?:Stack|Branch)Landing\([^)]*\)\??\.(?:rest|hold|push)\b|\.landing\??\.(?:rest|hold|push)\b/
 /** The sources that may not read it: the page, its tests and test-support aside */
 const VIEW_READING = /^src\/(?!test-support\/)(?!.*\.test\.tsx?$)/
+// a read of whether the last sync failed a branch
+const FAILED_READ = /\.hasError\b/
+/** The sources that may not read it: the page, its tests, test-support and the projection of the view aside */
+const FAILED_READING = /^src\/(?!test-support\/)(?!model\/)(?!.*\.test\.tsx?$)/
 
 /** The start of the main window and the store of the selected repository: they ask no command at start */
 export const STARTUP_MODULES = ["src/main.tsx", "src/router.ts", "src/stores/repository.ts"]
@@ -683,6 +691,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (VIEW_READING.test(file) && VIEW_LANDING_READ.test(line)) {
       problems.push({ ...at, rule: "view-landing-read" })
+    }
+    if (FAILED_READING.test(file) && FAILED_READ.test(line)) {
+      problems.push({ ...at, rule: "failed-read" })
     }
     if (ADMITTING.test(file) && ADMISSION_EXPORT.test(line)) {
       problems.push({ ...at, rule: "operations-store" })

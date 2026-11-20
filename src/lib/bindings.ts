@@ -3686,6 +3686,13 @@ export type FirstConflict = {
 	lostBindings?: UpdateLostBinding[],
 };
 
+/**  Why the first push of a branch the remote lacks waits where the push keeps its place */
+export type FirstPush = 
+/**  Its landing pushes it: Create Pull Request…, and Safe Push where Patronus answers (`patronus`) */
+{ kind: "landing"; patronus: boolean } | 
+/**  The answer that tells whether its landing pushes it is to come */
+{ kind: "waits"; fact: StepFact };
+
 /**  Steps that belong together: they share a branch, and their plan alone has the result */
 export type FixComponent = {
 	steps: FixStep[],
@@ -5575,6 +5582,12 @@ export type NextStepView = {
 	 *  `None` while nothing holds it, and of a whole stack
 	 */
 	fixHold?: FixHold | null,
+	/**
+	 *  Of a branch, where the page shows its push and whether the side stack it heads is quiet (`domain_policy::push_slot`),
+	 *  derived with its actions over the pushes of the view; absent while it is the common one (a push on its row and where
+	 *  the push keeps its place), and of a whole stack
+	 */
+	push?: PushSlot,
 };
 
 /**  Why the node is what it is, with the facts its words need */
@@ -6854,6 +6867,36 @@ export type PushScope =
 { kind: "upTo"; commit: string } | 
 /**  The unapplied branch of that name, under its own name, so the remote keeps a copy */
 { kind: "unapplied" };
+
+/**  The push a run of the row shows */
+export type PushShape = "own" | "children";
+
+/**
+ *  Where the page shows the push of a branch and in what shape (`domain_policy::push_slot`): the push track of its row,
+ *  the row of an island root whose header shows the push of its stack, and the surfaces that keep the push in its place
+ *  (the preview, the review window). What runs lies over it on the page: a push of the row shows its progress. Each field
+ *  absent is the common answer, a push on its row and where it keeps its place, so most branches send none
+ */
+export type PushSlot = {
+	row?: RowPush,
+	/**
+	 *  The row of an island root, whose header shows Push with Children, the row the push of the branch alone; absent
+	 *  while it is `row`
+	 */
+	inHeader?: RowPush | null,
+	/**  The branch has no push anywhere, nor where the push keeps its place: its sync failed, or it has no commits */
+	none?: boolean,
+	/**
+	 *  Why the push waits where it keeps its place: its first push is a step of its landing, or the answer that tells it
+	 *  is to come; absent while it pushes
+	 */
+	first?: FirstPush | null,
+	/**
+	 *  It and every branch stacked on it have nothing wrong and nothing for the remote (`domain_policy::stack::is_quiet`):
+	 *  the side stack it heads is collapsed until the user expands it
+	 */
+	quiet?: boolean,
+};
 
 /**
  *  Push Up to Here of a branch (`domain_policy::push::up_to_push`): the branches it is built on that have work for the
@@ -8995,6 +9038,28 @@ export type RowFact =
  *  says the step, never beside another fact
  */
 { kind: "wait" };
+
+/**  The push track of a row */
+export type RowPush = {
+	/**  What it shows while nothing of the row runs; absent: the push of the branch */
+	kind?: RowPushKind,
+	/**
+	 *  What a push of the row shows while it runs: the push of the branch (absent), or Push with Children of a branch with
+	 *  nothing of its own to send
+	 */
+	shape?: PushShape,
+	/**  The answer the track waits for before it shows a push, which a push shown before it would leave with */
+	waitsFor?: StepFact | null,
+};
+
+/**  What the push track of a row shows */
+export type RowPushKind = 
+/**  No push: nothing to push, its landing makes its first push, a Safe Push holds it, or an answer is to come */
+"none" | 
+/**  The push of the branch */
+"push" | 
+/**  Push with Children of a branch up to date with its remote whose children have work */
+"withChildren";
 
 /**
  *  The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";

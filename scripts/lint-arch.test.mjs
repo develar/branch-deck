@@ -287,6 +287,15 @@ test("what landed a subject is Rust's: an export of src/lib, src/hooks or src/st
   assert.deepEqual(rules("src/test-support/example.ts"), [])
 })
 
+test("a read of whether the last sync failed a branch is refused outside the projection of the view: what it offers is Rust's", () => {
+  const source = ["const canPush = !branch.hasError && branch.commitCount > 0", 'const kept = useRowPart(name, "landing", landing => landing?.push?.kept)'].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/components/branch/Example.tsx"), ["1 failed-read"])
+  assert.deepEqual(rules("src/hooks/example.ts"), ["1 failed-read"])
+  assert.deepEqual(rules("src/model/example.ts"), [])
+  assert.deepEqual(rules("src/hooks/example.test.ts"), [])
+})
+
 test("an admission of the page is refused: the deleted registry, an export of src/stores or src/lib that admits, queues or joins", () => {
   const source = [
     "export function runOperation(spec, run) {}",

@@ -4,6 +4,8 @@ import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
 import { formatCommitCount } from "@/lib/commit"
+import { useRowPart } from "@/model/store"
+import { isActionEnabled } from "@/presenters/actions"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 
@@ -11,7 +13,9 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
   const processing = useInlineProcessing(branchName) !== null
   const commitCount = branch?.commits.length ?? 0
-  const canUnapply = branch !== undefined && commitCount > 0 && !processing
+  // as Rust offers Unapply (`domain_policy::actions`: commits, a built branch), the form while its run of the row goes
+  const offered = useRowPart(branchName, "actions", actions => isActionEnabled(actions, "unapply"))
+  const canUnapply = branch !== undefined && offered && !processing
   const children = getStackChildren(branchName)
 
   return (

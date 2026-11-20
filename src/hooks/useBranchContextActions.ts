@@ -19,7 +19,7 @@ import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
-import { getBranchesGitHubRepository, getPushRetargets, getRetargetCommand } from "@/lib/pull-request-now"
+import { getPushRetargets, getRetargetCommand } from "@/lib/pull-request-now"
 import { pushFromButton, pushWithChildren } from "@/lib/push-run"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { openBranchReviewWindow } from "@/lib/review-window"
@@ -33,7 +33,7 @@ import { ACTION_LOOKS, findAction, presentAction } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
 import type { PushButtonState } from "@/presenters/push-button"
-import { firstPushPending, firstPushWait, getPushButtonState, landingPushes, pushBlockerOf, retargetCandidates, unpushedParentIn } from "@/presenters/push-button"
+import { formatFirstPush, getPushButtonState, pushBlockerOf, retargetCandidates, unpushedParentIn } from "@/presenters/push-button"
 import { getRequestReviewItem } from "@/presenters/review"
 import { authStore } from "@/stores/auth"
 import type { Branch } from "@/stores/branch-sync"
@@ -47,6 +47,7 @@ import {
   getParkedState,
   getOpenPullRequest,
   getPushOrders,
+  getPushSlot,
   getStackAncestors,
   getStackBranch,
   getStackChildren,
@@ -59,8 +60,8 @@ import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, se
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords, indicatorsStore } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
+import { getBranchRobot, patronusStore } from "@/stores/patronus"
+import { getPullRequest, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -93,11 +94,6 @@ function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
   const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
   const blocker = pushBlockerOf(actionsOf(branch.name))
   return getPushButtonState(branch, { isPushing, blocker, unpushedParent, retargets, runs: pushRunsOf(branch.name), ...getOperationWords() })
-}
-
-/** `useLandingPushes` outside a component, for the items built on demand (`landingPushes`) */
-function isLandingPushAvailable(branchName: string): boolean {
-  return landingPushes(isPatronusAvailable(), getBranchesGitHubRepository() !== null, getPullRequest(branchName)?.state)
 }
 
 /** What the words of a blocker of the branch read of its row, and the operations of the session now */
@@ -465,7 +461,7 @@ export interface BranchActionItem extends MenuItem {
  * The actions on a branch in its review window: its pull request (Open; Create without a live one, also beside a
  * closed one, as the menu offers both), "Safe Push" where Patronus is and the branch has work, "Push" for a branch
  * with work, disabled with why while its first push is a step of its landing or the answers that tell it are to come
- * (`firstPushWait`: "⋯" pushes it alone). The same items as the menu; Push has no key, P is the previous change there.
+ * (`PushSlot.first`: "⋯" pushes it alone). The same items as the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const pullRequest = getPullRequest(branch.name)
@@ -473,19 +469,16 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = pullRequestItems(branch, pullRequest).map(item =>
     item.id === "open-pull-request" && pullRequest !== undefined ? { ...item, url: pullRequest.url } : item,
   )
-  // as the push button of the row: only a branch that synced without an error has something to push
-  const hasPush = !branch.hasError && branch.commitCount > 0
-  if (hasPush) {
+  // the push keeps its place where the branch has one, as Rust decides it (`PushSlot`)
+  const slot = getPushSlot(branch.name)
+  if (slot !== null && slot.none !== true) {
     // offered until Patronus says the repository is not on Space: disabled with what it waits for before its answer
     items.push(...present(getSafePushMenuItem(branch)))
     // the push of the button alone: its second way is in "⋯"; a first push that Safe Push and Create Pull Request make
     // is disabled with why, so the title bar keeps its buttons where they are when the answers that decide it come
     const push = getPushMenuItems(branch)[0]
     if (push !== undefined) {
-      const pending = firstPushPending(isPatronusPending(), isPullRequestsLoading())
-      const waits = isBranchPushing(branch.name)
-        ? null
-        : firstPushWait(branch, { landingPushes: isLandingPushAvailable(branch.name), patronus: isPatronusAvailable(), held: getPushHold(branch.name) !== null, pending })
+      const waits = isBranchPushing(branch.name) ? null : formatFirstPush(slot.first, branch.name)
       items.push({ ...push, kbds: undefined, ...(waits !== null && { disabled: true, description: waits }) })
     }
   }

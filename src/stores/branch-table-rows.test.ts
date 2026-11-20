@@ -17,6 +17,7 @@ import {
 import { getCollapsedSideStacks, toggleSideStackCollapsed } from "@/stores/stack-collapse"
 import { placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { forgetRows } from "@/stores/view-rows"
+import { testStep, testView } from "@/test-support/next-step"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
 vi.mock("@/lib/bindings", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/bindings")>()), commands: {} }))
@@ -61,9 +62,11 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
 }
 
 /** The branches of the side stack on `side` are pushed and up to date: the stack is quiet */
+/** The side stack on `side` pushed and up to date: Rust says it is quiet (`NextStepView.push.quiet`) */
 function pushSideStack(): void {
   branchSyncStore.setState(state => ({
     branches: { ...state.branches, side: { ...state.branches.side!, remoteStatus: testRemoteStatus() }, side2: { ...state.branches.side2!, remoteStatus: testRemoteStatus() } },
+    nextSteps: { ...state.nextSteps, side: { ...testView(testStep({ kind: "safePush" })), push: { quiet: true } } },
   }))
 }
 
