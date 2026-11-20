@@ -1,5 +1,7 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, next_steps, run_in, run_json, write};
+use bd_cli::fixture_test::{
+  ACP_HOST, PREFIX, SESSION, assert_error, commit_all, commit_dangling_reference, commit_lost_import, environment, git, next_steps, run_in, run_json, write,
+};
 use bd_cli::remote_fixture_test::{
   AUTH, LANDED_SUBJECTS, MASTER_RULES, STACK, Space, dismissing_rules, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago,
   pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_remote_moved_back, stack_robot,
@@ -914,15 +916,10 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
   // the fix moves a commit into another branch, which the message names: no command proven to run
   assert_eq!(next_steps(&output["error"]), []);
 
-  let codes = |output: &Value| -> Vec<Value> {
-    output["refusals"]
-      .as_array()
-      .map_or_default(|refusals| refusals.iter().map(|refusal| refusal["code"].clone()).collect())
-  };
   let (_, output) = space.run(&["fake-agent", "--dry-run"]);
-  assert!(codes(&output).contains(&json!("dangling_reference")), "{output}");
+  assert!(refusal_codes(&output).contains(&json!("dangling_reference")), "{output}");
   let (_, output) = space.run(&["fake-agent", "--dry-run", "--allow-dangling"]);
-  assert!(!codes(&output).contains(&json!("dangling_reference")), "{output}");
+  assert!(!refusal_codes(&output).contains(&json!("dangling_reference")), "{output}");
 }
 
 /// The Safe Push failure of 2026-10-21 is refused before anything is pushed: `flow` imports a function that `util`, a
@@ -1871,4 +1868,27 @@ fn push_drafts_the_layers_of_a_stack_of_github_into_the_branches_below_them() {
 
 fn branch_of<'a>(output: &'a Value, name: &str) -> &'a Value {
   output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
+}
+/// The branch `drop` alone keeps a use of the import its commit removes (robot 1137287182, 2026-11-20): a lost
+/// binding, which only that commit fixes, so the message names no command; --allow-dangling starts anyway
+#[test]
+fn a_lost_binding_refuses_the_safe_push_unless_allowed() {
+  let space = Space::new(&[]);
+  commit_lost_import(&space.repo);
+
+  let (exit_code, output) = space.run(&["drop"]);
+  assert_error(&output, exit_code, (4, "lost_binding"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "Nothing was pushed or started: \"Drop old\" of drop removes the import of rethrow, which {SESSION}:6 still uses; keep the binding in that commit with a `fixup!` of it; --allow-dangling only when the user says it is a false alarm"
+    ))
+  );
+  assert_eq!(space.remote_tip("test-user/virtual/drop"), "", "nothing was pushed");
+  assert_eq!(next_steps(&output["error"]), []);
+
+  let (_, output) = space.run(&["drop", "--dry-run"]);
+  assert!(refusal_codes(&output).contains(&json!("lost_binding")), "{output}");
+  let (_, output) = space.run(&["drop", "--dry-run", "--allow-dangling"]);
+  assert!(!refusal_codes(&output).contains(&json!("lost_binding")), "{output}");
 }

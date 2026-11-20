@@ -21,7 +21,8 @@ use crate::landed::landed_branches;
 use crate::push_command::{github_repository, unknown_or_unapplied};
 use crate::robot_command::ClosedPullRequest;
 use crate::safe_push_command::{
-  CheckRead, Refusal, SafePushArgs, SafePushOutput, Start, check_next_step, compared_table, safe_push, subject_facts, table_error, unlanded_need_refusal, whole_stack_of_branch,
+  CheckRead, Refusal, SafePushArgs, SafePushOutput, Start, check_next_step, compared_table, lost_binding_refusal, safe_push, subject_facts, table_error, unlanded_need_refusal,
+  whole_stack_of_branch,
 };
 use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::SessionFacts;
@@ -555,6 +556,7 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
         LandingRefusal::DanglingReference { .. } => format!("{words}; --allow-dangling only when the user says it is a false alarm"),
         LandingRefusal::MissingDeclaration { .. } => format!("{words}; --allow-missing only when the user says it is a false alarm"),
         LandingRefusal::UnlandedNeed { .. } => return unlanded_need_refusal(context, refusal, &format!("{nothing}: ")),
+        LandingRefusal::LostBinding { .. } => return lost_binding_refusal(refusal, &format!("{nothing}: ")),
       },
       _ => words,
     };

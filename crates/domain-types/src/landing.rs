@@ -141,6 +141,18 @@ pub enum LandingRefusal {
     #[serde(default)]
     landing_in: Option<RobotOf>,
   },
+  /// A commit of `branch` removes the import or the private declaration of a name that its file still uses in the tree
+  /// that lands (`trial_check::lost_bindings`): git merged the commit cleanly onto a parent that uses the name, and the
+  /// build fails. No commit outside fixes it: the commit itself must keep the binding
+  LostBinding {
+    branch: String,
+    identifier: String,
+    binding: BindingKind,
+    /// Where the use is, in the tree that lands
+    file: String,
+    line: u32,
+    removed_by: StackCommit,
+  },
   /// The user declared that `needs` lands before `branch` (`brd need`, `refs/branch-deck/needs`), and it is not in
   /// master yet: a start now lands them out of the order the user asked for. No commit proves it and no build fails;
   /// the declaration alone refuses the start
@@ -179,6 +191,17 @@ pub enum NeedState {
   CompanionUnreadable { companion: String, reason: String },
 }
 
+/// What bound the name of a lost binding before the commit removed it
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum BindingKind {
+  Import,
+  /// A `private` declaration of the file
+  Declaration,
+}
+
 /// What a branch does to the declaration of a dangling reference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -213,14 +236,14 @@ impl LandingRefusal {
     match self {
       Self::DanglingReference { fixed_by, .. } => Some(fixed_by),
       Self::MissingDeclaration { declared_by, .. } => Some(declared_by),
-      Self::UnlandedNeed { .. } => None,
+      Self::LostBinding { .. } | Self::UnlandedNeed { .. } => None,
     }
   }
 
   /// The branch whose start it refuses
   pub fn branch(&self) -> &str {
     match self {
-      Self::DanglingReference { branch, .. } | Self::MissingDeclaration { branch, .. } | Self::UnlandedNeed { branch, .. } => branch,
+      Self::DanglingReference { branch, .. } | Self::MissingDeclaration { branch, .. } | Self::LostBinding { branch, .. } | Self::UnlandedNeed { branch, .. } => branch,
     }
   }
 
@@ -229,6 +252,7 @@ impl LandingRefusal {
     match self {
       Self::DanglingReference { fix, .. } | Self::MissingDeclaration { fix, .. } => Some(fix),
       Self::UnlandedNeed { fix, .. } => fix.as_ref(),
+      Self::LostBinding { .. } => None,
     }
   }
 
@@ -239,6 +263,7 @@ impl LandingRefusal {
     match self {
       Self::DanglingReference { removed_by, fixed_by, .. } => names.extend([removed_by.branch.as_str(), fixed_by.branch.as_str()]),
       Self::MissingDeclaration { used_by, declared_by, .. } => names.extend([used_by.branch.as_str(), declared_by.branch.as_str()]),
+      Self::LostBinding { removed_by, .. } => names.push(removed_by.branch.as_str()),
       Self::UnlandedNeed { needs, inherited_from, .. } => names.extend(std::iter::once(needs.as_str()).chain(inherited_from.as_deref())),
     }
     match self.fix() {
@@ -265,7 +290,7 @@ impl LandingRefusal {
     let mut need = self.clone();
     match &mut need {
       Self::MissingDeclaration { landing_in, .. } | Self::UnlandedNeed { landing_in, .. } => *landing_in = None,
-      Self::DanglingReference { .. } => {}
+      Self::DanglingReference { .. } | Self::LostBinding { .. } => {}
     }
     need
   }
@@ -313,6 +338,20 @@ impl LandingRefusal {
           format!("; {} is landing in {of}, which tests it without this start", declared_by.branch)
         });
         format!("{} uses {identifier} in {file}, which {} adds{landing}", named(used_by), named(declared_by))
+      }
+      Self::LostBinding {
+        identifier,
+        binding,
+        file,
+        line,
+        removed_by,
+        ..
+      } => {
+        let binding = match binding {
+          BindingKind::Import => "the import of",
+          BindingKind::Declaration => "the declaration of",
+        };
+        format!("{} removes {binding} {identifier}, which {file}:{line} still uses", named(removed_by))
       }
       Self::UnlandedNeed {
         branch,

@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-11-14
+**Updated:** 2026-11-20
 **Tags:** [dependencies, psi-syntax, rust-syntax, js-syntax, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -39,7 +39,8 @@ revision of develar/psi-syntax it links the parsers by (`file_diffs::PSI_SYNTAX_
 the summaries, the highlighting or the navigation is a commit of accio, then the mirror, then that revision, which makes
 every cached summary again ([Rust Rules → The crates of psi-syntax](../contributing/rust-rules.md#the-crates-of-psi-syntax)).
 
-Two consumers use the summaries. The dangling-reference check keeps finding candidate lines and only subtracts the
+Three consumers use the summaries. The lost bindings (`lost_bindings`, decision 28) compare one file before and after
+a commit: an import or a `private` declaration gone while the file still names it bare. The dangling-reference check keeps finding candidate lines and only subtracts the
 ones the tree places in a comment, a string or a local scope, the name of an `override` member, and the names an
 import still binds; beside it, the checks of a branch's tree (decision 15) find by the summaries alone the uses of an
 instance member a branch removes, the uses a branch's change of a form may break (`suspend`, a new parameter, a
@@ -844,6 +845,28 @@ flowchart TD
     `\u{1F600}`). One thread, 5 000 files: 0.93 s against 9.41 s.
 
     [@test] psi-syntax:crates/code-symbols/src/js/highlight_test.rs (`a_decorator_is_coloured_to_its_arguments`, `names_by_what_they_name`, `deep_nesting_is_highlighted_on_a_small_stack`)
+
+28. **Decision**: a lost binding is what a move of a commit brings, not what one file shows: the copy of a commit
+    (a branch built without a commit before it, a replay onto another parent) removes the import or the `private`
+    declaration of a name that its file still names bare, and the original of the commit has no such use
+    (`trial_check::lost_bindings`, the landing gate). Kotlin and Java, whose summaries hold the reach of a member; a
+    name bound by any declaration, an import, its alias or a star import of its package after the commit is none, and
+    so is an import of a default package (`kotlin.collections`, `java.lang`) or of the file's own package, a name the
+    commit adds to another file of the package, an `override`, and a use on a receiver (`x.name()`).
+    **Rationale**: the robot of 2026-11-20 (1137287182) failed on `backend` and `rethrowControlFlowException`: a commit
+    removed a private constructor property and an import with their last use, an update replayed it onto a baseline
+    commit that used both again in other hunks, and git merged it; no line search sees an import, and the dangling
+    references compare with HEAD, which was broken the same way. One file can't tell a lost binding from a name that
+    resolves another way: over the 11741 commits of two weeks of the monorepo's master, each built where it was
+    authored, the rule of one file found 68 (18 s with summaries parsed, the rig `lost_bindings_of_a_range`): extensions
+    called in a lambda with a receiver (`put`, `add`, `coroutineContext`), Kotlin's own `HashMap` and `emptyList`, a
+    changed `package`, helpers of the package and of a test base class. Each of them is a finding of its original too, so
+    the difference of a copy and its original drops them all and keeps the incident, whose original had no use left.
+    A branch is built on the merge base of HEAD with the baseline, so the gate sees what the build of a branch without
+    the other branches brings; a replay onto a newer baseline is the update's to check.
+
+    [@test] crates/trial-check/src/lost_bindings_test.rs (`the_replayed_commit_of_the_incident_loses_the_property_and_the_import`, `the_lost_bindings_of_commits_in_two_processes`)
+    [@test] crates/trial-check/src/landing_gate_test.rs (`a_commit_whose_branch_keeps_a_use_of_what_it_removes_refuses_the_start`)
 
 ### Implementation Notes
 

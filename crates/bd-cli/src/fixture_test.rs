@@ -607,6 +607,25 @@ pub fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
   .into()
 }
 
+pub const SESSION: &str = "src/a/Session.kt";
+
+/// `keep` drops `fresh`, a use of an import, then `drop` drops its last use and the import: HEAD builds, the branch
+/// `drop` alone keeps `fresh` without the import (`trial_check::lost_bindings`)
+pub fn commit_lost_import(repo: &TestRepo) {
+  let session = |old: &str, fresh: &str, import: &str| format!("package a\n\n{import}class Session {{\n{old}  fun keep() = 1\n\n{fresh}  fun last() = 2\n}}\n");
+  let old = "  fun old(t: Throwable) = rethrow(t)\n\n";
+  let fresh = "  fun fresh(t: Throwable) = rethrow(t)\n\n";
+  let import = "import b.rethrow\n\n";
+  on_a_new_baseline(
+    repo,
+    HistoryCommit::new("Add the session", &[(SESSION, &session(old, fresh, import))]),
+    [
+      HistoryCommit::new("(keep) Drop fresh", &[(SESSION, &session(old, "", import))]),
+      HistoryCommit::new("(drop) Drop old", &[(SESSION, &session("", "", ""))]),
+    ],
+  );
+}
+
 /// `base` and then `commits` on master of `repo`, 100 s apart from `1_700_000_050` (`commit_all`), `origin/master`
 /// moved to `base`: one history (`HistoryStream::reset_at`). The ids of `commits`
 fn on_a_new_baseline<const N: usize>(repo: &TestRepo, base: HistoryCommit, commits: [HistoryCommit; N]) -> [String; N] {

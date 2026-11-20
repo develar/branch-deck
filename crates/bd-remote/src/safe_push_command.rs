@@ -1111,10 +1111,21 @@ pub(crate) fn unlanded_need_refusal(context: &RepoContext, refusal: &LandingRefu
   }
 }
 
+/// A lost binding of what lands (`trial_check::lost_bindings`): the commit itself keeps the binding, no restack helps
+pub(crate) fn lost_binding_refusal(refusal: &LandingRefusal, lead: &str) -> Refusal {
+  Refusal::new(
+    ErrorCode::LostBinding,
+    format!(
+      "{lead}{}; keep the binding in that commit with a `fixup!` of it; --allow-dangling only when the user says it is a false alarm",
+      refusal.reason()
+    ),
+  )
+}
+
 fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]) -> String {
   let short = context.short_ids(missing.iter().flat_map(|refusal| match refusal {
     LandingRefusal::MissingDeclaration { used_by, declared_by, .. } => vec![used_by.id.as_str(), declared_by.id.as_str()],
-    LandingRefusal::DanglingReference { .. } | LandingRefusal::UnlandedNeed { .. } => Vec::new(),
+    LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } | LandingRefusal::UnlandedNeed { .. } => Vec::new(),
   }));
   let named = |commit: &StackCommit| format!("{} ({})", short.get(&commit.id), commit.subject);
   let Some(LandingRefusal::MissingDeclaration {
@@ -1603,6 +1614,7 @@ impl Told<'_> {
           self.dangling_refusal()
         }
         Reason::LandingRefused { refusal } if matches!(**refusal, LandingRefusal::UnlandedNeed { .. }) => unlanded_need_refusal(self.context, refusal, ""),
+        Reason::LandingRefused { refusal } if matches!(**refusal, LandingRefusal::LostBinding { .. }) => lost_binding_refusal(refusal, "Nothing was pushed or started: "),
         Reason::LandingRefused { .. } if !std::mem::replace(&mut missing_told, true) => self.missing_refusal(&missing),
         Reason::LandingRefused { .. } => continue,
         reason => self.refusal(reason),

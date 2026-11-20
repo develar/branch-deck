@@ -1989,9 +1989,10 @@ fn a_pick_into_a_branch_the_target_has() {
 /// sync, one `replay` of the branch onto the target tip that the sync read
 const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1), ("symbolic-ref", 1)];
 
-/// What `brd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`)
+/// What `brd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`); the lost bindings of
+/// the landing gate are one `log` of the originals and the copies
 fn safe_push_check() -> Vec<(&'static str, u32)> {
-  with_process_deltas(FIRST_SYNC, &[("cat-file", 2), ("diff-tree", 1), ("for-each-ref", 1), ("log", 5), ("merge-tree", -1)])
+  with_process_deltas(FIRST_SYNC, &[("cat-file", 2), ("diff-tree", 1), ("for-each-ref", 1), ("log", 6), ("merge-tree", -1)])
 }
 
 /// `base` with the counts of `more` added, by subcommand
@@ -2112,14 +2113,14 @@ fn a_land_by_a_push() {
 
 /// What `brd land auth --dry-run` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
 /// their push URLs (`remote -v`), from which the push URL of `origin` for Space comes too, and the trial of the landing
-/// gate in the session of the sync's report (`log`, `cat-file`); no Space settings of a remote off Space, no fetch, no
+/// gate in the session of the sync's report (`log`, `cat-file`, and one `log` of the lost bindings); no Space settings of a remote off Space, no fetch, no
 /// check against the newest target: a push is its own
 const LAND_CHECK: &[(&str, u32)] = &[
   ("cat-file", 2),
   ("config", 1),
   ("fast-import", 2),
   ("for-each-ref", 2),
-  ("log", 6),
+  ("log", 7),
   ("merge-base", 1),
   ("notes", 1),
   ("remote", 1),
@@ -2181,7 +2182,7 @@ fn a_safe_push_check_of_the_whole_stack() {
       ("diff-tree", 1),
       ("fast-import", 5),
       ("for-each-ref", 2),
-      ("log", 7),
+      ("log", 8),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
@@ -2225,7 +2226,7 @@ fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
       ("diff-tree", 1),
       ("fetch", 1),
       ("for-each-ref", 8),
-      ("log", 11),
+      ("log", 12),
       ("merge-base", 1),
       ("push", 2),
       ("reflog", 1),

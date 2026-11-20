@@ -736,6 +736,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::Parked { .. } | Reason::StackParked { .. } => ErrorCode::Parked,
     Reason::LandingRefused { refusal } => match **refusal {
       LandingRefusal::DanglingReference { .. } => ErrorCode::DanglingReference,
+      LandingRefusal::LostBinding { .. } => ErrorCode::LostBinding,
       LandingRefusal::MissingDeclaration { .. } => ErrorCode::MissingDeclaration,
       LandingRefusal::UnlandedNeed { .. } => ErrorCode::UnlandedNeed,
     },

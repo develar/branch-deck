@@ -1,6 +1,7 @@
 // Next steps as Rust gives them (`NextStep` of the view's `nextSteps`) and the context the page presents them in, for
 // the tests of the presenters: a step is data, so a test writes the one row it asks about
 import type { MissingReviewGroup, NextStep, NextStepView, StepFact, StepKind, StepRow } from "@/lib/bindings"
+import { landingFixOf } from "@/presenters/landing"
 import type { NextStepActions, StepContext } from "@/presenters/next-step"
 import { branchSyncStore } from "@/stores/branch-sync"
 
@@ -62,7 +63,7 @@ export function testActions(calls: string[] = [], extra: Partial<NextStepActions
     retarget: record("retarget"),
     linkStack: record("linkStack"),
     openStackPullRequest: root => calls.push(`openStackPullRequest ${root}`),
-    fixLanding: refusal => calls.push(`fixLanding ${refusal.fix?.kind ?? "none"}`),
+    fixLanding: refusal => calls.push(`fixLanding ${landingFixOf(refusal)?.kind ?? "none"}`),
     copyLoginCommand: record("copyLoginCommand"),
     refreshPatronus: record("refreshPatronus"),
     pickRemoteCommits: record("pickRemoteCommits"),

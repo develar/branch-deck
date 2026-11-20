@@ -76,8 +76,8 @@ Refusals that wait for the user (exit 4); the `--help` of the command has the re
   the user approved.
 - `approvals_missing`: show `error.review`; `--create-pull-request` once the user approved; `--without-approvals` only
   when the user says so: Patronus fails it.
-- `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`); `brd safe-push --allow-dangling` or
-  `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `brd safe-push
+- `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`), `lost_binding` its commit;
+  `brd safe-push --allow-dangling` or `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `brd safe-push
   --allow-unknown-rules` only when the user says so.
 - `parked`: tell the user; never push, start or unpark a parked branch on your own.
 - `low_disk_space`: tell the user; never pass `brd lease get --min-free 0` on your own.
@@ -610,6 +610,9 @@ Refusals, nothing pushed or started:
   failed): ask the user; --allow-unknown-review starts anyway, and the robot checks the approvals when it starts.
 - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
   lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
+- `lost_binding` (exit 4, also in `refusals`): a commit of what lands removes the import or the private declaration
+  of a name that its file still uses in the tree that lands, and its original on HEAD doesn't: --allow-dangling only
+  when the user says it is a false alarm; else keep the binding in that commit with a `fixup!` of it.
 - `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch
   outside it adds (`missing_declarations` of `brd check`); the message names the restack that lands that branch too
   (`brd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
@@ -678,8 +681,8 @@ Refusals, nothing pushed:
   update` brings the branch onto it (after the user approves), then `brd land` again builds the copy anew.
 - `push_refused` (exit 4): the baseline is a local branch, the branch is not synced, or the required status checks of
   the target (--bypass-rules once the user agrees); `landed` (exit 4): the baseline has all of it already: `brd update`.
-- `dangling_reference`, `missing_declaration`: as for `brd safe-push`; `brd land --allow-dangling` or `brd land
-  --allow-missing` only when the user says it is a false alarm. `unlanded_need`: as for `brd safe-push`; `brd land
+- `dangling_reference`, `lost_binding`, `missing_declaration`: as for `brd safe-push`; `brd land --allow-dangling` or
+  `brd land --allow-missing` only when the user says it is a false alarm. `unlanded_need`: as for `brd safe-push`; `brd land
   --allow-unlanded` only when the user says the declared order no longer holds. `parked`, `robot_running`,
   `stack_not_built`: as for `brd safe-push`.
 - `busy` (exit 3): another process lands into the same target; retry once it is done.

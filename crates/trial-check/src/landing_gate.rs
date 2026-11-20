@@ -2,6 +2,10 @@
 //! app (openspec/specs/cli/agent-cli/spec.md, openspec/specs/branch/patronus/spec.md). One trial check of what the robot lands, in one
 //! `CheckSession`:
 //! - a dangling reference a commit proves (`dangling_references`): the build of the tree it lands fails;
+//! - a lost binding (`lost_bindings`, `branchdeck.symbols on`): a commit of what lands removes the import or the private
+//!   declaration of a name that its file in the tree that lands still uses, which its original ahead of the baseline
+//!   doesn't (the branch is built onto a parent that added the use): git merges it and the build fails, as the robot
+//!   of 2026-11-20 (1137287182) did;
 //! - a missing declaration (`missing_declarations`, `branchdeck.symbols on`): a commit of what lands uses a name that a
 //!   commit outside it adds, which no merged Safe Push landed. git merges it and the robot's build fails, as
 //!   the robots of 2026-10-17 and 2026-10-21 did. Names, not a compiler, but the edges by symbols held 141 of 141
@@ -18,8 +22,9 @@
 
 use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
+use crate::lost_bindings::{self, LostBinding};
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
-use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
+use domain_types::landing::{BindingKind, LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
 use domain_types::patronus::LandingAllowances;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupError;
@@ -36,6 +41,8 @@ pub struct LandingGate {
   pub report: CheckReport,
   /// The uses, by commits of what lands, of names a commit outside it adds that no merged Safe Push landed
   pub missing: Vec<MissingDeclaration>,
+  /// The lost bindings of the commits of what lands: (branch, original commit, finding)
+  lost: Vec<(String, String, LostBinding)>,
   /// The branch a restack puts on the branch that adds a missing name: the root of the chain or of the whole stack
   root: String,
   /// Each branch of the snapshot and the branches it is declared on, nearest first
@@ -68,10 +75,12 @@ pub fn check_landing_gate(session: &CheckSession, subject: &Subject, landed: &Ha
     .into_iter()
     .filter(|missing| refuses(missing, &lands, landed))
     .collect();
+  let lost = session.lost_bindings(&report, Some(&lands))?;
   Ok(LandingGate {
     lands,
     report,
     missing,
+    lost,
     root,
     chains,
   })
@@ -86,6 +95,7 @@ pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result
   let chains = chains_of(session);
   let report = session.check(None)?;
   let missing = missing_declarations(session, &report)?;
+  let lost = session.lost_bindings(&report, None)?;
   let mut needs = BTreeMap::new();
   for check in &report.branches {
     let lands = lands_of(&chains, &check.name);
@@ -93,6 +103,7 @@ pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result
       lands: &lands,
       report: &report,
       missing: missing.iter().filter(|missing| refuses(missing, &lands, landed)).collect(),
+      lost: lost.iter().filter(|(branch, _, _)| lands.contains(branch)).collect(),
       root: lands.first().map_or_default(String::as_str),
       chains: &chains,
     };
@@ -151,6 +162,7 @@ impl LandingGate {
       lands: &self.lands,
       report: &self.report,
       missing: self.missing.iter().collect(),
+      lost: self.lost.iter().collect(),
       root: &self.root,
       chains: &self.chains,
     }
@@ -163,7 +175,8 @@ impl LandingGate {
       .refusals(session)
       .into_iter()
       .filter(|refusal| match refusal {
-        LandingRefusal::DanglingReference { .. } => !allow.allow_dangling,
+        // a lost binding is a dangling use the commit itself leaves: the same confirmation lets it start
+        LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } => !allow.allow_dangling,
         LandingRefusal::MissingDeclaration { .. } => !allow.allow_missing,
         // the gate never builds one: a declared need is a fact of the session, not of a trial build
         LandingRefusal::UnlandedNeed { .. } => !allow.allow_unlanded,
@@ -178,13 +191,16 @@ struct Landing<'a> {
   report: &'a CheckReport,
   /// The missing declarations that refuse it (`refuses`)
   missing: Vec<&'a MissingDeclaration>,
+  /// The lost bindings of the commits of what lands: (branch, original commit, finding)
+  lost: Vec<&'a (String, String, LostBinding)>,
   /// The branch a restack puts on the branch the start needs: the root of the chain or of the whole stack
   root: &'a str,
   chains: &'a [(String, Vec<String>)],
 }
 
 impl Landing<'_> {
-  /// The refusals of the start: the proven dangling references of what lands, then the missing declarations
+  /// The refusals of the start: the proven dangling references of what lands, its lost bindings, then the missing
+  /// declarations
   fn refusals(&self, session: &CheckSession) -> Vec<LandingRefusal> {
     let commit = |id: &str| {
       session.stack_commit_of(id).unwrap_or_else(|| StackCommit {
@@ -229,7 +245,30 @@ impl Landing<'_> {
         landing_in: None,
       }
     });
-    dangling.chain(missing).collect()
+    let dangling: Vec<LandingRefusal> = dangling.collect();
+    // a dangling reference of the name in the file says it already, with the commit that fixes it
+    let told = |file: &str, name: &str| {
+      dangling
+        .iter()
+        .any(|refusal| matches!(refusal, LandingRefusal::DanglingReference { identifier, file: of, .. } if identifier == name && of == file))
+    };
+    let lost: Vec<LandingRefusal> = self
+      .lost
+      .iter()
+      .filter(|(_, _, lost)| !told(&lost.file, &lost.name))
+      .map(|(branch, original, lost)| LandingRefusal::LostBinding {
+        branch: branch.clone(),
+        identifier: lost.name.clone(),
+        binding: match lost.kind {
+          lost_bindings::BindingKind::Import => BindingKind::Import,
+          lost_bindings::BindingKind::Declaration => BindingKind::Declaration,
+        },
+        file: lost.file.clone(),
+        line: lost.use_line,
+        removed_by: commit(original),
+      })
+      .collect();
+    dangling.into_iter().chain(lost).chain(missing).collect()
   }
 
   /// A restack of the root onto the branch of `needed`, the commit the start needs, unless that branch is built on

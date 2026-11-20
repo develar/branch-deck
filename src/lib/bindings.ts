@@ -1061,6 +1061,11 @@ export type BaselineStatus = {
 	checkError: string | null,
 };
 
+/**  What bound the name of a lost binding before the commit removed it */
+export type BindingKind = "import" | 
+/**  A `private` declaration of the file */
+"declaration";
+
 /**  A blob that the views ask for: by its id, and for a file of the working tree, by its path too */
 export type BlobRequest = {
 	id: string,
@@ -2978,6 +2983,14 @@ export type ErrorCode =
  */
 "dangling_reference" | 
 /**
+ *  `brd safe-push`, `brd land`: a commit of what the robot lands removes the import or the private declaration of a
+ *  name that its file in the tree that lands still uses, which the commit on HEAD doesn't (the branch is built without
+ *  a commit that changed the use); git merges it, the build would fail. `--allow-dangling` starts anyway.
+ *  `brd update --continue`: the resolution of a round leaves such a name (`lost_bindings` of the round); keep the
+ *  binding in the copy, or `--keep-name <name>` when the user says it resolves another way
+ */
+"lost_binding" | 
+/**
  *  `brd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
  *  Safe Push landed (`brd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
  *  of what lands on that branch, or move the commit; `--allow-missing` starts anyway
@@ -3161,7 +3174,10 @@ export type ErrorDetails =
  *  Branch Deck (another schema), whose operations can't be read
  */
 ({ type: "busy"; holder: OperationHolder | null }) & { blocks?: never; branches?: never; commits?: never; paths?: never; prefix?: never; refusals?: never } | 
-/**  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference` */
+/**
+ *  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference`,
+ *  `lost_binding`
+ */
 ({ type: "landing"; refusals: LandingRefusal[] }) & { blocks?: never; branches?: never; commits?: never; holder?: never; paths?: never; prefix?: never } | 
 /**  The history of `unrelated_history`; boxed, as every `ApiError` carries the size of the largest data */
 {
@@ -4683,6 +4699,14 @@ file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: L
  *  view says it, a start does not ask it
  */
 landingIn?: RobotOf | null } | 
+/**
+ *  A commit of `branch` removes the import or the private declaration of a name that its file still uses in the tree
+ *  that lands (`trial_check::lost_bindings`): git merged the commit cleanly onto a parent that uses the name, and the
+ *  build fails. No commit outside fixes it: the commit itself must keep the binding
+ */
+{ kind: "lostBinding"; branch: string; identifier: string; binding: BindingKind; 
+/**  Where the use is, in the tree that lands */
+file: string; line: number; removedBy: StackCommit } | 
 /**
  *  The user declared that `needs` lands before `branch` (`brd need`, `refs/branch-deck/needs`), and it is not in
  *  master yet: a start now lands them out of the order the user asked for. No commit proves it and no build fails;

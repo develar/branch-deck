@@ -106,3 +106,62 @@ fn a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason()
     "\"Start with controlUrl\" of flow uses controlUrl in src/b/Use.kt, which \"Add controlUrl\" of util adds; util is landing in its Safe Push, which tests it without this start"
   );
 }
+
+/// `keep` drops `fresh`, a use of a property and of an import, then `drop` drops their last use and them: HEAD builds.
+/// The branch `drop` is built without `keep`, and its copy keeps `fresh` without the bindings: its Safe Push would fail
+/// to compile. The dangling reference of the property names the commit that fixes it; the import, which no line search
+/// sees, is a lost binding: the original on HEAD uses neither, so it is what the build of the branch brought
+#[test]
+fn a_commit_whose_branch_keeps_a_use_of_what_it_removes_refuses_the_start() {
+  let repo = repo_on_origin();
+  repo.create_commit_with_files("Add Session", &[("src/a/Session.kt", SESSION)]);
+  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  let without_fresh = SESSION.replace("  fun fresh() = try { backend() } catch (t: Throwable) { rethrow(t) }\n\n", "");
+  repo.create_commit_with_files("(keep) Drop fresh", &[("src/a/Session.kt", &without_fresh)]);
+  let dropped = without_fresh
+    .replace("import b.rethrow\n\n", "")
+    .replace("  private val backend: () -> Int,\n", "")
+    .replace("  fun old() = try { backend() } catch (t: Throwable) { rethrow(t) }\n\n", "");
+  let drop = repo.create_commit_with_files("(drop) Drop old", &[("src/a/Session.kt", &dropped)]);
+
+  let needs = needs_of(&repo, &HashSet::new());
+  assert_eq!(needs.keys().collect::<Vec<_>>(), ["drop"]);
+  // the property is a dangling reference, with the commit that fixes it; the import only a lost binding
+  let refusals: Vec<(&str, &str, u32, &str)> = needs["drop"]
+    .iter()
+    .filter_map(|refusal| match refusal {
+      LandingRefusal::DanglingReference { identifier, file, line, .. } => Some(("dangling", identifier.as_str(), *line, file.as_str())),
+      LandingRefusal::LostBinding {
+        identifier,
+        file,
+        line,
+        removed_by,
+        ..
+      } => {
+        assert_eq!(removed_by.id, drop);
+        Some(("lost", identifier.as_str(), *line, file.as_str()))
+      }
+      _ => None,
+    })
+    .collect();
+  assert_eq!(refusals, [("dangling", "backend", 7, "src/a/Session.kt"), ("lost", "rethrow", 7, "src/a/Session.kt")]);
+  let lost = needs["drop"].iter().find(|refusal| matches!(refusal, LandingRefusal::LostBinding { .. })).unwrap();
+  assert_eq!(lost.reason(), "\"Drop old\" of drop removes the import of rethrow, which src/a/Session.kt:7 still uses");
+}
+
+const SESSION: &str = "package a
+
+import b.rethrow
+
+class Session(
+  private val backend: () -> Int,
+) {
+  fun old() = try { backend() } catch (t: Throwable) { rethrow(t) }
+
+  fun keep1() = 1
+
+  fun fresh() = try { backend() } catch (t: Throwable) { rethrow(t) }
+
+  fun keep2() = 2
+}
+";

@@ -82,6 +82,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::RobotRunning, 4, false),
   (ErrorCode::Landed, 4, false),
   (ErrorCode::DanglingReference, 4, false),
+  (ErrorCode::LostBinding, 4, false),
   (ErrorCode::MissingDeclaration, 4, false),
   (ErrorCode::UnlandedNeed, 4, false),
   (ErrorCode::NotOnSpace, 4, false),

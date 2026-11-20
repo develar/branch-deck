@@ -575,7 +575,8 @@ pub(crate) fn gate_blockers(facts: &LandFacts<'_>, land: &Land, decision: &mut L
 /// (`Land::anyway`), so newer needs the user didn't see refuse the start, which asks again
 fn lifted(refusal: &LandingRefusal, land: &Land) -> bool {
   let allowed = match refusal {
-    LandingRefusal::DanglingReference { .. } => land.allow.allow_dangling,
+    // a lost binding is a dangling use the commit itself leaves, as `trial_check::landing_gate` lets it start
+    LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } => land.allow.allow_dangling,
     LandingRefusal::MissingDeclaration { .. } => land.allow.allow_missing,
     LandingRefusal::UnlandedNeed { .. } => land.allow.allow_unlanded,
   };

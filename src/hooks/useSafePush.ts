@@ -41,7 +41,7 @@ import { executeIntent } from "@/model/intents"
 import { getRowPart } from "@/model/store"
 import type { LandPrompt } from "@/presenters/land"
 import { acceptedOf, presentLand, startRouteOf } from "@/presenters/land"
-import { formatLandingFix } from "@/presenters/landing"
+import { formatLandingFix, landingFixOf } from "@/presenters/landing"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
 import type { FollowingUpdate, LandToast } from "@/presenters/outcome"
@@ -664,7 +664,7 @@ function revealStartRow(place: StartPlace): void {
  * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked
  */
 export function requestLandingFix(branchName: string, refusal: LandingRefusal): void {
-  const fix = refusal.fix
+  const fix = landingFixOf(refusal)
   // the popover itself, whatever the step holds back now (a readiness asked again for the tip that moved): it reads the
   // start with the needs as they are, and says what it waits for; where the start of the subject shows (the whole stack
   // at the header of its island)

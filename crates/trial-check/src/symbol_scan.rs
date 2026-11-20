@@ -17,6 +17,7 @@ use git_ops::commit_files::MAX_BLOB_BYTES;
 use git_ops::object_texts::read_blob_bytes;
 use js_syntax::tsconfig::{self, Aliases};
 use object_cache::cache::ObjectCache;
+use object_cache::commit_diff::FileChange;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -61,10 +62,10 @@ pub struct SymbolInput {
 
 /// The source blobs of `diffs`, each with its language: the old blob in the language of the old path, the new one in
 /// the language of the new path
-fn source_blobs(diffs: &[CommitDiff]) -> Vec<SourceBlob> {
+fn source_blobs<'a>(changes: impl IntoIterator<Item = &'a FileChange>) -> Vec<SourceBlob> {
   let mut seen: HashSet<&str> = HashSet::new();
   let mut blobs = Vec::new();
-  for change in diffs.iter().flat_map(|diff| &diff.files) {
+  for change in changes {
     let old_path = change.old_path.as_deref().unwrap_or(&change.path);
     for (blob, path) in [(&change.old_blob, old_path), (&change.new_blob, change.path.as_str())] {
       let (Some(blob), Some(language)) = (blob.as_deref(), language_of(path)) else { continue };
@@ -111,7 +112,7 @@ pub fn read_symbol_input_with(
 ) -> Result<(SymbolInput, Vec<Option<Vec<u8>>>)> {
   let started = Instant::now();
   let version = file_diffs::summaries_version();
-  let wanted = source_blobs(diffs);
+  let wanted = source_blobs(diffs.iter().flat_map(|diff| &diff.files));
   let sources: Vec<&str> = diffs
     .iter()
     .flat_map(|diff| &diff.files)
@@ -120,18 +121,7 @@ pub fn read_symbol_input_with(
     .collect();
   let roots = ModuleRoots::read(git, repository_path, rev, sources.iter().copied())?;
 
-  let keys: Vec<(u8, &str)> = wanted.iter().map(|blob| (summary_key(blob.language, &blob.path), blob.id.as_str())).collect();
-  let cached: Vec<Option<FileSummary>> = cache.get_blob_summaries(version, &keys);
-  let mut summaries: HashMap<String, Arc<FileSummary>> = HashMap::with_capacity(wanted.len());
-  let mut missing: Vec<SourceBlob> = Vec::new();
-  for (blob, summary) in wanted.into_iter().zip(cached) {
-    match summary {
-      Some(summary) => {
-        summaries.insert(blob.id, Arc::new(summary));
-      }
-      None => missing.push(blob),
-    }
-  }
+  let (mut summaries, missing) = cached_summaries(cache, version, wanted);
   let cached_count = summaries.len();
 
   // the misses, the manifests and the extra blobs in one process
@@ -162,25 +152,8 @@ pub fn read_symbol_input_with(
   let read_time = started.elapsed();
 
   let parse_started = Instant::now();
-  let parsed = parse_all(&missing, sources);
+  let parsed_count = parse_and_store(cache, version, missing, sources, &mut summaries);
   let parse_time = parse_started.elapsed();
-  let fresh: Vec<((u8, &str), &FileSummary)> = missing
-    .iter()
-    .zip(&parsed)
-    .filter_map(|(blob, summary)| {
-      summary
-        .as_ref()
-        .filter(|summary| !summary.truncated)
-        .map(|summary| ((summary_key(blob.language, &blob.path), blob.id.as_str()), summary))
-    })
-    .collect();
-  cache.put_blob_summaries(version, &fresh);
-  let parsed_count = parsed.iter().flatten().count();
-  for (blob, summary) in missing.into_iter().zip(parsed) {
-    if let Some(summary) = summary {
-      summaries.insert(blob.id, Arc::new(summary));
-    }
-  }
 
   let mut stats = ScanStats {
     cached: cached_count,
@@ -206,6 +179,68 @@ pub fn read_symbol_input_with(
     stats,
   };
   Ok((input, extra))
+}
+
+/// The summaries of the source blobs of `changes`, before and after each, by blob id: from the object cache, else from
+/// one `cat-file --batch` of the misses (none when the cache has them all), parsed in parallel and written back. A blob
+/// that is missing, binary or larger than a parsed file (`MAX_BYTES`) has none
+#[instrument(skip_all)]
+pub fn read_change_summaries<'a>(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  changes: impl IntoIterator<Item = &'a FileChange>,
+) -> Result<HashMap<String, Arc<FileSummary>>> {
+  let version = file_diffs::summaries_version();
+  let (mut summaries, missing) = cached_summaries(cache, version, source_blobs(changes));
+  if missing.is_empty() {
+    return Ok(summaries);
+  }
+  let names: Vec<String> = missing.iter().map(|blob| blob.id.clone()).collect();
+  let sources = read_blob_bytes(git, repository_path, &names, MAX_BYTES)?;
+  parse_and_store(cache, version, missing, sources, &mut summaries);
+  Ok(summaries)
+}
+
+/// The summaries of `wanted` that the object cache has, by blob id, and the blobs it misses
+fn cached_summaries(cache: &ObjectCache, version: u32, wanted: Vec<SourceBlob>) -> (HashMap<String, Arc<FileSummary>>, Vec<SourceBlob>) {
+  let keys: Vec<(u8, &str)> = wanted.iter().map(|blob| (summary_key(blob.language, &blob.path), blob.id.as_str())).collect();
+  let cached: Vec<Option<FileSummary>> = cache.get_blob_summaries(version, &keys);
+  let mut summaries: HashMap<String, Arc<FileSummary>> = HashMap::with_capacity(wanted.len());
+  let mut missing: Vec<SourceBlob> = Vec::new();
+  for (blob, summary) in wanted.into_iter().zip(cached) {
+    match summary {
+      Some(summary) => {
+        summaries.insert(blob.id, Arc::new(summary));
+      }
+      None => missing.push(blob),
+    }
+  }
+  (summaries, missing)
+}
+
+/// Parses `missing` from their `sources` into `summaries`, and writes those that are not truncated to the object cache
+/// in one transaction; the count of the parsed blobs
+fn parse_and_store(cache: &ObjectCache, version: u32, missing: Vec<SourceBlob>, sources: Vec<Option<Vec<u8>>>, summaries: &mut HashMap<String, Arc<FileSummary>>) -> usize {
+  let parsed = parse_all(&missing, sources);
+  let fresh: Vec<((u8, &str), &FileSummary)> = missing
+    .iter()
+    .zip(&parsed)
+    .filter_map(|(blob, summary)| {
+      summary
+        .as_ref()
+        .filter(|summary| !summary.truncated)
+        .map(|summary| ((summary_key(blob.language, &blob.path), blob.id.as_str()), summary))
+    })
+    .collect();
+  cache.put_blob_summaries(version, &fresh);
+  let parsed_count = parsed.iter().flatten().count();
+  for (blob, summary) in missing.into_iter().zip(parsed) {
+    if let Some(summary) = summary {
+      summaries.insert(blob.id, Arc::new(summary));
+    }
+  }
+  parsed_count
 }
 
 /// The summaries of `blobs` from their `sources` (`None` for a blob that is missing, binary or too large), parsed by

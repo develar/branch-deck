@@ -27,11 +27,16 @@ export function describeLandingRefusals(refusals: readonly LandingRefusal[], sub
     return null
   }
   const anyway: LandingAllowances = {
-    allowDangling: allow.allowDangling === true || refusals.some(refusal => refusal.kind === "danglingReference"),
+    allowDangling: allow.allowDangling === true || refusals.some(refusal => refusal.kind === "danglingReference" || refusal.kind === "lostBinding"),
     allowMissing: allow.allowMissing === true || refusals.some(refusal => refusal.kind === "missingDeclaration"),
     allowUnlanded: allow.allowUnlanded === true || refusals.some(refusal => refusal.kind === "unlandedNeed"),
   }
-  return { reason: `${describeLandingRefusal(first, subject)}${describeMore(refusals.slice(1))}`, fix: first.fix ?? null, anyway, refusals }
+  return { reason: `${describeLandingRefusal(first, subject)}${describeMore(refusals.slice(1))}`, fix: landingFixOf(first), anyway, refusals }
+}
+
+/** The fix of `refusal` that the page can name or run; none of a lost binding, which only its own commit fixes */
+export function landingFixOf(refusal: LandingRefusal): LandingFix | null {
+  return refusal.kind === "lostBinding" ? null : (refusal.fix ?? null)
 }
 
 /** " One more name breaks it too: brd check lists them.", " One more declared need holds it back too.": the refusals past the first */
@@ -57,6 +62,10 @@ export function describeLandingRefusal(refusal: LandingRefusal, subject: string)
     case "danglingReference": {
       const change = refusal.reference === "removed" ? "removes" : refusal.reference === "changed" ? "changes" : "declares again"
       return `${describeCommit(refusal.removedBy)} ${change} ${refusal.identifier}, which ${refusal.file}:${refusal.line} still uses, and ${describeCommit(refusal.fixedBy)} changes that use: the build of ${subject} fails. Move that commit into ${refusal.branch}, or stack ${refusal.branch} on its branch.`
+    }
+    case "lostBinding": {
+      const binding = refusal.binding === "import" ? "the import" : "the declaration"
+      return `${describeCommit(refusal.removedBy)} removes ${binding} of ${refusal.identifier}, which ${refusal.file}:${refusal.line} still uses: git merges it, but the build of ${subject} fails. Keep it in that commit.`
     }
     case "unlandedNeed":
       return describeUnlandedNeed(refusal, subject)
@@ -98,7 +107,8 @@ function describeLanding(branch: string, robot: RobotOf): string {
 
 /**
  * What the start needs first, as the row names it ("Needs stills-codec"): the branch of the commit that adds the name or
- * changes the dangling use (an unassigned commit by its hash), or the branch the user declared lands first
+ * changes the dangling use (an unassigned commit by its hash), the branch the user declared lands first, or a fix of
+ * the commit that removes a binding its file still uses ("Needs fix of 6a4e00db")
  */
 export function formatNeeded(refusal: LandingRefusal): string {
   switch (refusal.kind) {
@@ -106,6 +116,9 @@ export function formatNeeded(refusal: LandingRefusal): string {
       return branchOf(refusal.declaredBy)
     case "danglingReference":
       return branchOf(refusal.fixedBy)
+    // no branch helps: the commit that removes the binding must keep it
+    case "lostBinding":
+      return `fix of ${formatShortHash(refusal.removedBy.id)}`
     case "unlandedNeed":
       return refusal.needs
   }

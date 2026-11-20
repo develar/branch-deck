@@ -10,6 +10,7 @@
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
+use crate::lost_bindings::{LostBinding, introduced_lost_bindings};
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolInput, read_symbol_input};
@@ -893,6 +894,28 @@ impl CheckSession {
       subject: subject_without_prefix(&commit.subject),
       branch: self.snapshot.groups.get(&commit.id).and_then(Option::as_deref).unwrap_or_default().to_string(),
     }
+  }
+
+  /// The lost bindings (`lost_bindings`) that the build brought to the built branches of `report` named in `of`, every
+  /// built branch without it: of the copies of their own commits in the trees that land, that the originals ahead of the
+  /// baseline lack, each with its branch and its original commit id; none with `branchdeck.symbols off`. One `log` of
+  /// the originals and the copies, the summaries from the cache or one `cat-file`
+  pub fn lost_bindings(&self, report: &CheckReport, of: Option<&[String]>) -> Result<Vec<(String, String, LostBinding)>, RegroupError> {
+    if self.symbols == SymbolMode::Off {
+      return Ok(Vec::new());
+    }
+    let mut branches: Vec<&str> = Vec::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for check in report.branches.iter().filter(|check| of.is_none_or(|of| of.contains(&check.name))) {
+      let CheckOutcome::Ok { head } = &check.outcome else { continue };
+      // the branch is built as one chain of copies of its commits, oldest first, on what it is built on
+      for (back, original) in check.commits.iter().rev().enumerate() {
+        pairs.push((original.clone(), if back == 0 { head.clone() } else { format!("{head}~{back}") }));
+        branches.push(&check.name);
+      }
+    }
+    let found = introduced_lost_bindings(&self.git_executor, &self.repository_path, &self.cache, &pairs)?;
+    Ok(found.into_iter().map(|(pair, lost)| (branches[pair].to_string(), pairs[pair].0.clone(), lost)).collect())
   }
 
   /// The commit `id` of the snapshot, as `StackIndependence` names it; `None` for a commit not ahead of the baseline

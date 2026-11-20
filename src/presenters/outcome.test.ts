@@ -1,6 +1,7 @@
 // @spec openspec/specs/branch/patronus/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiError, EffectRecord, LandResult, Outcome, PatronusRobot, Plan, UpdateCheck } from "@/lib/bindings"
+import { landingFixOf } from "@/presenters/landing"
 import { describeFollowingUpdate, presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
 import { MISSING_STILLS } from "@/test-support/landing-refusal"
 
@@ -134,7 +135,7 @@ describe("presentLandRefusal", () => {
       title: "Cannot start the Safe Push of the whole lane-run stack",
       reason:
         "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of the whole lane-run stack fails. Stack lane-run on stills-codec to land it too.",
-      fix: MISSING.fix,
+      fix: landingFixOf(MISSING),
       anyway: { allowDangling: false, allowMissing: true, allowUnlanded: false },
       refusals: [MISSING],
     })

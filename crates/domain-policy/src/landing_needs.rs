@@ -19,7 +19,7 @@ pub fn name_landing_robots(refusals: &mut [LandingRefusal], landing_of: impl Fn(
       LandingRefusal::UnlandedNeed { needs, landing_in, .. } => {
         *landing_in = if needs.contains(':') { None } else { landing_of(needs) };
       }
-      LandingRefusal::DanglingReference { .. } => {}
+      LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } => {}
     }
   }
 }

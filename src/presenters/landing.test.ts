@@ -62,6 +62,28 @@ describe("describeLandingRefusals", () => {
     expect(formatLandingFix(unassigned.fix)).toBeNull()
   })
 
+  it("refuses a commit that removes the import of a name its file still uses in the tree that lands, which only that commit fixes", () => {
+    const lost: LandingRefusal = {
+      kind: "lostBinding",
+      branch: "claude-fork-open",
+      identifier: "rethrowControlFlowException",
+      binding: "import",
+      file: "ClaudePromptLaunchSupport.kt",
+      line: 139,
+      removedBy: { id: "6a4e00db82ce9000", subject: "IJAI-6702 a local resume stops an idle job", branch: "claude-fork-open" },
+    }
+    const decision = describeLandingRefusals([lost], "claude-fork-open")
+    expect(decision).toEqual({
+      reason:
+        "“IJAI-6702 a local resume stops an idle job” of claude-fork-open removes the import of rethrowControlFlowException, which ClaudePromptLaunchSupport.kt:139 still uses: git merges it, but the build of claude-fork-open fails. Keep it in that commit.",
+      fix: null,
+      // the confirmation of a dangling use starts it anyway
+      anyway: { allowDangling: true, allowMissing: false, allowUnlanded: false },
+      refusals: [lost],
+    })
+    expect(formatNeeded(lost)).toBe("fix of 6a4e00db")
+  })
+
   it("says that the branch the start needs is landing in a running Safe Push, which tests it without this start", () => {
     const landing: LandingRefusal = { ...MISSING, landingIn: { branch: "stills-codec", robotId: "9b82be49", wholeStack: false } }
     const decision = describeLandingRefusals([landing], "ui-perf-nightly")

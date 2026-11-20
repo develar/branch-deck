@@ -315,6 +315,8 @@ pub struct Head {
 pub struct LandingNeed {
   /// `missing_declaration`: a commit of what lands uses a name that only this commit adds; `dangling_reference`: a
   /// commit of what lands removes or changes a declaration a use still has, which only this commit changes;
+  /// `lost_binding`: a commit of what lands removes the import or the private declaration of a name its file still uses
+  /// in the tree that lands (no commit fixes it, so no `needs`);
   /// `unlanded_need`: the user declared that another branch lands before this one and it is not in master yet
   pub code: &'static str,
   /// The name the build needs; omitted for a declared need, which is about a branch, not a name
@@ -353,6 +355,7 @@ impl LandingNeed {
     let (code, identifier, at) = match refusal {
       LandingRefusal::MissingDeclaration { identifier, file, line, .. } => ("missing_declaration", Some(identifier.clone()), Some(format!("{file}:{line}"))),
       LandingRefusal::DanglingReference { identifier, file, line, .. } => ("dangling_reference", Some(identifier.clone()), Some(format!("{file}:{line}"))),
+      LandingRefusal::LostBinding { identifier, file, line, .. } => ("lost_binding", Some(identifier.clone()), Some(format!("{file}:{line}"))),
       LandingRefusal::UnlandedNeed { .. } => ("unlanded_need", None, None),
     };
     let needed = refusal.needed();
@@ -376,7 +379,7 @@ impl LandingNeed {
       }),
       landing_in: match refusal {
         LandingRefusal::MissingDeclaration { landing_in, .. } | LandingRefusal::UnlandedNeed { landing_in, .. } => landing_in.as_ref().map(|robot| robot.robot_id.clone()),
-        LandingRefusal::DanglingReference { .. } => None,
+        LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } => None,
       },
     }
   }

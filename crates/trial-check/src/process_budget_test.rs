@@ -78,7 +78,8 @@ async fn a_check_of_synced_branches() {
 /// The landing needs of every branch after a sync, the fact the session of the repository computes: one session (the
 /// snapshot, the config and the tips, as `brd check` reads them), one trial check of all branches, which reuses the copies
 /// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
-/// lines; with the object cache the first filled, the second reads the changes and the summaries from it
+/// lines, and one `log` of the originals and the copies for the lost bindings, whose summaries the search of the names
+/// put in the cache; with the object cache the first filled, the second reads the changes and the summaries from it
 #[tokio::test]
 async fn the_landing_needs_of_every_branch() {
   let (repo, _) = landing_gate_test::repo();
@@ -90,10 +91,10 @@ async fn the_landing_needs_of_every_branch() {
   };
   let git = counting();
   landing(&git);
-  assert_processes(&git, &[("cat-file", 4), ("config", 1), ("for-each-ref", 1), ("log", 5), ("remote", 1), ("rev-parse", 2)]);
+  assert_processes(&git, &[("cat-file", 4), ("config", 1), ("for-each-ref", 1), ("log", 6), ("remote", 1), ("rev-parse", 2)]);
   let git = counting();
   landing(&git);
-  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("for-each-ref", 1), ("log", 3), ("remote", 1), ("rev-parse", 2)]);
+  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("for-each-ref", 1), ("log", 4), ("remote", 1), ("rev-parse", 2)]);
 }
 
 /// A check session of `repo` on a counting executor
