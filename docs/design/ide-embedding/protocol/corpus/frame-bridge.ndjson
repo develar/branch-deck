@@ -43,7 +43,7 @@
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"ui/notifications/host-context-changed","params":{"theme":"light","styles":{"variables":"${any}"}}}}
 {"comment":"A resync of the page link is a resync of the subscription. A stale mark stays in the host page."}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/stale","params":{"channel":"x-air-ide:/appView/1"}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/resync","params":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7},"lastClientSeq":1}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/resync","params":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/resync","params":{"subscription":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}
 {"comment":"A dropped WebSocket: each call in flight fails with connectionLost. The IDE sees that the instance is no longer connected and gives the page a new ticket by airAppHost.connect. The page opens the view again, and the frame gets a resync of the subscription that it holds. The frame never loads again."}
 {"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"slow"}}}}

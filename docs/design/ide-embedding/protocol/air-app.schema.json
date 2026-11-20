@@ -15,10 +15,11 @@
       "$ref": "#/$defs/Id"
     },
     "name": {
-      "description": "The name that the IDE shows: the consent banner, the tool window stripe and the notifications.",
+      "description": "The name that the IDE shows: the consent banner, the tool window stripe and the notifications. It has a character that is no white space.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 64
+      "maxLength": 64,
+      "pattern": "\\S"
     },
     "icon": {
       "description": "An SVG icon of 16 px. A relative path resolves from the directory of the file. A file <name>_dark.svg beside it is the icon of a dark theme.",

@@ -118,7 +118,7 @@
           "$ref": "#/$defs/AppProblem"
         },
         "request": {
-          "description": "The id of the consent request of the session for approvalPending and toolApprovalPending, a key of consentRequests of the apps state. The banner of the session answers it.",
+          "description": "The id of the consent request of the session for approvalPending and toolApprovalPending, when the apps state holds the request: a key of consentRequests. The banner of the session answers it. A write that sets no request gives no id.",
           "$ref": "#/$defs/RequestId"
         },
         "supportedVersions": {
@@ -950,8 +950,10 @@
                     "$ref": "#/$defs/ViewId"
                   },
                   "count": {
+                    "description": "The count of the badge, from 1 to the largest Int of the JVM, or null, which clears the badge.",
                     "type": ["integer", "null"],
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 2147483647
                   }
                 }
               }
@@ -1778,16 +1780,13 @@
             "properties": {
               "params": {
                 "type": "object",
-                "required": ["channel", "snapshot", "lastClientSeq"],
+                "required": ["channel", "snapshot"],
                 "properties": {
                   "channel": {
                     "$ref": "#/$defs/AppViewChannel"
                   },
                   "snapshot": {
                     "$ref": "#/$defs/Snapshot"
-                  },
-                  "lastClientSeq": {
-                    "type": ["integer", "null"]
                   }
                 }
               }
@@ -2804,7 +2803,8 @@
           "type": "object",
           "additionalProperties": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "maximum": 2147483647
           }
         },
         "progress": {
