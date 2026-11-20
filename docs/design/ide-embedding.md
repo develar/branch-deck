@@ -125,7 +125,8 @@ sequenceDiagram
    dialogs; OS notifications and the Dock badge become IDE notifications and the badge of the tool window, both asked
    by brd. The close of a window of the page (`plugin:window|close`, Escape in the review and the dialogs) is
    `x-air-app/closeView` of its instance. The menu of the desktop app is the title of the tool window: the actions
-   Sync Virtual Branches, Branch Deck Command Palette and Branch Deck Settings of the app file (`titleActions`).
+   Sync Virtual Branches, Branch Deck Command Palette and Branch Deck Settings of the app file (`titleActions`). The
+   tool window has two tabs: Branches, the main view (`tabTitle`), and Activity.
    **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one.
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the

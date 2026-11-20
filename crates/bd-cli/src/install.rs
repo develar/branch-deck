@@ -391,7 +391,7 @@ server:
 projects:
   require: [git]
 views:
-  main: {{ resource: ui://branch-deck/main, place: toolWindow, toolWindow: {{ anchor: bottom, title: Branch Deck, titleActions: [sync, command-palette, settings] }} }}
+  main: {{ resource: ui://branch-deck/main, place: toolWindow, toolWindow: {{ anchor: bottom, title: Branch Deck, tabTitle: Branches, titleActions: [sync, command-palette, settings] }} }}
   activity: {{ resource: ui://branch-deck/activity, place: toolWindowTab, toolWindowTab: {{ of: main, title: Activity }} }}
   review: {{ resource: ui://branch-deck/review, place: editor, instances: many }}
   settings: {{ resource: ui://branch-deck/settings, place: window, window: {{ width: 880, height: 640 }} }}

@@ -55,7 +55,7 @@
       "enum": ["click", "action", "agent"]
     },
     "Reason": {
-      "description": "The kind of an error of the x-air-app vocabulary, in data.reason. A receiver ignores a field that it does not know. appError is an error that an app answered to a call of the IDE: it keeps the code of the app and its message cut to 1 KiB, and no other field of the app.",
+      "description": "The kind of an error of the x-air-app vocabulary, in data.reason. A receiver ignores a field that it does not know, and it reads the kind of an error from data.reason only, never from the code. appError is an error that an app answered to a call of the IDE: it keeps the code of the app and its message, cut to its first 1 KiB and the count of its bytes, at most 1056 bytes, and no other field of the app.",
       "enum": [
         "parse",
         "invalidRequest",
@@ -3508,7 +3508,7 @@
           "then": {
             "properties": {
               "params": {
-                "description": "A command of the apps channel: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it. The channel answers when the app answers, so a read holds no worker of the host while the app reads.",
+                "description": "A command of the apps channel: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it. The channel answers when the app answers, so a read holds no worker of the host while the app reads. While the link of the app is not ready, a read waits at most 30 s. It waits for the run whose start goes on, or for the next run of the backoff. It starts no app. A run that ends before its link is ready gives -32002 notStarted with the stderr tail of now. So do a stopped app and the end of the wait. A read that would wait past the cap of the parked calls of the channel gets -32011 tooManyCalls.",
                 "type": "object",
                 "required": ["channel", "app", "uri"],
                 "properties": {

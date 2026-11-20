@@ -739,7 +739,7 @@ the install of the agent CLI refuses it.
 
 ## User Experience
 
-- The tool window **Branch Deck** at the bottom, with the tab **Activity**; the action **Sync Virtual Branches** in the
+- The tool window **Branch Deck** at the bottom, with the tabs **Branches** (the main view) and **Activity**; the action **Sync Virtual Branches** in the
   VCS menu (⌥⌘Y, Ctrl+Alt+Y).
 - The title of the tool window: **Sync Virtual Branches**, **Branch Deck Command Palette** and **Branch Deck Settings**,
   the actions of the app file, in place of the menu of the desktop app.

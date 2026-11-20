@@ -134,6 +134,11 @@
           "properties": {
             "anchor": { "enum": ["left", "right", "bottom"], "default": "bottom" },
             "title": { "type": "string", "minLength": 1 },
+            "tabTitle": {
+              "description": "The name of the tab of this view when a toolWindowTab names the tool window. Without it the tab has the title of the tool window.",
+              "type": "string",
+              "minLength": 1
+            },
             "titleActions": {
               "description": "The ids of actions of the file that the title of the tool window shows, in this order. Each runs with the instance of the tool window. The registry drops an id that names no action of the file, with one warn log entry.",
               "type": "array",
