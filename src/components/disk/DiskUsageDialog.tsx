@@ -14,7 +14,7 @@ import {
   freeSpaceLine,
   isBelowMinimum,
   machineTitle,
-  measuredAge,
+  measuredLine,
   poolLine,
   slotSizeDetail,
   slotsBySize,
@@ -167,7 +167,7 @@ function Pool({ pool, refreshing }: { pool: PoolDisk; refreshing: boolean }) {
           >
             <span className="w-8 shrink-0 text-muted-foreground tabular-nums">{slot.name}</span>
             <span className="min-w-0 flex-1 truncate">
-              {slotStateLabel(slot)} · {measuredAge(slot.measuredAt)}
+              {slotStateLabel(slot)} · {measuredLine(slot)}
             </span>
             {slot.trimsNext && <Badge variant="outline">Goes with a trim</Badge>}
             <span className="hidden text-xs text-muted-foreground sm:inline">{slotSizeDetail(slot)}</span>

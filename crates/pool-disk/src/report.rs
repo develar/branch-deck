@@ -2,7 +2,8 @@
 //! the reply of the agent of `bd-host` to `Request::Disk`, which `bd-host disk` prints, and what the app reads of both
 //! (the Disk window). `DiskReport::of` writes it from the walk (`DiskUsage`)
 
-use crate::{BaseUsage, DirUsage, DiskUsage};
+use crate::step::walk_words;
+use crate::{BaseUsage, DirUsage, DiskUsage, SlotWalk};
 use lease_pool::lease::SlotState;
 use lease_pool::lease_clean::describe_size;
 use schemars::JsonSchema;
@@ -75,8 +76,14 @@ pub struct SlotReport {
   pub output_bases: Vec<BaseReport>,
   /// Unix seconds of the walk the bytes come from
   pub measured_at: u64,
-  /// The bytes come from `disk.json`, not from a walk of this call
+  /// The bytes come from `disk/`, not from a walk of this call
   pub cached: bool,
+  /// Where the bytes come from, and why the slot was walked in full; omitted by the agent of a host before 1.20
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub walk: Option<SlotWalk>,
+  /// The parts walked or read again for `walk: parts`
+  #[serde(default, skip_serializing_if = "is_zero_parts")]
+  pub parts: u32,
   /// A free slot past the limit that a trim deletes now, unless a process works in it then
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub trims_next: bool,
@@ -98,6 +105,11 @@ pub struct BaseReport {
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
 const fn is_zero(bytes: &u64) -> bool {
   *bytes == 0
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+const fn is_zero_parts(parts: &u32) -> bool {
+  *parts == 0
 }
 
 fn base(base: &BaseUsage) -> BaseReport {
@@ -143,12 +155,11 @@ impl DiskReport {
         lines.push(format!("    the Bazel output bases of the main worktree: {}", describe_size(bases)));
       }
       for slot in &pool.slots {
-        let source = if slot.cached {
-          "cached"
-        } else if slot.measured_at == 0 {
-          "uncached"
-        } else {
-          "measured"
+        let source = match slot.walk {
+          Some(walk) => walk_words(walk, slot.parts),
+          None if slot.cached => "cached".to_owned(),
+          None if slot.measured_at == 0 => "uncached".to_owned(),
+          None => "measured".to_owned(),
         };
         lines.push(format!("    {}: {} ({source}, {})", slot.slot, describe_size(slot.bytes), measured_age(slot.measured_at)));
       }
@@ -186,6 +197,8 @@ impl DiskReport {
             output_bases: slot.output_bases.iter().map(base).collect(),
             measured_at: slot.measured_at,
             cached: slot.cached,
+            walk: Some(slot.walk),
+            parts: slot.parts,
             trims_next: slot.trims_next,
           })
           .collect(),

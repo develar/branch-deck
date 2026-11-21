@@ -250,17 +250,18 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
   assert_eq!(output["pools"][0]["checkout_bases"][0]["path"], trim.base("main").to_str().unwrap(), "{output}");
   assert_eq!(output["orphans"][0]["path"], trim.base("gone").to_str().unwrap(), "{output}");
   assert_eq!((&output["pools"][0]["max_slots"], &output["pools"][0]["past_limit"]), (&Value::from(10), &Value::from(0)));
-  // a repeat answers from `disk.json`; a limit of 2 marks the slot a trim deletes next, the one returned first
+  // a repeat answers from `disk/`; a limit of 2 marks the slot a trim deletes next, the one returned first
   git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "2"]);
   let again = report(&["--cached"]);
   assert_eq!((&again["pools"][0]["max_slots"], &again["pools"][0]["past_limit"]), (&Value::from(2), &Value::from(1)));
   assert_eq!((&slot(&again, first)["trims_next"], slot(&again, second).get("trims_next")), (&Value::from(true), None));
-  // a get of the slot returned last makes its bytes stale
+  // without a history of the file system (Linux, Windows) a get of the slot returned last makes its bytes stale; on
+  // macOS the history says what the get changed (the tests of pool-disk), which no test waits for
   assert_eq!(slot(&again, first)["cached"], true, "{again}");
   assert_eq!(slot(&again, first)["bytes"], walked["bytes"]);
   assert_eq!(path_of(&fixture.get(&["--holder", "later"])), *third);
   git(&fixture.repo, &["config", "--unset", "branchdeck.leaseMaxSlots"]);
-  let leased = report(&[]);
+  let leased = report(if cfg!(target_os = "macos") { &["--fresh"] } else { &[] });
   assert_eq!(
     (&slot(&leased, third)["state"], &slot(&leased, third)["cached"]),
     (&Value::from("ready"), &Value::from(false))
@@ -315,10 +316,11 @@ fn the_disk_report_names_the_pool_of_the_repository_and_with_all_every_pool() {
   assert_eq!(pools(&all)[0], own, "{all}");
   let all_orphans = orphans(&all);
   assert_eq!(all_orphans.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>(), [gone.clone(), other_gone], "{all}");
-  // the orphan grows, and a default run measures it again into the file of its own pool only: --all --cached gives the
-  // latest measure, not the older one that the file of the other pool keeps
+  // the orphan grows, and a run of the pool of the repository measures it again into the file of its own pool only
+  // (`--fresh`: no test waits for the history of the file system): --all --cached gives the latest measure, not the
+  // older one that the file of the other pool keeps
   std::fs::write(trim.base("gone").join("execroot/_main/bazel-out/more"), vec![8u8; 2 * BASE_BYTES]).unwrap();
-  let grown = orphans(&report(&[]))[0].1;
+  let grown = orphans(&report(&["--fresh"]))[0].1;
   assert!(grown >= all_orphans[0].1 + 2 * BASE_BYTES as u64, "{grown} {all_orphans:?}");
   let cached = report(&["--all", "--cached"]);
   assert_eq!(orphans(&cached)[0], (gone, grown), "{cached}");
@@ -347,12 +349,23 @@ fn the_disk_report_tells_each_step_on_stderr() {
   // --fresh puts no slot into an FSEvents check, so no `Checked` step comes
   assert_eq!(steps.first(), Some(&DiskStep::Start { pools: 1, slots: 3, measuring: 3 }), "{steps:?}");
   assert_eq!(steps.first().unwrap().to_string(), "3 of 3 slot(s) in 1 pool(s) to check or measure");
-  assert_eq!(steps.last(), Some(&DiskStep::Done { checkout_bases: 1, orphans: 1 }), "{steps:?}");
+  assert_eq!(
+    steps.last(),
+    Some(&DiskStep::Done {
+      checkout_bases: 1,
+      orphans: 1,
+      budget: 0,
+      busy: 0
+    }),
+    "{steps:?}"
+  );
   // a walked step for each slot, in the order their walks end, counted 1 to 3 of 3, with the bytes of the report
   let walked: Vec<(String, u64, u32, u32)> = steps[1..steps.len() - 1]
     .iter()
     .map(|step| match step {
-      DiskStep::Walked { path, bytes, measured, measuring } => (path.clone(), *bytes, *measured, *measuring),
+      DiskStep::Walked {
+        path, bytes, measured, measuring, ..
+      } => (path.clone(), *bytes, *measured, *measuring),
       other => panic!("a walked step, not {other:?}"),
     })
     .collect();
@@ -367,7 +380,7 @@ fn the_disk_report_tells_each_step_on_stderr() {
     assert_eq!(slot["bytes"].as_u64(), Some(*bytes), "{output}");
   }
   let (path, bytes, ..) = &walked[0];
-  assert_eq!(steps[1].to_string(), format!("walked {path}: {} (1 of 3)", describe_size(*bytes)));
+  assert_eq!(steps[1].to_string(), format!("walked {path}: {} (1 of 3), in full: --fresh", describe_size(*bytes)));
   // --cached walks nothing: the start with no slot to check or measure, and the end
   let (cached, _) = disk_steps(
     fixture,
@@ -378,6 +391,14 @@ fn the_disk_report_tells_each_step_on_stderr() {
   );
   assert_eq!(
     cached,
-    [DiskStep::Start { pools: 1, slots: 3, measuring: 0 }, DiskStep::Done { checkout_bases: 1, orphans: 1 }]
+    [
+      DiskStep::Start { pools: 1, slots: 3, measuring: 0 },
+      DiskStep::Done {
+        checkout_bases: 1,
+        orphans: 1,
+        budget: 0,
+        busy: 0
+      }
+    ]
   );
 }

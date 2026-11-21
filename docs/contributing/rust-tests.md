@@ -100,9 +100,10 @@ machine.
   `a_get_that_timed_out_is_not_asked_again` (`crates/github/src/client_test.rs`), the same of YouTrack and Patronus.
 - **No test waits for `FSEvents`**: the event log of the file system and a watch of it run behind the writes, far
   behind on a loaded machine (fseventsd at 100 % CPU: a watch of the operations registry told no change in 28 s, and
-  the replay of a history that `changed_since` waits 0.5 s for answered `All` every time). A wait for either hung
-  until nextest killed the test at 300 s. A test gives the history instead of asking it (`disk_usage_core_with_changes`
-  of `crates/pool-disk`: the history since a measurement names nothing, then the changed file), and a wait for what
+  the replay of a history that `changed_since` waited 0.5 s for came late every time). A wait for either hung
+  until nextest killed the test at 300 s. A test gives the history instead of asking it (`disk_usage_core_with_history`
+  of `crates/pool-disk`: the history since a measurement names nothing, then the changed file; a test through `brd`
+  passes `--fresh` where it needs a walk), and a wait for what
   another process wrote into a watched file ends at a look of the watch, which a harness takes at the pace of the test
   (`Registry::watched_as` with a look every 50 ms: the app of `crates/bd-cli/src/cross_process_test.rs`). A test of a
   watch names the path it tests

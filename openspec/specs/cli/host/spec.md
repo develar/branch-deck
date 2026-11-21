@@ -2286,7 +2286,7 @@ its disk without the app and without `brd`.
 - **WHEN** a relief leaves a volume below the minimum after every step
 - **THEN** it says so, and the next relief waits 15 minutes
 - **AND** the line goes on with `the pools that hold the most: <repository> <size> in <n> slot(s) (largest: <slot>
-  <size>, …); …`, the three largest pools and the three largest slots of each by `disk.json`, without a walk, then
+  <size>, …); …`, the three largest pools and the three largest slots of each by `disk/`, without a walk, then
   `The relief deleted all it may: the rest is held by leases, the host slots of runs among them. A person frees more by
   returning the leases that `brd lease status` names on the host, by `brd-host trim <host> --max <n>`, which deletes the
   free slots past n, or by moving a pool to a larger volume: `git -C <repository> config branchdeck.leasePool <dir>` on

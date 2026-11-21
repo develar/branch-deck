@@ -88,6 +88,21 @@ export function measuredAge(measuredAt: number, now = Math.floor(Date.now() / 10
   return `Measured ${days} ${days === 1 ? "day" : "days"} ago`
 }
 
+/** When the bytes a slot shows were measured, and why saved bytes were kept: "Measured 2 hours ago, the file history came late" */
+export function measuredLine(slot: SlotDisk, now = Math.floor(Date.now() / 1000)): string {
+  const age = measuredAge(slot.measuredAt, now)
+  switch (slot.kept) {
+    case "historyLate":
+      return `${age}, the file history came late`
+    case "budget":
+      return `${age}, the next report measures it`
+    case "busy":
+      return `${age}, another report measures now`
+    case null:
+      return age
+  }
+}
+
 /** The progress of a disk walk */
 export function diskProgress(measured: number, measuring: number): string {
   return measuring === 0 ? "All slots are up to date" : `Measured ${measured} of ${measuring} slots`

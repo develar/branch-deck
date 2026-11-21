@@ -32,7 +32,7 @@ fn disk_usage_events_serialize_their_channel_type() {
     serde_json::json!({"type": "done", "ms": 12})
   );
   assert_eq!(
-    serde_json::to_value(DiskUsageEvent::Planning { measuring: 3 }).unwrap(),
-    serde_json::json!({"type": "planning", "measuring": 3})
+    serde_json::to_value(DiskUsageEvent::Planning { measuring: 3, late: 1 }).unwrap(),
+    serde_json::json!({"type": "planning", "measuring": 3, "late": 1})
   );
 }

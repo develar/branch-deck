@@ -1,38 +1,68 @@
 //! `pool-disk`: what the lease pools hold on disk (`brd lease disk`: the pool of its repository, with `--all` every pool of
-//! this machine; the Disk window of the app: every pool; openspec/specs/cli/lease/spec.md, "Disk"). A `du` of a pool
-//! takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked tree of a slot is an APFS
-//! clone that shares its blocks with the others. What a slot holds of its own is what a delete of it frees: the private
-//! size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them), the directories its clean
-//! rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`), each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` and the lease a reclaim took from it do;
-//! a leased slot is measured again after `LEASED_STALE`.
+//! this machine; the Disk window of the app: every pool; openspec/specs/cli/lease/spec.md, "Disk",
+//! openspec/specs/repository/disk-usage/spec.md). A `du` of a pool takes minutes and says little: the tracked tree of a
+//! slot is an APFS clone that shares its blocks with the others, and a slot holds more files than the vnode cache, so a
+//! walk of it is cold (a minute for idea-1). What a slot holds of its own is what a delete of it frees: the private size
+//! of its worktree (`fs_walk`: the blocks no clone shares), the directories its clean rules name (`target/`, `out/`) and
+//! its Bazel output bases outside it, each a root of its own. The output bases of the main worktrees, the orphans and
+//! the trash of a pool are measured the same way.
+//!
+//! A measure is kept by its parts (`fs_walk::TreeBytes`: subtrees of at most `NODE_ENTRIES` entries and the directories
+//! above them) in `$GIT_COMMON_DIR/branch-deck/disk/`, a file a slot (written as the slot ends, so a run that stops
+//! keeps what it finished) and `pool.json` for the rest. On macOS one replay of the `FSEvents` history for all measures
+//! (`fs_walk::changes`) names the parts that changed since the mark of each: those are walked again, a directory above
+//! the frontier is read alone; a replay that comes late keeps the saved bytes with their age. Elsewhere, without a
+//! history, a free slot keeps its bytes while its `returned` and its reclaimed lease hold, a leased one and the rest for
+//! `LEASED_STALE`. The walks run in one budget (`WALK_BUDGET`) unless `fresh`: the changed parts first, then the full
+//! walks, the least recently measured first; what the budget did not reach keeps its saved bytes for the next report.
+//! One report of a pool walks at a time (`disk/walk.lock`); another one shows the saved bytes.
 
 use anyhow::Result;
-use fs_walk::changes::{Changes, Mark, changed_since, mark};
-use fs_walk::{NodeBytes, Walk, walk_tree_with_callback};
+use fs_walk::changes::{Change, HistoryQuery, HistoryRefusal, Mark, changed_since, mark};
+use fs_walk::{PartBytes, TreeBytes, Walk, dir_listing, walk_tree_with_callback};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::lease_config;
+use git_ops::lease_slot::{lease_config, state_dir};
 use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
 use lease_pool::lease_clean::{CleanRule, read_clean_rules};
 use lease_pool::lease_notes::notes_bytes;
 use lease_pool::output_bases::{OutputBase, orphans};
-use lease_pool::state_file::StateFile;
 use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::paths::display_path;
 use sync_utils::size::parse_size;
+use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
 
-/// The file of the bytes of each slot, beside the state of the pool
-const DISK_FILE: &str = "disk.json";
-/// Its lock
-const DISK_LOCK: &str = "disk.lock";
-/// How long the bytes of a leased slot hold: its builds write while it is leased
+/// The directory of the saved measures, beside the state of the pool
+const DISK_DIR: &str = "disk";
+/// The saved measures of the output bases of the main worktree, the orphans and the trash
+const POOL_FILE: &str = "pool.json";
+/// Held by the report that walks the pool
+const WALK_LOCK: &str = "walk.lock";
+/// The one file of the measures of brd before 1.20, which it still writes: read for a slot that `disk/` has not saved
+const OLD_DISK_FILE: &str = "disk.json";
+/// How long saved bytes hold without a history (Linux, Windows): a leased slot, the output bases of the main worktree
+/// and the orphans, which builds write at any time
 pub const LEASED_STALE: Duration = Duration::from_mins(15);
+/// The most entries of a saved part: a change inside one walks at most this many entries again
+const NODE_ENTRIES: u64 = 20_000;
+/// How long the replay of the `FSEvents` history may take. A quiet Mac replays hours of it in a second; on the user's Mac
+/// with agents building in 15 slots (2026-11-21) an hour of history took 60 s and 20 minutes of it did not end in 30 s,
+/// so a longer wait buys nothing there: a late measure keeps its bytes and the budget walks the oldest
+const HISTORY_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the walks of a report may take unless `fresh`
+const WALK_BUDGET: Duration = Duration::from_secs(90);
+/// How long a measure may stay unchecked because the history came late: past it the measure is walked again
+const LATE_LIMIT: Duration = Duration::from_hours(24);
 
 /// Which pools `disk_usage_core` reports
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,12 +82,51 @@ pub struct DiskParams<'a> {
   pub home: Option<&'a Path>,
   /// The pool of the repository only, or every pool of the machine
   pub scope: DiskScope,
-  /// Measure every slot again, whatever `disk.json` holds
+  /// Walk every measure again in full, without a budget, whatever `disk/` holds
   pub fresh: bool,
-  /// Read `disk.json` only, without measuring any path
+  /// Read `disk/` only, without measuring any path
   pub cached: bool,
-  /// The wait for the lock of `disk.json`
-  pub lock_timeout: Duration,
+}
+
+/// Where the bytes of a slot come from, and why a slot was walked in full
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotWalk {
+  /// The saved bytes, unchecked: `--cached`, or none saved yet
+  Saved,
+  /// The saved bytes: the history names no change since they were measured
+  Unchanged,
+  /// The saved bytes: another report walks the pool now
+  Busy,
+  /// The saved bytes: the history of the file system did not come in time
+  HistoryLate,
+  /// The saved bytes: the walk budget of the report ended first
+  Budget,
+  /// The parts that changed were walked again, the rest is saved
+  Parts,
+  /// Walked in full: nothing was saved
+  NoSaved,
+  /// Walked in full: `--fresh`
+  Fresh,
+  /// Walked in full: without a history, the saved bytes were too old or of another lease or return
+  Stale,
+  /// Walked in full: the history lost events under the slot
+  HistoryLost,
+  /// Walked in full: the saved bytes have no mark of the history, or one of another volume or boot
+  NoMark,
+  /// Walked in full: the history has not been read for `LATE_LIMIT`
+  HistoryLateLong,
+  /// Walked in full in the budget left after the other walks: the history of the file system did not come in time
+  HistoryLateWalked,
+  /// Walked in full: the history could not be read
+  NoHistory,
+}
+
+impl SlotWalk {
+  /// The bytes come from `disk/`, not from a walk of this call
+  pub const fn is_saved(self) -> bool {
+    matches!(self, Self::Saved | Self::Unchanged | Self::Busy | Self::HistoryLate | Self::Budget)
+  }
 }
 
 /// What the pools of the report hold: the pool of the repository, or every pool of the machine (`DiskScope`)
@@ -70,20 +139,20 @@ pub struct DiskUsage {
   pub pools: Vec<PoolUsage>,
   /// The output bases whose slot is gone, which a trim deletes
   pub orphans: Vec<BaseUsage>,
-  /// How long the walks took
+  /// How long the report took
   pub elapsed: Duration,
+  /// How long the replay of the history took; `None` without one
+  pub history: Option<Duration>,
 }
 
 /// A report ready to show before or during a disk walk
 #[derive(Debug, Clone)]
 pub enum DiskUsageProgress {
-  Cached {
-    usage: DiskUsage,
-    measuring: u32,
-  },
-  Planning {
-    measuring: u32,
-  },
+  /// The saved bytes, before any check: `measuring` slots may be walked
+  Cached { usage: DiskUsage, measuring: u32 },
+  /// The history was read: `measuring` slots are walked, `late` keep their bytes because it came late
+  Planning { measuring: u32, late: u32, history: Option<Duration> },
+  /// The walks of a slot ended
   Slot {
     usage: DiskUsage,
     pool_index: usize,
@@ -92,8 +161,6 @@ pub enum DiskUsageProgress {
     measuring: u32,
   },
 }
-
-type ChangesOverride<'a> = dyn FnMut(&[&Path]) -> Changes + 'a;
 
 /// A pool and what its slots hold
 #[derive(Debug, Clone)]
@@ -136,8 +203,7 @@ pub struct SlotUsage {
   pub holder: Option<String>,
   /// The number of its last return in the pool
   pub returned: Option<u64>,
-  /// The lease that a reclaim or a takeover took from it (`Slot::reclaimed`): a reclaim can give it a number of an
-  /// earlier free period again (`lease_pool::lease::stamp_reclaimed`)
+  /// The lease that a reclaim or a takeover took from it (`Slot::reclaimed`)
   pub reclaimed: Option<String>,
   /// What its worktree holds of its own beside its build directories: the blocks its files share with no clone (a slot
   /// cloned from a template shares most of them until moves rewrite its files)
@@ -145,10 +211,14 @@ pub struct SlotUsage {
   /// The directories its clean rules name, each with its bytes
   pub build: Vec<DirUsage>,
   pub output_bases: Vec<BaseUsage>,
-  /// Unix seconds of the walk the bytes come from
+  /// Unix seconds of the walk the bytes come from; 0 when never measured
   pub measured_at: u64,
-  /// The bytes come from `disk.json`, not from a walk of this call
+  /// The bytes come from `disk/`, not from a walk of this call
   pub cached: bool,
+  /// Where the bytes come from, and why it was walked in full
+  pub walk: SlotWalk,
+  /// The parts walked or read again for `SlotWalk::Parts`
+  pub parts: u32,
   /// A free slot past the limit that a trim deletes now, by its order (`lease_pool::trim::trim_order`), unless a
   /// process works in it then
   pub trims_next: bool,
@@ -176,51 +246,105 @@ pub struct BaseUsage {
   pub bytes: u64,
 }
 
-/// `disk.json`: the bytes of each slot, by path
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-struct DiskFile {
-  #[serde(default)]
-  slots: BTreeMap<String, Measured>,
-  /// The output bases of the main worktree, by path: its builds write at any time, so they hold for `LEASED_STALE`
-  #[serde(default)]
-  checkout_bases: BTreeMap<String, MeasuredBase>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  trash_bytes: Option<MeasuredBase>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  notes_bytes: Option<MeasuredBase>,
-  #[serde(default)]
-  orphans: BTreeMap<String, MeasuredBase>,
-}
-
-/// The bytes of an output base of the main worktree as a walk found them
+/// What a root of a measure is to a slot
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-struct MeasuredBase {
-  at: u64,
-  bytes: u64,
+#[serde(rename_all = "snake_case")]
+enum RootKind {
+  Worktree,
+  Build,
+  Base,
+  /// The root of a measure that is not a slot
+  Whole,
 }
 
-/// The bytes of a slot as a walk found them
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Measured {
-  /// `returned` of the slot when it was walked: a later return or a get makes it stale
+/// A saved measure: of a slot (a file of `disk/`), an output base, an orphan, the trash (`pool.json`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Saved {
+  /// The slot, the output base or the trash it measures
+  path: String,
+  /// `returned` of the slot when it was measured
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   returned: Option<u64>,
-  /// `SlotUsage::reclaimed` when it was walked: another one makes it stale, as a reclaim can give `returned` again
+  /// The lease that a reclaim or a takeover took from the slot then
   #[serde(default, skip_serializing_if = "Option::is_none")]
   reclaimed: Option<String>,
-  /// Whether it was leased then
+  /// The slot was leased then
+  #[serde(default)]
   leased: bool,
+  /// Unix seconds of the measure
   at: u64,
+  /// Unix seconds of the last check that found it current: the measure, or a history that named no change
+  #[serde(default)]
+  checked: u64,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   mark: Option<SavedMark>,
+  roots: Vec<SavedRoot>,
+}
+
+/// The parts of a root: their bytes add up to the root
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SavedRoot {
+  /// The canonical path
+  key: String,
+  kind: RootKind,
+  bytes: u64,
+  /// The subtrees, by the path relative to the root, with their bytes
   #[serde(default)]
-  roots: Vec<CachedRoot>,
+  nodes: Vec<(String, u64)>,
+  /// The directories above the subtrees, with the bytes of their own files
   #[serde(default)]
-  nodes: Vec<CachedNode>,
-  /// `SlotUsage::worktree`; `None` in the file of a brd that did not walk the worktree, which is stale then
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  worktree: Option<u64>,
-  build: Vec<DirUsage>,
-  output_bases: Vec<BaseUsage>,
+  dirs: Vec<(String, u64)>,
+  /// The directories the walk skipped, canonical: the build directories of a slot inside its worktree, which count
+  /// apart; another set makes the parts of no use
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  skip: Vec<String>,
+}
+
+impl SavedRoot {
+  fn of(key: String, kind: RootKind, tree: &TreeBytes) -> Self {
+    let mut root = Self {
+      key,
+      kind,
+      bytes: 0,
+      nodes: Vec::new(),
+      dirs: Vec::new(),
+      skip: Vec::new(),
+    };
+    root.insert("", tree);
+    root
+  }
+
+  /// The parts of `tree`, the walk of the part at `at`, in place of every part at or under `at`
+  fn insert(&mut self, at: &str, tree: &TreeBytes) {
+    self.remove(at);
+    let join = |part: &PartBytes| (join_relative(at, &part.path), part.bytes);
+    self.nodes.extend(tree.nodes.iter().map(join));
+    self.dirs.extend(tree.dirs.iter().map(join));
+    self.sum();
+  }
+
+  /// Every part at or under `at`
+  fn remove(&mut self, at: &str) {
+    self.nodes.retain(|(path, _)| !is_under(path, at));
+    self.dirs.retain(|(path, _)| !is_under(path, at));
+    self.sum();
+  }
+
+  /// A root saved with its bytes alone, from the file of brd before 1.20
+  const fn bytes_only(key: String, kind: RootKind, bytes: u64) -> Self {
+    Self {
+      key,
+      kind,
+      bytes,
+      nodes: Vec::new(),
+      dirs: Vec::new(),
+      skip: Vec::new(),
+    }
+  }
+
+  fn sum(&mut self) {
+    self.bytes = self.nodes.iter().chain(&self.dirs).map(|(_, bytes)| bytes).sum();
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,107 +371,333 @@ impl From<SavedMark> for Mark {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct CachedNode {
-  root: String,
-  path: String,
-  bytes: u64,
+/// `pool.json`: the measures of a pool that are not of a slot
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct PoolFile {
+  /// The output bases of the main worktree, by path
   #[serde(default)]
-  has_hardlinks: bool,
+  checkout_bases: BTreeMap<String, Saved>,
+  /// The orphans the last report of this pool measured, by path: each report writes those of its scope into the file
+  /// of each pool it walked, so the latest measure of an orphan wins
+  #[serde(default)]
+  orphans: BTreeMap<String, Saved>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  trash: Option<Saved>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  notes_bytes: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct CachedRoot {
-  path: String,
-  bytes: u64,
+/// `disk.json` of brd before 1.20, as far as a report reads it: the bytes of each root, which a slot shows until its first
+/// walk, without parts or a mark, so the history cannot check them
+#[derive(Debug, Default, Deserialize)]
+struct OldDiskFile {
   #[serde(default)]
-  has_hardlinks: bool,
+  slots: BTreeMap<String, OldMeasured>,
+  #[serde(default)]
+  checkout_bases: BTreeMap<String, OldBase>,
 }
 
-impl CachedNode {
-  fn of(root: &str, node: NodeBytes) -> Self {
-    Self {
-      root: root.to_owned(),
-      path: node.path,
-      bytes: node.bytes,
-      has_hardlinks: node.has_hardlinks,
+#[derive(Debug, Deserialize)]
+struct OldMeasured {
+  #[serde(default)]
+  returned: Option<u64>,
+  #[serde(default)]
+  reclaimed: Option<String>,
+  #[serde(default)]
+  leased: bool,
+  at: u64,
+  #[serde(default)]
+  roots: Vec<OldRoot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OldRoot {
+  path: String,
+  bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct OldBase {
+  at: u64,
+  bytes: u64,
+}
+
+impl OldMeasured {
+  /// The saved measure of a slot with `roots`: the bytes of the roots it names, without parts or a mark
+  fn saved(&self, path: &str, roots: &[UnitRoot]) -> Saved {
+    Saved {
+      path: path.to_owned(),
+      returned: self.returned,
+      reclaimed: self.reclaimed.clone(),
+      leased: self.leased,
+      at: self.at,
+      checked: self.at,
+      mark: None,
+      roots: self
+        .roots
+        .iter()
+        .filter_map(|old| {
+          roots
+            .iter()
+            .find(|root| root.key == old.path)
+            .map(|root| SavedRoot::bytes_only(old.path.clone(), root.kind, old.bytes))
+        })
+        .collect(),
     }
   }
 }
 
-struct RefreshingSlot {
-  pool: usize,
-  slot: usize,
-  roots: Vec<CachedRoot>,
-  mark: Option<SavedMark>,
-  nodes: Vec<CachedNode>,
-  incremental: bool,
-  build: Vec<DirUsage>,
-  bases: Vec<BaseUsage>,
+/// The saved measures of a pool: `disk/` of its state directory
+struct DiskStore {
+  dir: PathBuf,
+  state_dir: PathBuf,
 }
 
-struct PendingCheck {
-  pool: usize,
-  slot: usize,
-  path: String,
-  walks: Vec<(Walk, Target)>,
-  root_keys: Vec<String>,
-  mark: Mark,
-  previous: Measured,
-  build: Vec<DirUsage>,
-  bases: Vec<BaseUsage>,
+impl DiskStore {
+  fn of(git_common_dir: &Path) -> Self {
+    let state_dir = state_dir(git_common_dir);
+    Self {
+      dir: state_dir.join(DISK_DIR),
+      state_dir,
+    }
+  }
+
+  fn slot_file(&self, path: &str) -> PathBuf {
+    self.dir.join(format!("slot-{:016x}.json", fnv1a(path.as_bytes())))
+  }
+
+  /// The saved measure of the slot at `path`, if its file names that slot
+  fn read_slot(&self, path: &str) -> Option<Saved> {
+    read_json::<Saved>(&self.slot_file(path)).filter(|saved| saved.path == path)
+  }
+
+  fn read_pool(&self) -> PoolFile {
+    read_json(&self.dir.join(POOL_FILE)).unwrap_or_default()
+  }
+
+  /// `disk.json` of brd before 1.20, if it is still there
+  fn read_old(&self) -> OldDiskFile {
+    read_json(&self.state_dir.join(OLD_DISK_FILE)).unwrap_or_default()
+  }
+
+  /// The saved measure of every slot, by its path
+  fn read_slots(&self) -> Vec<Saved> {
+    let Ok(entries) = std::fs::read_dir(&self.dir) else { return Vec::new() };
+    entries
+      .flatten()
+      .filter(|entry| entry.file_name().to_string_lossy().starts_with("slot-"))
+      .filter_map(|entry| read_json::<Saved>(&entry.path()))
+      .collect()
+  }
+
+  fn write(&self, path: &Path, value: &impl Serialize) {
+    let written = std::fs::create_dir_all(&self.dir)
+      .and_then(|()| serde_json::to_vec(value).map_err(std::io::Error::other))
+      .and_then(|bytes: Vec<u8>| write_atomically(path, &bytes, AtomicWrite::default()));
+    if let Err(error) = written {
+      debug!(path = %path.display(), %error, "cannot write the measure");
+    }
+  }
+
+  /// The slot files of slots that left the pool
+  fn prune(&self, slots: &HashSet<PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(&self.dir) {
+      for entry in entries.flatten() {
+        let path = entry.path();
+        if entry.file_name().to_string_lossy().starts_with("slot-") && !slots.contains(&path) {
+          let _ = sync_utils::fs_retry::remove_file(&path);
+        }
+      }
+    }
+  }
+
+  /// The lock of the walks of the pool, at once or `None` while another report holds it
+  fn try_walk_lock(&self) -> Option<std::fs::File> {
+    std::fs::create_dir_all(&self.dir).ok()?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(self.dir.join(WALK_LOCK)).ok()?;
+    match file.try_lock() {
+      Ok(()) => Some(file),
+      Err(std::fs::TryLockError::WouldBlock) => None,
+      // a file system without locks: the report walks as if it held the lock
+      Err(std::fs::TryLockError::Error(error)) => {
+        debug!(%error, "cannot lock the walks of the pool");
+        Some(file)
+      }
+    }
+  }
 }
 
-struct SlotRefreshPlan<'a> {
-  pool: usize,
-  slot: usize,
-  slot_walks: &'a [(Walk, Target)],
-  root_keys: &'a [String],
-  requests: Vec<WalkRequest>,
-  previous: Option<&'a Measured>,
-  current_mark: Option<Mark>,
-  incremental: bool,
-  build: Vec<DirUsage>,
-  bases: Vec<BaseUsage>,
+fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+  let bytes = std::fs::read(path).ok()?;
+  serde_json::from_slice(&bytes)
+    .inspect_err(|error| debug!(path = %path.display(), %error, "cannot read the measure"))
+    .ok()
 }
 
-/// What the pools of `params.scope` hold: every slot of each pool with the directories its clean rules name and its
-/// output bases, each with its bytes (from `disk.json` while they hold, else walked, all walks of the call side by
-/// side), the output bases of the main worktrees and the orphans. One `config` of the repository for its minimum, one
-/// per pool for its limit; no `status`
+/// FNV-1a: the name of the file of a slot, the same in every process
+fn fnv1a(bytes: &[u8]) -> u64 {
+  bytes
+    .iter()
+    .fold(0xcbf2_9ce4_8422_2325, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// The tuning of a report: the deadline of the history and the budget of the walks, apart for the tests
+#[derive(Debug, Clone, Copy)]
+struct Tuning {
+  history_deadline: Duration,
+  walk_budget: Duration,
+  node_entries: u64,
+}
+
+impl Default for Tuning {
+  fn default() -> Self {
+    Self {
+      history_deadline: HISTORY_DEADLINE,
+      walk_budget: WALK_BUDGET,
+      node_entries: NODE_ENTRIES,
+    }
+  }
+}
+
+/// The history of the file system for one query, the seam of the tests: the changed paths, or the refusal
+type History<'a> = dyn FnMut(&HistoryQuery) -> std::result::Result<Vec<PathBuf>, HistoryRefusal> + 'a;
+
+/// What a report measures: a slot, an output base of a main worktree, an orphan, the trash of a pool
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnitOf {
+  Slot { pool: usize, slot: usize },
+  CheckoutBase { pool: usize, base: usize },
+  Orphan(usize),
+  Trash(usize),
+}
+
+/// A root of a unit
+struct UnitRoot {
+  walk: Walk,
+  key: String,
+  kind: RootKind,
+  /// The canonical paths of `walk.skip`
+  skip: Vec<String>,
+}
+
+/// A part of a root to walk or read again
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Target {
+  /// The whole root
+  Root(usize),
+  /// A saved subtree
+  Node(usize, String),
+  /// A saved directory above the subtrees: its own files and its directories
+  Dir(usize, String),
+  /// A directory that no part holds
+  New(usize, String),
+}
+
+struct Unit {
+  of: UnitOf,
+  /// The pool whose `disk/` keeps it, and whose walk lock it needs; `None` for an orphan, kept by every pool
+  pool: Option<usize>,
+  roots: Vec<UnitRoot>,
+  saved: Option<Saved>,
+  /// The mark of now, taken before the history is read
+  mark: Option<Mark>,
+  /// What the report does with it
+  walk: SlotWalk,
+  targets: BTreeSet<Target>,
+  /// The measure as it is being refreshed
+  result: Vec<Option<SavedRoot>>,
+  /// The walks of it not ended yet
+  pending: usize,
+  parts: u32,
+  /// The slot state when measured: `returned`, `reclaimed`, leased
+  state: (Option<u64>, Option<String>, bool),
+  /// The history is asked about it
+  queried: bool,
+  /// Its saved measure comes from the file of brd before 1.20: it is written into `disk/` unless walked
+  migrated: bool,
+}
+
+impl Unit {
+  fn age_key(&self) -> u64 {
+    self.saved.as_ref().map_or(0, |saved| saved.at)
+  }
+
+  /// The target of a changed `path`: the deepest root it lies in, then the deepest saved part
+  fn target_of(&self, path: &Path, lookup: &[PartLookup], change: Change) -> Option<Target> {
+    let path = path.to_str()?;
+    let (index, root) = self
+      .roots
+      .iter()
+      .enumerate()
+      .filter(|(_, root)| !root.key.is_empty() && is_under(path, &root.key))
+      .max_by_key(|(_, root)| root.key.len())?;
+    let relative = path[root.key.len()..].trim_start_matches(std::path::MAIN_SEPARATOR).replace(std::path::MAIN_SEPARATOR, "/");
+    let lookup = &lookup[index];
+    if !lookup.saved {
+      return Some(Target::Root(index));
+    }
+    let mut at = relative.as_str();
+    loop {
+      if lookup.nodes.contains(at) {
+        return Some(Target::Node(index, at.to_owned()));
+      }
+      if change == Change::Path && lookup.dirs.contains(at) {
+        return Some(Target::Dir(index, at.to_owned()));
+      }
+      // a lost subtree that no saved subtree holds is walked whole, in place of every part under it
+      if change == Change::Subtree && at.is_empty() {
+        return Some(if relative.is_empty() { Target::Root(index) } else { Target::New(index, relative) });
+      }
+      if at.is_empty() {
+        return Some(Target::Root(index));
+      }
+      at = at.rfind('/').map_or("", |slash| &at[..slash]);
+    }
+  }
+}
+
+/// The saved parts of a root, for the target of a changed path
+#[derive(Default)]
+struct PartLookup {
+  saved: bool,
+  nodes: HashSet<String>,
+  dirs: HashSet<String>,
+}
+
+/// What a report does to the pools of `params.scope`, before its walks
 #[instrument(skip_all, fields(repository = %params.repository.top_level))]
 pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_>) -> Result<DiskUsage> {
-  disk_usage_core_inner(git_executor, params, None, None)
+  disk_usage_core_inner(git_executor, params, None, None, Tuning::default())
 }
 
-/// The same report, notifying the caller of its cached state and each completed slot
+/// The same report, notifying the caller of its saved state, of its plan after the history and of each slot that ends
 #[instrument(skip_all, fields(repository = %params.repository.top_level))]
 pub fn disk_usage_core_with_progress<F>(git_executor: &GitCommandExecutor, params: &DiskParams<'_>, mut on_progress: F) -> Result<DiskUsage>
 where
   F: FnMut(DiskUsageProgress) + Send,
 {
-  disk_usage_core_inner(git_executor, params, Some(&mut on_progress), None)
+  disk_usage_core_inner(git_executor, params, Some(&mut on_progress), None, Tuning::default())
 }
 
-/// The same report with `changes` as the history of the file system since a measurement, the seam of the tests: it
-/// answers where `changed_since` would, for the roots of one slot. On macOS that is the check deferred until the cached
-/// report is out, as without the seam; elsewhere, where the core reads no history and takes a cached slot as unchanged,
-/// it is the check of each cached slot. It waits for no `FSEvents`, which logs a write late on a loaded machine and
-/// answers `All` when its replay outlasts the wait
+/// The same report with `history` as the history of the file system, the seam of the tests: it answers each query where
+/// `changed_since` would, on every platform, with a mark where the platform has none; and with the budget of the walks
+/// and the size of the parts. It waits for no `FSEvents`, which logs a write late on a loaded machine
 #[cfg(test)]
-fn disk_usage_core_with_changes<F, G>(git_executor: &GitCommandExecutor, params: &DiskParams<'_>, mut on_progress: F, mut changes: G) -> Result<DiskUsage>
+fn disk_usage_core_with_history<F, G>(git_executor: &GitCommandExecutor, params: &DiskParams<'_>, mut on_progress: F, mut history: G, tuning: Tuning) -> Result<DiskUsage>
 where
   F: FnMut(DiskUsageProgress) + Send,
-  G: FnMut(&[&Path]) -> Changes,
+  G: FnMut(&HistoryQuery) -> std::result::Result<Vec<PathBuf>, HistoryRefusal>,
 {
-  disk_usage_core_inner(git_executor, params, Some(&mut on_progress), Some(&mut changes))
+  disk_usage_core_inner(git_executor, params, Some(&mut on_progress), Some(&mut history), tuning)
 }
 
+#[expect(clippy::too_many_lines, reason = "the phases of one report over shared state: saved, history, plan, walks, writes")]
 fn disk_usage_core_inner(
   git_executor: &GitCommandExecutor,
   params: &DiskParams<'_>,
   mut on_progress: Option<&mut (dyn FnMut(DiskUsageProgress) + Send)>,
-  mut changes_override: Option<&mut ChangesOverride<'_>>,
+  history_override: Option<&mut History<'_>>,
+  tuning: Tuning,
 ) -> Result<DiskUsage> {
   let started = Instant::now();
   // without a home `Machine::read` takes the pool of the repository alone, with the output bases of its checkouts
@@ -363,11 +713,14 @@ fn disk_usage_core_inner(
     min_free: config.min_free.as_deref().and_then(|value| parse_size(value).ok()),
     ..DiskUsage::default()
   };
-  // every directory to walk, with where its bytes go
-  let mut walks: Vec<(Walk, Target)> = Vec::new();
-  let mut refreshing_slots: Vec<RefreshingSlot> = Vec::new();
-  let mut pending_checks: Vec<PendingCheck> = Vec::new();
-  let mut files: Vec<(StateFile, DiskFile, BTreeMap<String, SavedMark>)> = Vec::new();
+  let stores: Vec<DiskStore> = machine.pools.iter().map(|pool| DiskStore::of(&pool.git_common_dir)).collect();
+  let mut pool_files: Vec<PoolFile> = stores.iter().map(DiskStore::read_pool).collect();
+  // read only for a measure that `disk/` has not saved: 26 MB for idea-1
+  let old_files: Vec<std::cell::OnceCell<OldDiskFile>> = stores.iter().map(|_| std::cell::OnceCell::new()).collect();
+  let old_file = |pool: usize| old_files[pool].get_or_init(|| stores[pool].read_old());
+  // the walk lock of each pool: without it a report reads the saved bytes and writes nothing
+  let locks: Vec<Option<std::fs::File>> = stores.iter().map(|store| if params.cached { None } else { store.try_walk_lock() }).collect();
+  let mut units: Vec<Unit> = Vec::new();
   for (pool_index, pool) in machine.pools.iter().enumerate() {
     let (statuses, _) = lease_status_core(&pool.git_common_dir, false)?;
     let limit = max_slots(git_executor, None, &pool.git_common_dir).0;
@@ -376,11 +729,6 @@ fn disk_usage_core_inner(
       let (present, free) = trim_order(&slots);
       free.into_iter().take(present.len().saturating_sub(limit)).map(|slot| slot.path.clone()).collect()
     };
-    let file = disk_file(&pool.git_common_dir);
-    let cached = file.read::<DiskFile>().unwrap_or_default();
-    let trash_bytes = cached.trash_bytes.map_or(0, |measured| measured.bytes);
-    let notes_bytes = cached.notes_bytes.map_or(0, |measured| measured.bytes);
-    let mut mark_updates = BTreeMap::new();
     let repository = main_worktree(&pool.git_common_dir);
     let mut report = PoolUsage {
       git_common_dir: display_path(&pool.git_common_dir),
@@ -388,581 +736,780 @@ fn disk_usage_core_inner(
       max_slots: limit,
       slots: Vec::new(),
       checkout_bases: Vec::new(),
-      trash_bytes,
-      notes_bytes,
+      trash_bytes: 0,
+      notes_bytes: pool_files[pool_index].notes_bytes.unwrap_or_default(),
     };
     if let Some(repository) = &repository {
       for base in machine.bases.iter().filter(|base| base.is_in(repository) && !in_any(base, &machine.pool_dirs)) {
-        let mut usage = base_usage(base);
-        let measured = cached.checkout_bases.get(&usage.path);
-        if params.cached {
-          usage.bytes = measured.map_or(0, |measured| measured.bytes);
-        } else if !params.fresh && measured.is_some_and(|measured| now.saturating_sub(measured.at) < LEASED_STALE.as_secs()) {
-          usage.bytes = measured.map_or(0, |measured| measured.bytes);
-        } else {
-          usage.bytes = measured.map_or(0, |measured| measured.bytes);
-          walks.push((Walk::of(&base.path), Target::CheckoutBase(pool_index, report.checkout_bases.len())));
-        }
+        let usage = base_usage(base);
+        let saved = pool_files[pool_index].checkout_bases.get(&usage.path).cloned();
+        let roots = vec![UnitRoot::new(Walk::of(&base.path), RootKind::Whole)];
+        let old = saved.is_none().then(|| old_file(pool_index).checkout_bases.get(&usage.path)).flatten().map(|old| Saved {
+          path: usage.path.clone(),
+          at: old.at,
+          checked: old.at,
+          roots: vec![SavedRoot::bytes_only(roots[0].key.clone(), RootKind::Whole, old.bytes)],
+          ..Saved::default()
+        });
+        let mut unit = Unit::new(
+          UnitOf::CheckoutBase {
+            pool: pool_index,
+            base: report.checkout_bases.len(),
+          },
+          Some(pool_index),
+          roots,
+          saved.or_else(|| old.clone()),
+          (None, None, false),
+        );
+        unit.migrated = old.is_some();
+        units.push(unit);
         report.checkout_bases.push(usage);
       }
     }
+    let trash = Pool::new(&pool.git_common_dir).trash_dir();
+    units.push(Unit::new(
+      UnitOf::Trash(pool_index),
+      Some(pool_index),
+      vec![UnitRoot::new(Walk::of(&trash), RootKind::Whole)],
+      pool_files[pool_index].trash.clone(),
+      (None, None, false),
+    ));
     for status in statuses.into_iter().filter(|status| !status.missing) {
       let slot = status.slot;
-      let leased = slot.lease.is_some();
-      let holder = slot.lease.as_ref().map(|lease| lease.holder.clone());
-      let slot_index = report.slots.len();
       let root = PathBuf::from(&slot.path);
-      let build: Vec<DirUsage> = build_dirs(&root).into_iter().map(|path| DirUsage { path, bytes: 0 }).collect();
+      let build: Vec<String> = build_dirs(&root);
       let bases: Vec<BaseUsage> = machine.bases.iter().filter(|base| base.is_in(&root)).map(base_usage).collect();
-      let mut slot_walks = Vec::new();
-      for (index, dir) in build.iter().enumerate() {
-        let root_index = slot_walks.len();
-        slot_walks.push((Walk::of(root.join(&dir.path)), Target::Build(pool_index, slot_index, index, root_index)));
-      }
+      let mut roots: Vec<UnitRoot> = build.iter().map(|dir| UnitRoot::new(Walk::of(root.join(dir)), RootKind::Build)).collect();
       // the worktree without its build directories, which count apart
-      let skip = build.iter().map(|dir| root.join(&dir.path)).collect();
-      let worktree_root_index = slot_walks.len();
-      slot_walks.push((Walk { root: root.clone(), skip }, Target::Worktree(pool_index, slot_index, worktree_root_index)));
-      for (index, base) in bases.iter().enumerate() {
-        let root_index = slot_walks.len();
-        slot_walks.push((Walk::of(&base.path), Target::SlotBase(pool_index, slot_index, index, root_index)));
-      }
-      let slot_root_walks: Vec<Walk> = slot_walks.iter().map(|(walk, _)| walk.clone()).collect();
-      let root_keys: Vec<String> = slot_walks.iter().map(|(walk, _)| root_key(&walk.root)).collect();
-      let root_paths: Vec<&Path> = slot_walks.iter().map(|(walk, _)| walk.root.as_path()).collect();
-      let current_mark = if params.cached { None } else { mark(&root) };
-      let previous = cached.slots.get(&slot.path).cloned();
-      let cache_candidate = !params.cached
-        && !params.fresh
-        && previous.as_ref().is_some_and(|measured| {
-          measured.worktree.is_some()
-            && measured.returned == slot.returned
-            && measured.reclaimed.as_deref() == slot.reclaimed.as_ref().map(|reclaimed| reclaimed.lease_id.as_str())
-            && measured.leased == leased
-            && measured.roots.iter().map(|root| root.path.as_str()).eq(root_keys.iter().map(String::as_str))
-            && root_keys.iter().all(|root| !root.is_empty())
-            && if cfg!(target_os = "macos") {
-              measured.mark.is_some() && current_mark.is_some()
-            } else {
-              !leased || now.saturating_sub(measured.at) < LEASED_STALE.as_secs()
-            }
-        });
-      let defer_check = cache_candidate && cfg!(target_os = "macos");
-      let changes = if params.cached || defer_check {
-        Changes::Paths(Vec::new())
-      } else if !cache_candidate {
-        Changes::All
-      } else if let Some(changes) = changes_override.as_deref_mut() {
-        changes(&root_paths)
-      } else if cfg!(target_os = "macos") {
-        previous
-          .as_ref()
-          .and_then(|measured| measured.mark)
-          .map_or(Changes::All, |mark| changed_since(&root_paths, &mark.into()))
-      } else {
-        Changes::Paths(Vec::new())
-      };
-      let requests = walk_requests(
-        &changes,
-        &slot_root_walks,
-        &root_keys,
-        previous.as_ref().map_or(&[], |measured| measured.roots.as_slice()),
-        previous.as_ref().map_or(&[], |measured| measured.nodes.as_slice()),
-      );
-      let unchanged = (params.cached && previous.is_some()) || (cache_candidate && !defer_check && requests.is_empty());
-      let incremental = cache_candidate && !unchanged && matches!(changes, Changes::Paths(_));
-      let (worktree, shown_build, output_bases, measured_at, from_file) = if defer_check {
-        let measured = previous.as_ref().expect("a pending history check has cached bytes");
-        pending_checks.push(PendingCheck {
-          pool: pool_index,
-          slot: slot_index,
-          path: slot.path.clone(),
-          walks: slot_walks,
-          root_keys,
-          mark: current_mark.expect("a cache candidate has a current mark"),
-          previous: measured.clone(),
-          build,
-          bases,
-        });
-        (
-          measured.worktree.unwrap_or_default(),
-          measured.build.clone(),
-          measured.output_bases.clone(),
-          measured.at,
-          true,
-        )
-      } else if unchanged {
-        if !params.cached
-          && let Some(mark) = current_mark
-        {
-          mark_updates.insert(slot.path.clone(), mark.into());
-        }
-        let measured = previous.as_ref().expect("an unchanged slot has cached bytes");
-        (
-          measured.worktree.unwrap_or_default(),
-          measured.build.clone(),
-          measured.output_bases.clone(),
-          measured.at,
-          true,
-        )
-      } else if params.cached {
-        (0, build, bases, 0, false)
-      } else {
-        let display = previous.as_ref().map_or_else(
-          || (0, build.clone(), bases.clone(), 0, false),
-          |measured| {
-            (
-              measured.worktree.unwrap_or_default(),
-              measured.build.clone(),
-              measured.output_bases.clone(),
-              measured.at,
-              true,
-            )
-          },
-        );
-        schedule_slot_refresh(
-          &mut walks,
-          &mut refreshing_slots,
-          SlotRefreshPlan {
-            pool: pool_index,
-            slot: slot_index,
-            slot_walks: &slot_walks,
-            root_keys: &root_keys,
-            requests,
-            previous: previous.as_ref(),
-            current_mark,
-            incremental,
-            build,
-            bases,
-          },
-        );
-        display
-      };
+      let skip = build.iter().map(|dir| root.join(dir)).collect();
+      roots.push(UnitRoot::new(Walk { root, skip }, RootKind::Worktree));
+      roots.extend(bases.iter().map(|base| UnitRoot::new(Walk::of(&base.path), RootKind::Base)));
+      let saved = stores[pool_index].read_slot(&slot.path);
+      let old = saved
+        .is_none()
+        .then(|| old_file(pool_index).slots.get(&slot.path))
+        .flatten()
+        .map(|old| old.saved(&slot.path, &roots));
+      let state = (slot.returned, slot.reclaimed.as_ref().map(|reclaimed| reclaimed.lease_id.clone()), slot.lease.is_some());
+      let slot_index = report.slots.len();
       report.slots.push(SlotUsage {
         name: slot.name.clone(),
         path: slot.path.clone(),
         state: status.state,
-        holder,
+        holder: slot.lease.as_ref().map(|lease| lease.holder.clone()),
         returned: slot.returned,
-        reclaimed: slot.reclaimed.as_ref().map(|reclaimed| reclaimed.lease_id.clone()),
-        worktree,
-        build: shown_build,
-        output_bases,
-        measured_at,
-        cached: from_file,
+        reclaimed: state.1.clone(),
+        worktree: 0,
+        build: build.into_iter().map(|path| DirUsage { path, bytes: 0 }).collect(),
+        output_bases: bases,
+        measured_at: 0,
+        cached: true,
+        walk: SlotWalk::Saved,
+        parts: 0,
         trims_next: trims_next.contains(&slot.path),
       });
+      let mut unit = Unit::new(
+        UnitOf::Slot {
+          pool: pool_index,
+          slot: slot_index,
+        },
+        Some(pool_index),
+        roots,
+        saved.or_else(|| old.clone()),
+        state,
+      );
+      unit.migrated = old.is_some();
+      units.push(unit);
     }
     usage.pools.push(report);
-    files.push((file, cached, mark_updates));
   }
-  // a run writes the orphans of its scope into the file of each pool it reads, so the file of another pool can keep an
-  // older measure of an orphan: the latest measure wins
-  let mut cached_orphans: BTreeMap<String, MeasuredBase> = BTreeMap::new();
-  for (path, measured) in files.iter().flat_map(|(_, file, _)| &file.orphans) {
-    cached_orphans
-      .entry(path.clone())
-      .and_modify(|kept| {
-        if measured.at > kept.at {
-          *kept = *measured;
-        }
-      })
-      .or_insert(*measured);
+  // a report writes the orphans of its scope into the file of each pool it walks, so the file of another pool can keep
+  // an older measure of an orphan: the latest measure wins
+  let mut saved_orphans: BTreeMap<String, Saved> = BTreeMap::new();
+  for (path, saved) in pool_files.iter().flat_map(|file| &file.orphans) {
+    if saved_orphans.get(path).is_none_or(|kept| saved.at > kept.at) {
+      saved_orphans.insert(path.clone(), saved.clone());
+    }
   }
   for base in orphans(&machine.bases, &machine.pool_dirs) {
-    let orphan_index = usage.orphans.len();
-    let mut orphan = base_usage(base);
-    if params.cached {
-      orphan.bytes = cached_orphans.get(&orphan.path).map_or(0, |measured| measured.bytes);
-    } else {
-      walks.push((Walk::of(&base.path), Target::Orphan(orphan_index)));
-    }
+    let orphan = base_usage(base);
+    let saved = saved_orphans.get(&orphan.path).cloned();
+    units.push(Unit::new(
+      UnitOf::Orphan(usage.orphans.len()),
+      None,
+      vec![UnitRoot::new(Walk::of(&base.path), RootKind::Whole)],
+      saved,
+      (None, None, false),
+    ));
     usage.orphans.push(orphan);
   }
+  for unit in &units {
+    show(&mut usage, unit, unit.saved.as_ref(), SlotWalk::Saved, 0);
+  }
+  debug!(units = units.len(), ms = started.elapsed().as_millis(), "read the saved measures");
 
-  let mut measuring = u32::try_from(refreshing_slots.len() + pending_checks.len()).unwrap_or(u32::MAX);
+  // what to do with each unit before the history; the seam of the tests has a history on every platform, and a mark
+  let seamed = history_override.is_some();
+  let any_lock = locks.iter().any(Option::is_some);
+  let mut queries: Vec<(usize, HistoryQuery)> = Vec::new();
+  for (index, unit) in units.iter_mut().enumerate() {
+    let locked = unit.pool.map_or(any_lock, |pool| locks[pool].is_some());
+    unit.walk = if params.cached {
+      SlotWalk::Saved
+    } else if !locked {
+      SlotWalk::Busy
+    } else if params.fresh {
+      SlotWalk::Fresh
+    } else if unit.saved.is_none() {
+      SlotWalk::NoSaved
+    } else if cfg!(target_os = "macos") || seamed {
+      let saved = unit.saved.as_ref().expect("a saved measure");
+      match saved.mark {
+        None => SlotWalk::NoMark,
+        Some(mark) => {
+          let roots: Vec<PathBuf> = saved
+            .roots
+            .iter()
+            .filter(|root| unit.roots.iter().any(|current| current.holds(root)))
+            .map(|root| PathBuf::from(&root.key))
+            .collect();
+          queries.push((index, HistoryQuery { roots, mark: mark.into() }));
+          unit.queried = true;
+          SlotWalk::Unchanged
+        }
+      }
+    } else if unit.stale_without_history(now) {
+      SlotWalk::Stale
+    } else {
+      SlotWalk::Unchanged
+    };
+    if !unit.walk.is_saved() || unit.walk == SlotWalk::Unchanged {
+      unit.mark = unit.mark_now().or_else(|| seamed.then_some(Mark { event_id: 1, device: 0 }));
+    }
+  }
+  let measuring = |units: &[Unit]| u32::try_from(units.iter().filter(|unit| matches!(unit.of, UnitOf::Slot { .. }) && unit.may_walk()).count()).unwrap_or(u32::MAX);
   if let Some(progress) = on_progress.as_deref_mut() {
-    progress(DiskUsageProgress::Cached { usage: usage.clone(), measuring });
+    progress(DiskUsageProgress::Cached {
+      usage: usage.clone(),
+      measuring: measuring(&units),
+    });
   }
   if !params.cached {
     for (pool_index, pool) in machine.pools.iter().enumerate() {
-      let bytes = Pool::new(&pool.git_common_dir).trash_bytes();
-      usage.pools[pool_index].trash_bytes = bytes;
-      files[pool_index].1.trash_bytes = Some(MeasuredBase { at: now, bytes });
-      let bytes = notes_bytes(&Pool::new(&pool.git_common_dir).notes_root());
-      usage.pools[pool_index].notes_bytes = bytes;
-      files[pool_index].1.notes_bytes = Some(MeasuredBase { at: now, bytes });
-    }
-  }
-  let planning = !pending_checks.is_empty();
-  for pending in pending_checks {
-    let roots: Vec<&Path> = pending.walks.iter().map(|(walk, _)| walk.root.as_path()).collect();
-    let slot_walks: Vec<Walk> = pending.walks.iter().map(|(walk, _)| walk.clone()).collect();
-    let changes = if let Some(changes) = changes_override.as_deref_mut() {
-      changes(&roots)
-    } else {
-      changed_since(&roots, &Mark::from(pending.previous.mark.expect("a pending check has a saved mark")))
-    };
-    let requests = walk_requests(&changes, &slot_walks, &pending.root_keys, &pending.previous.roots, &pending.previous.nodes);
-    if requests.is_empty() {
-      files[pending.pool].2.insert(pending.path, pending.mark.into());
-      continue;
-    }
-    let incremental = matches!(changes, Changes::Paths(_));
-    schedule_slot_refresh(
-      &mut walks,
-      &mut refreshing_slots,
-      SlotRefreshPlan {
-        pool: pending.pool,
-        slot: pending.slot,
-        slot_walks: &pending.walks,
-        root_keys: &pending.root_keys,
-        requests,
-        previous: Some(&pending.previous),
-        current_mark: Some(pending.mark),
-        incremental,
-        build: pending.build,
-        bases: pending.bases,
-      },
-    );
-  }
-  if planning {
-    // the slots that the check found unchanged leave the count: each `Slot` event counts to what `Planning` sets
-    measuring = u32::try_from(refreshing_slots.len()).unwrap_or(u32::MAX);
-    if let Some(progress) = on_progress.as_deref_mut() {
-      progress(DiskUsageProgress::Planning { measuring });
-    }
-  }
-  for refreshing in &refreshing_slots {
-    if !refreshing.incremental {
-      let slot = &mut usage.pools[refreshing.pool].slots[refreshing.slot];
-      slot.worktree = 0;
-      slot.build.clone_from(&refreshing.build);
-      slot.output_bases.clone_from(&refreshing.bases);
-    }
-  }
-  for (_, target) in &walks {
-    match *target {
-      Target::CheckoutBase(pool, base) => usage.pools[pool].checkout_bases[base].bytes = 0,
-      Target::Orphan(base) => usage.orphans[base].bytes = 0,
-      Target::Worktree(..) | Target::Build(..) | Target::SlotBase(..) | Target::Node(..) => {}
+      if locks[pool_index].is_some() {
+        let bytes = notes_bytes(&Pool::new(&pool.git_common_dir).notes_root());
+        usage.pools[pool_index].notes_bytes = bytes;
+        pool_files[pool_index].notes_bytes = Some(bytes);
+      }
     }
   }
 
-  let roots: Vec<Walk> = walks.iter().map(|(walk, _)| walk.clone()).collect();
-  let targets: Vec<Target> = walks.iter().map(|(_, target)| target.clone()).collect();
-  let mut remaining_walks: Vec<Vec<usize>> = usage.pools.iter().map(|pool| vec![0; pool.slots.len()]).collect();
-  for target in &targets {
-    match target {
-      Target::Worktree(pool, slot, _) | Target::Build(pool, slot, _, _) | Target::SlotBase(pool, slot, _, _) | Target::Node(pool, slot, ..) => {
-        remaining_walks[*pool][*slot] += 1;
-      }
-      Target::CheckoutBase(..) | Target::Orphan(..) => {}
+  // the history: the changed parts of each unit it was asked for
+  if !queries.is_empty() {
+    let history_started = Instant::now();
+    let lookups: Vec<Vec<PartLookup>> = units.iter().map(Unit::lookup).collect();
+    let mut changed: Vec<BTreeSet<Target>> = vec![BTreeSet::new(); units.len()];
+    let answers: Vec<std::result::Result<(), HistoryRefusal>> = if let Some(history) = history_override {
+      queries
+        .iter()
+        .map(|(index, query)| {
+          history(query).map(|paths| {
+            for path in paths {
+              if let Some(target) = units[*index].target_of(&path, &lookups[*index], Change::Path) {
+                changed[*index].insert(target);
+              }
+            }
+          })
+        })
+        .collect()
+    } else {
+      let only: Vec<HistoryQuery> = queries.iter().map(|(_, query)| query.clone()).collect();
+      changed_since(&only, tuning.history_deadline, &mut |query, path, change| {
+        let index = queries[query].0;
+        if let Some(target) = units[index].target_of(path, &lookups[index], change) {
+          changed[index].insert(target);
+        }
+      })
+    };
+    for ((index, _), answer) in queries.iter().zip(answers) {
+      let unit = &mut units[*index];
+      debug!(unit = ?unit.of, ?answer, changed = changed[*index].len(), "the history of a measure");
+      unit.walk = match answer {
+        Ok(()) => {
+          // a root that no saved measure holds is walked whole
+          for (root_index, lookup) in lookups[*index].iter().enumerate() {
+            if !lookup.saved {
+              changed[*index].insert(Target::Root(root_index));
+            }
+          }
+          unit.targets = std::mem::take(&mut changed[*index]);
+          if unit.targets.is_empty() { SlotWalk::Unchanged } else { SlotWalk::Parts }
+        }
+        Err(HistoryRefusal::Late) => {
+          let checked = unit.saved.as_ref().map_or(0, |saved| saved.checked.max(saved.at));
+          if now.saturating_sub(checked) > LATE_LIMIT.as_secs() {
+            SlotWalk::HistoryLateLong
+          } else {
+            SlotWalk::HistoryLate
+          }
+        }
+        Err(HistoryRefusal::Dropped) => SlotWalk::HistoryLost,
+        Err(HistoryRefusal::OtherDevice | HistoryRefusal::NoMark | HistoryRefusal::Future) => SlotWalk::NoMark,
+        Err(HistoryRefusal::Unavailable) => SlotWalk::NoHistory,
+      };
+    }
+    usage.history = Some(history_started.elapsed());
+  }
+
+  // the plan: the reads of the saved directories now, the walks in their order
+  for unit in &mut units {
+    unit.plan();
+    if !unit.walk.is_saved() {
+      let roots = unit.targets.iter().filter(|target| matches!(target, Target::Root(_))).count();
+      debug!(unit = ?unit.of, walk = ?unit.walk, targets = unit.targets.len(), roots, parts = unit.parts, "the plan of a measure");
     }
   }
-  let mut measured_slots = 0;
-  let _trees = walk_tree_with_callback(&roots, 3, |index, tree| {
-    let target = &targets[index];
-    let slot_target = match target {
-      Target::Worktree(pool, slot, root) => Some((*pool, *slot, *root, SlotRootKind::Worktree, tree)),
-      Target::Build(pool, slot, dir, root) => Some((*pool, *slot, *root, SlotRootKind::Build(*dir), tree)),
-      Target::SlotBase(pool, slot, base, root) => Some((*pool, *slot, *root, SlotRootKind::Base(*base), tree)),
-      Target::Node(pool, slot, root, kind, path, old_bytes) => {
-        let refreshing = refreshing_slots
-          .iter_mut()
-          .find(|refreshing| refreshing.pool == *pool && refreshing.slot == *slot)
-          .expect("the slot is being measured");
-        let root_key = refreshing.roots[*root].path.clone();
-        let cached_root = &mut refreshing.roots[*root];
-        adjust_slot_bytes(&mut usage.pools[*pool].slots[*slot], *kind, *old_bytes, tree.bytes);
-        cached_root.bytes = cached_root.bytes.saturating_sub(*old_bytes).saturating_add(tree.bytes);
-        cached_root.has_hardlinks |= tree.has_hardlinks;
-        if let Some(node) = refreshing.nodes.iter_mut().find(|node| node.root == root_key && node.path == *path) {
-          node.bytes = tree.bytes;
-          node.has_hardlinks = tree.has_hardlinks;
-        }
-        Some((*pool, *slot, *root, *kind, tree))
-      }
-      Target::CheckoutBase(pool, base) => {
-        usage.pools[*pool].checkout_bases[*base].bytes = tree.bytes;
-        None
-      }
-      Target::Orphan(base) => {
-        usage.orphans[*base].bytes = tree.bytes;
-        None
-      }
+  let mut order: Vec<usize> = (0..units.len()).filter(|&index| units[index].pending_targets() > 0).collect();
+  // the changed parts first, then the full walks, then the measures whose history came late, which keep their saved
+  // bytes unless the budget reaches them; each the least recently measured first
+  order.sort_by_key(|&index| {
+    let class = match units[index].walk {
+      SlotWalk::Parts => 0,
+      SlotWalk::HistoryLate => 2,
+      _ => 1,
     };
-    if let Some((pool_index, slot_index, root_index, kind, tree)) = slot_target {
-      let refreshing = refreshing_slots
-        .iter_mut()
-        .find(|refreshing| refreshing.pool == pool_index && refreshing.slot == slot_index)
-        .expect("the slot is being measured");
-      let root_key = refreshing.roots[root_index].path.clone();
-      if !matches!(target, Target::Node(..)) {
-        let old_bytes = refreshing.roots[root_index].bytes;
-        adjust_slot_bytes(&mut usage.pools[pool_index].slots[slot_index], kind, old_bytes, tree.bytes);
-        refreshing.roots[root_index].bytes = tree.bytes;
-        refreshing.roots[root_index].has_hardlinks = tree.has_hardlinks;
-        refreshing.nodes.retain(|node| node.root != root_key);
-        refreshing.nodes.extend(tree.nodes.into_iter().map(|node| CachedNode::of(&root_key, node)));
+    (class, units[index].age_key())
+  });
+  let mut walks: Vec<Walk> = Vec::new();
+  let mut walk_targets: Vec<(usize, Target)> = Vec::new();
+  for &index in &order {
+    let unit = &mut units[index];
+    for target in unit.targets.clone() {
+      if let Some(walk) = unit.walk_of(&target) {
+        walks.push(walk);
+        walk_targets.push((index, target));
+        unit.pending += 1;
       }
-      remaining_walks[pool_index][slot_index] -= 1;
-      if remaining_walks[pool_index][slot_index] == 0 {
-        let slot = &mut usage.pools[pool_index].slots[slot_index];
-        slot.measured_at = now;
-        slot.cached = false;
-        measured_slots += 1;
-        if let Some(progress) = on_progress.as_deref_mut() {
+    }
+  }
+  let measuring_now = u32::try_from(
+    units
+      .iter()
+      .filter(|unit| matches!(unit.of, UnitOf::Slot { .. }) && (!unit.walk.is_saved() || unit.pending > 0))
+      .count(),
+  )
+  .unwrap_or(u32::MAX);
+  if usage.history.is_some()
+    && let Some(progress) = on_progress.as_deref_mut()
+  {
+    let late = units
+      .iter()
+      .filter(|unit| matches!(unit.of, UnitOf::Slot { .. }) && unit.walk == SlotWalk::HistoryLate)
+      .count();
+    progress(DiskUsageProgress::Planning {
+      measuring: measuring_now,
+      late: u32::try_from(late).unwrap_or(u32::MAX),
+      history: usage.history,
+    });
+  }
+
+  // the units that need no walk end now: the unchanged ones with their new mark, the ones read alone
+  let (writes, written) = mpsc::channel::<(PathBuf, Vec<u8>)>();
+  let measured = Mutex::new(0u32);
+  for unit in &mut units {
+    if unit.pending == 0 && (unit.walk == SlotWalk::Unchanged || !unit.walk.is_saved()) {
+      end_unit(unit, &mut usage, &stores, &mut pool_files, now, &writes);
+      if matches!(unit.of, UnitOf::Slot { .. }) && !unit.walk.is_saved() {
+        let count = {
+          let mut measured = measured.lock().unwrap_or_else(PoisonError::into_inner);
+          *measured += 1;
+          *measured
+        };
+        if let (Some(progress), UnitOf::Slot { pool, slot }) = (on_progress.as_deref_mut(), unit.of) {
           progress(DiskUsageProgress::Slot {
             usage: usage.clone(),
-            pool_index,
-            slot_index,
-            measured: measured_slots,
-            measuring,
+            pool_index: pool,
+            slot_index: slot,
+            measured: count,
+            measuring: measuring_now,
           });
         }
       }
     }
-  });
-  let walked_bases: HashSet<&Path> = walks
-    .iter()
-    .filter(|(_, target)| matches!(target, Target::CheckoutBase(..)))
-    .map(|(walk, _)| walk.root.as_path())
-    .collect();
-  let orphan_updates: BTreeMap<String, MeasuredBase> = usage.orphans.iter().map(|base| (base.path.clone(), MeasuredBase { at: now, bytes: base.bytes })).collect();
-  for (pool_index, (pool, (file, cached, mark_updates))) in usage.pools.iter().zip(&files).enumerate() {
-    let measured: BTreeMap<String, Measured> = pool
-      .slots
-      .iter()
-      .enumerate()
-      .filter(|(_, slot)| !params.cached && !slot.cached)
-      .map(|(slot_index, slot)| {
-        let refreshing = refreshing_slots
-          .iter()
-          .find(|refreshing| refreshing.pool == pool_index && refreshing.slot == slot_index)
-          .expect("a measured slot has a walk");
-        (
-          slot.path.clone(),
-          Measured {
-            returned: slot.returned,
-            reclaimed: slot.reclaimed.clone(),
-            leased: slot.state != SlotState::Free,
-            at: slot.measured_at,
-            mark: refreshing.mark,
-            roots: refreshing.roots.clone(),
-            nodes: refreshing.nodes.clone(),
-            worktree: Some(slot.worktree),
-            build: slot.build.clone(),
-            output_bases: slot.output_bases.clone(),
-          },
-        )
-      })
-      .collect();
-    let bases: BTreeMap<String, MeasuredBase> = pool
-      .checkout_bases
-      .iter()
-      .filter(|base| walked_bases.contains(Path::new(&base.path)))
-      .map(|base| (base.path.clone(), MeasuredBase { at: now, bytes: base.bytes }))
-      .collect();
-    if params.cached && measured.is_empty() && bases.is_empty() && mark_updates.is_empty() {
-      continue;
-    }
-    let paths: HashSet<&str> = pool.slots.iter().map(|slot| slot.path.as_str()).collect();
-    let base_paths: HashSet<&str> = pool.checkout_bases.iter().map(|base| base.path.as_str()).collect();
-    let written = file.update(params.lock_timeout, |disk: &mut DiskFile| {
-      // the slots that left the pool and the output bases that are gone leave the file
-      disk.slots.retain(|path, _| paths.contains(path.as_str()));
-      disk.slots.extend(measured);
-      for (path, mark) in mark_updates {
-        if let Some(measured) = disk.slots.get_mut(path) {
-          measured.mark = Some(*mark);
+  }
+
+  // the walks, in one budget unless fresh; each unit is written as its last walk ends
+  let stop = AtomicBool::new(!params.fresh && tuning.walk_budget.is_zero());
+  let state = Mutex::new((&mut units, &mut usage, &mut pool_files, on_progress));
+  let (done, finished) = mpsc::channel::<()>();
+  std::thread::scope(|scope| {
+    let writer = scope.spawn(in_current_span(move || {
+      for (path, bytes) in written {
+        if let Err(error) = std::fs::create_dir_all(path.parent().unwrap_or(&path)).and_then(|()| write_atomically(&path, &bytes, AtomicWrite::default())) {
+          debug!(path = %path.display(), %error, "cannot write the measure");
         }
       }
-      disk.checkout_bases.retain(|path, _| base_paths.contains(path.as_str()));
-      disk.checkout_bases.extend(bases);
-      if !params.cached {
-        disk.trash_bytes = cached.trash_bytes;
-        disk.notes_bytes = cached.notes_bytes;
-        disk.orphans.clone_from(&orphan_updates);
+    }));
+    if !params.fresh && !walks.is_empty() {
+      let stop = &stop;
+      let budget = tuning.walk_budget;
+      scope.spawn(in_current_span(move || {
+        if finished.recv_timeout(budget).is_err() {
+          stop.store(true, Ordering::Relaxed);
+        }
+      }));
+    }
+    walk_tree_with_callback(&walks, tuning.node_entries, &stop, |walk, tree| {
+      let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+      let (units, usage, pool_files, on_progress) = &mut *state;
+      let (index, target) = &walk_targets[walk];
+      let unit = &mut units[*index];
+      unit.apply(target, tree);
+      unit.pending -= 1;
+      if unit.pending == 0 {
+        if unit.walk == SlotWalk::HistoryLate {
+          unit.walk = SlotWalk::HistoryLateWalked;
+        }
+        end_unit(unit, usage, &stores, pool_files, now, &writes);
+        if let UnitOf::Slot { pool, slot } = unit.of {
+          let count = {
+            let mut measured = measured.lock().unwrap_or_else(PoisonError::into_inner);
+            *measured += 1;
+            *measured
+          };
+          if let Some(progress) = on_progress.as_deref_mut() {
+            progress(DiskUsageProgress::Slot {
+              usage: usage.clone(),
+              pool_index: pool,
+              slot_index: slot,
+              measured: count,
+              measuring: measuring_now,
+            });
+          }
+        }
       }
-      Ok(())
     });
-    if let Err(error) = written {
-      debug!(error = %format!("{error:#}"), "cannot write the bytes of the slots");
+    let _ = done.send(());
+    drop(writes);
+    let _ = writer.join();
+  });
+  // what the budget did not reach keeps its saved bytes, as what another report walks or a late history left
+  for unit in &mut units {
+    if unit.pending > 0 && unit.walk != SlotWalk::HistoryLate {
+      debug!(unit = ?unit.of, "the walk budget ended before the walks of a measure");
+      unit.walk = SlotWalk::Budget;
+    }
+    if matches!(unit.walk, SlotWalk::Budget | SlotWalk::Busy | SlotWalk::HistoryLate) {
+      show(&mut usage, unit, unit.saved.as_ref(), unit.walk, 0);
     }
   }
+  if !params.cached {
+    let orphans: BTreeMap<String, Saved> = units
+      .iter()
+      .filter(|unit| matches!(unit.of, UnitOf::Orphan(_)))
+      .filter_map(|unit| unit.saved.clone().map(|saved| (saved.path.clone(), saved)))
+      .collect();
+    // a measure of the file of brd before 1.20 that no walk replaced goes into `disk/`: that file is of another brd
+    for unit in units.iter().filter(|unit| unit.migrated && unit.walk.is_saved()) {
+      let (Some(pool), Some(saved)) = (unit.pool, &unit.saved) else { continue };
+      if locks[pool].is_none() {
+        continue;
+      }
+      match unit.of {
+        UnitOf::Slot { .. } => stores[pool].write(&stores[pool].slot_file(&saved.path), saved),
+        UnitOf::CheckoutBase { .. } => {
+          pool_files[pool].checkout_bases.entry(saved.path.clone()).or_insert_with(|| saved.clone());
+        }
+        UnitOf::Orphan(_) | UnitOf::Trash(_) => {}
+      }
+    }
+    for (pool_index, store) in stores.iter().enumerate() {
+      if locks[pool_index].is_none() {
+        continue;
+      }
+      pool_files[pool_index].orphans.clone_from(&orphans);
+      let base_paths: HashSet<&str> = usage.pools[pool_index].checkout_bases.iter().map(|base| base.path.as_str()).collect();
+      pool_files[pool_index].checkout_bases.retain(|path, _| base_paths.contains(path.as_str()));
+      store.write(&store.dir.join(POOL_FILE), &pool_files[pool_index]);
+      let slots: HashSet<PathBuf> = usage.pools[pool_index].slots.iter().map(|slot| store.slot_file(&slot.path)).collect();
+      store.prune(&slots);
+    }
+  }
+  drop(locks);
   usage.elapsed = started.elapsed();
   Ok(usage)
 }
 
-/// A root of a slot whose bytes are cached separately
-#[derive(Clone, Copy)]
-enum SlotRootKind {
-  Worktree,
-  Build(usize),
-  Base(usize),
+impl UnitRoot {
+  fn new(walk: Walk, kind: RootKind) -> Self {
+    let key = root_key(&walk.root);
+    let mut skip: Vec<String> = walk.skip.iter().map(|path| root_key(path)).collect();
+    skip.sort();
+    Self { walk, key, kind, skip }
+  }
+
+  /// The saved root of this one: its key, and the directories it skips
+  fn holds(&self, saved: &SavedRoot) -> bool {
+    saved.key == self.key && saved.skip == self.skip
+  }
+
+  /// Its walk `tree`, to save
+  fn saved(&self, tree: &TreeBytes) -> SavedRoot {
+    SavedRoot {
+      skip: self.skip.clone(),
+      ..SavedRoot::of(self.key.clone(), self.kind, tree)
+    }
+  }
 }
 
-/// Where the bytes of a walk go
-#[derive(Clone)]
-enum Target {
-  Worktree(usize, usize, usize),
-  Build(usize, usize, usize, usize),
-  SlotBase(usize, usize, usize, usize),
-  Node(usize, usize, usize, SlotRootKind, String, u64),
-  CheckoutBase(usize, usize),
-  Orphan(usize),
+impl Unit {
+  fn new(of: UnitOf, pool: Option<usize>, roots: Vec<UnitRoot>, saved: Option<Saved>, state: (Option<u64>, Option<String>, bool)) -> Self {
+    let result = vec![None; roots.len()];
+    Self {
+      of,
+      pool,
+      roots,
+      saved,
+      mark: None,
+      walk: SlotWalk::Saved,
+      targets: BTreeSet::new(),
+      result,
+      pending: 0,
+      parts: 0,
+      state,
+      queried: false,
+      migrated: false,
+    }
+  }
+
+  /// It may be walked in this report: one to walk, or one the history checks
+  const fn may_walk(&self) -> bool {
+    !self.walk.is_saved() || self.queried
+  }
+
+  /// The mark of the volume of its roots now: of the worktree of a slot, else of the first root that exists
+  fn mark_now(&self) -> Option<Mark> {
+    let worktree = self.roots.iter().find(|root| root.kind == RootKind::Worktree);
+    worktree.into_iter().chain(&self.roots).find_map(|root| mark(&root.walk.root))
+  }
+
+  /// Without a history: the saved bytes are of another return, reclaim or lease than now, or older than `LEASED_STALE`
+  /// for a leased slot and for what is not a slot
+  fn stale_without_history(&self, now: u64) -> bool {
+    let Some(saved) = &self.saved else { return true };
+    let young = now.saturating_sub(saved.at) < LEASED_STALE.as_secs();
+    let roots_hold = saved.roots.len() == self.roots.len() && saved.roots.iter().zip(&self.roots).all(|(saved, root)| root.holds(saved));
+    match self.of {
+      UnitOf::Slot { .. } => {
+        let (returned, reclaimed, leased) = &self.state;
+        !roots_hold || saved.returned != *returned || saved.reclaimed != *reclaimed || saved.leased != *leased || (*leased && !young)
+      }
+      UnitOf::Trash(_) => true,
+      UnitOf::CheckoutBase { .. } | UnitOf::Orphan(_) => !roots_hold || !young,
+    }
+  }
+
+  /// The saved parts of each root
+  fn lookup(&self) -> Vec<PartLookup> {
+    self
+      .roots
+      .iter()
+      .map(|root| {
+        self
+          .saved
+          .as_ref()
+          .and_then(|saved| saved.roots.iter().find(|saved| root.holds(saved)))
+          .map_or_else(PartLookup::default, |saved| PartLookup {
+            saved: true,
+            nodes: saved.nodes.iter().map(|(path, _)| path.clone()).collect(),
+            dirs: saved.dirs.iter().map(|(path, _)| path.clone()).collect(),
+          })
+      })
+      .collect()
+  }
+
+  /// The refresh of a unit to walk: its targets, and the saved roots it starts from; the directories above the
+  /// subtrees are read now, one read each
+  fn plan(&mut self) {
+    match self.walk {
+      SlotWalk::Parts => {
+        for (index, root) in self.roots.iter().enumerate() {
+          self.result[index] = self.saved.as_ref().and_then(|saved| saved.roots.iter().find(|saved| root.holds(saved)).cloned());
+        }
+        self.dedupe();
+        let dirs: Vec<Target> = self.targets.iter().filter(|target| matches!(target, Target::Dir(..))).cloned().collect();
+        for target in dirs {
+          self.targets.remove(&target);
+          self.read_dir(&target);
+        }
+        // the reads add the new directories they found, or a whole root
+        self.dedupe();
+        self.parts += u32::try_from(self.targets.len()).unwrap_or(u32::MAX);
+      }
+      SlotWalk::HistoryLate => {
+        self.targets = (0..self.roots.len()).map(Target::Root).collect();
+      }
+      walk if walk.is_saved() => {}
+      _ => {
+        self.targets = (0..self.roots.len()).map(Target::Root).collect();
+      }
+    }
+  }
+
+  /// No target lies in another: a whole root takes the place of its parts, a subtree walked whole the place of the parts
+  /// at or under it, so no walk counts what another walk counts
+  fn dedupe(&mut self) {
+    let whole: HashSet<usize> = self
+      .targets
+      .iter()
+      .filter_map(|target| if let Target::Root(index) = target { Some(*index) } else { None })
+      .collect();
+    self.targets.retain(|target| matches!(target, Target::Root(_)) || !whole.contains(&target.root()));
+    let subtrees: Vec<(usize, String)> = self
+      .targets
+      .iter()
+      .filter_map(|target| if let Target::New(index, at) = target { Some((*index, at.clone())) } else { None })
+      .collect();
+    self.targets.retain(|target| match target {
+      Target::New(index, at) => !subtrees.iter().any(|(root, subtree)| root == index && subtree != at && is_under(at, subtree)),
+      Target::Node(index, at) | Target::Dir(index, at) => !subtrees.iter().any(|(root, subtree)| root == index && is_under(at, subtree)),
+      Target::Root(_) => true,
+    });
+  }
+
+  const fn pending_targets(&self) -> usize {
+    self.targets.len()
+  }
+
+  /// A saved directory above the subtrees read again: its own files, the parts under it that are gone, the
+  /// directories in it that no part holds, which are walked
+  fn read_dir(&mut self, target: &Target) {
+    let Target::Dir(index, at) = target else { return };
+    self.parts += 1;
+    let root = &self.roots[*index];
+    let path = join_path(&root.walk.root, at);
+    let Some(saved) = self.result[*index].as_mut() else {
+      self.targets.insert(Target::Root(*index));
+      return;
+    };
+    match dir_listing(&path) {
+      Ok(listing) => {
+        if let Some(dir) = saved.dirs.iter_mut().find(|(dir, _)| dir == at) {
+          dir.1 = listing.bytes;
+        }
+        let names: HashSet<String> = listing
+          .dirs
+          .iter()
+          .filter(|name| !root.walk.skip.contains(&path.join(name)))
+          .map(|name| name.to_string_lossy().into_owned())
+          .collect();
+        let children: HashSet<String> = saved
+          .nodes
+          .iter()
+          .chain(&saved.dirs)
+          .filter(|(part, _)| !part.is_empty() && part != at && parent_of(part) == at)
+          .map(|(part, _)| part.rsplit('/').next().unwrap_or(part).to_owned())
+          .collect();
+        for gone in children.difference(&names) {
+          saved.remove(&join_relative(at, gone));
+        }
+        for new in names.difference(&children) {
+          self.targets.insert(Target::New(*index, join_relative(at, new)));
+        }
+        saved.sum();
+      }
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => saved.remove(at),
+      Err(_) => {
+        self.targets.insert(Target::Root(*index));
+      }
+    }
+  }
+
+  /// The walk of a target
+  fn walk_of(&self, target: &Target) -> Option<Walk> {
+    let root = &self.roots[target.root()];
+    let at = match target {
+      Target::Root(_) => return Some(root.walk.clone()),
+      Target::Node(_, at) | Target::New(_, at) => at,
+      Target::Dir(..) => return None,
+    };
+    let path = join_path(&root.walk.root, at);
+    Some(Walk {
+      skip: root.walk.skip.iter().filter(|skip| skip.starts_with(&path)).cloned().collect(),
+      root: path,
+    })
+  }
+
+  /// The walk of a target ended with `tree`
+  fn apply(&mut self, target: &Target, tree: &TreeBytes) {
+    let index = target.root();
+    let root = &self.roots[index];
+    match target {
+      Target::Root(_) => self.result[index] = Some(root.saved(tree)),
+      Target::Node(_, at) | Target::New(_, at) => {
+        let saved = self.result[index].get_or_insert_with(|| root.saved(&TreeBytes::default()));
+        saved.insert(at, tree);
+      }
+      Target::Dir(..) => {}
+    }
+  }
 }
 
-struct WalkRequest {
-  root_index: usize,
-  node: Option<(String, u64)>,
+impl Target {
+  const fn root(&self) -> usize {
+    match self {
+      Self::Root(index) | Self::Node(index, _) | Self::Dir(index, _) | Self::New(index, _) => *index,
+    }
+  }
+}
+
+/// A unit whose walks ended, or that needs none: its new measure saved and shown
+fn end_unit(unit: &mut Unit, usage: &mut DiskUsage, stores: &[DiskStore], pool_files: &mut [PoolFile], now: u64, writes: &mpsc::Sender<(PathBuf, Vec<u8>)>) {
+  let saved = if unit.walk == SlotWalk::Unchanged {
+    // without a history nothing changes in the saved measure
+    if unit.mark.is_none() {
+      show(usage, unit, unit.saved.as_ref(), SlotWalk::Unchanged, 0);
+      return;
+    }
+    unit.saved.clone().map(|mut saved| {
+      // a root that left the measure leaves the file: a build dir whose rule is gone
+      saved.roots.retain(|root| unit.roots.iter().any(|current| current.holds(root)));
+      saved.checked = now;
+      saved.mark = unit.mark.map(Into::into).or(saved.mark);
+      (saved.returned, saved.reclaimed, saved.leased) = unit.state.clone();
+      saved
+    })
+  } else {
+    let path = match unit.of {
+      UnitOf::Slot { pool, slot } => usage.pools[pool].slots[slot].path.clone(),
+      UnitOf::CheckoutBase { pool, base } => usage.pools[pool].checkout_bases[base].path.clone(),
+      UnitOf::Orphan(base) => usage.orphans[base].path.clone(),
+      UnitOf::Trash(_) => unit.roots[0].key.clone(),
+    };
+    Some(Saved {
+      path,
+      returned: unit.state.0,
+      reclaimed: unit.state.1.clone(),
+      leased: unit.state.2,
+      at: now,
+      checked: now,
+      mark: unit.mark.map(Into::into),
+      roots: unit
+        .roots
+        .iter()
+        .zip(&unit.result)
+        .map(|(root, result)| result.clone().unwrap_or_else(|| root.saved(&TreeBytes::default())))
+        .collect(),
+    })
+  };
+  let Some(saved) = saved else { return };
+  match unit.of {
+    UnitOf::Slot { pool, .. } => {
+      let file = stores[pool].slot_file(&saved.path);
+      if let Ok(bytes) = serde_json::to_vec(&saved) {
+        let _ = writes.send((file, bytes));
+      }
+    }
+    UnitOf::CheckoutBase { pool, .. } => {
+      pool_files[pool].checkout_bases.insert(saved.path.clone(), saved.clone());
+      send_pool(stores, pool_files, pool, writes);
+    }
+    UnitOf::Trash(pool) => {
+      pool_files[pool].trash = Some(saved.clone());
+      send_pool(stores, pool_files, pool, writes);
+    }
+    UnitOf::Orphan(_) => {}
+  }
+  let walk = unit.walk;
+  let parts = unit.parts;
+  show(usage, unit, Some(&saved), walk, parts);
+  unit.saved = Some(saved);
+}
+
+fn send_pool(stores: &[DiskStore], pool_files: &[PoolFile], pool: usize, writes: &mpsc::Sender<(PathBuf, Vec<u8>)>) {
+  if let Ok(bytes) = serde_json::to_vec(&pool_files[pool]) {
+    let _ = writes.send((stores[pool].dir.join(POOL_FILE), bytes));
+  }
+}
+
+/// The bytes of `saved` into the report of its unit
+fn show(usage: &mut DiskUsage, unit: &Unit, saved: Option<&Saved>, walk: SlotWalk, parts: u32) {
+  let bytes_of = |key: &str| saved.and_then(|saved| saved.roots.iter().find(|root| root.key == key)).map_or(0, |root| root.bytes);
+  let all = || unit.roots.iter().map(|root| bytes_of(&root.key)).sum::<u64>();
+  match unit.of {
+    UnitOf::Slot { pool, slot } => {
+      let report = &mut usage.pools[pool].slots[slot];
+      let mut build = report.build.iter_mut();
+      let mut bases = report.output_bases.iter_mut();
+      for root in &unit.roots {
+        let bytes = bytes_of(&root.key);
+        match root.kind {
+          RootKind::Worktree => report.worktree = bytes,
+          RootKind::Build => {
+            if let Some(dir) = build.next() {
+              dir.bytes = bytes;
+            }
+          }
+          RootKind::Base => {
+            if let Some(base) = bases.next() {
+              base.bytes = bytes;
+            }
+          }
+          RootKind::Whole => {}
+        }
+      }
+      report.measured_at = saved.map_or(0, |saved| saved.at);
+      report.cached = walk.is_saved();
+      report.walk = walk;
+      report.parts = parts;
+    }
+    UnitOf::CheckoutBase { pool, base } => usage.pools[pool].checkout_bases[base].bytes = all(),
+    UnitOf::Orphan(base) => usage.orphans[base].bytes = all(),
+    UnitOf::Trash(pool) => usage.pools[pool].trash_bytes = all(),
+  }
+}
+
+/// The bytes of the build dirs of each slot of the pool of `git_common_dir` as `disk/` last measured them, of any age,
+/// by slot path: a read of the files without a lock or a walk, for the order of the leased slots in a shrink
+/// (`lease_pool::shrink::ShrinkParams::cached_build`). Empty when there are none
+pub fn cached_build_bytes(git_common_dir: &Path) -> HashMap<String, u64> {
+  DiskStore::of(git_common_dir)
+    .read_slots()
+    .into_iter()
+    .map(|saved| {
+      let bytes = saved.roots.iter().filter(|root| root.kind == RootKind::Build).map(|root| root.bytes).sum();
+      (saved.path, bytes)
+    })
+    .collect()
 }
 
 fn root_key(path: &Path) -> String {
   fs_walk::changes::canonical_path(path).and_then(|path| path.to_str().map(str::to_owned)).unwrap_or_default()
 }
 
-fn slot_root_kind(target: &Target) -> SlotRootKind {
-  match target {
-    Target::Worktree(..) => SlotRootKind::Worktree,
-    Target::Build(_, _, dir, _) => SlotRootKind::Build(*dir),
-    Target::SlotBase(_, _, base, _) => SlotRootKind::Base(*base),
-    Target::Node(_, _, _, kind, _, _) => *kind,
-    Target::CheckoutBase(..) | Target::Orphan(..) => unreachable!("a slot root has a slot target"),
+/// `path` is `at` or lies under it (`/` between names, `""` the root); `at` is a path of the file system or relative
+fn is_under(path: &str, at: &str) -> bool {
+  at.is_empty() || path == at || (path.starts_with(at) && matches!(path.as_bytes().get(at.len()), Some(b'/' | b'\\')))
+}
+
+fn parent_of(part: &str) -> &str {
+  part.rfind('/').map_or("", |slash| &part[..slash])
+}
+
+fn join_relative(at: &str, path: &str) -> String {
+  match (at.is_empty(), path.is_empty()) {
+    (true, _) => path.to_owned(),
+    (false, true) => at.to_owned(),
+    (false, false) => format!("{at}/{path}"),
   }
 }
 
-fn adjust_slot_bytes(slot: &mut SlotUsage, kind: SlotRootKind, old_bytes: u64, new_bytes: u64) {
-  let bytes = match kind {
-    SlotRootKind::Worktree => &mut slot.worktree,
-    SlotRootKind::Build(index) => &mut slot.build[index].bytes,
-    SlotRootKind::Base(index) => &mut slot.output_bases[index].bytes,
-  };
-  *bytes = bytes.saturating_sub(old_bytes).saturating_add(new_bytes);
-}
-
-fn schedule_slot_refresh(walks: &mut Vec<(Walk, Target)>, refreshing_slots: &mut Vec<RefreshingSlot>, plan: SlotRefreshPlan<'_>) {
-  let SlotRefreshPlan {
-    pool,
-    slot,
-    slot_walks,
-    root_keys,
-    requests,
-    previous,
-    current_mark,
-    incremental,
-    build,
-    bases,
-  } = plan;
-  let roots: Vec<CachedRoot> = slot_walks
-    .iter()
-    .enumerate()
-    .map(|(index, _)| {
-      let previous_root = previous.and_then(|measured| measured.roots.iter().find(|root| root.path == root_keys[index]));
-      CachedRoot {
-        path: root_keys[index].clone(),
-        bytes: if incremental { previous_root.map_or(0, |root| root.bytes) } else { 0 },
-        has_hardlinks: incremental && previous_root.is_some_and(|root| root.has_hardlinks),
-      }
-    })
-    .collect();
-  let nodes = if incremental {
-    previous.map_or_else(Vec::new, |measured| measured.nodes.clone())
+fn join_path(root: &Path, relative: &str) -> PathBuf {
+  if relative.is_empty() {
+    root.to_path_buf()
   } else {
-    Vec::new()
-  };
-  for request in requests {
-    let (root_walk, root_target) = &slot_walks[request.root_index];
-    if let Some((path, bytes)) = request.node {
-      let target = Target::Node(pool, slot, request.root_index, slot_root_kind(root_target), path.clone(), bytes);
-      walks.push((Walk::of(root_walk.root.join(path)), target));
-    } else {
-      walks.push((root_walk.clone(), root_target.clone()));
-    }
+    relative.split('/').fold(root.to_path_buf(), |path, name| path.join(name))
   }
-  refreshing_slots.push(RefreshingSlot {
-    pool,
-    slot,
-    roots,
-    mark: current_mark.map(Into::into),
-    nodes,
-    incremental,
-    build,
-    bases,
-  });
-}
-
-fn walk_requests(changes: &Changes, roots: &[Walk], root_keys: &[String], cached_roots: &[CachedRoot], nodes: &[CachedNode]) -> Vec<WalkRequest> {
-  match changes {
-    Changes::All => (0..roots.len()).map(|root_index| WalkRequest { root_index, node: None }).collect(),
-    Changes::Paths(paths) => {
-      let mut full = HashSet::new();
-      let mut partial = BTreeMap::new();
-      let mut full_slot = false;
-      for path in paths {
-        let Some(root_index) = roots
-          .iter()
-          .enumerate()
-          .filter(|(index, _)| path.starts_with(Path::new(&root_keys[*index])))
-          .max_by_key(|(index, _)| Path::new(&root_keys[*index]).components().count())
-          .map(|(index, _)| index)
-        else {
-          continue;
-        };
-        let relative = path.strip_prefix(Path::new(&root_keys[root_index])).ok();
-        let node = relative.and_then(|relative| {
-          nodes
-            .iter()
-            .filter(|node| node.root == root_keys[root_index] && relative.starts_with(Path::new(&node.path)))
-            .max_by_key(|node| Path::new(&node.path).components().count())
-        });
-        if let Some(node) = node {
-          if node.has_hardlinks {
-            full_slot = true;
-            break;
-          }
-          if !full.contains(&root_index) {
-            partial.insert((root_index, node.path.clone()), node.bytes);
-          }
-        } else {
-          if cached_roots[root_index].has_hardlinks {
-            full_slot = true;
-            break;
-          }
-          full.insert(root_index);
-          partial.retain(|(index, _), _| *index != root_index);
-        }
-      }
-      if full_slot {
-        return (0..roots.len()).map(|root_index| WalkRequest { root_index, node: None }).collect();
-      }
-      let mut requests: Vec<WalkRequest> = full.into_iter().map(|root_index| WalkRequest { root_index, node: None }).collect();
-      requests.extend(partial.into_iter().map(|((root_index, path), bytes)| WalkRequest {
-        root_index,
-        node: Some((path, bytes)),
-      }));
-      requests.sort_by_key(|request| request.root_index);
-      requests
-    }
-  }
-}
-
-/// The bytes of the build dirs of each slot of the pool of `git_common_dir` as `disk.json` last measured them, of any
-/// age, by slot path: a read of the file without its lock or a walk, for the order of the leased slots in a shrink
-/// (`lease_pool::shrink::ShrinkParams::cached_build`). Empty when the file is missing or can't be read
-pub fn cached_build_bytes(git_common_dir: &Path) -> HashMap<String, u64> {
-  disk_file(git_common_dir).read::<DiskFile>().map_or_default(|file| {
-    file
-      .slots
-      .into_iter()
-      .map(|(path, measured)| (path, measured.build.iter().map(|dir| dir.bytes).sum()))
-      .collect()
-  })
-}
-
-fn disk_file(git_common_dir: &Path) -> StateFile {
-  StateFile::new(git_common_dir, DISK_FILE, DISK_LOCK, "the disk usage of the pool")
 }
 
 fn base_usage(base: &OutputBase) -> BaseUsage {

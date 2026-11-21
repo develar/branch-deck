@@ -87,7 +87,7 @@ impl Repository {
     serde_json::to_value(report).map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
   }
 
-  /// The disk report of every pool of the host; `cached`: from `disk.json` alone, without a walk of a slot, as the
+  /// The disk report of every pool of the host; `cached`: from `disk/` alone, without a walk of a slot, as the
   /// line of a relief names what holds the space
   pub(crate) fn disk_report(&self, fresh: bool, cached: bool) -> Result<DiskReport, Refusal> {
     let params = DiskParams {
@@ -96,7 +96,6 @@ impl Repository {
       scope: DiskScope::Machine,
       fresh,
       cached,
-      lock_timeout: DEFAULT_LOCK_TIMEOUT,
     };
     let usage = disk_usage_core(&self.git, &params).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))?;
     Ok(DiskReport::of(&usage))

@@ -10,6 +10,7 @@ targets:
   - crates/pool-disk/src/disk_test.rs
   - crates/fs-walk/src/lib.rs
   - crates/fs-walk/src/changes.rs
+  - crates/pool-disk/src/step.rs
   - crates/pool-disk/src/report.rs
   - crates/lease-pool/src/trim.rs
   - crates/test-server/src/disk_fixtures.rs
@@ -57,12 +58,12 @@ palette opens it.
 ### Requirement: Report: The dialog reads this Mac and the hosts when it opens
 
 The dialog MUST read `disk_usage` when it opens: this Mac's pools walked in process (`pool_disk`, the bytes of
-`disk.json` while they hold, the home of the app) and the hosts of `brd-host` side by side (`AppHost::host_disks`: the
+`disk/` while they hold, the home of the app) and the hosts of `brd-host` side by side (`AppHost::host_disks`: the
 app runs `brd-host disk --json` of the binary it bundles, none without one).
 
 #### Scenario: This Mac and the hosts are read side by side
 - **WHEN** the dialog opens
-- **THEN** it reads `disk_usage`: this Mac's pools walked in process (`pool_disk`, the bytes of `disk.json` while they
+- **THEN** it reads `disk_usage`: this Mac's pools walked in process (`pool_disk`, the bytes of `disk/` while they
   hold, the home of the app)
 - **AND** beside them the hosts of `brd-host` (`AppHost::host_disks`)
   [@test] tests/e2e/disk/disk-usage.spec.ts (`should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit`)
@@ -153,7 +154,7 @@ slot's `measuredAt` age and whether its bytes are cached.
 #### Scenario: The saved overview comes before any walk
 - **WHEN** the dialog reads `disk_usage`
 - **THEN** the first event is `Cached`, the full saved overview, before any tree walk
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`)
   [@test] crates/app-api/src/app/disk_test.rs (`disk_usage_events_serialize_their_channel_type`)
 
 #### Scenario: The age of each slot's bytes
@@ -163,13 +164,14 @@ slot's `measuredAt` age and whether its bytes are cached.
 
 ### Requirement: Report: The progress counts the slots as their walks complete
 
-After FSEvents planning, `Planning` MUST set the exact number of slots to walk; a `Slot` event MUST replace that slot
-as its walk completes and advance the measured count. Host answers MUST arrive as `Machine`, and `Done` ends progress.
+After the check of the history, `Planning` MUST set the exact number of slots to walk and the number that keep their
+saved bytes as the history came late; a `Slot` event MUST replace a slot as its walks complete and advance the measured
+count. Host answers MUST arrive as `Machine`, and `Done` ends progress.
 
 #### Scenario: Each finished slot replaces its row and advances the count
 - **WHEN** the walk of a slot completes
 - **THEN** a `Slot` event replaces that slot and advances the measured count of the slots `Planning` set
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_slot_event_counts_the_slots_that_the_fsevents_check_left`)
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`, `a_slot_event_counts_the_slots_that_the_history_check_left`)
   [@test] src/presenters/disk.test.ts (`words when slot bytes were measured and disk progress`)
   [@test] tests/e2e/disk/disk-usage.spec.ts (`should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit`)
 
@@ -188,88 +190,167 @@ Closing the dialog MUST NOT discard values already received.
 
 ### Requirement: Report: On macOS an unchanged slot stays cached
 
-On macOS, a slot whose saved volume mark has no changes MUST stay cached regardless of its age or lease, while it is
-returned and leased as when it was measured.
+On macOS, a slot whose saved mark has no change in the history MUST stay cached regardless of its age, its lease, its
+return or a reclaim since it was measured: the history names what they changed.
 
 #### Scenario: No change since the saved mark
 - **GIVEN** macOS
-- **WHEN** a slot's saved volume mark has no changes, whatever its age or its lease
-- **THEN** the slot stays cached
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
+- **WHEN** the history names no change of a slot since its saved mark, whatever its age, its lease or its return
+- **THEN** the slot stays cached, and its mark moves on to the one taken before the replay
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`)
 
 ### Requirement: Report: On macOS a changed path remeasures its nearest saved node
 
-On macOS, a changed path MUST remeasure the nearest saved node (through depth 3), preserving the other node sizes.
+On macOS, a changed path MUST remeasure the deepest saved part it lies in, the other parts keeping their bytes: a
+subtree of at most 20,000 entries is walked again; a directory above the subtrees is read alone, its own files, its
+directories that no part holds walked as new parts and those that are gone dropped; a root that no saved measure holds
+is walked whole.
 
 #### Scenario: A changed file
 - **GIVEN** macOS
 - **WHEN** a path changed since the saved mark
-- **THEN** the nearest saved node (through depth 3) is measured again
-- **AND** the other node sizes are preserved
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_root`)
+- **THEN** the deepest saved part it lies in is measured again
+- **AND** the other parts keep their bytes
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`, `a_changed_path_selects_the_deepest_saved_part_of_the_deepest_root`)
+
+#### Scenario: A file of a directory above the subtrees
+- **WHEN** a file of a directory above the subtrees changed, a directory was created in it or one under it is gone
+- **THEN** that directory is read alone, the new directory is walked as a part of its own, the gone one leaves the
+  measure
+- **AND** the bytes agree with a full walk, and no walk lies in another
+  [@test] crates/pool-disk/src/disk_test.rs (`a_directory_above_the_parts_is_read_alone_and_its_new_and_gone_directories_follow`, `the_targets_of_a_refresh_never_lie_in_one_another`)
+
+#### Scenario: The parts of a walk
+- **WHEN** a tree is walked
+- **THEN** its parts are the subtrees of at most the limit of entries and the directories above them, each with the bytes
+  of its own files, and they add up to the tree
+  [@test] crates/fs-walk/src/walk_test.rs (`the_parts_of_a_tree_are_the_subtrees_of_at_most_the_node_entries_and_the_directories_above_them`)
 
 #### Scenario: The changed paths of the events
-- **WHEN** FSEvents names changed paths
-- **THEN** the changed paths of the slot select the saved nodes measured again
-  [@test] crates/fs-walk/src/changes_test.rs (`canonical_path_keeps_the_nonexistent_suffix`, `changed_event_paths_are_filtered_to_requested_roots`)
-
-### Requirement: Report: A full walk where a partial sum could double-count
-
-A node or root with hardlinks, a newly created hardlink or directory, missing marks, a different root set or volume,
-incomplete FSEvents history, and a slot returned or leased since it was measured MUST require a full walk so a partial
-sum never double-counts a linked file.
-
-#### Scenario: A node or root with hardlinks
-- **WHEN** a changed path lies in a node or root with hardlinks
-- **THEN** the slot is walked in full
-  [@test] crates/pool-disk/src/disk_test.rs (`a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_root`)
-
-#### Scenario: A newly created hardlink or directory
-- **WHEN** a hardlink or a directory is newly created
-- **THEN** the slot is walked in full
-  [@test] crates/fs-walk/src/changes_test.rs (`a_new_hardlink_requires_a_full_slot_measurement`)
-
-#### Scenario: Missing marks
-- **WHEN** the saved mark of a slot is missing
-- **THEN** the slot is walked in full
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
-
-#### Scenario: A different root set or volume
-- **WHEN** the mark is of a different volume, or the roots are a different set
-- **THEN** the slot is walked in full
-  [@test] crates/fs-walk/src/changes_test.rs (`fsevents_refuses_a_mark_from_another_device`)
-
-#### Scenario: Incomplete FSEvents history
-- **WHEN** the FSEvents history since the mark is incomplete
-- **THEN** the slot is walked in full
-  [@test] crates/fs-walk/src/changes_test.rs (`fsevents_refuses_a_mark_from_the_future`)
-
-#### Scenario: A slot returned or leased since its measurement
-- **WHEN** a slot was returned, leased or freed since it was measured
-- **THEN** the slot is walked in full
+- **WHEN** the history names changed paths
+- **THEN** each goes to the measures under whose roots it lies and whose mark it follows
+  [@test] crates/fs-walk/src/changes_test.rs (`canonical_path_keeps_the_nonexistent_suffix`, `an_event_goes_to_the_queries_under_whose_roots_it_lies_and_whose_mark_it_follows`)
 
 ### Requirement: Report: Other platforms cache a slot by its return and its lease
 
-On other platforms, where there is no FSEvents history, a slot MUST stay cached while it is returned and leased as
-when it was measured, a leased one only for 15 minutes (`LEASED_STALE`: its builds write while it is leased); any other
-slot MUST be walked in full.
+On other platforms, where there is no history, a slot MUST stay cached while it is returned and leased as when it was
+measured, a leased one only for 15 minutes (`LEASED_STALE`: its builds write while it is leased); any other slot MUST be
+walked in full.
 
 #### Scenario: A platform without FSEvents
 - **GIVEN** a platform other than macOS
 - **WHEN** the dialog reads `disk_usage`
-- **THEN** no volume mark is taken and any check of the history asks a full walk
-  [@test] crates/fs-walk/src/changes_test.rs (`platforms_without_fsevents_always_require_a_full_walk`)
+- **THEN** no mark of the history is taken and every query of the history is refused
+  [@test] crates/fs-walk/src/changes_test.rs (`platforms_without_fsevents_keep_no_history`)
+
+#### Scenario: A free slot returned as when it was measured
+- **GIVEN** a platform other than macOS
+- **WHEN** a reclaim returns another slot, and gives it a number of an earlier free period
+- **THEN** the other free slots stay cached, the reclaimed one is walked, and a measure of another reclaimed lease is
+  stale
+  [@test] crates/pool-disk/src/disk_test.rs (`a_reclaim_leaves_the_measures_of_the_other_free_slots_valid`, `a_reclaimed_slot_with_the_number_of_an_earlier_free_period_is_measured_again`)
 
 #### Scenario: A leased slot measured within 15 minutes
 - **GIVEN** a platform other than macOS
 - **WHEN** a slot, leased as when it was measured, was measured less than 15 minutes ago
 - **THEN** it stays cached
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
 
 #### Scenario: A leased slot measured longer ago
 - **GIVEN** a platform other than macOS
 - **WHEN** a leased slot was measured 15 minutes ago or longer
 - **THEN** it is walked in full
+
+### Requirement: Report: The history of every measure is read in one replay by a deadline
+
+On macOS the report MUST read the history of every measure it checks in one replay of a volume from the oldest of their
+marks (marks far apart replay in streams of their own, all at once), by a deadline of 10 s; each event MUST go only to
+the measures under whose roots it lies and whose mark it follows, whatever the order of the ids. The new mark MUST be taken before the
+replay and kept only with the measure: a write the history has not shown yet comes after it, in the next replay.
+
+#### Scenario: Events of several slots
+- **WHEN** a replay names changes under the roots of two slots and of none
+- **THEN** each slot gets the changes under its roots after its mark, and a change before its mark or under no root
+  goes nowhere; a lost subtree (`MustScanSubDirs`, with the drop that caused it) is that subtree to walk again
+  [@test] crates/fs-walk/src/changes_test.rs (`an_event_goes_to_the_queries_under_whose_roots_it_lies_and_whose_mark_it_follows`)
+
+### Requirement: Report: A full walk where the history cannot name the changes
+
+A measure MUST be walked in full when it has no mark, a mark of another volume or one past the current event, when the
+history lost events it names no subtree of (wrapped ids, a drop without `MustScanSubDirs`, a subtree of `/`), and when
+nothing was saved; a lost subtree, a mount or a moved root is that subtree to walk again.
+
+#### Scenario: A mark that cannot be replayed
+- **GIVEN** macOS
+- **WHEN** the saved mark is of another volume, past the current event or none
+- **THEN** the history refuses it, and the slot is walked in full
+  [@test] crates/fs-walk/src/changes_test.rs (`fsevents_refuses_a_mark_from_the_future_or_from_another_device_and_no_mark`)
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`)
+
+#### Scenario: Another set of build directories
+- **WHEN** the clean rules of a slot name another build directory inside its worktree
+- **THEN** the saved parts of the worktree, which held it, are of no use: the worktree is walked whole, the build
+  directory apart
+  [@test] crates/pool-disk/src/disk_test.rs (`a_new_build_directory_inside_the_worktree_walks_the_worktree_again`)
+
+#### Scenario: A history that lost events
+- **WHEN** the history lost events under a slot
+- **THEN** a lost subtree is walked again in the slots under it or above it, and a loss of the whole history walks every
+  slot in full
+  [@test] crates/fs-walk/src/changes_test.rs (`an_event_goes_to_the_queries_under_whose_roots_it_lies_and_whose_mark_it_follows`)
+  [@test] crates/pool-disk/src/disk_test.rs (`a_late_history_keeps_the_saved_bytes_until_a_day_has_passed`)
+
+### Requirement: Report: A late history keeps the saved bytes
+
+A replay that does not end by its deadline MUST leave its measures with their saved bytes and their saved mark, shown
+with their age and "the file history came late", and walk them in full in the budget the other walks leave, the least
+recently measured first, so their next replay is short; a measure the history has not checked for a day MUST be walked
+in full with the others.
+
+#### Scenario: The history comes late
+- **WHEN** the replay of the history does not end by its deadline
+- **THEN** the slot keeps its saved bytes and its mark, and `Planning` counts it as late
+- **AND** the budget left after the other walks walks it in full, with a new mark
+  [@test] crates/pool-disk/src/disk_test.rs (`a_late_history_keeps_the_saved_bytes_until_a_day_has_passed`)
+
+#### Scenario: A day without a history
+- **WHEN** the history came late for a slot that it has not checked for a day
+- **THEN** the slot is walked in full
+  [@test] crates/pool-disk/src/disk_test.rs (`a_late_history_keeps_the_saved_bytes_until_a_day_has_passed`)
+
+### Requirement: Report: The walks run in a budget and save each slot as it ends
+
+The walks of a report MUST run in a budget of 90 s unless `fresh`: the changed parts first, then the full walks, the
+least recently measured first, ending one after another in that order. Each slot MUST be saved as its walks end (a
+file a slot in `disk/`); what the budget did not reach MUST keep its saved bytes, or none, and is walked by the next
+report.
+
+#### Scenario: The budget ends before the walks
+- **WHEN** the budget of a report ends before the walks of a slot
+- **THEN** the slot keeps its saved bytes, or shows none, and the next report walks it
+- **AND** a slot whose walks ended is saved
+  [@test] crates/pool-disk/src/disk_test.rs (`the_walk_budget_leaves_the_slots_it_did_not_reach_to_the_next_report`)
+  [@test] crates/fs-walk/src/walk_test.rs (`each_walk_is_told_once_as_it_ends_and_a_stop_names_no_bytes_of_an_unfinished_one`)
+
+### Requirement: Report: One report walks a pool at a time
+
+A report MUST walk a pool only under `disk/walk.lock` of the pool, taken at once or not at all: while another report
+holds it, the report MUST show the saved bytes of the pool and write nothing.
+
+#### Scenario: Another report walks the pool
+- **WHEN** a report reads a pool that another report walks
+- **THEN** it shows the saved bytes, "another report measures now", and writes nothing
+  [@test] crates/pool-disk/src/disk_test.rs (`another_report_that_walks_the_pool_leaves_this_one_the_saved_bytes`)
+
+### Requirement: Report: A slot says why it shows saved bytes that may be stale
+
+A slot whose saved bytes were kept though it may have changed MUST say why beside their age: the history came late,
+the next report measures it (the budget), another report measures now.
+
+#### Scenario: The reasons beside the age
+- **WHEN** a slot keeps its saved bytes as the history came late, the budget ended, or another report walks
+- **THEN** its line says "Measured 2 hours ago, the file history came late", "…, the next report measures it" or
+  "…, another report measures now"
+  [@test] src/presenters/disk.test.ts (`says why a slot shows saved bytes that may be stale`)
 
 ### Requirement: Report: Sizes come in MiB and are worded binary
 
@@ -283,13 +364,14 @@ worded binary, as the minimum of the git config counts them.
 
 ### Requirement: Report: Measure Again walks every slot in full
 
-Measure Again MUST read with `fresh`: every slot walked again in full, whatever `disk.json` holds and whatever
-FSEvents says; the answer shown MUST stay until the new one comes.
+Measure Again MUST read with `fresh`: every slot walked again in full, whatever `disk/` holds and whatever the history
+says, without the walk budget; the answer shown MUST stay until the new one comes.
 
 #### Scenario: Measure Again reads with `fresh`
 - **WHEN** the user chooses Measure Again
-- **THEN** the dialog reads with `fresh`, every slot walked again in full
+- **THEN** the dialog reads with `fresh`, every slot walked again in full, however long it takes
 - **AND** the answer shown stays until the new one comes
+  [@test] crates/pool-disk/src/disk_test.rs (`the_walk_budget_leaves_the_slots_it_did_not_reach_to_the_next_report`)
 
 ### Requirement: Report: A read that a later one overtook is dropped
 
@@ -385,7 +467,12 @@ The dialog MUST be loaded on its first opening and kept mounted while closed.
 
 ## Open Questions / Risks
 
-- A walk of every slot with its worktree takes minutes the first time (five on the user's Mac, 860 GB in 32 slots); the
-  dialog shows the last answer immediately and updates it with progress as each slot finishes. A refresh on macOS walks
-  only changed nodes, while other platforms keep their previous cache policy.
+- A walk of a slot of idea-1 is cold and takes about 20 s on the user's Mac (2026-11-21, agents building): its files
+  outnumber the vnode cache. The first report after an upgrade walks the slots in budgets of 90 s, a few each, and shows
+  the bytes of brd before 1.20 until then; after that a report reads the history and walks the changed parts. Other
+  platforms keep their cache policy, with the same budget.
+- On a Mac whose `fseventsd` lags behind builds in 15 slots, the replay of more than a few minutes of history does not
+  end in 10 s (20 minutes of it took over 30 s, 2026-11-21): a report then shows the saved bytes with their age and walks
+  the least recently measured slots in its budget, about two minutes in all. A watcher that keeps the changes of the
+  pools live, as accio's does for its index, would spare the replay.
 - A host whose agent predates the feature `disk` shows only why; `brd-host upgrade <alias>` gives it the request.

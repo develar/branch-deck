@@ -55,7 +55,6 @@ pub fn lease_disk_reporting(context: &LeaseContext, environment: &Environment, a
     scope: if args.all { DiskScope::Machine } else { DiskScope::Repository },
     fresh: args.fresh,
     cached: args.cached,
-    lock_timeout: context.lock_timeout,
   };
   let usage = disk_usage_core_with_progress(&context.git, &params, |event| progress(DiskStep::of(&event))).map_err(lease_error)?;
   progress(DiskStep::done(&usage));

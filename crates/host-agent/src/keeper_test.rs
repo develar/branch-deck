@@ -17,6 +17,8 @@ fn slot(name: &str, bytes: u64) -> SlotReport {
     output_bases: Vec::new(),
     measured_at: 1,
     cached: true,
+    walk: None,
+    parts: 0,
     trims_next: false,
   }
 }

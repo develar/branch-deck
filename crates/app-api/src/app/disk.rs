@@ -12,7 +12,7 @@ use git_ops::revs::repository_dirs;
 use lease_pool::lease::SlotState;
 use lease_pool::trim::{TrimParams, trim_core};
 use pool_disk::report::{DiskReport, PoolReport, SlotReport};
-use pool_disk::{DiskParams, DiskScope, DiskUsageProgress, disk_usage_core_with_progress};
+use pool_disk::{DiskParams, DiskScope, DiskUsageProgress, SlotWalk, disk_usage_core_with_progress};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -21,7 +21,7 @@ use tracing::instrument;
 
 /// How long `bd-host disk` may take: each host walks its pools, a minute for 1 TB
 const HOSTS_TIMEOUT: Duration = Duration::from_mins(10);
-/// The wait for a lock of a pool (`leases.lock`, `disk.lock`)
+/// The wait for the lock of a pool (`leases.lock`)
 const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the trim waits for the Bazel servers of a slot it asked to exit
 const SERVER_TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,7 +38,7 @@ pub struct HostDisk {
 pub struct DiskUsageParams {
   /// A checkout of a repository: its pool is reported wherever it lives, and its config gives the minimum
   pub repository_path: String,
-  /// Walk every slot again, whatever `disk.json` keeps
+  /// Walk every slot again in full, whatever `disk/` keeps
   pub fresh: bool,
 }
 
@@ -59,6 +59,8 @@ pub enum DiskUsageEvent {
   },
   Planning {
     measuring: u32,
+    /// The slots that keep their saved bytes as the history of the file system came late
+    late: u32,
   },
   Slot {
     machine: Option<String>,
@@ -135,6 +137,20 @@ pub struct SlotDisk {
   pub measured_at: u32,
   /// The values come from the saved disk report, not this walk
   pub cached: bool,
+  /// Why the saved values were kept though the slot may have changed; `null` when they are current or walked now
+  pub kept: Option<SlotDiskKept>,
+}
+
+/// Why a slot shows saved values that may be stale
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SlotDiskKept {
+  /// The history of the file system did not come in time
+  HistoryLate,
+  /// The walk budget of the report ended first: the next report walks it
+  Budget,
+  /// Another report walks the pool now
+  Busy,
 }
 
 /// What a slot is to the window
@@ -192,7 +208,6 @@ pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams, events: Sink<
         scope: DiskScope::Machine,
         fresh: params.fresh,
         cached: false,
-        lock_timeout: LOCK_TIMEOUT,
       };
       let result = disk_usage_core_with_progress(&git, &disk, |progress| match progress {
         DiskUsageProgress::Cached { usage, measuring } => {
@@ -202,8 +217,8 @@ pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams, events: Sink<
           let _ = events.send(DiskUsageEvent::Cached { overview, measuring });
           let _ = cached_tx.send(());
         }
-        DiskUsageProgress::Planning { measuring } => {
-          let _ = events.send(DiskUsageEvent::Planning { measuring });
+        DiskUsageProgress::Planning { measuring, late, .. } => {
+          let _ = events.send(DiskUsageEvent::Planning { measuring, late });
         }
         DiskUsageProgress::Slot {
           usage,
@@ -397,6 +412,12 @@ fn slot(slot: &SlotReport) -> SlotDisk {
     trims_next: slot.trims_next,
     measured_at: u32::try_from(slot.measured_at).unwrap_or(u32::MAX),
     cached: slot.cached,
+    kept: match slot.walk {
+      Some(SlotWalk::HistoryLate) => Some(SlotDiskKept::HistoryLate),
+      Some(SlotWalk::Budget) => Some(SlotDiskKept::Budget),
+      Some(SlotWalk::Busy) => Some(SlotDiskKept::Busy),
+      _ => None,
+    },
   }
 }
 

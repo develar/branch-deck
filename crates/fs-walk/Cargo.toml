@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 sync-utils = { path = "../sync-utils" }
+tracing.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2.191"

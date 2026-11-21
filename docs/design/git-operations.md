@@ -2320,11 +2320,12 @@ nothing but LFS puts the content back after a checkout of the blobs.
    next number it would be the next slot of its pool, leased with stale output, and the trim would keep it over a warm
    slot. Every brd that reads the state agrees on this order, whether it orders a pool by the number alone or by the
    time first: the number and the time put the slot last alike. No other slot changes its number, so no other free
-   slot gets a new epoch, and `pool-disk` keeps their measures (`measured.returned == slot.returned`): a moved number
-   would give the slot a new epoch, and the next `brd lease disk` would walk it again. Only when no number is left
+   slot gets a new epoch, and `pool-disk` keeps their measures where it has no history of the file system (Linux,
+   Windows: `saved.returned == slot.returned`): a moved number would give the slot a new epoch, and the next
+   `brd lease disk` there would walk it again; on macOS the history says what changed. Only when no number is left
    below them (0, or 1 while the reclaimed slot had 0) do the other free slots move up, by `RECLAIM_ROOM` (1000) at
    once, so that move comes once in many reclaims. The number below can be one that the slot had in an earlier free
-   period, and `disk.json` keeps the last measure of each path. So the epoch of a reclaimed slot
+   period, and `disk/` keeps the last measure of each path. So the epoch of a reclaimed slot
    (`returned <n> reclaimed <lease id>`) and its measure name the reclaimed lease, and a measure without it is stale.
    The state keeps the highest number the pool gave (`last_returned`): a reclaim of the slot of that number lowers the
    highest number of the slots, and a return takes one past `last_returned`, so it gives no number twice.
@@ -2355,7 +2356,7 @@ nothing but LFS puts the content back after a checkout of the blobs.
    and sets none. It takes the locks of cargo of a profile dir first and then reads the slot under the pool lock: a
    return or a get that came between keeps the slot. A slot where cargo builds stays (`shrunk.building`). A prune
    stamps the lease (`pruned_at`), and the shrink passes over the slot within the smallest `age` of its cargo rules,
-   when no kept unit can be old enough to go. The largest build output goes first, as `disk.json` last measured it
+   when no kept unit can be old enough to go. The largest build output goes first, as `disk/` last measured it
    (`pool_disk::cached_build_bytes`, a read without a walk), then the slots without a size, leased longest ago first.
    On 2026-11-15 the leased slots of branch-deck held 48 to 120 GB of `target/` each, which no step reached, while the
    shrink took the warm output of the free slots. The keeper of `brd-host` orders the leased slots by `leased_at`

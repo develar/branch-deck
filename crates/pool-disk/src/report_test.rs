@@ -26,6 +26,8 @@ fn lines_name_the_slot_cache_source_age_and_elapsed_time() {
         output_bases: Vec::new(),
         measured_at: now.saturating_sub(7200),
         cached: true,
+        walk: None,
+        parts: 0,
         trims_next: false,
       }],
       checkout_bases: Vec::new(),

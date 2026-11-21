@@ -4,13 +4,25 @@
 //! (Linux, where a worktree shares nothing) or its length (Windows). One `getattrlistbulk` reads a whole batch of
 //! entries with their attributes, where `read_dir` and an `lstat` per entry would cost two calls per file.
 //!
-//! A file with several hard links counts once per walk (cargo links `deps/` into the profile dir); a link counts as
-//! itself and is never followed; a directory counts nothing of its own.
+//! A file with `n` hard links counts `1/n` of its bytes at each of them (cargo links `deps/` into the profile dir): the
+//! bytes of a tree are then the sum of the bytes of its parts, whatever else is walked, so a part walked again alone
+//! adds up with the saved bytes of the others. A link counts as itself and is never followed; a directory counts nothing
+//! of its own.
+//!
+//! A walk of a tree (`walk_tree`) also names its parts: the frontier of subtrees of at most `node_entries` entries each
+//! (`nodes`) and the directories above that frontier with the bytes of their own files (`dirs`). Their bytes add up to
+//! the tree, so a change inside a node walks that node again and a change of a file of a directory above the frontier
+//! reads that one directory (`dir_listing`).
+//!
+//! The walks of a call share one queue of directories, taken from the earliest walk that has any, so the walks end one
+//! after another in their order; `stop` ends a call early, and the walks it did not finish name no bytes.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::Duration;
 use sync_utils::span::in_current_span;
 
 pub mod changes;
@@ -21,6 +33,8 @@ mod changes_test;
 
 /// How many threads walk the directories
 const WALK_WORKERS: usize = 8;
+/// How often a thread that waits for work looks at `stop`
+const STOP_POLL: Duration = Duration::from_millis(50);
 
 /// A tree to measure: `root` and what is below it, but `skip` (absolute paths of directories measured apart: the build
 /// directories of a slot, measured as their own roots)
@@ -28,28 +42,6 @@ const WALK_WORKERS: usize = 8;
 pub struct Walk {
   pub root: PathBuf,
   pub skip: Vec<PathBuf>,
-}
-
-/// The bytes of a walk and the disjoint subtrees at its frontier up to the requested depth
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TreeBytes {
-  pub bytes: u64,
-  pub nodes: Vec<NodeBytes>,
-  pub has_hardlinks: bool,
-}
-
-/// The bytes under a path relative to the walk root; nodes do not overlap, and bytes not in a node remain at the root
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeBytes {
-  pub path: String,
-  pub bytes: u64,
-  pub has_hardlinks: bool,
-}
-
-#[derive(Default)]
-struct NodeUsage {
-  bytes: u64,
-  has_hardlinks: bool,
 }
 
 impl Walk {
@@ -61,75 +53,110 @@ impl Walk {
   }
 }
 
+/// The bytes of a walk and its parts: `nodes` and `dirs` add up to `bytes`. A root of at most `node_entries` entries is
+/// one node, `""`; a root that is gone has no part
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TreeBytes {
+  pub bytes: u64,
+  /// The subtrees of the frontier, each of at most `node_entries` entries, by their path relative to the root
+  pub nodes: Vec<PartBytes>,
+  /// The directories above the frontier, the root as `""`, each with the bytes of its own files only
+  pub dirs: Vec<PartBytes>,
+}
+
+/// A part of a tree: its path relative to the root of the walk (`/` between names) and its bytes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartBytes {
+  pub path: String,
+  pub bytes: u64,
+}
+
+/// What one directory holds right in it (`dir_listing`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DirListing {
+  /// The bytes of its own files
+  pub bytes: u64,
+  /// The names of its directories
+  pub dirs: Vec<OsString>,
+}
+
 /// An entry of a directory as the platform reads it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Entry {
-  pub name: std::ffi::OsString,
+  pub name: OsString,
   pub dir: bool,
   /// What a delete of it alone frees: the private size of a file on macOS
   pub bytes: u64,
-  /// The file id of a file with more than one hard link, so the walk counts it once
-  pub linked: Option<u64>,
+  /// How many hard links the file has, at least 1
+  pub links: u32,
 }
 
-/// The work of the walk: the directories still to read, by the index of their walk, and how many threads read one now
-struct Queue {
-  dirs: Vec<Directory>,
-  active: usize,
-  pending: Vec<usize>,
-}
-
-type WalkCallback<'a> = Mutex<Box<dyn FnMut(usize, TreeBytes) + Send + 'a>>;
-
-struct Directory {
-  index: usize,
-  path: PathBuf,
-  relative: Option<PathBuf>,
-  depth: usize,
-  node: Option<String>,
+impl Entry {
+  /// Its share of the bytes of the file: `1/links` of them
+  fn share(&self) -> u64 {
+    self.bytes / u64::from(self.links.max(1))
+  }
 }
 
 /// The bytes of each of `walks`; a root that is gone or unreadable holds 0, a directory that can't be read counts
 /// nothing below it
 pub fn walk_bytes(walks: &[Walk]) -> Vec<u64> {
-  walk(walks, None, false, None).into_iter().map(|tree| tree.bytes).collect()
+  run(walks, &Options::default(), None).into_iter().map(|tree| tree.map_or(0, |tree| tree.bytes)).collect()
 }
 
-/// The same bytes, calling `on_walk` as each root has been completely read
-pub fn walk_bytes_with_callback<F>(walks: &[Walk], mut on_walk: F) -> Vec<u64>
+/// The bytes of each walk with its parts (`TreeBytes`), subtrees of at most `node_entries` entries
+pub fn walk_tree(walks: &[Walk], node_entries: u64) -> Vec<TreeBytes> {
+  let options = Options {
+    node_entries,
+    ..Options::default()
+  };
+  run(walks, &options, None).into_iter().map(Option::unwrap_or_default).collect()
+}
+
+/// `walk_tree`, calling `on_walk` as each root has been completely read; once `stop` is set the walk ends, and a root it
+/// did not finish is `None` and calls nothing
+pub fn walk_tree_with_callback<F>(walks: &[Walk], node_entries: u64, stop: &AtomicBool, on_walk: F) -> Vec<Option<TreeBytes>>
 where
-  F: FnMut(usize, u64) + Send,
-{
-  let callback: WalkCallback<'_> = Mutex::new(Box::new(|index, tree| on_walk(index, tree.bytes)));
-  walk(walks, None, false, Some(&callback)).into_iter().map(|tree| tree.bytes).collect()
-}
-
-/// The bytes of each walk and a disjoint frontier of subtrees no deeper than `depth`; depth zero leaves all bytes at
-/// the root, while a shallow leaf directory is itself a node
-pub fn walk_tree(walks: &[Walk], depth: usize) -> Vec<TreeBytes> {
-  walk(walks, Some(depth), false, None)
-}
-
-/// Walk each tree and call `on_walk` with its bytes and nodes when it has been completely read
-pub fn walk_tree_with_callback<F>(walks: &[Walk], depth: usize, on_walk: F) -> Vec<TreeBytes>
-where
-  F: FnMut(usize, TreeBytes) + Send,
+  F: FnMut(usize, &TreeBytes) + Send,
 {
   let callback: WalkCallback<'_> = Mutex::new(Box::new(on_walk));
-  walk(walks, Some(depth), false, Some(&callback))
+  let options = Options {
+    node_entries,
+    stop: Some(stop),
+    ..Options::default()
+  };
+  run(walks, &options, Some(&callback))
 }
 
 /// The bytes on disk of `path` and everything below it, with links counted as themselves; an absent or unreadable root
 /// holds zero
 pub fn tree_size(path: &Path) -> u64 {
-  walk(&[Walk::of(path)], None, true, None).into_iter().next().map_or(0, |tree| tree.bytes)
+  let options = Options {
+    include_directory_bytes: true,
+    ..Options::default()
+  };
+  run(&[Walk::of(path)], &options, None).into_iter().next().flatten().map_or(0, |tree| tree.bytes)
+}
+
+/// The bytes of the files right in `dir`, counted as a walk counts them, and the names of its directories: one read of
+/// the directory, for a change of a directory above the frontier of a saved walk
+pub fn dir_listing(dir: &Path) -> std::io::Result<DirListing> {
+  let mut listing = DirListing::default();
+  for entry in platform::read(&mut platform::reader(), dir)? {
+    if entry.dir {
+      listing.dirs.push(entry.name);
+    } else {
+      listing.bytes += entry.share();
+    }
+  }
+  Ok(listing)
 }
 
 /// The private size of each file right in `dir`, by its name: the blocks it shares with no APFS clone, which a delete of
 /// its last link frees (`ATTR_CMNEXT_PRIVATESIZE`, one `getattrlistbulk` a batch of entries). A directory is not among
 /// them
 #[cfg(target_os = "macos")]
-pub fn private_sizes(dir: &Path) -> std::io::Result<std::collections::HashMap<std::ffi::OsString, u64>> {
+pub fn private_sizes(dir: &Path) -> std::io::Result<std::collections::HashMap<OsString, u64>> {
   Ok(
     platform::read_entries(dir)?
       .into_iter()
@@ -139,45 +166,177 @@ pub fn private_sizes(dir: &Path) -> std::io::Result<std::collections::HashMap<st
   )
 }
 
-fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool, callback: Option<&WalkCallback<'_>>) -> Vec<TreeBytes> {
+type WalkCallback<'a> = Mutex<Box<dyn FnMut(usize, &TreeBytes) + Send + 'a>>;
+
+struct Options<'a> {
+  /// The most entries of a node; `u64::MAX` names no parts
+  node_entries: u64,
+  /// Count the blocks of the directories too (`tree_size`)
+  include_directory_bytes: bool,
+  stop: Option<&'a AtomicBool>,
+}
+
+impl Default for Options<'_> {
+  fn default() -> Self {
+    Self {
+      node_entries: u64::MAX,
+      include_directory_bytes: false,
+      stop: None,
+    }
+  }
+}
+
+/// A directory to read: its record in the arena and its path
+struct Directory {
+  record: usize,
+  walk: usize,
+  path: PathBuf,
+}
+
+/// A directory that is read or whose subdirectories are: what it and its finished subtrees hold so far
+struct Record {
+  walk: usize,
+  parent: Option<usize>,
+  /// Relative to the root of the walk, `""` for the root
+  relative: String,
+  /// Its subdirectories not finished yet
+  pending: usize,
+  /// The bytes of its own files
+  own: u64,
+  /// The entries of its subtree: its files and directories and all below them
+  entries: u64,
+  /// The bytes of its subtree
+  bytes: u64,
+  /// Its finished subdirectories of at most `node_entries` entries: the nodes, unless it becomes one itself
+  small: Vec<PartBytes>,
+}
+
+/// The work of a call: the directories to read by the index of their walk, the records of the directories in progress
+/// and what each walk found
+struct State {
+  queued: BTreeMap<usize, Vec<Directory>>,
+  /// How many threads read a directory now
+  active: usize,
+  records: Vec<Option<Record>>,
+  free: Vec<usize>,
+  trees: Vec<Option<TreeBytes>>,
+}
+
+impl State {
+  fn add(&mut self, record: Record) -> usize {
+    if let Some(index) = self.free.pop() {
+      self.records[index] = Some(record);
+      index
+    } else {
+      self.records.push(Some(record));
+      self.records.len() - 1
+    }
+  }
+
+  fn record(&mut self, index: usize) -> &mut Record {
+    self.records[index].as_mut().expect("a record in progress")
+  }
+
+  /// Ends the record `index`, whose subdirectories have all ended, and every parent that it was the last of; the walks
+  /// that end so go into `ended`
+  fn finish(&mut self, mut index: usize, node_entries: u64, ended: &mut Vec<usize>) {
+    loop {
+      let record = self.records[index].take().expect("a record in progress");
+      self.free.push(index);
+      let tree = self.trees[record.walk].get_or_insert_with(TreeBytes::default);
+      let small = record.entries <= node_entries;
+      if !small {
+        tree.nodes.extend(record.small);
+        tree.dirs.push(PartBytes {
+          path: record.relative.clone(),
+          bytes: record.own,
+        });
+      }
+      let Some(parent) = record.parent else {
+        tree.bytes = record.bytes;
+        if small && node_entries != u64::MAX {
+          tree.nodes.push(PartBytes {
+            path: String::new(),
+            bytes: record.bytes,
+          });
+        }
+        ended.push(record.walk);
+        return;
+      };
+      let parent_record = self.record(parent);
+      parent_record.entries += record.entries;
+      parent_record.bytes += record.bytes;
+      if small && node_entries != u64::MAX {
+        parent_record.small.push(PartBytes {
+          path: record.relative,
+          bytes: record.bytes,
+        });
+      }
+      parent_record.pending -= 1;
+      if parent_record.pending > 0 {
+        return;
+      }
+      index = parent;
+    }
+  }
+}
+
+fn run(walks: &[Walk], options: &Options<'_>, callback: Option<&WalkCallback<'_>>) -> Vec<Option<TreeBytes>> {
   if walks.is_empty() {
     return Vec::new();
   }
-  let totals: Vec<AtomicU64> = walks.iter().map(|_| AtomicU64::new(0)).collect();
-  let node_bytes: Option<Vec<Mutex<BTreeMap<String, NodeUsage>>>> = tree_depth.map(|_| walks.iter().map(|_| Mutex::default()).collect());
-  let linked: Mutex<HashSet<u64>> = Mutex::default();
-  let has_hardlinks: Vec<AtomicBool> = walks.iter().map(|_| AtomicBool::new(false)).collect();
-  let skips: Vec<HashSet<&Path>> = walks.iter().map(|walk| walk.skip.iter().map(PathBuf::as_path).collect()).collect();
-  let mut pending = vec![0; walks.len()];
-  let mut dirs = Vec::new();
+  let mut state = State {
+    queued: BTreeMap::new(),
+    active: 0,
+    records: Vec::new(),
+    free: Vec::new(),
+    trees: vec![None; walks.len()],
+  };
+  let mut ended = Vec::new();
   for (index, walk) in walks.iter().enumerate() {
     match walk.root.symlink_metadata() {
       Ok(metadata) if metadata.is_dir() => {
-        if include_directory_bytes {
-          totals[index].fetch_add(directory_bytes(&walk.root), Ordering::Relaxed);
-        }
-        pending[index] = 1;
-        dirs.push(Directory {
-          index,
+        let own = if options.include_directory_bytes { directory_bytes(&walk.root) } else { 0 };
+        let record = state.add(Record {
+          walk: index,
+          parent: None,
+          relative: String::new(),
+          pending: 0,
+          own: 0,
+          entries: 0,
+          bytes: own,
+          small: Vec::new(),
+        });
+        state.queued.entry(index).or_default().push(Directory {
+          record,
+          walk: index,
           path: walk.root.clone(),
-          relative: tree_depth.map(|_| PathBuf::new()),
-          depth: 0,
-          node: None,
         });
       }
       Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
-        totals[index].fetch_add(platform::file_bytes(&walk.root, &metadata), Ordering::Relaxed);
+        let bytes = platform::file_bytes(&walk.root, &metadata);
+        state.trees[index] = Some(TreeBytes {
+          bytes,
+          nodes: if options.node_entries == u64::MAX {
+            Vec::new()
+          } else {
+            vec![PartBytes { path: String::new(), bytes }]
+          },
+          dirs: Vec::new(),
+        });
+        ended.push(index);
       }
-      _ => {}
+      _ => {
+        state.trees[index] = Some(TreeBytes::default());
+        ended.push(index);
+      }
     }
   }
-  for index in 0..walks.len() {
-    if pending[index] == 0 {
-      notify_walk(callback, index, totals[index].load(Ordering::Relaxed), node_bytes.as_deref(), &has_hardlinks);
-    }
-  }
-  let queue = Mutex::new(Queue { dirs, active: 0, pending });
+  notify(callback, &state.trees, &ended);
+  let skips: Vec<Vec<&Path>> = walks.iter().map(|walk| walk.skip.iter().map(PathBuf::as_path).collect()).collect();
+  let state = Mutex::new(state);
   let wake = Condvar::new();
+  let stopped = || options.stop.is_some_and(|stop| stop.load(Ordering::Relaxed));
   std::thread::scope(|scope| {
     for _ in 0..WALK_WORKERS {
       scope.spawn(in_current_span(|| {
@@ -185,116 +344,105 @@ fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool
         let mut reader = None;
         loop {
           let dir = {
-            let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
-              if let Some(next) = queue.dirs.pop() {
-                queue.active += 1;
-                break next;
-              }
-              if queue.active == 0 {
+              if stopped() {
+                wake.notify_all();
                 return;
               }
-              queue = wake.wait(queue).unwrap_or_else(PoisonError::into_inner);
+              if let Some(mut first) = state.queued.first_entry() {
+                let dir = first.get_mut().pop().expect("a queued walk has a directory");
+                if first.get().is_empty() {
+                  first.remove();
+                }
+                state.active += 1;
+                break dir;
+              }
+              if state.active == 0 {
+                return;
+              }
+              state = wake.wait_timeout(state, STOP_POLL).unwrap_or_else(PoisonError::into_inner).0;
             }
           };
-          let mut found = Vec::new();
-          let mut bytes = 0;
-          let mut has_linked = false;
+          let mut subdirs = Vec::new();
+          let mut own = 0;
+          let mut files = 0;
           for entry in platform::read(reader.get_or_insert_with(platform::reader), &dir.path).unwrap_or_default() {
             if entry.dir {
               let path = dir.path.join(&entry.name);
-              if !skips[dir.index].contains(path.as_path()) {
-                if include_directory_bytes {
-                  bytes += directory_bytes(&path);
-                }
-                let relative = dir.relative.as_ref().map(|relative| relative.join(&entry.name));
-                let depth = dir.depth + 1;
-                let node = if tree_depth == Some(depth) {
-                  relative.as_deref().and_then(relative_name)
-                } else {
-                  dir.node.clone()
-                };
-                found.push(Directory {
-                  index: dir.index,
-                  path,
-                  relative,
-                  depth,
-                  node,
-                });
+              if skips[dir.walk].contains(&path.as_path()) {
+                continue;
               }
+              let bytes = if options.include_directory_bytes { directory_bytes(&path) } else { 0 };
+              subdirs.push((entry.name, path, bytes));
             } else {
-              if let Some(id) = entry.linked {
-                has_linked = true;
-                has_hardlinks[dir.index].store(true, Ordering::Relaxed);
-                if !linked.lock().unwrap_or_else(PoisonError::into_inner).insert(id) {
-                  continue;
-                }
-              }
-              bytes += entry.bytes;
+              files += 1;
+              own += entry.share();
             }
           }
-          totals[dir.index].fetch_add(bytes, Ordering::Relaxed);
-          if let Some(node_bytes) = &node_bytes {
-            let node = dir.node.clone().or_else(|| {
-              if tree_depth.is_some_and(|depth| depth > 0) && dir.depth > 0 && found.is_empty() {
-                dir.relative.as_deref().and_then(relative_name)
-              } else {
-                None
-              }
+          let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+          let walk = dir.walk;
+          let relative = {
+            let record = state.record(dir.record);
+            record.own = own;
+            record.entries += files + subdirs.len() as u64;
+            record.bytes += own;
+            record.pending = subdirs.len();
+            record.relative.clone()
+          };
+          for (name, path, bytes) in subdirs {
+            let relative = if relative.is_empty() {
+              name.to_string_lossy().into_owned()
+            } else {
+              format!("{relative}/{}", name.to_string_lossy())
+            };
+            let record = state.add(Record {
+              walk,
+              parent: Some(dir.record),
+              relative,
+              pending: 0,
+              own: 0,
+              entries: 0,
+              bytes,
+              small: Vec::new(),
             });
-            if let Some(node) = node {
-              let mut nodes = node_bytes[dir.index].lock().unwrap_or_else(PoisonError::into_inner);
-              let node = nodes.entry(node).or_default();
-              node.bytes += bytes;
-              node.has_hardlinks |= has_linked;
-            }
+            state.queued.entry(walk).or_default().push(Directory { record, walk, path });
           }
-          let index = dir.index;
-          let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
-          queue.pending[index] += found.len();
-          queue.pending[index] -= 1;
-          let completed = queue.pending[index] == 0;
-          queue.dirs.extend(found);
-          queue.active -= 1;
+          let mut ended = Vec::new();
+          if state.records[dir.record].as_ref().is_some_and(|record| record.pending == 0) {
+            state.finish(dir.record, options.node_entries, &mut ended);
+          }
+          state.active -= 1;
           wake.notify_all();
-          drop(queue);
-          if completed {
-            notify_walk(callback, index, totals[index].load(Ordering::Relaxed), node_bytes.as_deref(), &has_hardlinks);
+          let trees: Vec<(usize, TreeBytes)> = ended.iter().filter_map(|&walk| state.trees[walk].clone().map(|tree| (walk, tree))).collect();
+          drop(state);
+          if let Some(callback) = callback {
+            let mut callback = callback.lock().unwrap_or_else(PoisonError::into_inner);
+            for (walk, tree) in &trees {
+              callback(*walk, tree);
+            }
           }
         }
       }));
     }
   });
-  totals
-    .into_iter()
-    .enumerate()
-    .map(|(index, bytes)| tree_at(index, bytes.into_inner(), node_bytes.as_deref(), &has_hardlinks))
-    .collect()
+  let state = state.into_inner().unwrap_or_else(PoisonError::into_inner);
+  // a walk that `stop` ended keeps a record in progress: it names no bytes
+  let mut unfinished = vec![false; walks.len()];
+  for record in state.records.iter().flatten() {
+    unfinished[record.walk] = true;
+  }
+  state.trees.into_iter().zip(unfinished).map(|(tree, unfinished)| tree.filter(|_| !unfinished)).collect()
 }
 
-fn notify_walk(callback: Option<&WalkCallback<'_>>, index: usize, bytes: u64, node_bytes: Option<&[Mutex<BTreeMap<String, NodeUsage>>]>, has_hardlinks: &[AtomicBool]) {
+fn notify(callback: Option<&WalkCallback<'_>>, trees: &[Option<TreeBytes>], ended: &[usize]) {
   if let Some(callback) = callback {
     let mut callback = callback.lock().unwrap_or_else(PoisonError::into_inner);
-    callback(index, tree_at(index, bytes, node_bytes, has_hardlinks));
-  }
-}
-
-fn tree_at(index: usize, bytes: u64, node_bytes: Option<&[Mutex<BTreeMap<String, NodeUsage>>]>, has_hardlinks: &[AtomicBool]) -> TreeBytes {
-  TreeBytes {
-    bytes,
-    has_hardlinks: has_hardlinks[index].load(Ordering::Relaxed),
-    nodes: node_bytes.map_or_else(Vec::new, |nodes| {
-      nodes[index]
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .iter()
-        .map(|(path, usage)| NodeBytes {
-          path: path.clone(),
-          bytes: usage.bytes,
-          has_hardlinks: usage.has_hardlinks,
-        })
-        .collect()
-    }),
+    for &walk in ended {
+      if let Some(tree) = &trees[walk] {
+        callback(walk, tree);
+      }
+    }
   }
 }
 
@@ -309,17 +457,6 @@ fn directory_bytes(path: &Path) -> u64 {
   {
     metadata.len()
   }
-}
-
-fn relative_name(path: &Path) -> Option<String> {
-  path
-    .components()
-    .map(|component| match component {
-      Component::Normal(name) => name.to_str(),
-      _ => None,
-    })
-    .collect::<Option<Vec<_>>>()
-    .map(|components| components.join("/"))
 }
 
 #[cfg(target_os = "macos")]
@@ -347,20 +484,21 @@ mod platform {
     Reader { buffer: vec![0u8; BUFFER] }
   }
 
-  /// A file named as a root: its private size, as `getattrlist` tells it, else its blocks
+  /// A file named as a root: the share of its private size, as `getattrlist` tells it, else of its blocks
   pub(super) fn file_bytes(path: &Path, metadata: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
-    let Some(parent) = path.parent() else { return metadata.blocks() * 512 };
+    let blocks = metadata.blocks() * 512 / metadata.nlink().max(1);
+    let Some(parent) = path.parent() else { return blocks };
     read_entries(parent)
       .ok()
       .and_then(|entries| entries.into_iter().find(|entry| Some(entry.name.as_os_str()) == path.file_name()))
-      .map_or_else(|| metadata.blocks() * 512, |entry| entry.bytes)
+      .map_or(blocks, |entry| entry.share())
   }
 
-  /// The entries of `dir` with their type, private size, link count and file id, by `getattrlistbulk` in batches;
-  /// `.` and `..` are never among them. The layout of an entry (`FSOPT_PACK_INVAL_ATTRS`: every attribute asked, a
-  /// default for one the object lacks): its length, the returned attributes, then the common attributes by their bit
-  /// (the name as a reference, the type, the file id), the file attributes (the link count), the extended common ones
+  /// The entries of `dir` with their type, private size and link count, by `getattrlistbulk` in batches; `.` and `..`
+  /// are never among them. The layout of an entry (`FSOPT_PACK_INVAL_ATTRS`: every attribute asked, a default for one
+  /// the object lacks): its length, the returned attributes, then the common attributes by their bit (the name as a
+  /// reference, the type), the file attributes (the link count), the extended common ones
   /// (the private size), each on a 4-byte boundary
   pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
     read(&mut reader(), dir)
@@ -384,7 +522,7 @@ mod platform {
     let mut list = libc::attrlist {
       bitmapcount: libc::ATTR_BIT_MAP_COUNT,
       reserved: 0,
-      commonattr: libc::ATTR_CMN_RETURNED_ATTRS | libc::ATTR_CMN_NAME | libc::ATTR_CMN_OBJTYPE | libc::ATTR_CMN_FILEID,
+      commonattr: libc::ATTR_CMN_RETURNED_ATTRS | libc::ATTR_CMN_NAME | libc::ATTR_CMN_OBJTYPE,
       volattr: 0,
       dirattr: 0,
       fileattr: libc::ATTR_FILE_LINKCOUNT,
@@ -428,8 +566,6 @@ mod platform {
     at += 8;
     let kind = read_u32(entry, at);
     at += 4;
-    let file_id = read_u64(entry, at);
-    at += 8;
     let links = read_u32(entry, at);
     at += 4;
     let private = read_u64(entry, at);
@@ -440,7 +576,7 @@ mod platform {
       name: OsString::from_vec(name.to_vec()),
       dir: kind == VDIR,
       bytes: if kind == VDIR { 0 } else { private },
-      linked: (kind != VDIR && links > 1).then_some(file_id),
+      links: if kind == VDIR { 1 } else { links.max(1) },
     }
   }
 
@@ -461,8 +597,9 @@ mod platform {
   use std::os::unix::fs::MetadataExt;
   use std::path::Path;
 
+  /// A file named as a root: the share of its size
   pub(super) fn file_bytes(_path: &Path, metadata: &Metadata) -> u64 {
-    size(metadata)
+    size(metadata) / u64::from(links(metadata))
   }
 
   /// Nothing to keep between the reads of a thread: `read_dir` has a buffer of its own
@@ -472,7 +609,7 @@ mod platform {
     Reader
   }
 
-  /// The entries of `dir` by `read_dir` and an `lstat` each, a file with its `size` and its `linked` id
+  /// The entries of `dir` by `read_dir` and an `lstat` each, a file with its `size` and its hard links
   pub(super) fn read(_reader: &mut Reader, dir: &Path) -> std::io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(dir)? {
@@ -483,7 +620,7 @@ mod platform {
         name: entry.file_name(),
         dir,
         bytes: if dir { 0 } else { size(&metadata) },
-        linked: if dir { None } else { linked(&metadata) },
+        links: if dir { 1 } else { links(&metadata) },
       });
     }
     Ok(entries)
@@ -495,10 +632,10 @@ mod platform {
     metadata.blocks() * 512
   }
 
-  /// The inode of a file with more than one hard link
+  /// The hard links of a file
   #[cfg(unix)]
-  fn linked(metadata: &Metadata) -> Option<u64> {
-    (metadata.nlink() > 1).then(|| metadata.ino())
+  fn links(metadata: &Metadata) -> u32 {
+    u32::try_from(metadata.nlink()).unwrap_or(u32::MAX).max(1)
   }
 
   /// The length of a file: Windows tells no blocks through std
@@ -507,10 +644,10 @@ mod platform {
     metadata.len()
   }
 
-  /// No file id: std tells no link count on Windows
+  /// One: std tells no link count on Windows
   #[cfg(not(unix))]
-  const fn linked(_metadata: &Metadata) -> Option<u64> {
-    None
+  const fn links(_metadata: &Metadata) -> u32 {
+    1
   }
 }
 

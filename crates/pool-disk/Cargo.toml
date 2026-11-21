@@ -15,11 +15,11 @@ sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true
 schemars.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 

@@ -574,7 +574,7 @@ The shrink MUST pass over a leased slot that a prune of the same lease stamped (
 
 #### Scenario: The order of the leased slots
 - **WHEN** the shrink orders the leased slots
-- **THEN** the largest build output as `disk.json` last measured it goes first, then the slots without a size, leased
+- **THEN** the largest build output as `disk/` last measured it goes first, then the slots without a size, leased
   longest ago first
   [@test] crates/lease-pool/src/shrink_test.rs (`the_leased_slots_go_largest_first_then_by_leased_at`)
 
@@ -2750,9 +2750,9 @@ then share no block with the template).
 ### Requirement: Disk: Every byte counted is what a delete frees
 
 Every byte counted MUST be what a delete frees: on macOS the private size of a file (`ATTR_CMNEXT_PRIVATESIZE` of
-`getattrlistbulk`, the blocks no APFS clone shares, one call per batch of entries), elsewhere its blocks (Linux) or its
-length (Windows). A file with several hard links counts once, a link as itself, a directory nothing of its own; the
-walks of the call run side by side (`fs_walk::walk_bytes`, 8 threads over one queue of directories).
+`getattrlistbulk`, the blocks no APFS clone shares), elsewhere its blocks (Linux) or its length (Windows). A file of `n`
+hard links counts `1/n` of its bytes at each link; a link counts as itself, a directory nothing of its own; the walks of
+a call run side by side, 8 threads over one queue taken from the earliest walk.
 
 #### Scenario: A clone
 - **WHEN** a file of a slot is an APFS clone
@@ -2761,8 +2761,9 @@ walks of the call run side by side (`fs_walk::walk_bytes`, 8 threads over one qu
 
 #### Scenario: Roots side by side and hard links
 - **WHEN** the walks of a call run
-- **THEN** each root is counted side by side, what counts apart is skipped, and a hard-linked file counts once
-  [@test] crates/fs-walk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_linked_file_once`, `walk_tree_nodes_and_root_remainder_add_up_to_the_walk`)
+- **THEN** each root is counted side by side, what counts apart is skipped, and a file of two links counts half at each,
+  once in a root that holds both
+  [@test] crates/fs-walk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_link_its_share`, `the_parts_of_a_tree_are_the_subtrees_of_at_most_the_node_entries_and_the_directories_above_them`)
 
 ### Requirement: Disk: Each thread of a walk reads every directory into one buffer of its own
 
@@ -2777,31 +2778,44 @@ The thread MUST make this buffer when it takes its first directory, not once per
 
 ### Requirement: Disk: The bytes of a slot are kept and refreshed by what changed
 
-The bytes of a slot MUST be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned`, the lease that a
-reclaim or a takeover took from it, whether it was leased, its FSEvents mark and the sizes of disjoint nodes under its
-roots. On macOS the default refresh MUST ask FSEvents what changed since that mark: an unchanged slot stays cached
-regardless of its age or lease; a changed path walks its nearest saved node. A slot that left the pool leaves the file.
+The bytes of a slot MUST be kept in `$GIT_COMMON_DIR/branch-deck/disk/`, a file a slot, with its `returned`, its
+reclaimed lease, whether it was leased, its mark of the history and the parts of its roots; `pool.json` there keeps the
+output bases of the main worktree, the orphans and the trash. On macOS the default refresh MUST ask the history what
+changed since that mark and walk only the changed parts. A slot that left the pool leaves `disk/`; the `disk.json` of
+brd before 1.20 MUST stay.
 
 #### Scenario: A changed file
-- **WHEN** FSEvents names a changed file of a slot
-- **THEN** the refresh walks its nearest saved node, and a path no node holds selects a root
+- **WHEN** the history names a changed file of a slot
+- **THEN** the refresh walks its deepest saved part, and a path no saved part holds selects its root
 - **AND** the report streams the cached overview, then each finished slot
-  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_root`)
+  [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_saved_report_then_each_finished_slot`, `a_changed_path_selects_the_deepest_saved_part_of_the_deepest_root`)
 
 #### Scenario: A full walk
-- **WHEN** the history is missing or incomplete, the roots changed, the slot is on another volume, or `--fresh` is given
-- **THEN** the full slot is walked
+- **WHEN** the history lost events, the mark is none or of another volume, nothing was saved, or `--fresh` is given
+- **THEN** the full slot is walked; a new root alone is walked whole
 
 #### Scenario: Linux, Windows and the output bases of the main worktree
-- **WHEN** the report runs on Linux or Windows, or measures the output bases of the main worktree
-- **THEN** Linux and Windows keep their returned/leased cache policy, with 15 minutes for a leased slot
-- **AND** the output bases of the main worktree hold for 15 minutes on every platform
+- **WHEN** the report runs on Linux or Windows
+- **THEN** a slot keeps its returned/leased cache policy, with 15 minutes for a leased slot, and the output bases of the
+  main worktree and the orphans hold for 15 minutes
+- **AND** on macOS the history checks the output bases of the main worktree, the orphans and the trash as it checks a
+  slot
+
+#### Scenario: The saved slots for a shrink
+- **WHEN** a shrink orders the leased slots by the bytes of their build dirs
+- **THEN** it reads them from `disk/` without a lock or a walk
+  [@test] crates/pool-disk/src/disk_test.rs (`cached_build_bytes_are_the_build_roots_of_the_saved_slots`)
+
+#### Scenario: The bytes of brd before 1.20
+- **WHEN** a slot that `disk/` has not saved has bytes in the `disk.json` of brd before 1.20
+- **THEN** it shows them with their age until its first walk, which they cannot spare, and the file stays
+  [@test] crates/pool-disk/src/disk_test.rs (`the_bytes_of_brd_before_show_until_the_first_walk_of_a_slot`)
 
 ### Requirement: Disk: Cached reads the saved sizes without a walk
 
 `--cached` MUST read the saved slot, trash and orphan sizes without a walk and conflict with `--fresh`; normal output
-MUST name the cache source and measurement age per slot and the elapsed milliseconds. The report writes nothing else,
-and counts as a read (`brd help`).
+MUST name where the bytes of each slot come from (`walk`), their measurement age and the elapsed milliseconds. The
+report writes nothing else, and counts as a read (`brd help`).
 
 #### Scenario: Cached and fresh together
 - **WHEN** `brd lease disk --cached --fresh` runs
@@ -2815,9 +2829,10 @@ and counts as a read (`brd help`).
 
 ### Requirement: Disk: The report tells each step on stderr
 
-`brd lease disk` MUST print a line on stderr when the report from `disk.json` is ready, with the count of slots to
-check or measure. On macOS, when a slot waits for the FSEvents check, it MUST print a line after the check. It MUST
-then print a line for each walked slot, with its bytes and its count, and a last line; stdout MUST stay one JSON object.
+`brd lease disk` MUST print a line on stderr when the report from `disk/` is ready, with the count of slots to check or
+measure; on macOS a line after the check of the history, with its time and the slots it left late; a line for each
+walked slot with its bytes, its count and why it was walked (`2 changed part(s) again`, `in full: nothing saved`); and
+a last line naming the slots the budget or another report left saved. Stdout MUST stay one JSON object.
 
 #### Scenario: The lines of a walk
 - **WHEN** `brd lease disk --fresh` walks the three slots of a pool
@@ -2827,9 +2842,9 @@ then print a line for each walked slot, with its bytes and its count, and a last
   [@test] crates/bd-lease/src/trim_test.rs (`the_disk_report_tells_each_step_on_stderr`)
 
 #### Scenario: The count after the FSEvents check
-- **WHEN** the FSEvents check finds one of two measured slots changed
+- **WHEN** the check of the history finds one of two measured slots changed
 - **THEN** the check tells one slot to walk, and the walked step of that slot counts 1 of 1
-  [@test] crates/pool-disk/src/disk_test.rs (`a_slot_event_counts_the_slots_that_the_fsevents_check_left`)
+  [@test] crates/pool-disk/src/disk_test.rs (`a_slot_event_counts_the_slots_that_the_history_check_left`)
 
 ### Requirement: Reclaimed: A command of another session in a taken-over slot is refused
 

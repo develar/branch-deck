@@ -1144,7 +1144,7 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   minimum past the size of the volume), and still less
   is `low_disk_space` (exit 4), the message naming both sizes, what the reclaim returned, what the trim and the
   eviction deleted and the shrink freed, the free slots and the leases whose holder process is gone. `brd lease trim [--max <n>] [--plan]` trims on demand; `brd lease disk [--all] [--fresh]` reports what the pool of the repository holds, `--all` every pool of the machine
-  (per slot the bytes of its build directories and its Bazel output bases, kept in `disk.json` while they hold). It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
+  (per slot the bytes of its build directories and its Bazel output bases, kept in `disk/` and refreshed by what changed). It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
   there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
   local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
   (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`bazel shutdown` on Windows;

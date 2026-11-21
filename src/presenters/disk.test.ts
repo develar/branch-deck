@@ -7,6 +7,7 @@ import {
   isBelowMinimum,
   machineTitle,
   measuredAge,
+  measuredLine,
   poolLine,
   slotSizeDetail,
   slotsBySize,
@@ -17,7 +18,21 @@ import {
 } from "@/presenters/disk"
 
 function slot(name: string, mib: number, rest: Partial<SlotDisk> = {}): SlotDisk {
-  return { name, path: `/pool/${name}/repo`, state: "free", holder: null, mib, worktreeMib: 0, buildMib: mib, basesMib: 0, trimsNext: false, measuredAt: 0, cached: false, ...rest }
+  return {
+    name,
+    path: `/pool/${name}/repo`,
+    state: "free",
+    holder: null,
+    mib,
+    worktreeMib: 0,
+    buildMib: mib,
+    basesMib: 0,
+    trimsNext: false,
+    measuredAt: 0,
+    cached: false,
+    kept: null,
+    ...rest,
+  }
 }
 
 function pool(slots: SlotDisk[], rest: Partial<PoolDisk> = {}): PoolDisk {
@@ -59,6 +74,16 @@ describe("disk", () => {
       "Measured 2 hours ago",
     ])
     expect([diskProgress(7, 28), diskProgress(0, 0)]).toEqual(["Measured 7 of 28 slots", "All slots are up to date"])
+  })
+
+  it("says why a slot shows saved bytes that may be stale", () => {
+    const lines = [null, "historyLate", "budget", "busy"].map(kept => measuredLine(slot("1", 0, { measuredAt: 1000, kept: kept as SlotDisk["kept"] }), 8200))
+    expect(lines).toEqual([
+      "Measured 2 hours ago",
+      "Measured 2 hours ago, the file history came late",
+      "Measured 2 hours ago, the next report measures it",
+      "Measured 2 hours ago, another report measures now",
+    ])
   })
 
   it("says why Trim to Limit does nothing, else what it deletes", () => {

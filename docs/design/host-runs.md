@@ -249,7 +249,7 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
   of a host share one. Those steps take free slots only, so below the minimum still each repository relieves its idle
   host slots, used longest ago first: their clean rules with keep 0, then their Bazel output bases
   (`relieve_host_slots`). A relief that leaves a volume below it waits 15 minutes, and its line names the pools and
-  the slots that hold the most by `disk.json`, without a walk, and what a person can do: return leases, `brd-host trim`,
+  the slots that hold the most by `disk/`, without a walk, and what a person can do: return leases, `brd-host trim`,
   or move a pool with `branchdeck.leasePool`. On 2026-11-18 the Studio said "nothing to delete" for hours while the
   leased slots held 400 GiB, and nobody could tell from the log what held the space.
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after

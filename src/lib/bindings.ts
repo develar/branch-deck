@@ -2558,12 +2558,14 @@ export type DiskOverview = {
 };
 
 /**  A report sent before and during a disk walk */
-export type DiskUsageEvent = { type: "cached"; overview: DiskOverview; measuring: number } | { type: "planning"; measuring: number } | { type: "slot"; machine: string | null; pool: string; slot: SlotDisk; measured: number; measuring: number } | { type: "machine"; machine: MachineDisk } | { type: "done"; ms: number };
+export type DiskUsageEvent = { type: "cached"; overview: DiskOverview; measuring: number } | { type: "planning"; measuring: number; 
+/**  The slots that keep their saved bytes as the history of the file system came late */
+late: number } | { type: "slot"; machine: string | null; pool: string; slot: SlotDisk; measured: number; measuring: number } | { type: "machine"; machine: MachineDisk } | { type: "done"; ms: number };
 
 export type DiskUsageParams = {
 	/**  A checkout of a repository: its pool is reported wherever it lives, and its config gives the minimum */
 	repositoryPath: string,
-	/**  Walk every slot again, whatever `disk.json` keeps */
+	/**  Walk every slot again in full, whatever `disk/` keeps */
 	fresh: boolean,
 };
 
@@ -9429,7 +9431,18 @@ export type SlotDisk = {
 	measuredAt: number,
 	/**  The values come from the saved disk report, not this walk */
 	cached: boolean,
+	/**  Why the saved values were kept though the slot may have changed; `null` when they are current or walked now */
+	kept: SlotDiskKept | null,
 };
+
+/**  Why a slot shows saved values that may be stale */
+export type SlotDiskKept = 
+/**  The history of the file system did not come in time */
+"historyLate" | 
+/**  The walk budget of the report ended first: the next report walks it */
+"budget" | 
+/**  Another report walks the pool now */
+"busy";
 
 /**  What a slot is to the window */
 export type SlotDiskState = "free" | 
