@@ -875,7 +875,8 @@ changed since the id was read, `error.blocks` are its ids now.
 /// and others), naming brd by `command`, its full path. It says when to use brd, what `brd workspace` asks, the rules an
 /// agent must not miss before it reads any help, where the workflow is, and how to review a change by the plan of
 /// `brd review-plan` (its `reading`, then its `units`, the kinds of `UnitKindOutput` and `MechanicalKind` as the output
-/// spells them, which `agent_help_test.rs` checks against its schema); the rest lives in the binary, so it can't
+/// spells them, a move between files by `moved_to` and `moved_from`, which `agent_help_test.rs` checks against its
+/// schema); the rest lives in the binary, so it can't
 /// fall out of date: `brd help agent` is the workflow, `brd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
 /// run every brd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
 /// push: a push still waits for the user, by the rule of the body
@@ -1000,7 +1001,8 @@ commit) and judge it by the JSON:
   `other` too.
 - A move is never quiet: read it where it stands now, against its `old` lines; only a declaration of the same code
   whose place the code index proved free is `moved`. A unit's `renamed` or `renamed_from` is a rename no index proved:
-  check it.
+  check it. A `removed` unit's `moved_to` and an `added` one's `moved_from` name the other place of the same code:
+  one move between files, read once at its new place; its removal is no loss.
 - Never skip a removal (`removed`, `deletedFile`, `deletedFiles`); `verdict: breaks` is a use left outside that can
   break (`api[].usages.outside_sites`).
 - Report only the changes of behaviour, each with its file, its lines and what observably changes, or say there is none.

@@ -812,8 +812,9 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
 The skill teaches an agent asked to review a commit, a branch or a range to review by this plan, with what it proves and
 nothing else: `reading` first, where every `toRead` 0 and no `unproven` file is nothing to read, said so with its
 `proofs`; then `units` in the order printed, the `mechanical` ones passed by every kind the output prints, every other
-unit read; a move read where it stands now, against its `old` lines (only a declaration of the same code whose place
-the index proved free is `moved`), a `renamed` or `renamed_from` checked; no removal skipped, `verdict: breaks` read;
+unit read; a move read where it stands now, against its `old` lines (only a declaration of the same code whose place the
+index proved free is `moved`), a `renamed` or `renamed_from` checked, a `removed` unit with `moved_to` and an `added`
+one with `moved_from` read once as one move between files, at its new place; no removal skipped, `verdict: breaks` read;
 and a report of the changes of behaviour alone, each with its file, its lines and what observably changes, or that there
 is none. `agent_help_test.rs` reads the kinds of the units and of the mechanical changes from the schema of this output,
 and every other name in backticks of the recipe must be a field or a value of it. The marks of each line (formatting,

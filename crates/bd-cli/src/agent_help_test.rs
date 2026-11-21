@@ -643,7 +643,8 @@ fn review_plan_values(schema: &serde_json::Value, name: &str) -> Vec<String> {
 
 /// An agent asked to review a commit, a branch or a range starts from `brd review-plan`: its `reading` says what is left
 /// to read, then its `units` in their order, the `mechanical` ones passed, a move read where it stands now, no removal
-/// skipped, and a report of the changes of behaviour alone, also when there is none. The recipe names every unit kind
+/// skipped (a removal whose `moved_to` names the other place of its code is one move between files, read once at its new
+/// place), and a report of the changes of behaviour alone, also when there is none. The recipe names every unit kind
 /// and every mechanical kind as the schema of the output spells them, so a new kind fails here until the recipe says
 /// whether it is read; every other name in backticks is a field or a value of that output
 #[test]
@@ -702,6 +703,12 @@ fn the_skill_reviews_by_the_reading_and_the_units_of_the_plan_and_passes_only_th
     .filter(|word| !word.is_empty() && !names.contains(*word))
     .collect();
   assert!(unknown.is_empty(), "the recipe names what `brd review-plan` does not print: {unknown:?}");
+  // a move between files is the two places its units name, read once: the fields as the output spells them
+  for field in ["moved_to", "moved_from"] {
+    assert!(names.contains(field), "`brd review-plan` prints no `{field}`");
+    assert!(moves.contains(&format!("`{field}`")), "the recipe does not name `{field}`: {moves}");
+  }
+  assert!(moves.contains("one move between files, read once at its new place; its removal is no loss"), "{moves}");
 }
 
 /// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
