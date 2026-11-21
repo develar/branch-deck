@@ -123,8 +123,8 @@ A heavy run can wait long, so start it in the background (`run_in_background` of
 output, rather than in a call that a tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C
 does; SIGKILL leaves it going: `brd-host cancel <host> <run>` then.
 
-`bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It runs the committed HEAD
-only and refuses a dirty tree. The new run directories of `out/bt-runs` come back.
+`bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It ships the working tree,
+HEAD plus the local changes as one commit, as `brd-host run` does. The new run directories of `out/bt-runs` come back.
 
 ### The lines of a run
 
@@ -267,7 +267,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
 | `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: follow the later run that the message names. |
-| `local_changes` | `--head` or `bt --host` with uncommitted or untracked changes. Commit first. |
+| `local_changes` | `--head` with uncommitted or untracked changes. Commit first, or run without `--head`. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |
 

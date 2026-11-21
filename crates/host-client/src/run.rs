@@ -87,8 +87,8 @@ pub struct RunRequest<'a> {
   pub fetch: &'a [String],
 }
 
-/// What a run adds to a `RunRequest`. The default is the run of bt: the committed HEAD of a checkout without local
-/// changes, the niceness of the agent, the repository of the host file, no outputs and no changes
+/// What a run adds to a `RunRequest`. The default is the committed HEAD of a checkout without local changes, the
+/// niceness of the agent, the repository of the host file, no outputs and no changes
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[expect(
   clippy::struct_excessive_bools,

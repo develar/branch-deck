@@ -12,19 +12,19 @@ fn options_of(argv: &[&str]) -> RunOptions {
   run_options(&args)
 }
 
-/// The command line of bt in the spec gives the run options that bt needs: niceness 0, so a run of bt does
-/// not yield the CPU, and no outputs, so the local copy of an output of `[host]` stays. A person gets niceness 10 and
-/// the outputs
+/// The command line of bt in the spec gives the run options that bt needs: the working tree, niceness 0, so a run of
+/// bt does not yield the CPU, and no outputs, so the local copy of an output of `[host]` stays. A person gets niceness
+/// 10 and the outputs
 #[test]
 fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
-  let bt = "brd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>";
+  let bt = "brd-host run <alias> --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>";
   assert!(SPEC.contains(&format!("`{bt}`")), "the spec names the command line of bt");
   let bt = bt.replace("<alias>", "studio").replace("<command…>", "bt test");
   let argv: Vec<&str> = bt.split(' ').collect();
   assert_eq!(
     options_of(&argv),
     RunOptions {
-      working_tree: false,
+      working_tree: true,
       nice: Some(0),
       outputs: false,
       apply: false,
