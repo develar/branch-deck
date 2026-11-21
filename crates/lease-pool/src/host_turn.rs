@@ -7,7 +7,8 @@
 //! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
 //! without a measure of its command (`TurnEntry::expected` is `None`), or one whose command measured the whole host,
 //! takes the whole host: it waits for no holder, and no heavy run joins it. Only the head of the queue is admitted, so a
-//! small run never overtakes one that waits for more, and none waits forever. A holder counts the larger of its
+//! small run never overtakes one that waits for more, and none waits forever; the one exception is an exclusive run at
+//! the head whose drain ended (below). A holder counts the larger of its
 //! expectation and its live use (`live`, which its supervisor notes at each sample), so a command that got heavier
 //! holds more at once; the runs that are not heavy note theirs into `light`.
 //!
@@ -27,7 +28,12 @@
 //! in a lull of one sample is no quiet host ([`HostWindow`]). While it holds no heavy run is admitted and each new run
 //! that is not heavy waits for its end before its lend ([`exclusive_holder`]). While it drains, at the head of the queue
 //! with no holder, the new runs that are not heavy wait too, for at most 15 min from the start of the drain, so a host
-//! of steady light runs drains at all ([`bar`], `drain.json`). The holder is also in `exclusive.json` beside the table: a
+//! of steady light runs drains at all ([`bar`], `drain.json`). No heavy run passes it before its drain ends either: the
+//! drain is the one window of the host for the measurement. Once its drain has ended without a quiet host, the first heavy
+//! run behind it that is not exclusive starts past it while the head cannot start and the ordinary admission admits that
+//! run ([`passes`]): the runs that are not heavy keep a host busy for hours, and every heavy run behind a measurement
+//! would wait to its timeout. The exclusive run keeps its place at the head and starts once the host is quiet, with no
+//! second drain ([`HeadDrain`]). The holder is also in `exclusive.json` beside the table: a
 //! supervisor of a build before `exclusive` rewrites `turn.json` at each sample of its run and drops the field it does
 //! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry.
 //!
@@ -157,6 +163,10 @@ pub struct TurnEntry {
   /// the new runs that are not heavy wait too
   #[serde(default, skip_serializing_if = "is_false")]
   pub exclusive: bool,
+  /// The exclusive run at the head of the queue that this holder started past, as the drain of that run had ended
+  /// ([`passes`]); a supervisor of an older build that rewrites the table drops it, and only the lines lose it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub passed: Option<String>,
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
@@ -282,6 +292,9 @@ pub struct TurnParams<'a> {
   /// How long the head of the queue waits for the load of the host outside the heavy runs on a free turn
   /// ([`LOAD_BOUND`])
   pub load_bound: Duration,
+  /// How long an exclusive run at the head of the queue drains the host from the start of its drain ([`DRAIN_BAR`]): no
+  /// heavy run passes it before that time is up
+  pub drain_bar: Duration,
 }
 
 /// How often a wait for the turn looks again without a file event, as a lend that waits does
@@ -343,6 +356,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     expected: None,
     live: None,
     exclusive: false,
+    passed: None,
   })
 }
 
@@ -372,6 +386,9 @@ pub struct TurnRequest<'a> {
 pub enum TurnAnswer {
   /// The run holds its cores of the turn
   Taken,
+  /// The run holds its cores of the turn, admitted past `exclusive`, the exclusive run at the head of the queue whose
+  /// drain ended without a quiet host ([`passes`])
+  Passed { exclusive: TurnEntry },
   /// Not yet: who holds cores, what the runs that are not heavy use, and who waits before the run
   Queued(TurnQueue),
   /// A later run of the same checkout and command, named here, took its place in the queue: the run runs nothing
@@ -409,6 +426,22 @@ pub struct TurnQueue {
   pub light_runs: Vec<LightEntry>,
   /// The runs before this one in the queue
   pub ahead: Vec<TurnEntry>,
+  /// The drain of the exclusive run at the head of the queue, this run or the first ahead; `None` when the head is no
+  /// exclusive run
+  pub head_drain: Option<HeadDrain>,
+}
+
+/// Where the exclusive run at the head of the queue is in its drain: what it lets pass
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum HeadDrain {
+  /// It drains the host once no heavy run holds cores; no run passes it before its drain ends
+  Pending,
+  /// It drains the host until `until_ms`: the new runs that are not heavy wait for it, and no heavy run passes it
+  Draining { until_ms: u64 },
+  /// Its drain ended at `ended_ms` without a quiet host: the heavy runs behind it start past it in their order while
+  /// they fit, and it starts once the host is quiet
+  Ended { ended_ms: u64 },
 }
 
 /// A sample of the busy cores of the whole host, by the agent
@@ -535,6 +568,25 @@ fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32,
   held.saturating_add(outside).saturating_add(need.cores(cores)) <= whole
 }
 
+/// The position of the run that may pass the exclusive run at the head of `queue`: the first that is not exclusive. The
+/// exclusive runs between them wait for a quiet host as the head does; `None` when the head is no exclusive run
+fn passer(queue: &[TurnEntry]) -> Option<usize> {
+  queue.first().filter(|head| head.exclusive)?;
+  queue.iter().position(|entry| !entry.exclusive)
+}
+
+/// Whether the run at `position` of `queue` starts past the exclusive run at its head: it is the first that is not
+/// exclusive ([`passer`]), the drain of the head ended (`seen.head_drain`), the head cannot start now, and the run is
+/// admitted by the ordinary rule ([`admits`]), its own wait counting for the load bound. Before the end of the drain
+/// no run passes: the drain is the one window of the host for the measurement, and a holder beside it keeps the drain
+/// from its start
+fn passes(queue: &[TurnEntry], position: usize, seen: &Seen, load: &Load<'_>, cores: u32, waited_out: bool) -> bool {
+  passer(queue) == Some(position)
+    && matches!(seen.head_drain, Some(HeadDrain::Ended { .. }))
+    && !admits(&queue[0], &seen.holders, load, cores, false)
+    && admits(&queue[position], &seen.holders, load, cores, waited_out)
+}
+
 /// What an admission reads of the load of the host beside the holders
 struct Load<'a> {
   /// The busy cores outside the holders (`light` without a sample of the host)
@@ -568,7 +620,8 @@ pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 /// lock of the table: the entries of gone processes leave it; a superseded run gets the later run and leaves
 /// `superseded`; a holder holds still (a repeat is safe); a run new to the queue supersedes the runs of the queue of
 /// its checkout and command and takes the place of the first of them, else joins the end; the head of the queue is
-/// admitted while it fits ([`admits`]), beside the holder of `heavy.json` of the build before too
+/// admitted while it fits ([`admits`]), beside the holder of `heavy.json` of the build before too, and so is the first
+/// run behind an exclusive head whose drain ended, past it ([`passes`])
 pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined> {
   let legacy = legacy_holder(params.dir);
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
@@ -599,21 +652,33 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     // the expectation of a run that waits follows the measures that came while it waited
     table.queue[position].expected = request.expected;
     table.queue[position].exclusive |= request.exclusive;
-    let seen = Seen::of(params, table, legacy.as_ref());
-    let waited_out = seen.now.saturating_sub(table.queue[position].since_ms) >= u64::try_from(params.load_bound.as_millis()).unwrap_or(u64::MAX);
-    if position == 0 && admits(&table.queue[0], &seen.holders, &seen.load(&table.light), params.cores, waited_out) {
-      let mut entry = table.queue.remove(0);
+    let mut seen = Seen::of(params, table, legacy.as_ref());
+    let waited_out = seen.now.saturating_sub(table.queue[position].since_ms) >= millis(params.load_bound);
+    let load = seen.load(&table.light);
+    // `Some(None)`: the head of the queue is admitted; `Some(Some(head))`: the run starts past the exclusive head
+    let admitted = if position == 0 {
+      admits(&table.queue[0], &seen.holders, &load, params.cores, waited_out).then_some(None)
+    } else {
+      passes(&table.queue, position, &seen, &load, params.cores, waited_out).then(|| Some(table.queue[0].clone()))
+    };
+    if let Some(past) = admitted {
+      let mut entry = table.queue.remove(position);
       entry.since_ms = seen.now;
+      entry.passed = past.as_ref().map(|head| head.ticket.run.clone());
       if entry.exclusive {
         write_exclusive(params.dir, &entry)?;
         remove_named(&params.dir.join(DRAIN_FILE), &entry.ticket.run)?;
       }
       table.holders.push(entry);
+      if let Some(exclusive) = past {
+        joined.answer = TurnAnswer::Passed { exclusive };
+      }
       return Ok(joined);
     }
     // an exclusive run at the head of the queue with no holder drains the host: the new runs that are not heavy wait
     if position == 0 && request.exclusive && seen.holders.is_empty() {
-      start_drain(params.dir, &table.queue[0], seen.now)?;
+      let since = start_drain(params.dir, &table.queue[0], seen.now)?;
+      seen.head_drain = Some(drain_state(since, seen.now, params.drain_bar));
     }
     joined.answer = TurnAnswer::Queued(seen.queue(params, table, position));
     Ok(joined)
@@ -621,7 +686,8 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
 }
 
 /// What a look of a run sees of the turn beside the queue: the holders, the holder of `heavy.json` of the build before
-/// first, the live cores of the runs that are not heavy, and the load of the host by its last sample, at `now`
+/// first, the live cores of the runs that are not heavy, the load of the host by its last sample, and the drain of an
+/// exclusive head of the queue, at `now`
 struct Seen {
   holders: Vec<TurnEntry>,
   light: Cores,
@@ -629,6 +695,7 @@ struct Seen {
   outside: Option<Cores>,
   window: Option<Cores>,
   sampled: bool,
+  head_drain: Option<HeadDrain>,
   now: u64,
 }
 
@@ -642,6 +709,7 @@ impl Seen {
       outside: outside(&holders, light, sample.map(|sample| sample.busy)),
       window: host_window(params.dir, now),
       sampled: sample.is_some(),
+      head_drain: head_drain(params.dir, &table.queue, now, params.drain_bar),
       holders,
       light,
       now,
@@ -668,13 +736,15 @@ impl Seen {
       window: self.window,
       light_runs: table.light.clone(),
       ahead: table.queue[..position].to_vec(),
+      head_drain: self.head_drain,
     }
   }
 }
 
 /// A look of the run of `request` that waits for the turn: without the lock of the table while the run waits behind the
 /// head of the queue and its entry is as the request says, as such a look changes nothing; else [`take`]. So only the
-/// head of the queue and a run whose entry changes take the lock at each change of the table, not every run that waits
+/// head of the queue, the run that may pass an exclusive head whose drain ended ([`passes`]) and a run whose entry
+/// changes take the lock at each change of the table, not every run that waits
 pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAnswer> {
   let mut table: HeavyTurn = params.table().read()?;
   table.of_this_schema(params.dir)?;
@@ -688,7 +758,11 @@ pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
     return take(params, request);
   };
   let legacy = legacy_holder(params.dir);
-  Ok(TurnAnswer::Queued(Seen::of(params, &table, legacy.as_ref()).queue(params, &table, position)))
+  let seen = Seen::of(params, &table, legacy.as_ref());
+  if passer(&table.queue) == Some(position) && matches!(seen.head_drain, Some(HeadDrain::Ended { .. })) {
+    return take(params, request);
+  }
+  Ok(TurnAnswer::Queued(seen.queue(params, &table, position)))
 }
 
 /// Puts the run of `request`, new to the queue, in its place, and answers it: the runs of the queue of its checkout and
@@ -718,6 +792,7 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     expected: request.expected,
     live: None,
     exclusive: request.exclusive,
+    passed: None,
   };
   // the place of the first superseded run: the runs before it are before it still
   let position = place.unwrap_or(table.queue.len()).min(table.queue.len());
@@ -833,23 +908,48 @@ struct Drain {
 }
 
 /// Notes that `entry`, an exclusive run at the head of the queue with no holder, drains the host since `now_ms`, or
-/// since it began to, under the lock of the table
-fn start_drain(dir: &Path, entry: &TurnEntry, now_ms: u64) -> Result<()> {
-  let path = dir.join(DRAIN_FILE);
-  let since = std::fs::read(&path)
-    .ok()
-    .and_then(|bytes| serde_json::from_slice::<Drain>(&bytes).ok())
-    .filter(|drain| drain.entry.ticket == entry.ticket)
-    .map(|drain| drain.drain_since_ms);
-  if since.is_some() {
-    return Ok(());
+/// since it began to, under the lock of the table; answers the start of its drain. A drain of a run never starts again
+fn start_drain(dir: &Path, entry: &TurnEntry, now_ms: u64) -> Result<u64> {
+  if let Some(since) = drain_since(dir, &entry.ticket) {
+    return Ok(since);
   }
   let drain = Drain {
     entry: entry.clone(),
     drain_since_ms: now_ms,
   };
-  sync_utils::atomic_file::write_atomically(&path, &serde_json::to_vec(&drain)?, sync_utils::atomic_file::AtomicWrite { private: true, durable: false })?;
-  Ok(())
+  sync_utils::atomic_file::write_atomically(
+    &dir.join(DRAIN_FILE),
+    &serde_json::to_vec(&drain)?,
+    sync_utils::atomic_file::AtomicWrite { private: true, durable: false },
+  )?;
+  Ok(now_ms)
+}
+
+/// The start of the drain of the run of `ticket` by `drain.json` of `dir`; `None` when the file names no drain of it
+fn drain_since(dir: &Path, ticket: &Ticket) -> Option<u64> {
+  let drain: Drain = serde_json::from_slice(&std::fs::read(dir.join(DRAIN_FILE)).ok()?).ok()?;
+  (drain.entry.ticket == *ticket).then_some(drain.drain_since_ms)
+}
+
+/// The drain of an exclusive run that began at `since_ms`, at `now_ms`, with a drain of `drain_bar`
+fn drain_state(since_ms: u64, now_ms: u64, drain_bar: Duration) -> HeadDrain {
+  let until_ms = since_ms.saturating_add(millis(drain_bar));
+  if now_ms < until_ms {
+    HeadDrain::Draining { until_ms }
+  } else {
+    HeadDrain::Ended { ended_ms: until_ms }
+  }
+}
+
+/// The drain of the exclusive run at the head of `queue` at `now_ms`, with a drain of `drain_bar` ([`DRAIN_BAR`]), by
+/// `drain.json` of `dir`; `None` when the head is no exclusive run. What `brd-host runs` says of the head
+pub fn head_drain(dir: &Path, queue: &[TurnEntry], now_ms: u64, drain_bar: Duration) -> Option<HeadDrain> {
+  let head = queue.first().filter(|head| head.exclusive)?;
+  Some(drain_since(dir, &head.ticket).map_or(HeadDrain::Pending, |since| drain_state(since, now_ms, drain_bar)))
+}
+
+fn millis(duration: Duration) -> u64 {
+  u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// What keeps a new run that is not heavy from its lend: an exclusive run that holds the host, or one that drains it
@@ -868,7 +968,7 @@ pub fn bar(dir: &Path, now_ms: u64, drain_bar: Duration) -> Option<Bar> {
     return Some(Bar::Holds(holder));
   }
   let drain: Drain = serde_json::from_slice(&std::fs::read(dir.join(DRAIN_FILE)).ok()?).ok()?;
-  let until_ms = drain.drain_since_ms.saturating_add(u64::try_from(drain_bar.as_millis()).unwrap_or(u64::MAX));
+  let until_ms = drain.drain_since_ms.saturating_add(millis(drain_bar));
   (drain.entry.is_running() && now_ms < until_ms).then_some(Bar::Drains {
     entry: drain.entry,
     since_ms: drain.drain_since_ms,

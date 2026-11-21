@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-20
+**Updated:** 2026-11-21
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -111,7 +111,8 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
 - **The admission**: the head of the queue is admitted while the expected cores of the holders, the live cores of the
   runs that are not heavy and its own expected cores fit the cores of the host (`branchdeck.hostCores` of the global
   git config of the host, else what the system counts). Only the head: a small run never overtakes one that waits for
-  more, so none waits forever, and a host that frees cores gives them to the oldest waiting run. A run without a
+  more, so none waits forever, and a host that frees cores gives them to the oldest waiting run. The one exception is
+  an exclusive head whose drain ended (below). A run without a
   measure, or whose command measured the whole host, takes the whole host: it waits for every holder and for a quiet
   host, and no heavy run joins it. The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
   load of 61 to 84, `top` saying 0 % idle, while the turn counted 8.9 of its 20 cores held), so `serve` samples the busy
@@ -144,6 +145,22 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   `exclusive.json` beside the table: a supervisor of the build before, of a run that began before an upgrade, rewrites
   `turn.json` at each sample of its run and drops the fields it does not know (on 2026-11-19 the first exclusive run
   lost its mark that way, and runs of idea-1 and accio started beside it).
+- **A heavy run past an exclusive run**: the runs that are not heavy wait for no heavy run, and a run of hours (an accio
+  benchmark on 8 cores) outlives a drain. On 2026-11-21 an exclusive run of idea-1 waited at the head of the queue of
+  the Studio while such runs kept 20 of its 20 cores busy, and the 8 heavy runs behind it ended with `heavy_timeout`
+  after 2 h, though no heavy run held cores. So once the drain of an exclusive head has ended without a quiet host, the
+  first heavy run behind it that is not exclusive starts past it while the head cannot start and the admission above
+  admits that run: beside the holders and the load, or on a free turn after its own 15 min in the queue. The others
+  follow in their order, and each such holder names the exclusive run that it passed (`passed` of its entry). No run
+  passes an exclusive head before its drain ends. Behind a heavy holder its drain has not begun, and a run beside that
+  holder would keep the host from the drain. While it drains, the drain is the one window of the host for the
+  measurement, and the new runs that are not heavy wait for it too. The exclusive run keeps its place at the head, its
+  drain never starts again, and it starts once a look finds no holder, no run in its command and a quiet window. A run
+  passes only while the head cannot start, so a quiet moment goes to the head first. The rule reads `drain.json`, which
+  a supervisor of the build before writes too, and the entries of the queue: no field of `turn.json` is new to it. A
+  waiting supervisor of the build before never passes, and the runs behind it wait behind it. The line of each waiting
+  run names the drain of an exclusive head, and `brd-host runs` reads it from `head_drain` beside the table of
+  `Reply::Runs`.
 - **The measure** (`host_agent::cores`, `lease_pool::host_cores`): the supervisor of every run samples the CPU of its
   command every 10 s: the processes of its command group, the Bazel servers of its slot (a server leaves the group, and
   its CPU is the work of the run) and every descendant of either (a test of nextest in a group of its own, an action of
@@ -375,6 +392,8 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 ## Risks
 
 - A run that is not heavy still runs beside a heavy one: a `cargo nextest run -p <crate>` compiles beside a full suite.
+- An exclusive run gets one drain. On a host of runs that are not heavy and last longer than it, it may never find a
+  quiet host and end with `heavy_timeout`, while the heavy runs behind it pass it.
 - The command of a killed supervisor lives on until the keeper or a waiting lend gives its slot back, up to a minute,
   beside the next heavy run.
 - The holder of the turn waits for a slot of its repository while all of them are lent, up to an hour, and the heavy

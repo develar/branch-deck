@@ -5,7 +5,7 @@
 
 use crate::host_refs::reclaim_refs;
 use crate::host_slots::{HostSlotsParams, Queued, Reclaimed, live_runs, reclaim};
-use crate::host_turn::{Need, TurnEntry, TurnQueue};
+use crate::host_turn::{HeadDrain, Need, TurnEntry, TurnQueue};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::Path;
@@ -38,7 +38,8 @@ pub fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
 /// run 1788-12 of
 /// branch-deck holds 12.0 for 4 min (pnpm e2e, measured), the host is busy with 18.3 of 20 cores outside the heavy runs,
 /// 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"; without a sample of the host, the use of the runs
-/// that are not heavy instead: "runs that are not heavy use 2.0"
+/// that are not heavy instead: "runs that are not heavy use 2.0". A holder that started past an exclusive run says so,
+/// an exclusive run ahead is marked, and the end names the drain of an exclusive head of the queue ([`head_drain_text`])
 pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration, now_ms: u64) -> String {
   let holders = if queue.holders.is_empty() {
     "no heavy run holds cores".to_owned()
@@ -49,10 +50,11 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
       .map(|holder| {
         let (holds, why) = holds_text(holder.need(queue.cores));
         format!(
-          "run {} {holds} for {} ({}, {why})",
+          "run {} {holds} for {} ({}, {why}{})",
           run_of_repo(holder),
           span_since(holder.since_ms, now_ms),
-          holder.command
+          holder.command,
+          passed_text(holder)
         )
       })
       .collect();
@@ -66,18 +68,60 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
   if queue.need == Need::Exclusive {
     light.push_str(&exclusive_wait_text(queue));
   }
-  let ahead: Vec<String> = queue.ahead.iter().map(|entry| format!("{} ({})", run_of_repo(entry), entry.command)).collect();
+  let ahead: Vec<String> = queue
+    .ahead
+    .iter()
+    .map(|entry| format!("{} ({}{})", run_of_repo(entry), entry.command, if entry.exclusive { ", exclusive" } else { "" }))
+    .collect();
   let ahead = match ahead.len() {
     0 => "no run ahead".to_owned(),
     1 => format!("1 run ahead: {}", ahead[0]),
     count => format!("{count} runs ahead: {}", ahead.join(", ")),
   };
   format!(
-    "run {run} waits {} for the heavy turn of the host, {}, {} left: {holders}{light}, {ahead}",
+    "run {run} waits {} for the heavy turn of the host, {}, {} left: {holders}{light}, {ahead}{}",
     span(waited),
     need_text(queue.need, queue.cores),
-    span(left)
+    span(left),
+    head_drain_text(queue, now_ms)
   )
+}
+
+/// `, past the exclusive run 1788-12` for a holder that started past an exclusive run, else nothing
+pub fn passed_text(holder: &TurnEntry) -> String {
+  holder.passed.as_ref().map_or_else(String::new, |exclusive| format!(", past the exclusive run {exclusive}"))
+}
+
+/// What the drain of the exclusive run at the head of the queue lets pass, for the line of the head itself or of a run
+/// behind it: "; the drain of run 1788-12 ended 3 min ago without a quiet host: the heavy runs behind it start past it
+/// in their order while they fit"; nothing when the head is no exclusive run
+fn head_drain_text(queue: &TurnQueue, now_ms: u64) -> String {
+  let Some(drain) = queue.head_drain else { return String::new() };
+  let Some(head) = queue.ahead.first() else {
+    return match drain {
+      HeadDrain::Pending => "; it drains the host once no heavy run holds cores, and no heavy run starts past it before its drain ends".to_owned(),
+      HeadDrain::Draining { until_ms } => format!(
+        "; it drains the host for {} more: the new runs that are not heavy wait for it, and no heavy run starts past it",
+        span(Duration::from_millis(until_ms.saturating_sub(now_ms)))
+      ),
+      HeadDrain::Ended { ended_ms } => format!(
+        "; its drain ended {} ago without a quiet host: the heavy runs behind it that fit start past it, and it starts once the host is quiet",
+        span_since(ended_ms, now_ms)
+      ),
+    };
+  };
+  let head = &head.ticket.run;
+  match drain {
+    HeadDrain::Pending => format!("; run {head} drains the host once no heavy run holds cores, and no run starts past it before its drain ends"),
+    HeadDrain::Draining { until_ms } => format!(
+      "; run {head} drains the host for {} more, and no run starts past it before then",
+      span(Duration::from_millis(until_ms.saturating_sub(now_ms)))
+    ),
+    HeadDrain::Ended { ended_ms } => format!(
+      "; the drain of run {head} ended {} ago without a quiet host: the heavy runs behind it start past it in their order while they fit",
+      span_since(ended_ms, now_ms)
+    ),
+  }
 }
 
 /// The line of the run `run` that is not heavy and waited `waited` at `now_ms` while the exclusive run `drainer` drains

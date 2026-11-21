@@ -1856,11 +1856,11 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 ### Requirement: serve: Heavy runs share the cores of the host by their measure
 
-Before its lend, a heavy run MUST take its cores of the heavy turn (`lease_pool::host_turn`) in the phase `heavy`,
-waiting up to 2 h first come first, and give them back after its give-back. Only the head of the queue MUST be
-admitted: while the cores of the holders, the busy cores outside them and its own fit the host, or on a free turn of a
-quiet host or after 15 min in the queue. A run without a measure MUST take the whole host. A held lock MUST cost a
-look, never the run.
+Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, waiting up to 2 h first come
+first, and give them back after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive
+head: while the cores of the holders, the busy cores outside them and its own fit the host, or on a free turn of a quiet
+host or after 15 min in the queue. A run without a measure MUST take the whole host. A held lock MUST cost a look, never
+the run.
 
 #### Scenario: Two heavy runs and one that is not heavy
 - **WHEN** a heavy run without a measure holds the turn, a second heavy run starts, and a run that is not heavy starts
@@ -1972,8 +1972,8 @@ look, never the run.
 
 An exclusive run MUST be admitted only without a holder, with no run that is not heavy in its command, and when every
 sample of the host of the last 30 s is quiet. While it holds, no heavy run MUST be admitted, and each new run that is
-not heavy, of any repository, MUST wait for its end before its lend, in the step `exclusive`, up to 1 h. The holder MUST
-also be in `exclusive.json`, which no older build rewrites.
+not heavy MUST wait for its end before its lend, in the step `exclusive`, up to 1 h. The holder MUST also be in
+`exclusive.json`, which no older build rewrites. No heavy run MUST pass it before the end of its drain.
 
 #### Scenario: The admission of an exclusive run
 - **WHEN** an exclusive run comes to the head of the queue
@@ -1997,10 +1997,37 @@ also be in `exclusive.json`, which no older build rewrites.
   measurement: run <id> of <repository> waits for the host to drain (<command>); this run starts when the measurement
   ends, or in at most <time>`
 - **AND** 15 min after the start of the drain (`heavy/drain.json`) the bar lifts and the new runs start again, while the
-  exclusive run waits on; once it holds the host they wait for its end; behind a heavy holder it drains nothing
+  exclusive run waits on and the heavy runs behind it that fit start past it; once it holds the host they wait for its
+  end; behind a heavy holder it drains nothing
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound`)
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound`)
+
+#### Scenario: A heavy run past an exclusive run whose drain ended
+- **WHEN** an exclusive run at the head of the queue cannot start, and its drain of 15 min has ended without a quiet
+  host, as runs that are not heavy run on for hours
+- **THEN** the first heavy run behind it that is not exclusive starts past it once the admission of the head of the
+  queue admits that run: beside the holders and the busy cores outside them, or on a free turn of a quiet host or after
+  its own 15 min in the queue; the runs after it follow in their order
+- **AND** no run passes it before its drain ends: behind a heavy holder, where its drain has not begun, and while it
+  drains; a run that does not fit does not pass, and a later smaller run waits behind it
+- **AND** the exclusive run keeps its place at the head, no run passes it while it can start, its drain does not start
+  again, and it starts once no heavy run holds cores, no run that is not heavy is in its command and the host was quiet
+  for 30 s
+- **AND** the line of its wait ends `; it drains the host once no heavy run holds cores, and no heavy run starts past
+  it before its drain ends`, `; it drains the host for <time> more: the new runs that are not heavy wait for it, and no
+  heavy run starts past it`, or `; its drain ended <time> ago without a quiet host: the heavy runs behind it that fit
+  start past it, and it starts once the host is quiet`
+- **AND** the line of a run behind it names it `<id> of <repository> (<command>, exclusive)` and ends `; run <id>
+  drains the host once no heavy run holds cores, and no run starts past it before its drain ends`, `; run <id> drains
+  the host for <time> more, and no run starts past it before then`, or `; the drain of run <id> ended <time> ago
+  without a quiet host: the heavy runs behind it start past it in their order while they fit`
+- **AND** a holder that passed it is `run <id> of <repository> holds <cores> for <time> (<command>, measured, past the
+  exclusive run <id>)` in a line, and its log after the wait says `took the heavy turn of the host after <n> s, past the
+  exclusive run <id> of <repository> at the head of the queue, whose drain ended without a quiet host`, at once too
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_heavy_run_that_fits_starts_past_an_exclusive_run_whose_drain_ended`, `no_run_passes_an_exclusive_run_before_its_drain_ends_nor_one_that_does_not_fit`)
+  [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it`)
+  [@test] crates/host-agent/src/turn_test.rs (`the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed`)
 
 #### Scenario: A run that is not heavy and an exclusive run
 - **WHEN** a run that is not heavy starts while an exclusive run holds the turn
@@ -2022,8 +2049,14 @@ also be in `exclusive.json`, which no older build rewrites.
 - **WHEN** `brd-host runs` shows the heavy turn while an exclusive run holds it or waits
 - **THEN** a holder is `run <id> of <repository> holds the whole host for a measurement for <time> (exclusive):
   <command>`, and a waiting one `waits <time> for a quiet host (exclusive)`
+- **AND** at the head of the queue a waiting one says its drain from `head_drain` of the reply: `(exclusive; it drains
+  the host once no heavy run holds cores, and no run starts past it before then)`, `(exclusive; it drains the host for
+  <time> more, and no run starts past it before then)`, or `(exclusive; its drain ended <time> ago without one, and the
+  heavy runs behind it start past it while they fit)`; a reply of an agent before the pass has no `head_drain`
+- **AND** a holder that started past it says so: `run <id> of <repository> holds <cores> for <time> (measured, past the
+  exclusive run <id>): <command>`
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it`)
-  [@test] crates/host-agent/src/turn_test.rs (`a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run`, `the_lines_of_the_heavy_turn_name_the_drain_of_an_exclusive_head_and_who_passed_it`)
 
 ### Requirement: serve: A run measures the cores of its command
 

@@ -9,6 +9,7 @@ fn params(dir: &Path) -> TurnParams<'_> {
     recheck: RECHECK,
     cores: 20,
     load_bound: LOAD_BOUND,
+    drain_bar: DRAIN_BAR,
   }
 }
 
@@ -37,6 +38,14 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
   }
 }
 
+/// An exclusive request as `request`: a measurement that needs a quiet host
+fn measurement<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+  TurnRequest {
+    exclusive: true,
+    ..request(run, command)
+  }
+}
+
 /// A request as `request` from `CHECKOUT`, the checkout of every run that asks with it
 fn of_checkout<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
   TurnRequest {
@@ -61,6 +70,7 @@ fn queued(answer: &TurnAnswer) -> (Option<&str>, Vec<&str>) {
       queue.ahead.iter().map(|entry| entry.ticket.run.as_str()).collect(),
     ),
     TurnAnswer::Taken => panic!("the run took the turn"),
+    TurnAnswer::Passed { exclusive } => panic!("the run took the turn past {}", exclusive.ticket.run),
     TurnAnswer::Superseded { by } => panic!("{by} superseded the run"),
   }
 }
@@ -225,6 +235,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     expected: None,
     live: None,
     exclusive: false,
+    passed: None,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 2, "queue": [joined] }));
   let before = now_ms();
@@ -522,25 +533,9 @@ fn an_exclusive_run_waits_for_the_runs_in_their_command_and_a_quiet_window() {
   let dir = tempfile::tempdir().unwrap();
   let params = params(dir.path());
   let command = command();
-  let bench = vec!["scripts/bench".to_owned(), "ab-run".to_owned()];
-  let pid = std::process::id();
-  note_use(
-    &params,
-    &UseNote {
-      run: "bench",
-      pid,
-      process_started: sync_utils::process_scan::process_started(pid),
-      repo: "/Users/u/projects/accio",
-      command: &bench,
-      live: Cores(0),
-    },
-  )
-  .unwrap();
+  bench(&params, "bench");
   quiet_for_30_s(dir.path(), Cores(10));
-  let exclusive = TurnRequest {
-    exclusive: true,
-    ..request("ab", &command)
-  };
+  let exclusive = measurement("ab", &command);
   let TurnAnswer::Queued(queue) = take(&params, &exclusive).unwrap() else {
     panic!("a run in its command holds an exclusive run back, at 0 cores in a lull too");
   };
@@ -574,32 +569,13 @@ fn a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound() {
   let dir = tempfile::tempdir().unwrap();
   let params = params(dir.path());
   let command = command();
-  let pid = std::process::id();
-  let bench = vec!["scripts/bench".to_owned(), "ab-run".to_owned()];
-  let light = |run: &str| {
-    note_use(
-      &params,
-      &UseNote {
-        run,
-        pid,
-        process_started: sync_utils::process_scan::process_started(pid),
-        repo: "/Users/u/projects/accio",
-        command: &bench,
-        live: Cores(0),
-      },
-    )
-    .unwrap();
-  };
-  let exclusive = TurnRequest {
-    exclusive: true,
-    ..request("ab", &command)
-  };
   assert_eq!(take(&params, &measured("heavy", &command, 40)).unwrap(), TurnAnswer::Taken);
+  let exclusive = measurement("ab", &command);
   assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
   assert_eq!(bar(dir.path(), now_ms(), DRAIN_BAR), None, "behind a heavy holder it drains nothing");
   assert!(leave(&params, "heavy").unwrap());
 
-  light("bench");
+  bench(&params, "bench");
   let before = now_ms();
   assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
   let Some(Bar::Drains { entry, since_ms, until_ms }) = bar(dir.path(), now_ms(), DRAIN_BAR) else {
@@ -624,6 +600,129 @@ fn a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound() {
   assert!(!dir.path().join(DRAIN_FILE).exists());
   assert!(leave(&params, "ab").unwrap());
   assert_eq!(bar(dir.path(), now_ms(), DRAIN_BAR), None);
+}
+
+/// Notes `run`, a run that is not heavy, in its command at 0 cores: it holds an exclusive run back, in a lull too
+fn bench(params: &TurnParams<'_>, run: &str) {
+  let pid = std::process::id();
+  note_use(
+    params,
+    &UseNote {
+      run,
+      pid,
+      process_started: sync_utils::process_scan::process_started(pid),
+      repo: "/Users/u/projects/accio",
+      command: &["scripts/bench".to_owned(), "ab-run".to_owned()],
+      live: Cores(0),
+    },
+  )
+  .unwrap();
+}
+
+/// Moves the start of the drain in `dir` back by `ago`, as the time that a drain takes
+fn drain_began_ago(dir: &Path, ago: Duration) {
+  let path = dir.join(DRAIN_FILE);
+  let mut drain: Drain = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+  drain.drain_since_ms -= millis(ago);
+  std::fs::write(&path, serde_json::to_vec(&drain).unwrap()).unwrap();
+}
+
+/// An exclusive run at the head of the queue that cannot start holds every heavy run back while it drains the host. Once
+/// its drain has ended without a quiet host, the first heavy run behind it that fits starts past it, by its own look,
+/// and the holder names it; the exclusive run keeps its place, its drain never starts again, and it starts once the host
+/// is quiet. While the head can start, no run passes it
+#[test]
+fn a_heavy_run_that_fits_starts_past_an_exclusive_run_whose_drain_ended() {
+  let command = command();
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  bench(&params, "bench");
+  let exclusive = measurement("ab", &command);
+  let TurnAnswer::Queued(head) = take(&params, &exclusive).unwrap() else {
+    panic!("a run in its command holds it back");
+  };
+  assert!(matches!(head.head_drain, Some(HeadDrain::Draining { .. })), "{:?}", head.head_drain);
+  let TurnAnswer::Queued(behind) = take(&params, &measured("small", &command, 40)).unwrap() else {
+    panic!("no run passes it while it drains");
+  };
+  assert!(matches!(behind.head_drain, Some(HeadDrain::Draining { .. })), "{:?}", behind.head_drain);
+
+  drain_began_ago(dir.path(), DRAIN_BAR + Duration::from_mins(1));
+  let TurnAnswer::Passed { exclusive: passed } = look(&params, &measured("small", &command, 40)).unwrap() else {
+    panic!("4 of 20 fit beside the runs that are not heavy");
+  };
+  assert_eq!(passed.ticket.run, "ab");
+  let table = read_live(dir.path()).unwrap();
+  assert_eq!(runs(&table), (Some("small"), vec!["ab"]), "the exclusive run keeps its place at the head");
+  assert_eq!(table.holders[0].passed.as_deref(), Some("ab"));
+  let TurnAnswer::Queued(head) = take(&params, &exclusive).unwrap() else {
+    panic!("a holder holds it back");
+  };
+  let ended = head.head_drain;
+  assert!(matches!(ended, Some(HeadDrain::Ended { .. })), "{ended:?}");
+
+  assert!(leave(&params, "small").unwrap());
+  let TurnAnswer::Queued(head) = take(&params, &exclusive).unwrap() else {
+    panic!("the run in its command holds it back");
+  };
+  assert_eq!(head.head_drain, ended, "no holder again, and its drain does not start again");
+  assert!(!leave(&params, "bench").unwrap());
+  quiet_for_30_s(dir.path(), Cores(10));
+  assert_eq!(
+    queued(&take(&params, &measured("next", &command, 40)).unwrap()),
+    (None, vec!["ab"]),
+    "the head can start, and starts first"
+  );
+  assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
+}
+
+/// No run passes an exclusive run at the head of the queue behind a heavy holder, where its drain has not begun, nor
+/// while it drains: the drain is its window of the host. After its drain only the first run behind it that is not
+/// exclusive can pass, and only while the ordinary admission admits it: a run that does not fit beside the load waits,
+/// a later smaller one waits behind it, and once the first has waited the load bound it starts past the head
+#[test]
+fn no_run_passes_an_exclusive_run_before_its_drain_ends_nor_one_that_does_not_fit() {
+  let command = command();
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let exclusive = measurement("ab", &command);
+  assert_eq!(take(&params, &measured("heavy", &command, 40)).unwrap(), TurnAnswer::Taken);
+  bench(&params, "bench");
+  let TurnAnswer::Queued(head) = take(&params, &exclusive).unwrap() else {
+    panic!("an exclusive run waits for every holder");
+  };
+  assert_eq!(head.head_drain, Some(HeadDrain::Pending));
+  let TurnAnswer::Queued(behind) = take(&params, &measured("big", &command, 20)).unwrap() else {
+    panic!("2 fit beside 4, and no run passes a head whose drain has not begun");
+  };
+  assert_eq!((behind.head_drain, behind.ahead.len()), (Some(HeadDrain::Pending), 1));
+  assert!(leave(&params, "heavy").unwrap());
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
+  assert!(
+    matches!(take(&params, &measured("big", &command, 20)).unwrap(), TurnAnswer::Queued(_)),
+    "no run passes it while it drains"
+  );
+
+  drain_began_ago(dir.path(), DRAIN_BAR);
+  note_host(dir.path(), Cores(190)).unwrap();
+  let TurnAnswer::Queued(behind) = look(&params, &measured("big", &command, 20)).unwrap() else {
+    panic!("19 busy and 2 do not fit 20");
+  };
+  assert!(matches!(behind.head_drain, Some(HeadDrain::Ended { .. })), "{:?}", behind.head_drain);
+  assert_eq!(
+    queued(&take(&params, &measured("tiny", &command, 5)).unwrap()),
+    (None, vec!["ab", "big"]),
+    "it would fit, and waits behind the first run that is not exclusive"
+  );
+  let waited_out = TurnParams {
+    load_bound: Duration::ZERO,
+    ..params
+  };
+  assert!(
+    matches!(take(&waited_out, &measured("big", &command, 20)).unwrap(), TurnAnswer::Passed { .. }),
+    "past the load bound on a free turn, whatever the load"
+  );
+  assert_eq!(runs(&read_live(dir.path()).unwrap()), (Some("big"), vec!["ab", "tiny"]));
 }
 
 /// The table of the turn is private, as every file of the agent of a host
@@ -661,10 +760,7 @@ fn an_exclusive_holder_outlives_a_rewrite_of_the_table_by_an_older_build() {
   let dir = tempfile::tempdir().unwrap();
   let params = params(dir.path());
   let command = command();
-  let exclusive = TurnRequest {
-    exclusive: true,
-    ..request("ab", &command)
-  };
+  let exclusive = measurement("ab", &command);
   assert_eq!(take(&params, &exclusive).unwrap(), TurnAnswer::Taken);
   let older = |dir: &Path| {
     let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(STATE_FILE)).unwrap()).unwrap();
@@ -782,10 +878,7 @@ fn a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_
   );
   assert!(leave(&base, "unknown").unwrap());
   assert!(!leave(&base, "small").unwrap());
-  let exclusive = TurnRequest {
-    exclusive: true,
-    ..request("ab", &command)
-  };
+  let exclusive = measurement("ab", &command);
   assert!(
     matches!(take(&waited_out, &exclusive).unwrap(), TurnAnswer::Queued(_)),
     "a measurement waits for a quiet host"

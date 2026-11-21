@@ -29,9 +29,9 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use host_link::heavy::{measure_key, run_key};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
-use lease_pool::host_runs::{holds_text, run_of_repo, span_since, turn_line};
+use lease_pool::host_runs::{holds_text, passed_text, run_of_repo, span_since, turn_line};
 use lease_pool::host_turn::{
-  Bar, Joined, LOAD_BOUND, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch,
+  Bar, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch,
 };
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
@@ -47,13 +47,14 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(60);
 /// costs the look, not the run, which keeps its place and looks again ([`take`])
 const LOOK_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
-const fn params(dir: &Path, cores: u32) -> TurnParams<'_> {
+fn params(dir: &Path, cores: u32) -> TurnParams<'_> {
   TurnParams {
     dir,
     lock_timeout: LOCK_TIMEOUT,
     recheck: RECHECK,
     cores,
     load_bound: LOAD_BOUND,
+    drain_bar: tuning::drain_bar(),
   }
 }
 
@@ -101,7 +102,8 @@ const NOT_A_HANG: &str = "a wait, not a hang: do not cancel it and do not run it
 /// heavy runs hold it or wait before it. The first look says what it did to the queue ([`joined_lines`]) through `say`,
 /// and a queued first look the line of the wait at once, which each minute of the wait says again. Each look reads the
 /// measures of the command again, so a measure that came while the run waited counts. Answers
-/// `Some(TurnAnswer::Taken)`, `Some(TurnAnswer::Superseded)` once a later run of the checkout and command took its
+/// `Some(TurnAnswer::Taken)`, `Some(TurnAnswer::Passed)` for a turn taken past an exclusive run at the head of the queue
+/// whose drain ended, `Some(TurnAnswer::Superseded)` once a later run of the checkout and command took its
 /// place, the place in the queue once the time is up, or `None` when `stop` ended the wait: the end of the run takes
 /// the ticket out of the queue ([`leave`]). A lock of the table that another process holds for more than 2 s costs the
 /// look, not the run: the run keeps its place, says so at once and once a minute while it lasts, and looks again
@@ -362,6 +364,24 @@ pub(crate) fn sample_host(home: &Home, every: Duration) {
   }
 }
 
+/// The line of a run that took the heavy turn after `waited`, with `busy` of the `cores` of the host by the sample that
+/// its admission read, `past` the exclusive run that it started past: "took the heavy turn of the host after 1200 s,
+/// past the exclusive run 1788-12 of idea-1 at the head of the queue, whose drain ended without a quiet host, the host
+/// busy with 18.0 of its 20 cores"; `None` for a turn taken at once, as nothing waited
+pub(crate) fn took_line(waited: Duration, busy: Option<Cores>, cores: u32, past: Option<&TurnEntry>) -> Option<String> {
+  if waited < Duration::from_secs(1) && past.is_none() {
+    return None;
+  }
+  let past = past.map_or_else(String::new, |exclusive| {
+    format!(
+      ", past the exclusive run {} at the head of the queue, whose drain ended without a quiet host",
+      run_of_repo(exclusive)
+    )
+  });
+  let busy = busy.map_or_else(String::new, |busy| format!(", the host busy with {busy} of its {cores} cores"));
+  Some(format!("took the heavy turn of the host after {} s{past}{busy}", waited.as_secs()))
+}
+
 /// The line of a wait for the turn that ended in the queue after `waited`, for the refusal `heavy_timeout`
 pub(crate) fn timeout_line(run: &str, queue: &TurnQueue, waited: Duration) -> String {
   turn_line(run, queue, waited, Duration::ZERO, now_ms())
@@ -375,13 +395,21 @@ pub(crate) fn leave(home: &Home, run: &str) -> Result<bool, Refusal> {
 }
 
 /// The heavy turn of the host without the runs whose process is gone, as JSON for `Reply::Runs`, with its first holder
-/// as `holder` too, which a client of the build before reads. A table that cannot be read is none, and the log says why
+/// as `holder` too, which a client of the build before reads, and the drain of an exclusive head of the queue as
+/// `head_drain` (`lease_pool::host_turn::head_drain`). A table that cannot be read is none, and the log says why
 pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
-  let table = read_live(&heavy_dir(home)).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
+  let dir = heavy_dir(home);
+  let table = read_live(&dir).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
   let holder = table.holders.first().cloned();
+  let head_drain = lease_pool::host_turn::head_drain(&dir, &table.queue, now_ms(), tuning::drain_bar());
   let mut value = serde_json::to_value(table).map_err(|error| Refusal::new(Code::AgentError, format!("cannot write the heavy turn of the host: {error}")))?;
-  if let (Some(object), Some(holder)) = (value.as_object_mut(), holder) {
-    object.insert("holder".to_owned(), serde_json::to_value(holder).unwrap_or_default());
+  if let Some(object) = value.as_object_mut() {
+    if let Some(holder) = holder {
+      object.insert("holder".to_owned(), serde_json::to_value(holder).unwrap_or_default());
+    }
+    if let Some(head_drain) = head_drain {
+      object.insert("head_drain".to_owned(), serde_json::to_value(head_drain).unwrap_or_default());
+    }
   }
   Ok(value)
 }
@@ -401,6 +429,9 @@ struct TurnView {
   queue: Vec<TurnEntry>,
   #[serde(default)]
   light: Vec<LightEntry>,
+  /// The drain of an exclusive head of the queue; none from an agent of a build before the pass
+  #[serde(default)]
+  head_drain: Option<HeadDrain>,
 }
 
 /// The lines of the heavy turn of a reply of the agent (`Reply::Runs`) now, for `brd-host runs` ([`lines_at`])
@@ -409,9 +440,10 @@ pub fn lines(table: &serde_json::Value) -> Result<Vec<String>, Refusal> {
 }
 
 /// The lines of the heavy turn of a reply of the agent at `now_ms`: the cores held of the cores of the host, each holder
-/// with what it holds, why and for how long, each run that waits with what it waits for, and each run that is not
-/// heavy with its live cores. A reply of the build before (schema 1) has one holder and no cores, and its lines say who
-/// holds the turn and who waits. A table of another shape refuses with `link`, because the agent sent it
+/// with what it holds, why, for how long and the exclusive run it started past, each run that waits with what it waits
+/// for, an exclusive head with its drain, and each run that is not heavy with its live cores. A reply of the build
+/// before (schema 1) has one holder and no cores, and its lines say who holds the turn and who waits. A table of another
+/// shape refuses with `link`, because the agent sent it
 fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refusal> {
   let table: TurnView = serde_json::from_value(table.clone()).map_err(|error| Refusal::new(Code::Link, format!("the agent sent a heavy turn of another shape: {error}")))?;
   if table.schema < 2 {
@@ -432,18 +464,30 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
   for holder in &table.holders {
     let (holds, why) = holds_text(holder.need(cores));
     lines.push(format!(
-      "  run {} {holds} for {} ({why}): {}",
+      "  run {} {holds} for {} ({why}{}): {}",
       run_of_repo(holder),
       span_since(holder.since_ms, now_ms),
+      passed_text(holder),
       holder.command
     ));
   }
-  for waiting in &table.queue {
+  for (position, waiting) in table.queue.iter().enumerate() {
     let need = match waiting.need(cores) {
       Need::Cores { cores, .. } => format!("{cores} (measured)"),
       Need::Unmeasured => "the whole host (no measure)".to_owned(),
       Need::Measured(measured) => format!("the whole host (measured {measured})"),
-      Need::Exclusive => "a quiet host (exclusive)".to_owned(),
+      Need::Exclusive => match table.head_drain.filter(|_| position == 0) {
+        None => "a quiet host (exclusive)".to_owned(),
+        Some(HeadDrain::Pending) => "a quiet host (exclusive; it drains the host once no heavy run holds cores, and no run starts past it before then)".to_owned(),
+        Some(HeadDrain::Draining { until_ms }) => format!(
+          "a quiet host (exclusive; it drains the host for {} more, and no run starts past it before then)",
+          span_since(now_ms, until_ms)
+        ),
+        Some(HeadDrain::Ended { ended_ms }) => format!(
+          "a quiet host (exclusive; its drain ended {} ago without one, and the heavy runs behind it start past it while they fit)",
+          span_since(ended_ms, now_ms)
+        ),
+      },
     };
     lines.push(format!(
       "  run {} waits {} for {need}: {}",

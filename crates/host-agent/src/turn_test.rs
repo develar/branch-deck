@@ -77,6 +77,78 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
   assert_eq!(lines_at(&serde_json::json!({ "schema": 2, "cores": 20 }), now).unwrap(), ["heavy turn: free, 20 cores"]);
 }
 
+/// The lines of `brd-host runs` name the exclusive run that a holder started past, and the drain of an exclusive head of
+/// the queue: whether a run can pass it yet. A reply of an agent before the pass names neither, and says as before
+#[test]
+fn the_lines_of_the_heavy_turn_name_the_drain_of_an_exclusive_head_and_who_passed_it() {
+  let now = 1_000_000_000;
+  let table = |head_drain: serde_json::Value| {
+    serde_json::json!({
+      "schema": 2,
+      "cores": 20,
+      "holders": [{ "run": "1789-40", "pid": 1, "repo": "/Users/u/projects/branch-deck", "command": "pnpm lint:backend", "since_ms": now - 120_000, "expected": 6.5, "passed": "1788-12" }],
+      "queue": [
+        { "run": "1788-12", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "zsh ./measure-ab.sh", "since_ms": now - 2_400_000, "exclusive": true },
+        { "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/branch-deck", "command": "pnpm e2e", "since_ms": now - 600_000, "expected": 9.0 },
+      ],
+      "head_drain": head_drain,
+    })
+  };
+  assert_eq!(
+    lines_at(&table(serde_json::json!({ "state": "ended", "ended_ms": now - 300_000 })), now).unwrap(),
+    [
+      "heavy turn: 6.5 of 20 cores held",
+      "  run 1789-40 of branch-deck holds 6.5 for 2 min (measured, past the exclusive run 1788-12): pnpm lint:backend",
+      "  run 1788-12 of idea-1 waits 40 min for a quiet host (exclusive; its drain ended 5 min ago without one, and the heavy runs behind it start past it while they fit): zsh ./measure-ab.sh",
+      "  run 1790-05 of branch-deck waits 10 min for 9.0 (measured): pnpm e2e",
+    ]
+  );
+  assert_eq!(
+    lines_at(&table(serde_json::json!({ "state": "draining", "until_ms": now + 540_000 })), now).unwrap()[2],
+    "  run 1788-12 of idea-1 waits 40 min for a quiet host (exclusive; it drains the host for 9 min more, and no run starts past it before then): zsh ./measure-ab.sh"
+  );
+  assert_eq!(
+    lines_at(&table(serde_json::json!({ "state": "pending" })), now).unwrap()[2],
+    "  run 1788-12 of idea-1 waits 40 min for a quiet host (exclusive; it drains the host once no heavy run holds cores, and no run starts past it before then): zsh ./measure-ab.sh"
+  );
+  assert_eq!(
+    lines_at(&table(serde_json::Value::Null), now).unwrap()[2],
+    "  run 1788-12 of idea-1 waits 40 min for a quiet host (exclusive): zsh ./measure-ab.sh",
+    "an agent before the pass"
+  );
+}
+
+/// The line after the wait names the exclusive run that the run started past, at once too, and the sample of the host
+/// that its admission read; a turn taken at once says nothing
+#[test]
+fn the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed() {
+  let exclusive = TurnEntry {
+    ticket: lease_pool::host_slots::Ticket {
+      run: "1788-12".to_owned(),
+      pid: 1,
+      process_started: None,
+    },
+    repo: "/Users/u/projects/idea-1".to_owned(),
+    command: "zsh ./measure-ab.sh".to_owned(),
+    since_ms: 1,
+    affinity: None,
+    command_key: None,
+    expected: None,
+    live: None,
+    exclusive: true,
+    passed: None,
+  };
+  assert_eq!(took_line(Duration::from_millis(300), Some(Cores(50)), 20, None), None);
+  assert_eq!(
+    took_line(Duration::from_secs(75), Some(Cores(50)), 20, None).as_deref(),
+    Some("took the heavy turn of the host after 75 s, the host busy with 5.0 of its 20 cores")
+  );
+  assert_eq!(
+    took_line(Duration::from_millis(300), None, 20, Some(&exclusive)).as_deref(),
+    Some("took the heavy turn of the host after 0 s, past the exclusive run 1788-12 of idea-1 at the head of the queue, whose drain ended without a quiet host")
+  );
+}
+
 /// A heavy run whose turn another run holds says the line of its wait at once, keeps one watch of the table for all the
 /// looks of its wait, and a stop ends the wait, its ticket kept for the end of the run to take out; the run that holds
 /// the turn takes it again at once

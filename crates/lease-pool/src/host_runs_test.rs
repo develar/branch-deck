@@ -1,6 +1,6 @@
 use super::*;
 use crate::host_slots::{HostProcess, Ticket};
-use crate::host_turn::{LightEntry, Need};
+use crate::host_turn::{HeadDrain, LightEntry, Need};
 use pretty_assertions::assert_eq;
 use sync_utils::cores::Cores;
 
@@ -53,6 +53,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     expected: expected.map(Cores),
     live: None,
     exclusive: false,
+    passed: None,
   };
   let now_ms = 1_000_000_000;
   let live = TurnEntry {
@@ -68,6 +69,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     window: None,
     light_runs: Vec::new(),
     ahead: vec![entry("1790-03", "~/projects/idea-1", "./community/tools/bt.cmd --lane fast", now_ms - 60_000, None)],
+    head_drain: None,
   };
   assert_eq!(
     turn_line("1792-81", &queue, Duration::from_mins(3), Duration::from_mins(117), now_ms),
@@ -82,6 +84,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     window: None,
     light_runs: Vec::new(),
     ahead: Vec::new(),
+    head_drain: None,
   };
   assert_eq!(
     turn_line("c", &whole, Duration::ZERO, Duration::from_hours(2), now_ms),
@@ -96,6 +99,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     window: None,
     light_runs: Vec::new(),
     ahead: vec![entry("a", "/r/one", "pnpm e2e", now_ms, None), entry("b", "/r/two", "pnpm lint", now_ms, None)],
+    head_drain: None,
   };
   assert_eq!(
     turn_line("c", &free, Duration::from_secs(5), Duration::from_secs(119), now_ms),
@@ -132,6 +136,7 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
     expected: None,
     live: None,
     exclusive: true,
+    passed: None,
   };
   assert_eq!(
     drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 780_000, now_ms),
@@ -166,6 +171,7 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
     window: Some(Cores(112)),
     light_runs: vec![light("1790-03", "/Users/u/projects/accio", "scripts/bench ab-run")],
     ahead: Vec::new(),
+    head_drain: None,
   };
   assert_eq!(
     turn_line("ab", &queue, Duration::from_secs(5), Duration::from_secs(119), 1_000_000_000),
@@ -182,4 +188,84 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
     "{}",
     turn_line("ab", &two, Duration::ZERO, Duration::ZERO, 1_000_000_000)
   );
+}
+
+/// A holder that started past an exclusive run names it, an exclusive run ahead is marked, and the line of the exclusive
+/// head and of each run behind it ends with its drain: no run passes it before its drain ends, and after it the heavy
+/// runs behind it start past it in their order while they fit
+#[test]
+fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it() {
+  let now_ms = 1_000_000_000;
+  let entry = |run: &str, command: &str, exclusive: bool| TurnEntry {
+    ticket: Ticket {
+      run: run.to_owned(),
+      pid: 1,
+      process_started: None,
+    },
+    repo: "~/projects/idea-1".to_owned(),
+    command: command.to_owned(),
+    since_ms: now_ms - 180_000,
+    affinity: None,
+    command_key: None,
+    expected: Some(Cores(40)),
+    live: None,
+    exclusive,
+    passed: None,
+  };
+  let passer = TurnEntry {
+    passed: Some("1788-12".to_owned()),
+    ..entry("1789-40", "cargo nextest run -p git-ops", false)
+  };
+  let behind = TurnQueue {
+    cores: 20,
+    need: Need::Cores { cores: Cores(80), live: false },
+    holders: vec![passer],
+    light: Cores(0),
+    outside: Some(Cores(120)),
+    window: None,
+    light_runs: Vec::new(),
+    ahead: vec![entry("1788-12", "zsh ./measure-ab.sh", true)],
+    head_drain: Some(HeadDrain::Ended { ended_ms: now_ms - 240_000 }),
+  };
+  assert_eq!(
+    turn_line("1792-81", &behind, Duration::from_mins(20), Duration::from_mins(100), now_ms),
+    "run 1792-81 waits 20 min for the heavy turn of the host, 8.0 of its 20 cores, 100 min left: run 1789-40 of idea-1 holds 4.0 for 3 min (cargo nextest run -p git-ops, measured, past the exclusive run 1788-12), the host is busy with 12.0 of 20 cores outside the heavy runs, 1 run ahead: 1788-12 of idea-1 (zsh ./measure-ab.sh, exclusive); the drain of run 1788-12 ended 4 min ago without a quiet host: the heavy runs behind it start past it in their order while they fit"
+  );
+  let draining = TurnQueue {
+    head_drain: Some(HeadDrain::Draining { until_ms: now_ms + 540_000 }),
+    holders: Vec::new(),
+    ..behind.clone()
+  };
+  assert!(
+    turn_line("1792-81", &draining, Duration::ZERO, Duration::ZERO, now_ms).ends_with("; run 1788-12 drains the host for 9 min more, and no run starts past it before then"),
+    "{}",
+    turn_line("1792-81", &draining, Duration::ZERO, Duration::ZERO, now_ms)
+  );
+  let pending = TurnQueue {
+    head_drain: Some(HeadDrain::Pending),
+    ..behind.clone()
+  };
+  assert!(
+    turn_line("1792-81", &pending, Duration::ZERO, Duration::ZERO, now_ms)
+      .ends_with("; run 1788-12 drains the host once no heavy run holds cores, and no run starts past it before its drain ends")
+  );
+
+  let head = |head_drain| TurnQueue {
+    need: Need::Exclusive,
+    ahead: Vec::new(),
+    head_drain: Some(head_drain),
+    ..behind.clone()
+  };
+  let line = |head_drain| turn_line("1788-12", &head(head_drain), Duration::ZERO, Duration::ZERO, now_ms);
+  assert!(
+    line(HeadDrain::Ended { ended_ms: now_ms - 240_000 })
+      .ends_with(", no run ahead; its drain ended 4 min ago without a quiet host: the heavy runs behind it that fit start past it, and it starts once the host is quiet"),
+    "{}",
+    line(HeadDrain::Ended { ended_ms: now_ms - 240_000 })
+  );
+  assert!(
+    line(HeadDrain::Draining { until_ms: now_ms + 540_000 })
+      .ends_with("; it drains the host for 9 min more: the new runs that are not heavy wait for it, and no heavy run starts past it")
+  );
+  assert!(line(HeadDrain::Pending).ends_with("; it drains the host once no heavy run holds cores, and no heavy run starts past it before its drain ends"));
 }
