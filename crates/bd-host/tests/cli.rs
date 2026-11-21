@@ -717,6 +717,71 @@ fn disk_reports_the_pools_of_the_host() {
   drop(agent);
 }
 
+/// `setup --local` makes the temporary home its own host: the client is in the allow list of the agent of this home, the
+/// host file names the loopback address and the fingerprint of that agent, the `LaunchAgent` runs a copy of the binary
+/// outside the `PATH` and binds the loopback address on macOS, the link of the client stays, and a run then goes over
+/// the loopback. The fake launchctl starts nothing, so the agent that launchd would
+/// start is a `serve` on the loopback that the test starts first, on the port of the setup
+#[test]
+fn setup_local_makes_this_machine_its_own_host_on_the_loopback_and_a_run_goes_there() {
+  let world = World::new();
+  let log = fs::File::create(world.home.path().join("serve.log")).expect("the serve log");
+  let (child, listening) = spawn_on_loopback(world.command(), 0, &[], log).expect("serve listens");
+  let _agent = Agent { child };
+  let port = listening.listening.port().to_string();
+  let launchctl = world.home.path().join("launchctl");
+  fs::write(&launchctl, "#!/bin/sh\n[ \"$1\" != print ]\n").expect("the fake launchctl");
+  fs::set_permissions(&launchctl, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("executable");
+  // the client of this machine, which `brd install` links to the bundle of the app
+  let client_link = world.home.path().join(".local/bin/brd-host");
+  fs::create_dir_all(client_link.parent().expect("a parent")).expect("the bin directory");
+  std::os::unix::fs::symlink(BD_HOST, &client_link).expect("the link of brd install");
+
+  let ran = world.bd_host(&[
+    "setup",
+    "--local",
+    "--repo",
+    world.repo.path_str(),
+    "--port",
+    &port,
+    "--name",
+    "this Mac",
+    "--launchctl",
+    launchctl.to_str().expect("UTF-8"),
+  ]);
+  let (stdout, stderr) = (text(&ran.stdout), text(&ran.stderr));
+  assert_eq!(ran.status.code(), Some(0), "{stdout}{stderr}\nserve: {}", world.serve_log());
+  let binary = world.home.path().join(".local/share/brd-host/agent/brd-host");
+  assert!(stdout.starts_with(&format!("copied {BD_HOST} to {}\n", binary.display())), "{stdout}");
+  assert!(stdout.contains(&format!("answers on 127.0.0.1:{port} (")), "{stdout}");
+  assert!(
+    !fs::symlink_metadata(&binary).expect("the binary").file_type().is_symlink(),
+    "launchd runs a copy of its own"
+  );
+  assert_eq!(fs::read_link(&client_link).ok(), Some(PathBuf::from(BD_HOST)), "the client of the PATH stays the link");
+
+  let host_file: Value = serde_json::from_str(&fs::read_to_string(world.home.path().join(".config/brd-host/hosts/local.json")).expect("the host file")).expect("JSON");
+  assert_eq!(
+    (&host_file["fingerprint"], &host_file["hostname"], &host_file["addresses"]),
+    (&json!(listening.fingerprint.to_string()), &json!("127.0.0.1"), &json!([format!("127.0.0.1:{port}")])),
+    "{host_file}"
+  );
+  let client = Identity::load(&world.home.path().join(".config/brd-host")).expect("the client identity").fingerprint();
+  let allowed = AllowList::read(&world.home.path().join(".config/brd-host/agent/clients")).expect("the allow list");
+  assert_eq!(allowed.name(&client), Some("this Mac"));
+  let plist = fs::read_to_string(world.home.path().join("Library/LaunchAgents/com.jetbrains.brd-host.plist")).unwrap_or_default();
+  if cfg!(target_os = "macos") {
+    assert!(plist.contains(&format!("<string>{}</string>", binary.display())), "{plist}");
+    assert!(plist.contains("<string>--bind</string>\n    <string>127.0.0.1</string>"), "{plist}");
+  } else {
+    assert_eq!(plist, "", "no launchd");
+  }
+
+  let ran = world.bd_host(&["run", ALIAS, "--", "/bin/sh", "-c", "echo here"]);
+  assert_eq!(ran.status.code(), Some(0), "{}\nserve: {}", text(&ran.stderr), world.serve_log());
+  assert_eq!(text(&ran.stdout), "here\n");
+}
+
 #[test]
 fn schema_and_version_answer_one_json_object() {
   let world = World::new();

@@ -27,6 +27,7 @@ fn the_plist_runs_serve_on_the_port_and_escapes_its_strings() {
   let plist = plist_text(
     &PathBuf::from("/Users/a&b/.local/bin/brd-host"),
     7742,
+    None,
     Path::new("/Users/a&b/Library/Logs/brd-host.log"),
     "/usr/bin",
   );
@@ -44,6 +45,7 @@ fn the_plist_runs_serve_on_the_port_and_escapes_its_strings() {
     PlistValues {
       exe: PathBuf::from("/Users/a&b/.local/bin/brd-host"),
       port: 7742,
+      bind: None,
       log: PathBuf::from("/Users/a&b/Library/Logs/brd-host.log"),
       path: "/usr/bin".to_owned(),
     }
@@ -54,12 +56,33 @@ fn the_plist_runs_serve_on_the_port_and_escapes_its_strings() {
   assert_eq!(PlistValues::parse(&other), None, "another argument list");
 }
 
+#[test]
+fn the_plist_of_a_bind_runs_serve_on_that_address_only() {
+  let loopback = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+  let plist = plist_text(
+    Path::new("/Users/me/.local/bin/brd-host"),
+    7742,
+    loopback,
+    Path::new("/Users/me/Library/Logs/brd-host.log"),
+    "/usr/bin",
+  );
+  assert!(
+    plist.contains("<string>--port</string>\n    <string>7742</string>\n    <string>--bind</string>\n    <string>127.0.0.1</string>\n  </array>"),
+    "{plist}"
+  );
+  let values = PlistValues::parse(&plist).expect("the values");
+  assert_eq!((values.port, values.bind), (7742, loopback));
+  assert_eq!(values.text(), plist, "an upgrade finds the plist of its setup the same");
+  let unparsed = plist.replace("<string>127.0.0.1</string>", "<string>the loopback</string>");
+  assert_eq!(PlistValues::parse(&unparsed), None, "no address after --bind");
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn only_the_old_setup_plist_is_eligible_for_migration() {
   let dir = tempfile::tempdir().expect("a temporary home");
   let home = Home::new(dir.path().join("home"));
-  let legacy = plist_text_with_label(LEGACY_LAUNCHD_LABEL, &home.legacy_binary_file(), 7742, &home.legacy_launchd_log_file(), "/usr/bin");
+  let legacy = plist_text_with_label(LEGACY_LAUNCHD_LABEL, &home.legacy_binary_file(), 7742, None, &home.legacy_launchd_log_file(), "/usr/bin");
   assert!(legacy_launch_agent_matches(&home, &legacy));
   assert!(!legacy_launch_agent_matches(&home, &legacy.replace("com.jetbrains.bd-host", "com.example.other")));
   assert!(!legacy_launch_agent_matches(
@@ -128,7 +151,9 @@ fn migration_setup<'a>(exe: &'a Path, launchctl: &'a Path) -> Setup<'a> {
     client: Identity::generate().expect("a client").fingerprint(),
     name: "laptop",
     port: 7742,
+    bind: None,
     exe,
+    binary: None,
     launchctl,
     path: "/usr/bin",
     listen_wait: Duration::ZERO,
@@ -137,7 +162,7 @@ fn migration_setup<'a>(exe: &'a Path, launchctl: &'a Path) -> Setup<'a> {
 
 #[cfg(target_os = "macos")]
 fn legacy_plist(home: &Home) -> String {
-  plist_text_with_label(LEGACY_LAUNCHD_LABEL, &home.legacy_binary_file(), 7742, &home.legacy_launchd_log_file(), "/usr/bin")
+  plist_text_with_label(LEGACY_LAUNCHD_LABEL, &home.legacy_binary_file(), 7742, None, &home.legacy_launchd_log_file(), "/usr/bin")
 }
 
 #[cfg(target_os = "macos")]
@@ -171,7 +196,9 @@ fn the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent() {
     client,
     name: "laptop",
     port: 7742,
+    bind: None,
     exe: &exe,
+    binary: None,
     launchctl: &launchctl,
     path: "/usr/bin",
     listen_wait: Duration::ZERO,
@@ -200,6 +227,49 @@ fn the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent() {
   }
   let refused = setup_agent(&home, &Setup { name: "bad\nname", ..setup }, &mut Vec::new()).expect_err("a control character");
   assert_eq!(refused.code, Code::BadRequest);
+}
+
+#[test]
+fn a_local_setup_runs_a_copy_of_its_own_outside_the_path_binds_the_loopback_address_and_leaves_the_client_alone() {
+  let dir = tempfile::tempdir().expect("a temporary directory");
+  let home = Home::new(dir.path().join("home"));
+  let exe = dir.path().join("brd-host");
+  fs::write(&exe, "this build").expect("the executable");
+  // `brd install` links the client of this machine to the bundle of the app
+  fs::create_dir_all(home.binary_file().parent().expect("a parent")).expect("the bin directory");
+  std::os::unix::fs::symlink(&exe, home.binary_file()).expect("the link of brd install");
+  let client_link = || fs::read_link(home.binary_file()).expect("the link of the client stays");
+
+  let local = home.local_binary_file();
+  assert_eq!(put_binary(&home, &exe).expect("a copy"), (local.clone(), true), "no binary there");
+  assert_eq!(read(&local), "this build");
+  assert!(!fs::symlink_metadata(&local).expect("the binary").file_type().is_symlink(), "a file of its own");
+  assert_eq!(put_binary(&home, &exe).expect("no copy"), (local.clone(), false), "the same build stays");
+  fs::write(&exe, "the next build").expect("the executable");
+  assert_eq!(put_binary(&home, &exe).expect("a copy"), (local.clone(), true), "another build");
+  assert_eq!(read(&local), "the next build");
+  assert_eq!(client_link(), exe);
+
+  let (launchctl, _) = fake_launchctl(dir.path());
+  let setup = Setup {
+    client: Identity::generate().expect("a client").fingerprint(),
+    name: "this Mac",
+    port: 7742,
+    bind: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+    exe: &exe,
+    binary: Some(&local),
+    launchctl: &launchctl,
+    path: "/usr/bin",
+    listen_wait: Duration::ZERO,
+  };
+  setup_agent(&home, &setup, &mut Vec::new()).expect("set up");
+  if cfg!(target_os = "macos") {
+    let values = PlistValues::parse(&read(&home.launch_agent_file())).expect("the plist");
+    assert_eq!((values.exe.as_path(), values.bind), (local.as_path(), setup.bind));
+  } else {
+    assert!(!home.launch_agent_file().exists());
+  }
+  assert_eq!(client_link(), exe, "the client of this machine stays the link of brd install");
 }
 
 #[cfg(target_os = "macos")]

@@ -1,11 +1,14 @@
 //! `brd-host setup --agent` (openspec/specs/cli/host/spec.md, "setup"): the client runs it over ssh while the user is at the host.
 //! It creates the identity of the agent, adds the client to the allow list, writes the `LaunchAgent`, and starts or
-//! restarts `serve` under launchd. On a host without launchd it does not start the agent.
+//! restarts `serve` under launchd. On a host without launchd it does not start the agent. `brd-host setup --local` calls
+//! it in process, with the loopback address as the bind of `serve` ([`Setup::bind`]) and the binary of [`put_binary`]
+//! ([`Setup::binary`]).
 
 use crate::files::{private_dir, write_private};
 use crate::home::Home;
 use crate::{child, sys};
 use host_link::allow::{self, AllowList};
+use host_link::digest::sha256_file;
 use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::LAUNCHD_LABEL;
 #[cfg(target_os = "macos")]
@@ -15,7 +18,7 @@ use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use sync_utils::fs_retry;
@@ -35,9 +38,14 @@ pub struct Setup<'a> {
   pub client: Fingerprint,
   pub name: &'a str,
   pub port: u16,
+  /// The address that `serve` listens on, as `--bind` of the `LaunchAgent`: every address without it, the loopback
+  /// address for a local host, which no other machine reaches
+  pub bind: Option<IpAddr>,
   /// The executable of the setup. launchd runs `~/.local/bin/brd-host`, and a copy of this file goes there when it
   /// is missing
   pub exe: &'a Path,
+  /// The binary that launchd runs instead of `~/.local/bin/brd-host`: the one of [`put_binary`] for a local host
+  pub binary: Option<&'a Path>,
   /// The launchctl program; a test gives a fake one
   pub launchctl: &'a Path,
   /// The `PATH` of the setup process. The agent gets it after the usual tool directories
@@ -89,7 +97,7 @@ pub fn setup_agent(home: &Home, setup: &Setup<'_>, out: &mut dyn Write) -> Resul
       .write(&allow_file)
       .map_err(|error| Refusal::new(Code::AgentError, format!("cannot write {}: {error}", allow_file.display())))?;
   }
-  let launchd = start_agent(home, setup.exe, setup.port, setup.launchctl, setup.path, setup.listen_wait)?;
+  let launchd = start_agent(home, setup)?;
   let line = SetupLine {
     fingerprint: identity.fingerprint().to_string(),
     port: setup.port,
@@ -109,18 +117,34 @@ fn agent_identity(home: &Home) -> Result<Identity, Refusal> {
   Ok(identity)
 }
 
-/// Writes the `LaunchAgent` of `exe` on `port` and starts it under launchd on macOS. Answers what launchd did. launchd
-/// starts the agent later than launchctl returns, so the answer comes only when the agent takes connections
-fn start_agent(home: &Home, exe: &Path, port: u16, launchctl: &Path, path: &str, listen_wait: Duration) -> Result<&'static str, Refusal> {
+/// Writes the `LaunchAgent` of the executable, the port and the bind of `setup`, and starts it under launchd on macOS.
+/// Answers what launchd did. launchd starts the agent later than launchctl returns, so the answer comes only when the
+/// agent takes connections
+fn start_agent(home: &Home, setup: &Setup<'_>) -> Result<&'static str, Refusal> {
   let launchd = if cfg!(target_os = "macos") {
-    start_launchd(home, &agent_binary(home, exe)?, port, launchctl, path)?
+    let launch = Launch {
+      exe: match setup.binary {
+        Some(binary) => binary.to_path_buf(),
+        None => agent_binary(home, setup.exe)?,
+      },
+      port: setup.port,
+      bind: setup.bind,
+    };
+    start_launchd(home, &launch, setup.launchctl, setup.path)?
   } else {
     "none"
   };
-  if launchd != "none" && !listen_wait.is_zero() {
-    wait_for_listen(port, listen_wait).map_err(|message| Refusal::new(Code::LaunchdFailed, message))?;
+  if launchd != "none" && !setup.listen_wait.is_zero() {
+    wait_for_listen(setup.port, setup.listen_wait).map_err(|message| Refusal::new(Code::LaunchdFailed, message))?;
   }
   Ok(launchd)
+}
+
+/// What the `LaunchAgent` runs: the binary, and the port and the bind of its `serve`
+struct Launch {
+  exe: PathBuf,
+  port: u16,
+  bind: Option<IpAddr>,
 }
 
 /// The binary that launchd runs: `~/.local/bin/brd-host`. When that file is missing, a copy of `exe` goes there by a
@@ -128,20 +152,41 @@ fn start_agent(home: &Home, exe: &Path, port: u16, launchctl: &Path, path: &str,
 /// is in the bundle of the app. A file that is there stays: `setup <alias>` and an upgrade write it
 pub(crate) fn agent_binary(home: &Home, exe: &Path) -> Result<PathBuf, Refusal> {
   let binary = home.binary_file();
-  if binary.exists() {
-    return Ok(binary);
+  if !binary.exists() {
+    copy_binary(exe, &binary)?;
   }
+  Ok(binary)
+}
+
+/// The binary of a local host (`setup --local`), whose machine is the client too: a copy of `exe` at
+/// [`Home::local_binary_file`] by a rename, unless a file of the same SHA-256 is there, as `setup <alias>` copies the
+/// binary to a host of another build. `~/.local/bin/brd-host` stays as it is: there `brd install` links the client of
+/// this machine to the `brd-host` of the bundle of the app, and launchd never runs a file of the bundle. Answers the
+/// binary and whether it copied
+pub fn put_binary(home: &Home, exe: &Path) -> Result<(PathBuf, bool), Refusal> {
+  let binary = home.local_binary_file();
+  let own_file = fs::symlink_metadata(&binary).is_ok_and(|metadata| !metadata.file_type().is_symlink());
+  let sha256 = |path: &Path| sha256_file(path).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read {}: {error}", path.display())));
+  if own_file && sha256(&binary)? == sha256(exe)? {
+    return Ok((binary, false));
+  }
+  copy_binary(exe, &binary)?;
+  Ok((binary, true))
+}
+
+/// Copies `exe` to `binary` through a staged file beside it and a rename, so a running agent keeps its file whole
+fn copy_binary(exe: &Path, binary: &Path) -> Result<(), Refusal> {
   let failed = |error: std::io::Error| Refusal::new(Code::AgentError, format!("cannot copy {} to {}: {error}", exe.display(), binary.display()));
   if let Some(dir) = binary.parent() {
     fs::create_dir_all(dir).map_err(failed)?;
   }
   let staged = binary.with_extension("brd-host-new");
-  let copied = fs::copy(exe, &staged).and_then(|_| fs_retry::rename(&staged, &binary));
+  let copied = fs::copy(exe, &staged).and_then(|_| fs_retry::rename(&staged, binary));
   if let Err(error) = copied {
     let _ = fs_retry::remove_file(&staged);
     return Err(failed(error));
   }
-  Ok(binary)
+  Ok(())
 }
 
 fn write_line(out: &mut dyn Write, line: &impl Serialize) -> Result<(), Refusal> {
@@ -167,12 +212,12 @@ pub(crate) fn wait_for_listen(port: u16, wait: Duration) -> Result<(), String> {
   }
 }
 
-fn start_launchd(home: &Home, exe: &Path, port: u16, launchctl_program: &Path, path: &str) -> Result<&'static str, Refusal> {
+fn start_launchd(home: &Home, launch: &Launch, launchctl_program: &Path, path: &str) -> Result<&'static str, Refusal> {
   #[cfg(target_os = "macos")]
   remove_legacy_launch_agent(home, launchctl_program)?;
   let plist_file = home.launch_agent_file();
   let log_file = home.launchd_log_file();
-  let plist = plist_text(exe, port, &log_file, &agent_path(home.dir(), path));
+  let plist = plist_text(&launch.exe, launch.port, launch.bind, &log_file, &agent_path(home.dir(), path));
   let changed = fs::read_to_string(&plist_file).ok().as_deref() != Some(plist.as_str());
   if changed {
     let written = [plist_file.parent(), log_file.parent()]
@@ -261,7 +306,7 @@ fn legacy_launch_agent_matches(home: &Home, text: &str) -> bool {
   if values.exe != home.legacy_binary_file() || values.log != home.legacy_launchd_log_file() {
     return false;
   }
-  plist_text_with_label(LEGACY_LAUNCHD_LABEL, &values.exe, values.port, &values.log, &values.path) == text
+  values.bind.is_none() && plist_text_with_label(LEGACY_LAUNCHD_LABEL, &values.exe, values.port, None, &values.log, &values.path) == text
 }
 
 /// The `PATH` of the agent: the tool directories of the user and of Homebrew first, then `current`, then the system
@@ -279,16 +324,18 @@ pub(crate) fn agent_path(home: &Path, current: &str) -> String {
   entries.join(":")
 }
 
-/// The `LaunchAgent`: `serve --port <port>` at login and again after each exit, with its output in `log`.
-/// `AbandonProcessGroup` keeps a run alive when launchd restarts the agent; each supervisor has a session of its own too
-pub(crate) fn plist_text(exe: &Path, port: u16, log: &Path, path: &str) -> String {
-  plist_text_with_label(LAUNCHD_LABEL, exe, port, log, path)
+/// The `LaunchAgent`: `serve --port <port>`, with `--bind <bind>` when it has one, at login and again after each exit,
+/// with its output in `log`. `AbandonProcessGroup` keeps a run alive when launchd restarts the agent; each supervisor
+/// has a session of its own too
+pub(crate) fn plist_text(exe: &Path, port: u16, bind: Option<IpAddr>, log: &Path, path: &str) -> String {
+  plist_text_with_label(LAUNCHD_LABEL, exe, port, bind, log, path)
 }
 
-fn plist_text_with_label(label: &str, exe: &Path, port: u16, log: &Path, path: &str) -> String {
+fn plist_text_with_label(label: &str, exe: &Path, port: u16, bind: Option<IpAddr>, log: &Path, path: &str) -> String {
   let exe = xml_escape(&exe.to_string_lossy());
   let log = xml_escape(&log.to_string_lossy());
   let path = xml_escape(path);
+  let bind = bind.map_or_else(String::new, |bind| format!("\n    <string>--bind</string>\n    <string>{bind}</string>"));
   format!(
     r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -301,7 +348,7 @@ fn plist_text_with_label(label: &str, exe: &Path, port: u16, log: &Path, path: &
     <string>{exe}</string>
     <string>serve</string>
     <string>--port</string>
-    <string>{port}</string>
+    <string>{port}</string>{bind}
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -333,19 +380,22 @@ fn xml_escape(text: &str) -> String {
 pub(crate) struct PlistValues {
   pub(crate) exe: PathBuf,
   pub(crate) port: u16,
+  pub(crate) bind: Option<IpAddr>,
   pub(crate) log: PathBuf,
   pub(crate) path: String,
 }
 
 impl PlistValues {
   /// The values of `plist`, or `None` when it is not of the shape of [`plist_text`]: the program, `serve`, `--port` and
-  /// the port as its arguments, a `PATH` and a log
+  /// the port, then maybe `--bind` and an address as its arguments, a `PATH` and a log
   pub(crate) fn parse(plist: &str) -> Option<Self> {
     let after = |key: &str| plist.split_once(&format!("<key>{key}</key>")).map(|(_, rest)| rest);
     let (arguments, _) = after("ProgramArguments")?.split_once("</array>")?;
     let arguments: Vec<String> = arguments.split("<string>").skip(1).filter_map(string_value).collect();
-    let [exe, serve, flag, port] = arguments.as_slice() else {
-      return None;
+    let (exe, serve, flag, port, bind) = match arguments.as_slice() {
+      [exe, serve, flag, port] => (exe, serve, flag, port, None),
+      [exe, serve, flag, port, bind_flag, bind] if bind_flag == "--bind" => (exe, serve, flag, port, Some(bind.parse().ok()?)),
+      _ => return None,
     };
     if exe.is_empty() || serve != "serve" || flag != "--port" {
       return None;
@@ -354,6 +404,7 @@ impl PlistValues {
     Some(Self {
       exe: PathBuf::from(exe),
       port: port.parse().ok()?,
+      bind,
       log: PathBuf::from(first_string("StandardOutPath")?),
       path: first_string("PATH")?,
     })
@@ -361,7 +412,7 @@ impl PlistValues {
 
   /// The plist that `setup` writes for these values
   pub(crate) fn text(&self) -> String {
-    plist_text(&self.exe, self.port, &self.log, &self.path)
+    plist_text(&self.exe, self.port, self.bind, &self.log, &self.path)
   }
 }
 

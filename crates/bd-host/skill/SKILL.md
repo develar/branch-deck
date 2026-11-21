@@ -25,6 +25,9 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 A run needs no ssh: each end pins the certificate of the other end, so a run works from a background session too.
 Never install, configure or restart the agent by hand. Tell the user what a refusal names.
 
+The host `local` is this machine, after the user ran `brd-host setup --local`: a run there builds in a warm host slot
+of this machine instead of the checkout of the session, and no pack travels.
+
 ## Run a command
 
 ```sh

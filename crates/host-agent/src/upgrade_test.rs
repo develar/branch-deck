@@ -27,7 +27,7 @@ impl World {
     let world = Self { dir, home, port: Some(listener) };
     let plist = world.home.launch_agent_file();
     fs::create_dir_all(plist.parent().expect("a parent")).expect("the LaunchAgents directory");
-    let text = plist_text(&world.target(), port, &world.home.launchd_log_file(), "/usr/bin");
+    let text = plist_text(&world.target(), port, None, &world.home.launchd_log_file(), "/usr/bin");
     fs::write(&plist, text).expect("the plist");
     script(&world.launchctl(), &format!("echo \"$*\" >>{}\n", world.calls_file().display()));
     world

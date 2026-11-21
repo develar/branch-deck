@@ -108,3 +108,76 @@ fn a_host_that_ssh_cannot_reach_or_that_cannot_run_the_binary_is_refused() {
 fn the_digest_is_lower_case_hex() {
   assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 }
+
+/// The agent setup of a local host for the fake agent of `setup`: the line that `brd-host setup --agent` prints for it,
+/// once the fingerprint of this client is the one of the allow list of the fake
+fn local_agent(setup: &Setup) -> impl Fn(Fingerprint) -> Result<LocalAgent, Refusal> + '_ {
+  move |client| {
+    assert_eq!(client, setup.config.identity().unwrap().fingerprint(), "the agent setup allows this client");
+    Ok(LocalAgent {
+      copied: true,
+      line: format!(
+        "{{\"fingerprint\":\"{}\",\"port\":{},\"launchd\":\"bootstrapped\"}}\n",
+        setup.agent.identity.fingerprint(),
+        setup.agent.address.port()
+      ),
+    })
+  }
+}
+
+#[test]
+fn a_local_setup_pins_the_agent_of_this_machine_on_the_loopback_without_ssh_and_a_request_goes_there() {
+  let setup = Setup::new(runs_reply);
+  let processes = FakeProcesses::default();
+  let client = setup.client(&processes, &|_| {}, &calm);
+  let request = LocalSetupRequest {
+    alias: LOCAL_ALIAS,
+    repo: "~/projects/idea-1",
+  };
+  let prepared = client.setup_local(&request, &local_agent(&setup)).unwrap();
+
+  assert!(prepared.copied);
+  assert_eq!((prepared.launchd.as_str(), prepared.agent.address), ("bootstrapped", setup.agent.address));
+  assert_eq!(prepared.host_file, setup.config.host_path(LOCAL_ALIAS));
+  let file = setup.config.read_host(LOCAL_ALIAS).unwrap();
+  assert_eq!(
+    file,
+    HostFile {
+      alias: LOCAL_ALIAS.to_owned(),
+      fingerprint: setup.agent.identity.fingerprint(),
+      port: setup.agent.address.port(),
+      hostname: "127.0.0.1".to_owned(),
+      addresses: vec![SocketAddr::from((LOCAL_BIND, setup.agent.address.port()))],
+      repo: "~/projects/idea-1".to_owned(),
+    }
+  );
+  assert!(processes.calls().is_empty(), "no ssh, no child");
+
+  client.runs(LOCAL_ALIAS).unwrap();
+  assert_eq!(
+    setup.agent.requests().last(),
+    Some(&Request::Runs),
+    "a request over the loopback with the pins of the setup"
+  );
+}
+
+#[test]
+fn a_local_setup_refuses_a_bad_alias_before_the_agent_setup_and_an_agent_setup_without_its_line() {
+  let setup = Setup::new(runs_reply);
+  let processes = FakeProcesses::default();
+  let client = setup.client(&processes, &|_| {}, &calm);
+  let never = |_: Fingerprint| -> Result<LocalAgent, Refusal> { panic!("the agent setup runs after the check of the alias") };
+  let refusal = client.setup_local(&LocalSetupRequest { alias: "../x", repo: "~/r" }, &never).unwrap_err();
+  assert_eq!(refusal.code, Code::Usage);
+
+  let silent = |_: Fingerprint| {
+    Ok(LocalAgent {
+      copied: false,
+      line: "launchd said nothing\n".to_owned(),
+    })
+  };
+  let refusal = client.setup_local(&LocalSetupRequest { alias: LOCAL_ALIAS, repo: "~/r" }, &silent).unwrap_err();
+  assert_eq!(refusal.code, Code::AgentFailed);
+  assert!(refusal.message.contains("printed no setup line: launchd said nothing"), "{}", refusal.message);
+  assert!(setup.config.read_host(LOCAL_ALIAS).is_err(), "no host file");
+}

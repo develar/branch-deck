@@ -110,6 +110,13 @@ impl Home {
     self.dir.join(".local/bin").join(HOST_NAME)
   }
 
+  /// The binary that the `LaunchAgent` of a local host runs (`setup --local`): `~/.local/share/brd-host/agent/brd-host`.
+  /// It is outside the `PATH` and outside the bundle of the app, so `~/.local/bin/brd-host` stays the client of this
+  /// machine, which `brd install` links to the bundle
+  pub fn local_binary_file(&self) -> PathBuf {
+    self.dir.join(".local/share").join(HOST_NAME).join("agent").join(HOST_NAME)
+  }
+
   #[cfg(target_os = "macos")]
   pub fn legacy_binary_file(&self) -> PathBuf {
     self.dir.join(".local/bin").join(LEGACY_HOST_NAME)

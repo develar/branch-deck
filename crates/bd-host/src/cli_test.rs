@@ -48,3 +48,33 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
   assert!(options_of(&["brd-host", "run", "studio", "--heavy", "--", "make"]).heavy, "--heavy");
   assert!(options_of(&["brd-host", "run", "studio", "--exclusive", "--", "make"]).exclusive, "--exclusive");
 }
+
+/// The setup of the command line `argv`, or the error of clap
+fn setup_of(argv: &[&str]) -> Result<SetupArgs, clap::Error> {
+  Cli::try_parse_from(argv).map(|cli| match cli.command {
+    Command::Setup(args) => args,
+    command => panic!("not a setup: {command:?}"),
+  })
+}
+
+/// `setup --local` takes an alias, `local` by default, and the options of `setup <alias>`; `--agent` goes alone
+#[test]
+fn setup_takes_an_alias_or_local_or_agent() {
+  let local = setup_of(&["brd-host", "setup", "--local"]).expect("setup --local");
+  assert_eq!((local.local, local.alias.as_deref(), local.port), (true, None, DEFAULT_PORT));
+  let named = setup_of(&["brd-host", "setup", "--local", "laptop", "--repo", "~/projects/branch-deck", "--port", "7743"]).expect("an alias");
+  assert_eq!((named.alias.as_deref(), named.repo.as_str(), named.port), (Some("laptop"), "~/projects/branch-deck", 7743));
+  let ssh = setup_of(&["brd-host", "setup", "studio"]).expect("setup <alias>");
+  assert_eq!((ssh.local, ssh.alias.as_deref()), (false, Some("studio")));
+  let client = "ab".repeat(32);
+  let agent = setup_of(&["brd-host", "setup", "--agent", "--client", &client, "--name", "x"]).expect("setup --agent");
+  assert!(agent.agent && !agent.local);
+  for argv in [
+    &["brd-host", "setup"][..],
+    &["brd-host", "setup", "--local", "--agent", "--client", &client, "--name", "x"],
+    &["brd-host", "setup", "studio", "--agent", "--client", &client, "--name", "x"],
+    &["brd-host", "setup", "--local", "--client", &client],
+  ] {
+    assert!(setup_of(argv).is_err(), "{argv:?}");
+  }
+}

@@ -272,6 +272,37 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 
+### A local host
+
+`brd-host setup --local` makes the machine of the client its own host. A laptop then gets warm host slots and the
+keeper: a run there builds in a slot whose Bazel server and ignored outputs stay between runs, not in the lease of a
+session, which starts cold.
+
+- **No ssh.** `brd-host` links the agent, so the setup runs the agent setup in process (`host_agent::setup`), then
+  writes the host file and asks the hello as `setup <alias>` does (`Client::setup_local`). The client and the agent
+  keep two identities (`~/.config/brd-host/` and its `agent/`), so both pins are the ones of a host over ssh: the
+  client in the allow list, the fingerprint of the agent in the host file.
+- **The loopback only.** The `LaunchAgent` runs `serve --bind 127.0.0.1`, and the host file names `127.0.0.1` alone.
+  No other machine reaches the agent of a laptop. macOS Local Network privacy does not cover the loopback address, so
+  a connect never gets `EHOSTUNREACH` there and no relay through `nc` starts; the relay itself talks to `nc` over a
+  loopback socket.
+- **No pack.** The repository of the host is a repository of this machine, and a lease shares the objects of its
+  repository, so the `Have` finds the commit of the run.
+- **The binary.** On a client `~/.local/bin/brd-host` is the client: `brd install` links it to the `brd-host` of the
+  bundle of the app, so the client follows each update of the app, and launchd never runs a file of the bundle. So the
+  `LaunchAgent` of a local host runs a copy of its own, `~/.local/share/brd-host/agent/brd-host`, outside the `PATH`
+  and the bundle (`Home::local_binary_file`). The setup puts it there by a rename when another build is there
+  (`put_binary`), as `setup <alias>` copies the binary to a host of another build, and leaves `~/.local/bin/brd-host`
+  as it is. An upgrade replaces the binary that the `LaunchAgent` names, so `brd-host upgrade local` replaces the
+  copy; after an update of the app, the hello of the new client names that upgrade.
+  A copy at `~/.local/bin/brd-host`, the path of a host, would replace the link: the client of this machine would stay
+  at the build of the setup for its runs to every host until a manual upgrade.
+- **The keeper** is the keeper of every host. Below `branchdeck.leaseMinFree` it relieves every pool of this machine,
+  the pools of the sessions too, by the steps of a get, which a `brd lease get` there takes anyway. Below the floor of
+  the git of a host it runs `brew upgrade git`; a Mac whose git of Homebrew is current never meets the floor.
+- **One agent per machine.** The `LaunchAgent` has one label. A later `setup --agent` of another client on the same
+  machine writes the plist without the bind, and the agent then listens on every address again.
+
 ### The output of a run
 
 The supervisor reads the stdout and the stderr of the command and writes them to `events.log` of the run as pieces
@@ -374,6 +405,10 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
    SIGINT too. The starts compare in the unit of the platform (`process_scan::start_clock`: clock ticks since the boot
    on Linux), not on the wall clock, where Linux adds the ticks to `btime`, the boot in whole seconds, and would tell a
    process forked just before the SIGINT up to a second early.
+
+10. **Decision**: A local host is the agent of every host on the loopback address, not code in `brd` (2026-11-21).
+    **Rationale**: `brd` links no crate of the remote runs (decision 1). The client, the protocol, the lend and the
+    keeper work across one machine as across two, so the only new parts are the in-process setup and the bind.
 
 ## Alternatives Considered
 

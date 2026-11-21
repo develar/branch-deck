@@ -22,8 +22,9 @@ pub enum AgentCommand {
     /// The TCP port
     #[arg(long, default_value_t = DEFAULT_PORT)]
     port: u16,
-    /// The address to listen on; a test listens on the loopback address
-    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED), hide = true)]
+    /// The address to listen on: every address by default; the `LaunchAgent` of `setup --local` names the loopback
+    /// address, which no other machine reaches
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
     bind: IpAddr,
     /// The launchctl program of the watchdog of an upgrade; a test gives a fake one
     #[arg(long, default_value = "launchctl", hide = true)]

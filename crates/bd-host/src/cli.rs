@@ -15,7 +15,7 @@ use host_client::phases::{phases_line, run_lines};
 use host_client::process::{Call, OsProcesses, Processes};
 use host_client::report::{HelloRefusal, HelloReport, REPORT_SCHEMA, RunReport, command_exit_code};
 use host_client::run::{RunOptions, RunRequest};
-use host_client::setup::SetupRequest;
+use host_client::setup::{LOCAL_ALIAS, LOCAL_BIND, LocalAgent, LocalSetupRequest, Prepared, SetupRequest};
 use host_client::upgrade::{UpgradeRequest, UpgradeWay, Upgraded};
 use host_client::{Build, Client, OutputSink, affinity, request_exit};
 use host_link::digest::sha256_file;
@@ -117,7 +117,8 @@ enum Command {
     #[arg(long)]
     json: bool,
   },
-  /// Makes a host ready: over ssh from this machine (`setup <alias>`), or on the host itself
+  /// Makes a host ready: over ssh from this machine (`setup <alias>`), this machine its own host (`setup --local`), or
+  /// on the host itself
   Setup(SetupArgs),
   /// Sends this binary to the agent of a macOS host over the link, without ssh. The agent swaps its binary and
   /// restarts, and a watchdog brings back the previous binary when the new one does not listen
@@ -214,12 +215,17 @@ struct SlotsArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(group = clap::ArgGroup::new("mode").required(true).args(["alias", "agent"]))]
+#[command(group = clap::ArgGroup::new("mode").required(true).multiple(true).args(["alias", "agent", "local"]))]
 struct SetupArgs {
-  /// The ssh alias of the host: copy this binary there, run `brd-host setup --agent` there, and write the host file
+  /// The ssh alias of the host: copy this binary there, run `brd-host setup --agent` there, and write the host file.
+  /// With `--local`, the alias of this machine (default `local`)
   alias: Option<String>,
+  /// Make this machine its own host, without ssh: put this binary in place, run the agent setup here with an agent
+  /// that listens on the loopback address only, and write the host file
+  #[arg(long)]
+  local: bool,
   /// On the host: make the identity of the agent, allow the client, and write and start the `LaunchAgent`
-  #[arg(long, requires_all = ["client", "name"])]
+  #[arg(long, requires_all = ["client", "name"], conflicts_with_all = ["alias", "local"])]
   agent: bool,
   /// The fingerprint of the client that `--agent` allows
   #[arg(long, requires = "agent")]
@@ -533,7 +539,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
         force,
       })?;
       out.line(&upgraded_text(&alias, &upgraded));
-      warn_of_slots_off_the_home_volume(&client, &alias, &upgraded.agent.os);
+      warn_of_slots_off_the_home_volume(&client, &alias, &format!("~/{}", host_client::setup::AGENT_PATH), &upgraded.agent.os);
       Ok(0)
     }
     Command::Version { json: _ } => {
@@ -803,6 +809,9 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
 
 /// `brd-host setup`
 fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
+  if args.local {
+    return local_setup(args, out);
+  }
   if let Some(alias) = &args.alias {
     install_interrupt("Ctrl+C ends this process, and an ssh call goes on");
     let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
@@ -816,25 +825,71 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
       repo: &args.repo,
       name: &name,
     })?;
-    let copied = if prepared.copied {
-      format!("copied {} to {alias}:~/{}", binary.display(), host_client::setup::AGENT_PATH)
-    } else {
-      format!("{alias}:~/{} is current", host_client::setup::AGENT_PATH)
-    };
-    let info = &prepared.agent;
-    out.line(&format!(
-      "{copied}\nlaunchd: {}\nbrd-host {} answers on {} ({} {})\nhost file {}",
-      prepared.launchd,
-      info.version,
-      info.address,
-      info.os,
-      info.arch,
-      prepared.host_file.display()
-    ));
-    warn_of_slots_off_the_home_volume(&client, alias, &info.os);
+    let agent_path = format!("~/{}", host_client::setup::AGENT_PATH);
+    out.line(&prepared_text(&prepared, &binary, &format!("{alias}:{agent_path}")));
+    warn_of_slots_off_the_home_volume(&client, alias, &agent_path, &prepared.agent.os);
     return Ok(0);
   }
   agent_setup(args, out)
+}
+
+/// `setup --local [<alias>]`: the agent setup of this machine in process, with the loopback address as the bind of the
+/// agent, then the host file and the hello as `setup <alias>` writes and asks them
+fn local_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
+  use host_agent::home::Home;
+  use host_agent::setup::{LISTEN_WAIT, Setup, put_binary, setup_agent};
+  let alias = args.alias.as_deref().unwrap_or(LOCAL_ALIAS);
+  let home = Home::from_env()?;
+  let path = std::env::var("PATH").unwrap_or_default();
+  let binary = args.binary.clone().map_or_else(this_exe, Ok)?;
+  let name = args.name.clone().unwrap_or_else(|| format!("brd-host on {}", local_name(&OsProcesses)));
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
+  let client = client(&output, &say)?;
+  let agent = |fingerprint| {
+    let (local, copied) = put_binary(&home, &binary)?;
+    let setup = Setup {
+      client: fingerprint,
+      name: &name,
+      port: args.port,
+      bind: Some(LOCAL_BIND.into()),
+      exe: &binary,
+      binary: Some(&local),
+      launchctl: &args.launchctl,
+      path: &path,
+      listen_wait: LISTEN_WAIT,
+    };
+    let mut line = Vec::new();
+    setup_agent(&home, &setup, &mut line)?;
+    Ok(LocalAgent {
+      copied,
+      line: String::from_utf8_lossy(&line).into_owned(),
+    })
+  };
+  let prepared = client.setup_local(&LocalSetupRequest { alias, repo: &args.repo }, &agent)?;
+  let agent_path = home.local_binary_file().display().to_string();
+  out.line(&prepared_text(&prepared, &binary, &agent_path));
+  warn_of_slots_off_the_home_volume(&client, alias, &agent_path, &prepared.agent.os);
+  Ok(0)
+}
+
+/// What `setup <alias>` and `setup --local` say they did; `agent_binary` is the binary that launchd runs, as
+/// `<alias>:~/.local/bin/brd-host` of a host over ssh
+fn prepared_text(prepared: &Prepared, binary: &Path, agent_binary: &str) -> String {
+  let copied = if prepared.copied {
+    format!("copied {} to {agent_binary}", binary.display())
+  } else {
+    format!("{agent_binary} is current")
+  };
+  let info = &prepared.agent;
+  format!(
+    "{copied}\nlaunchd: {}\nbrd-host {} answers on {} ({} {})\nhost file {}",
+    prepared.launchd,
+    info.version,
+    info.address,
+    info.os,
+    info.arch,
+    prepared.host_file.display()
+  )
 }
 
 /// `setup --agent`, on the host itself
@@ -853,7 +908,9 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
     client,
     name,
     port: args.port,
+    bind: None,
     exe: &exe,
+    binary: None,
     launchctl: &args.launchctl,
     path: &path,
     listen_wait: LISTEN_WAIT,
@@ -864,8 +921,9 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
 }
 
 /// After an upgrade or a setup of a macOS agent: the warning of its slots off its home volume
-/// (`host_agent::table::off_home_volume_warning`). A look that fails says nothing, as the upgrade or the setup went through
-fn warn_of_slots_off_the_home_volume(client: &Client<'_>, alias: &str, os: &str) {
+/// (`host_agent::table::off_home_volume_warning`), which names `agent_binary` for Full Disk Access. A look that fails
+/// says nothing, as the upgrade or the setup went through
+fn warn_of_slots_off_the_home_volume(client: &Client<'_>, alias: &str, agent_binary: &str, os: &str) {
   if os != "macos" {
     return;
   }
@@ -878,7 +936,7 @@ fn warn_of_slots_off_the_home_volume(client: &Client<'_>, alias: &str, os: &str)
       Some((repository.repo.clone(), paths))
     })
     .collect();
-  if let Some(warning) = host_agent::table::off_home_volume_warning(alias, &format!("~/{}", host_client::setup::AGENT_PATH), &off_home) {
+  if let Some(warning) = host_agent::table::off_home_volume_warning(alias, agent_binary, &off_home) {
     say(&warning);
   }
 }

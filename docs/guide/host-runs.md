@@ -1,6 +1,6 @@
 # Runs on Another Mac (`brd-host`)
 
-**Updated:** 2026-11-05  
+**Updated:** 2026-11-21  
 **Tags:** [brd-host, host, remote-run, setup]
 
 `brd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
@@ -130,6 +130,26 @@ and says once to run `brd-host upgrade studio`.
 
 Setup again whenever you like: it keeps the identity of the host and adds this Mac to its list. Another Mac of yours
 becomes a client the same way, from that Mac.
+
+### This Mac as its own host
+
+This Mac can be a host of its own, so its runs build in warm slots that the keeper fills and keeps, not in the
+checkout of the session. No ssh and no Remote Login are needed:
+
+```sh
+brd-host setup --local --repo ~/projects/branch-deck
+brd-host hello local
+brd-host run local -- cargo nextest run -p git-ops
+```
+
+- The alias is `local`, unless you name another one: `brd-host setup --local laptop`.
+- The agent listens on `127.0.0.1` only, so no other machine reaches it, and macOS asks for no Local Network permission.
+- No pack travels: the repository of the host is your repository.
+- The agent runs a copy of the binary, `~/.local/share/brd-host/agent/brd-host`, as launchd never runs a file of the
+  app bundle. `~/.local/bin/brd-host` stays the link of `brd install`, so the client follows the app. After an update
+  of the app, `brd-host hello local` names `brd-host upgrade local`, which updates the agent.
+- The keeper works here as on any host: it keeps `branchdeck.hostSlots` warm slots per repository (4 by default), frees
+  the disk below `branchdeck.leaseMinFree`, and upgrades the git of Homebrew when Branch Deck raises its floor.
 
 ## Tell the host what a repository needs
 
@@ -317,7 +337,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | This Mac | `~/.config/brd-host/identity.crt`, `identity.key` | The identity of this client |
 | This Mac | `~/.config/brd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
 | This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run and the patch of `--apply`, for 7 days |
-| Host | `~/.local/bin/brd-host` | The binary that launchd runs |
+| Host | `~/.local/bin/brd-host`, on a local host `~/.local/share/brd-host/agent/brd-host` | The binary that launchd runs |
 | Host | `~/.config/brd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
 | Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |
 | Host | `~/Library/Logs/brd-host.log` | The log of the agent |
@@ -336,3 +356,11 @@ rm ~/Library/LaunchAgents/com.jetbrains.brd-host.plist ~/.local/bin/brd-host
 
 To remove only one Mac, delete its line from `~/.config/brd-host/agent/clients`: the agent reads the list at each
 connection. On that Mac, delete `~/.config/brd-host/hosts/<alias>.json`.
+
+A local host has its binary elsewhere, and `~/.local/bin/brd-host` is the client of this Mac, so keep it:
+
+```sh
+launchctl bootout gui/$(id -u)/com.jetbrains.brd-host
+rm ~/Library/LaunchAgents/com.jetbrains.brd-host.plist ~/.local/share/brd-host/agent/brd-host
+rm ~/.config/brd-host/hosts/local.json
+```
