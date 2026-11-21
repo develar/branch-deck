@@ -264,7 +264,7 @@ the review.
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
 | Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
 | Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
-| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved whole to another file with the same code says where it went and came from (`moved_from`, `moved_to`; decision 32), still two units; one unit of such a move, a move whose body changed and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
+| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved whole to another file with the same code says where it went and came from (`moved_from`, `moved_to`; decision 33), still two units; one unit of such a move, a move whose body changed and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
@@ -649,7 +649,18 @@ the review.
    below it not yet landed too. Approve says so (`domain_policy::approval_landing`) and stays enabled: the approval
    waits on the pull request. Refusing it, or retargeting the layer, was rejected: the approval is the reviewer's
    judgement of that layer's own diff, still true once it goes into master, and the base is the author's.
-32. **A declaration moved to another file says where, before anything folds it** (2026-11-21). A function moved to
+32. **An agent reviews by the plan, never line by line** (2026-11-21). The skill taught no review: an agent asked to
+   review a commit had its patch alone, where a wrapped call and a function at another place read as changes, and
+   nothing asked it to say that a change holds no change of behaviour. The skill now teaches the review by
+   `brd review-plan`: its `reading` first, its `units` in their order, the mechanical ones passed, the rest read, a move
+   read where it stands now, no removal skipped, and a report of the changes of behaviour alone, or that there is none.
+   It adds no fact and no second model of the diff: it reads what the plan proves of each unit, and the marks of each
+   line stay out of the output of `brd`
+   ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), non-goal), so the skill names no tool beside
+   brd. Its test reads the kinds from the schema of the output: a new kind of unit fails until the recipe says whether
+   it is read. What the recipe cannot say yet is what is left to read in one unit: `reading` sums by role, so a unit of
+   a rename the index proved is read all the same.
+33. **A declaration moved to another file says where, before anything folds it** (2026-11-21). A function moved to
    another file was two units, "formatTotal — removed" in one file and "formatTotal — new" in the other, each read
    whole; a function extracted into a new file a removal beside the new file, one moved out of a file the commits
    delete an addition beside the deleted file. Nothing in the plan tied them, so neither an agent reading `brd
@@ -670,18 +681,19 @@ the review.
    the 94 ranges of idea-1 of the lab 5 are such moves (42 lines), 4 of them into a new file; of 154 in 10 commits of
    this repository that move code between crates 80 (700 lines); all 85 are moves, 11 read by hand, and the units are
    those of the plan before.
-
-32. **An agent reviews by the plan, never line by line** (2026-11-21). The skill taught no review: an agent asked to
-   review a commit had its patch alone, where a wrapped call and a function at another place read as changes, and
-   nothing asked it to say that a change holds no change of behaviour. The skill now teaches the review by
-   `brd review-plan`: its `reading` first, its `units` in their order, the mechanical ones passed, the rest read, a move
-   read where it stands now, no removal skipped, and a report of the changes of behaviour alone, or that there is none.
-   It adds no fact and no second model of the diff: it reads what the plan proves of each unit, and the marks of each
-   line stay out of the output of `brd`
-   ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), non-goal), so the skill names no tool beside
-   brd. Its test reads the kinds from the schema of the output: a new kind of unit fails until the recipe says whether
-   it is read. What the recipe cannot say yet is what is left to read in one unit: `reading` sums by role, so a unit of
-   a rename the index proved is read all the same.
+34. **One unit of an exact move comes next; a move with a changed body waits** (2026-11-21). In ordinary history an
+   exact move between files is rare ([Measurements → Moves between files](#moves-between-files)): 15 of 600 commits of
+   idea-1 hold one, 46 of 981 removed units, 41 of the 46 into a new file, and a declaration of the same name with
+   other code in another file is about a third as common (16, a lower bound). So the next step is the window: the two
+   places of an exact move read as one unit, at the new place. A move whose body changed, read as the diff of its
+   body, and a positional bridge of the marks over the lines between two runs of a move wait: they serve a case rarer
+   than the exact move, which is rare already.
+35. **No signal of lost work** (2026-11-21). A body replaced by a marker of no implementation, a test removed while its
+   subject stays and a test disabled were measured ([Measurements → What was lost](#what-was-lost)) and are not built,
+   a decision of the user. The first never fired true. The naive forms of the other two are false nearly every time
+   (none of 20, 3 of 24), and their forms that are true fire 3 times in 3000 commits, each the declared purpose of its
+   commit, which its message says already. The monorepo mutes its tests mostly on CI, outside the code: a silent
+   signal would not mean that nothing was muted.
 
 ## Review Rounds
 
@@ -715,6 +727,37 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 The units of three ranges of idea-1: [Review Units → Measurements](../../openspec/specs/branch/review-units/spec.md#measurements).
 The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan/spec.md#measurements).
 
+### Moves between files
+
+A declaration moved whole to another file with the same code (`moved_from`, `moved_to`, decision 33), counted by `brd
+review-plan` of each commit against its parent on every 5th of the last 3000 non-merge commits of idea-1 (600 commits,
+2026-11-18 to 2026-11-21): 15 commits hold such a move, 5 of them one, 9 two to five, 1 more than five (ten). They are
+46 of the 981 removed units and 296 of the 12 424 lines of those units (from the line of the name to the end); 41 of
+the 46 go into a new file. At least 16 removed units in 12 commits have a declaration of the same name in another file
+whose code differs: a lower bound, the declarations of a new file not counted. The ranges of the lab and the
+refactorings of this repository: [Review Units → Measurements](../../openspec/specs/branch/review-units/spec.md#measurements).
+
+### What was lost
+
+Signals of lost work, measured on the 94 ranges of idea-1 of the review-concerns lab and on the last 3000 non-merge
+commits of idea-1 (2026-11-18 to 2026-11-21); none is built (decision 35):
+
+- **A body replaced by a marker of no implementation** (`TODO()`, `todo!()`, `unimplemented!()`, `throw
+  NotImplementedError`): 6 candidate lines in 5 commits, none in the ranges, none true; with a paired old declaration
+  required, none.
+- **A test removed while its subject stays**: the naive rule (a test declaration removed, its name not added again in
+  the range) gives 1435 candidates in 216 commits and 82 in 25 ranges; of 20 read at random none is true, 12 renamed
+  in place, 6 whose subject the same range removes, 2 replaced by other tests. With the renames paired and the tests of
+  a removed subject dropped, 3 of 13 read are true, each the declared purpose of its commit.
+- **A test disabled**: the unconditional markers (`@Ignore`, `@Disabled`, `#[ignore]`, `it.skip`, …) give 90 candidates
+  in 47 commits and 4 in 2 ranges; of 24 read 3 are true, 11 are new tests added disabled, 8 change only the form of a
+  marker (JUnit 4 to 5). Required that the test existed before, was not disabled before in another form, and that a
+  skip call stands inside an old test, the rule keeps 3 of 4: 3 firings in 3000 commits, none in the 94 ranges, two of
+  them named in the message of their commit.
+
+The monorepo mutes its tests mostly on CI, outside the code, so a silent signal would not mean that nothing was muted;
+the volume of the mutes on CI was not measured.
+
 ## Lessons for Other Review Tools
 
 - A commit is a weak unit of review when agents work: one round mixes tasks, and a follow-up splits one.
@@ -742,6 +785,10 @@ The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan
 - A widening of a declaration breaks no use; listing it as a possible break teaches the reviewer to skip the list.
 - One spine: a list of commits beside a list of steps makes the reviewer join them in the head. Put each commit in
   the step it tells or follows up, and the commits and the story are one list.
+- Measure a signal on ordinary commits, not on the commits that show it: a move between files is half the removals of
+  a refactoring and 5 % of those of feature work.
+- A check for muted tests in the code sees only the mutes the code holds; where tests are muted on CI, its silence
+  proves nothing.
 
 ## Next
 
@@ -759,9 +806,10 @@ The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan
    asks after its rows). What is left is the unit of the plan: the same facts read by `review-plan`, which reads the
    blocks of the scans and, since schemas 35, 37 and 38, the marks of its reading (`reading`, `renamed_uses`: a body
    changed in a rename no index proved says so, a declaration renamed so is one unit); since schema 39 a declaration
-   moved whole to another file says where it went and came from (decision 32), still two units, one of a move read at
-   its new place next, then a move whose body changed; and the uses a move made the change update in another way (an
-   import of another path, a receiver of another expression), which a diff still reads.
+   moved whole to another file says where it went and came from (decision 33), still two units, one of a move read at
+   its new place next, a move whose body changed and a positional bridge of the marks only after it (decision 34);
+   and the uses a move made the change update in another way (an import of another path, a receiver of another
+   expression), which a diff still reads.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
 4. Names of concerns by a language model, behind the same gate as the tour: since the verb of `change` (2026-11-12) a
    model would word the task over the evidence, never in place of it.
