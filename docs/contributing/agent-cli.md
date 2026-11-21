@@ -1,8 +1,11 @@
 # Agent CLI (`brd`)
 
 **Status:** Active  
-**Updated:** 2026-10-28  
+**Updated:** 2026-11-21  
 **Tags:** [cli, agents, json]
+
+How `brd` is built, for contributors; how a person installs it and lets agents work with it:
+[Coding Agents and the Agent CLI](../guide/agent-cli.md).
 
 ## Summary
 

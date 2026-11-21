@@ -244,6 +244,8 @@ tests/
 
 ### Guides
 
+- [Coding Agents and the Agent CLI](../guide/agent-cli.md) - For a person: install `brd` and its skill, how agents work beside you (the lease, the pick, the rules of Settings → Agents), the commands an agent runs
+- [The Commit Body a Review Reads](../guide/commit-bodies.md) - For a person or an agent: how to write the body of a commit that the review tells its story by
 - [Runs on Another Mac](../guide/host-runs.md) - For a person: set up a host Mac for `brd-host`, the first runs, the slots, the upgrade, the refusals
 
 ### Contributing

@@ -344,7 +344,7 @@ Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), 
 [Agent CLI](docs/contributing/agent-cli.md), [Platform Checks](docs/contributing/platform-checks.md),
 [Studio Runs](docs/contributing/studio-runs.md), [Real App Checks](docs/contributing/real-app-checks.md),
 [Import Guidelines](docs/contributing/imports.md), [UX Writing](docs/contributing/ux-writing.md),
-[Design Docs Guidelines](docs/contributing/design-docs.md), [Releases](docs/contributing/releases.md). Guide: [Runs on Another Mac](docs/guide/host-runs.md).
+[Design Docs Guidelines](docs/contributing/design-docs.md), [Releases](docs/contributing/releases.md). Guides: [docs/guide/](docs/guide/).
 
 ### File Structure
 `src/` is the page (`components/`, `hooks/`, `model/` the window's side of its session, `presenters/` the words of
