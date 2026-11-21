@@ -126,13 +126,8 @@ impl HistoryStream {
       self.marks.push(None);
       return index;
     }
-    let mark = self.next_mark;
-    self.next_mark += 1;
-    let when = format!("{} +0000", commit.timestamp.unwrap_or_else(now));
-    let identity = commit.identity.as_deref().unwrap_or(TEST_IDENTITY);
-    let _ = writeln!(self.stream, "commit {}\nmark :{mark}", self.branch);
-    let _ = writeln!(self.stream, "author {identity} {when}\ncommitter {identity} {when}");
-    push_data(&mut self.stream, &cleaned_message(&commit.message));
+    let branch = self.branch.clone();
+    let mark = self.header(&branch, commit);
     match self.tip {
       Some(tip) => {
         let _ = writeln!(self.stream, "from :{tip}");
@@ -156,6 +151,37 @@ impl HistoryStream {
     self.tip = Some(mark);
     self.marks.push(Some(mark));
     index
+  }
+
+  /// A commit on `reference` whose parent is the commit `index` of `commit` (its index in the ids of `write`), as the
+  /// branch of a colleague off it: the files of the parent stay, `commit` writes and deletes its own
+  ///
+  /// # Panics
+  /// When the stream has no such commit, or left it out as one that changed nothing
+  pub fn side_commit(&mut self, reference: &str, index: usize, commit: &HistoryCommit) {
+    let parent = self.marks.get(index).copied().flatten().unwrap_or_else(|| panic!("no commit {index} in the stream"));
+    self.header(reference, commit);
+    let _ = writeln!(self.stream, "from :{parent}");
+    for path in &commit.deleted {
+      let _ = writeln!(self.stream, "D {path}");
+    }
+    for (path, content) in &commit.files {
+      let _ = writeln!(self.stream, "M 100644 inline {path}");
+      push_data(&mut self.stream, content);
+    }
+    self.stream.push('\n');
+  }
+
+  /// The `commit` command of `commit` on `reference` up to its message: its new mark
+  fn header(&mut self, reference: &str, commit: &HistoryCommit) -> usize {
+    let mark = self.next_mark;
+    self.next_mark += 1;
+    let when = format!("{} +0000", commit.timestamp.unwrap_or_else(now));
+    let identity = commit.identity.as_deref().unwrap_or(TEST_IDENTITY);
+    let _ = writeln!(self.stream, "commit {reference}\nmark :{mark}");
+    let _ = writeln!(self.stream, "author {identity} {when}\ncommitter {identity} {when}");
+    push_data(&mut self.stream, &cleaned_message(&commit.message));
+    mark
   }
 
   /// Points `reference` at the first commit of the branch, its root, if it has one

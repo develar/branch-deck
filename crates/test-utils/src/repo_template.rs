@@ -17,6 +17,8 @@ pub struct RepoTemplate {
   issue_groups: Vec<String>,
   /// `child<TAB>parent` lines of the stack parents (`refs/branch-deck/stack-parents`), written after the commits
   stack_parents: Vec<String>,
+  /// The branches of others off the first commit, each its name and its one commit (`side_branch`)
+  side_branches: Vec<(String, HistoryCommit)>,
 }
 
 struct CommitSpec {
@@ -36,6 +38,7 @@ impl RepoTemplate {
       commits: Vec::new(),
       issue_groups: Vec::new(),
       stack_parents: Vec::new(),
+      side_branches: Vec::new(),
     }
   }
 
@@ -50,6 +53,14 @@ impl RepoTemplate {
   #[must_use]
   pub fn stack_parent(mut self, child: &str, parent: &str) -> Self {
     self.stack_parents.push(format!("{child}\t{parent}"));
+    self
+  }
+
+  /// A branch `name` off the first commit, the baseline, of the one commit `commit`, as a colleague's branch whose pull
+  /// request waits for the user's review; the branch of the template stays checked out
+  #[must_use]
+  pub fn side_branch(mut self, name: &str, commit: HistoryCommit) -> Self {
+    self.side_branches.push((name.to_string(), commit));
     self
   }
 
@@ -105,6 +116,9 @@ impl RepoTemplate {
     config.extend(self.config.iter().map(|(key, value)| (key.as_str(), value.as_str())));
     append_config(output_path, &config);
 
+    // the commits by the `user.name` and `user.email` of the template's config, as `git commit` writes them, else the test user
+    let configured = |key: &str| self.config.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.as_str());
+    let identity = configured("user.name").zip(configured("user.email")).map(|(name, email)| format!("{name} <{email}>"));
     // the whole history in one `fast-import` and one checkout (`history`), not an `add` and a `commit` per commit
     let mut history = HistoryStream::new("refs/heads/master");
     for commit in &self.commits {
@@ -113,12 +127,15 @@ impl RepoTemplate {
         files: commit.files.clone(),
         deleted: commit.deleted.clone(),
         timestamp: commit.timestamp,
-        identity: None,
+        identity: identity.clone(),
       });
     }
     // for templates that simulate existing repositories with history, `origin/master` at the initial commit: the
     // sync needs a baseline
     history.reset_to_root("refs/remotes/origin/master");
+    for (name, commit) in &self.side_branches {
+      history.side_commit(&format!("refs/heads/{name}"), 0, commit);
+    }
     let stores = [
       (&self.issue_groups, "refs/branch-deck/issue-groups", "issue-groups", "Issue groups of Branch Deck"),
       (&self.stack_parents, "refs/branch-deck/stack-parents", "stack-parents", "Stack parents of Branch Deck"),
@@ -139,6 +156,7 @@ impl RepoTemplate {
 pub mod templates {
   use super::RepoTemplate;
   use crate::git_test_utils::{LAUNCH_KT, LAUNCH_START, NO_BACKGROUND_MAINTENANCE, append_config, disable_background_maintenance, git_command, launch_without_old_path};
+  use crate::history::HistoryCommit;
   use crate::remote_git::{BARE_ORIGIN, add_bare_origin};
   use anyhow::Result;
   use std::fmt::Write;
@@ -1268,19 +1286,26 @@ pub mod templates {
   }
 
   /// The README images (`tests/screenshots/readme.shot.ts`): a notes app of `alex`, the stack
-  /// `sync` of four branches of two commits, `conflicts/offline` and `presence` on `sync` (small enough to stay in the
-  /// table), the issue branches `ABC-123` (two commits) and `ABC-131`, `search` and `docs`: eight branches, so the filter
-  /// bar shows. Kotlin sources (`fixtures/readme`) for the colours of the review. The commits interleave the branches, as
-  /// the commits of a day of work do.
+  /// `sync` of four branches, `conflicts/offline` and `presence` on `sync` (small enough to stay in the table), the
+  /// issue branches `ABC-123` (two commits) and `ABC-131`, `search` and `docs`: eight branches, so the filter bar shows.
+  /// Kotlin sources (`fixtures/readme`) for the colours of the review. The commits interleave the branches, as the
+  /// commits of a day of work do. The last commit of `conflicts` moves `diffWords` from the engine to the resolver as it
+  /// is, renames a local of `merge` and wraps its last call: a move between two files, a rename and a run of formatting.
+  /// `maria/word-count`, off the baseline, is a pull request of a colleague of formatting and a renamed local alone.
   pub fn readme_showcase() -> RepoTemplate {
     const ENGINE: &str = "src/sync/SyncEngine.kt";
+    const RESOLVER: &str = "src/sync/ConflictResolver.kt";
     const STATUS_BAR: &str = "src/editor/StatusBar.kt";
+    const WORD_COUNT: &str = "src/editor/WordCount.kt";
     const SEARCH: &str = "src/search/FileSearch.kt";
-    let commits: [(&str, &[(&str, &str)]); 13] = [
-      (
-        "(sync) Download only the edits after the last sync",
-        &[(ENGINE, include_str!("../fixtures/readme/SyncEngine.cursor.kt"))],
-      ),
+    // `diffWords`, at the end of the engine until the resolver takes it
+    let words = |text: &str| [text, include_str!("../fixtures/readme/WordDiff.fragment.kt")].concat();
+    let engine = words(include_str!("../fixtures/readme/SyncEngine.kt"));
+    let engine_cursor = words(include_str!("../fixtures/readme/SyncEngine.cursor.kt"));
+    let engine_merge = words(include_str!("../fixtures/readme/SyncEngine.merge.kt"));
+    let resolver_moved = words(include_str!("../fixtures/readme/ConflictResolver.moved.kt"));
+    let commits: [(&str, &[(&str, &str)]); 14] = [
+      ("(sync) Download only the edits after the last sync", &[(ENGINE, &engine_cursor)]),
       (
         "(sync) Keep the sync cursor across restarts",
         &[("src/sync/SyncCursorStore.kt", include_str!("../fixtures/readme/SyncCursorStore.kt"))],
@@ -1291,11 +1316,12 @@ pub mod templates {
       ),
       (
         "(sync/conflicts) Merge two edits of the same paragraph word by word",
-        &[("src/sync/ConflictResolver.kt", include_str!("../fixtures/readme/ConflictResolver.kt"))],
+        &[(RESOLVER, include_str!("../fixtures/readme/ConflictResolver.kt"))],
       ),
+      ("(conflicts) Resolve the remote edits against the local ones", &[(ENGINE, &engine_merge)]),
       (
-        "(conflicts) Resolve the remote edits against the local ones",
-        &[(ENGINE, include_str!("../fixtures/readme/SyncEngine.merge.kt"))],
+        "(conflicts) Move the word diff next to the resolver",
+        &[(ENGINE, include_str!("../fixtures/readme/SyncEngine.merge.kt")), (RESOLVER, &resolver_moved)],
       ),
       (
         "(search) Rank the notes whose file name matches first",
@@ -1340,8 +1366,9 @@ pub mod templates {
         "Initial project setup",
         &[
           ("README.md", "# Notes\n"),
-          (ENGINE, include_str!("../fixtures/readme/SyncEngine.kt")),
+          (ENGINE, &engine),
           (STATUS_BAR, include_str!("../fixtures/readme/StatusBar.kt")),
+          (WORD_COUNT, include_str!("../fixtures/readme/WordCount.kt")),
           (SEARCH, include_str!("../fixtures/readme/FileSearch.kt")),
         ],
         Some(time),
@@ -1350,7 +1377,12 @@ pub mod templates {
       time += 2100;
       template = template.commit_with_timestamp(subject, files, Some(time));
     }
-    template
+    template.side_branch(
+      "maria/word-count",
+      HistoryCommit::new("Tidy the word count", &[(WORD_COUNT, include_str!("../fixtures/readme/WordCount.tidy.kt"))])
+        .at(time - 3600)
+        .by("Maria Chen <maria@example.com>"),
+    )
   }
 
   /// The branch view at scale, for `tests/perf/branch-table.perf.ts`: 120 lone branches of one

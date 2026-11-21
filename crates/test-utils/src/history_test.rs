@@ -72,3 +72,33 @@ fn a_history_is_two_processes_and_the_commits_of_git_commit() {
   assert_eq!(std::fs::read_to_string(written.path().join("src/login.txt")).unwrap(), "login\n");
   assert!(!written.path().join("src/a.txt").exists());
 }
+
+/// A commit of a colleague off a commit of the stream is in the same `fast-import`: its parent that commit, the files
+/// of the parent with its own change, its author, and the branch of the stream and the working tree as they were
+#[test]
+fn a_side_commit_is_on_its_own_ref_off_a_commit_of_the_stream() {
+  let repo = TestRepo::new();
+  let (ids, processes) = git_processes_of(|| {
+    let mut history = HistoryStream::new("refs/heads/master");
+    history.commit(&HistoryCommit::new("Initial commit", &[("README.md", "# Test\n"), ("src/a.txt", "a\n")]).at(1_700_000_000));
+    history.commit(&HistoryCommit::new("Change a", &[("src/a.txt", "a2\n")]).at(1_700_000_100));
+    history.side_commit(
+      "refs/heads/dana/tidy",
+      0,
+      &HistoryCommit::new("Tidy a", &[("src/a.txt", "a tidy\n")])
+        .at(1_700_000_200)
+        .by("Dana Lee <dana@example.com>"),
+    );
+    history.write(repo.path()).unwrap()
+  });
+  assert_eq!(processes, ["fast-import", "read-tree"]);
+  assert_eq!(repo.git(&["rev-parse", "refs/heads/dana/tidy^"]), ids[0].clone().unwrap());
+  assert_eq!(repo.git(&["show", "refs/heads/dana/tidy:src/a.txt"]), "a tidy");
+  assert_eq!(repo.git(&["show", "refs/heads/dana/tidy:README.md"]), "# Test");
+  assert_eq!(
+    repo.git(&["log", "-1", "--format=%an <%ae> %s", "refs/heads/dana/tidy"]),
+    "Dana Lee <dana@example.com> Tidy a"
+  );
+  assert_eq!(repo.git(&["rev-parse", "HEAD"]), ids[1].clone().unwrap());
+  assert_eq!(std::fs::read_to_string(repo.path().join("src/a.txt")).unwrap(), "a2\n");
+}

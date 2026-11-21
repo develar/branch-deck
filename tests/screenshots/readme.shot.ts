@@ -1,15 +1,19 @@
 // The images of the README, light and dark (`pnpm screenshots:readme`), from the `readme_showcase` template: the main
-// window with the notes app of alex (a stack of four branches, pull requests in four states on GitHub), and the review
-// window of a branch of the stack. No Patronus: the README is the pitch for any repository on GitHub.
+// window with the notes app of alex (a stack of four branches, pull requests in four states on GitHub, a pull request
+// of maria in Your Turn that leaves nothing to read), and the review window of the commit of the stack that moves a
+// function from one file to another. The review plan is on, as for a user. No Patronus: the README is the pitch for
+// any repository on GitHub.
 // SHOTS_DIR=<dir> writes them there instead of docs/screenshots.
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import type { PullRequest } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
-import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
-import { diffRows } from "../e2e/helpers/diff-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow } from "../e2e/helpers/branch-helpers"
+import { diffRows, moveNotes, renamedNames } from "../e2e/helpers/diff-helpers"
 import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
 import { pullRequest, reviewer, VIEWER_LOGIN } from "../e2e/helpers/pull-request-helpers"
+import { turnOnReviewPlan } from "../e2e/helpers/review-plan-helpers"
+import { getReviewRow, reviewRequest } from "../e2e/helpers/review-request-helpers"
 import { pressAndExpectReviewOpened } from "../e2e/helpers/review-window-helpers"
 import { getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import { closeToast, openToast } from "../e2e/helpers/toast-helpers"
@@ -17,6 +21,8 @@ import { expectClosed } from "../e2e/helpers/wait-helpers"
 
 const SHOTS_DIR = process.env.SHOTS_DIR ?? path.join(import.meta.dirname, "../../docs/screenshots")
 const REPOSITORY = { owner: "acme", name: "notes" }
+/** The commit of `conflicts` that moves `diffWords` to the resolver, renames a local of `merge` and wraps its last call */
+const MOVE_SUBJECT = "Move the word diff next to the resolver"
 
 /** A pull request of the branch `branch` of alex on acme/notes, by the signed-in user: the fake GitHub answers only those */
 function showcasePullRequest(branch: string, number: number, title: string, patch: Partial<PullRequest>): PullRequest {
@@ -75,10 +81,30 @@ async function push(page: Page, branch: string): Promise<void> {
   await closeToast(toast)
 }
 
+/** The pull request of maria that waits for alex's review: `maria/word-count` of the template, formatting and a renamed local */
+const WORD_COUNT_REVIEW = reviewRequest("word-count", 417, 3, {
+  title: "Tidy the word count",
+  url: `https://github.com/${REPOSITORY.owner}/${REPOSITORY.name}/pull/417`,
+  author: "maria",
+  requestedBy: "maria",
+  headRefName: "maria/word-count",
+  additions: 4,
+  deletions: 3,
+  changedFiles: 1,
+  labels: ["refactoring"],
+})
+
 test("README: the branches of a day of work", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-  await setupRepo("readme_showcase", { pullRequests: PULL_REQUESTS })
+  const repo = await setupRepo("readme_showcase", {
+    pullRequests: PULL_REQUESTS,
+    reviewRequests: { availability: { status: "available", ...REPOSITORY }, totalCount: 1, requests: [WORD_COUNT_REVIEW] },
+  })
+  // the review plan, on for a user who never set it; the test server turns it off
+  turnOnReviewPlan(repo)
   await syncAndWaitForBranches()
   await expect(findBranchRow(page, "offline")).toBeVisible()
+  // Your Turn says what the pull request of maria leaves to read before it is opened
+  await expect(getReviewRow(page, 417).getByTestId("review-request-reading")).toHaveText(/^Nothing to read/)
   for (const branch of ["conflicts", "ABC-123", "search", "docs"]) {
     await push(page, branch)
   }
@@ -102,30 +128,28 @@ test("README: the branches of a day of work", async ({ page, setupRepo, syncAndW
     await page.screenshot({ path: path.join(SHOTS_DIR, `branch-deck-${colorScheme}.png`), clip })
   }
 
-  // Review Changes of the branch menu: the review window of `conflicts`, its files in one scrolling view
+  // D on the commit that moves `diffWords` from the engine to the resolver: its review window, both ends of the move
   await page.emulateMedia({ colorScheme: "light" })
-  await findBranchRow(page, "conflicts").click({ button: "right" })
-  const review = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1))
-  await review.setViewportSize({ width: 1280, height: 760 })
+  await getBranchCommitRow(page, "conflicts", MOVE_SUBJECT).hover()
+  const review = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1))
+  await review.setViewportSize({ width: 1280, height: 1040 })
   await expect(review.getByTestId("review-file-header").first()).toBeVisible()
   await expect.poll(() => getSubWindowReadyOpen(review)).not.toBeNull()
-  // Inline, the layout the app opens in. The changed file in view, beside the end of the added one: the view goes down
-  // to the end of its last card, where a click on the file in the tree puts its header at the top
   await expect(review.getByRole("button", { name: "Inline", exact: true })).toHaveAttribute("aria-pressed", "true")
-  await review.getByRole("tree", { name: "Changed files" }).getByText("SyncEngine.kt", { exact: true }).click()
-  await expect(review.getByTestId("review-position")).toHaveText(/File 2 \/ 2$/)
+  // the marks of the subject come after the diffs: a note at each end of the move, the rename named once
+  await expect(moveNotes(review, "source")).toContainText(["Moved to ConflictResolver.kt"])
+  await expect(moveNotes(review, "destination")).toContainText(["Moved from SyncEngine.kt"])
+  await expect(renamedNames(review).first()).toBeVisible()
+  // the plan of the commit above, the diffs in view from the note of the rename in `merge` down: the moved lines where
+  // they stand now, then where they left the engine
   const view = review.getByTestId("diff-view")
-  const [viewBox, cardBox] = await Promise.all([view.boundingBox(), review.getByTestId("diff-view-file").last().boundingBox()])
-  await view.evaluate((element, down) => (element.scrollTop -= down), viewBox!.y + viewBox!.height - 12 - (cardBox!.y + cardBox!.height))
-  // no row cut by the header of the first card: up to the next whole row
-  const [headerBox, rowBoxes] = await Promise.all([
-    review.getByTestId("review-file-header").first().boundingBox(),
-    Promise.all((await diffRows(review.getByTestId("diff-view-file").first()).all()).map(row => row.boundingBox())),
-  ])
-  const headerBottom = headerBox!.y + headerBox!.height
-  const cut = rowBoxes.find(box => box !== null && box.y < headerBottom && box.y + box.height > headerBottom)
-  await view.evaluate((element, up) => (element.scrollTop += up), cut == null ? 0 : cut.y + cut.height - headerBottom)
-  await expect(review.getByTestId("review-file-header").first()).toContainText("ConflictResolver.kt")
+  const renamed = diffRows(view, "note", { hasText: "Renamed" }).first()
+  const header = review.getByTestId("review-file-header").first()
+  const [viewBox, renamedBox] = await Promise.all([view.boundingBox(), renamed.boundingBox()])
+  await view.evaluate((element, down) => (element.scrollTop += down), renamedBox!.y - viewBox!.y)
+  // back up under the header of the file, which stays at the top of the view once it scrolled there
+  const [headerBox, underBox] = await Promise.all([header.boundingBox(), renamed.boundingBox()])
+  await view.evaluate((element, up) => (element.scrollTop -= up), headerBox!.y + headerBox!.height - underBox!.y)
   await review.mouse.move(0, 0)
   for (const colorScheme of ["light", "dark"] as const) {
     await review.emulateMedia({ colorScheme })
