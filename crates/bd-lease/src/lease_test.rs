@@ -953,6 +953,45 @@ fn source_with_local_work(fixture: &Fixture) {
   std::fs::write(repo.path().join("peer.txt"), "untracked\n").unwrap();
 }
 
+/// A clone gives each tracked file a new inode and ctime. The index of the template held the old ones, and the
+/// `checkout --force` of the get wrote every tracked file again: 14 GB of blocks of its own and 16 minutes of writes in
+/// a new slot of idea-1. Now the index takes the stat data of the cloned files, so an unchanged file keeps the birth
+/// time of the source (the clone shares its blocks), and a `status` that may write the index writes nothing
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_clone_keeps_the_cloned_files_that_the_checkout_does_not_change() {
+  use std::os::unix::fs::MetadataExt;
+  let fixture = Fixture::new();
+  let source_file = fixture.repo.path().join("a.txt");
+  // an mtime in 2020 moves the birth time of the file there too, so a file written by the get differs from it
+  std::fs::File::options()
+    .write(true)
+    .open(&source_file)
+    .unwrap()
+    .set_times(std::fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000)))
+    .unwrap();
+  git(&fixture.repo, &["update-index", "-q", "--refresh"]);
+  let born = std::fs::metadata(&source_file).unwrap().created().unwrap();
+
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  assert_eq!(got["created_by"], json!("clone"));
+  let slot_file = Path::new(&path).join("a.txt");
+  assert_eq!(std::fs::metadata(&slot_file).unwrap().created().unwrap(), born, "the checkout wrote a.txt again");
+  let index = PathBuf::from(slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-path", "index"]));
+  let index_bytes = std::fs::read(&index).unwrap();
+  let status = GitCommandExecutor::new()
+    .cmd(&["status", "--porcelain"], &path)
+    .env(&[("GIT_OPTIONAL_LOCKS", "1")])
+    .output()
+    .unwrap()
+    .into_text();
+  assert_eq!(status, "");
+  assert!(std::fs::read(&index).unwrap() == index_bytes, "the status refreshed the index");
+  assert_ne!(std::fs::metadata(&slot_file).unwrap().ino(), std::fs::metadata(&source_file).unwrap().ino());
+  fixture.give_back(&path);
+}
+
 /// With no free slot, a new slot is an APFS clone of the source checkout: its HEAD's files, its ignored build outputs
 /// (the warm cache), never its local changes, staged files or untracked files; the source keeps all of them
 #[cfg(target_os = "macos")]

@@ -84,6 +84,8 @@
 //!
 //! The lease pool:
 //! - `lease_slot`: the git of a slot of `brd lease`, the one other writer of a working tree: a slot is pool property
+//! - `cloned_index`: the stat data of the cloned files of a new slot, written into the index copied from its template
+//!   without a hash; of Unix only
 //! - `worktree_snapshot`: the tree of the files of a worktree as `git add --all` stages them, in a copy of its index,
 //!   and the patch between two trees into a file (the scans of a host slot, the commit of a working tree)
 //! - `host_client`: the git of a client of a remote run: the commit it ships, the commits the host may have, the thin
@@ -99,6 +101,8 @@ pub mod branch_description;
 pub mod carried_review;
 pub mod cat_file_batch;
 pub mod cherry_pick;
+#[cfg(unix)]
+pub mod cloned_index;
 pub mod commit_chain;
 pub mod commit_files;
 pub mod commit_list;

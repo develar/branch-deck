@@ -337,27 +337,27 @@ pub fn unlock_slot(git_executor: &GitCommandExecutor, repository: &str, path: &P
   Ok(())
 }
 
-/// Bring the stat data of the index that `slot` got from its template up to the cloned files: `update-index -q
-/// --refresh` with `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime
-/// and the size of each file, but its inodes and ctimes are new: the default check would hash every file again. The
-/// refresh writes the new stat data, so later commands run with the default check; without `core.fsmonitor` the index
-/// also loses the fsmonitor bits of the template
-pub fn refresh_cloned_index(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
+/// Bring the stat data of the index that `slot` got from its template up to the cloned files. A clone keeps the mtime and
+/// the size of each file, but its inodes and ctimes are new. First `cloned_index::patch_cloned_index` writes the stat
+/// data of each cloned file whose mtime, size and mode the clone kept into its entry, without a hash (Unix, and only
+/// with `template_written`, the mtime of the index of the template before its copy into `git_dir`). Then `update-index
+/// -q --refresh` with the default check and `core.fsmonitor=false` checks the entries that the patch left: it hashes
+/// each such file and writes its stat data when its content is unchanged. Every later git, the `checkout --force` of the
+/// get first, then sees the entries unchanged by their stat data and neither hashes nor writes their files. Without
+/// `core.fsmonitor` the index also loses the fsmonitor bits of the template. `object_id`: a full id of the repository,
+/// which tells the hash of the index checksum
+pub fn refresh_cloned_index(git_executor: &GitCommandExecutor, slot: &str, git_dir: &Path, template_written: Option<std::time::SystemTime>, object_id: &str) -> Result<()> {
+  #[cfg(unix)]
+  if let Some(template_written) = template_written {
+    match crate::cloned_index::patch_cloned_index(git_dir, Path::new(slot), template_written, object_id) {
+      Ok(patch) => tracing::debug!(slot, ?patch, "the stat data of the cloned index"),
+      Err(error) => tracing::warn!(slot, error = %format!("{error:#}"), "cannot write the stat data of the cloned files into the index: the refresh hashes them"),
+    }
+  }
+  #[cfg(not(unix))]
+  let _ = (git_dir, template_written, object_id);
   git_executor
-    .cmd(
-      &[
-        "-c",
-        "core.checkStat=minimal",
-        "-c",
-        "core.trustctime=false",
-        "-c",
-        "core.fsmonitor=false",
-        "update-index",
-        "-q",
-        "--refresh",
-      ],
-      slot,
-    )
+    .cmd(&["-c", "core.fsmonitor=false", "update-index", "-q", "--refresh"], slot)
     .accept(&[1])
     .output()?;
   Ok(())

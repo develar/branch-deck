@@ -2775,7 +2775,8 @@ enum Cloned {
 ///    template is released;
 /// 2. `worktree add --no-checkout`, its `.git` file moved over the cloned `.git` (a directory when the template is a
 ///    main checkout), `<path>.cloning` renamed to `<path>`;
-/// 3. the template's index copied in and refreshed (`refresh_cloned_index`);
+/// 3. the template's index copied in, with the stat data of the cloned files, and refreshed (`refresh_cloned_index`):
+///    the checkout of step 4 then writes only the files that differ;
 /// 4. `checkout --force` to the commit, its untracked files removed (`clean_cloned_slot`), one `status`: the changes
 ///    and the untracked files of the template never reach the lease, and its ignored files stay as the warm cache. A
 ///    tracked file under a skipped path comes back with the checkout
@@ -2820,11 +2821,14 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
   } else {
     linked_worktree(Path::new(request.template)).map_or_else(|| PathBuf::from(&request.source.git_dir), |template| template.git_dir)
   };
-  // without the index of the template the checkout writes every file: slow, still right
-  match std::fs::copy(template_git_dir.join("index"), worktree.git_dir.join("index")) {
+  // without the index of the template the checkout writes every file: slow, still right. Its mtime is read before the
+  // copy: a write of the template after it only makes more entries racy
+  let template_index = template_git_dir.join("index");
+  let template_written = template_index.metadata().and_then(|metadata| metadata.modified()).ok();
+  match std::fs::copy(&template_index, worktree.git_dir.join("index")) {
     Ok(_) => {
       (request.progress)(GetStep::Refresh { slot: slot.clone() });
-      refresh_cloned_index(git_executor, &slot).map_err(registered)?;
+      refresh_cloned_index(git_executor, &slot, &worktree.git_dir, template_written, request.commit).map_err(registered)?;
     }
     Err(error) => warn!(template = %request.template, error = %error, "no index of the template to copy"),
   }

@@ -2491,10 +2491,17 @@ same tree takes several minutes.
    gone, and a `worktree prune` beside this get (the user's, a gc's) would delete the admin directory of a worktree
    without its directory: the lock keeps it
    (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`).
-4. The template's `index` is copied into the admin directory and refreshed with `update-index -q --refresh` under
-   `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime and the size
-   of every file, but its inodes and ctimes are new: the default check rehashes every file (288 s on idea-1, against 14
-   s). The refresh writes the new stat data, so every later git runs with the default check.
+4. The template's `index` is copied into the admin directory, its mtime read before the copy. A clone keeps the mtime
+   and the size of every file, but its inodes and ctimes are new: the default check rehashes every file (288 s on
+   idea-1). `core.checkStat=minimal` matches each entry by mtime and size, so git writes no new stat data either, and
+   the `checkout --force` of step 5 then saw every entry as changed and wrote every tracked file again (14 GB of blocks
+   of its own and 16 minutes on idea-1). So `cloned_index::patch_cloned_index` writes the ctime, the device, the inode,
+   the owner and the group of each cloned file into its entry, without a hash, where the clone kept its mtime, size and
+   mode and the entry is older than the index of the template (not racy). It reads index versions 2 to 4, keeps `TREE`
+   and `REUC`, drops `UNTR`, `FSMN`, `EOIE` and `IEOT`, and writes nothing for a split index, a sparse index or an
+   unknown extension. It writes `index.lock`, created exclusively, and renames it over the index, as git does. Then
+   `update-index -q --refresh` with the default check and `core.fsmonitor=false` hashes only the entries the patch
+   left. Every later git runs with the default check and finds the unchanged files unchanged by their stat data.
 5. `checkout --force --detach <source HEAD>` (parallel, as above) writes the diff from the template's index, the
    untracked files of the template go (`remove_untracked`, below), and one `status` must find nothing. The template's changes, staged
    files and untracked files never reach the lease; its ignored files stay as the warm cache. The seed runs as for
