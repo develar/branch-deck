@@ -31,13 +31,15 @@ pub fn conflict_ref(full_branch_name: &str) -> String {
   })
 }
 
-/// The commits of a branch before its conflict, in order, their copies `(id, tree)`, and the resolve by words each copy
-/// took, which its mapping note records
+/// The commits of a branch before its conflict, in order, their copies `(id, tree)`, the resolve by words each copy
+/// took, which its mapping note records, and the generated files its words merged (`GeneratedFile::encode`, empty for
+/// none: `postcard` reads no tagged enum)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConflictChain {
   pub originals: Vec<String>,
   pub copies: Vec<(String, String)>,
   pub resolutions: Vec<Option<NoteResolution>>,
+  pub generated: Vec<String>,
 }
 
 impl ConflictChain {

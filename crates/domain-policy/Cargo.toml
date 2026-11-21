@@ -12,6 +12,7 @@ domain-types = { path = "../domain-types" }
 
 [dev-dependencies]
 domain-types = { path = "../domain-types", features = ["fixtures"] }
+generated-files = { path = "../generated-files" }
 pretty_assertions.workspace = true
 serde.workspace = true
 serde_json.workspace = true

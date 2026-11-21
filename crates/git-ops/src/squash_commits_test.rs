@@ -177,6 +177,7 @@ fn mapping_note(repo: &TestRepo, commit: &str, mapped: &str) -> Result<MappingNo
       tree: resolve_tree_id(repo.git_executor(), repo_path(repo), commit)?,
     },
     resolved: None,
+    generated: Vec::new(),
     signed: false,
   })
 }

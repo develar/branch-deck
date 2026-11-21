@@ -3,8 +3,9 @@
 //! answers `NextStep`, the first row of the table that matches, `domain_policy::landing_node` the `LandingNode`. Both
 //! carry the facts their words need, never the words: the page words them (`src/presenters/`), `bd` in its own.
 
+use crate::conflict::RegenerateFile;
 use crate::error::ApiError;
-use crate::landing::{Landed, LandingRefusal};
+use crate::landing::{Landed, LandingFix, LandingRefusal};
 use crate::patronus::MissingReviewGroup;
 use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
@@ -669,6 +670,9 @@ pub enum RowFact {
   /// Its next step is a state it waits in (`StepKind::is_wait`: the reviewers, a draft, changes requested): the cell
   /// says the step, never beside another fact
   Wait,
+  /// The copy it pushes and lands holds generated files the words merged in a conflict of its sync, not written by their
+  /// generator (`domain_policy::regenerate`), each with the commit the copy lacks; `fix` gives the copy that commit
+  Regenerate { files: Vec<RegenerateFile>, fix: Option<LandingFix> },
 }
 
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)

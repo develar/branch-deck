@@ -14,6 +14,8 @@
 //! - `robot_command`, `robot_list`: `brd robot`, and the robots Patronus lists
 //! - `robot_stats_command`: `brd robot-stats`, the Safe Push statistics of the repository
 //! - `operation_command`: `brd operation forget`, a start whose answer was lost let go
+//! - `regenerate_refusal`: the refusal of a push or a start whose copy holds a generated file the words merged, in one
+//!   wording for `brd push`, `brd safe-push` and `brd land`
 
 pub mod branch_stats;
 pub mod land_command;
@@ -22,6 +24,7 @@ pub mod numstat;
 pub mod operation_command;
 pub mod push_command;
 pub mod push_refusals;
+pub mod regenerate_refusal;
 pub mod request_review_command;
 pub mod robot_command;
 pub mod robot_list;

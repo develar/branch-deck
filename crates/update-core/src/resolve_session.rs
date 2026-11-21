@@ -7,6 +7,7 @@
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
 use crate::update_project::{LandedReport, record_landed_update};
 use anyhow::{Result, anyhow};
+use domain_types::conflict::GeneratedFile;
 use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
@@ -15,7 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
-use git_ops::generated::{GeneratedFile, merged_generated_files};
+use git_ops::generated::merged_generated_files;
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::resolve_check::count_markers;

@@ -12,10 +12,13 @@ use serde::{Deserialize, Serialize};
 /// What the resolve by words gave for the trees of a cherry-pick
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WordResolutionResult {
-  /// The tree with the resolved files, and each file with the conflicts of git in it, in git's order
+  /// The tree with the resolved files, each file with the conflicts of git in it, in git's order, and the generated
+  /// ones among them as `domain_types::conflict::GeneratedFile::encode` writes them (`postcard` reads no tagged enum);
+  /// empty for none
   Resolved {
     tree: String,
     files: Vec<(String, u32)>,
+    generated: String,
   },
   NotResolved,
 }

@@ -1,5 +1,6 @@
 use domain_types::commit::Commit;
-use domain_types::conflict::WordResolutionSummary;
+use domain_types::conflict::{GeneratedFile, WordResolutionSummary};
+use git_ops::notes::mapped_generated;
 use git_ops::revs::short_id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
@@ -54,6 +55,11 @@ pub struct ResolvedByWords {
   /// mapping note keeps the counts only
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<ResolvedFileEntry>,
+  /// The resolved files that are generated, with why (`generated_by`): the words merged their text, not their generator.
+  /// The mapping note keeps them, so a reused copy names them too; `regenerate` of the branch says which the copy still
+  /// holds
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub generated: Vec<GeneratedFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
@@ -76,6 +82,7 @@ impl ResolvedByWords {
           conflicts: file.conflicts,
         })
         .collect(),
+      generated: summary.generated.clone(),
     }
   }
 
@@ -85,6 +92,7 @@ impl ResolvedByWords {
       conflicts: resolved.conflicts,
       file_count: resolved.files,
       files: Vec::new(),
+      generated: commit.note.as_deref().map_or_default(mapped_generated),
     })
   }
 }

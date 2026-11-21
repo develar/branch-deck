@@ -151,6 +151,7 @@ fn chains_that_checkpoint_at_the_same_time_leave_no_temporary_ref() {
       conflicts: 1,
       blob: repo.git(&["rev-parse", &format!("{resolved}:a.txt")]),
       content: b"resolved\n".to_vec(),
+      generated_by: None,
     }],
   };
   let resolved_tree = tree(&resolved);

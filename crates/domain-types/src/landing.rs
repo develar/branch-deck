@@ -6,6 +6,7 @@
 //! landed a subject (`Landed`, `domain_policy::landed::landed_state`), the pull requests a landing closes
 //! (`LandedPullRequest`) and what landed them (`LandingKey`, `LandedWith`).
 
+use crate::conflict::RegenerateFile;
 use crate::error::ApiError;
 use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot};
 use crate::pull_request::{MergeMethod, PullRequestReviewEvent};
@@ -227,6 +228,26 @@ pub enum LandingFix {
   /// Unstack `branch` from `from`, the branch whose declared need it inherits: it lands alone then, without the branch
   /// that is not allowed to land yet
   Unstack { branch: String, from: String },
+}
+
+impl LandingFix {
+  /// How what lands from `root` gets `needed`, a commit `into` needs: a restack of the root onto the branch of `needed`,
+  /// unless that branch is built on what lands (`onto_built_on_lands`: a cycle) or the commit is unassigned; then the
+  /// move of the commit into `into`
+  #[must_use]
+  pub fn for_need(needed: &StackCommit, into: &str, root: &str, onto_built_on_lands: bool) -> Self {
+    if !needed.branch.is_empty() && !onto_built_on_lands {
+      Self::Restack {
+        branch: root.to_string(),
+        onto: needed.branch.clone(),
+      }
+    } else {
+      Self::MoveCommit {
+        commit: needed.clone(),
+        into: into.to_string(),
+      }
+    }
+  }
 }
 
 impl LandingRefusal {
@@ -540,6 +561,10 @@ pub enum Confirmation {
   /// The repository allows only squash merges: the commit GitHub writes pairs with no original, so the update after it
   /// may stop on a conflict of the originals
   SquashOnly { number: u32 },
+  /// The copy of `subject` it pushes or lands holds generated files the words merged in a conflict of its sync, not
+  /// written by their generator (`domain_policy::regenerate`; `LandingAllowances::allow_generated_merged_by_words` in
+  /// `bd`)
+  Regenerate { subject: Subject, files: Vec<RegenerateFile> },
 }
 
 /// Why the checks of CI did not pass on the commit a push into the target lands

@@ -1977,6 +1977,15 @@ A start that can run MUST either start or confirm first, and MUST confirm only f
 - **THEN** it confirms first
   [@test] src/presenters/land.test.ts (`lets a start without review wait for its profile, and confirm the one that skips the review`)
 
+#### Scenario: A copy with a generated file merged by words
+- **WHEN** the copy a start lands holds a generated file the words merged in a conflict of its sync (of a branch: its
+  own or of a branch it is built on; of a whole stack: its stack branch), on any route, a Dry Run too
+- **THEN** it confirms first (`Confirmation::Regenerate`), every time until the copy no longer holds it, and the
+  popover says the file, why it is generated and the commit the copy lacks; Start Anyway starts it
+- **AND** `brd` accepts it only by `--allow-generated-merged-by-words`
+  [@test] crates/domain-policy/src/land_test.rs (`a_start_whose_copy_holds_a_generated_file_the_words_merged_confirms_first`)
+  [@test] tests/e2e/outgoing/regenerate.spec.ts (`should ask before a Safe Push of a copy with a generated file merged by words, and start once accepted`)
+
 #### Scenario: Nothing to confirm
 - **WHEN** a start can run and nothing needs a person's decision
 - **THEN** it starts at once, unless it was asked by S, "Safe Push With Profile…" or as the start without review

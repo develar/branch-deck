@@ -192,7 +192,8 @@ leased push that replaces the remote branch (`--with-children --force` for a sta
 that replaces a branch behind its remote, `brd sync` for one not synced; `robot_running` `brd robot` of the robot, and
 the same command with `--cancel-running` (`safe-push`) or `--restart-running` (`push`) where it applies;
 `approvals_missing` the start with `--create-pull-request` when the branch has no pull request; `dangling_reference`
-the `fix.command` a trial build proved; `missing_declaration` the `brd restack` it names; `push_dismisses_approvals`
+the `fix.command` a trial build proved; `missing_declaration` and `generated_merged_by_words` the `brd restack` they
+name; `push_dismisses_approvals`
 the push, then `brd request-review`; `target_conflict` and `landed` `brd update`; `stack_conflict` the `--dry-run` of the
 branch whose commit conflicts; `stack_not_built` `brd sync`. `NextStep` is in `crates/bd-core/src/error.rs`.
 
@@ -202,7 +203,7 @@ branch whose commit conflicts; `stack_not_built` `brd sync`. `NextStep` is in `c
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked`, `no_identity` (git cannot form the identity of the user: set `user.name` and `user.email`) |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `lease_read_again` (the app's intents only: the session of the window could not tell the lease of its slot as it opened and reads it again; nothing was done), `locked`, `busy` (an operation of another process, the app or another `brd`, runs what the command needs: `error.holder`; nothing was done) |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `unrelated_history`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `message_format`, `baseline_parent`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `cli_tool_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `unrelated_history`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `message_format`, `baseline_parent`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `generated_merged_by_words`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `cli_tool_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -286,8 +287,9 @@ what they listed.
   oldest commit is the newest first, so no rewrite of the commits of a branch and no commit added to it moves it
   ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md#ui)). The commits of a branch are newest first, and
   their subjects have the `(prefix)` stripped, as the virtual branch commits do (a prefix that is an issue key stays as
-  the key). `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
-  note) marks a commit whose virtual copy resolved a conflict of git by words (see `brd sync`).
+  the key). `resolved_by_words` (`{"conflicts","file_count","generated"}`, from the mapping
+  note) marks a commit whose virtual copy resolved a conflict of git by words (see `brd sync`), `generated` the
+  generated files among them, left out for none; `brd status` runs no sync, so it has no `regenerate`.
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put
   commits of other keys into it) or `issue`. `issue_keys` lists the keys whose issue group the branch is.
@@ -1617,6 +1619,20 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
   file that does not, or another kind of conflict (modify/delete, add/add, rename, binary, a merge driver), and the
   commit stays a conflict of git. The copy keeps the author, the date and the message; its mapping note records the
   counts, so a reused copy has `files` left out. `brd check` builds alike, and `brd move-hunk` never resolves.
+  `generated` (`[{"path","generatedBy"}]`, left out for none, kept by the mapping note) names the resolved files that
+  are generated (by their name, `linguist-generated` or `-diff`, a header a tool wrote): the words merged their text,
+  not their generator.
+- `regenerate` lists the generated files the words merged that the copy of the branch still holds, its own and those
+  of the branches it is built on:
+  `{"commit":{"id","subject","branch"},"path","generatedBy","lacks":{"id","subject","branch"}}`, `commit` the original
+  whose copy merged it, `lacks` the last commit ahead of the baseline before it that changes the file and that the copy
+  lacks (`branch` empty for an unassigned commit; `lacks` left out when none is found). The copy builds as text, but
+  its file is no output of its generator: the build may fail, or the file be stale, while your tree builds.
+  `regenerate_fix` (`{"kind":"restack","branch","onto"}` or `{"kind":"moveCommit","commit","into"}`) gives the copy that
+  commit, after the user approves; the file is no longer listed once that branch lands, the branch is stacked on it, or
+  a later commit of the branch writes the file. `brd push`, `brd safe-push` and `brd land` refuse such a copy
+  (`generated_merged_by_words`). It costs one `log` while a copy holds one, one `cat-file --batch-check` more below a
+  tip, none otherwise.
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
@@ -1670,7 +1686,7 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 - The exit code is 1 when any branch was not built (`conflict`, `error`, `blocked`); the summary is printed
   either way.
 
-### `brd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `brd push --unapplied <name>`
+### `brd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running] [--allow-generated-merged-by-words]`, `brd push --unapplied <name>`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first: the sync
 without the repository lock, as `brd sync`, the witness of the plan of the push (its refs, their commits and leases)
@@ -1772,6 +1788,11 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   directory and the largest files. It is mostly build output committed by mistake (a `target/`, `node_modules/`): show
   it to the user, who takes the files out of the commits or raises the limit (Settings → Landing); never raise it
   yourself.
+- A push that sends a copy holding a generated file the words merged (`regenerate` of `brd sync`), of a branch, a
+  branch of a stack or the stack branch going along, is `generated_merged_by_words` (exit 4) before anything is pushed,
+  `--force` too; `--dry-run` prints the push. The message names the file, why it is generated, the copy that merged it,
+  the commit it lacks and the fix, its next step the `brd restack` of the fix (after the user approves). Tell the user;
+  `--allow-generated-merged-by-words` only once they agree.
 - `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
   `brd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
   only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an
@@ -1787,7 +1808,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
+### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review] [--allow-generated-merged-by-words]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../openspec/specs/branch/patronus/spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -1972,6 +1993,10 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   branch, and the fix: `brd restack <root> <branch>` lands that branch too (after the user approves); with stacked
   branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--dry-run` lists it in
   `refusals`; `--allow-missing` starts anyway, when the user says it is a false alarm.
+- `generated_merged_by_words` (exit 4, nothing pushed or started, also in `refusals`): the copy that lands (of a
+  branch, with the copies of the branches it is built on; of a whole stack, its stack branch) holds a generated file
+  the words merged in a conflict of the sync, a Patronus Dry Run too; the message is that of `brd push`.
+  `--allow-generated-merged-by-words` starts anyway, only when the user says so.
 - `push_dismisses_approvals` (exit 4, nothing pushed or started): the start pushes new commits into the pull request
   the robot starts from, which someone approved, and the GitHub rules of the target dismiss stale reviews on push
   (one `GET rules/branches/<target>`, as the app asks): the approvals Patronus counts would be gone and the robot
@@ -1990,7 +2015,7 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
-### `brd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing]`
+### `brd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing] [--allow-generated-merged-by-words]`
 
 Lands the branch into master by the route of the repository (`branchdeck.landing`,
 [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)), `route` in the output:
@@ -2013,7 +2038,9 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
 A push into master lands without a robot and without the CI of a pull request: what CI did not pass on the commit
 and the changes requested on its pull request refuse it as `checks_not_passed` until `--allow-checks-not-passed`; what the gate
 of the route asks (a rule a maintainer may bypass, the required status checks, a refusal of the server before) refuses
-it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. Below write
+it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. On every route
+a copy that holds a generated file the words merged refuses it as `generated_merged_by_words`, as for `brd safe-push`,
+until `--allow-generated-merged-by-words`, the user's word too. Below write
 access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
 with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `brd update` comes next),
 and so is a fetched master with commits the branch is not built on, before anything is sent.

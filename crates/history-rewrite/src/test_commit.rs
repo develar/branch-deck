@@ -78,6 +78,7 @@ pub fn write_mapping_notes(git_executor: &GitCommandExecutor, repo_path: &str, c
         parent_tree: trees[1].clone(),
       },
       resolved: None,
+      generated: Vec::new(),
       signed: false,
     })
     .collect();

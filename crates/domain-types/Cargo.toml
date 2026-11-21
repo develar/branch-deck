@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+# `GeneratedBy` of the generated files a copy merged by words (`conflict::GeneratedFile`)
+generated-files = { path = "../generated-files" }
 # the time zone database of `calendar`; reading the system zone (`tz-system`) is the hosts'
 jiff = { workspace = true, features = ["tzdb-bundle-platform", "tzdb-zoneinfo"] }
 thiserror.workspace = true
@@ -21,8 +23,8 @@ pretty_assertions.workspace = true
 
 [features]
 default = []
-schemars = ["dep:schemars"]
-specta = ["dep:specta", "dep:specta-typescript"]
+schemars = ["dep:schemars", "generated-files/schemars"]
+specta = ["dep:specta", "dep:specta-typescript", "generated-files/specta"]
 # the builders of `fixtures`, for the tests of other crates (their dev-dependencies enable it)
 fixtures = []
 

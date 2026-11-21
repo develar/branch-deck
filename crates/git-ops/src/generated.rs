@@ -1,18 +1,22 @@
 //! The git of the rule of `generated_files`: the attributes that mark generated files (one `check-attr` for all the
-//! paths), why each file of a round is generated, and the generated files an update brought together, which only their
-//! generator merges (docs/design/git-operations.md, "Update project", "Resolve session").
+//! paths), why each file of a round is generated, the generated files an update brought together, which only their
+//! generator merges (docs/design/git-operations.md, "Update project", "Resolve session"), and the generated files the
+//! words merged in the copies of a sync that the tips still hold ("Resolve by words").
 
 use crate::attributes::read_attributes;
-use crate::cat_file_batch::{BatchEntry, for_each_object_with_heads};
+use crate::cat_file_batch::{BatchEntry, for_each_object_with_heads, object_ids_and_types};
 use crate::commit_files::MAX_BLOB_BYTES;
+use crate::conflict_analysis::list_missing_commits;
 use crate::paths::changed_paths;
 use anyhow::Result;
+use domain_types::conflict::{GeneratedFile, MissingCommit};
 use generated_files::attributes::{GENERATED_ATTRIBUTES, marks_generated};
 use generated_files::generated_by::{GeneratedBy, generated_by};
 use generated_files::header::HEADER_BYTES;
 use generated_files::names::{generated_name, is_lock_file};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::{BTreeSet, HashSet};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use tracing::instrument;
 
 /// The paths that the attributes of the tree-ish `source` mark `linguist-generated` or `-diff`, from one
@@ -56,13 +60,6 @@ pub fn generated_of(git: &GitCommandExecutor, repository: &str, files: &[(&str, 
       .map(|(path, texts)| generated_by(path, marked.contains(*path), texts.iter().copied()))
       .collect(),
   )
-}
-
-/// A generated file of an update, and why it is generated
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GeneratedFile {
-  pub path: String,
-  pub generated_by: GeneratedBy,
 }
 
 /// The generated files that an update brought together with the upstream's, and that `new_head`, the update onto
@@ -123,6 +120,93 @@ pub fn merged_generated_files(git: &GitCommandExecutor, repository: &str, base: 
       })
       .collect(),
   )
+}
+
+/// A generated file that the words merged in `copy`, the copy of the original `commit` (`WordResolutionSummary::generated`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopyMerge {
+  pub commit: String,
+  pub copy: String,
+  pub file: GeneratedFile,
+}
+
+impl CopyMerge {
+  /// The one text form of a list for a record that `postcard` keeps (the build of a stack branch), which cannot read back
+  /// the tagged `GeneratedBy`: compact JSON, empty for none
+  pub fn encode(merges: &[Self]) -> String {
+    if merges.is_empty() {
+      String::new()
+    } else {
+      serde_json::to_string(merges).unwrap_or_default()
+    }
+  }
+
+  /// The list `encode` wrote; empty for a text it did not write
+  pub fn decode(text: &str) -> Vec<Self> {
+    if text.is_empty() { Vec::new() } else { serde_json::from_str(text).unwrap_or_default() }
+  }
+}
+
+/// Of each of `tips` (a tip and the merges of the copies of its history, the oldest copy first), the merges that the tip
+/// still holds as the words wrote them, in the order of the paths: of each path the last copy that merged it, whose blob
+/// the tip still has. A later commit that writes the file (a fixup) leaves it out, and so does one that deletes it. A
+/// merge in the tip's own copy is held without a read; the others are one `cat-file --batch-check` for all the tips,
+/// `<copy>:<path>` beside `<tip>:<path>`; none when every merge is in its tip
+#[instrument(skip_all, fields(tips = tips.len()))]
+pub fn held_word_merges(git: &GitCommandExecutor, repository: &str, tips: &[(String, Vec<CopyMerge>)]) -> Result<Vec<Vec<CopyMerge>>> {
+  let latest: Vec<Vec<&CopyMerge>> = tips
+    .iter()
+    .map(|(_, merges)| {
+      let mut by_path: HashMap<&str, &CopyMerge> = HashMap::new();
+      for merge in merges {
+        by_path.insert(&merge.file.path, merge);
+      }
+      let mut latest: Vec<&CopyMerge> = by_path.into_values().collect();
+      latest.sort_by(|a, b| a.file.path.cmp(&b.file.path));
+      latest
+    })
+    .collect();
+  let mut names: Vec<String> = Vec::new();
+  let mut read: Vec<(usize, usize)> = Vec::new();
+  for (tip_index, ((tip, _), merges)) in tips.iter().zip(&latest).enumerate() {
+    for (merge_index, merge) in merges.iter().enumerate() {
+      if merge.copy != *tip {
+        names.push(format!("{}:{}", merge.copy, merge.file.path));
+        names.push(format!("{tip}:{}", merge.file.path));
+        read.push((tip_index, merge_index));
+      }
+    }
+  }
+  let ids = object_ids_and_types(git, repository, &names)?;
+  let mut dropped: HashSet<(usize, usize)> = HashSet::new();
+  for (pair, place) in ids.chunks(2).zip(read) {
+    let held = matches!(pair, [Some((copy, _)), Some((tip, _))] if copy == tip);
+    if !held {
+      dropped.insert(place);
+    }
+  }
+  Ok(
+    latest
+      .into_iter()
+      .enumerate()
+      .map(|(tip_index, merges)| {
+        merges
+          .into_iter()
+          .enumerate()
+          .filter(|(merge_index, _)| !dropped.contains(&(tip_index, *merge_index)))
+          .map(|(_, merge)| merge.clone())
+          .collect()
+      })
+      .collect(),
+  )
+}
+
+/// The commits of `head` that `baseline` lacks and that change one of `paths`, newest first, each with the paths of
+/// `paths` it changes: one `log -z --name-only`, none without paths. Of a generated file the words merged, the commit
+/// below its copy that the copy lacks (`RegenerateFile::lacks`)
+#[instrument(skip(git, paths))]
+pub fn commits_changing(git: &GitCommandExecutor, repository: &str, head: &str, baseline: &str, paths: &[String]) -> Result<Vec<MissingCommit>> {
+  list_missing_commits(git, repository, head, baseline, paths)
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@
 use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use domain_types::commit::{NoteResolution, NoteSource};
+use domain_types::conflict::GeneratedFile;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -16,18 +17,22 @@ pub const PREFIX: &str = "v-commit-v1:";
 /// original. A note copied onto a commit with other trees (`git notes copy`, `notes.rewriteRef`) no longer matches it.
 pub const SOURCE_PREFIX: &str = "v-commit-source-v1:";
 /// The line of a mapping note whose virtual commit resolved a conflict of git by words (`word_resolve`):
-/// `<resolve version> <conflicts> <files>`
+/// `<resolve version> <conflicts> <files>[ <generated>]`, `<generated>` the generated files among them as compact JSON
+/// (`GeneratedFile::encode`), left out for none. One line: `notes.rewriteMode=cat_sort_uniq` sorts the lines, and a
+/// reader of the three numbers alone (before version 5) ignores the rest
 pub const RESOLVED_PREFIX: &str = "v-commit-resolved-v1:";
 /// A mapping note line that says its virtual copy has a signature
 pub const SIGNED_PREFIX: &str = "v-commit-signed-v1:";
 
-/// A mapping note to write: `original` is copied as `mapped` from `source`, with the resolve by words it took
+/// A mapping note to write: `original` is copied as `mapped` from `source`, with the resolve by words it took and the
+/// generated files that resolve merged (by path)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappingNote {
   pub original: String,
   pub mapped: String,
   pub source: NoteSource,
   pub resolved: Option<NoteResolution>,
+  pub generated: Vec<GeneratedFile>,
   pub signed: bool,
 }
 
@@ -37,6 +42,9 @@ impl MappingNote {
     let mut content = format!("{PREFIX}{}\n{SOURCE_PREFIX}{} {}", self.mapped, self.source.parent_tree, self.source.tree);
     if let Some(resolved) = self.resolved {
       let _ = write!(content, "\n{RESOLVED_PREFIX}{} {} {}", resolved.version, resolved.conflicts, resolved.files);
+      if !self.generated.is_empty() {
+        let _ = write!(content, " {}", GeneratedFile::encode(&self.generated));
+      }
     }
     if self.signed {
       let _ = write!(content, "\n{SIGNED_PREFIX}");
@@ -60,15 +68,35 @@ pub fn mapped_source(note: &str) -> Option<NoteSource> {
   })
 }
 
-/// The resolve by words a mapping note records (`{RESOLVED_PREFIX}<version> <conflicts> <files>`); `None` for a copy
-/// that resolved nothing, or a line this binary cannot read
+/// The resolve by words a mapping note records (`{RESOLVED_PREFIX}<version> <conflicts> <files>[ <generated>]`); `None`
+/// for a copy that resolved nothing, or a line this binary cannot read. A list of generated files that does not parse
+/// gives version 0, an older resolve: the copy is checked once, and its note written again
 pub fn mapped_resolution(note: &str) -> Option<NoteResolution> {
   let line = note.lines().find_map(|line| line.trim().strip_prefix(RESOLVED_PREFIX))?;
-  let mut numbers = line.split_whitespace().map(str::parse::<u32>);
-  match (numbers.next(), numbers.next(), numbers.next()) {
-    (Some(Ok(version)), Some(Ok(conflicts)), Some(Ok(files))) => Some(NoteResolution { version, conflicts, files }),
+  let mut parts = line.trim().splitn(4, ' ');
+  let mut number = || parts.next().map(str::parse::<u32>);
+  match (number(), number(), number()) {
+    (Some(Ok(version)), Some(Ok(conflicts)), Some(Ok(files))) => {
+      let readable = parts.next().is_none_or(|generated| GeneratedFile::decode(generated.trim()).is_some());
+      Some(NoteResolution {
+        version: if readable { version } else { 0 },
+        conflicts,
+        files,
+      })
+    }
     _ => None,
   }
+}
+
+/// The generated files the resolve by words of a mapping note merged (the tail of its resolve line); empty for none, or
+/// for a list that does not parse (`mapped_resolution` reads that note as an older resolve)
+pub fn mapped_generated(note: &str) -> Vec<GeneratedFile> {
+  note
+    .lines()
+    .find_map(|line| line.trim().strip_prefix(RESOLVED_PREFIX))
+    .and_then(|line| line.trim().splitn(4, ' ').nth(3))
+    .and_then(|generated| GeneratedFile::decode(generated.trim()))
+    .unwrap_or_default()
 }
 
 /// Whether the mapping note records that its virtual copy was signed

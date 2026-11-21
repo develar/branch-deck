@@ -85,6 +85,7 @@ const fn row_fact_name(fact: &RowFact) -> &'static str {
     RowFact::Parked => "parked",
     RowFact::Blocked { .. } => "blocked",
     RowFact::Wait => "waits",
+    RowFact::Regenerate { .. } => "regenerate",
   }
 }
 

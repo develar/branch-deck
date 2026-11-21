@@ -7,15 +7,17 @@
 //!   messages, the `merge` attribute unspecified, set or `text`, and UTF-8 text without NUL on every side. An add/add,
 //!   a modify/delete, a rename/rename, a file/directory and a binary file stay conflicts. In an update
 //!   (`WordScope::HandWritten`), a generated file (`generated_files`: by its name, its attributes or the header of a
-//!   side) stays a conflict too: only its generator merges it.
+//!   side) stays a conflict too: only its generator merges it. In a sync (`WordScope::AllTexts`) it resolves, and the
+//!   resolution names it with why it is generated (`ResolvedFile::generated_by`), so the branch says that its copy holds
+//!   a merge of words, not the output of its generator.
 //! - **The result.** `merge_texts` of the stages (left = 2, ours, the target; base = 1; right = 3, theirs, the commit)
 //!   under `Default` without a deadline, so that every machine resolves alike; its size limits still hold. Every block
 //!   must resolve, and `compose_merge` must keep every line end (`exact`).
 //! - **The tree.** The tree of the merge with each resolved file in place of the file with the markers, its mode
 //!   merged as git merges it. Its id is computed here, from the trees on the paths; the commit writes the blobs and the
 //!   trees (`CommitChain::write_commit`).
-//! - **Processes.** One `check-attr` (with the attributes of a generated file in an update) and one `cat-file --batch`
-//!   for the stages, the files with the markers and the trees; none when a path fails before.
+//! - **Processes.** One `check-attr` (the merge attribute and the attributes of a generated file) and one
+//!   `cat-file --batch` for the stages, the files with the markers and the trees; none when a path fails before.
 
 use crate::attributes::read_attributes;
 use crate::cat_file_batch::{BatchEntry, for_each_object};
@@ -26,9 +28,9 @@ use crate::merge_tree_output::MergeTreeOutput;
 use crate::object_texts::is_binary;
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::NoteResolution;
-use domain_types::conflict::{ResolvedFileSummary, WordResolutionSummary};
+use domain_types::conflict::{GeneratedFile, ResolvedFileSummary, WordResolutionSummary};
 use generated_files::attributes::{GENERATED_ATTRIBUTES, marks_generated};
-use generated_files::generated_by::generated_by;
+use generated_files::generated_by::{GeneratedBy, generated_by};
 use generated_files::names::generated_name;
 use git_executor::git_command_executor::GitCommandExecutor;
 use line_diff::model::DiffBudget;
@@ -39,8 +41,9 @@ use text_diff::merge_model::merge_texts;
 use tracing::{debug, instrument};
 
 /// The version of the resolve by words: bump it when the merge, the resolve or the composition can give another result,
-/// so that no remembered resolution of the old way is taken
-pub const RESOLVE_VERSION: u32 = 4;
+/// or when what a resolution records changes (5: the generated files it merged), so that no remembered resolution of the
+/// old way is taken and a copy of it is checked once
+pub const RESOLVE_VERSION: u32 = 5;
 
 /// The attribute that names the merge driver of a path (`gitattributes`, "Performing a three-way merge")
 const MERGE_ATTRIBUTE: &str = "merge";
@@ -91,6 +94,22 @@ impl WordResolution {
   pub fn conflicts(&self) -> u32 {
     self.files.iter().map(|file| file.conflicts).sum()
   }
+
+  /// The resolved files that `generated_files` calls generated, by path, with why
+  pub fn generated(&self) -> Vec<GeneratedFile> {
+    let mut generated: Vec<GeneratedFile> = self
+      .files
+      .iter()
+      .filter_map(|file| {
+        file.generated_by.clone().map(|generated_by| GeneratedFile {
+          path: file.path.clone(),
+          generated_by,
+        })
+      })
+      .collect();
+    generated.sort_by(|a, b| a.path.cmp(&b.path));
+    generated
+  }
 }
 
 /// How the conflict of git of a cherry-pick resolved by words
@@ -98,8 +117,9 @@ impl WordResolution {
 pub enum Resolved {
   /// Resolved now: the commit writes the files with the tree, which does not exist yet
   Now(WordResolution),
-  /// Remembered (`word_resolution` of the object cache), with a tree that exists: each file with the conflicts of git
-  Remembered { files: Vec<(String, u32)> },
+  /// Remembered (`word_resolution` of the object cache), with a tree that exists: each file with the conflicts of git,
+  /// and the generated ones among them
+  Remembered { files: Vec<(String, u32)>, generated: Vec<GeneratedFile> },
 }
 
 impl Resolved {
@@ -113,6 +133,10 @@ impl Resolved {
 
   /// What the commit row and the mapping note say of it, for the copy of a commit with `parent` onto `target`
   pub fn summary(&self, parent: &str, target: &str) -> WordResolutionSummary {
+    let generated = match self {
+      Self::Now(resolution) => resolution.generated(),
+      Self::Remembered { generated, .. } => generated.clone(),
+    };
     let files: Vec<ResolvedFileSummary> = match self {
       Self::Now(resolution) => resolution
         .files
@@ -122,7 +146,7 @@ impl Resolved {
           conflicts: file.conflicts,
         })
         .collect(),
-      Self::Remembered { files } => files
+      Self::Remembered { files, .. } => files
         .iter()
         .map(|(path, conflicts)| ResolvedFileSummary {
           path: path.clone(),
@@ -136,6 +160,7 @@ impl Resolved {
       conflicts: files.iter().map(|file| file.conflicts).sum(),
       file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
       files,
+      generated,
     }
   }
 }
@@ -160,6 +185,9 @@ pub struct ResolvedFile {
   /// The id of `content`
   pub blob: String,
   pub content: Vec<u8>,
+  /// Why the file is generated (`generated_by::generated_by`: its name, its attributes as git finds them for a merge, the
+  /// header of a side); `None` for a file a person writes. Only a sync resolves a generated file
+  pub generated_by: Option<GeneratedBy>,
 }
 
 /// Why a conflicting cherry-pick does not resolve by words
@@ -218,10 +246,9 @@ pub fn resolve_by_words(git: &GitCommandExecutor, repository_path: &str, merge: 
   if hand_written && let Some(candidate) = candidates.iter().find(|candidate| generated_name(&candidate.path).is_some()) {
     return Ok(not_resolved(&candidate.path, NotResolved::Generated));
   }
+  // the attributes of a generated file in the same process: an update refuses it, a sync names it
   let mut attributes = vec![MERGE_ATTRIBUTE];
-  if hand_written {
-    attributes.extend(GENERATED_ATTRIBUTES);
-  }
+  attributes.extend(GENERATED_ATTRIBUTES);
   let mut by_attributes: HashSet<String> = HashSet::new();
   for attribute in read_attributes(git, repository_path, None, &attributes, candidates.iter().map(|candidate| candidate.path.as_str()))? {
     if attribute.attribute != MERGE_ATTRIBUTE {
@@ -233,7 +260,7 @@ pub fn resolve_by_words(git: &GitCommandExecutor, repository_path: &str, merge: 
       return Ok(not_resolved(&attribute.path, NotResolved::MergeAttribute));
     }
   }
-  if let Some(candidate) = candidates.iter().find(|candidate| by_attributes.contains(&candidate.path)) {
+  if hand_written && let Some(candidate) = candidates.iter().find(|candidate| by_attributes.contains(&candidate.path)) {
     return Ok(not_resolved(&candidate.path, NotResolved::Generated));
   }
 
@@ -292,6 +319,8 @@ pub fn resolve_by_words(git: &GitCommandExecutor, repository_path: &str, merge: 
       conflicts: count_conflicts(&String::from_utf8_lossy(marked)),
       blob: blob_id(&merge.tree, &composed.bytes),
       content: composed.bytes,
+      // an update returned above at a generated file; a sync names why it is generated
+      generated_by: generated_by(&candidate.path, by_attributes.contains(&candidate.path), sides.iter().flatten().map(Vec::as_slice)),
     });
   }
 

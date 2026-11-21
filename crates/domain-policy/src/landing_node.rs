@@ -18,6 +18,8 @@ use crate::land::merges_on_github;
 use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, next_step, problems_failed, problems_pending};
 use crate::own_facts::{OwnFacts, own_facts};
 use crate::readiness::waiting_reviewers;
+use domain_types::conflict::RegenerateFile;
+use domain_types::landing::LandingFix;
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::ReviewReadiness;
@@ -41,6 +43,10 @@ pub struct NodeFacts<'a> {
   /// The remote lacks work of it: the step a repository without Patronus and GitHub shows. The page lays a push of it
   /// that runs over the node: it shows the pushed branch from the click on (`presentLandingNode`)
   pub push_pending: bool,
+  /// The generated files the words merged that its copy holds (`regenerate`), and the fix that gives the copy the commit
+  /// it lacks
+  pub regenerate: &'a [RegenerateFile],
+  pub regenerate_fix: Option<&'a LandingFix>,
 }
 
 /// The node is filled: the next step is the user's, a fix first (`NeedsFix`, `YourStep`, `Ready`); the others wait for

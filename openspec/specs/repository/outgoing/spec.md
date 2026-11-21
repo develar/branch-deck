@@ -18,6 +18,7 @@ targets:
   - crates/domain-types/src/remote_status.rs
   - crates/repository-model/src/push_guard.rs
   - crates/operations/src/push.rs
+  - crates/domain-policy/src/regenerate.rs
   - src/lib/ui-types.ts
   - src/stores/push-confirm.ts
   - src/lib/remote-status.ts
@@ -944,10 +945,34 @@ A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's 
 - **WHEN** the user presses Escape, clicks elsewhere or clicks the push button again
 - **THEN** the question is dismissed, and nothing is pushed
 
+### Requirement: Push: A push of a copy with a generated file merged by words asks first
+
+A push that sends a copy holding a generated file the words merged in a conflict of its sync MUST ask first, every
+time until the copy no longer holds it, also when forced: its plan asks it (`Confirmation::Regenerate`, one per copy),
+so the click opens its description with the files and Push Anyway, Force Push beside a drop, which pushes with it
+accepted. A plan run without it MUST push nothing.
+
+#### Scenario: The push of such a copy
+- **WHEN** the user clicks the push of a branch whose copy holds a lock file the words merged
+- **THEN** its description opens with the file, why it is generated and the commit the copy lacks, and Push Anyway
+- **AND** Push Anyway pushes it; a push run without the confirmation pushes nothing
+- **AND** a forced push asks the same, and the push of a branch whose copy is clean asks nothing
+  [@test] crates/operations/src/push_test.rs (`a_push_of_a_copy_with_a_generated_file_merged_by_words_asks_first_and_runs_once_accepted`)
+  [@test] src/lib/push-run.test.ts (`asks first for a copy with a generated file merged by words, whose Push Anyway pushes with it accepted, a stack too`)
+  [@test] tests/e2e/outgoing/regenerate.spec.ts (`should mark a branch whose copy merged a generated file by words and ask before its push`)
+
+#### Scenario: A stack and the stack branch
+- **WHEN** a push of a stack sends copies that hold such files, or the stack branch going along holds one, or the
+  stack branch of a whole stack is pushed alone
+- **THEN** each such copy asks, the stack branch by its whole stack, also when forced
+- **AND** Push Anyway, or Force Push beside a drop, runs the same push with them accepted
+  [@test] src/lib/push-run.test.ts (`asks first for a copy with a generated file merged by words, whose Push Anyway pushes with it accepted, a stack too`)
+
 ### Requirement: Push: A safe push pushes on the click
 
 A safe push (Push, the first one too, the Force Push of a rebased, amended or restacked branch) MUST push on the
-click.
+click, unless the copy it sends holds a generated file the words merged, which
+[asks first](#requirement-push-a-push-of-a-copy-with-a-generated-file-merged-by-words-asks-first).
 
 #### Scenario: A force push of a rebased branch
 - **WHEN** the user clicks the force push of a rebased branch, which drops nothing

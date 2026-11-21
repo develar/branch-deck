@@ -130,17 +130,22 @@ const BARE_ORIGIN_CONFIG: [(&str, &str); 5] = [
 pub fn stack_ahead_of_bare_origin() -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test Project\n");
+  push_to_bare_origin(&repo);
+  let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
+  let beta = repo.create_commit("(alpha/beta) Beta", "beta.txt", "beta\n");
+  repo.git(&["update-ref", "refs/heads/test/virtual/alpha", &alpha]);
+  repo.git(&["update-ref", "refs/heads/test/virtual/beta", &beta]);
+  repo
+}
+
+/// A bare `origin` of `repo` in `.git/origin.git` that has its `master` as it is now
+pub fn push_to_bare_origin(repo: &TestRepo) {
   let origin = repo.path().join(".git/origin.git");
   let origin = origin.to_str().expect("a UTF-8 path");
   repo.git(&["init", "--bare", "-q", "--template=", "--initial-branch=master", origin]);
   append_config(Path::new(origin), &BARE_ORIGIN_CONFIG);
   repo.git(&["remote", "add", "origin", origin]);
   repo.git(&["push", "-q", "origin", "master"]);
-  let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
-  let beta = repo.create_commit("(alpha/beta) Beta", "beta.txt", "beta\n");
-  repo.git(&["update-ref", "refs/heads/test/virtual/alpha", &alpha]);
-  repo.git(&["update-ref", "refs/heads/test/virtual/beta", &beta]);
-  repo
 }
 
 /// A `pre-receive` hook in the bare repository at `bare_path` that refuses every push, as a protected branch does

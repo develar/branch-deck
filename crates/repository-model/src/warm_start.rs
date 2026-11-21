@@ -32,6 +32,7 @@ use crate::session::SessionKey;
 use crate::table::{TableParts, TableState};
 use domain_types::GroupedBranchInfo;
 use domain_types::commit::Commit;
+use domain_types::conflict::RegenerateFile;
 use domain_types::landing::NeedState;
 use domain_types::patronus::PatronusStartOptions;
 use domain_types::pull_request::BranchRules;
@@ -48,7 +49,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 20;
+pub const FRAME_SCHEMA: u32 = 21;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +119,9 @@ pub struct CachedBuild {
   pub companion_needs: BTreeMap<String, NeedState>,
   pub remote: RemoteFacts,
   pub in_baseline: BTreeSet<String>,
+  /// The generated files the words merged that the tips hold (`BranchTable::regenerate`, `stack_regenerate`)
+  pub regenerate: BTreeMap<String, Vec<RegenerateFile>>,
+  pub stack_regenerate: BTreeMap<String, Vec<RegenerateFile>>,
 }
 
 impl CachedBuild {
@@ -140,6 +144,8 @@ impl CachedBuild {
       companion_needs: table.companion_needs.clone(),
       remote: table.remote.clone(),
       in_baseline: table.in_baseline.clone(),
+      regenerate: table.regenerate.clone(),
+      stack_regenerate: table.stack_regenerate.clone(),
     }
   }
 
@@ -163,6 +169,8 @@ impl CachedBuild {
       companion_needs: self.companion_needs,
       remote: self.remote,
       in_baseline: self.in_baseline,
+      regenerate: self.regenerate,
+      stack_regenerate: self.stack_regenerate,
     }
   }
 }

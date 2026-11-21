@@ -66,7 +66,7 @@ Rules
   you read last: `head_moved` (exit 3). Every write prints `previous_head`, `new_head` and an `undo_token` (full ids:
   pass it as printed). A write whose step after it failed (a sync) keeps its output with `after_error`: retry that
   step, never the write. `brd undo <undo_token>` takes a write back, `undo_stale` (exit 4) once anything moved on.
-- Ids are abbreviated per output: compare them by prefix, or pass --full-ids.
+- Ids are abbreviated per output: compare by prefix, or pass --full-ids.
 
 Refusals that wait for the user (exit 4); the `--help` of the command has the rest:
 - `push_too_large`: show `paths`; never raise `branchdeck.pushSizeLimit` yourself.
@@ -77,8 +77,9 @@ Refusals that wait for the user (exit 4); the `--help` of the command has the re
 - `approvals_missing`: show `error.review`; `--create-pull-request` once the user approved; `--without-approvals` only
   when the user says so: Patronus fails it.
 - `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`), `lost_binding` its commit;
-  `brd safe-push --allow-dangling` or `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `brd safe-push
-  --allow-unknown-rules` only when the user says so.
+  `brd safe-push --allow-dangling` or `--allow-missing` only when the user says it is a false alarm. `rules_unknown`,
+  `generated_merged_by_words`: ask the user; `--allow-unknown-rules`, `--allow-generated-merged-by-words` only when
+  they say so.
 - `parked`: tell the user; never push, start or unpark a parked branch on your own.
 - `low_disk_space`: tell the user; never pass `brd lease get --min-free 0` on your own.
 - `unrelated_history`: show `message`; never reset, rebase or merge the branch onto the baseline.
@@ -114,7 +115,7 @@ Workflow: the commits into pull requests
 6. Review. `brd request-review <branch> --dry-run` names whom it would ask; once approved, run it without
    (`brd request-review --help`).
 7. Robot. `brd robot <branch>` (`--full` after a failure says why and what to fix; `brd robot --help`).
-8. Statistics. `brd robot-stats` (`brd robot-stats --help`).
+8. Statistics: `brd robot-stats --help`.
 
 Other tasks
 - Before the first edit of a session: `brd workspace` says where to work, how to write a subject and whether the
@@ -568,6 +569,12 @@ nothing of it landed, its `pull_request` draft opens a new one into the baseline
   is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes the
   branch alone and restarts it on the pushed commit (`restarted`).
 - `plan_changed` (exit 3): another session moved a branch after the sync; nothing was pushed: push again.
+- `generated_merged_by_words` (exit 4): the copy of a branch it pushes holds a generated file (a lock file, one its
+  git attributes or its header mark generated) that the words merged in a conflict of the sync, not its generator,
+  so the build may fail or the file be stale: `regenerate` of `brd sync` names each with the copy that merged it and
+  the commit the copy lacks (`lacks`). Tell the user; `brd push --allow-generated-merged-by-words` pushes anyway,
+  also with --force, only when they say so. The restack the message names (`regenerate_fix`) gives the copy that commit
+  once they approved; the mark clears when it lands or a later commit writes the file.
 - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
   branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
 - `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `brd status`):
@@ -629,6 +636,9 @@ Refusals, nothing pushed or started:
   outside it adds (`missing_declarations` of `brd check`); the message names the restack that lands that branch too
   (`brd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
   alarm, `brd safe-push --allow-missing`.
+- `generated_merged_by_words` (exit 4, also in `refusals`): the copy that lands (of the whole stack: its stack branch)
+  holds a generated file the words merged in a conflict of the sync, not its generator, as for `brd push`: a Dry Run
+  asks too. `brd safe-push --allow-generated-merged-by-words` only when the user says so.
 - `unlanded_need` (exit 4, also in `refusals`): the user declared that another branch lands before this one
   (`brd need`), and it is not in master yet; `needs_branch` of `landing_needs` names it and `state` says how it
   stands (`active`, `unapplied`, `missing`, `companion_unreadable`). Land that branch first, or ask the user:
@@ -695,8 +705,9 @@ Refusals, nothing pushed:
   the target (--bypass-rules once the user agrees); `landed` (exit 4): the baseline has all of it already: `brd update`.
 - `dangling_reference`, `lost_binding`, `missing_declaration`: as for `brd safe-push`; `brd land --allow-dangling` or
   `brd land --allow-missing` only when the user says it is a false alarm. `unlanded_need`: as for `brd safe-push`; `brd land
-  --allow-unlanded` only when the user says the declared order no longer holds. `parked`, `robot_running`,
-  `stack_not_built`: as for `brd safe-push`.
+  --allow-unlanded` only when the user says the declared order no longer holds. `generated_merged_by_words`: as for
+  `brd safe-push`; `brd land --allow-generated-merged-by-words` only when the user says so. `parked`,
+  `robot_running`, `stack_not_built`: as for `brd safe-push`.
 - `busy` (exit 3): another process lands into the same target; retry once it is done.
 - `no_pull_request` (exit 4): a merge needs an open pull request into the target: `brd safe-push <branch>
   --create-pull-request` opens one. `merge_blocked` (exit 4): approvals, required checks, changes requested or a

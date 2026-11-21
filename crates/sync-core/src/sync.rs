@@ -14,6 +14,7 @@ use crate::github_repository::GitHubRepository;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::lease_state::LeaseGuard;
+use crate::regenerate::{HeldTip, OriginalCommit, RegenerateFacts, chain_of, regenerate_files};
 use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{CommandFacts, RepoFacts, read_repo_facts};
 use crate::stack_branch::{BuildResult, FinishedStacks, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
@@ -37,6 +38,7 @@ use git_ops::branch_description::Description;
 use git_ops::commit_list::{UnrelatedHistory, get_frozen_commit_list_with_handler, on_local_baseline};
 use git_ops::commit_signing::Signing;
 use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
+use git_ops::generated::CopyMerge;
 use git_ops::landed_pairing::CommitKey;
 use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::{current_branch, with_dirs_of};
@@ -318,6 +320,9 @@ pub struct SyncReport {
   /// baseline tracks on origin or on the remote of `github`; `None` for a local baseline or one of another remote. A
   /// start takes it instead of reading the upstream again
   pub target_branch: Option<String>,
+  /// The generated files the words merged in the copies that the tips of the built branches and of the built stack
+  /// branches still hold (`regenerate`): their push and their start ask first
+  pub regenerate: RegenerateFacts,
 }
 
 impl SyncReport {
@@ -651,6 +656,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     base: None,
     github,
     target_branch: target_branch.clone(),
+    regenerate: RegenerateFacts::default(),
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -821,6 +827,9 @@ struct ProcessedBranches {
   failed: HashMap<String, BlockReason>,
   /// The finished branches whose ref another process moved while the sync built them (`BranchNotes::moved_elsewhere`)
   moved_elsewhere: Vec<String>,
+  /// Branch -> the tip of each finished branch the sync built and the generated files the words merged in its own copies
+  /// (`BranchNotes::merges`)
+  merges: BranchMerges,
 }
 
 /// Rebuild every virtual branch on the blocking pool, each task in a slot of `permits` (shared with the integration
@@ -918,6 +927,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   let mut tasks = JoinSet::new();
   let mut to_finish: Vec<BuiltBranch> = Vec::new();
   let mut first_error = None;
+  let mut merges = HashMap::new();
   let mut notes = Vec::new();
   let mut stack_notes = Vec::new();
   let mut tips = HashMap::new();
@@ -965,6 +975,8 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       Ok(TaskOutput::Finished(branch_name, Ok(branch_notes))) => {
         if branch_notes.moved_elsewhere {
           moved_elsewhere.push(branch_name);
+        } else if let Some(tip) = &branch_notes.tip.1 {
+          merges.insert(branch_name, (tip.clone(), branch_notes.merges));
         }
         notes.extend(branch_notes.mappings);
         stack_notes.extend(branch_notes.stack_note);
@@ -1008,7 +1020,12 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))??;
   match first_error {
     Some(e) => Err(e),
-    None => Ok(ProcessedBranches { tips, failed, moved_elsewhere }),
+    None => Ok(ProcessedBranches {
+      tips,
+      failed,
+      moved_elsewhere,
+      merges,
+    }),
   }
 }
 
@@ -1244,6 +1261,25 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     permits.clone(),
   );
   let context_statuses = remote_statuses.clone();
+  // what the generated files the words merged are told with: the branch each branch is built on, the commits ahead of
+  // the baseline with their branches, HEAD and the baseline
+  let parents: HashMap<String, String> = stacks.iter().filter_map(|(name, stack)| Some((name.clone(), stack.effective_base.clone()?))).collect();
+  let originals: HashMap<String, OriginalCommit> = report
+    .branches
+    .iter()
+    .flat_map(|branch| {
+      branch.commits.iter().map(|commit| {
+        (
+          commit.id.clone(),
+          OriginalCommit {
+            branch: branch.name.clone(),
+            subject: commit.subject.clone(),
+          },
+        )
+      })
+    })
+    .collect();
+  let held_inputs = (report.head.clone(), report.baseline_commit.clone());
   let branch_processing = async {
     if branches.is_empty() {
       info!("No commits ahead of baseline, only checking for integrated branches");
@@ -1288,7 +1324,19 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           remote_statuses: remote_statuses.as_deref(),
           failed: &failed,
         };
-        let FinishedStacks { updates, moved_elsewhere } = finish_stack_branches(&finish, &stack_branches, stack_results);
+        let FinishedStacks {
+          updates,
+          moved_elsewhere,
+          merges: stack_merges,
+        } = finish_stack_branches(&finish, &stack_branches, stack_results);
+        let regenerate = held_merges(
+          git_executor,
+          repository_path,
+          &held_inputs,
+          (&processed.merges, &parents),
+          (&stack_merges, &updates),
+          &originals,
+        );
         for update in &updates {
           let _ = progress.send(SyncEvent::StackBranchUpdate(Box::new(update.clone())));
         }
@@ -1298,7 +1346,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         // their writes to the object cache, here on the blocking pool
         drop(remote_statuses);
         drop(stack_builds);
-        (updates, moved_elsewhere)
+        (updates, moved_elsewhere, regenerate)
       })
       .await
       .map_err(|e| anyhow!("Stack branch task failed: {e}"))?;
@@ -1307,8 +1355,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
 
   // join (not try_join) so a failure on one side doesn't orphan the other
   let (processing_result, detection_result, update_check_result) = tokio::join!(processing, detection, update_check);
-  let (tips, not_built, (stack_updates, stack_moved_elsewhere), branch_moved_elsewhere) = processing_result?;
+  let (tips, not_built, (stack_updates, stack_moved_elsewhere, regenerate), branch_moved_elsewhere) = processing_result?;
   report.not_built = not_built;
+  report.regenerate = regenerate;
   report.retry = branch_moved_elsewhere || stack_moved_elsewhere;
   for (full_name, tip) in tips {
     match tip {
@@ -1328,6 +1377,72 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     .await
     .map_err(|e| anyhow!("The mark of the sync failed: {e}"))?;
   Ok(report)
+}
+
+/// Branch -> its tip and the generated files the words merged in its own copies (`ProcessedBranches::merges`)
+type BranchMerges = HashMap<String, (String, Vec<CopyMerge>)>;
+
+/// Of each stack branch at its build, the index of its update, its tip and its merges (`FinishedStacks::merges`)
+type StackMerges = [(usize, String, Vec<CopyMerge>)];
+
+/// The generated files the words merged that the tips of the sync still hold (`regenerate`): of each built branch with
+/// the merges of the built branches it is built on (`parents`), the root first, and of each stack branch at its build.
+/// A failure leaves them out with a warning, as a remote status that cannot be computed
+fn held_merges(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  (head, baseline): &(String, String),
+  (branches, parents): (&BranchMerges, &HashMap<String, String>),
+  (stacks, updates): (&StackMerges, &[StackBranchUpdate]),
+  originals: &HashMap<String, OriginalCommit>,
+) -> RegenerateFacts {
+  let mut keys: Vec<(bool, String)> = Vec::new();
+  let mut tips: Vec<HeldTip> = Vec::new();
+  let mut names: Vec<&String> = branches.keys().collect();
+  names.sort();
+  for name in names {
+    let (tip, _) = &branches[name];
+    let chain = chain_of(name, parents);
+    let merges: Vec<CopyMerge> = chain
+      .iter()
+      .filter_map(|member| branches.get(member))
+      .flat_map(|(_, merges)| merges.iter().cloned())
+      .collect();
+    keys.push((false, name.clone()));
+    tips.push(HeldTip {
+      tip: tip.clone(),
+      merges,
+      members: chain.into_iter().collect(),
+    });
+  }
+  for (index, tip, merges) in stacks {
+    let Some(update) = updates.get(*index) else { continue };
+    keys.push((true, update.root.clone()));
+    tips.push(HeldTip {
+      tip: tip.clone(),
+      merges: merges.clone(),
+      members: update.members.iter().cloned().collect(),
+    });
+  }
+  let files = match regenerate_files(git_executor, repository_path, head, baseline, &tips, originals) {
+    Ok(files) => files,
+    Err(e) => {
+      warn!(error = ?e, "cannot tell the generated files the words merged that the tips hold");
+      return RegenerateFacts::default();
+    }
+  };
+  let mut facts = RegenerateFacts::default();
+  for ((stack, key), files) in keys.into_iter().zip(files) {
+    if files.is_empty() {
+      continue;
+    }
+    if stack {
+      facts.stacks.insert(key, files);
+    } else {
+      facts.branches.insert(key, files);
+    }
+  }
+  facts
 }
 
 /// What every blocking task of a sync works with, each task with its own copy

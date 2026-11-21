@@ -566,6 +566,9 @@ pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, s
     },
     // no sync: no landing report
     in_baseline: BTreeSet::new(),
+    // no sync: no copy is known to hold a generated file the words merged
+    regenerate: BTreeMap::new(),
+    stack_regenerate: BTreeMap::new(),
   }
 }
 

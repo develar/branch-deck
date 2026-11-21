@@ -3,6 +3,7 @@ use crate::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, allows_mode, decide, default_profile, offered_profiles,
   on_last_commit, restart_refusal, start_refusal, took_as_is, unaccepted,
 };
+use domain_types::conflict::RegenerateFile;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot};
 use domain_types::landing::{
@@ -289,6 +290,8 @@ struct World {
   parked: Option<Parked>,
   not_built: Option<BlockReason>,
   conflict: Option<Vec<String>>,
+  /// The generated files the words merged that the copy of login holds
+  regenerate: Vec<RegenerateFile>,
 }
 
 const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
@@ -386,6 +389,7 @@ fn world() -> World {
     parked: None,
     not_built: None,
     conflict: None,
+    regenerate: Vec::new(),
   }
 }
 
@@ -440,6 +444,7 @@ impl World {
         tip: Some("login-tip"),
         replaces: self.replaces,
         whole_stack_pull_request: None,
+        regenerate: &self.regenerate,
       }),
       profiles: &self.profiles,
       last_profile: self.last_profile.as_ref(),
@@ -1213,6 +1218,7 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
           remote: Some(remote),
           replaces: held_by.map(|robot| robot.id.as_str()),
           held_by,
+          regenerate: &[],
         }),
         profiles: &world.profiles,
         last_profile: None,
@@ -1259,5 +1265,46 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
   assert_eq!(
     (codes(&other), other.effects.iter().any(|effect| matches!(effect, PlannedEffect::Retarget { .. }))),
     (vec!["otherBase".to_string()], false)
+  );
+}
+
+/// A start of a copy that holds a generated file the words merged, its own or one of a branch it is built on, asks first
+/// in every mode (a Dry Run builds that copy too), naming the file; `bd` passes it only by its flag
+#[test]
+fn a_start_whose_copy_holds_a_generated_file_the_words_merged_confirms_first() {
+  let file = RegenerateFile {
+    commit: stack_commit("a1", "Add a dependency", "auth"),
+    path: "Cargo.lock".to_string(),
+    generated_by: generated_files::generated_by::GeneratedBy::Name {
+      name: generated_files::names::GeneratedName::LockFile,
+    },
+    lacks: Some(stack_commit("c1", "Add another dependency", "core")),
+  };
+  let holding = World {
+    regenerate: vec![file.clone()],
+    ..world()
+  };
+  let expected = Confirmation::Regenerate {
+    subject: Subject::branch("login"),
+    files: vec![file],
+  };
+  for mode in [PatronusPushMode::RebaseAutosquash, PatronusPushMode::DryRun] {
+    let decision = holding.decide(&land(mode));
+    assert!(decision.blockers.is_empty(), "{:?}", decision.blockers);
+    assert!(decision.confirmations.contains(&expected), "{mode:?}: {:?}", decision.confirmations);
+  }
+  let decision = holding.decide(&land(PatronusPushMode::RebaseAutosquash));
+  assert_eq!(unaccepted(&decision.confirmations, &LandingAllowances::default()), [&expected]);
+  let allow = LandingAllowances {
+    allow_generated_merged_by_words: true,
+    ..LandingAllowances::default()
+  };
+  assert_eq!(unaccepted(&decision.confirmations, &allow), [] as [&Confirmation; 0]);
+  assert!(
+    !world()
+      .decide(&land(PatronusPushMode::RebaseAutosquash))
+      .confirmations
+      .iter()
+      .any(|it| matches!(it, Confirmation::Regenerate { .. }))
   );
 }

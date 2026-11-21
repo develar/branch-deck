@@ -28,6 +28,7 @@ use crate::push_command::{
   pull_request_drafts, pushed_branch, refusal_warning, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_refusals::robot_command;
+use crate::regenerate_refusal::regenerate_refusal;
 use crate::robot_list::keep_listed;
 use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
@@ -165,6 +166,10 @@ pub struct SafePushArgs {
   /// straight chain has none: its last branch carries the whole stack, and the robot starts from it
   #[arg(long)]
   pub whole_stack: bool,
+  /// Start although the copy that lands holds a generated file the words merged in a conflict of the sync, not its
+  /// generator (`generated_merged_by_words`: `regenerate` of `brd sync` names it), once the user agreed
+  #[arg(long)]
+  pub allow_generated_merged_by_words: bool,
 }
 
 /// `brd safe-push`
@@ -298,6 +303,15 @@ impl Refusal {
   pub(crate) fn with_next_step(mut self, command: impl Into<String>, needs_approval: bool) -> Self {
     self.next_steps.push(NextStep::new(command, needs_approval));
     self
+  }
+
+  /// The error of the command it refuses, with its next steps
+  pub(crate) fn into_error(self) -> CliError {
+    let mut error = CliError::new(self.code, self.message);
+    for step in self.next_steps {
+      error.push_next_step(step);
+    }
+    error
   }
 }
 
@@ -1221,6 +1235,7 @@ fn plan(
       allow_unknown_rules: args.allow_unknown_rules,
       allow_unknown_review: args.allow_unknown_review,
       cancel_running: args.cancel_running,
+      allow_generated_merged_by_words: args.allow_generated_merged_by_words,
       ..LandingAllowances::default()
     },
     anyway: None,
@@ -1893,6 +1908,14 @@ impl Told<'_> {
           self.rules_unknown_words(*number)
         ),
       ),
+      Confirmation::Regenerate { subject, files } => {
+        let table = self.synced.branch_table(&context.prefix);
+        let fix = match subject {
+          Subject::Branch { name } => table.regenerate_fix(name),
+          Subject::WholeStack { root } => table.stack_regenerate_fix(root),
+        };
+        regenerate_refusal(context, "Nothing was pushed or started", what, files, fix.as_ref())
+      }
       other => Refusal::new(ErrorCode::Internal, format!("{what} asks the user first: {other:?}; {target}")),
     }
   }

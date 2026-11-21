@@ -19,6 +19,7 @@ import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { describePush, formatPushFailure, formatPushedBranch } from "@/lib/push-summary"
+import { sameJson } from "@/lib/record"
 import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { showRobotToast } from "@/lib/robot-toast"
 import type { ToastActionProps } from "@/lib/toast-message"
@@ -42,6 +43,11 @@ export interface PushBranchOptions {
   readonly expectRemote?: string | null
   /** The user chose the push that drops the remote commits the branch lacks: the Force Push of the push description */
   readonly force?: boolean
+  /**
+   * The user chose the push of a copy that holds a generated file the words merged (`Confirmation::Regenerate`): Push
+   * Anyway of the push description, which named the files
+   */
+  readonly acceptRegenerate?: boolean
   /** The Safe Push of the branch restarts on the pushed commit, canceled first while it runs (the toast of a remote that moved under a restart) */
   readonly restartRunning?: boolean
   /**
@@ -142,9 +148,11 @@ async function runPush(repositoryPath: string, branchName: string, intent: Inten
     case "planned":
       break
   }
-  // the push drops remote commits the branch lacks (`ForcePushDrops`): the user decides in the description of its button
-  if (planned.plan.confirmations.length > 0) {
-    requestPushConfirm(branchName, options.confirmAt ?? "row", options)
+  // the push drops remote commits the branch lacks (`ForcePushDrops`), or its copy holds a generated file the words merged
+  // (`Regenerate`): the user decides in the description of its button, which shows what the plan asks
+  const accepted: readonly Confirmation[] = options.acceptRegenerate === true ? planned.plan.confirmations.filter(confirmation => confirmation.kind === "regenerate") : []
+  if (planned.plan.confirmations.some(confirmation => !isAccepted(confirmation, accepted))) {
+    requestPushConfirm(branchName, options.confirmAt ?? "row", options, undefined, planned.plan.confirmations)
     return { kind: "confirm" }
   }
   const run = await executePlan(repositoryPath, planned.plan)
@@ -452,16 +460,23 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
 
 /**
  * A push of a stack whose plan asks first (`confirmations`): the push button of the branch whose push drops remote
- * commits opens its description with them, whose Force Push runs this push again with that drop accepted: the same
- * intent, unforced, so it sends no other branch that drops remote commits nobody showed (a forced push of a stack sends
- * every one), over the remote head the row shows at the click (`onShownRemote`); a plan that asks of more than one
- * branch, or of the stack branch of a whole stack, is refused with each drop named, as the rows' buttons ask them
+ * commits (else of the branch it started from) opens its description with them and the copies that hold a generated
+ * file the words merged, whose Force Push (Push Anyway) runs this push again with those accepted: the same intent,
+ * unforced, so it sends no other branch that drops remote commits nobody showed (a forced push of a stack sends every
+ * one), over the remote head the row shows at the click (`onShownRemote`); a plan that asks of more than one drop, or of
+ * the drop of the stack branch of a whole stack, is refused with each drop named, as the rows' buttons ask them
  */
 function askStackPush(startedFrom: string, intent: Intent, options: StackPushOptions, confirmations: readonly Confirmation[]): void {
   const drops = confirmations.flatMap(confirmation => (confirmation.kind === "forcePushDrops" ? [confirmation] : []))
-  const only = drops.length === 1 && confirmations.length === 1 ? drops[0]! : null
+  const regenerates = confirmations.filter(confirmation => confirmation.kind === "regenerate")
+  const accept = (accepted: readonly Confirmation[]) => () => void runStackPush(startedFrom, onShownRemote(intent), options, accepted)
+  const only = drops.length === 1 && confirmations.length === drops.length + regenerates.length ? drops[0]! : null
   if (only !== null && stackRootOfReadinessKey(only.branch) === null && getBranch(only.branch) !== undefined) {
-    requestPushConfirm(only.branch, "row", {}, () => void runStackPush(startedFrom, onShownRemote(intent), options, [only]))
+    requestPushConfirm(only.branch, "row", {}, accept([only, ...regenerates]), confirmations)
+    return
+  }
+  if (drops.length === 0 && getBranch(startedFrom) !== undefined) {
+    requestPushConfirm(startedFrom, "row", {}, accept(regenerates), confirmations)
     return
   }
   const named = drops.map(drop => `${formatReadinessSubject(drop.branch)} drops ${drop.commits === 1 ? "a commit" : `${drop.commits} commits`} of its remote branch it lacks`)
@@ -482,9 +497,19 @@ function onShownRemote(intent: Intent): Intent {
   return branch === undefined ? intent : { ...intent, expectRemote: branch.remoteStatus?.remoteTip ?? null }
 }
 
-/** Whether the user accepted `confirmation`: the drop of as many commits of the same branch, which its description showed */
+/**
+ * Whether the user accepted `confirmation`: the drop of as many commits of the same branch, or the same generated files
+ * of the same copy, which its description showed
+ */
 function isAccepted(confirmation: Confirmation, accepted: readonly Confirmation[]): boolean {
-  return confirmation.kind === "forcePushDrops" && accepted.some(it => it.kind === "forcePushDrops" && it.branch === confirmation.branch && it.commits === confirmation.commits)
+  switch (confirmation.kind) {
+    case "forcePushDrops":
+      return accepted.some(it => it.kind === "forcePushDrops" && it.branch === confirmation.branch && it.commits === confirmation.commits)
+    case "regenerate":
+      return accepted.some(it => sameJson(it, confirmation))
+    default:
+      return false
+  }
 }
 
 /** What the outcome of a push of a stack says (`runStackPush`); whether it pushed */

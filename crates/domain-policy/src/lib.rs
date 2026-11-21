@@ -73,6 +73,9 @@
 //!   Safe Push starts without them (`skips_approvals`)
 //! - `reviewer_groups`: the reviewer groups of a pull request of someone else a review window shows, each approved or not
 //!   and whether the user can approve for it (`reviewer_groups`)
+//! - `regenerate`: the generated files the words merged that the copy of a branch or of a whole stack holds: what its
+//!   Status cell says (`row_fact`, with the fix that gives the copy the commit it lacks, `fix_of`) and what its push and
+//!   every start of it ask first (`confirmation`)
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
@@ -117,6 +120,7 @@ pub mod range_reading;
 pub mod readiness;
 pub mod reasons;
 pub mod refresh;
+pub mod regenerate;
 pub mod review;
 pub mod review_request_chains;
 pub mod reviewer_groups;
@@ -178,6 +182,8 @@ mod readiness_test;
 mod reason_catalog_test;
 #[cfg(test)]
 mod refresh_test;
+#[cfg(test)]
+mod regenerate_test;
 #[cfg(test)]
 mod review_request_chains_test;
 #[cfg(test)]

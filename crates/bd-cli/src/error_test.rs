@@ -84,6 +84,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::DanglingReference, 4, false),
   (ErrorCode::LostBinding, 4, false),
   (ErrorCode::MissingDeclaration, 4, false),
+  (ErrorCode::GeneratedMergedByWords, 4, false),
   (ErrorCode::UnlandedNeed, 4, false),
   (ErrorCode::NotOnSpace, 4, false),
   (ErrorCode::NotLoggedIn, 4, false),

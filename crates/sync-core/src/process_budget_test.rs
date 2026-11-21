@@ -44,7 +44,7 @@ use test_utils::history::{HistoryCommit, HistoryStream};
 use test_utils::process_budget::{
   FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, processes, repo_on_origin, with_added_processes,
 };
-use test_utils::sync_fixtures::{TestReporter, repo_with_a_word_conflict, with_resolve_version};
+use test_utils::sync_fixtures::{TestReporter, WORD_CONFLICT_TIME, commit_files, repo_with_a_word_conflict, repo_with_word_changes, with_resolve_version};
 
 const PREFIX: &str = "test";
 
@@ -319,6 +319,40 @@ async fn a_copy_of_an_older_resolve_is_checked_once() {
   let git = counting();
   sync(&git, &repo).await;
   assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// beta's copy merges a lock file by words, as `repo_with_a_word_conflict` merges a file a person writes
+fn repo_with_a_lock_file_merged_by_words() -> TestRepo {
+  repo_with_word_changes(
+    &[("Cargo.lock", "call(a, b, c)\nx\ny\nend\n")],
+    &[("Cargo.lock", "call(A, b, c)\nx\ny\nend\n")],
+    &[("Cargo.lock", "call(A, b, C)\nx\ny\nend\n")],
+  )
+}
+
+/// A generated file the words merged in the copy at the tip of its branch is held without a read; the commit its copy
+/// lacks is one `log` for the sync. A file a person writes costs nothing (`a_copy_of_an_older_resolve_is_checked_once`)
+#[tokio::test]
+async fn a_generated_file_merged_by_words_at_the_tip_costs_one_log() {
+  let repo = repo_with_a_lock_file_merged_by_words();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(&git, &with_added_processes(&UNCHANGED_SYNC, &[("log", 1)]));
+}
+
+/// Below the tip, the merges of every branch are one `cat-file --batch-check` for the sync, and the commits the copies
+/// lack one `log`
+#[tokio::test]
+async fn a_generated_file_merged_by_words_below_the_tip_costs_one_batch_check_and_one_log() {
+  let repo = repo_with_a_lock_file_merged_by_words();
+  std::fs::write(repo.path().join("beta.txt"), "beta\n").unwrap();
+  repo.git(&["add", "beta.txt"]);
+  commit_files(&repo, "(beta) Add a file", &[], WORD_CONFLICT_TIME + 300);
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(&git, &with_added_processes(&UNCHANGED_SYNC, &[("cat-file", 1), ("log", 1)]));
 }
 
 /// `repo` with a branch whose commit changes a file another branch adds: `delta` conflicts at every sync

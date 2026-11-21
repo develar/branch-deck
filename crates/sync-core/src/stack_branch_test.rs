@@ -214,6 +214,7 @@ fn an_unsigned_stack_build_is_not_reused_when_signing_is_enabled() {
   let unsigned = StackBuild::Built {
     tip: "unsigned".to_string(),
     signed: false,
+    merges: String::new(),
   };
   StackBuilds::new(cache.clone(), ResolveMode::Off, Signing::Off).remember(key, &unsigned);
 
@@ -238,7 +239,7 @@ fn a_stack_build_signs_every_copy() {
   let git = repo.git_executor();
   let commits = get_commit_list(git, repo.path_str(), &base).unwrap();
 
-  let StackBuild::Built { tip, signed } = build_stack_branch(
+  let StackBuild::Built { tip, signed, .. } = build_stack_branch(
     git,
     repo.path_str(),
     "test/stack/auth",
@@ -287,7 +288,15 @@ fn another_process_moving_the_stack_branch_keeps_its_tip_stale() {
     failed: &HashMap::new(),
   };
 
-  let finished = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(StackBuild::Built { tip: built, signed: false }))]);
+  let finished = finish_stack_branches(
+    &finish,
+    &sync,
+    vec![Some(BuildResult::Built(StackBuild::Built {
+      tip: built,
+      signed: false,
+      merges: String::new(),
+    }))],
+  );
   let updates = finished.updates;
 
   assert!(finished.moved_elsewhere, "the sync asks for one more run (`SyncReport::retry`)");

@@ -6,12 +6,12 @@
 use crate::cherry_pick::PickedTree;
 use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::commit_signing::Signing;
-use crate::notes::{MappingNote, mapped_signed};
+use crate::notes::{MappingNote, mapped_generated, mapped_signed};
 use crate::tree_id_cache::TreeIdCache;
 use crate::word_resolve::{RESOLVE_VERSION, ResolveMode, Resolved, note_resolution};
 use anyhow::anyhow;
 use domain_types::commit::{Commit, NoteResolution, NoteSource};
-use domain_types::conflict::WordResolutionSummary;
+use domain_types::conflict::{GeneratedFile, WordResolutionSummary};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
@@ -141,12 +141,13 @@ pub struct CreateCommitParams<'a> {
   pub resolve: ResolveMode,
 }
 
-/// A copy of a commit an earlier sync wrote, its tree, and the resolve by words it took
+/// A copy of a commit an earlier sync wrote, its tree, and the resolve by words it took with the generated files it merged
 #[derive(Debug, Clone, Copy)]
 pub struct RememberedCopy<'a> {
   pub id: &'a str,
   pub tree: &'a str,
   pub resolved: Option<NoteResolution>,
+  pub generated: &'a [GeneratedFile],
 }
 
 /// Result of copying one commit onto the virtual branch
@@ -227,7 +228,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     debug!(commit_id = %commit.id, copy = copy.id, "taking the copy the sync remembers");
     // the next commit of the branch is copied onto this one
     tree_id_cache.insert(copy.id, copy.tree);
-    let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved, commit, new_parent_oid));
+    let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved, copy.generated.to_vec(), commit, new_parent_oid));
     return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source, resolved, was_signed));
   }
   let commit_message = virtual_message(commit);
@@ -273,7 +274,10 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         hash: mapped_id.clone(),
         status: CommitSyncStatus::Unchanged,
         note,
-        resolved: commit.mapped_resolution.as_ref().map(|resolved| summary_of_note(resolved, commit, new_parent_oid)),
+        resolved: commit
+          .mapped_resolution
+          .as_ref()
+          .map(|resolved| summary_of_note(resolved, commit.note.as_deref().map_or_default(mapped_generated), commit, new_parent_oid)),
       }
     };
     // a copy that an older resolve by words wrote is checked once by its tree, as a note without a source is: the same
@@ -298,11 +302,12 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         if copy.tree == virtual_commit.tree {
           debug!(original_id = %commit.id, mapped_id = %mapped_id, "the mapped commit is a copy of this commit");
           let resolved = copy.resolved.as_ref().map(|resolved| resolved.summary(parent_of(commit), new_parent_oid));
-          let note = (recorded.as_ref() != Some(&source) || resolved.as_ref().map(note_resolution) != commit.mapped_resolution).then(|| MappingNote {
+          let note = (recorded.as_ref() != Some(&source) || note_differs(resolved.as_ref(), commit)).then(|| MappingNote {
             original: commit.id.clone(),
             mapped: mapped_id.clone(),
             source: source.clone(),
             resolved: resolved.as_ref().map(note_resolution),
+            generated: note_generated(resolved.as_ref()),
             signed: was_signed,
           });
           return Ok(CopiedCommit { resolved, ..reused(note) });
@@ -337,6 +342,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       mapped: kept_id.clone(),
       source,
       resolved: resolved.as_ref().map(note_resolution),
+      generated: note_generated(resolved.as_ref()),
       signed: false,
     };
     return Ok(CopiedCommit {
@@ -390,16 +396,28 @@ fn parent_of(commit: &Commit) -> &str {
   commit.parent_id.as_deref().unwrap_or_default()
 }
 
-/// The resolve a mapping note records, without the files, which the note does not keep, for the copy of `commit` onto
-/// `target`
-fn summary_of_note(resolved: &NoteResolution, commit: &Commit, target: &str) -> WordResolutionSummary {
+/// The resolve a mapping note records, with the generated files it merged and without the other files, which the note
+/// does not keep, for the copy of `commit` onto `target`
+fn summary_of_note(resolved: &NoteResolution, generated: Vec<GeneratedFile>, commit: &Commit, target: &str) -> WordResolutionSummary {
   WordResolutionSummary {
     parent: parent_of(commit).to_string(),
     target: target.to_string(),
     conflicts: resolved.conflicts,
     file_count: resolved.files,
     files: Vec::new(),
+    generated,
   }
+}
+
+/// The generated files the mapping note of a copy that took `resolved` records
+fn note_generated(resolved: Option<&WordResolutionSummary>) -> Vec<GeneratedFile> {
+  resolved.map_or_default(|resolved| resolved.generated.clone())
+}
+
+/// Whether the mapping note of `commit` records another resolve by words than `resolved`: its counts or its generated
+/// files
+fn note_differs(resolved: Option<&WordResolutionSummary>, commit: &Commit) -> bool {
+  resolved.map(note_resolution) != commit.mapped_resolution || note_generated(resolved) != commit.note.as_deref().map_or_default(mapped_generated)
 }
 
 /// The copy `new_commit_hash` of `commit` onto `new_parent_oid`, written now or remembered: a re-copy that writes the
@@ -421,12 +439,12 @@ fn copied(
   } else {
     CommitSyncStatus::Created
   };
-  let note_resolved = resolved.as_ref().map(note_resolution);
-  let note = (status == CommitSyncStatus::Created || commit.mapped_source.as_ref() != Some(&source) || commit.mapped_resolution != note_resolved).then(|| MappingNote {
+  let note = (status == CommitSyncStatus::Created || commit.mapped_source.as_ref() != Some(&source) || note_differs(resolved.as_ref(), commit)).then(|| MappingNote {
     original: commit.id.clone(),
     mapped: new_commit_hash.clone(),
     source,
-    resolved: note_resolved,
+    resolved: resolved.as_ref().map(note_resolution),
+    generated: note_generated(resolved.as_ref()),
     signed,
   });
   CopiedCommit {

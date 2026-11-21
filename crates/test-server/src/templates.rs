@@ -65,6 +65,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("conflict_fix", |path| templates::conflict_fix().build(path)),
   ("conflict_words", |path| templates::conflict_words().build(path)),
   ("resolved_words", |path| templates::resolved_words().build(path)),
+  ("resolved_words_generated", |path| templates::resolved_words_generated().build(path)),
   ("stacked_ownership", |path| templates::stacked_ownership().build(path)),
   ("stack_push_alone", |path| templates::stack_push_alone().build(path)),
   ("stack_uses_parent", |path| templates::stack_uses_parent().build(path)),

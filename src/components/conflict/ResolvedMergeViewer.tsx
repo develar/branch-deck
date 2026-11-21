@@ -2,6 +2,7 @@ import { ConflictingFilesSection } from "@/components/conflict/ConflictingFilesS
 import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { ConflictFile, WordResolutionSummary } from "@/lib/bindings"
 import type { MergeSource } from "@/lib/diff/file-merge-model"
+import { formatGenerated } from "@/presenters/review-plan"
 import { useFileMerges } from "@/stores/file-merges"
 import { useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
@@ -19,7 +20,7 @@ export interface ResolvedMergeViewerProps {
  * What the sync did with a conflict of git that its words resolve (`branchdeck.resolveByWords`): the merge of each file
  * in three columns, the middle the result the sync committed (openspec/specs/commit/commit-row/spec.md, "Resolved by words").
  * The files come with the sync that resolved them; a copy reused by its note has the counts only, and its files come
- * with the merges.
+ * with the merges. A generated file among them is named: the words merged its text, not its generator.
  */
 export function ResolvedMergeViewer({ commit, copy, resolved, subject }: ResolvedMergeViewerProps) {
   const source: MergeSource = { kind: "cherryPick", parent: resolved.parent, target: resolved.target, commit, resolved: copy }
@@ -41,6 +42,11 @@ export function ResolvedMergeViewer({ commit, copy, resolved, subject }: Resolve
           Git stops at {resolved.conflicts === 1 ? "1 conflict" : `${resolved.conflicts} conflicts`} here, and the words of each resolve it: the sync copied the commit with the
           result, as IntelliJ resolves simple conflicts. Settings → Branches turns this off.
         </p>
+        {(resolved.generated ?? []).map(generated => (
+          <p key={generated.path} className="text-xs text-warning" data-testid="resolved-by-words-generated">
+            {`${generated.path} is generated (${formatGenerated(generated.generatedBy)}): the words merged its text, not its generator. The branch says “regenerate” while its copy holds this merge.`}
+          </p>
+        ))}
         <ConflictingFilesSection files={files} source={source} labels={{ left: "the branch below", right: `“${subject}”` }} />
       </div>
     </SectionPanel>

@@ -1,5 +1,6 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import type { Confirmation } from "@/lib/bindings"
 import type { PushBranchOptions } from "@/lib/push-run"
 import { onRowsForgotten } from "@/stores/view-rows"
 
@@ -8,8 +9,9 @@ export type PushConfirmTarget = "row" | "preview"
 
 /**
  * A push whose plan asks first (`Confirmation::ForcePushDrops` of `prepare` of the push: it drops remote commits the
- * branch lacks), from its button, the menu, P in the preview or the action of the remote-moved toast: the push button of
- * `target` opens its description with the dropped commits and the Force Push that pushes them over (`force`).
+ * branch lacks; `Confirmation::Regenerate`: a copy it sends holds a generated file the words merged), from its button, the
+ * menu, P in the preview or the action of the remote-moved toast: the push button of `target` opens its description with
+ * the dropped commits and the Force Push that pushes them over (`force`), or the files and Push Anyway.
  */
 export interface PushConfirmRequest {
   branchName: string
@@ -22,6 +24,8 @@ export interface PushConfirmRequest {
    * row shows at the click
    */
   accept?: () => void
+  /** What the plan asks, which the description says */
+  confirmations: readonly Confirmation[]
 }
 
 interface PushConfirmState {
@@ -38,8 +42,14 @@ onRowsForgotten(() => pushConfirmStore.setState({ request: null }))
  * Opens the confirm of a push in the push button of `target`, whose Force Push runs `accept` when the push is of a stack;
  * a newer request replaces an unanswered one
  */
-export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}, accept?: () => void): void {
-  pushConfirmStore.setState({ request: { branchName, target, options, ...(accept !== undefined && { accept }) } })
+export function requestPushConfirm(
+  branchName: string,
+  target: PushConfirmTarget,
+  options: PushBranchOptions = {},
+  accept?: () => void,
+  confirmations: readonly Confirmation[] = [],
+): void {
+  pushConfirmStore.setState({ request: { branchName, target, options, confirmations, ...(accept !== undefined && { accept }) } })
 }
 
 /** The request is answered or dismissed; a newer one stays */

@@ -12,9 +12,10 @@ use object_cache::word_resolution::WordResolutionResult;
 pub const CONFLICT_INFO_VERSION: u32 = 6;
 
 /// The version of a remembered chain of copies of a conflicting branch (`sync_core::conflict_chain`): bump it when how a
-/// commit is copied changes (`copy_commit`: its tree, message, author, committer or date), so no copy of the old way is
-/// taken
-pub const CONFLICT_CHAIN_VERSION: u32 = 3;
+/// commit is copied changes (`copy_commit`: its tree, message, author, committer or date) or what the chain records of a
+/// copy (4: the generated files its words merged), so no copy of the old way is taken; the key of a chain holds the
+/// version of the resolve only with the resolve on
+pub const CONFLICT_CHAIN_VERSION: u32 = 4;
 
 /// The trees of a cherry-pick: the commit's parent tree, the commit's tree and the tree it is applied onto
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

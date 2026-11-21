@@ -253,8 +253,8 @@ pub struct PatronusStartOptions {
 
 /// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
 /// `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
-/// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
-/// refusals of `trial_check::landing_gate`
+/// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--allow-generated-merged-by-words`),
+/// Start Anyway of the app for the refusals of `trial_check::landing_gate`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -289,6 +289,10 @@ pub struct LandingAllowances {
   /// a refusal of the server before (`Confirmation::RouteRule`)
   #[serde(default)]
   pub bypass_rules: bool,
+  /// Land a copy that holds a generated file the words merged in a conflict of its sync, not written by its generator
+  /// (`Confirmation::Regenerate`)
+  #[serde(default)]
+  pub allow_generated_merged_by_words: bool,
 }
 
 /// Whether the code owners still have to approve the branch before a Safe Push can merge it

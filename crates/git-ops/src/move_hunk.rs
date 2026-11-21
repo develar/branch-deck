@@ -14,7 +14,7 @@ use crate::commit_writer::{
 };
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
-use crate::notes::{MappingNote, mapped_commit_id, mapped_resolution, mapped_source, write_commits_with_mapping_notes};
+use crate::notes::{MappingNote, mapped_commit_id, mapped_generated, mapped_resolution, mapped_source, write_commits_with_mapping_notes};
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{checked_out_branch, short_id};
 use crate::rewrite_guard::HeadMoved;
@@ -531,6 +531,7 @@ fn rewrite(
         mapped: mapped.to_string(),
         source,
         resolved: mapped_resolution(note),
+        generated: mapped_generated(note),
         signed: signing == Signing::On,
       };
       notes.push((index, note.content()));

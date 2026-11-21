@@ -24,6 +24,7 @@ import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { isStartable } from "@/presenters/actions"
+import { describeRegenerate } from "@/presenters/landing"
 import type { PushButtonAction } from "@/presenters/push-button"
 import type { BranchRowFacts } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
@@ -108,6 +109,9 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
     }
   }
   const confirming = !isPushing && request !== null
+  // the copies the push sends that hold a generated file the words merged: Push Anyway, or Force Push beside a drop
+  const regenerates = request?.confirmations.flatMap(confirmation => (confirmation.kind === "regenerate" ? [confirmation] : [])) ?? []
+  const drops = request !== null && (request.confirmations.length === 0 || request.confirmations.some(confirmation => confirmation.kind === "forcePushDrops"))
   const label = showsPush ? transferLabel(stackBranchPush ? STACK_BRANCH_PUSHING : formatStackPushing(branch.name, stackPush), progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -128,10 +132,15 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
     if (request !== null) {
       clearPushConfirm(request)
     }
-    // the description stays open and shows the progress, as after the click on a safe push; the user accepted the drop:
-    // the push of a stack that asked runs again with it accepted, else the branch's own push, forced
+    // the description stays open and shows the progress, as after the click on a safe push; the user accepted what it
+    // showed: the push of a stack that asked runs again with it accepted, else the branch's own push, forced over a drop
     if (request?.accept === undefined) {
-      void pushBranch(branch.name, { ...request?.options, force: true, confirmAt: confirmTarget ?? "row" })
+      void pushBranch(branch.name, {
+        ...request?.options,
+        force: drops || request?.options.force === true,
+        acceptRegenerate: regenerates.length > 0,
+        confirmAt: confirmTarget ?? "row",
+      })
     } else {
       request.accept()
     }
@@ -221,12 +230,22 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 {push.retarget.text}
               </div>
             )}
+            {confirming &&
+              regenerates.map(confirmation => (
+                <div
+                  key={confirmation.subject.kind === "branch" ? confirmation.subject.name : confirmation.subject.root}
+                  data-testid="push-regenerate"
+                  className="break-words text-warning"
+                >
+                  {describeRegenerate(confirmation.files, null)}
+                </div>
+              ))}
             {(confirming || (push.dropped !== null && pick !== undefined)) && (
               <div className="flex flex-wrap gap-1.5">
                 {confirming && (
-                  <Button variant="destructive" size="xs" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
+                  <Button variant={drops ? "destructive" : "outline"} size="xs" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
                     <UploadIcon data-icon="inline-start" />
-                    {push.text}
+                    {drops ? push.text : "Push Anyway"}
                   </Button>
                 )}
                 {/* the commits a push would drop come into the branch instead: a push then drops nothing */}

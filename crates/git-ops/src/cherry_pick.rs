@@ -9,7 +9,7 @@ use crate::merge_memo::{CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use crate::revs::is_object_id;
 use crate::tree_id_cache::TreeIdCache;
 use crate::word_resolve::{ResolveMode, Resolved, WordResolveOutcome, WordScope, resolve_by_words};
-use domain_types::conflict::MergeConflictInfo;
+use domain_types::conflict::{GeneratedFile, MergeConflictInfo};
 use domain_types::{BranchError, BranchSyncStatus};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::word_resolution::WordResolutionResult;
@@ -92,9 +92,16 @@ pub fn perform_fast_cherry_pick_with_context(
     }
     let (memo, trees) = (memo?, trees.as_ref()?);
     match memo.word_resolution(trees)? {
-      WordResolutionResult::Resolved { tree, files } => Some(Ok(PickedTree {
+      WordResolutionResult::Resolved { tree, files, generated } => Some(Ok(PickedTree {
         tree,
-        resolved: Some(Resolved::Remembered { files }),
+        resolved: Some(Resolved::Remembered {
+          files,
+          generated: if generated.is_empty() {
+            Vec::new()
+          } else {
+            GeneratedFile::decode(&generated).unwrap_or_default()
+          },
+        }),
       })),
       WordResolutionResult::NotResolved => memo.light_conflicts().then(|| Err(light_conflict(files.to_vec()))),
     }
@@ -154,6 +161,10 @@ pub fn perform_fast_cherry_pick_with_context(
         WordResolveOutcome::Resolved(resolution) => WordResolutionResult::Resolved {
           tree: resolution.tree.clone(),
           files: resolution.files.iter().map(|file| (file.path.clone(), file.conflicts)).collect(),
+          generated: match resolution.generated().as_slice() {
+            [] => String::new(),
+            generated => GeneratedFile::encode(generated),
+          },
         },
         WordResolveOutcome::NotResolved { .. } => WordResolutionResult::NotResolved,
       };

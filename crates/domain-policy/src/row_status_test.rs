@@ -2,12 +2,15 @@ use crate::landing_node::{NodeFacts, landing_node};
 use crate::next_step::{StepRobot, next_step};
 use crate::next_step_test::{Fixture, failed, group, missing, open, readiness, robot_on_tip};
 use crate::row_status::row_status;
+use domain_types::conflict::RegenerateFile;
 use domain_types::fixtures::robot_of;
-use domain_types::landing::{Landed, LandedBy};
+use domain_types::landing::{Landed, LandedBy, LandingFix, StackCommit};
 use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, RowFact, RowStatus, StepKind};
 use domain_types::patronus::{MissingApprovalsReason, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
 use domain_types::pull_request::PullRequestBase;
 use domain_types::session::{BranchStatus, FactState, Parked};
+use generated_files::generated_by::GeneratedBy;
+use generated_files::names::GeneratedName;
 use pretty_assertions::assert_eq;
 
 /// The robot of the row: how it runs or how it ended
@@ -49,6 +52,8 @@ struct Row {
   lands_with: LandsWith,
   landed: Landing,
   parked: bool,
+  /// Its copy holds a generated file the words merged
+  regenerate: bool,
 }
 
 const STATUSES: [BranchStatus; 6] = [
@@ -78,6 +83,7 @@ impl Row {
       lands_with: LandsWith::None,
       landed: Landing::None,
       parked: false,
+      regenerate: false,
     }
   }
 
@@ -143,6 +149,8 @@ impl Row {
       step.robot = step.robot.map(|robot| StepRobot { failing: true, ..robot });
     }
     let oauth = robot_of("oauth", "r9");
+    let files = if self.regenerate { vec![regenerate_file()] } else { Vec::new() };
+    let fix = restack();
     let facts = NodeFacts {
       step,
       status: self.status,
@@ -150,6 +158,8 @@ impl Row {
       lands_with: (self.lands_with != LandsWith::None).then_some(&oauth),
       lands_failing: self.lands_with == LandsWith::Failing,
       push_pending: false,
+      regenerate: &files,
+      regenerate_fix: self.regenerate.then_some(&fix),
     };
     (landing_node(&facts), row_status(&facts), next_step(&step).kind)
   }
@@ -162,13 +172,16 @@ fn every_row() -> Vec<Row> {
       for lands_with in [LandsWith::None, LandsWith::Running, LandsWith::Failing] {
         for landed in [Landing::None, Landing::Baseline, Landing::Other] {
           for parked in [false, true] {
-            rows.push(Row {
-              status,
-              robot,
-              lands_with,
-              landed,
-              parked,
-            });
+            for regenerate in [false, true] {
+              rows.push(Row {
+                status,
+                robot,
+                lands_with,
+                landed,
+                parked,
+                regenerate,
+              });
+            }
           }
         }
       }
@@ -209,6 +222,13 @@ fn no_fact_of_a_row_drops_and_the_node_and_the_cell_tell_one_story() {
     }
     if row.robot == Robot::Failed && !row.conflict() {
       assert!(says(&status, &RowFact::Robot { running: false, failed: true }), "the failed robot shows: {context}");
+    }
+    let regenerates = says(&status, &regenerate_fact());
+    if row.regenerate && row.landed == Landing::None && row.robot != Robot::Merged && !row.parked {
+      assert!(regenerates, "a copy to regenerate shows, beside a running robot too: {context}");
+    }
+    if !row.regenerate || row.landed != Landing::None || row.parked {
+      assert!(!regenerates, "a branch in master or parked lands nothing to regenerate: {context}");
     }
     assert_eq!(node.ring, row.runs(), "the ring is its own robot running: {context}");
     assert_eq!(node.ring, status.main == Some(RUNNING), "a running robot is the first of the cell: {context}");
@@ -367,6 +387,8 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
       lands_with: None,
       lands_failing: false,
       push_pending: true,
+      regenerate: &[],
+      regenerate_fix: None,
     });
     let expected = if robot == Robot::Running {
       RowStatus {
@@ -399,6 +421,8 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
       lands_with: None,
       lands_failing: false,
       push_pending: false,
+      regenerate: &[],
+      regenerate_fix: None,
     };
     let expected = if merged {
       RowStatus {
@@ -432,6 +456,8 @@ fn a_finished_robot_of_an_earlier_state_gives_way_where_no_start_is_offered() {
       lands_with: None,
       lands_failing: false,
       push_pending: false,
+      regenerate: &[],
+      regenerate_fix: None,
     })
   };
   for robot in [Robot::Failed, Robot::Canceled] {
@@ -464,6 +490,8 @@ fn cell_of(fixture: &Fixture) -> (RowStatus, NextStep) {
     lands_with: None,
     lands_failing: false,
     push_pending: false,
+    regenerate: &[],
+    regenerate_fix: None,
   };
   (row_status(&facts), next_step(&step))
 }
@@ -521,4 +549,64 @@ fn a_wait_is_the_state_of_the_cell_where_nothing_of_its_own_says_more() {
   let (status, step) = cell_of(&Fixture::branch());
   assert!(!step.wait);
   assert_eq!(status, RowStatus::default());
+}
+
+fn regenerate_file() -> RegenerateFile {
+  RegenerateFile {
+    commit: StackCommit {
+      id: "b1".to_string(),
+      subject: "Add a dependency".to_string(),
+      branch: "feature".to_string(),
+    },
+    path: "Cargo.lock".to_string(),
+    generated_by: GeneratedBy::Name { name: GeneratedName::LockFile },
+    lacks: Some(StackCommit {
+      id: "a1".to_string(),
+      subject: "Add another dependency".to_string(),
+      branch: "core".to_string(),
+    }),
+  }
+}
+
+fn restack() -> LandingFix {
+  LandingFix::Restack {
+    branch: "feature".to_string(),
+    onto: "core".to_string(),
+  }
+}
+
+fn regenerate_fact() -> RowFact {
+  RowFact::Regenerate {
+    files: vec![regenerate_file()],
+    fix: Some(restack()),
+  }
+}
+
+/// A copy that holds a generated file the words merged says Regenerate in the cell with the file and the fix, after the
+/// block and before a finished robot; nothing for a branch in master
+#[test]
+fn a_copy_to_regenerate_is_said_in_the_cell_unless_it_landed() {
+  let row = Row { regenerate: true, ..Row::plain() };
+  assert_eq!(
+    row.decide().1,
+    RowStatus {
+      main: Some(regenerate_fact()),
+      also: Vec::new(),
+    }
+  );
+  let blocked = Row {
+    status: BranchStatus::Blocked,
+    robot: Robot::Failed,
+    ..row
+  };
+  assert_eq!(
+    blocked.decide().1,
+    RowStatus {
+      main: Some(RowFact::Blocked { by: Some("core".to_string()) }),
+      also: vec![regenerate_fact(), RowFact::Robot { running: false, failed: true }],
+    }
+  );
+  let landed = Row { landed: Landing::Baseline, ..row };
+  assert_eq!(landed.decide().1.main, Some(RowFact::Landed));
+  assert!(!says(&landed.decide().1, &regenerate_fact()));
 }

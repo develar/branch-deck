@@ -401,6 +401,7 @@ fn check_does_not_reuse_a_stale_copy() {
           tree: git(&["rev-parse", "HEAD^{tree}"]),
         },
         resolved: None,
+        generated: Vec::new(),
         signed: false,
       }
       .content(),

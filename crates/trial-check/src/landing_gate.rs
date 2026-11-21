@@ -282,17 +282,7 @@ impl Landing<'_> {
         .is_some_and(|(_, chain)| chain.iter().any(|parent| self.lands.contains(parent)))
     };
     let onto = needed.branch.as_str();
-    if !onto.is_empty() && !built_on_lands(onto) {
-      LandingFix::Restack {
-        branch: self.root.to_string(),
-        onto: onto.to_string(),
-      }
-    } else {
-      LandingFix::MoveCommit {
-        commit: needed.clone(),
-        into: into.to_string(),
-      }
-    }
+    LandingFix::for_need(needed, into, self.root, !onto.is_empty() && built_on_lands(onto))
   }
 }
 

@@ -28,6 +28,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_signing::Signing;
 use git_ops::copy_commit::{CopyCommitError, CreateCommitParams, ProgressInfo, VirtualCommit, create_or_update_commit};
+use git_ops::generated::CopyMerge;
 use git_ops::merge_memo::MergeMemo;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::short_id;
@@ -42,9 +43,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, info, instrument, warn};
 
-/// The version of a remembered build: bump it when the copies change (their message, ident or dates), so no build of
-/// the old copies is read
-const STACK_BUILD_VERSION: u32 = 3;
+/// The version of a remembered build: bump it when the copies change (their message, ident or dates) or what a build
+/// records (4: the generated files the words merged), so no build of the old copies is read
+const STACK_BUILD_VERSION: u32 = 4;
 
 /// A stack that forks and what its stack branch is built from
 #[derive(Debug, Clone)]
@@ -172,6 +173,10 @@ pub enum StackBuild {
     tip: String,
     #[serde(default)]
     signed: bool,
+    /// The generated files the words merged in its copies, oldest first (`CopyMerge::encode`: `postcard` reads no tagged
+    /// enum)
+    #[serde(default)]
+    merges: String,
   },
   /// The original commit whose copy conflicts, and the conflicting paths
   Conflict { commit: String, files: Vec<String> },
@@ -286,6 +291,7 @@ pub fn build_stack_branch(
   let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
   let on_status = |_: BranchSyncStatus| {};
   let mut reuse = existing.is_some();
+  let mut merges: Vec<CopyMerge> = Vec::new();
   for (index, commit) in commits.iter().enumerate() {
     committer_timestamp = committer_timestamp.max(commit.committer_timestamp);
     let progress_info = ProgressInfo {
@@ -317,6 +323,13 @@ pub fn build_stack_branch(
       // its mapping note names the copy of its own branch; a new copy moves every copy above it
       Ok(copied) => {
         reuse &= copied.status == CommitSyncStatus::Unchanged;
+        if let Some(resolved) = &copied.resolved {
+          merges.extend(resolved.generated.iter().map(|file| CopyMerge {
+            commit: commit.id.clone(),
+            copy: copied.hash.clone(),
+            file: file.clone(),
+          }));
+        }
         parent = copied.hash;
       }
       Err(CopyCommitError::BranchError(BranchError::MergeConflict(info))) => {
@@ -337,6 +350,7 @@ pub fn build_stack_branch(
   Ok(StackBuild::Built {
     tip: parent,
     signed: signing == Signing::On,
+    merges: CopyMerge::encode(&merges),
   })
 }
 
@@ -505,6 +519,9 @@ pub(crate) struct FinishedStacks {
   /// Another process moved (or deleted) a stack branch while the sync built it: its tip is not this sync's build, a
   /// sync again rebuilds it (`SyncReport::retry`)
   pub moved_elsewhere: bool,
+  /// Of each stack branch at its build (`Built`), the index of its update, its tip and the generated files the words
+  /// merged in its copies (`regenerate`)
+  pub merges: Vec<(usize, String, Vec<CopyMerge>)>,
 }
 
 /// Moves each planned stack branch whose members all built to its build, with compare-and-swap on the listed tip,
@@ -514,6 +531,7 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
   let StackBranchSync { plans, tips, kept, obsolete } = sync;
   let mut updates = Vec::with_capacity(plans.len() + kept.len());
   let mut moved_elsewhere = false;
+  let mut merges = Vec::new();
   for (plan, result) in plans.iter().zip(results) {
     let old_tip = tips.get(&plan.full_name).cloned();
     let mut update = stale_update(plan, old_tip.clone());
@@ -531,9 +549,14 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
       }
       (None, result) => match (failed_member(plan, finish.failed), result) {
         (Some(block), _) => blocked(&mut update, block),
-        (None, Some(BuildResult::Remembered(StackBuild::Built { tip, .. }) | BuildResult::Built(StackBuild::Built { tip, .. }))) => {
+        (None, Some(BuildResult::Remembered(StackBuild::Built { tip, merges: built_merges, .. }) | BuildResult::Built(StackBuild::Built { tip, merges: built_merges, .. }))) => {
           let (state, tip, error) = move_stack_branch(finish, &plan.full_name, tip, old_tip.as_deref());
           moved_elsewhere |= matches!(error, Some(StackMoveError::MovedElsewhere(_)));
+          if state == StackBranchState::Built
+            && let Some(tip) = &tip
+          {
+            merges.push((updates.len(), tip.clone(), CopyMerge::decode(&built_merges)));
+          }
           let error = error.map(StackMoveError::into_message);
           update.state = state;
           update.tip = tip;
@@ -553,7 +576,7 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
     updates.push(update);
   }
   delete_obsolete(finish.git_executor, finish.repository_path, obsolete);
-  FinishedStacks { updates, moved_elsewhere }
+  FinishedStacks { updates, moved_elsewhere, merges }
 }
 
 /// Why a stack branch was not moved to its build

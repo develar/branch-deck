@@ -19,6 +19,7 @@
 
 use crate::landed::landed_branches;
 use crate::push_command::{github_repository, unknown_or_unapplied};
+use crate::regenerate_refusal::regenerate_refusal;
 use crate::robot_command::ClosedPullRequest;
 use crate::safe_push_command::{
   CheckRead, Refusal, SafePushArgs, SafePushOutput, Start, check_next_step, compared_table, lost_binding_refusal, safe_push, subject_facts, table_error, unlanded_need_refusal,
@@ -43,7 +44,7 @@ use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route};
 use domain_policy::stack::WholeStack;
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::ErrorCode;
-use domain_types::landing::{Confirmation, Land, LandFact, LandingRefusal, PlannedEffect, ProfileChoice, Unchecked};
+use domain_types::landing::{Confirmation, Land, LandFact, LandingRefusal, PlannedEffect, ProfileChoice, Subject, Unchecked};
 use domain_types::landing_route::{LandingRemote, LandingRoute, RouteGate};
 use domain_types::operation::{EffectStatus, Plan};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode};
@@ -95,6 +96,10 @@ pub struct LandArgs {
   /// Land although a branch the user declared lands before this one (`brd need`) is not in master yet
   #[arg(long)]
   pub allow_unlanded: bool,
+  /// Land although the copy holds a generated file the words merged in a conflict of the sync, not its generator
+  /// (`generated_merged_by_words`: `regenerate` of `brd sync` names it), once the user agreed
+  #[arg(long)]
+  pub allow_generated_merged_by_words: bool,
 }
 
 /// `brd land`
@@ -249,6 +254,7 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
     allow_dangling: args.allow_dangling,
     allow_missing: args.allow_missing,
     allow_unlanded: args.allow_unlanded,
+    allow_generated_merged_by_words: args.allow_generated_merged_by_words,
     ..SafePushArgs::default()
   };
   let output = safe_push(context, &safe_push_args, environment)?;
@@ -376,6 +382,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
       allow_unlanded: args.allow_unlanded,
       allow_without_checks: args.allow_checks_not_passed,
       bypass_rules: args.bypass_rules,
+      allow_generated_merged_by_words: args.allow_generated_merged_by_words,
       ..LandingAllowances::default()
     },
     anyway: None,
@@ -412,7 +419,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
       step: None,
     },
   };
-  let refusals = refusals_of(context, plan, land.allow, &what, &robots, direct);
+  let refusals = refusals_of(context, plan, (land.allow, &table), &what, &robots, direct);
   if args.dry_run {
     let read = CheckRead {
       table: &table,
@@ -432,9 +439,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     return Ok(output);
   }
   if let Some(refusal) = refusals.into_iter().next() {
-    return Err(refusal.next_steps.into_iter().fold(CliError::new(refusal.code, refusal.message), |error, step| {
-      error.with_next_step(step.command, step.needs_approval)
-    }));
+    return Err(refusal.into_error());
   }
   // the auto-merge of the pull request is enabled already: GitHub merges it once its checks pass
   if direct == Direct::Merge && plan.effects.is_empty() {
@@ -543,7 +548,14 @@ fn pushed_tip(plan: &Plan) -> Option<&str> {
 
 /// What refuses the push of `plan` of `what`, in order: its blockers, the facts it still waits for, then the
 /// confirmations `allow` doesn't accept, each with its code and the flag that accepts it
-fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, what: &str, robots: &[domain_types::patronus::PatronusRobot], direct: Direct) -> Vec<Refusal> {
+fn refusals_of(
+  context: &RepoContext,
+  plan: &Plan,
+  (allow, table): (LandingAllowances, &BranchTable),
+  what: &str,
+  robots: &[domain_types::patronus::PatronusRobot],
+  direct: Direct,
+) -> Vec<Refusal> {
   let nothing = direct.nothing();
   let blockers = plan.blockers.iter().map(|reason| {
     let words = match reason {
@@ -587,6 +599,13 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
     Refusal::new(code, format!("{nothing}: GitHub didn't answer {fact}{why}; run it again"))
   });
   let asked = unaccepted(&plan.confirmations, &allow).into_iter().map(|confirmation| {
+    if let Confirmation::Regenerate { subject, files } = confirmation {
+      let fix = match subject {
+        Subject::Branch { name } => table.regenerate_fix(name),
+        Subject::WholeStack { root } => table.stack_regenerate_fix(root),
+      };
+      return regenerate_refusal(context, nothing, what, files, fix.as_ref());
+    }
     let (code, flag) = match confirmation {
       Confirmation::RouteRule { reason } => (refusal_code(reason), "--bypass-rules"),
       _ => (ErrorCode::ChecksNotPassed, "--allow-checks-not-passed"),

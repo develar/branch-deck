@@ -2,9 +2,11 @@
 // of the order of landing the user declared (`domain_policy::declared_needs`, `brd need`): the landing needs of a row
 // and the plan of a start (`Reason::LandingRefused`), the refusal `execute` answers of a whole stack
 // (`ErrorDetails::Landing`). The reason of the first, the count of the others, its fix and the overrides of Start
-// Anyway; it decides nothing.
-import type { LandingAllowances, LandingFix, LandingRefusal, RobotOf, StackCommit } from "@/lib/bindings"
+// Anyway; and the generated files the words merged that a copy holds (`domain_policy::regenerate`), which its Status
+// cell, its push and its start name. It decides nothing.
+import type { LandingAllowances, LandingFix, LandingRefusal, RegenerateFile, RobotOf, StackCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
+import { formatGenerated } from "@/presenters/review-plan"
 
 /**
  * Why the build of what a start lands fails, the fix of the first refusal, and the overrides that start it anyway, which
@@ -152,6 +154,26 @@ function describeFix(fix: LandingFix): string {
     case "unstack":
       return `Unstack ${fix.branch} from ${fix.from} to land it alone.`
   }
+}
+
+/** "regenerate Cargo.lock", "regenerate 2 files": the Status cell of a copy that holds generated files the words merged */
+export function formatRegenerate(files: readonly RegenerateFile[]): string {
+  const [first] = files
+  return files.length === 1 && first !== undefined ? `regenerate ${first.path.slice(first.path.lastIndexOf("/") + 1)}` : `regenerate ${files.length} files`
+}
+
+/**
+ * Why the copy of a branch is no output of the generator of its generated files, and how it gets the commit it lacks:
+ * "Cargo.lock (Lock file) was merged by words in the copy of “Add a dependency”, not written by its generator; the copy
+ * lacks “Add another dependency” of core. Stack feature on core to land it too." One sentence per file, then the fix
+ */
+export function describeRegenerate(files: readonly RegenerateFile[], fix: LandingFix | null): string {
+  const sentences = files.map(file => {
+    const lacks = file.lacks == null ? "" : `; the copy lacks ${describeCommit(file.lacks)}`
+    return `${file.path} (${formatGenerated(file.generatedBy)}) was merged by words in the copy of “${file.commit.subject}”, not written by its generator${lacks}.`
+  })
+  const clears = fix?.kind === "restack" ? ` It clears once ${fix.onto} lands, or a commit of the branch writes the file.` : ""
+  return [...sentences, ...(fix === null ? [] : [describeFix(fix)])].join(" ") + clears
 }
 
 /** "“Name lossy stills” of stills-codec", an unassigned commit by its hash */

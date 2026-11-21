@@ -361,6 +361,9 @@ simpleTest.describe("Conflict resolved by words", () => {
 
     const resolved = details.getByTestId("resolved-by-words")
     const file = resolved.getByTestId("file-diff")
+    await expect(file).toBeVisible()
+    // a file a person writes: no line of a generated file
+    await expect(resolved.getByTestId("resolved-by-words-generated")).toHaveCount(0)
     await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict resolved")
     // the middle is the blob the sync committed: the line with the words of both sides
     await expect(file.getByRole("button", { name: "Result (committed)" })).toHaveAttribute("aria-pressed", "true")

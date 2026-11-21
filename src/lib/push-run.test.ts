@@ -263,6 +263,35 @@ describe("the plan of a push", () => {
     expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "preview", options: { expectRemote: "theirs" } })
   })
 
+  it("asks first for a copy with a generated file merged by words, whose Push Anyway pushes with it accepted, a stack too", async () => {
+    const regenerate: Confirmation = {
+      kind: "regenerate",
+      subject: { kind: "branch", name: "auth" },
+      files: [{ commit: { id: "a1", subject: "Add a dependency", branch: "auth" }, path: "Cargo.lock", generatedBy: { kind: "name", name: "lockFile" }, lacks: null }],
+    }
+    // forced or not, Rust asks it every time
+    engine.plan = () => ({ confirmations: [regenerate] })
+    expect(await pushBranch("auth")).toBe(false)
+    expect(engine.calls).toEqual(["prepare auth"])
+    expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "row", confirmations: [regenerate] })
+    // Push Anyway of the description: the same push with it accepted
+    expect(await pushBranch("auth", { acceptRegenerate: true })).toBe(true)
+    expect(engine.calls).toEqual(["prepare auth", "prepare auth", "execute auth"])
+    expect(engine.accepted).toEqual([[regenerate]])
+    expect(engine.intents.at(-1)).toMatchObject({ force: false })
+
+    // a stack asks in the row it started from, and runs again with it accepted
+    addBranch("login", "auth")
+    engine.calls.length = 0
+    engine.accepted = []
+    expect(await pushWithChildren("auth")).toBe(false)
+    const request = pushConfirmStore.getState().request
+    expect(request).toMatchObject({ branchName: "auth", target: "row", confirmations: [regenerate] })
+    request!.accept!()
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare auth", "prepare auth", "execute auth"]))
+    expect(engine.accepted).toEqual([[regenerate]])
+  })
+
   it("of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again with that drop accepted", async () => {
     addBranch("login", "auth")
     const drops = { kind: "forcePushDrops", branch: "auth", commits: 1 } as const

@@ -3412,10 +3412,12 @@ cherry-pick stays the conflict of git.
   the repository). The blobs and the trees exist only once the commit that holds them is written.
 - **The count.** The conflicts of a file are those of git: the `<<<<<<<` lines of the file with the markers.
 - **Processes.** One `check-attr` and one `cat-file --batch` (the stages, the files with the markers, the trees),
-  none when a path fails before; the merges stop at the first file that does not resolve. In the update the same
-  `check-attr` reads the attributes of a generated file too.
+  none when a path fails before; the merges stop at the first file that does not resolve. The same `check-attr` reads
+  the attributes of a generated file too (`GENERATED_ATTRIBUTES`): the update refuses such a file before the
+  `cat-file`, the sync names it.
 - **`RESOLVE_VERSION`** names the way of the resolve: bump it when the merge, the resolve or the composition can give
-  another result.
+  another result, or when what a resolution records changes (5: the generated files it merged), so that a copy of the
+  old way is checked once.
 
 In the sync (`perform_fast_cherry_pick_with_context`, `crates/git-ops/src/cherry_pick.rs`), with
 `branchdeck.resolveByWords` on (the default; `ResolveMode` of `ConfigSnapshot::resolve_mode`):
@@ -3430,14 +3432,51 @@ In the sync (`perform_fast_cherry_pick_with_context`, `crates/git-ops/src/cherry
   of the chain with a `checkpoint`, whose end a `progress` line answers. The commits above it merge onto it as onto
   any copy.
 - **What is told.** `CommitSynced.resolved` (`WordResolutionSummary`): the conflicts of git and the files, each with
-  its conflicts; a copy reused by its note has the counts only. The mapping note keeps the counts (see "Virtual commit
-  reuse"); the commit message says nothing of it.
+  its conflicts, and the generated ones among them with why (`generated`, `GeneratedFile { path, generated_by }`); a
+  copy reused by its note has the counts and the generated files only. The mapping note keeps both (see "Virtual
+  commit reuse"); the commit message says nothing of it.
+- **A generated file resolves, and says so.** The copies of a sync (`copy_commit`: the virtual branches, the stack
+  branches, the build of `brd robot`, the trial builds) resolve a generated file as any text (`AllTexts`), unlike an
+  update (below): there a conflict of a generated file is a conflict of the sync, and two branches that change one lock
+  file would conflict on every sync. Its resolution names why it is generated (`ResolvedFile::generated_by`: its name,
+  its attributes as git finds them for a merge, the header of a side), and the sync tells what the tips still hold
+  of it (below), so the row, the push and the start say that the copy holds a merge of words, not the output of its
+  generator ([develar/branch-deck#232](https://github.com/develar/branch-deck/issues/232)).
 - **The same verdict everywhere.** The trial builds of `brd check`, of the conflict fix and of the stack branches build
   through the same cherry-pick. The memo of a check remembers each resolve (`word_resolution`), a resolved tree only
   while it exists, as a clean merge. The keys of the conflict views, of the chains of a conflicting branch and of the
   stack builds hold the resolve mode, and the chain keeps the resolve of each copy for its note.
 - **The same commit on every machine.** No deadline, the size limits, the committer date of the inputs: the same
   originals on the same base give the same copy.
+
+Once per sync, after the builds and the stack branches (`held_merges` of `crates/sync-core/src/sync.rs`,
+`crates/sync-core/src/regenerate.rs`), the generated files the words merged that the tips still hold:
+
+- **Which tips.** Each built virtual branch, with the merges of the copies of the branches it is built on (its
+  history holds them, and its pull request lands them), and each stack branch at its build, with those of its members.
+- **Held.** Of each path the last copy that merged it counts; it is held while `<tip>:<path>` is the blob of
+  `<copy>:<path>` (`git_ops::generated::held_word_merges`): a copy at the tip is held without a read, the others are
+  one `cat-file --batch-check` for every tip of the sync. A later commit of the branch that writes the file (its
+  generator's output, as a `fixup!`) or deletes it leaves it out.
+- **The commit the copy lacks** (`RegenerateFile::lacks`): of the commits ahead of the baseline that change one of
+  the held paths, newest first (`git_ops::generated::commits_changing`, one `log -z --name-only <baseline>..HEAD --
+  <paths>`), the first below the original that lies in no branch of the tip, assigned to a branch or not.
+- **What clears it.** A sync that no longer needs the words: the branch stacked on the one it lacks, the commit moved
+  into it, or that branch landed, so the copy is clean; or a later commit that writes the file. Nothing remembers an
+  answer of the user: the push and every start ask again until then.
+- **What is told.** `SyncReport.regenerate` (`RegenerateFacts { branches, stacks }`, a tip without a held merge left
+  out), `BranchTable.regenerate` and `stack_regenerate` (also in the warm-start frame, `CachedBuild`), each a
+  `RegenerateFile { commit, path, generated_by, lacks }`; `brd sync` prints `regenerate` and `regenerate_fix` per
+  branch. The fix (`BranchTable::regenerate_fix`, `domain_policy::regenerate::fix_of`, `LandingFix::for_need` as the
+  landing gate's): the restack of the root of what lands onto the branch of the lacking commit, unless that branch is
+  built on what lands or the commit is unassigned, then the move of the commit into the branch whose copy merged the
+  file. The row says "regenerate <file>" (`RowFact::Regenerate`, none for a branch in master or parked), and the push
+  and the start ask first ("Push and land", "Landing gate").
+- **The cost.** No process without a merge by words of a generated file, one `log` with one held, one
+  `cat-file --batch-check` more with one below its tip (`process_budget_test.rs`:
+  `a_generated_file_merged_by_words_at_the_tip_costs_one_log`,
+  `a_generated_file_merged_by_words_below_the_tip_costs_one_batch_check_and_one_log`). A failure of either leaves the
+  facts out with a warning; the sync goes on.
 
 In Update Project and `brd update`, with the same setting (`crates/git-ops/src/word_replay.rs`):
 
@@ -3466,12 +3505,8 @@ In Update Project and `brd update`, with the same setting (`crates/git-ops/src/w
   side (`generated_by::generated_by`), is `NotResolved::Generated`: the check stops at its commit, and its round opens.
   A merge of words cannot see the conflict of a generated file: the upstream added an entry that refers to a name the
   local commit renamed on another line, the words keep both, and the file no longer loads. Its resolution is the
-  output of its generator on the merged inputs, never a merge of its text. The copies of a sync (`copy_commit`: the
-  virtual branches, the stack branches, the build of `brd robot`, the trial builds) keep the words for every text
-  (`AllTexts`), on purpose for now: there a conflict of a generated file is a conflict of the sync, and two branches
-  that change one lock file or one generated table would conflict on every sync, while a copy that the words resolve
-  lands only after its build. The trade-off is open in
-  [develar/branch-deck#232](https://github.com/develar/branch-deck/issues/232).
+  output of its generator on the merged inputs, never a merge of its text. A file its name or its attributes mark is
+  refused before any blob is read. The copies of a sync resolve it and say so (above).
 - **The cost.** A check that conflicts in a commit whose words do not resolve replays the prefixes once more: one
   binary search, which names the first conflict; the session opens its round there without a search of its own. The
   trial without the words is unchanged.
@@ -3597,8 +3632,12 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   older note is (below). The trees come from the commit list (`%T` of every commit ahead of the baseline seeds the tree
   cache) and the listing of the branch, so the check of a matching source runs no git.
 - **A resolve by words is in the note.** A copy whose conflict of git resolved by words has a third line,
-  `v-commit-resolved-v1:<resolve version> <conflicts> <files>` (`mapped_resolution`); the reuse gives the commit row
-  its counts, and `mapping_lines` copies it with the other two. With `branchdeck.resolveByWords` off, such a note is
+  `v-commit-resolved-v1:<resolve version> <conflicts> <files>[ <generated>]` (`mapped_resolution`), `<generated>` the
+  generated files it merged as compact JSON (`[{"path","generatedBy"}]`, `GeneratedFile::encode`, `mapped_generated`),
+  left out for none: one line, since `notes.rewriteMode=cat_sort_uniq` sorts the lines, and a reader of the three
+  numbers alone (before version 5) ignores the rest; a tail that does not parse reads as version 0, an older resolve.
+  The reuse gives the commit row its counts and the sync its generated files, and `mapping_lines` copies it with the
+  other two, as `brd move-hunk` keeps it. With `branchdeck.resolveByWords` off, such a note is
   stale, so the commit is copied again and gets the conflict of git. A note of an older resolve version
   (`RESOLVE_VERSION`) is checked once by the tree, as an older note is (below): a copy with the tree this resolve gives
   keeps its commit, no new copy and no push, and its note takes this version, so the next sync takes it as it is;
@@ -3770,7 +3809,8 @@ the Shape of a review, which counts as `git diff --stat` does.
   originals still start with those commits takes the copies instead of merging and writing them again (see "A
   conflicting branch keeps its copies" in "Virtual branch sync"; the copies are on `refs/branch-deck/conflict/`, which
   keeps them from `gc`). Not in the key, as for `conflict_info`: the merge config and the version of git.
-  `CONFLICT_CHAIN_VERSION` (`merge_memo.rs`) is part of the key: a change of how `copy_commit` copies a commit bumps it,
+  `CONFLICT_CHAIN_VERSION` (`merge_memo.rs`) is part of the key: a change of how `copy_commit` copies a commit bumps it
+  (4: the generated files a copy merged, kept as a JSON string, since `postcard` cannot read the tagged `GeneratedBy`),
   and its first write clears the store. The new chains are written in one transaction when the memo drops.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
@@ -3792,7 +3832,8 @@ the Shape of a review, which counts as `git diff --stat` does.
   of the app and of `brd` through `StackBuilds` (`crates/sync-core/src/stack_branch.rs`), after the memory of the
   process, and read by `brd status`. The copies are deterministic, so the build is a function of those commits; the new
   builds are written in one transaction when the sync drops the memo. `STACK_BUILD_VERSION` is part of the key: a
-  change of the copies bumps it, and its first write clears the store.
+  change of the copies bumps it (4: the merges by words of generated files of the build, as JSON), and its first write
+  clears the store.
 - `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the first
   store not keyed by object ids or a hash of them: the ownership rules of the target can outdate an answer, so the reader decides how
   long it holds (`remote_facts::review_readiness`): an answer that evaluated the pull request a day, one without the
@@ -4789,7 +4830,9 @@ the holds `derive::alone_push_of`): the retarget of the open pull request of the
 (D3a; GitHub refusing it is a failed effect, and the push goes on), the cancel of the Safe Push of the branch while it
 runs and the push restarts it (`restart_running`), the push of the branch while it has work for the remote (`force`
 when it drops remote commits), then the restart. A push that drops remote commits the branch lacks asks first
-(`Confirmation::ForcePushDrops`) unless the intent forces it; a branch that stays local, one a Safe Push holds or a
+(`Confirmation::ForcePushDrops`) unless the intent forces it; a push of a copy that holds a generated file the words
+merged asks first, forced too (`Confirmation::Regenerate`, `BranchTable::regenerate`, "Resolve by words"), every time
+until the copy no longer holds it; a branch that stays local, one a Safe Push holds or a
 merged one landed whole, and one the last sync did not build refuse it; an unapplied branch reads no robot and has no
 hold and no retarget (C3). Its witness is the tip of the branch; it leases on the remote head the row showed
 (`expect_remote`, `PushLease::Planned`, in the fingerprint of the plan but never read again: a remote-tracking ref a
@@ -4821,10 +4864,12 @@ is witnessed); and the subject `WholeStack { root }` alone is the stack branch o
 sync while its remote lacks it; what holds its push now refuses it, `Holds::stack_hold` of the table and the robots as
 they are, never the hold a view of another table decided). One atomic `Push` effect names
 what goes, root first (the stack branch by its key, `stack:<root>`); each branch it sends that drops remote commits asks
-first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop): the page runs
-nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the same
-intent again with that drop accepted (`Accepted::confirmations`), never forced: a forced push of a stack sends every
-branch that asks first, so a descendant whose drop nobody showed would go too. It runs over the remote head the row
+first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop), and each copy it
+sends that holds a generated file the words merged asks too, the stack branch going along and the stack branch of a
+whole stack by `stack_regenerate`, forced or not (`Regenerate`): the page runs nothing it asks, the push button of the
+branch that drops opens its description, whose Force Push runs the same intent again with that drop accepted
+(`Accepted::confirmations`), never forced: a forced push of a stack sends every branch that asks first, so a
+descendant whose drop nobody showed would go too. It runs over the remote head the row
 shows at the click (`onShownRemote`): the subject leases on the head its intent names and its drops are counted on the
 session's, so the head of the first press, which a fetch moved since, would be refused by the remote however often the
 user accepted; a plan that asks more by then asks again (`askStackPush` of `src/lib/push-run.ts`; a plan that asks of
@@ -5189,6 +5234,16 @@ the session (below), computed by the same rule after its sync, so a start runs n
 a start carries the refusals as blockers (`Reason::LandingRefused`); `execute` refuses before any effect
 (`missing_declaration`, `dangling_reference`, every refusal with its fix in `ErrorDetails::Landing`), so no surface
 starts past it. The E2E server runs the same core without the object cache.
+
+A copy that holds a generated file the words merged in a conflict of its sync is no refusal of the gate: it builds as
+text, and only the user knows whether its generator would write it so. So every start confirms it, on every route (a
+robot of Patronus, a Dry Run, a push into the target, a merge of the pull request; `domain_policy::land::decide` adds
+it after the decision of the route): one `Confirmation::Regenerate` of the branch, whose facts hold the merges of the
+branches it is built on, or of the whole stack, whose stack branch holds them (`BranchSubject::regenerate`,
+`StackSubject::regenerate`, from `BranchTable`). The popover names the file, why it is generated and the commit the copy
+lacks, and Start Anyway accepts it; `brd safe-push` and `brd land` refuse it as `generated_merged_by_words` (exit 4,
+`crates/bd-remote/src/regenerate_refusal.rs`) unless `--allow-generated-merged-by-words`
+(`LandingAllowances::allow_generated_merged_by_words`), and `brd push` before its push, `--force` too.
 
 The same rule answers before any start, for every branch (`landing_needs`, the landing needs of the
 [session](#session-facts)): one trial check of every branch (`CheckSession::check`, the dangling references

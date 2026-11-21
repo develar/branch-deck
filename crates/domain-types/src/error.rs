@@ -241,6 +241,11 @@ pub enum ErrorCode {
   /// Safe Push landed (`brd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
   /// of what lands on that branch, or move the commit; `--allow-missing` starts anyway
   MissingDeclaration,
+  /// `brd push`, `brd safe-push`, `brd land`: the copy the branch pushes or lands holds a generated file that the words
+  /// merged in a conflict of its sync, not the output of its generator (`brd sync` names it in `regenerate`, with the
+  /// commit the copy lacks); the build may fail or the file be stale. Stack the root of what lands on the branch of that
+  /// commit, or move the commit; `--allow-generated-merged-by-words` pushes or starts anyway, once the user agreed
+  GeneratedMergedByWords,
   /// `brd safe-push`, `brd land`: the user declared that another branch lands before this one (`brd need`), and it is
   /// not in master yet; a start now lands them out of that order. Land the branch it needs first, remove the need
   /// (`brd need <branch> --remove <needed>`), or start anyway with `--allow-unlanded`
@@ -438,6 +443,7 @@ impl ErrorCode {
       | Self::DanglingReference
       | Self::LostBinding
       | Self::MissingDeclaration
+      | Self::GeneratedMergedByWords
       | Self::UnlandedNeed
       | Self::NotOnSpace
       | Self::NotLoggedIn

@@ -2106,7 +2106,13 @@ export type Confirmation =
  *  The repository allows only squash merges: the commit GitHub writes pairs with no original, so the update after it
  *  may stop on a conflict of the originals
  */
-{ kind: "squashOnly"; number: number };
+{ kind: "squashOnly"; number: number } | 
+/**
+ *  The copy of `subject` it pushes or lands holds generated files the words merged in a conflict of its sync, not
+ *  written by their generator (`domain_policy::regenerate`; `LandingAllowances::allow_generated_merged_by_words` in
+ *  `bd`)
+ */
+{ kind: "regenerate"; subject: Subject; files: RegenerateFile[] };
 
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
 export type ConflictAnalysis = {
@@ -2997,6 +3003,13 @@ export type ErrorCode =
  */
 "missing_declaration" | 
 /**
+ *  `brd push`, `brd safe-push`, `brd land`: the copy the branch pushes or lands holds a generated file that the words
+ *  merged in a conflict of its sync, not the output of its generator (`brd sync` names it in `regenerate`, with the
+ *  commit the copy lacks); the build may fail or the file be stale. Stack the root of what lands on the branch of that
+ *  commit, or move the commit; `--allow-generated-merged-by-words` pushes or starts anyway, once the user agreed
+ */
+"generated_merged_by_words" | 
+/**
  *  `brd safe-push`, `brd land`: the user declared that another branch lands before this one (`brd need`), and it is
  *  not in master yet; a start now lands them out of that order. Land the branch it needs first, remove the need
  *  (`brd need <branch> --remove <needed>`), or start anyway with `--allow-unlanded`
@@ -3838,6 +3851,15 @@ export type GeneratedBy =
  */
 { kind: "region"; name: string };
 
+/**
+ *  A generated file (`generated_files`) and why it is generated: one that the words merged in a copy of a sync, or one
+ *  that an update brought together with the upstream's
+ */
+export type GeneratedFile = {
+	path: string,
+	generatedBy: GeneratedBy,
+};
+
 /**  What the name of a generated file says it is */
 export type GeneratedName = 
 /**  A lock file of a package manager (`Cargo.lock`, `pnpm-lock.yaml`, `go.sum`, …) */
@@ -4591,8 +4613,8 @@ export type LandedSection = {
 /**
  *  What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
  *  `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
- *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
- *  refusals of `trial_check::landing_gate`
+ *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--allow-generated-merged-by-words`),
+ *  Start Anyway of the app for the refusals of `trial_check::landing_gate`
  */
 export type LandingAllowances = {
 	/**  Start although a commit proves a dangling reference */
@@ -4619,6 +4641,11 @@ export type LandingAllowances = {
 	 *  a refusal of the server before (`Confirmation::RouteRule`)
 	 */
 	bypassRules?: boolean,
+	/**
+	 *  Land a copy that holds a generated file the words merged in a conflict of its sync, not written by its generator
+	 *  (`Confirmation::Regenerate`)
+	 */
+	allowGeneratedMergedByWords?: boolean,
 };
 
 /**  The route of a repository that names none, and why: `origin` pushes to Space or not */
@@ -7269,6 +7296,24 @@ export type RefusedReviewer = {
 	reason: string,
 };
 
+/**
+ *  A generated file that the words merged in the copy of `commit` and that the tip of a branch still holds as they wrote
+ *  it: the copy that branch pushes and lands is no output of its generator. A later commit of the branch that writes
+ *  the file, or a copy that no longer needs the words (the commit it lacks is below it: stacked, moved or landed),
+ *  leaves it out (docs/design/git-operations.md, "Resolve by words")
+ */
+export type RegenerateFile = {
+	/**  The original commit whose copy the words merged, with its branch: the branch itself or one it is built on */
+	commit: StackCommit,
+	path: string,
+	generatedBy: GeneratedBy,
+	/**
+	 *  The last commit ahead of the baseline before `commit` that changes the file and that the copy lacks: in another
+	 *  branch, or in none (unassigned). `None` when no such commit is found
+	 */
+	lacks?: StackCommit | null,
+};
+
 /**  What a descriptor registers */
 export type Registered = 
 /**  `applicationService`, `projectService`, `moduleService` */
@@ -9037,7 +9082,12 @@ export type RowFact =
  *  Its next step is a state it waits in (`StepKind::is_wait`: the reviewers, a draft, changes requested): the cell
  *  says the step, never beside another fact
  */
-{ kind: "wait" };
+{ kind: "wait" } | 
+/**
+ *  The copy it pushes and lands holds generated files the words merged in a conflict of its sync, not written by their
+ *  generator (`domain_policy::regenerate`), each with the commit the copy lacks; `fix` gives the copy that commit
+ */
+{ kind: "regenerate"; files: RegenerateFile[]; fix: LandingFix | null };
 
 /**  The push track of a row */
 export type RowPush = {
@@ -11237,6 +11287,11 @@ export type WordResolutionSummary = {
 	 *  the counts only. The conflict view merges the commit again for them (`get_file_merges`)
 	 */
 	files: ResolvedFileSummary[],
+	/**
+	 *  The resolved files that `generated_files` calls generated, by path: their text is a merge of words, not the output
+	 *  of their generator. The mapping note records them, so a reused copy has them too
+	 */
+	generated?: GeneratedFile[],
 };
 
 /**

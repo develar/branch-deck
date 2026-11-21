@@ -29,7 +29,9 @@ use anyhow::Result;
 use domain_policy::github_stack::{rebased_by_github, stack_writes};
 use domain_policy::pull_request::layer_base_of;
 use domain_policy::push::{PushPlan as PolicyPlan, PushScope as PlanScope, PushState, Verdict, action_push, push_plan, verdict};
+use domain_policy::regenerate;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
+use domain_types::conflict::RegenerateFile;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{Fingerprint, Intent, OperationStep, Plan, PullRequestField, Push, PushScope, Resource};
@@ -404,7 +406,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       force: sends.iter().any(|sent| sent.asks),
     });
   }
-  let confirmations = if push.force {
+  let mut confirmations: Vec<Confirmation> = if push.force {
     Vec::new()
   } else {
     sends
@@ -416,6 +418,17 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       })
       .collect()
   };
+  // each copy it sends that holds a generated file the words merged asks first, the stack branch too, also when forced
+  confirmations.extend(sends.iter().filter_map(|sent| {
+    let files = sources.table.regenerate.get(&sent.name)?;
+    regenerate::confirmation(&Subject::branch(&sent.name), files)
+  }));
+  if goes
+    && covered.stack_branch
+    && let Some(files) = sources.table.stack_regenerate.get(name)
+  {
+    confirmations.extend(regenerate::confirmation(&Subject::whole_stack(name), files));
+  }
   let witness = Witness::of(refs, retargeted, std::iter::empty()).leasing(leases);
   Some(push_plan_of(
     push,
@@ -462,7 +475,7 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
   };
   let refs = BTreeMap::from([(source_ref.clone(), stack.tip.clone())]);
   let leases = BTreeMap::from([(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote.clone())]);
-  let confirmations = if asks && !push.force {
+  let mut confirmations = if asks && !push.force {
     vec![Confirmation::ForcePushDrops {
       branch: key.clone(),
       commits: status.map_or(0, |status| status.commits_behind),
@@ -470,6 +483,9 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
   } else {
     Vec::new()
   };
+  if let Some(files) = sources.table.stack_regenerate.get(root) {
+    confirmations.extend(regenerate::confirmation(&Subject::whole_stack(root), files));
+  }
   let effects = vec![PlannedEffect::Push { branches: vec![key], force: asks }];
   let witness = Witness::of(refs, std::iter::empty(), std::iter::empty()).leasing(leases);
   Some(push_plan_of(
@@ -669,6 +685,7 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
     tip,
     retargeted: retarget,
     robot,
+    regenerate: sources.table.regenerate.get(name).map_or(&[], Vec::as_slice),
   };
   Some(plan.planned(&full_name, name))
 }
@@ -720,6 +737,8 @@ fn unapplied_planned(state: &TableState, name: &str, push: &Push, expect: Expect
     tip: Some(branch.tip.clone()),
     retargeted: None,
     robot: None,
+    // an unapplied branch is copied under its own name: no sync built it
+    regenerate: &[],
   };
   Some(plan.planned(&branch.name, name))
 }
@@ -739,6 +758,8 @@ struct PushPlan<'a> {
   retargeted: Option<&'a PullRequest>,
   /// The robot it restarts
   robot: Option<&'a PatronusRobot>,
+  /// The generated files the words merged that the copy it pushes holds (`BranchTable::regenerate`): it asks first
+  regenerate: &'a [RegenerateFile],
 }
 
 impl PushPlan<'_> {
@@ -747,7 +768,7 @@ impl PushPlan<'_> {
   /// no lock), the pull request it retargets and the robot it restarts
   fn planned(self, full_name: &str, name: &str) -> Planned {
     let force = self.effects.iter().any(|effect| matches!(effect, PlannedEffect::Push { force: true, .. }));
-    let confirmations = if force && !self.push.force {
+    let mut confirmations = if force && !self.push.force {
       vec![Confirmation::ForcePushDrops {
         branch: name.to_string(),
         commits: self.drops,
@@ -755,6 +776,11 @@ impl PushPlan<'_> {
     } else {
       Vec::new()
     };
+    // its push lands the copy where a robot or a merge takes it: one that holds a generated file the words merged asks
+    // first, also when forced
+    if !self.pushed.is_empty() {
+      confirmations.extend(regenerate::confirmation(&Subject::branch(name), self.regenerate));
+    }
     let (refs, leases) = if self.pushed.is_empty() {
       (BTreeMap::new(), BTreeMap::new())
     } else {

@@ -41,6 +41,8 @@ export type PromptLine =
    * without); a merge: the repository allows only squash merges
    */
   | "route"
+  /** The copy it lands holds a generated file the words merged, not written by its generator */
+  | "regenerate"
 
 /** What a start does now, as the click and the popover present it */
 export type LandPrompt =
@@ -150,6 +152,8 @@ function lineOf(confirmation: Confirmation): PromptLine {
     case "routeRule":
     case "squashOnly":
       return "route"
+    case "regenerate":
+      return "regenerate"
   }
 }
 

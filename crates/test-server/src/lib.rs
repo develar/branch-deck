@@ -578,6 +578,8 @@ pub enum RepositoryTemplate {
   ConflictWords,
   #[serde(rename = "resolved_words")]
   ResolvedWords,
+  #[serde(rename = "resolved_words_generated")]
+  ResolvedWordsGenerated,
   #[serde(rename = "stacked_ownership")]
   StackedOwnership,
   #[serde(rename = "stack_push_alone")]
@@ -669,6 +671,7 @@ impl RepositoryTemplate {
       Self::ConflictFix => "conflict_fix",
       Self::ConflictWords => "conflict_words",
       Self::ResolvedWords => "resolved_words",
+      Self::ResolvedWordsGenerated => "resolved_words_generated",
       Self::StackedOwnership => "stacked_ownership",
       Self::StackPushAlone => "stack_push_alone",
       Self::StackUsesParent => "stack_uses_parent",

@@ -2,7 +2,8 @@
 //! update changed.
 
 use crate::commit_files::MAX_BLOB_BYTES;
-use crate::generated::{GeneratedFile, attribute_generated_paths, generated_paths, merged_generated_files};
+use crate::generated::{CopyMerge, attribute_generated_paths, commits_changing, generated_paths, held_word_merges, merged_generated_files};
+use domain_types::conflict::GeneratedFile;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::names::GeneratedName;
 use pretty_assertions::assert_eq;
@@ -155,4 +156,66 @@ fn a_generated_file_over_the_limit_of_the_batch_is_told_by_its_header() {
       generated_by: header(),
     }]
   );
+}
+
+fn merge_of(commit: &str, copy: &str, path: &str) -> CopyMerge {
+  CopyMerge {
+    commit: format!("original of {commit}"),
+    copy: copy.to_string(),
+    file: GeneratedFile {
+      path: path.to_string(),
+      generated_by: GeneratedBy::Name { name: GeneratedName::LockFile },
+    },
+  }
+}
+
+/// A merge by words holds while the tip has the blob the words wrote: a later commit that writes the file, or deletes it,
+/// leaves it out, one that writes another file keeps it, and of a path only the last copy that merged it counts
+#[test]
+fn a_merge_by_words_holds_while_the_tip_has_the_blob_the_words_wrote() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("base", &[("Cargo.lock", "a\n"), ("pnpm-lock.yaml", "a\n"), ("README.md", "readme\n")]);
+  let merged = repo.create_commit_with_files("merged by words", &[("Cargo.lock", "a\nb\n"), ("pnpm-lock.yaml", "a\nb\n")]);
+  let other = repo.create_commit_with_files("another file", &[("README.md", "more\n")]);
+  let rewritten = repo.create_commit_with_files("regenerate", &[("Cargo.lock", "a\nb\nc\n")]);
+  let tips = vec![
+    // the tip is the copy itself: no read
+    (merged.clone(), vec![merge_of("m", &merged, "Cargo.lock")]),
+    (other, vec![merge_of("m", &merged, "Cargo.lock")]),
+    (rewritten.clone(), vec![merge_of("m", &merged, "Cargo.lock"), merge_of("m", &merged, "pnpm-lock.yaml")]),
+    // the later copy of the same path counts
+    (rewritten.clone(), vec![merge_of("m", &merged, "Cargo.lock"), merge_of("r", &rewritten, "Cargo.lock")]),
+  ];
+  let git = repo.git_executor().with_process_stats("held");
+  let held = held_word_merges(&git, repo.path_str(), &tips).unwrap();
+  assert_eq!(
+    held,
+    [
+      vec![merge_of("m", &merged, "Cargo.lock")],
+      vec![merge_of("m", &merged, "Cargo.lock")],
+      vec![merge_of("m", &merged, "pnpm-lock.yaml")],
+      vec![merge_of("r", &rewritten, "Cargo.lock")],
+    ]
+  );
+  assert_eq!(git.process_stats().unwrap().counts(), [("cat-file".to_string(), 1)]);
+
+  let only_tips = vec![(merged.clone(), vec![merge_of("m", &merged, "Cargo.lock")])];
+  let git = repo.git_executor().with_process_stats("held");
+  assert_eq!(held_word_merges(&git, repo.path_str(), &only_tips).unwrap(), [vec![merge_of("m", &merged, "Cargo.lock")]]);
+  assert_eq!(git.process_stats().unwrap().counts(), Vec::<(String, u32)>::new());
+}
+
+/// The commits ahead of the baseline that change a path, newest first, in one process
+#[test]
+fn the_commits_that_change_a_generated_file_are_listed_newest_first() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("base", &[("Cargo.lock", "a\n"), ("README.md", "readme\n")]);
+  let first = repo.create_commit_with_files("first", &[("Cargo.lock", "a\nb\n")]);
+  repo.create_commit_with_files("other", &[("README.md", "more\n")]);
+  let second = repo.create_commit_with_files("second", &[("Cargo.lock", "a\nb\nc\n")]);
+  let git = repo.git_executor().with_process_stats("log");
+  let listed = commits_changing(&git, repo.path_str(), &second, &base, &["Cargo.lock".to_string()]).unwrap();
+  assert_eq!(listed.iter().map(|commit| commit.hash.as_str()).collect::<Vec<_>>(), [second.as_str(), first.as_str()]);
+  assert_eq!(listed[0].files_touched, ["Cargo.lock"]);
+  assert_eq!(git.process_stats().unwrap().counts(), [("log".to_string(), 1)]);
 }

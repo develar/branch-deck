@@ -29,6 +29,8 @@
 //!   synced before, also by `brd`
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
 //! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
+//! - `regenerate`: the generated files the words merged in the copies of a sync that the tips of the branches still hold,
+//!   and the commit below each that the copy lacks
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
 //! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content, and what a
 //!   push of it does (`RemoteStatusUpdate::push_action`, stored on the status)
@@ -124,6 +126,7 @@ pub mod push;
 pub mod push_lease;
 pub mod push_size;
 pub mod reapply_branch;
+pub mod regenerate;
 pub mod remote_command;
 pub mod remote_status;
 pub mod remote_url;
@@ -195,6 +198,8 @@ mod push_size_test;
 mod push_test;
 #[cfg(test)]
 mod reapply_branch_test;
+#[cfg(test)]
+mod regenerate_test;
 #[cfg(test)]
 pub(crate) mod regroup_test;
 #[cfg(test)]

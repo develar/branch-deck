@@ -6,11 +6,13 @@
 
 use domain_policy::declared_needs::NeedFacts;
 use domain_policy::facts::{RemoteBranch, Repository};
+use domain_policy::regenerate;
 use domain_policy::stack::build_ancestors;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
+use domain_types::conflict::RegenerateFile;
 use domain_types::landed::LandedBranch;
-use domain_types::landing::NeedState;
+use domain_types::landing::{LandingFix, NeedState};
 use domain_types::repository_view::LandedByView;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
@@ -57,6 +59,12 @@ pub struct BranchTable {
   /// left to land, so no push of a start, a row or an action sends them (`domain_policy::push::kept`); a table read
   /// without a sync has none
   pub in_baseline: BTreeSet<String>,
+  /// Branch -> the generated files the words merged in the copies its tip holds (`SyncReport::regenerate`, with those
+  /// of the branches it is built on): the row says so, and its push and every start of it ask first; a table read
+  /// without a sync has none
+  pub regenerate: BTreeMap<String, Vec<RegenerateFile>>,
+  /// Root -> the same of the stack branch of a stack that forks, which a Safe Push of the whole stack lands
+  pub stack_regenerate: BTreeMap<String, Vec<RegenerateFile>>,
 }
 
 impl BranchTable {
@@ -78,6 +86,8 @@ impl BranchTable {
       companion_needs: unlanded_companions(&report.companion_needs),
       remote: remote_facts(prefix, report, statuses),
       in_baseline: in_baseline(landing).map(str::to_string).collect(),
+      regenerate: report.regenerate.branches.clone(),
+      stack_regenerate: report.regenerate.stacks.clone(),
     }
   }
 
@@ -148,6 +158,26 @@ impl BranchTable {
   #[must_use]
   pub fn repository(&self) -> Repository<'_> {
     Repository::of_grouping(&self.branches, &self.parked)
+  }
+
+  /// How what lands from `name` gives its copy the commit it lacks, of the generated files the words merged that the copy
+  /// holds (`domain_policy::regenerate::fix_of`): from the root of its chain, or of the whole stack of `root`
+  #[must_use]
+  pub fn regenerate_fix(&self, name: &str) -> Option<LandingFix> {
+    let files = self.regenerate.get(name)?;
+    let repo = self.repository();
+    let lands: Vec<&str> = build_ancestors(&repo, name).into_iter().chain([name]).collect();
+    regenerate::fix_of(files, lands[0], &lands, |branch| build_ancestors(&repo, branch))
+  }
+
+  /// `regenerate_fix` of the stack branch of the whole stack of `root`, which lands its members
+  #[must_use]
+  pub fn stack_regenerate_fix(&self, root: &str) -> Option<LandingFix> {
+    let files = self.stack_regenerate.get(root)?;
+    let stack = self.stack_branches.iter().find(|stack| stack.root == root)?;
+    let repo = self.repository();
+    let lands: Vec<&str> = stack.members.iter().map(String::as_str).collect();
+    regenerate::fix_of(files, root, &lands, |branch| build_ancestors(&repo, branch))
   }
 
   /// The branches `name` is built on, root first (`domain_policy::stack::build_ancestors`)

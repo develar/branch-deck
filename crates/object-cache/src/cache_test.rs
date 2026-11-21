@@ -392,6 +392,7 @@ fn word_resolutions_are_read_by_their_trees_and_version() {
   let resolved = WordResolutionResult::Resolved {
     tree: "resolved".to_string(),
     files: vec![("a.txt".to_string(), 2)],
+    generated: r#"[{"path":"a.txt","generatedBy":{"kind":"attribute"}}]"#.to_string(),
   };
   let other = MergeKey {
     target_tree: "other".to_string(),

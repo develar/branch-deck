@@ -39,7 +39,7 @@ use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::SyncOptions;
 use sync_utils::clock::TestClock;
-use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
+use test_utils::git_test_utils::{TestRepo, push_to_bare_origin, stack_ahead_of_bare_origin};
 
 /// The prefix of the branches of `stack_ahead_of_bare_origin`, which the host resolved for the push
 const PREFIX: &str = "test";
@@ -420,6 +420,42 @@ async fn a_push_of_a_branch_alone_is_planned_and_run_by_the_engine() {
   let tip = fixture.repo.rev_parse("test/virtual/beta").unwrap();
   let pushed = alone("beta", Some(tip));
   assert_eq!(fixture.plan(&pushed).await.effects, Vec::new(), "nothing left to push");
+}
+
+/// A copy whose sync merged a generated file by words: the baseline on the bare origin has `Cargo.lock`, alpha changes its
+/// first line, beta changes it again, and the copy of beta onto the baseline without alpha resolves by words
+async fn fixture_with_a_lock_file_merged_by_words() -> Fixture {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "Cargo.lock", "call(a, b, c)\nx\ny\nend\n");
+  push_to_bare_origin(&repo);
+  repo.create_commit("(alpha) Change the call", "Cargo.lock", "call(A, b, c)\nx\ny\nend\n");
+  repo.create_commit("(beta) Change the call again", "Cargo.lock", "call(A, b, C)\nx\ny\nend\n");
+  let (registry, key) = registry_of(&repo, true).await;
+  Fixture { repo, registry, key }
+}
+
+/// The push of a copy that holds a generated file the words merged asks first, naming the file, also when forced: run
+/// without that confirmation it is refused and nothing is pushed; accepted, it pushes
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_copy_with_a_generated_file_merged_by_words_asks_first_and_runs_once_accepted() {
+  let fixture = fixture_with_a_lock_file_merged_by_words().await;
+  let push = alone("beta", None);
+  let plan = fixture.plan(&push).await;
+  let [Confirmation::Regenerate { subject, files }] = plan.confirmations.as_slice() else {
+    panic!("{:?}", plan.confirmations)
+  };
+  assert_eq!(subject, &Subject::branch("beta"));
+  assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), ["Cargo.lock"]);
+  let forced = Push { force: true, ..push.clone() };
+  assert_eq!(fixture.plan(&forced).await.confirmations, plan.confirmations, "a forced push asks too");
+  assert!(fixture.plan(&alone("alpha", None)).await.confirmations.is_empty(), "the copy of alpha is clean");
+
+  let refused = fixture.execute(&push, Vec::new()).await.unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PlanChanged, "{refused:?}");
+  assert_eq!(fixture.remote_branches(), "");
+  let outcome = fixture.execute(&push, plan.confirmations.clone()).await.unwrap();
+  assert_done(&Ok(outcome));
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/beta");
 }
 
 /// A push of a ref whose moved-remote fetch runs (its claim held) goes at once: the fetch moves the remote-tracking ref

@@ -51,8 +51,10 @@ use crate::holds::is_active;
 use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, starts_from};
 use crate::push::{StartAncestor, kept, start_push};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
+use crate::regenerate;
 use crate::review::{ReviewState, review_state, skips_approvals};
-use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
+use domain_types::conflict::RegenerateFile;
+use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute, RouteGate};
 use domain_types::patronus::{
   LandingAllowances, PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness,
@@ -204,6 +206,9 @@ pub struct BranchSubject<'a> {
   pub replaces: Option<&'a str>,
   /// The open pull request of the whole stack the branch is in: its approvals count for the whole stack only
   pub whole_stack_pull_request: Option<u32>,
+  /// The generated files the words merged that its copy holds, those of the branches it is built on included
+  /// (`regenerate`): the start asks first
+  pub regenerate: &'a [RegenerateFile],
 }
 
 /// What a start of the whole stack of a root is decided on besides the remote services
@@ -223,6 +228,8 @@ pub struct StackSubject<'a> {
   pub replaces: Option<&'a str>,
   /// Its own robot, which holds the pushes of the stack branch
   pub held_by: Option<&'a PatronusRobot>,
+  /// The generated files the words merged that its stack branch holds (`regenerate`): the start asks first
+  pub regenerate: &'a [RegenerateFile],
 }
 
 /// The subject of a decision
@@ -400,6 +407,7 @@ pub fn unaccepted<'c>(confirmations: &'c [Confirmation], allow: &LandingAllowanc
       Confirmation::RulesUnknown { .. } => !allow.allow_unknown_rules,
       Confirmation::Unchecked { .. } | Confirmation::ChangesRequested { .. } | Confirmation::ChecksNotRequired { .. } => !allow.allow_without_checks,
       Confirmation::RouteRule { .. } => !allow.bypass_rules,
+      Confirmation::Regenerate { .. } => !allow.allow_generated_merged_by_words,
       _ => false,
     })
     .collect()
@@ -429,13 +437,20 @@ struct SubjectPart<'a> {
 /// answer is a wait; the effects say what the start does once nothing refuses it and the user accepted its confirmations
 #[must_use]
 pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
-  match facts.route {
+  let mut decision = match facts.route {
     LandingRoute::Push { gate, remote } => crate::land_direct::decide_push(facts, land, gate, remote.as_deref()),
     LandingRoute::Patronus { gate } => decide_robot(facts, land, Some(gate)),
     LandingRoute::PullRequest { merge } if merges_on_github(facts.route, facts.patronus) => crate::land_direct::decide_merge(facts, land, merge),
     // Patronus lands the repository, or no merge on GitHub lands into its target (a mirror, off GitHub): the robot's
     LandingRoute::PullRequest { .. } => decide_robot(facts, land, None),
-  }
+  };
+  // every route pushes or lands the copy: one that holds a generated file the words merged asks first
+  let (subject, files) = match &facts.subject {
+    SubjectFacts::Branch(branch) => (branch.chain.last().map(|own| Subject::branch(own.name)), branch.regenerate),
+    SubjectFacts::WholeStack(stack) => (Some(Subject::whole_stack(stack.start.stack.root.as_str())), stack.regenerate),
+  };
+  decision.confirmations.extend(subject.and_then(|subject| regenerate::confirmation(&subject, files)));
+  decision
 }
 
 /// The start of the robot of Patronus (module docs); `gate` the gate of a route that names Patronus, whose refusal comes

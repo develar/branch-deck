@@ -2064,6 +2064,7 @@ name = "domain-policy"
 version = "0.1.0"
 dependencies = [
  "domain-types",
+ "generated-files",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -2074,6 +2075,7 @@ name = "domain-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "generated-files",
  "jiff 1.0.1",
  "pretty_assertions",
  "schemars 1.2.3",
@@ -7230,6 +7232,7 @@ dependencies = [
  "branch-integration",
  "criterion",
  "domain-types",
+ "generated-files",
  "git-executor",
  "git-ops",
  "history-rewrite",

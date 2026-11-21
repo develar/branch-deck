@@ -9,13 +9,14 @@ use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compu
 use anyhow::Result;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::{Commit, NoteResolution};
-use domain_types::conflict::WordResolutionSummary;
+use domain_types::conflict::{GeneratedFile, WordResolutionSummary};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_signing::Signing;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, RememberedCopy, VirtualCommit, create_or_update_commit, read_virtual_commits};
+use git_ops::generated::CopyMerge;
 use git_ops::landed_pairing::CommitKey;
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
@@ -138,6 +139,8 @@ pub struct BuiltBranch {
   /// the parent's ref: the parent's `finish_branch` may not have moved its ref yet (absent for a new stack, the old head
   /// for an existing one)
   parent_head: Option<String>,
+  /// The generated files the words merged in its copies, oldest first (`regenerate`)
+  merges: Vec<CopyMerge>,
 }
 
 impl BuiltBranch {
@@ -261,6 +264,22 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
     });
   let mut copies: Vec<(String, String)> = Vec::new();
   let mut resolutions: Vec<Option<NoteResolution>> = Vec::new();
+  let mut generated: Vec<String> = Vec::new();
+  // the generated files the words merged in the copies, oldest first (`regenerate`)
+  let mut merges: Vec<CopyMerge> = Vec::new();
+  let remembered_generated: Vec<Vec<GeneratedFile>> = remembered.as_ref().map_or_default(|chain| {
+    chain
+      .generated
+      .iter()
+      .map(|encoded| {
+        if encoded.is_empty() {
+          Vec::new()
+        } else {
+          GeneratedFile::decode(encoded).unwrap_or_default()
+        }
+      })
+      .collect()
+  });
 
   let mut current_parent_hash = base_commit.clone();
   // a copy is never older than the commits below it, and its date depends only on the originals and the base
@@ -314,6 +333,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
           id,
           tree,
           resolved: chain.resolutions.get(current_commit_idx).copied().flatten(),
+          generated: remembered_generated.get(current_commit_idx).map_or(&[], Vec::as_slice),
         })
       }),
       resolve: *resolve,
@@ -343,6 +363,17 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
         let tree = tree_id_cache.get_tree_id(git_executor, repository_path, &new_commit_hash)?;
         copies.push((new_commit_hash.clone(), tree));
         resolutions.push(resolved.as_deref().map(note_resolution));
+        let copy_generated = resolved.as_deref().map_or(&[][..], |resolved| resolved.generated.as_slice());
+        generated.push(if copy_generated.is_empty() {
+          String::new()
+        } else {
+          GeneratedFile::encode(copy_generated)
+        });
+        merges.extend(copy_generated.iter().map(|file| CopyMerge {
+          commit: commit.id.clone(),
+          copy: new_commit_hash.clone(),
+          file: file.clone(),
+        }));
 
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
@@ -356,6 +387,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
           originals: commits[..current_commit_idx].iter().map(|commit| commit.id.clone()).collect(),
           copies,
           resolutions,
+          generated,
         };
         let last_copy = chain
           .last()
@@ -402,6 +434,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
     notes: pending_notes,
     my_email,
     parent_head,
+    merges,
   })))
 }
 
@@ -416,6 +449,8 @@ pub struct BranchNotes {
   pub tip: (String, Option<String>),
   /// Another process moved the branch while the sync built it: its tip is not this sync's build
   pub moved_elsewhere: bool,
+  /// The generated files the words merged in its copies, oldest first; empty for a branch another process moved
+  pub merges: Vec<CopyMerge>,
 }
 
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
@@ -435,6 +470,7 @@ pub fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: Bui
     stack_note,
     my_email,
     parent_head,
+    merges,
   } = built;
   let git_executor = &ctx.git_executor;
   let repository_path = &ctx.repository_path;
@@ -460,6 +496,7 @@ pub fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: Bui
       stack_note: None,
       tip: (full_branch_name, moved),
       moved_elsewhere: true,
+      merges: Vec::new(),
     });
   }
 
@@ -502,6 +539,7 @@ pub fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, built: Bui
     stack_note,
     tip: (full_branch_name, Some(head)),
     moved_elsewhere: false,
+    merges,
   })
 }
 

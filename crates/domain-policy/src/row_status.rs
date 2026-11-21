@@ -2,7 +2,8 @@
 //! docs/design/landing.md, "Work in flight"): the first of its own facts (`own_facts`) in the order below is the main
 //! one, and the exceptional ones it covers stay beside it, so a running robot never hides a conflict or a block, nor
 //! they the robot. Work in flight comes first: its robot running (also a Dry Run, one that will fail or cancels); then
-//! what landed all of it (its own merged robot says "Merged"), a failed sync, parked, a block by its parent, and its
+//! what landed all of it (its own merged robot says "Merged"), a failed sync, parked, a block by its parent, a copy that
+//! holds a generated file the words merged (`regenerate`: beside a running robot too, which tests that copy), and its
 //! robot finished on the branch as it is. A finished robot that neither failed nor landed all of it covers nothing; the rest is the sync or the push state, which the page words as it
 //! changes (a sync running lays over the cell, as it passes).
 //!
@@ -13,6 +14,7 @@
 use crate::landing_node::NodeFacts;
 use crate::next_step::{Chip, Slot, next_step};
 use crate::own_facts::own_facts;
+use crate::regenerate;
 use domain_types::next_step::{RowFact, RowStatus};
 
 /// The Status cell of the branch of `facts`
@@ -40,6 +42,9 @@ pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
     found.push(RowFact::Blocked {
       by: facts.blocked_by.map(str::to_owned),
     });
+  }
+  if let Some(fact) = regenerate::row_fact(facts.regenerate, facts.regenerate_fix, own.landed.is_some() || merged, own.parked) {
+    found.push(fact);
   }
   if let Slot::Finished(chip) = own.slot
     && !merged

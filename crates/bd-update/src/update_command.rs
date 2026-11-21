@@ -13,13 +13,13 @@ use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ErrorRenamePair, Proce
 use bd_core::operation_record::recorded_unless;
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
+use domain_types::conflict::GeneratedFile;
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
 use domain_types::landing::BindingKind;
 use domain_types::operation::Intent;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 use generated_files::generated_by::GeneratedBy;
-use git_ops::generated::GeneratedFile;
 use git_ops::index_lock::IndexLocked;
 use git_ops::landed_pairing::{LandedProof, PathLines};
 use git_ops::revs::short_id;
@@ -1232,10 +1232,12 @@ fn resolved_rounds(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRe
         commit: short.get(&resolution.commit).to_string(),
         new_id: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
         round: Some(resolution.round),
+        // an update never merges a generated file by words (`WordScope::HandWritten`)
         resolved: ResolvedByWords {
           conflicts,
           file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
           files,
+          generated: Vec::new(),
         },
       })
     })
@@ -1261,6 +1263,7 @@ fn resolved_commits(resolved: &[UpdateResolvedCommit], short: &ShortIds, dry_run
             conflicts: file.conflicts,
           })
           .collect(),
+        generated: Vec::new(),
       },
     })
     .collect()

@@ -251,6 +251,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::PushRefused | ErrorCode::Landed => &["push", "safe-push"],
     ErrorCode::RobotRunning => &["help agent", "push", "safe-push"],
     ErrorCode::DanglingReference | ErrorCode::MissingDeclaration => &["help agent", "check", "safe-push"],
+    ErrorCode::GeneratedMergedByWords => &["help agent", "push", "safe-push", "land"],
     ErrorCode::SquashConflict | ErrorCode::SquashEmpty => &["squash", "fold"],
     ErrorCode::DropConflict => &["help agent", "drop"],
     ErrorCode::DropInHome => &["drop", "help worktrees"],

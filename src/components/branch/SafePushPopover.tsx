@@ -52,7 +52,7 @@ import {
 } from "@/lib/whole-stack"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { LandingRefused } from "@/presenters/landing"
-import { describeLandingRefusals, formatLandingFix } from "@/presenters/landing"
+import { describeLandingRefusals, describeRegenerate, formatLandingFix } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
@@ -381,7 +381,22 @@ function Lines({
           {`Cannot check whether the push keeps the approvals of #${rulesUnknown.number}: ${rules.reason}. Patronus counts them when the robot starts.`}
         </Line>
       )}
+      <RegenerateLines confirmations={confirmations} />
     </>
+  )
+}
+
+/**
+ * The generated files the words merged that the copy it lands holds (`Confirmation::Regenerate`), a line each copy: the
+ * build of the robot may fail, or the file be stale; Start Anyway lands it as it is
+ */
+function RegenerateLines({ confirmations }: { confirmations: readonly Confirmation[] }) {
+  return confirmations.map(confirmation =>
+    confirmation.kind === "regenerate" ? (
+      <Line key={confirmation.subject.kind === "branch" ? confirmation.subject.name : confirmation.subject.root} tone="warning" testId="safe-push-regenerate">
+        {describeRegenerate(confirmation.files, null)}
+      </Line>
+    ) : null,
   )
 }
 
@@ -444,6 +459,7 @@ function PushLines({ read }: { read: SafePushRead }) {
           {line.text}
         </Line>
       ))}
+      <RegenerateLines confirmations={read.plan?.confirmations ?? []} />
       {lines.some(line => line.testId === "safe-push-checks") && read.plan !== null && mergeOf(read.plan.effects) === null && (
         <Line testId="safe-push-no-ci">{`A push into ${read.target} runs no CI: it lands the commit as it is.`}</Line>
       )}

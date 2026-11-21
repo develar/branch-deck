@@ -13,9 +13,10 @@ use crate::stack_summary::StackSummary;
 use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
-use domain_types::conflict::{MergeConflictInfo, WordResolutionSummary};
+use domain_types::conflict::{MergeConflictInfo, RegenerateFile, WordResolutionSummary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
+use domain_types::landing::{LandingFix, StackCommit};
 use domain_types::session::{BaselineStatus, BranchStatus, BranchSync, BranchView, LandedSection};
 use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};
@@ -135,6 +136,16 @@ pub struct SyncedBranch {
   /// The commits whose conflict of git the sync resolved by words, oldest first: the branch built where git stopped
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolved: Vec<ResolvedCommit>,
+  /// The generated files the words merged that the copy of the branch still holds, its own and those of the branches
+  /// it is built on, each with the copy that merged it (`commit`) and the commit the copy lacks (`lacks`): the copy is no
+  /// output of their generator, so `brd push`, `brd safe-push` and `brd land` refuse it (`generated_merged_by_words`).
+  /// Tell the user; `regenerate_fix` gives the copy the commit it lacks, after the user approves
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub regenerate: Vec<RegenerateFile>,
+  /// How the copy gets the commit it lacks: `restack` the root of what lands onto `onto` (`brd restack <branch> <onto>`),
+  /// or `moveCommit` the commit into the branch; omitted without `regenerate` or a known commit
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub regenerate_fix: Option<LandingFix>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
   /// The `brd push` that brings the remote branch up to date, to run only after the user approves: with
@@ -486,7 +497,18 @@ fn summarize(context: &RepoContext, report: SyncReport, table: TableState) -> Sy
   ids.extend(table.stacks().flat_map(StackSummary::ids));
   ids.extend(landed_ids(&landed.landing));
   ids.extend(landed_ids(&landed.landed));
+  ids.extend(
+    report
+      .regenerate
+      .branches
+      .values()
+      .flatten()
+      .flat_map(|file| [Some(file.commit.id.as_str()), file.lacks.as_ref().map(|lacks| lacks.id.as_str())])
+      .flatten(),
+  );
   let short = context.short_ids(ids);
+  // the table that tells how a copy gets the commit it lacks, only while a copy holds a generated file the words merged
+  let fixes = (!report.regenerate.branches.is_empty()).then(|| BranchTable::from_report(&context.prefix, &report, &[], &[]));
 
   let branches: Vec<SyncedBranch> = rows
     .iter()
@@ -512,6 +534,12 @@ fn summarize(context: &RepoContext, report: SyncReport, table: TableState) -> Sy
           .collect(),
         remote: row.remote.status.as_ref().map(|remote| RemoteSummary::new(remote, commit_count, &short)),
         push: None,
+        regenerate: report
+          .regenerate
+          .branches
+          .get(name)
+          .map_or_default(|files| files.iter().map(|file| short_regenerate(file, &short)).collect()),
+        regenerate_fix: fixes.as_ref().and_then(|table| table.regenerate_fix(name)).map(|fix| short_fix(fix, &short)),
       }
     })
     .collect();
@@ -564,6 +592,33 @@ fn error_of(sync: &BranchSync) -> (Option<&str>, Option<&MergeConflictInfo>) {
     (_, Some(BranchError::Generic(message))) => (Some(message), None),
     (_, Some(BranchError::MergeConflict(info))) => (None, Some(info)),
     (_, None) => (None, None),
+  }
+}
+
+/// `file` with the short ids of its commits
+fn short_regenerate(file: &RegenerateFile, short: &ShortIds) -> RegenerateFile {
+  let shorten = |commit: &StackCommit| StackCommit {
+    id: short.get(&commit.id).to_string(),
+    ..commit.clone()
+  };
+  RegenerateFile {
+    commit: shorten(&file.commit),
+    lacks: file.lacks.as_ref().map(shorten),
+    ..file.clone()
+  }
+}
+
+/// `fix` with the short id of the commit it moves
+fn short_fix(fix: LandingFix, short: &ShortIds) -> LandingFix {
+  match fix {
+    LandingFix::MoveCommit { commit, into } => LandingFix::MoveCommit {
+      commit: StackCommit {
+        id: short.get(&commit.id).to_string(),
+        ..commit
+      },
+      into,
+    },
+    other => other,
   }
 }
 

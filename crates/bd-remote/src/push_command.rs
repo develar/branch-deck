@@ -24,6 +24,7 @@
 
 use crate::landed::LandedBySummary;
 use crate::push_refusals::{Covered, decide};
+use crate::regenerate_refusal::regenerate_refusal;
 use crate::request_review_command::availability_error;
 use crate::safe_push_command::{STACK_REMOTE, youtrack_service};
 use crate::safe_push_run::{BdStart, start_services};
@@ -38,7 +39,7 @@ use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput
 use domain_policy::pull_request::merged_elsewhere;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{PlannedEffect, Subject};
+use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent, Push, PushScope};
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, ReviewerState};
@@ -110,6 +111,11 @@ pub struct PushArgs {
   /// copy. It lands nothing, and no pull request is drafted
   #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "remote", "dry_run", "restart_running"])]
   pub unapplied: bool,
+  /// Push a copy that holds a generated file the words merged in a conflict of the sync, not its generator
+  /// (`generated_merged_by_words`: `regenerate` of `brd sync` names it), once the user agreed. Without it such a push is
+  /// refused, --force included
+  #[arg(long)]
+  pub allow_generated_merged_by_words: bool,
 }
 
 /// `brd push`
@@ -388,6 +394,21 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     key: session_key(context),
     text: None,
   };
+  // a copy that holds a generated file the words merged goes only by the user's word
+  if !args.allow_generated_merged_by_words
+    && let Some(Confirmation::Regenerate { subject, files }) = planned
+      .plan
+      .confirmations
+      .iter()
+      .find(|confirmation| matches!(confirmation, Confirmation::Regenerate { .. }))
+  {
+    let table = synced.branch_table(&context.prefix);
+    let fix = match subject {
+      Subject::Branch { name } => table.regenerate_fix(name),
+      Subject::WholeStack { root } => table.stack_regenerate_fix(root),
+    };
+    return Err(regenerate_refusal(context, "Nothing was pushed", subject.name(), files, fix.as_ref()).into_error());
+  }
   // busy while another process runs what the push needs; the record leaves once the run ended
   let entry = admit_planned(context, &services, &planned)?;
   let accepted = Accepted {

@@ -1,13 +1,13 @@
 #[cfg(unix)]
 use crate::fixture_test::{PREFIX, beside_a_held_sync};
-use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_commits, repo_with_login, run_in, write};
+use crate::fixture_test::{commit_all, git, hold_the_lock, repo_on_baseline, repo_with_commits, repo_with_login, run_in, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 #[cfg(unix)]
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 use test_utils::history::HistoryCommit;
 
 #[test_log::test]
@@ -371,4 +371,67 @@ fn a_conflict_that_its_words_resolve_builds_and_says_so() {
   assert_eq!(exit_code, 0, "{check}");
   let b = check["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
   assert_eq!(b["result"], json!("ok"), "{check}");
+}
+
+/// `b` changes the line of a lock file `a` changed: the copy of `b` merges the lock file by words. `brd sync` names it in
+/// `regenerate` with the commit the copy lacks and the fix, the mapping note keeps it for `brd status`, and `brd push`
+/// refuses the copy (`generated_merged_by_words`), `--force` too, until `--allow-generated-merged-by-words`
+#[test_log::test]
+fn brd_sync_names_the_generated_files_a_branch_must_regenerate_and_brd_push_refuses_them_until_allowed() {
+  let remote = tempfile::tempdir().unwrap();
+  let (repo, [a, b]) = {
+    let (repo, ids) = repo_on_baseline(
+      &[("Cargo.lock", "call(a, b, c)\nx\ny\nend\n")],
+      &[
+        HistoryCommit::new("(a) Change the first argument", &[("Cargo.lock", "call(A, b, c)\nx\ny\nend\n")]).at(1_700_000_100),
+        HistoryCommit::new("(b) Change the third argument", &[("Cargo.lock", "call(A, b, C)\nx\ny\nend\n")]).at(1_700_000_200),
+      ],
+      remote.path().to_str().unwrap(),
+    );
+    (repo, <[String; 2]>::try_from(ids).unwrap())
+  };
+  git(&repo, &["init", "--bare", "-q", "--template=", remote.path().to_str().unwrap()]);
+  disable_background_maintenance(remote.path());
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let b_branch = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  let lock_file = json!({ "kind": "name", "name": "lockFile" });
+  assert_eq!(
+    b_branch["regenerate"],
+    json!([{
+      "commit": { "id": short_id(&b), "subject": "Change the third argument", "branch": "b" },
+      "path": "Cargo.lock",
+      "generatedBy": lock_file,
+      "lacks": { "id": short_id(&a), "subject": "Change the first argument", "branch": "a" },
+    }]),
+    "{output}"
+  );
+  assert_eq!(b_branch["regenerate_fix"], json!({ "kind": "restack", "branch": "b", "onto": "a" }));
+  assert_eq!(b_branch["resolved"][0]["generated"], json!([{ "path": "Cargo.lock", "generatedBy": lock_file }]));
+  let a_branch = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("a")).unwrap();
+  assert_eq!(a_branch.get("regenerate"), None, "the copy of a is clean");
+
+  let (_, status) = run_in(&repo, &["status"]);
+  let b_status = status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  assert_eq!(
+    b_status["commits"][0]["resolved_by_words"]["generated"],
+    json!([{ "path": "Cargo.lock", "generatedBy": lock_file }]),
+    "{status}"
+  );
+
+  for args in [&["push", "b"][..], &["push", "b", "--force"]] {
+    let (exit_code, refused) = run_in(&repo, args);
+    assert_eq!(exit_code, 4, "{refused}");
+    assert_eq!(refused["error"]["code"], json!("generated_merged_by_words"), "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+      message.contains("Cargo.lock") && message.contains("lock file") && message.contains("--allow-generated-merged-by-words"),
+      "{message}"
+    );
+    assert_eq!(refused["error"]["next_steps"][0]["command"], json!("brd restack b a"), "{refused}");
+  }
+  assert_eq!(git(&repo, &["--git-dir", remote.path().to_str().unwrap(), "for-each-ref"]), "", "nothing was pushed");
+  let (exit_code, pushed) = run_in(&repo, &["push", "b", "--allow-generated-merged-by-words"]);
+  assert_eq!(exit_code, 0, "{pushed}");
 }

@@ -4,7 +4,10 @@ use super::notes::{MappingNote, write_commit_notes};
 use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::restore_branch_head;
 use anyhow::Result;
-use domain_types::commit::NoteSource;
+use domain_types::commit::{NoteResolution, NoteSource};
+use domain_types::conflict::GeneratedFile;
+use generated_files::generated_by::GeneratedBy;
+use generated_files::names::GeneratedName;
 use line_diff::apply::LineBlock;
 use line_diff::model::{DiffBudget, diff_texts};
 use line_diff::policy::WhitespacePolicy;
@@ -114,6 +117,11 @@ fn added_lines(repo: &TestRepo, from: &str, to: &str, path: &str) -> Vec<String>
 
 /// A mapping note of `original` onto `mapped`, with the trees of `original` and its parent as the source
 fn write_mapping_note(repo: &TestRepo, original: &str, mapped: &str) -> Result<()> {
+  write_mapping_note_with(repo, original, mapped, None, Vec::new())
+}
+
+/// `write_mapping_note` of a copy that took the resolve by words `resolved`, which merged the generated files `generated`
+fn write_mapping_note_with(repo: &TestRepo, original: &str, mapped: &str, resolved: Option<NoteResolution>, generated: Vec<GeneratedFile>) -> Result<()> {
   let tree_of = |rev: &str| git(repo, &["rev-parse", &format!("{rev}^{{tree}}")]);
   let note = MappingNote {
     original: original.to_string(),
@@ -122,7 +130,8 @@ fn write_mapping_note(repo: &TestRepo, original: &str, mapped: &str) -> Result<(
       parent_tree: tree_of(&format!("{original}^")),
       tree: tree_of(original),
     },
-    resolved: None,
+    resolved,
+    generated,
     signed: false,
   };
   write_commit_notes(repo.git_executor(), repo_path(repo), &[note])
@@ -226,8 +235,18 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
     1_600_000_300,
   );
   let x_committer = log_format(&repo, &x, "%cn <%ce> %cd")?;
-  // a mapping note of X with its source, which names the new trees afterwards
-  write_mapping_note(&repo, &x, &a)?;
+  // a mapping note of X with its source, which names the new trees afterwards, and the generated files its words merged,
+  // which it keeps
+  let resolved = NoteResolution {
+    version: 5,
+    conflicts: 1,
+    files: 1,
+  };
+  let generated = vec![GeneratedFile {
+    path: "Cargo.lock".to_string(),
+    generated_by: GeneratedBy::Name { name: GeneratedName::LockFile },
+  }];
+  write_mapping_note_with(&repo, &x, &a, Some(resolved), generated.clone())?;
   let tree_of = |rev: &str| git(&repo, &["rev-parse", &format!("{rev}^{{tree}}")]);
   let tree = tree_of("HEAD");
 
@@ -250,7 +269,8 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
       parent_tree: tree_of(new_a),
       tree: tree_of(new_x),
     },
-    resolved: None,
+    resolved: Some(resolved),
+    generated,
     signed: false,
   };
   assert_eq!(git(&repo, &["notes", "show", new_x]), expected_note.content());

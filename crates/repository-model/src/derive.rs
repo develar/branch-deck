@@ -964,6 +964,7 @@ impl<'a> LandingFacts<'a> {
       tip: self.table.tip_of(name),
       replaces,
       whole_stack_pull_request,
+      regenerate: self.table.regenerate.get(name).map_or(&[][..], Vec::as_slice),
     })
   }
 
@@ -982,6 +983,7 @@ impl<'a> LandingFacts<'a> {
       members: stack.members.iter().map(|member| (member.as_str(), self.landed_whole(member).is_some())).collect(),
       remote: self.remote.stacks.get(root).and_then(RemoteFact::branch),
       held_by: self.stack_holder(stack),
+      regenerate: self.table.stack_regenerate.get(root).map_or(&[][..], Vec::as_slice),
     }
   }
 
@@ -1828,6 +1830,10 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
       listed: Some(&sources.pull_requests.pull_requests),
     };
+    // the generated files the words merged that its copy holds, and how what lands from its root gets the commit the copy
+    // lacks
+    let regenerate = sources.table.regenerate.get(name.as_str()).map_or(&[][..], Vec::as_slice);
+    let regenerate_fix = sources.table.regenerate_fix(name);
     let node = NodeFacts {
       step,
       status: row.status,
@@ -1835,6 +1841,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       lands_with,
       lands_failing: lands_with.is_some_and(|by| sources.robots.failing.contains(&by.robot_id)),
       push_pending: remote.is_some_and(|remote| !remote.up_to_date),
+      regenerate,
+      regenerate_fix: regenerate_fix.as_ref(),
     };
     let view = NextStepView {
       step: next_step(&step),
@@ -1928,6 +1936,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       lands: u32::try_from(lands).unwrap_or(u32::MAX),
       listed: Some(&sources.pull_requests.pull_requests),
     };
+    // a whole stack has no Status cell: its start asks of the generated files of its stack branch
     let node = NodeFacts {
       step,
       status: BranchStatus::Unchanged,
@@ -1935,6 +1944,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       lands_with: None,
       lands_failing: false,
       push_pending: false,
+      regenerate: &[],
+      regenerate_fix: None,
     };
     let view = NextStepView {
       step: next_step(&step),

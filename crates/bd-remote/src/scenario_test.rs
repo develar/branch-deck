@@ -452,6 +452,8 @@ enum Flag {
   WithoutChecks,
   /// `--bypass-rules` of `brd land`: what the gate of the route asks, accepted
   BypassRules,
+  /// `--allow-generated-merged-by-words`: a copy that holds a generated file the words merged, accepted
+  AllowGeneratedMergedByWords,
 }
 
 impl Given {
@@ -551,6 +553,7 @@ impl Given {
       allow_missing: self.has(Flag::AllowMissing),
       allow_unlanded: self.has(Flag::AllowUnlanded),
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
+      allow_generated_merged_by_words: self.has(Flag::AllowGeneratedMergedByWords),
       whole_stack: self.subject == GivenSubject::WholeStack,
       ..SafePushArgs::default()
     }
@@ -569,6 +572,7 @@ impl Given {
       (args.allow_missing, "--allow-missing"),
       (args.allow_unlanded, "--allow-unlanded"),
       (args.allow_unknown_rules, "--allow-unknown-rules"),
+      (args.allow_generated_merged_by_words, "--allow-generated-merged-by-words"),
       (args.whole_stack, "--whole-stack"),
     ];
     line.extend(flags.into_iter().filter(|(on, _)| *on).map(|(_, flag)| flag.to_string()));
@@ -591,6 +595,7 @@ impl Given {
       cancel_running: self.has(Flag::CancelRunning),
       allow_without_checks: self.has(Flag::WithoutChecks),
       bypass_rules: self.has(Flag::BypassRules),
+      allow_generated_merged_by_words: self.has(Flag::AllowGeneratedMergedByWords),
     }
   }
 
@@ -605,6 +610,7 @@ impl Given {
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
       allow_unlanded: self.has(Flag::AllowUnlanded),
+      allow_generated_merged_by_words: self.has(Flag::AllowGeneratedMergedByWords),
     }
   }
 

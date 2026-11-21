@@ -12,6 +12,7 @@ import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
 import { stackProblemOf } from "@/lib/stack"
+import { describeRegenerate, formatRegenerate } from "@/presenters/landing"
 import type { StepWait } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -144,6 +145,9 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
       const state = fact.running ? "runs" : fact.failed ? "failed" : "finished"
       return { text: `${mode} ${state}`, tooltip: `${mode} ${state}`, color: fact.failed ? "error" : "primary" }
     }
+    // what it needs to land: its copy, which a push and a start take, holds a merge of words of a generated file
+    case "regenerate":
+      return { text: formatRegenerate(fact.files), tooltip: describeRegenerate(fact.files, fact.fix), color: "warning" }
   }
 }
 
@@ -155,6 +159,7 @@ function markColor(fact: RowFact): RowMark["color"] {
       return fact.failed ? "error" : "success"
     case "blocked":
     case "parked":
+    case "regenerate":
       return "warning"
     case "wait":
       return "warning"

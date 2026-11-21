@@ -2,6 +2,8 @@
 //! conflicts of git a copy resolved by words
 
 use crate::commit::{Commit, SubjectParts};
+use crate::landing::StackCommit;
+use generated_files::generated_by::GeneratedBy;
 use serde::{Deserialize, Serialize};
 
 /// A copy whose cherry-pick conflicted in git and resolved by words (`word_resolve`): what its mapping note records and
@@ -21,6 +23,77 @@ pub struct WordResolutionSummary {
   /// The resolved files with their conflicts, in git's order; empty for a copy reused by its mapping note, which records
   /// the counts only. The conflict view merges the commit again for them (`get_file_merges`)
   pub files: Vec<ResolvedFileSummary>,
+  /// The resolved files that `generated_files` calls generated, by path: their text is a merge of words, not the output
+  /// of their generator. The mapping note records them, so a reused copy has them too
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub generated: Vec<GeneratedFile>,
+}
+
+/// A generated file (`generated_files`) and why it is generated: one that the words merged in a copy of a sync, or one
+/// that an update brought together with the upstream's
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedFile {
+  pub path: String,
+  pub generated_by: GeneratedBy,
+}
+
+impl GeneratedFile {
+  /// The one text form of a list, compact JSON: the tail of the resolve line of a mapping note, and the field of a record
+  /// that `postcard` keeps (an object cache), which cannot read back the tagged `GeneratedBy`
+  pub fn encode(files: &[Self]) -> String {
+    encode_list(files)
+  }
+
+  /// The list `encode` wrote; `None` for a text it did not write
+  pub fn decode(text: &str) -> Option<Vec<Self>> {
+    decode_list(text)
+  }
+}
+
+/// A list as compact JSON, the text form of a list of records with a tagged enum, which `postcard` cannot read back
+fn encode_list<T: Serialize>(items: &[T]) -> String {
+  serde_json::to_string(items).unwrap_or_default()
+}
+
+/// The list `encode_list` wrote; `None` for a text it did not write
+fn decode_list<T: serde::de::DeserializeOwned>(text: &str) -> Option<Vec<T>> {
+  serde_json::from_str(text).ok()
+}
+
+/// A generated file that the words merged in the copy of `commit` and that the tip of a branch still holds as they wrote
+/// it: the copy that branch pushes and lands is no output of its generator. A later commit of the branch that writes
+/// the file, or a copy that no longer needs the words (the commit it lacks is below it: stacked, moved or landed),
+/// leaves it out (docs/design/git-operations.md, "Resolve by words")
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RegenerateFile {
+  /// The original commit whose copy the words merged, with its branch: the branch itself or one it is built on
+  pub commit: StackCommit,
+  pub path: String,
+  pub generated_by: GeneratedBy,
+  /// The last commit ahead of the baseline before `commit` that changes the file and that the copy lacks: in another
+  /// branch, or in none (unassigned). `None` when no such commit is found
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub lacks: Option<StackCommit>,
+}
+
+impl RegenerateFile {
+  /// The one text form of a list for a record that `postcard` keeps (the build of a stack branch), as `GeneratedFile::encode`
+  pub fn encode(files: &[Self]) -> String {
+    encode_list(files)
+  }
+
+  /// The list `encode` wrote; `None` for a text it did not write
+  pub fn decode(text: &str) -> Option<Vec<Self>> {
+    decode_list(text)
+  }
 }
 
 /// A file of `WordResolutionSummary`
