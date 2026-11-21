@@ -341,6 +341,54 @@ pub fn run_key(command: &[String]) -> String {
   digest.hex()
 }
 
+/// The word that stands for a directory that the run fetches in [`measure_key`]
+const FETCH_WORD: &str = "<fetch>";
+
+/// The key of the measures of `command` (`lease_pool::host_cores`), a run that fetches the directories `fetch`: the
+/// [`run_key`] of its words with each path of a fetched directory, in a word or in the script of a shell (`zsh -lc
+/// "mkdir -p out/air/light1 && … > out/air/light1/run.json"`), put as `<fetch>`. So a run that writes its outputs to
+/// another directory of its own measures for the same command; a path that the run does not fetch stays, as no word
+/// tells an output from an input. A command that names no fetched directory has the key of [`run_key`]
+pub fn measure_key(command: &[String], fetch: &[String]) -> String {
+  let mut dirs: Vec<&str> = fetch.iter().map(|dir| trimmed_dir(dir)).filter(|dir| !dir.is_empty() && *dir != ".").collect();
+  // the longer first, so a directory inside another one is put as one
+  dirs.sort_by_key(|dir| std::cmp::Reverse(dir.len()));
+  let words: Vec<String> = command.iter().map(|word| dirs.iter().fold(word.clone(), |word, dir| put_fetched(&word, dir))).collect();
+  run_key(&words)
+}
+
+/// A fetched directory as a run names it, without `./` before it and `/` after it
+fn trimmed_dir(dir: &str) -> &str {
+  inner_script_path(dir).trim_end_matches('/')
+}
+
+/// `word` with each path of the directory `dir` in it put as `<fetch>`: the directory itself or a path inside it, with
+/// `./` before it or not, where no character of a path name goes on before or after it
+fn put_fetched(word: &str, dir: &str) -> String {
+  let mut out = String::with_capacity(word.len());
+  let mut rest = word;
+  while let Some(at) = rest.find(dir) {
+    let (before, after) = (&rest[..at], &rest[at + dir.len()..]);
+    let start = before.strip_suffix("./").unwrap_or(before);
+    let starts = start.chars().next_back().is_none_or(|char| !is_path_char(char));
+    let ends = after.chars().next().is_none_or(|char| char == '/' || !is_path_char(char));
+    if starts && ends {
+      out.push_str(start);
+      out.push_str(FETCH_WORD);
+    } else {
+      out.push_str(&rest[..at + dir.len()]);
+    }
+    rest = after;
+  }
+  out.push_str(rest);
+  out
+}
+
+/// A character of a name of a path, which goes on the path it stands beside
+const fn is_path_char(char: char) -> bool {
+  char.is_ascii_alphanumeric() || matches!(char, '_' | '-' | '.' | '/' | '~' | '+' | '@')
+}
+
 /// The simple commands of a shell script, each as its words (see the header of the module)
 pub fn script_commands(script: &str) -> Vec<Vec<String>> {
   let mut commands = Vec::new();

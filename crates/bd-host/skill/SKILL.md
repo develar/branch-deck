@@ -69,7 +69,10 @@ until their tests fail on timeouts, which are no flakes. A heavy run is admitted
 last runs fits beside the holders and the busy cores of the host outside them (the runs that are not heavy and
 processes of no run: the agent samples the whole host every 2 s); a command without a measure (its first runs, any new
 command) takes the whole host and waits for a quiet one (at most a fifth of its cores busy), and so does one that
-measured the whole host. The queue is first come first. A run is heavy when a pattern of `heavy` of `[host]` of the
+measured the whole host. The queue is first come first, and a head of the queue that waited 15 min starts on a free
+turn whatever the load. The measures of a command do not depend on the paths of its `--fetch` directories, so give
+each run an output directory of its own and fetch it. A line `the heavy turn of the host is locked by …; this run
+keeps its place in the queue and looks again` is a wait too, never a reason to cancel. A run is heavy when a pattern of `heavy` of `[host]` of the
 commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository
 names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says
 `brd-host: a heavy run by …`, then waits for the heavy turn before it takes a slot, with a line at once and once a

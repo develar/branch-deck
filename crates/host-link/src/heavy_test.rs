@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, run_key, run_words, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, measure_key, run_key, run_words, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -438,4 +438,49 @@ fn the_key_of_a_run_drops_the_wrappers_and_keeps_the_environment() {
   assert_ne!(run_key(&words(&["E2E_PORT=3031", "pnpm", "e2e"])), run_key(&words(&["pnpm", "e2e"])));
   assert_ne!(run_key(&words(&["pnpm", "e2e", "x"])), run_key(&words(&["pnpm", "e2e x"])), "the words, not their line");
   assert_eq!(run_key(&words(&["pnpm"])).len(), 64);
+}
+
+/// The measures of a command count for its next run that writes its outputs to another fetched directory: each path of
+/// a fetched directory in its words and in the script of its shell is put as one word, and a path that the run does not
+/// fetch, a longer name, and a command that names no fetched directory keep their key
+#[test]
+fn the_measure_key_of_a_command_puts_its_fetched_directories_as_one_word() {
+  let lane = |out: &str| {
+    words(&[
+      "zsh",
+      "-lc",
+      &format!("mkdir -p {out} && ./community/tools/vm.cmd --stream run --lane ui-light > {out}/run.json 2> ./{out}/run.ndjson"),
+    ])
+  };
+  let fetch = |out: &str| vec![format!("./{out}/"), "out/air/vm-export".to_owned()];
+  assert_eq!(
+    measure_key(&lane("out/air/light1"), &fetch("out/air/light1")),
+    measure_key(&lane("out/air/light5"), &fetch("out/air/light5")),
+    "only the fetched output directory differs"
+  );
+  assert_eq!(
+    measure_key(&lane("out/air/light1"), &fetch("out/air/light1")),
+    run_key(&words(&[
+      "zsh",
+      "-lc",
+      "mkdir -p <fetch> && ./community/tools/vm.cmd --stream run --lane ui-light > <fetch>/run.json 2> <fetch>/run.ndjson"
+    ])),
+    "the directory itself, a path in it, and one with ./ before it"
+  );
+  assert_ne!(
+    measure_key(&lane("out/air/light1"), &[]),
+    measure_key(&lane("out/air/light5"), &[]),
+    "a path that the run does not fetch stays"
+  );
+  assert_eq!(
+    measure_key(&lane("out/air/light10"), &fetch("out/air/light1")),
+    run_key(&lane("out/air/light10")),
+    "a longer name is another directory"
+  );
+  let e2e = words(&["pnpm", "e2e", "--output=out/e2e"]);
+  assert_eq!(measure_key(&e2e, &["out/e2e".to_owned()]), run_key(&words(&["pnpm", "e2e", "--output=<fetch>"])));
+  assert_eq!(
+    measure_key(&words(&["pnpm", "e2e"]), &["out/e2e".to_owned(), ".".to_owned()]),
+    run_key(&words(&["pnpm", "e2e"]))
+  );
 }

@@ -16,7 +16,10 @@
 //! the live use of the holders: the load of the runs that are not heavy and of processes no run counts holds a heavy run
 //! back too. A run that takes the whole host waits for a quiet host, busy with at most a fifth of its cores (at least 1)
 //! outside the heavy runs; a run of a measure starts on a free turn while it fits beside that load, or the host is quiet.
-//! A sample older than 10 s counts as none, and an admission then counts `light` only.
+//! A sample older than 10 s counts as none, and an admission then counts `light` only. The runs that are not heavy wait
+//! for no heavy run, so a host of steady light runs is never quiet: a head of the queue that has waited
+//! [`LOAD_BOUND`] (15 min) since it joined the queue takes a free turn whatever that load, and the runs after it wait
+//! behind it still.
 //!
 //! An exclusive run (`brd-host run --exclusive`, a measurement such as an A/B) takes the whole host of a quiet host:
 //! it is admitted only without a holder, with no run that is not heavy in its command (`light`, which a run joins as its
@@ -32,9 +35,11 @@
 //! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
 //! do, so a gone process leaves the table without a keeper. The lock is a leaf, held only while the table changes,
 //! never across git or another lock. A run that waits watches the directory once for its whole wait (`TurnWatch`) and
-//! looks again every 5 s, as the end of a process makes no file event. The table names its schema: a table of another
-//! schema refuses. `heavy.json` is the table of the build before (one holder, schema 1): its supervisors go on with it
-//! after an upgrade, and its live holder counts here as one that holds the whole host, so no run of this build joins it.
+//! looks again every 5 s, as the end of a process makes no file event. A look of a run behind the head of the queue
+//! reads the table without the lock ([`look`]): each change of the table wakes every run that waits, and only the head
+//! can be admitted. The table names its schema: a table of another schema refuses. `heavy.json` is the table of the
+//! build before (one holder, schema 1): its supervisors go on with it after an upgrade, and its live holder counts here
+//! as one that holds the whole host, so no run of this build joins it.
 //!
 //! A later heavy run of the same checkout (its affinity) and the same command (`host_link::heavy::run_key`) supersedes
 //! the runs of the queue that wait for the turn with them: it takes the place of the first in the queue, and each of
@@ -64,6 +69,10 @@ const EXCLUSIVE_FILE: &str = "exclusive.json";
 const DRAIN_FILE: &str = "drain.json";
 /// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain
 pub const DRAIN_BAR: Duration = Duration::from_mins(15);
+/// How long the head of the queue waits in the queue for a quiet host, or for room beside the load of the host outside
+/// the heavy runs, before a free turn admits it whatever that load ([`admits`]): the runs that are not heavy wait for no
+/// heavy run, so on a host of steady light runs a run of the whole host would wait for the whole of its 2 h
+pub const LOAD_BOUND: Duration = Duration::from_mins(15);
 /// The busy cores of the whole host, which the agent samples ([`note_host`])
 const HOST_FILE: &str = "host.json";
 /// The age past which a sample of the host counts as none: its agent is gone or stuck
@@ -270,6 +279,9 @@ pub struct TurnParams<'a> {
   pub recheck: Duration,
   /// The cores of the host that the heavy runs share
   pub cores: u32,
+  /// How long the head of the queue waits for the load of the host outside the heavy runs on a free turn
+  /// ([`LOAD_BOUND`])
+  pub load_bound: Duration,
 }
 
 /// How often a wait for the turn looks again without a file event, as a lend that waits does
@@ -500,9 +512,11 @@ fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<C
 
 /// Whether the head of the queue `entry` is admitted beside `holders` on a host of `cores` that is busy with `outside`
 /// cores outside them (`light` without a sample of the host): to a turn without a holder when the host is quiet
-/// ([`quiet`]), or when the run has a measure that fits beside `outside`; a run that takes the whole host to no holder;
-/// a run of a measure beside holders that do not take the whole host, while their needs, `outside` and its own fit
-fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32) -> bool {
+/// ([`quiet`]), when the run has a measure that fits beside `outside`, or when it `waited_out` the load bound in the
+/// queue ([`LOAD_BOUND`]); a run that takes the whole host to no holder; a run of a measure beside holders that do not
+/// take the whole host, while their needs, `outside` and its own fit. An exclusive run, a measurement, waits for its
+/// quiet host and its quiet window, whatever its wait
+fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32, waited_out: bool) -> bool {
   let need = entry.need(cores);
   let whole = Cores::whole(cores);
   let outside = load.outside;
@@ -512,7 +526,7 @@ fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32)
     return holders.is_empty() && load.light.is_empty() && load.quiet_over_window(cores);
   }
   if holders.is_empty() {
-    return outside <= quiet(cores) || (!need.is_whole_host() && outside.saturating_add(need.cores(cores)) <= whole);
+    return waited_out || outside <= quiet(cores) || (!need.is_whole_host() && outside.saturating_add(need.cores(cores)) <= whole);
   }
   if need.is_whole_host() || holders.iter().any(|holder| holder.need(cores).is_whole_host()) {
     return false;
@@ -585,21 +599,11 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     // the expectation of a run that waits follows the measures that came while it waited
     table.queue[position].expected = request.expected;
     table.queue[position].exclusive |= request.exclusive;
-    let holders: Vec<TurnEntry> = legacy.iter().cloned().chain(table.holders.iter().cloned()).collect();
-    let light = table.light_cores();
-    let now = now_ms();
-    let sample = host_sample(params.dir, now);
-    let outside = outside(&holders, light, sample.map(|sample| sample.busy));
-    let window = host_window(params.dir, now);
-    let load = Load {
-      outside: outside.unwrap_or(light),
-      window,
-      sampled: sample.is_some(),
-      light: &table.light,
-    };
-    if position == 0 && admits(&table.queue[0], &holders, &load, params.cores) {
+    let seen = Seen::of(params, table, legacy.as_ref());
+    let waited_out = seen.now.saturating_sub(table.queue[position].since_ms) >= u64::try_from(params.load_bound.as_millis()).unwrap_or(u64::MAX);
+    if position == 0 && admits(&table.queue[0], &seen.holders, &seen.load(&table.light), params.cores, waited_out) {
       let mut entry = table.queue.remove(0);
-      entry.since_ms = now_ms();
+      entry.since_ms = seen.now;
       if entry.exclusive {
         write_exclusive(params.dir, &entry)?;
         remove_named(&params.dir.join(DRAIN_FILE), &entry.ticket.run)?;
@@ -608,21 +612,83 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       return Ok(joined);
     }
     // an exclusive run at the head of the queue with no holder drains the host: the new runs that are not heavy wait
-    if position == 0 && request.exclusive && holders.is_empty() {
-      start_drain(params.dir, &table.queue[0], now)?;
+    if position == 0 && request.exclusive && seen.holders.is_empty() {
+      start_drain(params.dir, &table.queue[0], seen.now)?;
     }
-    joined.answer = TurnAnswer::Queued(TurnQueue {
-      cores: params.cores,
-      need: table.queue[position].need(params.cores),
-      holders,
-      light,
-      outside,
-      window,
-      light_runs: table.light.clone(),
-      ahead: table.queue[..position].to_vec(),
-    });
+    joined.answer = TurnAnswer::Queued(seen.queue(params, table, position));
     Ok(joined)
   })
+}
+
+/// What a look of a run sees of the turn beside the queue: the holders, the holder of `heavy.json` of the build before
+/// first, the live cores of the runs that are not heavy, and the load of the host by its last sample, at `now`
+struct Seen {
+  holders: Vec<TurnEntry>,
+  light: Cores,
+  /// The busy cores outside the holders by a fresh sample of the host ([`outside`]); `None` without one
+  outside: Option<Cores>,
+  window: Option<Cores>,
+  sampled: bool,
+  now: u64,
+}
+
+impl Seen {
+  fn of(params: &TurnParams<'_>, table: &HeavyTurn, legacy: Option<&TurnEntry>) -> Self {
+    let holders: Vec<TurnEntry> = legacy.into_iter().cloned().chain(table.holders.iter().cloned()).collect();
+    let light = table.light_cores();
+    let now = now_ms();
+    let sample = host_sample(params.dir, now);
+    Self {
+      outside: outside(&holders, light, sample.map(|sample| sample.busy)),
+      window: host_window(params.dir, now),
+      sampled: sample.is_some(),
+      holders,
+      light,
+      now,
+    }
+  }
+
+  fn load<'a>(&self, light: &'a [LightEntry]) -> Load<'a> {
+    Load {
+      outside: self.outside.unwrap_or(self.light),
+      window: self.window,
+      sampled: self.sampled,
+      light,
+    }
+  }
+
+  /// The answer to the run at `position` of the queue of `table` that is not admitted
+  fn queue(self, params: &TurnParams<'_>, table: &HeavyTurn, position: usize) -> TurnQueue {
+    TurnQueue {
+      cores: params.cores,
+      need: table.queue[position].need(params.cores),
+      holders: self.holders,
+      light: self.light,
+      outside: self.outside,
+      window: self.window,
+      light_runs: table.light.clone(),
+      ahead: table.queue[..position].to_vec(),
+    }
+  }
+}
+
+/// A look of the run of `request` that waits for the turn: without the lock of the table while the run waits behind the
+/// head of the queue and its entry is as the request says, as such a look changes nothing; else [`take`]. So only the
+/// head of the queue and a run whose entry changes take the lock at each change of the table, not every run that waits
+pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAnswer> {
+  let mut table: HeavyTurn = params.table().read()?;
+  table.of_this_schema(params.dir)?;
+  table.prune();
+  let behind = table.queue.iter().position(|entry| entry.ticket.run == request.run).filter(|&position| {
+    let entry = &table.queue[position];
+    position > 0 && entry.expected == request.expected && (entry.exclusive || !request.exclusive)
+  });
+  // a superseded run, a holder and a run new to the queue are in no place of the queue
+  let Some(position) = behind else {
+    return take(params, request);
+  };
+  let legacy = legacy_holder(params.dir);
+  Ok(TurnAnswer::Queued(Seen::of(params, &table, legacy.as_ref()).queue(params, &table, position)))
 }
 
 /// Puts the run of `request`, new to the queue, in its place, and answers it: the runs of the queue of its checkout and
@@ -667,7 +733,7 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
 pub fn take_waiting(params: &TurnParams<'_>, request: &TurnRequest<'_>, timeout: Duration, watch: &TurnWatch) -> Result<TurnAnswer> {
   let started = Instant::now();
   loop {
-    let queued = match take(params, request)? {
+    let queued = match look(params, request)? {
       TurnAnswer::Queued(queued) => queued,
       answer => return Ok(answer),
     };

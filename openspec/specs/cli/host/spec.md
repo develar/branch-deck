@@ -1856,11 +1856,11 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 ### Requirement: serve: Heavy runs share the cores of the host by their measure
 
-Before its lend, a heavy run MUST take its cores of the heavy turn of the host (`lease_pool::host_turn`) in the phase
-`heavy`, waiting up to 2 h first come first, and give them back after its give-back; a run that is not heavy takes
-none. The head of the queue, and no run after it, MUST be admitted while the cores of the holders, the busy cores of
-the host outside them and its own fit the host, or on a free turn of a quiet host. A run without a measure MUST take
-the whole host.
+Before its lend, a heavy run MUST take its cores of the heavy turn (`lease_pool::host_turn`) in the phase `heavy`,
+waiting up to 2 h first come first, and give them back after its give-back. Only the head of the queue MUST be
+admitted: while the cores of the holders, the busy cores outside them and its own fit the host, or on a free turn of a
+quiet host or after 15 min in the queue. A run without a measure MUST take the whole host. A held lock MUST cost a
+look, never the run.
 
 #### Scenario: Two heavy runs and one that is not heavy
 - **WHEN** a heavy run without a measure holds the turn, a second heavy run starts, and a run that is not heavy starts
@@ -1885,7 +1885,7 @@ the whole host.
 - **THEN** it waits until no heavy run holds cores, and no heavy run is admitted beside it
 - **AND** the runs after it wait behind it, even one that would fit: none overtakes the head of the queue, so none waits
   forever
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_whole_host_and_the_head_of_the_queue_goes_first`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_whole_host_and_the_head_of_the_queue_goes_first`, `a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_later_smaller_runs`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
 
 #### Scenario: The busy cores of the host
@@ -1896,6 +1896,29 @@ the whole host.
 - **AND** a run that takes the whole host is admitted only on a quiet host, busy with at most a fifth of its cores (at
   least 1) outside the heavy runs; a run of a measure on a free turn while it fits beside that load, or on a quiet host
   [@test] crates/lease-pool/src/host_turn_test.rs (`the_busy_cores_of_the_host_outside_the_holders_hold_a_heavy_run_back`)
+
+#### Scenario: A busy free turn
+- **WHEN** the head of the queue waits on a free turn for a quiet host, or for room beside the busy cores of the host
+  outside the heavy runs, which the runs that are not heavy keep busy, as they wait for no heavy run
+- **THEN** once it has waited 15 min since it joined the queue, it is admitted whatever that load, a run without a
+  measure too, and takes what it needs, the whole host or its measure
+- **AND** the later runs, smaller ones that would fit beside the load too, wait behind it as before
+- **AND** an exclusive run, a measurement, still waits for its quiet host and its quiet window
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_later_smaller_runs`)
+
+#### Scenario: A lock of the table that another process holds
+- **WHEN** a look of a heavy run that waits finds `turn.lock` held by another process for 2 s
+- **THEN** the look ends without an answer and the next look comes as before: the run keeps its place in the queue, and
+  a run that has no place yet asks for one again; the wait goes on up to its 2 h, and a cancel ends it as before
+- **AND** at once, and once a minute while the lock stays held, its log says `the heavy turn of the host is locked by
+  <holder> for <n> s (<path of the lock>); this run keeps its place in the queue and looks again`, or `this run asks
+  again for its place in the queue`; `<holder>` is the holder of the record of the lock, else `another process of the
+  host`
+- **AND** a process that is gone holds no lock: the system frees it with the process
+- **AND** a look of a run behind the head of the queue reads the table without the lock, so it waits for no lock; the
+  head of the queue, and a run whose expectation changed, take it
+  [@test] crates/host-agent/src/turn_test.rs (`a_held_lock_of_the_table_retries_and_the_run_keeps_its_place_in_the_queue`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_look_behind_the_head_of_the_queue_takes_no_lock`)
   [@test] crates/sync-utils/src/host_cpu_test.rs (`the_busy_cores_are_the_busy_part_of_the_ticks_between_two_readings`, `the_ticks_of_proc_stat_count_the_work_as_busy_and_idle_and_iowait_as_not`, `the_ticks_of_this_host_grow`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`serve_samples_the_busy_cores_of_the_host_for_the_heavy_turn`)
 
@@ -2006,7 +2029,8 @@ also be in `exclusive.json`, which no older build rewrites.
 
 The supervisor of every run MUST sample the CPU of its command group, of the Bazel servers of its slot and of their
 descendants, each with the CPU of its reaped children, every 10 s, and at the end measure the mean and the peak. A
-command of 10 s or more MUST add its measure to the last 5 of its repository and command.
+command of 10 s or more MUST add its measure to the last 5 of its repository and command, by a key without the paths
+of the directories that the run fetches.
 
 #### Scenario: The samples of a run
 - **WHEN** the command of a run runs
@@ -2032,6 +2056,18 @@ command of 10 s or more MUST add its measure to the last 5 of its repository and
   frees its cores within a few runs
 - **AND** a command of less than 10 s adds no measure, and a command without a measure for 30 days is forgotten
   [@test] crates/lease-pool/src/host_cores_test.rs (`the_expectation_of_a_command_follows_its_last_runs`, `a_command_without_a_measure_for_30_days_is_forgotten`)
+
+#### Scenario: The key of the measures of a command
+- **WHEN** two runs of a command differ only by the directories that they fetch (`--fetch`), such as `zsh -lc "mkdir
+  -p out/air/light1 && … > out/air/light1/run.json"` with `--fetch out/air/light1` and the same with `light5`
+- **THEN** both add to and read the same measures: the key of the measures (`host_link::heavy::measure_key`) is the
+  key of the supersede with each path of a fetched directory, in a word or in the script of a shell, as one word
+- **AND** a path that the run does not fetch stays in the key, as no word of a command tells an output from an input,
+  and a command that names no fetched directory keeps the key of the supersede
+- **AND** a heavy run that waits reads the measures again at each look, so a measure that came while it waited counts
+  at its next look
+  [@test] crates/host-link/src/heavy_test.rs (`the_measure_key_of_a_command_puts_its_fetched_directories_as_one_word`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_measure_that_comes_while_a_run_waits_counts_at_its_next_look`)
 
 ### Requirement: serve: A later heavy run of the same checkout and command supersedes the waiting one
 

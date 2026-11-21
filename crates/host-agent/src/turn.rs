@@ -5,9 +5,11 @@
 //! (`lease_pool::host_cores`).
 //!
 //! - A supervisor of a heavy run takes its cores of the turn before its lend ([`take`], with its own pid: they last as
-//!   long as the supervisor), expecting what the last runs of its command used. Its wait is the wait for a host slot ([`slots::wait_in_looks`]): looks of 2 s, so a cancel ends
-//!   it, one watch of the table for the whole wait, and the line of the wait once a minute
-//!   (`lease_pool::host_runs::turn_line`).
+//!   long as the supervisor), expecting what the last runs of its command used, read again at each look (the key
+//!   `host_link::heavy::measure_key`, without the paths of the directories that the run fetches). Its wait is the wait
+//!   for a host slot ([`slots::wait_in_looks`]): looks of 2 s, so a cancel ends it, one watch of the table for the whole
+//!   wait, and the line of the wait once a minute (`lease_pool::host_runs::turn_line`). A look that finds the lock of
+//!   the table held for 2 s by another process costs the look, not the run: the run keeps its place and says so.
 //! - A run new to the queue supersedes the runs that wait there with its checkout and its command
 //!   (`lease_pool::host_turn::join`, the key `host_link::heavy::run_key`) and says so, and names the other runs of its
 //!   checkout that wait ([`joined_lines`]); a superseded run learns the later one at its next look, and its supervisor
@@ -23,12 +25,16 @@ use crate::home::Home;
 use crate::run::epoch_ms;
 use crate::slots::{self, Look};
 use crate::tuning;
-use host_link::heavy::run_key;
+use history_rewrite::repository_lock::RepositoryLocked;
+use host_link::heavy::{measure_key, run_key};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
 use lease_pool::host_runs::{holds_text, run_of_repo, span_since, turn_line};
-use lease_pool::host_turn::{Bar, Joined, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch};
+use lease_pool::host_turn::{
+  Bar, Joined, LOAD_BOUND, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch,
+};
 use serde::Deserialize;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::cores::Cores;
@@ -37,12 +43,17 @@ use sync_utils::process_scan::process_started;
 /// The wait for the lock of the table of the heavy turn
 const LOCK_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The wait for the lock of the table at one look of a wait for the turn: a lock that another process holds longer
+/// costs the look, not the run, which keeps its place and looks again ([`take`])
+const LOOK_LOCK_TIMEOUT: Duration = Duration::from_secs(2);
+
 const fn params(dir: &Path, cores: u32) -> TurnParams<'_> {
   TurnParams {
     dir,
     lock_timeout: LOCK_TIMEOUT,
     recheck: RECHECK,
     cores,
+    load_bound: LOAD_BOUND,
   }
 }
 
@@ -77,6 +88,9 @@ pub(crate) struct TurnRun<'a> {
   pub(crate) cores: u32,
   /// A measurement that needs a quiet host (`RunSpec::exclusive`)
   pub(crate) exclusive: bool,
+  /// The directories that the run fetches (`RunSpec::fetch`): their paths in the command are no part of the key of its
+  /// measures (`host_link::heavy::measure_key`)
+  pub(crate) fetch: &'a [String],
 }
 
 /// What an agent tells a run that waits, after the line of its wait: the wait goes on by itself, and a cancel or a run
@@ -85,23 +99,39 @@ const NOT_A_HANG: &str = "a wait, not a hang: do not cancel it and do not run it
 
 /// Takes the heavy turn of the host for the heavy run `of`, which this process runs, waiting up to `wait` while other
 /// heavy runs hold it or wait before it. The first look says what it did to the queue ([`joined_lines`]) through `say`,
-/// and a queued first look the line of the wait at once, which each minute of the wait says again. Answers
+/// and a queued first look the line of the wait at once, which each minute of the wait says again. Each look reads the
+/// measures of the command again, so a measure that came while the run waited counts. Answers
 /// `Some(TurnAnswer::Taken)`, `Some(TurnAnswer::Superseded)` once a later run of the checkout and command took its
 /// place, the place in the queue once the time is up, or `None` when `stop` ended the wait: the end of the run takes
-/// the ticket out of the queue ([`leave`]). A table that cannot be read or written refuses with `agent_error`
+/// the ticket out of the queue ([`leave`]). A lock of the table that another process holds for more than 2 s costs the
+/// look, not the run: the run keeps its place, says so at once and once a minute while it lasts, and looks again
+/// ([`LockLine`]). A table that cannot be read or written otherwise refuses with `agent_error`, and so does a lock that
+/// kept the run out of the queue for its whole wait
 pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Result<Option<TurnAnswer>, Refusal> {
+  take_with(home, of, wait, LOOK_LOCK_TIMEOUT, stop, say)
+}
+
+/// [`take`] with the wait `lock_timeout` for the lock of the table at each look
+fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Result<Option<TurnAnswer>, Refusal> {
   let pid = std::process::id();
   let command_key = run_key(of.command);
+  let cores_key = measure_key(of.command, of.fetch);
   let dir = heavy_dir(home);
+  let unread = Cell::new(false);
   // a measure that cannot be read is none: the run takes the whole host, as before any measure
-  let expected = lease_pool::host_cores::expected(&dir, of.repo, &command_key).unwrap_or_else(|error| {
-    crate::log::supervisor(&format!("cannot read the cores of the commands: {error:#}"));
-    None
-  });
-  let request = TurnRequest {
+  let expected = || {
+    lease_pool::host_cores::expected(&dir, of.repo, &cores_key).unwrap_or_else(|error| {
+      if !unread.replace(true) {
+        crate::log::supervisor(&format!("cannot read the cores of the commands: {error:#}"));
+      }
+      None
+    })
+  };
+  let process_started = process_started(pid);
+  let request = |expected| TurnRequest {
     run: of.run,
     pid,
-    process_started: process_started(pid),
+    process_started,
     repo: of.repo,
     command: of.command,
     affinity: of.affinity,
@@ -109,31 +139,105 @@ pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn(
     expected,
     exclusive: of.exclusive,
   };
-  let params = params(&dir, of.cores);
+  let params = TurnParams {
+    lock_timeout,
+    ..params(&dir, of.cores)
+  };
   // the watch starts before the first look, so no change between a look and the wait after it is lost
   let watched = watch(&params);
   let refused = |error: anyhow::Error| Refusal::new(Code::AgentError, format!("cannot take the heavy turn of the host: {error:#}"));
   let started = Instant::now();
   let run = of.run;
   let line = |queue: &TurnQueue, waited: Duration| format!("{}; {NOT_A_HANG}", turn_line(run, queue, waited, wait.saturating_sub(waited), now_ms()));
-  let joined = join(&params, &request).map_err(refused)?;
+  let mut lock_line = LockLine::default();
+  // the first ask, until the run has its place in the queue
+  let joined = loop {
+    match join(&params, &request(expected())) {
+      Ok(joined) => break joined,
+      Err(error) => {
+        let error = lock_line.held(error, false, say).map_err(refused)?;
+        if stop() {
+          return Ok(None);
+        }
+        if started.elapsed() >= wait {
+          return Err(refused(error));
+        }
+      }
+    }
+  };
+  lock_line.ended();
   for said in joined_lines(&joined, now_ms()) {
     say(&said);
   }
-  match joined.answer {
-    TurnAnswer::Queued(queue) => say(&line(&queue, Duration::ZERO)),
+  let mut last = match joined.answer {
+    TurnAnswer::Queued(queue) => {
+      say(&line(&queue, Duration::ZERO));
+      queue
+    }
     answer => return Ok(Some(answer)),
-  }
-  let mut look = |chunk: Duration| match take_waiting(&params, &request, chunk, &watched).map_err(refused)? {
-    TurnAnswer::Queued(queue) => Ok(Look::Queued(queue)),
-    answer => Ok(Look::Got(answer)),
+  };
+  // the look and the line of the wait both say, one at a time
+  let say = RefCell::new(say);
+  let mut look = |chunk: Duration| match take_waiting(&params, &request(expected()), chunk, &watched) {
+    Ok(TurnAnswer::Queued(queue)) => {
+      lock_line.ended();
+      last.clone_from(&queue);
+      Ok(Look::Queued(queue))
+    }
+    Ok(answer) => Ok(Look::Got(answer)),
+    Err(error) => {
+      lock_line.held(error, true, &mut |text| (say.borrow_mut())(text)).map_err(refused)?;
+      Ok(Look::Queued(last.clone()))
+    }
   };
   let left = wait.saturating_sub(started.elapsed());
-  let waited = slots::wait_in_looks(left, stop, &mut look, &|queue: &TurnQueue, _| line(queue, started.elapsed()), say)?;
+  let waited = slots::wait_in_looks(left, stop, &mut look, &|queue: &TurnQueue, _| line(queue, started.elapsed()), &mut |text| {
+    (say.borrow_mut())(text);
+  })?;
   Ok(waited.map(|look| match look {
     Look::Got(answer) => answer,
     Look::Queued(queue) => TurnAnswer::Queued(queue),
   }))
+}
+
+/// The line of a wait for the turn whose look found the lock of the table held by another process: at once, then once
+/// a minute while the lock stays held (`tuning::wait_progress`)
+#[derive(Default)]
+struct LockLine {
+  /// When the looks began to find the lock held, and when the line was said last
+  held: Option<(Instant, Option<Instant>)>,
+}
+
+impl LockLine {
+  /// Says the line for `error` when it is a lock that another process held past the wait of the look, and answers the
+  /// error back to retry; answers any other error as the refusal of the run. `placed`: the run has its place in the
+  /// queue, else it asks for one again
+  fn held(&mut self, error: anyhow::Error, placed: bool, say: &mut dyn FnMut(&str)) -> Result<anyhow::Error, anyhow::Error> {
+    let Some(locked) = error.downcast_ref::<RepositoryLocked>() else {
+      return Err(error);
+    };
+    let (since, said) = self.held.get_or_insert_with(|| (Instant::now(), None));
+    if said.is_none_or(|at| at.elapsed() >= tuning::wait_progress()) {
+      let holder = locked.holder.as_ref().map_or_else(|| "another process of the host".to_owned(), ToString::to_string);
+      let next = if placed {
+        "this run keeps its place in the queue and looks again"
+      } else {
+        "this run asks again for its place in the queue"
+      };
+      say(&format!(
+        "the heavy turn of the host is locked by {holder} for {} s ({}); {next}",
+        since.elapsed().as_secs(),
+        locked.path.display()
+      ));
+      *said = Some(Instant::now());
+    }
+    Ok(error)
+  }
+
+  /// A look took the lock again
+  const fn ended(&mut self) {
+    self.held = None;
+  }
 }
 
 /// Waits up to `wait` while an exclusive run holds the turn of the host, or drains it for at most
@@ -227,7 +331,7 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wa
     wall_ms: u64::try_from(wall.as_millis()).unwrap_or(u64::MAX),
     at_ms: now_ms(),
   };
-  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &run_key(of.command), measure)
+  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &measure_key(of.command, of.fetch), measure)
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
 }
 

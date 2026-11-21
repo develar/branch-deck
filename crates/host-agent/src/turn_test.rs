@@ -2,6 +2,7 @@ use super::*;
 use lease_pool::host_slots::watches_started;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
 
 /// The lines of `brd-host runs` of an agent of the build before, which names one holder and no cores, say who holds the
 /// turn and for how long, then each run that waits; a free turn says so
@@ -93,6 +94,7 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
     command: &command,
     cores: 20,
     exclusive: false,
+    fetch: &[],
   };
   let first = take(&home, &run("run-1", "/r/branch-deck"), Duration::from_mins(1), &never, &mut quiet).unwrap();
   assert_eq!(first, Some(TurnAnswer::Taken));
@@ -137,6 +139,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
     command,
     cores: 20,
     exclusive: false,
+    fetch: &[],
   };
   let never = || false;
   let at_once = || true;
@@ -191,6 +194,7 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
     command: &command,
     cores: 20,
     exclusive: true,
+    fetch: &[],
   };
   assert_eq!(take(&home, &exclusive, Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
   let shown = lines(&live(&home).unwrap()).unwrap();
@@ -223,4 +227,117 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
   );
   assert!(leave(&home, "ab").unwrap());
   assert_eq!(wait_for_measurement(&home, "light", Duration::from_mins(1), &never, &mut quiet), Some(true));
+}
+
+/// A look that finds the lock of the table held by another process costs the look, not the run: a run that asks for its
+/// first place asks again, a run of the queue keeps its place ahead of a later run, each says so at once, and the run
+/// takes the turn once the lock is free and the holder leaves
+#[test]
+fn a_held_lock_of_the_table_retries_and_the_run_keeps_its_place_in_the_queue() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let command = vec!["pnpm".to_owned(), "e2e".to_owned()];
+  let run = |run| TurnRun {
+    run,
+    repo: "/r/branch-deck",
+    affinity: run,
+    command: &command,
+    cores: 20,
+    exclusive: false,
+    fetch: &[],
+  };
+  let never = || false;
+  let mut quiet = |_: &str| {};
+  assert_eq!(take(&home, &run("holder"), Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
+  // the lock as another process holds it: a lock of a file of its own, outside the line of the locks of this process
+  let dir = home.heavy_dir();
+  let lock = std::fs::OpenOptions::new().write(true).open(dir.join(lease_pool::host_turn::LOCK_FILE)).unwrap();
+  lock.lock().unwrap();
+  let (said, lines) = mpsc::channel::<String>();
+  std::thread::scope(|scope| {
+    let waiter = scope.spawn(|| {
+      let mut say = |line: &str| said.send(line.to_owned()).unwrap();
+      take_with(&home, &run("first"), Duration::from_mins(1), Duration::from_millis(100), &never, &mut say).unwrap()
+    });
+    let held = lines.recv().unwrap();
+    assert!(
+      held.starts_with("the heavy turn of the host is locked by another process of the host for 0 s (")
+        && held.ends_with("turn.lock); this run asks again for its place in the queue"),
+      "{held}"
+    );
+    lock.unlock().unwrap();
+    let queued = lines.recv().unwrap();
+    assert!(queued.starts_with("run first waits 0 s for the heavy turn of the host"), "{queued}");
+    let TurnAnswer::Queued(later) = take(&home, &run("later"), Duration::ZERO, &never, &mut quiet).unwrap().unwrap() else {
+      panic!("the holder holds the turn");
+    };
+    assert_eq!(later.ahead.iter().map(|entry| entry.ticket.run.as_str()).collect::<Vec<_>>(), ["first"]);
+
+    lock.lock().unwrap();
+    // a change of the table under the lock wakes the wait of the run, whose look finds the lock held
+    let table = std::fs::read(dir.join("turn.json")).unwrap();
+    sync_utils::atomic_file::write_atomically(&dir.join("turn.json"), &table, sync_utils::atomic_file::AtomicWrite::default()).unwrap();
+    let held = lines.recv().unwrap();
+    assert!(held.ends_with("turn.lock); this run keeps its place in the queue and looks again"), "{held}");
+    lock.unlock().unwrap();
+    assert!(leave(&home, "holder").unwrap());
+    assert_eq!(waiter.join().unwrap(), Some(TurnAnswer::Taken), "no refusal: the lock cost looks only");
+  });
+  let table = live(&home).unwrap();
+  assert_eq!((table["holder"]["run"].as_str(), table["queue"][0]["run"].as_str()), (Some("first"), Some("later")));
+}
+
+/// A measure of the command that comes while a run waits counts at its next look, also the measure of a run that wrote
+/// its outputs to another directory that it fetched
+#[test]
+fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let lint = vec!["pnpm".to_owned(), "lint".to_owned()];
+  let lane = |out: &str| {
+    vec![
+      "zsh".to_owned(),
+      "-lc".to_owned(),
+      format!("mkdir -p {out} && ./community/tools/vm.cmd --stream run --lane ui-light > {out}/run.json"),
+    ]
+  };
+  let (light1, light5) = (lane("out/air/light1"), lane("out/air/light5"));
+  let (fetch1, fetch5) = (vec!["out/air/light1".to_owned()], vec!["out/air/light5".to_owned()]);
+  let run = |run, command, fetch| TurnRun {
+    run,
+    repo: "/r/idea-1",
+    affinity: run,
+    command,
+    cores: 20,
+    exclusive: false,
+    fetch,
+  };
+  let never = || false;
+  let mut quiet = |_: &str| {};
+  assert_eq!(
+    take(&home, &run("holder", &lint, &[]), Duration::ZERO, &never, &mut quiet).unwrap(),
+    Some(TurnAnswer::Taken)
+  );
+  let mut said = Vec::new();
+  let looks = AtomicU32::new(0);
+  // before its first look the other run of the command ends with its measure, and the second look stops
+  let stop = || match looks.fetch_add(1, Ordering::SeqCst) {
+    0 => {
+      record(&home, &run("earlier", &light1, &fetch1), Cores(15), Cores(136), Duration::from_mins(1)).unwrap();
+      false
+    }
+    _ => true,
+  };
+  let waited = take(&home, &run("waiting", &light5, &fetch5), Duration::from_mins(1), &stop, &mut |line| {
+    said.push(line.to_owned());
+  })
+  .unwrap();
+  assert_eq!(waited, None, "the stop ended the wait");
+  assert!(said[0].contains(", all its 20 cores, as the command has no measure yet, "), "{said:?}");
+  let table = live(&home).unwrap();
+  assert_eq!(
+    (table["queue"][0]["run"].as_str(), table["queue"][0]["expected"].as_f64()),
+    (Some("waiting"), Some(1.5)),
+    "the look after the measure expects it"
+  );
 }

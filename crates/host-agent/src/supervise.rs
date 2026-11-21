@@ -447,6 +447,7 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
     command: &spec.command,
     cores: host_cores(context.repo),
     exclusive: spec.exclusive,
+    fetch: &spec.fetch,
   }
 }
 

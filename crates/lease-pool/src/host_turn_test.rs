@@ -8,6 +8,7 @@ fn params(dir: &Path) -> TurnParams<'_> {
     lock_timeout: Duration::from_secs(10),
     recheck: RECHECK,
     cores: 20,
+    load_bound: LOAD_BOUND,
   }
 }
 
@@ -744,4 +745,79 @@ fn the_command_of_an_entry_is_one_line_of_at_most_200_characters() {
     "zsh -c a b   c",
     "a script of lines"
   );
+}
+
+/// On a free turn of a host that the runs that are not heavy keep busy, a run without a measure at the head of the
+/// queue waits for a quiet host only until it has waited the load bound in the queue; then it takes the whole host
+/// ahead of the later smaller runs, which would fit beside that load and wait behind it. An exclusive run, a
+/// measurement, waits for its quiet host whatever its wait
+#[test]
+fn a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_later_smaller_runs() {
+  let dir = tempfile::tempdir().unwrap();
+  let base = params(dir.path());
+  let command = command();
+  note_host(dir.path(), Cores(100)).unwrap();
+  let TurnAnswer::Queued(unknown) = take(&base, &request("unknown", &command)).unwrap() else {
+    panic!("10 busy of 20 is no quiet host");
+  };
+  assert_eq!((unknown.need, unknown.holders.len()), (Need::Unmeasured, 0));
+  assert_eq!(
+    queued(&take(&base, &measured("small", &command, 20)).unwrap()),
+    (None, vec!["unknown"]),
+    "it would fit beside the load, and waits its turn"
+  );
+  let waited_out = TurnParams {
+    load_bound: Duration::ZERO,
+    ..base
+  };
+  assert_eq!(
+    take(&waited_out, &request("unknown", &command)).unwrap(),
+    TurnAnswer::Taken,
+    "past the bound, whatever the load"
+  );
+  assert_eq!(
+    queued(&take(&waited_out, &measured("small", &command, 20)).unwrap()),
+    (Some("unknown"), vec![]),
+    "no run joins the whole host"
+  );
+  assert!(leave(&base, "unknown").unwrap());
+  assert!(!leave(&base, "small").unwrap());
+  let exclusive = TurnRequest {
+    exclusive: true,
+    ..request("ab", &command)
+  };
+  assert!(
+    matches!(take(&waited_out, &exclusive).unwrap(), TurnAnswer::Queued(_)),
+    "a measurement waits for a quiet host"
+  );
+  assert!(!leave(&base, "ab").unwrap());
+}
+
+/// A look of a run behind the head of the queue reads the table without its lock and answers its place, so a lock that
+/// another process holds stops no such look; the head of the queue, and a run whose expectation changed, take the lock
+#[test]
+fn a_look_behind_the_head_of_the_queue_takes_no_lock() {
+  let dir = tempfile::tempdir().unwrap();
+  let base = params(dir.path());
+  let command = command();
+  three_in_line(&base, &command);
+  // the lock as another process holds it: a lock of a file of its own, outside the line of the locks of this process
+  let held = std::fs::OpenOptions::new()
+    .create(true)
+    .truncate(false)
+    .write(true)
+    .open(dir.path().join(LOCK_FILE))
+    .unwrap();
+  held.lock().unwrap();
+  let short = TurnParams {
+    lock_timeout: Duration::from_millis(50),
+    ..base
+  };
+  assert_eq!(queued(&look(&short, &request("run-3", &command)).unwrap()), (Some("run-1"), vec!["run-2"]));
+  let locked = |answer: Result<TurnAnswer>| answer.unwrap_err().downcast_ref::<history_rewrite::repository_lock::RepositoryLocked>().is_some();
+  assert!(locked(look(&short, &request("run-2", &command))), "the head of the queue takes the lock");
+  assert!(locked(look(&short, &measured("run-3", &command, 40))), "a new expectation goes into the table");
+  held.unlock().unwrap();
+  assert_eq!(queued(&look(&short, &measured("run-3", &command, 40)).unwrap()), (Some("run-1"), vec!["run-2"]));
+  assert_eq!(read_live(dir.path()).unwrap().queue[1].expected, Some(Cores(40)));
 }

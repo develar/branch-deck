@@ -1,7 +1,8 @@
 //! The cores that the commands of the heavy runs of a host use (openspec/specs/cli/host/spec.md, "serve: Heavy runs share
 //! the cores of the host by their measure"; docs/design/host-runs.md, "Heavy runs"): every run whose command ran at
 //! least `MIN_WALL` adds its measure (its mean and its peak cores) to the measures of its repository and command
-//! (`host_link::heavy::run_key`), the last `KEPT` of them; a command is expected to use the 80th percentile of their
+//! (`host_link::heavy::measure_key`: the key of the supersede without the paths of the directories that the run
+//! fetches), the last `KEPT` of them; a command is expected to use the 80th percentile of their
 //! means (`expected`). So the measure follows the command: a command that got heavier shows at its next run, and one
 //! that got lighter frees cores within a few. A cancelled run counts by its own measure too.
 //!

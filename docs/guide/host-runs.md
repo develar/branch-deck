@@ -160,8 +160,10 @@ missing. `[host]` installs no tool: the host has its own. Every key is in the sp
 
 Two runs that use every core at once, such as two full test suites, both run several times slower, and their tests
 fail on timeouts. So the heavy runs of a host share its cores, whatever their repository: a heavy run starts while
-what its command used in its last runs fits beside the others, and a command without a measure yet runs alone. The
-other runs go as before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
+what its command used in its last runs fits beside the others, and a command without a measure yet runs alone. A run
+that has waited 15 min starts on a free turn even while the other runs keep the host busy. The measures of a command
+count for its runs that write their outputs to another directory that they fetch (`--fetch`). The other runs go as
+before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
 
 ```toml
 [host]

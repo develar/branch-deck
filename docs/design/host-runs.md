@@ -120,6 +120,16 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
   the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
   from joining a host they already load.
+- **A busy free turn**: as the runs that are not heavy wait for no heavy run, a host of steady light runs is never
+  quiet. On 2026-11-21 a UI lane of idea-1 without a measure waited 2 h at a free turn of the Studio, busy with 20 of
+  its 20 cores outside the heavy runs, and ended with `heavy_timeout`; the runs behind it waited too. So the head of the
+  queue that has waited 15 min since it joined the queue (`LOAD_BOUND`) takes a free turn whatever that load. The bound
+  counts from the join, not from the free turn: the field is one that a supervisor of the build before keeps, and a
+  run that waited long behind holders has waited its share. A reservation that also holds the runs that are not heavy
+  back, as the drain of an exclusive run does, was not taken: it stops every agent of the host, and the processes of
+  no run never drain. A default measure was not taken either: a first `bt --lane fast` uses every core, and a guess
+  below that runs it beside another heavy run. The bound costs the head a slower run on a loaded host, never a wait of
+  hours, and an exclusive run, a measurement, still waits for its quiet host.
 - **An exclusive run** (`brd-host run --exclusive`): a measurement such as the A/B pair of a fast lane needs a quiet
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
   is admitted only without a holder, with no run that is not heavy in its command (a run is in `light` of the turn for
@@ -145,8 +155,13 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   cold `cargo build -p git-ops` used 221 s of CPU in 108 s (2.0 cores) and the run measured 0.8, as the samples missed
   each rustc between two of them and `RUSAGE_CHILDREN` lost the build, since `zsh -c` execs its last command and macOS
   drops the reaped children of a process at its exec. Each run of 10 s or more adds its mean to the last 5 of its
-  repository and command (the key of the supersede), in `cores.json` beside the turn, and a command is expected to use
-  their 80th percentile. So the stats follow the changes, never a calibration of once: a command that got heavier is
+  repository and command, in `cores.json` beside the turn, and a command is expected to use their 80th percentile. The
+  key (`host_link::heavy::measure_key`) is the key of the supersede with each path of a directory that the run fetches
+  as one word: an agent writes the outputs of each run to a directory of its own (`--fetch out/air/light1` and `mkdir
+  -p out/air/light1 && … > out/air/light1/run.json`, then `light5`), and on 2026-11-21 the measure of one lane did not
+  count for the next. Only the fetched directories go: no word of a command tells an output from an input, and a path
+  that the run does not fetch may name what it checks. A run that waits reads the measures again at each look, so a
+  run of its command that ends meanwhile counts. So the stats follow the changes, never a calibration of once: a command that got heavier is
   expected heavier at its next run, one that got lighter (a faster fast lane) frees its cores within a few runs, and a
   cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use, so a run that
   grows past its expectation holds more at once, for the admissions that follow, not only at its end.
@@ -155,7 +170,14 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   that waits in `heavy.json` takes its turn without seeing the holders of `turn.json`, so for the hours after an
   upgrade two heavy runs can run at once, as they do when one of them is not heavy. Its wait is the wait for a slot: looks of 2 s, so a cancel ends it, one watch of the
   directory of the table for the whole wait, which holds nothing else, a look every 5 s, and a line at once and once
-  a minute with the holder, the runs ahead and the time left. It gives the turn back after its give-back, so the
+  a minute with the holder, the runs ahead and the time left. A look waits 2 s for `turn.lock`; a lock that another
+  process holds longer costs the look, not the run, which keeps its place in the queue, says so at once and once a
+  minute, and looks again. On 2026-11-21 a wait of 60 s for the lock ended two runs with `agent_error`, one after 72 min
+  in the queue, and the end of each took its ticket out. The lock is a polled `flock` with no order between processes,
+  and each change of the table, a sample of every run among them, woke every run that waited, each of which took the
+  lock. So a look of a run behind the head of the queue reads the table without the lock: only the head can be
+  admitted, and such a look changes nothing. A process that is gone holds no lock, as the system frees a `flock` with
+  its process; a live holder that hangs is not broken, as the record of the lock names it in the line. It gives the turn back after its give-back, so the
   processes that it left are gone first. A killed supervisor holds nothing: the next run takes the turn of a gone
   holder at its next look. A wait past 2 h ends with `heavy_timeout`, and the run then goes nowhere else: a local run
   is the run under load that the turn keeps from failing. The line of the wait says that it is a wait, not a hang,
