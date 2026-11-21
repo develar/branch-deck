@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.19.0](https://github.com/develar/branch-deck/compare/v1.18.0...v1.19.0) (2026-11-21)
+
+
+### Features
+
+* **ide:** Branches, Reviews and Landing are tabs of the tool window of the IDE, and a switch to the view of another tab shows that tab ([63e27ee](https://github.com/develar/branch-deck/commit/63e27eede637b148fc71f8463e94f219a42cae91))
+* **ide:** the progress in the tab of the main view names what runs, "Branches Safe Push 37%", and a robot without an estimate shows its text without a percent ([e7bd62a](https://github.com/develar/branch-deck/commit/e7bd62acd43d938eb92cff3a21cb83d81ea7ecf1))
+* **update:** an update whose clean replay loses a binding is a conflict, and `brd update` fixes it in a lost-bindings round ([37de4a0](https://github.com/develar/branch-deck/commit/37de4a01515457b2d38f56bd5cd7fd83160cc0f2))
+* **update:** Update Anyway keeps the lost bindings of the dialog, and the check of every sync reads them too ([e77537c](https://github.com/develar/branch-deck/commit/e77537ca192037fbf5566bd382fff047f7e184e6))
+
+
+### Bug Fixes
+
+* **brd-host:** the readers of the CPU of the host and of a process pass clippy on Windows, where they are const fns that tell nothing ([4c07e69](https://github.com/develar/branch-deck/commit/4c07e69b3e4e2039bb72b0ac8ccc00c5ed0aa77b))
+* **e2e:** a wait for a frame waits for a rendering update, the first report of a ResizeObserver made for it, never for a requestAnimationFrame, which the test clock runs as a timer ([#235](https://github.com/develar/branch-deck/issues/235)) ([91ab850](https://github.com/develar/branch-deck/commit/91ab850e09ca6964b7c852b5e4f75693b8cb13c6))
+* **ide:** the page in the IDE says it is initialized once it listens, and a branch that Activity reveals shows the tab of the branches ([e05a5bb](https://github.com/develar/branch-deck/commit/e05a5bbafd07745c868745a41dcde79d8f1fbdb9))
+* **ide:** the tool window of the IDE names its main tab Branches (`tabTitle`), so no empty tab stands beside Activity ([c3c89f0](https://github.com/develar/branch-deck/commit/c3c89f0da9bf93a3d7af209ff3c181b467305e2b))
+* **install:** the skill gives the commit body the form of the repository, and the labels only where the repository has none ([81631af](https://github.com/develar/branch-deck/commit/81631afdfe7b7dd8d12e74165f1381114dafda8d))
+* **lease:** a background command of the session that holds a lease is `kind: holder` of `slot_busy`, and `brd lease return --stop-own` ends its tree and returns the slot, never a process of another session ([#238](https://github.com/develar/branch-deck/issues/238)) ([760b476](https://github.com/develar/branch-deck/commit/760b476f93130d7141d7c2b11c9edba340e8faf7))
+* **policy:** a rewrite says whether it reads the original commits or the build, so a branch whose sync conflicts restacks and regroups, and a fix of several conflicts names each step once ([8ba9344](https://github.com/develar/branch-deck/commit/8ba9344f5896114c9fd05af41dd745054947f0f9))
+* **policy:** Create Pull Request and Request Review wait in the menus for the push they make first, by the blocker the engine refuses them by ([a7e2fa0](https://github.com/develar/branch-deck/commit/a7e2fa09b4cd7796a2ab7625c9c4ca6385af334a))
+
 ## [1.18.0](https://github.com/develar/branch-deck/compare/v1.17.0...v1.18.0) (2026-11-20)
 
 
