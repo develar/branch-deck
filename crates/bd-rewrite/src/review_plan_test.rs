@@ -348,8 +348,9 @@ fn prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration
 }
 
 /// The units of a function moved whole to a file that stays and of one extracted into a new file, each the same code:
-/// the removed one says where it went (`moved_to`), the added one where it came from (`moved_from`), and the new file,
-/// taken whole, says neither
+/// the removed one says where it went (`moved_to`), the added one where it came from (`moved_from`), each with the unit
+/// that shows the other place, and the new file, taken whole, says neither; the block that removes both is the move
+/// alone (`moved_out` of its slice)
 #[test_log::test]
 fn prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_file() {
   let format = "fun formatTotal(total: Int): String {\n  return \"Total: $total\"\n}\n";
@@ -377,23 +378,38 @@ fn prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_fi
         json!("declaration:src/a/Orders.kt:a.formatTotal:total:Int"),
         json!("removed"),
         Value::Null,
-        json!({ "path": "src/a/Report.kt", "line": 7 })
+        json!({ "path": "src/a/Report.kt", "line": 7, "unit": "declaration:src/a/Report.kt:a.formatTotal:total:Int" })
       ],
       [
         json!("declaration:src/a/Orders.kt:a.parseTotal:text:String"),
         json!("removed"),
         Value::Null,
-        json!({ "path": "src/a/Parsing.kt", "line": 3 })
+        json!({ "path": "src/a/Parsing.kt", "line": 3, "unit": "new:src/a/Parsing.kt" })
       ],
       [
         json!("declaration:src/a/Report.kt:a.formatTotal:total:Int"),
         json!("added"),
-        json!({ "path": "src/a/Orders.kt", "line": 7 }),
+        json!({ "path": "src/a/Orders.kt", "line": 7, "unit": "declaration:src/a/Orders.kt:a.formatTotal:total:Int" }),
         Value::Null
       ],
       [json!("new:src/a/Parsing.kt"), json!("newFile"), Value::Null, Value::Null],
     ],
     "{output}"
   );
+  // one block removes both functions: the unit of the first holds it, the other has no block
+  let moved_out: Vec<(Value, Value)> = output["units"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .flat_map(|unit| {
+      unit["slices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|slice| (unit["id"].clone(), slice.get("moved_out").cloned().unwrap_or(Value::Null)))
+    })
+    .filter(|(_, moved_out)| !moved_out.is_null())
+    .collect();
+  assert_eq!(moved_out, [(json!("declaration:src/a/Orders.kt:a.formatTotal:total:Int"), json!(true))], "{output}");
   assert_in_schema(&repo, &output);
 }

@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 39` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 40` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -75,7 +75,10 @@
 //! `wait`: the declarations of the old and the new name one unit, in place of a removed and an added one;
 //! version 39 the `moved_from` of an `added` declaration and the `moved_to` of a `removed` one whose code, the same
 //! content of its tokens, the commits moved whole between two files: the `path` and the `line` of the other place,
-//! the two still two units
+//! the two still two units;
+//! version 40 the `unit` of that place, the unit that shows it (of its declaration, or the one that takes its file
+//! whole), and the `moved_out` of a slice that holds nothing but declarations moved whole to other files, read at
+//! their new places
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -105,7 +108,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 39;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 40;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -424,13 +427,13 @@ pub struct UnitOutput {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub renamed_from: Option<RenamedFrom>,
   /// Of an `added` declaration whose code, the same content of its tokens, the commits removed from another file and
-  /// from no other place: that place, its `path` and the `line` of its name there before the commits (a `removed` unit,
-  /// or a file deleted whole); absent for any other unit
+  /// from no other place: that place, its `path`, the `line` of its name there before the commits and the `unit` that
+  /// shows it (a `removed` unit, or a file deleted whole); absent for any other unit
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub moved_from: Option<MovedPlace>,
   /// Of a `removed` declaration whose code the commits added to another file and to no other place: that place, its
-  /// `path` and the `line` of its name there after the commits (an `added` unit, or a new file taken whole); absent for
-  /// any other unit
+  /// `path`, the `line` of its name there after the commits and the `unit` that shows it (an `added` unit, or a new file
+  /// taken whole); absent for any other unit
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub moved_to: Option<MovedPlace>,
 }
@@ -472,6 +475,12 @@ pub struct UnitSliceOutput {
   /// side with none)
   pub blocks: Vec<UnitBlockOutput>,
   pub fingerprint: String,
+  /// It holds nothing but declarations moved whole to other files: of a `removed` unit with `moved_to`, its blocks
+  /// remove those declarations alone (its own and those of the units without a block whose lines they change), blank
+  /// lines aside; of a deleted file, its every line of code is of such a declaration (the `moved_from` of an `added`
+  /// unit) or of an import. What it removes is read at the other places; absent for any other slice, which is read
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub moved_out: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -690,6 +699,7 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     whole: slice.whole,
     blocks: slice.blocks.into_iter().map(block).collect(),
     fingerprint: slice.fingerprint,
+    moved_out: slice.moved_out,
   };
   let mut output = UnitOutput {
     id: unit.id,

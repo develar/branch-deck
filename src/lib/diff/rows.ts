@@ -111,6 +111,12 @@ export interface HeadingPart {
    * of the heading names it no more, only its sites (`presentRemark`); null or absent for a heading of no rename
    */
   readonly renamed?: { readonly old: string; readonly new: string } | null
+  /**
+   * The move between two files the words say already ("formatTotal — moved from Orders.kt"), by the path of the other
+   * file: the note of a move of that file in the row of the heading names its line alone (`presentRemark`); null or
+   * absent for a heading of no move
+   */
+  readonly moved?: { readonly path: string } | null
 }
 
 /** The heading of a block, a part for each change it starts */
@@ -634,6 +640,10 @@ export function foldWords(fold: FoldRow): { lines: string; places: { block: numb
     blocks.set(label, [...(blocks.get(label) ?? []), block])
   }
   const places = [...blocks].map(([label, of]) => {
+    // the place a declaration left, which says where it went and is no change to count: its words as its row says them
+    if (label.startsWith("Moved ")) {
+      return { block: of[0]!, words: label }
+    }
     const where = label.startsWith("Shown in ") ? label.slice("Shown ".length) : label.charAt(0).toLowerCase() + label.slice(1)
     return { block: of[0]!, words: `${of.length === 1 ? "1 change" : `${of.length} changes`} ${where}` }
   })

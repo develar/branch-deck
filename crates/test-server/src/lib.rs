@@ -550,6 +550,8 @@ pub enum RepositoryTemplate {
   ReviewModules,
   #[serde(rename = "review_parts")]
   ReviewParts,
+  #[serde(rename = "review_moves")]
+  ReviewMoves,
   #[serde(rename = "script_colors")]
   ScriptColors,
   #[serde(rename = "csharp_colors")]
@@ -657,6 +659,7 @@ impl RepositoryTemplate {
       Self::ReviewLongTitles => "review_long_titles",
       Self::ReviewModules => "review_modules",
       Self::ReviewParts => "review_parts",
+      Self::ReviewMoves => "review_moves",
       Self::ScriptColors => "script_colors",
       Self::CSharpColors => "csharp_colors",
       Self::StackedBranches => "stacked_branches",

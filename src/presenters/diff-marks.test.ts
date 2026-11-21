@@ -213,6 +213,26 @@ describe("the words of a move between two files", () => {
     ])
   })
 
+  it("says of a move the heading of its row names already the line of the other end alone, and names it in full to a screen reader", () => {
+    // "formatTotal — moved to Report.kt · line 18": the heading names the file of the other end
+    const told = presentRemark({ kind: "moved", lines: lines(54, 58, 60, 60), open: null, move: { at: "source", move: moved, other: [17, 21], file: report } }, [], [report.path])
+    expect([told.label, told.target, told.name]).toEqual([
+      "",
+      { words: "line 18", name: "Go to line 18 of src/Report.kt, where the lines stand now", jump: true },
+      "Moved to line 18 of src/Report.kt",
+    ])
+    const declared = presentRemark(
+      { kind: "moved", lines: lines(20, 20, 17, 24), open: null, move: { at: "destination", move: moved, other: [54, 58], file: ledger, declaration: "reportTitle" } },
+      [],
+      [ledger.path],
+    )
+    expect([declared.label, declared.target?.words, declared.name]).toEqual(["", "line 55", "Moved reportTitle from line 55 of src/Ledger.kt"])
+    // a heading of a move of another file says nothing of this one
+    expect(
+      presentRemark({ kind: "moved", lines: lines(54, 58, 60, 60), open: null, move: { at: "source", move: moved, other: [17, 21], file: report } }, [], [ledger.path]).label,
+    ).toBe("Moved")
+  })
+
   it("says the same words of an end in a file the view does not show, as words that show nothing", () => {
     const hidden = source({ ...report, shown: false })
     expect([hidden.label, hidden.target]).toEqual(["Moved", { words: "to Report.kt:18", name: "Line 18 of src/Report.kt, where the lines stand now", jump: false }])

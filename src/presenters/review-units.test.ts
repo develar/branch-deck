@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
-import { headingText } from "@/lib/diff/rows"
-import { concernChapters } from "@/presenters/review-steps"
+import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewStep, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
+import { foldWords, headingText } from "@/lib/diff/rows"
+import { concernChapters, presentChapters } from "@/presenters/review-steps"
 import { formatPart, formatUnitHeading, presentNarrative, presentStepBar } from "@/presenters/review-units"
 import type { NarrativeFile } from "@/presenters/review-units"
+import { commitSteps, reviewStep, stepCommit } from "@/test-support/review-step"
 
 /** Block `index` of a file: one line changed at `line` on each side */
 function block(index: number, line: number): UnitBlock {
@@ -419,3 +421,167 @@ describe("the concerns in the story", () => {
     ])
   })
 })
+
+describe("the declarations moved whole between two files in the story", () => {
+  const ORDERS = "src/a/Orders.kt"
+  const REPORT = "src/a/Report.kt"
+  const PARSING = "src/a/Parsing.kt"
+  const LEGACY = "src/a/Legacy.kt"
+  /** A declaration of one side alone of `path`, the line of its name `line`, with `blocks` of its own */
+  const declaration = (kind: "added" | "removed", name: string, path: string, line: number, blocks: UnitBlock[], more: Partial<ReviewUnit> = {}): ReviewUnit => ({
+    ...unit({ kind }, name, [{ path, blocks }]),
+    id: `${kind}:${path}:${name}`,
+    line,
+    ...more,
+  })
+  const place = (path: string, line: number, unit: string) => ({ path, line, unit })
+  const movedOut = (of: ReviewUnit): ReviewUnit => ({ ...of, slices: of.slices.map(slice => ({ ...slice, movedOut: true })) })
+  /** Block `index` of a file: lines removed at `line`, none added */
+  const removal = (index: number, line: number, count = 4): UnitBlock => ({
+    index,
+    oldStart: line,
+    oldEnd: line + count,
+    newStart: line,
+    newEnd: line,
+    additions: 0,
+    deletions: count,
+  })
+  /** Block `index` of a file: lines added at `line`, none removed */
+  const addition = (index: number, line: number, count = 5): UnitBlock => ({
+    index,
+    oldStart: line,
+    oldEnd: line,
+    newStart: line,
+    newEnd: line + count,
+    additions: count,
+    deletions: 0,
+  })
+  /** A file whose diff has `blocks`, as the window reads it */
+  const diffOf = (path: string, blocks: UnitBlock[]): NarrativeFile => ({ path, blocks })
+
+  it("words a declaration moved whole between two files where it stands now and where it left, as Rust decided", () => {
+    const added = declaration("added", "formatTotal", REPORT, 7, [], { movedFrom: place(ORDERS, 9, "removed:src/a/Orders.kt:formatTotal") })
+    expect(formatUnitHeading(added)).toEqual({ name: "formatTotal", words: "moved from Orders.kt", moved: { path: ORDERS } })
+    const removed = declaration("removed", "formatTotal", ORDERS, 9, [], { movedTo: place(REPORT, 7, added.id) })
+    expect(headingText([formatUnitHeading(removed)])).toBe("formatTotal — moved to Report.kt")
+    // the file by its name among the files of the review, where two have the same name
+    expect(headingText([formatUnitHeading(removed, path => (path === REPORT ? "a/Report.kt" : path))])).toBe("formatTotal — moved to a/Report.kt")
+    // no move Rust told of: new and removed
+    expect(headingText([formatUnitHeading({ ...added, movedFrom: null })])).toBe("formatTotal — new")
+    expect(headingText([formatUnitHeading({ ...removed, movedTo: null })])).toBe("formatTotal — removed")
+  })
+
+  it("makes the place a declaration left one row that opens where it went, where Rust says it holds the move alone, and keeps its lines under the heading where it holds more", () => {
+    const added = declaration("added", "formatTotal", REPORT, 7, [addition(0, 5)])
+    const removed = declaration("removed", "formatTotal", ORDERS, 9, [removal(0, 8)], { movedTo: place(REPORT, 7, added.id) })
+    const withFrom = { ...added, movedFrom: place(ORDERS, 9, removed.id) }
+    const files = [diffOf(ORDERS, [removal(0, 8)]), diffOf(REPORT, [addition(0, 5)])]
+    const sections = presentNarrative([movedOut(removed), withFrom], files, [], [], [])
+    expect(sections.map(section => section.key)).toEqual(["file:src/a/Orders.kt", "file:src/a/Report.kt"])
+    const [orders, report] = sections
+    // where it left: one row, which opens the section of where it stands now
+    expect([...orders!.units!.elsewhere]).toEqual([[0, "Moved formatTotal to Report.kt"]])
+    expect(orders!.targets.get(0)).toBe(report!.key)
+    // where it stands now: read, under the heading that says where it came from
+    expect([...report!.units!.marks].map(([block, heading]) => [block, headingText(heading)])).toEqual([[0, "formatTotal — moved from Orders.kt"]])
+    expect([...report!.units!.elsewhere]).toEqual([])
+
+    // a block that holds more than the move: its lines under the heading of the move
+    const more = presentNarrative([removed, withFrom], files, [], [], [])
+    expect([...more[0]!.units!.elsewhere]).toEqual([])
+    expect([...more[0]!.units!.marks].map(([block, heading]) => [block, headingText(heading)])).toEqual([[0, "formatTotal — moved to Report.kt"]])
+  })
+
+  it("names in the row of the place two declarations left both and where each went, and a file taken whole by the moves into it, out of it, or its row", () => {
+    // parseTotal and parseSum extracted into the new Parsing.kt, one block of Orders.kt; legacyTotal out of the deleted
+    // Legacy.kt into Orders.kt
+    const newFile = unit({ kind: "newFile" }, "Parsing.kt", [{ path: PARSING, blocks: [], whole: true }])
+    const deleted = unit({ kind: "deletedFile" }, "Legacy.kt", [{ path: LEGACY, blocks: [], whole: true }])
+    const parseTotal = declaration("removed", "parseTotal", ORDERS, 20, [removal(1, 18, 8)], { movedTo: place(PARSING, 3, newFile.id) })
+    const parseSum = declaration("removed", "parseSum", ORDERS, 24, [], { movedTo: place(PARSING, 7, newFile.id) })
+    const legacy = declaration("added", "legacyTotal", ORDERS, 3, [addition(0, 2, 4)], { movedFrom: place(LEGACY, 3, deleted.id) })
+    // a file taken whole is one block of its lines
+    const files = [diffOf(LEGACY, [removal(0, 0, 6)]), diffOf(ORDERS, [addition(0, 2, 4), removal(1, 18, 8)]), diffOf(PARSING, [addition(0, 0, 9)])]
+    // Rust joins parseSum, which has no block of its own, to the stop of the block of parseTotal
+    const steps = [
+      stepWithJoined(
+        reviewStep(
+          "a",
+          [stepCommit("move")],
+          [
+            [legacy.id, ORDERS],
+            [parseTotal.id, ORDERS],
+            [newFile.id, PARSING],
+            [deleted.id, LEGACY],
+          ],
+        ),
+        parseTotal.id,
+        [{ unit: parseSum.id, block: 1, step: 0 }],
+      ),
+    ]
+    const chapters = presentChapters({ steps: commitSteps(steps, false), concerns: [] })
+    const read = (units: readonly ReviewUnit[]) =>
+      presentNarrative(units, files, [], [], chapters).map(section => [
+        section.key,
+        [...(section.units?.marks ?? [])].map(([block, heading]) => [block, headingText(heading)]),
+        [...(section.units?.elsewhere ?? [])],
+        [...section.targets],
+      ])
+    expect(read([legacy, movedOut(parseTotal), parseSum, newFile, movedOut(deleted)])).toEqual([
+      [
+        "file:src/a/Orders.kt",
+        [
+          [0, "legacyTotal — moved from Legacy.kt"],
+          [1, "parseTotal — moved to Parsing.kt · parseSum — moved to Parsing.kt"],
+        ],
+        [[1, "Moved parseTotal and parseSum to Parsing.kt"]],
+        [[1, PARSING]],
+      ],
+      [PARSING, [[0, "parseTotal — moved from Orders.kt · parseSum — moved from Orders.kt"]], [], []],
+      [LEGACY, [], [[0, "Moved legacyTotal to Orders.kt"]], [[0, "file:src/a/Orders.kt"]]],
+    ])
+    // a deleted file that holds more than the move: whole, its heading saying where its declaration went
+    expect(read([legacy, movedOut(parseTotal), parseSum, newFile, deleted]).at(-1)).toEqual([LEGACY, [[0, "legacyTotal — moved to Orders.kt"]], [], []])
+  })
+
+  it("names the step of where a declaration went in the row of the place it left, when it is another, and in a fold the row itself", () => {
+    const added = declaration("added", "formatTotal", REPORT, 7, [addition(0, 5)])
+    const removed = declaration("removed", "formatTotal", ORDERS, 9, [removal(0, 8)], { movedTo: place(REPORT, 7, added.id) })
+    const steps = [
+      reviewStep("copy", [stepCommit("copy the format")], [[added.id, REPORT]], {}, { title: plainTitle("copy the format") }),
+      reviewStep("drop", [stepCommit("drop the old format")], [[removed.id, ORDERS]], {}, { title: plainTitle("drop the old format") }),
+    ]
+    const chapters = presentChapters({ steps: commitSteps(steps), concerns: [] })
+    const sections = presentNarrative(
+      [{ ...added, movedFrom: place(ORDERS, 9, removed.id) }, movedOut(removed)],
+      [diffOf(ORDERS, [removal(0, 8)]), diffOf(REPORT, [addition(0, 5)])],
+      [],
+      [],
+      chapters,
+    )
+    const orders = sections.find(section => section.path === ORDERS)!
+    expect([...orders.units!.elsewhere]).toEqual([[0, "Moved formatTotal to Report.kt in step 1"]])
+    expect(orders.targets.get(0)).toBe(sections.find(section => section.path === REPORT)!.key)
+    // a fold that hides the row says what it says, no count of changes
+    expect(
+      foldWords({
+        kind: "fold",
+        gap: 0,
+        level: 0,
+        lines: [],
+        label: null,
+        unchanged: 12,
+        elsewhere: [{ block: 0, label: "Moved formatTotal to Report.kt in step 1" }],
+        ignored: 0,
+      }),
+    ).toEqual({
+      lines: "12 unchanged lines",
+      places: [{ block: 0, words: "Moved formatTotal to Report.kt in step 1" }],
+    })
+  })
+})
+
+/** `step` with `joined` beside the stop of `unit` */
+function stepWithJoined(step: ReviewStep, unit: string, joined: ReviewStep["stops"][number]["joined"]): ReviewStep {
+  return { ...step, stops: step.stops.map(stop => (stop.unit === unit ? { ...stop, joined } : stop)) }
+}

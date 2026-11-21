@@ -692,6 +692,49 @@ pub mod templates {
       )
   }
 
+  /// The branch `moves` (openspec/specs/branch/review-units/spec.md, "Units: The place a move left is nothing to read
+  /// where it holds the move alone"), two commits that move declarations whole between files, each the same code: the
+  /// first copies `formatTotal` of `src/a/Orders.kt` into `src/a/Report.kt` and extracts `parseTotal` and `parseSum`
+  /// beside each other into the new `src/a/Parsing.kt`; the second drops the old `formatTotal`, so its two places fall
+  /// into two steps, and moves `legacyTotal` out of `src/a/Legacy.kt`, which it deletes, to the top of the orders
+  pub fn review_moves() -> RepoTemplate {
+    const ORDERS: &str = "class Orders(private val items: List<Int>) {\n  fun total(): Int = items.sum()\n}\n";
+    const FORMAT: &str = "/** The total as the report prints it */\nfun formatTotal(total: Int): String {\n  val text = total.toString()\n  return \"Total: $text\"\n}\n";
+    const COUNT: &str = "fun count(items: List<Int>): Int {\n  return items.size\n}\n";
+    const PARSE_TOTAL: &str = "fun parseTotal(text: String): Int {\n  return text.removePrefix(\"Total: \").toInt()\n}\n";
+    const PARSE_SUM: &str = "fun parseSum(text: String): Int {\n  return text.removePrefix(\"Sum: \").toInt()\n}\n";
+    const LEGACY: &str = "fun legacyTotal(items: List<Int>): Int {\n  return items.fold(0) { sum, item -> sum + item }\n}\n";
+    const REPORT: &str = "class Report(private val orders: Orders) {\n  fun render(): String = formatTotal(orders.total())\n}\n";
+    // a file of the package `a` with `declarations`, a blank line between them
+    let source = |declarations: &[&str]| format!("package a\n\n{}", declarations.join("\n"));
+    RepoTemplate::new("review_moves")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("src/a/Orders.kt", &source(&[ORDERS, FORMAT, COUNT, PARSE_TOTAL, PARSE_SUM])),
+          ("src/a/Report.kt", &source(&[REPORT])),
+          ("src/a/Legacy.kt", &format!("// The totals of the first release\n{}", source(&[LEGACY]))),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(moves) feat(report): the report formats its own total and the parsing has a file\n\nThe report formats the total itself, and `parseTotal` and `parseSum` go to `Parsing.kt`.",
+        &[
+          ("src/a/Orders.kt", &source(&[ORDERS, FORMAT, COUNT])),
+          ("src/a/Report.kt", &source(&[REPORT, FORMAT])),
+          ("src/a/Parsing.kt", &source(&[PARSE_TOTAL, PARSE_SUM])),
+        ],
+        Some(1704118200),
+      )
+      .commit_deleting(
+        "(moves) refactor(orders): drop the old format and the legacy file\n\nThe orders format no total, the report does; `legacyTotal` comes into `Orders.kt` and `Legacy.kt` goes.",
+        &[("src/a/Orders.kt", &source(&[LEGACY, ORDERS, COUNT]))],
+        &["src/a/Legacy.kt"],
+        Some(1704118800),
+      )
+  }
+
   pub fn review_long_titles() -> RepoTemplate {
     let plan = |overview: &str, title: &str| format!("package review\n\nclass Plan {{\n  fun overview(): String = \"{overview}\"\n  fun title(): String = \"{title}\"\n}}\n");
     RepoTemplate::new("review_long_titles")

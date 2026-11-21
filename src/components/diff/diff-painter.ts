@@ -1068,9 +1068,11 @@ export class DiffPainter {
    * declaration has no key, and the menu of the code on its note shows it (`declarationAt`)
    */
   private remark(file: number, note: NoteRow, remark: Remark): Node[] {
-    // the renames the heading of the row names already: the note says their sites alone
+    // the renames and the moves between files the heading of the row names already: the note says their sites, the
+    // line of the other end, alone
     const named = (note.heading ?? []).flatMap(part => (part.renamed == null ? [] : [part.renamed]))
-    const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark), named)
+    const moved = (note.heading ?? []).flatMap(part => (part.moved == null ? [] : [part.moved.path]))
+    const { label, renamed, target, detail, more, reach, name, toggle } = presentRemark(this.factsOf(file, remark), named, moved)
     const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
     words.dataset.kind = remark.kind
     if (toggle !== null) {
@@ -1105,7 +1107,8 @@ export class DiffPainter {
       const spelled = rename.named ? [] : [said("dv-remark-name", rename.old), said("dv-remark-detail", " → "), said("dv-remark-name", rename.new), said("dv-remark-detail", " · ")]
       words.append(...before, ...spelled, said("dv-remark-detail", rename.sites))
     }
-    const parts: Node[] = [words]
+    // a note whose words the heading says, of a place alone: no empty words before the place
+    const parts: Node[] = label === "" && toggle === null && renamed === null ? [] : [words]
     const reaching = said("dv-remark-detail", ` · ${detail}`)
     /** The words of a place another row or another file shows: a button of its own beside the one that opens the note */
     const place = (text: string, hover: string, testId: string) => {
@@ -1158,7 +1161,7 @@ export class DiffPainter {
       const other = target.jump ? place(target.words, target.name, "diff-move-target") : said("dv-remark-detail", target.words, "diff-move-place")
       // plain words say in full which file and line they mean, on a hover
       other.title = target.name
-      parts.push(document.createTextNode(" "), other)
+      parts.push(...(parts.length === 0 ? [] : [document.createTextNode(" ")]), other)
       if (detail !== "") {
         parts.push(reaching)
       }

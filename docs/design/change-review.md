@@ -264,7 +264,7 @@ the review.
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
 | Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
 | Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
-| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved whole to another file with the same code says where it went and came from (`moved_from`, `moved_to`; decision 33), still two units; one unit of such a move, a move whose body changed and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
+| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved whole to another file with the same code says where it went and came from (`moved_from`, `moved_to`; decision 33) and is read once, at its new place, its old place one row where it holds the move alone (`moved_out`, decision 36), still two units; a move whose body changed and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
@@ -694,6 +694,32 @@ the review.
    (none of 20, 3 of 24), and their forms that are true fire 3 times in 3000 commits, each the declared purpose of its
    commit, which its message says already. The monorepo mutes its tests mostly on CI, outside the code: a silent
    signal would not mean that nothing was muted.
+36. **A move is read once, at its new place** (2026-11-21). The window showed an exact move twice, "formatTotal —
+   removed" in red and "formatTotal — new" in green, the same code read twice, and a function extracted into a new file
+   was a removal beside a new file that said nothing. Now the new place says where the code came from ("formatTotal —
+   moved from Orders.kt"; a new file, above its lines, each declaration that came into it), and the old place, where it
+   holds the move alone, is one row of the kind "Shown in Imports only" already is: "Moved formatTotal to Report.kt",
+   which opens the section of the new place, another step by its number ("in step 1"), in a fold the words of the row.
+   Rust decides what holds the move alone (`UnitSlice::moved_out`): the blocks of a unit `removed` change the old side
+   as removing the declarations that moved would, blank lines aside, so a deletion the comparison slid by a closing
+   brace counts too; a deleted file holds only its moved declarations and its imports and package line, its comments
+   going with it. Anything more at the old place (a constant that moved nowhere beside the function, a block that adds
+   the code that came in) keeps its lines under "formatTotal — moved to Report.kt": in a file that stays the row stands
+   for no line but blank ones that the new place does not show. One unit in the plan was checked and rejected: the
+   removed unit's id and fingerprint, which a tour and a mark of the reviewed key on, would go; a section shows one
+   slice of a unit, so a unit of two files has none; and a move into a new file would fold every removed declaration
+   into the unit of that file. So the units, their order, the concerns, the steps and their coverage are those without
+   the move, and each place stays in the step of the commit that wrote it: a copy in step 1 and the removal of the
+   original in step 2 is a row in step 2 that names step 1. A range that holds one place alone (the commit of the copy
+   shown alone, Since Your Review of the removal) has no move in its plan, and its removal is read. What is left to read
+   counts as the diffs count it (decision 28), no second count: the header still counts the block of the old place,
+   which the marks of its diff keep a stop (a move between files is a label at both ends,
+   [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)), while N and P pass the row as any row of a block
+   another section shows. The place of a move names the unit that shows it (`MovedPlace::unit`), so the row finds the
+   section of the new place without a guess by its lines. Where the note of the marks of the move starts the block of
+   the heading, it names the line of the other end alone ("legacyTotal — moved from Legacy.kt · line 4"), as a rename
+   the heading names says its sites alone; the card of a name says "Moved from Orders.kt". `brd review-plan` prints
+   both facts, schema 40.
 
 ## Review Rounds
 
@@ -806,8 +832,9 @@ the volume of the mutes on CI was not measured.
    asks after its rows). What is left is the unit of the plan: the same facts read by `review-plan`, which reads the
    blocks of the scans and, since schemas 35, 37 and 38, the marks of its reading (`reading`, `renamed_uses`: a body
    changed in a rename no index proved says so, a declaration renamed so is one unit); since schema 39 a declaration
-   moved whole to another file says where it went and came from (decision 33), still two units, one of a move read at
-   its new place next, a move whose body changed and a positional bridge of the marks only after it (decision 34);
+   moved whole to another file says where it went and came from (decision 33), and since schema 40 it is read once, at
+   its new place, its old place one row (decision 36), still two units; a move whose body changed and a positional
+   bridge of the marks come after it (decision 34);
    and the uses a move made the change update in another way (an import of another path, a receiver of another
    expression), which a diff still reads.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.

@@ -5433,6 +5433,11 @@ export type MovedPlace = {
 	 *  the place it went to
 	 */
 	line: number,
+	/**
+	 *  The unit that shows the place, by its id (`ReviewUnit::id`): the unit `added` or `removed` of the declaration
+	 *  there, or the unit that takes its file whole (`newFile`, `deletedFile`, `deletedFiles`)
+	 */
+	unit: string,
 };
 
 /**  What a declaration or a removal of declared needs did to one branch */
@@ -10898,6 +10903,14 @@ export type UnitSlice = {
 	blocks: UnitBlock[],
 	/**  The change this slice makes, by the content of its tokens or its blobs (`units`, "Identity") */
 	fingerprint: string,
+	/**
+	 *  It holds nothing but declarations moved whole to other files (`moved_across`, "The place a move left"): of a unit
+	 *  `removed` with `moved_to`, its blocks remove those declarations alone, its own and those of the units without a
+	 *  block whose lines they change, blank lines aside; of a file the commits delete, its every line of code is a line
+	 *  of such a declaration (`moved_from` of a unit `added`) or of an import. The other places show what it removes, so
+	 *  it is nothing to read here. False for any other slice, whose lines are read
+	 */
+	movedOut?: boolean,
 };
 
 /**  Why Patronus can't tell */

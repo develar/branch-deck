@@ -508,6 +508,7 @@ describe("the document of a review", () => {
             { unit: "u:passes", step: 0 },
             { unit: "u:opens", step: 0 },
             { unit: "u:focuses", step: 0 },
+            { unit: "u:format", step: 1 },
           ],
         },
       ),
@@ -518,6 +519,7 @@ describe("the document of a review", () => {
           unitOf("u:passes", { kind: "added" }, "passes"),
           unitOf("u:opens", { kind: "added" }, "the open shows the stored layout", true),
           unitOf("u:focuses", { kind: "removed" }, "the welcome focuses its project", true),
+          { ...unitOf("u:format", { kind: "removed" }, "format"), movedTo: { path: "src/Report.kt", line: 4, unit: "u:report" } },
         ],
       }),
     )
@@ -532,6 +534,8 @@ describe("the document of a review", () => {
         ["Removes hooks and flags, shown in step 2", "b"],
         ["Adds passes and a test, shown in step 1", "h"],
         ["Removes a test, shown in step 1", "h"],
+        // a declaration moved whole to another file: what the step does to it is a move
+        ["Moves format, shown in step 2", "b"],
       ],
     ])
     expect(shown.shownElsewhere[0]!.names.places[0]).toEqual({
@@ -1027,6 +1031,16 @@ describe("the document of a review", () => {
         "Ledger.balance",
       ).card?.status
     expect([declared("notProven"), declared("checking")]).toEqual(["Renamed, not proven", "Renamed, checking"])
+    // a declaration moved whole between two files: where it came from, where it went, never "New" or "Removed"
+    const moved = (kind: "added" | "removed") => {
+      const place = { path: kind === "added" ? "src/a/Orders.kt" : "src/a/Report.kt", line: 9, unit: "other" }
+      const of: ReviewUnit = { ...unit, kind: { kind }, ...(kind === "added" ? { movedFrom: place } : { movedTo: place }) }
+      return mentionWords({ units: [of] })({ kind: "unit", unit: of.id, name: "allowed", path: "src/a/Manager.kt", side: "new", line: 6, step: 1 }, "allowed").card
+    }
+    expect([moved("added"), moved("removed")].map(card => [card?.status, card?.tone])).toEqual([
+      ["Moved from Orders.kt", "secondary"],
+      ["Moved to Report.kt", "secondary"],
+    ])
     // read in its own step, the card names no step
     expect(
       mentionWords({ units: [fresh] }, 4)({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read").card

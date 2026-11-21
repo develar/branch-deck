@@ -108,3 +108,8 @@ export function reviewPlan(more: Partial<ReviewPlan> = {}): ReviewPlan {
     ...more,
   }
 }
+
+/** The steps of a plan by its commits, `steps` (`ReviewPlan.steps`), told as steps or not (`told`), of no coverage counted and no story */
+export function commitSteps(steps: ReviewStep[], told = true): ReviewPlan["steps"] {
+  return { source: { kind: "commits" }, told, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] }
+}

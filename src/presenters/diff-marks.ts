@@ -272,8 +272,10 @@ function reachSentence(reach: ReachWords): string {
 /**
  * The words of the note before a run of lines, "Formatting only · 3 lines", at an end of a move: where the lines
  * left "14 lines moved to line 210", where they stand now "Moved from line 120 · re-indented · 1 line edited", of a
- * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", of a declaration the index says moved
- * whole "Moved reportTitle to Report.kt:12" and "Moved reportTitle from Ledger.kt:40", of a move within the file whose
+ * move between two files "Moved to Report.kt:12" and "Moved from Ledger.kt:40", "line 12" alone where the heading of the
+ * row says the move of that file already (`moved`, the paths it names: "formatTotal — moved to Report.kt · line 12"), of
+ * a declaration the index says moved whole "Moved reportTitle to Report.kt:12" and "Moved reportTitle from
+ * Ledger.kt:40", of a move within the file whose
  * declarations the index says were put in another order where it is free "Moved total to line 8 · order does not matter"
  * and "Moved total from line 4 · order does not matter", or of the renames named at a block:
  * "Renamed total → sum · 12 sites", two of them both ("Renamed total → sum · 12 sites · count → size · 3 sites"), of
@@ -283,7 +285,7 @@ function reachSentence(reach: ReachWords): string {
  * counts the places of all of them ("Renamed openStore → connectStore · 30 sites in 4 files"); and what its buttons do. A line is named by its number in its
  * text, from 1: the first line of the other end, the blank lines that moved with the move among them
  */
-export function presentRemark(remark: RemarkFacts, named: readonly { readonly old: string; readonly new: string }[] = []): RemarkWords {
+export function presentRemark(remark: RemarkFacts, named: readonly { readonly old: string; readonly new: string }[] = [], moved: readonly string[] = []): RemarkWords {
   const [oldStart, oldEnd] = remark.lines[0]!
   const [newStart, newEnd] = remark.lines[1]!
   const first = remark.renames?.renames[0]
@@ -339,9 +341,11 @@ export function presentRemark(remark: RemarkFacts, named: readonly { readonly ol
     // a move between two files: every line of it shows at both ends, so the note counts none; the place is the file and the line
     // of a declaration that moved whole: its name, and where it is the declaration that stands there
     const what = declaration == null ? "the lines" : declaration
-    const words = `${at === "source" ? "to" : "from"} ${file.name}:${line}`
+    // the heading of the row says the move from or to that file already: the note names the line alone
+    const told = moved.includes(file.path)
+    const words = told ? `line ${line}` : `${at === "source" ? "to" : "from"} ${file.name}:${line}`
     const where = `ine ${line} of ${file.path}, where ${what} ${at === "source" ? (declaration == null ? "stand now" : "stands now") : declaration == null ? "were" : "was"}`
-    const label = declaration == null ? "Moved" : `Moved ${declaration}`
+    const label = told ? "" : declaration == null ? "Moved" : `Moved ${declaration}`
     return {
       label,
       renamed: null,
@@ -349,7 +353,7 @@ export function presentRemark(remark: RemarkFacts, named: readonly { readonly ol
       detail: freeWords.join(""),
       more: null,
       reach: [],
-      name: [`${label} ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`, ...freeWords].join(", "),
+      name: [`${declaration == null ? "Moved" : `Moved ${declaration}`} ${at === "source" ? "to" : "from"} line ${line} of ${file.path}`, ...freeWords].join(", "),
       toggle,
     }
   }

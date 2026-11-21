@@ -35,7 +35,10 @@
 //! - **Moves between files**: a unit `removed` and a unit `added` whose declarations have the same code, in two files,
 //!   say where each went and came from (`ReviewUnit::moved_to`, `ReviewUnit::moved_from`, `moved_across`), and so does
 //!   such a unit where the other place is an outermost declaration of a file the commits add or delete, whose unit says
-//!   nothing: a word of each, never another kind. The places are collected as the files are cut (`MoveEnds`).
+//!   nothing: a word of each, never another kind, with the unit that shows the other place. The slice of a place a move
+//!   left that holds the move alone is `UnitSlice::moved_out` (`SourceFile::removed_alone`, a deleted file in
+//!   `whole_file_ends`): the review reads the move at its new place. The places are collected as the files are cut
+//!   (`MoveEnds`).
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
@@ -48,7 +51,7 @@
 
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
-use crate::moved_across::{MoveEnd, MoveEnds, mark_moves};
+use crate::moved_across::{MoveEnd, MoveEnds, MovedOut, mark_moves};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::renamed_uses::{DeclaredRenames, FileRenames, same_but_names};
 use crate::whitespace::{Sides, TextTokens};
@@ -149,6 +152,14 @@ pub struct UnitSlice {
   pub blocks: Vec<UnitBlock>,
   /// The change this slice makes, by the content of its tokens or its blobs (`units`, "Identity")
   pub fingerprint: String,
+  /// It holds nothing but declarations moved whole to other files (`moved_across`, "The place a move left"): of a unit
+  /// `removed` with `moved_to`, its blocks remove those declarations alone, its own and those of the units without a
+  /// block whose lines they change, blank lines aside; of a file the commits delete, its every line of code is a line
+  /// of such a declaration (`moved_from` of a unit `added`) or of an import. The other places show what it removes, so
+  /// it is nothing to read here. False for any other slice, whose lines are read
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub moved_out: bool,
 }
 
 /// A change a reviewer reads once
@@ -237,6 +248,9 @@ pub struct MovedPlace {
   /// The line of the name of the declaration there, from 1: before the commits for the place it left, after them for
   /// the place it went to
   pub line: u32,
+  /// The unit that shows the place, by its id (`ReviewUnit::id`): the unit `added` or `removed` of the declaration
+  /// there, or the unit that takes its file whole (`newFile`, `deletedFile`, `deletedFiles`)
+  pub unit: String,
 }
 
 /// The old name of a declaration renamed where the index has not proven the rename (`ReviewUnit::renamed_from`)
@@ -551,6 +565,7 @@ impl PairFile<'_> {
       whole,
       blocks,
       fingerprint,
+      moved_out: false,
     }
   }
 
@@ -731,14 +746,21 @@ fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashM
     let Some(declarations) = spanned_declarations(input, path, blob) else { continue };
     let named = declarations.declarations.iter().any(|declaration| names.contains(&declaration.form.name));
     let Some(text) = texts.get(blob).filter(|_| named) else { continue };
-    let declarations = in_lines_of_diffs(declarations, &TextLines::of(text));
+    let lines = TextLines::of(text);
+    let declarations = in_lines_of_diffs(declarations, &lines);
     let sides = if new_side {
       tokens.sides(path, None, path, Some(blob))
     } else {
       tokens.sides(path, Some(blob), path, None)
     };
-    for declaration in outermost(&declarations.declarations).filter(|declaration| names.contains(&declaration.form.name)) {
-      let Some(code) = sides.code(new_side, lines_of(declaration)) else { continue };
+    // the places of its outermost declarations; `None` once one of them can be no place of a move
+    let mut ends: Option<Vec<usize>> = Some(Vec::new());
+    for declaration in outermost(&declarations.declarations) {
+      let code = names.contains(&declaration.form.name).then(|| sides.code(new_side, lines_of(declaration))).flatten();
+      let Some(code) = code else {
+        ends = None;
+        continue;
+      };
       let end = MoveEnd {
         unit: None,
         path: file.path.to_string(),
@@ -746,7 +768,27 @@ fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashM
         name: declaration.form.name.clone(),
         code,
       };
-      moves.push(new_side, end);
+      let index = moves.push(new_side, end);
+      if let Some(ends) = &mut ends {
+        ends.push(index);
+      }
+    }
+    // a file the commits delete whose every line of code is a line of an outermost declaration or of an import or
+    // package statement is the move alone once each of them moved: its comments and its imports go with it
+    if !new_side && let Some(ends) = ends {
+      let held: Vec<Range<u32>> = outermost(&declarations.declarations)
+        .map(lines_of)
+        .chain(declarations.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end))
+        .collect();
+      let count = u32::try_from(lines.all().len()).unwrap_or(u32::MAX);
+      let alone = (0..count).all(|line| held.iter().any(|lines| lines.contains(&line)) || sides.code(false, line..line + 1).is_none());
+      if alone {
+        moves.out.push(MovedOut {
+          unit: None,
+          path: file.path.to_string(),
+          ends,
+        });
+      }
     }
   }
 }
@@ -923,6 +965,47 @@ impl SourceFile<'_, '_> {
       .all(|block| (block.new_start..block.new_end).all(|line| held(line) || self.sides.no_code(line..line + 1)))
   }
 
+  /// The declarations of the old side alone, each the outermost one of its unit, by their pairs, that `blocks` of a
+  /// unit `removed` remove where they remove nothing else (`moved_across`, "The place a move left"): the old side
+  /// without the lines of the blocks is, but for its blank lines, the old side without the lines of those declarations,
+  /// from the first line either takes to the last. So a deletion the comparison slid by a line the declaration shares
+  /// with the code beside it (its closing brace in place of the one before it) is the declaration all the same. `None`
+  /// where the blocks add a line, remove another one, or none of a declaration of that side alone
+  fn removed_alone(&self, pairs: &[Paired], folded: &[usize], blocks: &[UnitBlock]) -> Option<Vec<usize>> {
+    if blocks.is_empty() || blocks.iter().any(|block| block.new_start < block.new_end) {
+      return None;
+    }
+    let removed: Vec<(usize, Range<u32>)> = pairs
+      .iter()
+      .enumerate()
+      .filter(|&(pair, paired)| paired.after.is_none() && folded[pair] == pair)
+      .filter_map(|(pair, paired)| {
+        let lines = lines_of(&self.before.declarations[paired.before?]);
+        blocks
+          .iter()
+          .any(|block| block.old_start < lines.end && lines.start < block.old_end)
+          .then_some((pair, lines))
+      })
+      .collect();
+    let start = blocks.iter().map(|block| block.old_start).chain(removed.iter().map(|(_, lines)| lines.start)).min()?;
+    let end = blocks.iter().map(|block| block.old_end).chain(removed.iter().map(|(_, lines)| lines.end)).max()?;
+    if removed.is_empty() {
+      return None;
+    }
+    let text = self.old.text(&(start..end));
+    // the lines of the old side from `start` to `end` that are no blank and that `gone` does not take
+    let kept = |gone: &dyn Fn(u32) -> bool| -> Vec<&str> {
+      (start..end)
+        .zip(text)
+        .filter(|&(line, text)| !gone(line) && !text.trim().is_empty())
+        .map(|(_, text)| *text)
+        .collect()
+    };
+    let without_blocks = kept(&|line| blocks.iter().any(|block| (block.old_start..block.old_end).contains(&line)));
+    let without_declarations = kept(&|line| removed.iter().any(|(_, lines)| lines.contains(&line)));
+    (without_blocks == without_declarations).then(|| removed.into_iter().map(|(pair, _)| pair).collect())
+  }
+
   /// The text of `lines` (of the diffs) of a side as a fingerprint reads it, the same after a change of whitespace
   /// alone: the content of its tokens (`Sides::fingerprint_text`), without them its characters without whitespace
   fn side_text(&self, new_side: bool, lines: Range<u32>) -> String {
@@ -1096,6 +1179,10 @@ impl SourceFile<'_, '_> {
       }
     }
 
+    // the place before the commits of each declaration of that side alone (`MoveEnds::left`), by its pair; and the
+    // units `removed` whose blocks remove declarations alone, with those declarations by their pairs (`MovedOut`)
+    let mut left_ends: HashMap<usize, usize> = HashMap::new();
+    let mut removing: Vec<(String, Vec<usize>)> = Vec::new();
     for (pair, unit_blocks) in declared {
       let paired = pairs[pair];
       let before = paired.before.map(|index| &self.before.declarations[index]);
@@ -1154,7 +1241,13 @@ impl SourceFile<'_, '_> {
           name: form.name.clone(),
           code,
         };
-        cut.moves.push(after.is_some(), end);
+        let index = cut.moves.push(after.is_some(), end);
+        if after.is_none() {
+          left_ends.insert(pair, index);
+          if let Some(removed) = self.removed_alone(&pairs, &folded, &unit_blocks) {
+            removing.push((id.clone(), removed));
+          }
+        }
       }
       let fingerprint = digest([form.key.as_str(), declaration.signature.as_str(), old_text.as_str(), new_text.as_str()]);
       // a unit without a block follows the block that changed its lines
@@ -1189,6 +1282,14 @@ impl SourceFile<'_, '_> {
           moved_to: None,
         },
       });
+    }
+    // a slice of the move alone, once each declaration it removes moved: each of them a place of a move
+    for (unit, removed) in removing {
+      let ends: Option<Vec<usize>> = removed.iter().map(|pair| left_ends.get(pair).copied()).collect();
+      if let Some(ends) = ends {
+        let path = pair_file.file.path.to_string();
+        cut.moves.out.push(MovedOut { unit: Some(unit), path, ends });
+      }
     }
 
     for run in outside {

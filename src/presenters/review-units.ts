@@ -1,8 +1,9 @@
-import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, RenamedFrom, RenamedUses, RenameWait, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, MovedPlace, RenamedFrom, RenamedUses, RenameWait, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
 import { joinNames } from "@/lib/text"
+import { fileNameAmong } from "@/presenters/diff-marks"
 import { OTHER_CHANGES } from "@/presenters/review-concerns"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 import { formatStepNumber, formatStepPosition } from "@/presenters/review-steps"
@@ -112,11 +113,22 @@ function renamedHeading(name: string, from: RenamedFrom, changed: string | null)
 }
 
 /**
+ * The heading of a declaration moved whole between two files (`ReviewUnit.movedFrom`, `movedTo`, decided in Rust):
+ * "moved from Orders.kt" where it stands now, "moved to Report.kt" where it left, the other file by its name among the
+ * files of the review (`nameOf`); the note of the move at the start of its block names its line alone
+ * (`HeadingPart.moved`)
+ */
+function movedHeading(name: string, direction: "from" | "to", place: MovedPlace, nameOf: (path: string) => string): HeadingPart {
+  return { name, words: `moved ${direction} ${nameOf(place.path)}`, moved: { path: place.path } }
+}
+
+/**
  * The change of `unit` as the heading of its block words it: its name in the code font and what changed ("open" and
  * "parameters changed", "close" and "body changed", "balance" and "only renamed sumOf → totalOf, not proven", "totalOf"
- * and "renamed from sumOf, not proven", "Fresh" and "new"); "Changes outside a declaration" of no name
+ * and "renamed from sumOf, not proven", "Fresh" and "new", "formatTotal" and "moved from Orders.kt"); "Changes outside
+ * a declaration" of no name. A file is named by `nameOf`, by default its last part
  */
-export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
+export function formatUnitHeading(unit: ReviewUnit, nameOf: (path: string) => string = fileName): HeadingPart {
   const name = unit.name ?? ""
   const named = (words: string): HeadingPart => ({ name, words })
   switch (unit.kind.kind) {
@@ -130,9 +142,9 @@ export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
       }
       return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":
-      return named("new")
+      return unit.movedFrom == null ? named("new") : movedHeading(name, "from", unit.movedFrom, nameOf)
     case "removed":
-      return named("removed")
+      return unit.movedTo == null ? named("removed") : movedHeading(name, "to", unit.movedTo, nameOf)
     case "newFile":
       return named("new file")
     case "deletedFile":
@@ -215,6 +227,41 @@ interface Draft {
   /** The name of its concern, for the row of a block it shows in another section */
   concernName: string | null
   concernHeading: string | null
+  /**
+   * The blocks of the place declarations left that hold those moves alone (`UnitSlice.movedOut`), each with the
+   * declarations it removes and where each went: one row each, which opens the section of where they went
+   */
+  moved?: Map<number, readonly MovedAway[]>
+}
+
+/** A declaration moved whole to another file, by its name and the place it went to (`ReviewUnit.movedTo`) */
+interface MovedAway {
+  readonly name: string
+  readonly place: MovedPlace
+}
+
+/** The kinds of the units that take a file whole: a place of a move by the outermost declarations of the file */
+const TAKES_FILE_WHOLE: ReadonlySet<ReviewUnit["kind"]["kind"]> = new Set(["newFile", "deletedFile", "deletedFiles"])
+
+/**
+ * The declarations moved whole to other files that the row of a block of the slice of `unit` stands for, which Rust
+ * says holds nothing else (`UnitSlice.movedOut`): the unit and those without a block of their own on a line of the
+ * block (`joined`) that moved, by their lines
+ */
+function movedAwayOf(unit: ReviewUnit, joined: readonly JoinedUnit[], unitOf: ReadonlyMap<string, ReviewUnit>): MovedAway[] {
+  return [unit, ...joined.flatMap(it => unitOf.get(it.unit) ?? [])]
+    .flatMap(it => (it.kind.kind === "removed" && it.movedTo != null ? [{ unit: it, place: it.movedTo }] : []))
+    .sort((a, b) => (a.unit.line ?? 0) - (b.unit.line ?? 0))
+    .map(({ unit: it, place }) => ({ name: it.name ?? "", place }))
+}
+
+/** The name of each path among `paths` (`fileNameAmong`), of a path that is none of them its last part */
+function fileNames(paths: readonly string[]): (path: string) => string {
+  const index = new Map(paths.map((path, at) => [path, at]))
+  return path => {
+    const at = index.get(path)
+    return at === undefined ? fileName(path) : fileNameAmong(paths, at)
+  }
 }
 
 /** A unit of the story with the slices, and of a slice the blocks, that one chapter holds of it */
@@ -348,6 +395,7 @@ export function presentNarrative(
 ): NarrativeSection[] {
   const byPath = new Map(files.map(file => [file.path, file]))
   const unitOf = new Map(units.map(unit => [unit.id, unit]))
+  const nameOf = fileNames(files.map(file => file.path))
   const generatedOf = new Map(facts.flatMap(file => (file.generated === null ? [] : [[file.path, file.generated] as const])))
   const steps = storySteps(units, concerns)
   // a file whose blocks the units cannot cut shows whole
@@ -458,7 +506,7 @@ export function presentNarrative(
     }
     placed.add(slice.path)
     // a file of no language the review parses has no declaration to name: its header names it already
-    const heading = unit.kind.kind === "other" && unit.kind.reason === "noLanguage" ? null : formatUnitHeading(unit)
+    const heading = unit.kind.kind === "other" && unit.kind.reason === "noLanguage" ? null : formatUnitHeading(unit, nameOf)
     let draft: Draft | undefined = last?.draft.path === slice.path ? last.draft : undefined
     if (draft === undefined) {
       draft = push({
@@ -491,6 +539,21 @@ export function presentNarrative(
       for (const block of slice.blocks) {
         draft.blocks!.add(block.index)
       }
+      // the place declarations left that holds those moves alone, as Rust says: each block one row to where they went,
+      // which the section there reads
+      if (slice.movedOut === true) {
+        for (const block of slice.blocks) {
+          const moves = movedAwayOf(
+            unit,
+            joined.filter(it => it.block === block.index),
+            unitOf,
+          )
+          if (moves.length > 0) {
+            draft.moved ??= new Map()
+            draft.moved.set(block.index, moves)
+          }
+        }
+      }
       // the declarations without a block of their own on a line of its blocks: after the heading of their block, of
       // another step marked so
       for (const it of joined) {
@@ -501,7 +564,7 @@ export function presentNarrative(
         own(draft, other.id)
         // another told step by its number, what no evidence joined by its name; in a story of no told step, none
         const of = concerns[it.step]
-        const part = formatUnitHeading(other)
+        const part = formatUnitHeading(other, nameOf)
         const words: HeadingPart =
           of === undefined || of === step.concern || step.concern === null
             ? part
@@ -517,6 +580,11 @@ export function presentNarrative(
   for (const file of files) {
     placeWhole(file.path)
   }
+  for (const draft of drafts) {
+    if (draft.blocks === null) {
+      markWholeMoves(draft, units, unitOf, byPath.get(draft.path), nameOf)
+    }
+  }
 
   const parts = partsOf(drafts, units)
   // the section of each block, for the rows that stand for it elsewhere
@@ -531,7 +599,77 @@ export function presentNarrative(
       ofPath.set(block, draft)
     }
   }
-  return drafts.flatMap(draft => [sectionOf(draft, owners, parts), ...draft.ghosts])
+  // the section that shows a place a declaration moved to: of its unit, or of the unit that takes its file whole
+  const shownAt = (place: MovedPlace) => drafts.find(draft => draft.path === place.path && draft.unitIds?.has(place.unit) === true)
+  const moves: MoveRows = { shownAt, nameOf }
+  return drafts.flatMap(draft => [sectionOf(draft, owners, parts, moves), ...draft.ghosts])
+}
+
+/** What the rows of the places a move left read: the section that shows where each declaration went, a file by its name */
+interface MoveRows {
+  readonly shownAt: (place: MovedPlace) => Draft | undefined
+  readonly nameOf: (path: string) => string
+}
+
+/**
+ * The moves of a file taken whole (`newFile`, `deletedFile`, a file of `deletedFiles`), which Rust says by the units of
+ * their other places: the heading of its first block names what moved into a new file and from where ("parseTotal —
+ * moved from Orders.kt"); of a deleted file each block whose slice holds the moves alone (`UnitSlice.movedOut`) is one
+ * row to where they went, else its heading names where its declarations went ("legacyTotal — moved to Orders.kt")
+ */
+function markWholeMoves(
+  draft: Draft,
+  units: readonly ReviewUnit[],
+  unitOf: ReadonlyMap<string, ReviewUnit>,
+  file: NarrativeFile | undefined,
+  nameOf: (path: string) => string,
+): void {
+  const holders = new Set([...(draft.unitIds ?? [])].filter(id => TAKES_FILE_WHOLE.has(unitOf.get(id)?.kind.kind ?? "other")))
+  // the blocks of its diff as the window reads it, by their place: a file taken whole is one block of its lines
+  const blocks = file?.blocks ?? []
+  if (holders.size === 0 || blocks.length === 0) {
+    return
+  }
+  const here = (place: MovedPlace | null | undefined): place is MovedPlace => place != null && place.path === draft.path && holders.has(place.unit)
+  const byLine = (place: (unit: ReviewUnit) => MovedPlace | null | undefined) => (a: ReviewUnit, b: ReviewUnit) => place(a)!.line - place(b)!.line
+  const arrived = units.filter(unit => unit.kind.kind === "removed" && here(unit.movedTo)).sort(byLine(unit => unit.movedTo))
+  const left = units.filter(unit => unit.kind.kind === "added" && here(unit.movedFrom)).sort(byLine(unit => unit.movedFrom))
+  const placeOf = (unit: ReviewUnit): MovedPlace => ({ path: unit.slices[0]?.path ?? "", line: unit.line ?? 0, unit: unit.id })
+  const movedOut = [...holders].some(id => unitOf.get(id)?.slices.some(slice => slice.path === draft.path && slice.movedOut === true))
+  if (left.length > 0 && movedOut) {
+    draft.moved = new Map(blocks.map((_, index) => [index, left.map(unit => ({ name: unit.name ?? "", place: placeOf(unit) }))]))
+    return
+  }
+  const heading = [
+    ...arrived.map(unit => movedHeading(unit.name ?? "", "from", placeOf(unit), nameOf)),
+    ...left.map(unit => movedHeading(unit.name ?? "", "to", placeOf(unit), nameOf)),
+  ]
+  if (heading.length > 0) {
+    draft.marks.set(0, heading)
+  }
+}
+
+/**
+ * The words of the row of a block of the place declarations left, of those moves alone: where each went, the
+ * declarations of one file together, another chapter by its name ("Moved formatTotal to Report.kt", "Moved parseTotal
+ * and parseSum to Parsing.kt in step 1"), and the section that shows the first of them, which a click opens
+ */
+function movedRow(draft: Draft, moved: readonly MovedAway[], { shownAt, nameOf }: MoveRows): { label: string; target: Draft | undefined } {
+  const groups: { path: string; names: string[]; target: Draft | undefined }[] = []
+  for (const move of moved) {
+    const group = groups.find(it => it.path === move.place.path)
+    if (group === undefined) {
+      groups.push({ path: move.place.path, names: [move.name], target: shownAt(move.place) })
+    } else {
+      group.names.push(move.name)
+    }
+  }
+  const words = groups.map(group => {
+    const target = group.target
+    const elsewhere = target !== undefined && target.concern !== draft.concern && target.concernName !== null ? ` in ${target.concernName}` : ""
+    return `${joinNames(group.names)} to ${nameOf(group.path)}${elsewhere}`
+  })
+  return { label: `Moved ${joinNames(words)}`, target: groups.find(group => group.target !== undefined)?.target }
 }
 
 /**
@@ -680,64 +818,54 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
 /**
  * The section of `draft`: its headings, its part of its file (`parts`), and a row for each block another section shows
  * (`owners`, by path and block): of another concern that concern, of a group that folds it the group by its name
- * ("Shown in Imports only"), another part of the file by its number ("Shown in part 2"), else the heading of the owner
+ * ("Shown in Imports only"), another part of the file by its number ("Shown in part 2"), else the heading of the owner;
+ * and a row for each block of the place declarations left that holds those moves alone (`Draft.moved`), which opens
+ * where they went (`movedRow`). A file shown whole has no headings, but those of the moves into it or out of it
  */
-function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>, parts: ReadonlyMap<Draft, SectionPart>): NarrativeSection {
-  {
-    const { concern, concernHeading } = draft
-    const part = parts.get(draft) ?? null
-    if (draft.blocks === null) {
-      return {
-        key: draft.key,
-        path: draft.path,
-        units: null,
-        unitIds: draft.unitIds ?? new Set(),
-        story: draft.story ?? NO_STORY,
-        targets: new Map(),
-        heading: draft.heading,
-        groupName: draft.groupName,
-        group: draft.group ?? null,
-        concern,
-        concernHeading,
-        folded: draft.folded,
-        ghost: null,
-        part,
-      }
+function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>, parts: ReadonlyMap<Draft, SectionPart>, moves: MoveRows): NarrativeSection {
+  const elsewhere = new Map<number, string>()
+  const targets = new Map<number, string>()
+  for (const [block, owner] of draft.blocks === null ? [] : (owners.get(draft.path) ?? [])) {
+    if (owner !== draft) {
+      // a block of another concern says which: the section of the same file there; of a group that folds it, the group
+      // by its name ("Imports only"), never its count; of another part of the file in this concern, that part
+      const ownerPart = parts.get(owner)
+      const where =
+        owner.concern !== draft.concern && owner.concernName !== null
+          ? owner.concernName
+          : owner.folded !== null && owner.groupName !== null
+            ? owner.groupName
+            : ownerPart !== undefined
+              ? `part ${ownerPart.index + 1}`
+              : (owner.heading ?? headingOrName(owner.marks.values().next().value, owner.path))
+      elsewhere.set(block, `Shown in ${where}`)
+      targets.set(block, owner.key)
     }
-    const elsewhere = new Map<number, string>()
-    const targets = new Map<number, string>()
-    for (const [block, owner] of owners.get(draft.path) ?? []) {
-      if (owner !== draft) {
-        // a block of another concern says which: the section of the same file there; of a group that folds it, the group
-        // by its name ("Imports only"), never its count; of another part of the file in this concern, that part
-        const ownerPart = parts.get(owner)
-        const where =
-          owner.concern !== draft.concern && owner.concernName !== null
-            ? owner.concernName
-            : owner.folded !== null && owner.groupName !== null
-              ? owner.groupName
-              : ownerPart !== undefined
-                ? `part ${ownerPart.index + 1}`
-                : (owner.heading ?? headingOrName(owner.marks.values().next().value, owner.path))
-        elsewhere.set(block, `Shown in ${where}`)
-        targets.set(block, owner.key)
-      }
+  }
+  // the rows of the blocks of a place declarations left, of those moves alone: each opens where they went
+  for (const [block, moved] of draft.moved ?? []) {
+    const { label, target } = movedRow(draft, moved, moves)
+    elsewhere.set(block, label)
+    if (target !== undefined) {
+      targets.set(block, target.key)
     }
-    return {
-      key: draft.key,
-      path: draft.path,
-      units: { marks: draft.marks, elsewhere },
-      unitIds: draft.unitIds ?? new Set(),
-      story: draft.story ?? NO_STORY,
-      targets,
-      heading: draft.heading,
-      groupName: draft.groupName,
-      group: draft.group ?? null,
-      concern,
-      concernHeading,
-      folded: draft.folded,
-      ghost: null,
-      part,
-    }
+  }
+  // a file shown whole: no units, unless a move came into it or left it, whose headings and rows its whole diff shows
+  const whole = draft.blocks === null && draft.marks.size === 0 && elsewhere.size === 0
+  return {
+    key: draft.key,
+    path: draft.path,
+    units: whole ? null : { marks: draft.marks, elsewhere },
+    unitIds: draft.unitIds ?? new Set(),
+    story: draft.story ?? NO_STORY,
+    targets,
+    heading: draft.heading,
+    groupName: draft.groupName,
+    group: draft.group ?? null,
+    concern: draft.concern,
+    concernHeading: draft.concernHeading,
+    folded: draft.folded,
+    ghost: null,
+    part: parts.get(draft) ?? null,
   }
 }
