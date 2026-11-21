@@ -403,6 +403,16 @@ fn a_member_of_a_nested_object_through_the_owner_is_no_edge() {
   assert_eq!(edges(&range.graph(&[], &[], &[])), [qualified(1, "create")], "a nested type is no name of its package");
 }
 
+/// The graph of `range` over the crates `crates/wire` (`avl_wire`) and `crates/guest` (`avl_guest`)
+fn wire_and_guest(range: &Range) -> SymbolGraph {
+  let cargo = [file("Cargo.toml")];
+  range.graph(
+    &[("crates/wire", &cargo), ("crates/guest", &cargo)],
+    &[("crates/wire", "avl_wire"), ("crates/guest", "avl_guest")],
+    &[],
+  )
+}
+
 #[test]
 fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
   let mut range = Range::default();
@@ -416,13 +426,7 @@ fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
       "crates/guest/src/lib.rs",
       Some("pub fn owner() -> avl_wire::lane::ControlOwner {\n  avl_wire::lane::ControlOwner::Agent\n}\n"),
     )]);
-  let cargo = [file("Cargo.toml")];
-  let graph = range.graph(
-    &[("crates/wire", &cargo), ("crates/guest", &cargo)],
-    &[("crates/wire", "avl_wire"), ("crates/guest", "avl_guest")],
-    &[],
-  );
-  let found = edges(&graph);
+  let found = edges(&wire_and_guest(&range));
   assert_eq!(found.iter().map(|(from, to, _)| (*from, *to)).collect::<Vec<_>>(), [(1, 0), (2, 0)], "{found:?}");
   assert!(found[0].2.contains(&link("ControlOwner", Evidence::Import)), "{found:?}");
   assert!(found[1].2.contains(&link("ControlOwner", Evidence::Qualified)), "{found:?}");
@@ -660,6 +664,235 @@ fn a_rust_field_on_a_value_is_no_edge() {
   ));
   assert!(links.contains(&link("Stills", Evidence::Import)), "{links:?}");
   assert!(!links.iter().any(|(name, _)| name == "stills"), "{links:?}");
+}
+
+/// `src/socket.rs` of the crate `air-page` of develar/branch-deck#251 before the range: `TOO_BIG` and `POLICY`
+/// private, `CLOSE_LINGER` public
+const SOCKET: &str = "pub const CLOSE_LINGER: u64 = 1;\n\nconst TOO_BIG: u16 = 1009;\n\nconst POLICY: u16 = 1008;\n";
+
+/// The edges of a range over the crate `air-page` (`SOCKET`, `src/tests.rs` with `mod pump;`): the commits write
+/// `commits` in order
+fn over_the_socket(commits: &[&[(&str, Option<&str>)]]) -> Vec<Edge> {
+  let mut range = Range::default();
+  range.baseline(&[
+    ("air-page/src/lib.rs", "pub mod socket;\n\n#[cfg(test)]\nmod tests;\n"),
+    ("air-page/src/socket.rs", SOCKET),
+    ("air-page/src/tests.rs", "mod pump;\n"),
+  ]);
+  for files in commits {
+    range.commit(files);
+  }
+  let cargo = [file("Cargo.toml")];
+  edges(&range.graph(&[("air-page", &cargo)], &[("air-page", "air_page")], &[]))
+}
+
+const SOCKET_PUB: &str = "pub const CLOSE_LINGER: u64 = 1;\n\npub const TOO_BIG: u16 = 1009;\n\npub const POLICY: u16 = 1008;\n";
+const PUMP: &str = "use crate::socket::{CLOSE_LINGER, TOO_BIG};\n\nfn pump() -> u16 {\n  TOO_BIG\n}\n";
+
+/// A commit that only makes an item `pub` is what a later use of it from a module its old reach doesn't see needs
+/// (develar/branch-deck#251: `use crate::socket::{…, TOO_BIG}` of `src/tests/pump.rs` failed with E0603 on the branch
+/// without the commit): the step of its reach, whose older form rejects the use. A use inside the item's module, which
+/// saw it private, needs no commit, and neither does a use of the public one beside it
+#[test]
+fn a_rust_item_made_pub_is_an_edge_for_a_use_its_old_reach_forbids() {
+  assert_eq!(
+    over_the_socket(&[&[("air-page/src/socket.rs", Some(SOCKET_PUB))], &[("air-page/src/tests/pump.rs", Some(PUMP))]]),
+    [(1, 0, vec![link("TOO_BIG", Evidence::Import)])]
+  );
+  let inner = "use super::{CLOSE_LINGER, TOO_BIG};\n\nfn inner() -> u16 {\n  TOO_BIG\n}\n";
+  assert_eq!(
+    over_the_socket(&[&[("air-page/src/socket.rs", Some(SOCKET_PUB))], &[("air-page/src/socket/inner.rs", Some(inner))]]),
+    []
+  );
+}
+
+/// The use needs the latest step that let it see the item: one that made it `pub` again after another took the `pub`
+/// away
+#[test]
+fn a_use_needs_the_latest_step_that_let_it_see_the_item() {
+  let socket = &[("air-page/src/socket.rs", Some(SOCKET_PUB))][..];
+  assert_eq!(
+    over_the_socket(&[socket, &[("air-page/src/socket.rs", Some(SOCKET))], socket, &[("air-page/src/tests/pump.rs", Some(PUMP))]]),
+    [(3, 2, vec![link("TOO_BIG", Evidence::Import)])]
+  );
+}
+
+/// A narrower reach is a removal for the uses it forbids: a commit that takes the `pub` of an item away needs the older
+/// commit that removed its use from another module, as a removal needs the commits that removed its uses
+#[test]
+fn a_narrowed_rust_item_needs_the_commit_that_removed_the_uses_it_forbids() {
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("air-page/src/lib.rs", "pub mod socket;\n\n#[cfg(test)]\nmod tests;\n"),
+      ("air-page/src/socket.rs", SOCKET_PUB),
+      ("air-page/src/tests/pump.rs", PUMP),
+    ])
+    .commit(&[(
+      "air-page/src/tests/pump.rs",
+      Some("use crate::socket::CLOSE_LINGER;\n\nfn pump() -> u64 {\n  CLOSE_LINGER\n}\n"),
+    )])
+    .commit(&[("air-page/src/socket.rs", Some(SOCKET))]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(
+    edges(&range.graph(&[("air-page", &cargo)], &[("air-page", "air_page")], &[])),
+    [(1, 0, vec![link("TOO_BIG", Evidence::RemovesAfter)])]
+  );
+}
+
+/// The edges of a range over the crate `app` whose `src/a/b.rs` declares `helper` with the `pub` of `reach` before the
+/// range and with `widened` after its first commit; the second commit writes `file`
+fn after_widening_the_helper(reach: &str, widened: &str, file_of_use: (&str, &str)) -> Vec<Edge> {
+  let helper = |reach: &str| format!("{reach}fn helper() -> u8 {{\n  1\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("app/src/lib.rs", "mod a;\nmod c;\n"),
+      ("app/src/a.rs", "mod b;\nmod d;\n"),
+      ("app/src/a/b.rs", &helper(reach)),
+    ])
+    .commit(&[("app/src/a/b.rs", Some(&helper(widened)))])
+    .commit(&[(file_of_use.0, Some(file_of_use.1))]);
+  let cargo = [file("Cargo.toml")];
+  edges(&range.graph(&[("app", &cargo)], &[("app", "app")], &[]))
+}
+
+/// A restricted reach is the ancestor it names, by psi-syntax's rule of Rust's visibility: `pub(super)` of `a::b` sees
+/// all of `a`, so `a::d` needs no commit to use it, while `c` needs the one that makes it `pub(crate)`; and an older
+/// form is never stricter than the compiler, so `pub(in crate::a)` made `pub(crate)` is no edge for `a::d` either
+#[test]
+fn a_restricted_rust_reach_is_the_ancestor_it_names() {
+  let user = |name: &str| format!("use crate::a::b::helper;\n\nfn {name}() -> u8 {{\n  helper()\n}}\n");
+  assert_eq!(
+    after_widening_the_helper("pub(super) ", "pub(crate) ", ("app/src/c.rs", &user("c"))),
+    [(1, 0, vec![link("helper", Evidence::Import)])]
+  );
+  assert_eq!(after_widening_the_helper("pub(super) ", "pub(crate) ", ("app/src/a/d.rs", &user("d"))), []);
+  assert_eq!(after_widening_the_helper("pub(in crate::a) ", "pub(crate) ", ("app/src/a/d.rs", &user("d"))), []);
+  assert_eq!(
+    after_widening_the_helper("pub(in crate::a) ", "pub(crate) ", ("app/src/c.rs", &user("c"))),
+    [(1, 0, vec![link("helper", Evidence::Import)])]
+  );
+}
+
+/// `pub(crate)` made `pub` matters to another crate only: a use through the crate's name needs the commit, one of
+/// the crate's own needs none
+#[test]
+fn a_rust_item_made_pub_from_pub_crate_is_an_edge_for_another_crate_only() {
+  let lane = |reach: &str| format!("{reach}fn lane_id() -> u8 {{\n  1\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("crates/wire/src/lib.rs", "pub mod lane;\n"), ("crates/wire/src/lane.rs", &lane("pub(crate) "))])
+    .commit(&[("crates/wire/src/lane.rs", Some(&lane("pub ")))])
+    .commit(&[("crates/guest/src/lib.rs", Some("use avl_wire::lane::lane_id;\n\npub fn id() -> u8 {\n  lane_id()\n}\n"))])
+    .commit(&[("crates/wire/src/main.rs", Some("use crate::lane::lane_id;\n\nfn main() {\n  let _ = lane_id();\n}\n"))]);
+  assert_eq!(edges(&wire_and_guest(&range)), [(1, 0, vec![link("lane_id", Evidence::Import)])]);
+}
+
+/// A field made `pub` is what a struct expression of another module needs; a function of an `impl` made `pub` is no
+/// step, as a trait the range doesn't show may give the type a function of its name, which rustc takes while the
+/// inherent one can't be seen
+#[test]
+fn a_rust_field_made_pub_is_an_edge_and_an_impl_member_is_none() {
+  let model = |field: &str, function: &str| format!("pub struct Manifest {{\n  {field}stills: u32,\n}}\n\nimpl Manifest {{\n  {function}fn build() -> u32 {{\n    1\n  }}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("app/src/lib.rs", "mod model;\nmod make;\n"), ("app/src/model.rs", &model("", ""))])
+    .commit(&[("app/src/model.rs", Some(&model("pub ", "pub ")))])
+    .commit(&[(
+      "app/src/make.rs",
+      Some("use crate::model::Manifest;\n\nfn make() -> Manifest {\n  let _ = Manifest::build();\n  Manifest { stills: 1 }\n}\n"),
+    )]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(
+    edges(&range.graph(&[("app", &cargo)], &[("app", "app")], &[])),
+    [(1, 0, vec![link("stills", Evidence::Qualified)])]
+  );
+}
+
+/// An older form is no stricter than the compiler: through a glob, a bare name the item's module can't give yet comes
+/// from a second glob or the preludes, so the use compiles without the commit; through the one glob of the file it
+/// can't, and needs it
+#[test]
+fn a_glob_use_of_an_item_made_pub_needs_it_only_where_nothing_else_may_give_the_name() {
+  let result = "pub const CLOSE_LINGER: u64 = 1;\n\nstruct Result;\n";
+  let result_pub = "pub const CLOSE_LINGER: u64 = 1;\n\npub struct Result;\n";
+  let use_of = |imports: &str, name: &str| format!("{imports}\nfn pump() {{\n  let _ = {name};\n}}\n");
+  let glob = "use crate::socket::*;\n";
+  assert_eq!(
+    over_the_socket(&[
+      &[("air-page/src/socket.rs", Some(SOCKET_PUB))],
+      &[("air-page/src/tests/pump.rs", Some(&use_of(glob, "TOO_BIG")))]
+    ]),
+    [(1, 0, vec![link("TOO_BIG", Evidence::StarImport)])]
+  );
+  let two = "use crate::socket::*;\nuse crate::limits::*;\n";
+  assert_eq!(
+    over_the_socket(&[
+      &[("air-page/src/socket.rs", Some(SOCKET_PUB))],
+      &[("air-page/src/tests/pump.rs", Some(&use_of(two, "TOO_BIG")))]
+    ]),
+    []
+  );
+  let mut range = Range::default();
+  range
+    .baseline(&[("air-page/src/lib.rs", "pub mod socket;\n\n#[cfg(test)]\nmod tests;\n"), ("air-page/src/socket.rs", result)])
+    .commit(&[("air-page/src/socket.rs", Some(result_pub))])
+    .commit(&[("air-page/src/tests/pump.rs", Some(&use_of(glob, "Result")))]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(edges(&range.graph(&[("air-page", &cargo)], &[("air-page", "air_page")], &[])), []);
+}
+
+/// Two declarations of a key on one side (a `#[cfg]` pair) are no step of its reach: which one a build reads is the
+/// build's
+#[test]
+fn a_cfg_pair_made_pub_is_no_step() {
+  let pair = |reach: &str| format!("#[cfg(unix)]\n{reach}const TOO_BIG: u16 = 1009;\n\n#[cfg(not(unix))]\n{reach}const TOO_BIG: u16 = 1010;\n");
+  assert_eq!(
+    over_the_socket(&[
+      &[("air-page/src/socket.rs", Some(&pair("")))],
+      &[("air-page/src/socket.rs", Some(&pair("pub ")))],
+      &[("air-page/src/tests/pump.rs", Some(PUMP))],
+    ]),
+    []
+  );
+}
+
+/// A TypeScript declaration that a commit exports, by `export` or by an `export { … }` of the file, is what an import of
+/// it from another file needs
+#[test]
+fn a_typescript_declaration_exported_later_is_an_edge() {
+  for exported in [
+    "export function stackLead(name: string): string {\n  return name;\n}\n",
+    "function stackLead(name: string): string {\n  return name;\n}\n\nexport { stackLead };\n",
+  ] {
+    let mut range = Range::default();
+    range
+      .baseline(&[("src/lib/stack.ts", "function stackLead(name: string): string {\n  return name;\n}\n")])
+      .commit(&[("src/lib/stack.ts", Some(exported))])
+      .commit(&[("src/lib/use.ts", Some("import { stackLead } from \"./stack\";\n\nexport const lead = stackLead(\"a\");\n"))]);
+    let aliases = Aliases {
+      base_url: None,
+      paths: Vec::new(),
+    };
+    assert_eq!(typescript_edges(&range, "", aliases), [(1, 0, vec![link("stackLead", Evidence::Import)])], "{exported}");
+  }
+}
+
+/// A member of a JVM type made narrower is a removal for the uses it forbids: an `internal` function made private needs
+/// the older commit that removed its use from another file
+#[test]
+fn a_narrowed_jvm_member_needs_the_commit_that_removed_the_uses_it_forbids() {
+  let panes = |reach: &str| format!("package p\n\nobject Panes {{\n  {reach}fun helper(id: String) {{}}\n\n  fun first() = 1\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("impl/src/p/Panes.kt", &panes("internal ")),
+      ("impl/src/q/Use.kt", "package q\n\nimport p.Panes\n\nfun use() {\n  Panes.helper(\"x\")\n}\n"),
+    ])
+    .commit(&[("impl/src/q/Use.kt", Some("package q\n\nfun use() {\n}\n"))])
+    .commit(&[("impl/src/p/Panes.kt", Some(&panes("private ")))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, vec![link("helper", Evidence::RemovesAfter)])]);
 }
 
 #[test]

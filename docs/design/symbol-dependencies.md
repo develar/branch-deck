@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-11-20
+**Updated:** 2026-11-21
 **Tags:** [dependencies, psi-syntax, rust-syntax, js-syntax, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -524,7 +524,8 @@ flowchart TD
     (`foo(x)`) fits; a type's header (`abstract`, `sealed`, its supertypes) is not compared; a use on the baseline after
     the base is not searched; a coroutine builder the list leaves out makes its lambda unknown, a possible reference;
     Rust and TypeScript have no `changed` and no duplicates (a `#[cfg]` pair and the overload signatures of TypeScript
-    declare a name twice on purpose).
+    declare a name twice on purpose); a narrower reach of theirs is an edge to the commit that removed the use instead
+    (decision 29).
 
 16. **Decision**: the line search of the dangling-reference check scopes a Rust item by the syntax of a use and by the
     crates, and a Kotlin top-level function by its receiver. A Rust name after a single `.` is a field or a method,
@@ -867,6 +868,35 @@ flowchart TD
     read the copies of their replay against the local commits (`replay_lost_bindings`, both ranges from one `log`, the
     summaries only of a file both change from other blobs) and count a finding only while the file at the tip still
     lacks the binding (docs/design/git-operations.md, "Update project", "Resolve session").
+
+29. **Decision**: a key only present or absent has a step of its reach where its name binds one declaration
+    (`binds_one`): a Rust item of a module or a field, a TypeScript declaration, with one declaration of the key on each
+    side of the commit (`reach_changes` for a key of the baseline, `follow_entries` for one the range holds). The older
+    form judges every use of such a key, a function's too, by psi-syntax's one rule of Rust's visibility
+    (`rust_syntax::visibility::Visibility::reaches_path` between the module of the item and that of the use, inline
+    modules included; accio's decision 2026-11-21-rust-visibility-in-rust-syntax), never stricter than rustc: a bare
+    name a glob of the item's module would bring may come from a second glob or the preludes. A narrower reach, of these
+    steps and of a JVM member's new form, is a removal for the uses it forbids: the commit needs the older commits that
+    removed a use that the old form took and the new one rejects (`removed_uses` with `still`, `RemovesAfter`).
+    **Rationale**: the Safe Push of `a2ui-v1` (develar/branch-deck#251, TeamCity 1139203174) failed with E0603: a commit
+    of `native-webview`, stacked on it, made the existing `const TOO_BIG` of `air-page/src/socket.rs` `pub`, and a later
+    commit of `a2ui-v1` used it from the module of a test; the key had been present all along, so no edge, and
+    `brd check` said `ok`. A path or a glob of Rust names one item of a name per namespace of a module, and a TypeScript
+    file binds a name once, so the step decides the use; a member of an `impl` may lose to a trait of the same name the
+    range doesn't show, which rustc takes while the inherent one can't be seen, and a JVM top-level declaration to a
+    file of the package the range doesn't show (decision 10), so neither has a step; a key with two declarations on one
+    side (`#[cfg]`) is the build's to choose. The rule of visibility is psi-syntax's, which accio's index reads too:
+    code-symbols read `pub(in crate::a)` as `pub(crate)` and `pub(in super::super)` as `pub(super)`, which as an older
+    form would have made false edges. In `brd check` such an edge of a parent to its child's commit is an inverted
+    stack (`trial_check::inverted_stack`), whose fixes are proven by the missing declarations of a trial: the use into
+    the child, the parent on the child, the child's commit into the parent where it changes only the file, else that
+    change into the commit of the use (`brd move-hunk`, on a rewritten history whose new blobs a session of
+    `with_rewrite` summarizes; before, it shared the summaries of the history it came from, and a rewritten file read as
+    new or deleted). Limits: the trait methods and the JVM top-level declarations above, a reach given by a macro that
+    renames what it takes, and `#[path]` modules, whose path disagrees with the one `module_roots` gives (a `Depth` past
+    it reads as the crate).
+    [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_item_made_pub_is_an_edge_for_a_use_its_old_reach_forbids`, `a_restricted_rust_reach_is_the_ancestor_it_names`, `a_glob_use_of_an_item_made_pub_needs_it_only_where_nothing_else_may_give_the_name`, `a_narrowed_rust_item_needs_the_commit_that_removed_the_uses_it_forbids`)
+    [@test] crates/bd-rewrite/src/check_test.rs (`a_parent_that_needs_its_childs_visibility_is_an_inverted_stack_with_a_hunk_to_move`)
 
     [@test] crates/trial-check/src/lost_bindings_test.rs (`the_replayed_commit_of_the_incident_loses_the_property_and_the_import`, `the_lost_bindings_of_commits_in_two_processes`)
     [@test] crates/trial-check/src/lost_bindings_test.rs (`a_replay_brings_the_lost_bindings_of_its_copy_in_two_processes`, `a_replay_that_changes_no_file_of_a_copy_reads_no_summary`)

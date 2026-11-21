@@ -13,7 +13,7 @@ use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::lost_bindings::{LostBinding, introduced_lost_bindings};
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use crate::symbol_scan::{SymbolInput, read_symbol_input};
+use crate::symbol_scan::{ScanStats, SymbolInput, read_change_summaries, read_symbol_input};
 use code_symbols::language::language_of as symbols_language_of;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::commit::Commit;
@@ -206,6 +206,9 @@ pub fn check_plan(
   CheckSession::open(git_executor, repository_path, branch_prefix, cache)?.check(plan)
 }
 
+/// The summaries a session reads once, and the sessions of `with_rewrite` read through (`CheckSession::rewritten_from`)
+type SharedSymbolInput = Arc<OnceLock<Result<Option<SymbolInput>, String>>>;
+
 /// What every check of a repository reads once: the commits ahead of the baseline as they group now, the baseline and
 /// the branch tips; and, by the first check that needs them, the states of the parents without commits (once for each
 /// set of them), the commit the branches start on and the changes of the commits. A `check` of a plan then runs git to
@@ -230,9 +233,12 @@ pub struct CheckSession {
   /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
   syntax: Arc<SyntaxMemo>,
   /// The summaries of the files the commits ahead of the baseline change, with the module structure above them, read by
-  /// the first that asks, with `branchdeck.symbols on`; shared with the sessions of `with_rewrite`, whose rewritten
-  /// commits keep HEAD's tree (a blob only they have lacks its summary there, and its file is not searched)
-  symbol_input: Arc<OnceLock<Result<Option<SymbolInput>, String>>>,
+  /// the first that asks, with `branchdeck.symbols on`
+  symbol_input: SharedSymbolInput,
+  /// Of a session of `with_rewrite`: the summaries of the session it was rewritten from, whose rewritten commits keep
+  /// HEAD's tree; its own add only those of the blobs that its rewrite wrote (`symbol_input`), so that a file the rewrite
+  /// changes reads as it is, never as a new or a deleted one
+  rewritten_from: Option<SharedSymbolInput>,
   /// The keys each commit declares anew, for the declaration searches of its checks, shared with the sessions of
   /// `with_rewrite`
   added_keys: Arc<AddedKeys>,
@@ -389,6 +395,7 @@ impl CheckSession {
       resolve,
       syntax: Arc::default(),
       symbol_input: Arc::default(),
+      rewritten_from: None,
       added_keys: Arc::default(),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
@@ -460,7 +467,8 @@ impl CheckSession {
       symbols: self.symbols,
       resolve: self.resolve,
       syntax: Arc::clone(&self.syntax),
-      symbol_input: Arc::clone(&self.symbol_input),
+      symbol_input: Arc::default(),
+      rewritten_from: Some(Arc::clone(self.rewritten_from.as_ref().unwrap_or(&self.symbol_input))),
       added_keys: Arc::clone(&self.added_keys),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
@@ -498,6 +506,22 @@ impl CheckSession {
       .symbol_input
       .get_or_init(|| {
         let diffs = self.commit_diffs().map_err(|e| format!("{e:#}"))?;
+        // a rewritten history reads only the blobs its rewrite wrote, beside the summaries of the one it comes from
+        if let Some(Ok(Some(base))) = self.rewritten_from.as_ref().and_then(|base| base.get()) {
+          let written = diffs
+            .iter()
+            .flat_map(|diff| &diff.files)
+            .filter(|change| [&change.old_blob, &change.new_blob].into_iter().flatten().any(|blob| !base.summaries.contains_key(blob)));
+          let mut summaries = base.summaries.clone();
+          summaries.extend(read_change_summaries(&self.git_executor, &self.repository_path, &self.cache, written).map_err(|e| format!("{e:#}"))?);
+          return Ok(Some(SymbolInput {
+            summaries,
+            roots: base.roots.clone(),
+            crates: base.crates.clone(),
+            aliases: base.aliases.clone(),
+            stats: ScanStats::default(),
+          }));
+        }
         let input = read_symbol_input(&self.git_executor, &self.repository_path, &self.cache, diffs).map_err(|e| format!("{e:#}"))?;
         Ok(Some(input))
       })

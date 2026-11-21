@@ -69,7 +69,8 @@ repository, so a change of one is never an edit here:
 
 1. **Try it** against accio's checkout (or a lease of accio) before a commit there. Every crate of psi-syntax that
    Cargo.lock holds, but `lmdb-env`, is patched to it, one `--config` each; a patch of one alone would link a second
-   copy of the crates it depends on:
+   copy of the crates it depends on. The `--config` goes after the subcommand: an external one (`nextest`, `clippy`)
+   runs its own cargo, which a `--config` before it never reaches:
 
    ```bash
    accio=~/projects/accio   # or the lease of accio that holds the change
@@ -78,7 +79,7 @@ repository, so a change of one is never an edit here:
      psi-builder rust-syntax spec-syntax starlark-syntax; do
      patches+=(--config "patch.\"https://github.com/develar/psi-syntax\".$crate.path=\"$accio/psi-syntax/crates/$crate\"")
    done
-   cargo "${patches[@]}" nextest run -p file-diffs -p trial-check   # bash and zsh alike
+   cargo nextest run "${patches[@]}" -p file-diffs -p trial-check   # bash and zsh alike; `clippy` the same way
    ```
 
    The patched build keys the cache by the revision it does not build (`summaries_version`, `code_tokens::tokens_version`

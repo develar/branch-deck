@@ -301,7 +301,7 @@ fn shown(site: &Site<'_>, public_word: bool) -> Option<ShownForm> {
 const PARAMETERS: char = '\u{1}';
 
 /// The modifier that writes `reach` in `language` (of a declaration at the top level of its file, or of a member): Kotlin
-/// `internal`, `private`; Java `private`, its package none; Rust `pub(crate)`, `pub(super)`, private none; TypeScript
+/// `internal`, `private`; Java `private`, its package none; Rust `pub(crate)`, `pub(super)`, `pub(in …)`, private none; TypeScript
 /// `private` of a member, a top-level one not exported none; C# `internal`, `private`, `file`. A public reach only with
 /// `public_word` (Java and C# `public`, Rust `pub`, a top-level TypeScript `export`; Kotlin none): written in every form,
 /// it could be wrong, as the summary holds a `protected` member of Kotlin, Java and TypeScript as public and a Rust
@@ -314,7 +314,11 @@ const fn reach_word(language: Option<Language>, reach: Reach, top_level: bool, p
     (Some(Language::Kotlin | Language::CSharp), Reach::Module) => "internal",
     (Some(Language::Kotlin | Language::Java | Language::CSharp | Language::TypeScript), Reach::Container) | (Some(Language::Kotlin | Language::Java), Reach::File) => "private",
     (Some(Language::Rust), Reach::Module) => "pub(crate)",
-    (Some(Language::Rust), Reach::Parent) => "pub(super)",
+    (Some(Language::Rust), Reach::Up(1)) => "pub(super)",
+    (Some(Language::Rust), Reach::Up(2)) => "pub(in super::super)",
+    // a reach holds the count of modules, not their names
+    (Some(Language::Rust), Reach::Up(_)) => "pub(in super::…)",
+    (Some(Language::Rust), Reach::Depth(_)) => "pub(in crate::…)",
     (Some(Language::CSharp), Reach::File) => "file",
     _ => "",
   }

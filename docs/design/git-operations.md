@@ -1373,8 +1373,11 @@ objects of theirs and the merges. `--sync` syncs after the lock is released, as 
 A trial (`MoveHunkMode::Trial`, no lock) also runs step 7 without the notes and then deletes the temporary refs instead
 of step 8: the rewritten commits exist as objects only, for a trial build of the history after the move.
 `CheckSession::with_rewrite` puts them in place of the old ones in its snapshot (their parents follow, without
-mapping notes, so their branches are built anew) and `rewritten_plan` renames the plan's ids; `brd check` proves a
-`move_hunk` fix that way before it prints the command (see "Dangling references (check)").
+mapping notes, so their branches are built anew), reads the summaries of the blobs only the rewritten commits have
+(`read_change_summaries`, one `cat-file --batch` of the misses of the object cache) beside those of the session it came
+from, and `rewritten_plan` renames the plan's ids; `brd check` proves a `move_hunk` fix that way before it prints the
+command, of a dangling reference and of a missing declaration of an inverted stack (see "Dangling references
+(check)").
 
 Code: `crates/git-ops/src/move_hunk.rs`, `crates/trial-check/src/move_hunk.rs`, `crates/bd-rewrite/src/move_hunk_command.rs`.
 
@@ -4457,8 +4460,8 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    Kotlin or Java function, property or constant whose header, parameters or reach it changes, a type whose
    constructors it changes or a key of which it removes an overload, and a JVM type or Kotlin top-level function it
    adds while the tree has the key in another file of its package and module. The declarations come from the
-   summaries of the commits' files (`CheckSession::symbol_input`, read once per session and shared with the sessions
-   of `with_rewrite`, or handed over by `brd suggest`), only those on the changed lines. A use counts where it resolves
+   summaries of the commits' files (`CheckSession::symbol_input`, read once per session, with those of the blobs its
+   rewrite wrote for a session of `with_rewrite`, or handed over by `brd suggest`), only those on the changed lines. A use counts where it resolves
    to the declaration as an edge would and, for a change, fits the old form but no form in the branch's tree; a change
    the summary can't judge the use by (a return type, a suspend call in the lambda of an unknown function) makes the
    reference only possible, a warning. `fixed_by` is the commit outside the tree whose change of the path removes such

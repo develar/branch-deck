@@ -82,32 +82,54 @@ impl<'a> DanglingFixProver<'a> {
       return None;
     }
     self.hunk_trials += 1;
-    let params = MoveHunkParams {
-      from: fixed_by.to_string(),
-      to: reference.removed_by.clone(),
-      path: reference.file.clone(),
-      blocks: Vec::new(),
-    };
-    let options = MoveHunkOptions {
-      expect_head: Some(self.report.head.clone()),
-      mode: MoveHunkMode::Trial,
-      ..MoveHunkOptions::default()
-    };
-    let moved = move_hunk_core(self.session.git_executor(), self.session.repository_path(), &ObjectCache::disabled(), &params, &options)
-      .inspect_err(|error| debug!(%error, "the trial of moving the hunk failed"))
-      .ok()?;
-    let session = self.session.with_rewrite(&moved.commits, &moved.trees);
-    let plan = self.session.rewritten_plan(self.plan, &moved.commits);
-    let trial = session
-      .check(Some(&plan))
-      .inspect_err(|error| debug!(%error, "the trial build of the moved hunk failed"))
-      .ok()?;
-    proves(self.report, &trial, &branch.name).then(|| ProvenFix::MoveHunk {
+    let trial = hunk_trial(self.session, self.plan, self.report, fixed_by, &reference.removed_by, &reference.file)?;
+    proves(self.report, &trial.report, &branch.name).then(|| ProvenFix::MoveHunk {
       from: fixed_by.to_string(),
       to: reference.removed_by.clone(),
       file: reference.file.clone(),
     })
   }
+}
+
+/// A check of the history after the change of `file` in `from` moved into `to` (`MoveHunkMode::Trial`, written as
+/// objects only, HEAD's tree kept)
+pub(crate) struct HunkTrial {
+  /// The session on the rewritten history
+  pub session: CheckSession,
+  /// Old id -> new id of each rewritten commit, oldest first
+  pub commits: Vec<(String, String)>,
+  /// The check of `plan` with the rewritten ids
+  pub report: CheckReport,
+}
+
+/// The trial of moving the change of `file` in `from` into `to` of `session`, whose check of `plan` is `report`; `None`
+/// when the move is refused or its check fails
+pub(crate) fn hunk_trial(session: &CheckSession, plan: &RegroupPlan, report: &CheckReport, from: &str, to: &str, file: &str) -> Option<HunkTrial> {
+  let params = MoveHunkParams {
+    from: from.to_string(),
+    to: to.to_string(),
+    path: file.to_string(),
+    blocks: Vec::new(),
+  };
+  let options = MoveHunkOptions {
+    expect_head: Some(report.head.clone()),
+    mode: MoveHunkMode::Trial,
+    ..MoveHunkOptions::default()
+  };
+  let moved = move_hunk_core(session.git_executor(), session.repository_path(), &ObjectCache::disabled(), &params, &options)
+    .inspect_err(|error| debug!(%error, "the trial of moving the hunk failed"))
+    .ok()?;
+  let rewritten = session.with_rewrite(&moved.commits, &moved.trees);
+  let plan = session.rewritten_plan(plan, &moved.commits);
+  let report = rewritten
+    .check(Some(&plan))
+    .inspect_err(|error| debug!(%error, "the trial build of the moved hunk failed"))
+    .ok()?;
+  Some(HunkTrial {
+    session: rewritten,
+    commits: moved.commits,
+    report,
+  })
 }
 
 /// Whether `trial` proves a fix of `branch`, which fails in `report`: it builds, and every branch that built still does

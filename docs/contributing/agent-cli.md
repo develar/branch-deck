@@ -1404,12 +1404,18 @@ repository lock.
   (`file`, `line`) that `fixed_by` deletes: a move whose deletion is in another branch. Their possible ones are
   `possible_changed_declaration` and `possible_duplicate_declaration`. It searches only the paths where the branch's tree and HEAD's differ,
   so it costs a `diff-tree` and a `cat-file`, plus one `log --raw` and one `cat-file` for the commits the cache lacks.
-- `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
-  commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
-  fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
-  branches (`trial_check::inverted_stack`; brd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
-  child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
-  (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
+- `inverted_stack` `{branch, child, needs, fixes}`: the branch conflicts, has a dangling reference or a missing
+  declaration, because it needs a commit (`missing_commits`, `fixed_by`, `declared_by`) of `child`, a branch stacked on
+  it: no order of the stack builds both. `needs` names each commit of the branch, the commit of the child it needs and
+  the file of the change it needs. Each fix is `{kind, branches, unstack}` to add to the plan, or `{kind, command}` of a
+  hunk to move, kept only when a trial build with it builds both branches and, for a missing declaration, leaves none
+  of the missing declarations it was for and none the check didn't have (`trial_check::inverted_stack`; brd only
+  shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it,
+  `swap` stacks the branch on the child (`unstack` the child, `"child/branch": []`), `move_to_parent` moves the child's
+  commit that a missing declaration needs into the branch where it changes only that file, else `move_hunk` moves that
+  change of the file into the commit of the use (`brd move-hunk <from> <to> <file>`, tried on a rewritten history); no
+  `swap` when the child's change uses what the branch adds (`mutual`). With no fix that builds, `fixes` is empty and
+  `reason` says why. The `result` stays. A missing declaration names `change_file`, the file of the change it needs.
 - `--build COMMAND` runs a shell command (`sh -c`, on Windows `cmd /D /S /C "COMMAND"`, the command line as written)
   in the tree of each `ok` branch, extracted with `git archive` into a temporary directory outside every working tree
   (`BD_BRANCH`, `BD_COMMIT` set), and removes it afterwards; `build` is `{exit_code, output}` (the last 50 lines of a

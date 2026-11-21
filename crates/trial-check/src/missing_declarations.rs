@@ -20,6 +20,9 @@ pub struct MissingDeclaration {
   pub used_by: String,
   /// The commit outside that adds it
   pub declared_by: String,
+  /// The file whose change in `declared_by` the use needs: the declaration's, or for `RemovesAfter` the one whose use
+  /// `declared_by` removed
+  pub change_file: String,
   /// The branch of `declared_by`; `None` for an unassigned commit
   pub declared_in: Option<String>,
   pub evidence: Evidence,
@@ -58,6 +61,11 @@ pub fn missing_declarations(session: &CheckSession, report: &CheckReport) -> Res
         line: link.line,
         used_by: (*from).to_string(),
         declared_by: (*to).to_string(),
+        change_file: if link.evidence == Evidence::RemovesAfter {
+          link.used_in.clone()
+        } else {
+          link.declared_in.clone()
+        },
         declared_in: group_of.get(to).copied().flatten().map(str::to_string),
         evidence: link.evidence,
       }));

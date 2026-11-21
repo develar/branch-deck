@@ -2,6 +2,7 @@
 //! the cache only
 
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
+use bd_core::bd_command::shell_word;
 use bd_core::branch_view::{StackBlockSummary, StackIssue, stack_issues};
 use bd_core::check_summary::{
   CheckConflict, CheckWarning, DanglingReferenceSummary, FixProver, ProveFix, confirmed_dangling_references, has_mutual_reference, possible_dangling_references,
@@ -15,7 +16,6 @@ use domain_types::error::ErrorCode;
 use domain_types::stack::BranchStack;
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::tree_archive::write_tree_archive;
-use history_rewrite::regroup::RegroupError;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -118,6 +118,9 @@ pub struct MissingDeclaration {
   /// The commit of the branch that uses it, and the commit outside that adds it
   pub used_by: String,
   pub declared_by: String,
+  /// The file whose change in `declared_by` the use needs: the declaration's, or for `removes_after` the one whose
+  /// use `declared_by` removed; what `brd move-hunk <declared_by> <used_by> <change_file>` would move
+  pub change_file: String,
   /// The branch of `declared_by`; `null` for an unassigned commit
   pub declared_in: Option<String>,
   /// `import`, `qualified`, `same_file`, `same_module`, `star_import`, `same_package_type`, `override` (an override of
@@ -261,7 +264,11 @@ pub struct InvertedStack {
   pub branch: String,
   /// The branch stacked on it that has the commit it needs
   pub child: String,
-  /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `brd group`
+  /// What the parent needs of the child: a commit of the parent, the commit of the child it needs, and the file whose
+  /// change it needs (of a missing declaration or a dangling reference)
+  pub needs: Vec<InvertedNeed>,
+  /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `brd group`, or
+  /// as the `command` of a hunk to move
   pub fixes: Vec<InvertedStackFix>,
   /// Without `fixes`: why neither fix builds both, and where to look further
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -269,13 +276,26 @@ pub struct InvertedStack {
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
+pub struct InvertedNeed {
+  pub commit: String,
+  pub needs: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct InvertedStackFix {
   /// `move_to_child`: the commits of the parent that need the child move into it; `swap`: the parent stacks on the
-  /// child
+  /// child; `move_to_parent`: the child's commit that a missing declaration needs changes only that file and moves into
+  /// the parent; `move_hunk`: that change of the file moves into the parent's commit that needs it (`command`)
   pub kind: String,
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   pub branches: BTreeMap<String, Vec<String>>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub unstack: Vec<String>,
+  /// Of `move_hunk`: `brd move-hunk <from> <to> <file>`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub command: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -306,7 +326,8 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   // the files of each commit, for the commits a conflict likely needs
   let ids: Vec<String> = report.regroup.commits.iter().map(|commit| commit.id.clone()).collect();
   let has_conflict = report.branches.iter().any(|branch| matches!(branch.outcome, CheckOutcome::Conflict { .. }));
-  let files_of = if has_conflict || has_mutual_reference(&report) {
+  let missing_all = missing_declarations(&session, &report).map_err(regroup_error)?;
+  let files_of = if has_conflict || has_mutual_reference(&report) || !missing_all.is_empty() {
     changed_files(session.commit_diffs().map_err(regroup_error)?)
   } else {
     HashMap::new()
@@ -317,14 +338,14 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let mut prover = FixProver::new(context, &session, &user_plan, &report, &files_of, &short);
   let mut branches = checked_branches(&report, &files_of, &short, &mut |branch, reference| prover.prove(branch, reference));
   let warnings = possible_dangling_references(&report, &short);
-  let missing = missing_declaration_outputs(&session, &report, &short).map_err(regroup_error)?;
+  let missing = missing_declaration_outputs(&missing_all, &short);
   for checked in branches.iter_mut().filter(|checked| checked.result == "ok") {
     if missing.iter().any(|missing| missing.branch == checked.name) {
       checked.result = "missing_declaration".to_string();
     }
   }
   for (checked, branch) in branches.iter_mut().zip(&report.branches) {
-    checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of).map(|found| inverted_stack_output(found, &short));
+    checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &missing_all, &files_of).map(|found| inverted_stack_output(found, &short, &context.bd));
   }
   if let Some(command) = &args.build {
     let heads: Vec<(usize, &str)> = branches
@@ -416,24 +437,23 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   })
 }
 
-/// The names the built branches of `report` use and a commit outside their trees adds (`missing_declarations`), by
-/// short ids
-fn missing_declaration_outputs(session: &CheckSession, report: &CheckReport, short: &ShortIds) -> Result<Vec<MissingDeclaration>, RegroupError> {
-  Ok(
-    missing_declarations(session, report)?
-      .into_iter()
-      .map(|missing| MissingDeclaration {
-        used_by: short.get(&missing.used_by).to_string(),
-        declared_by: short.get(&missing.declared_by).to_string(),
-        evidence: missing.evidence.name(),
-        branch: missing.branch,
-        identifier: missing.identifier,
-        file: missing.file,
-        line: missing.line,
-        declared_in: missing.declared_in,
-      })
-      .collect(),
-  )
+/// The names the built branches of a check use and a commit outside their trees adds (`missing_declarations`), by short
+/// ids
+fn missing_declaration_outputs(missing: &[trial_check::missing_declarations::MissingDeclaration], short: &ShortIds) -> Vec<MissingDeclaration> {
+  missing
+    .iter()
+    .map(|missing| MissingDeclaration {
+      used_by: short.get(&missing.used_by).to_string(),
+      declared_by: short.get(&missing.declared_by).to_string(),
+      change_file: missing.change_file.clone(),
+      evidence: missing.evidence.name(),
+      branch: missing.branch.clone(),
+      identifier: missing.identifier.clone(),
+      file: missing.file.clone(),
+      line: missing.line,
+      declared_in: missing.declared_in.clone(),
+    })
+    .collect()
 }
 
 /// The check of each branch of `report`; `files_of` holds the changed files of each commit, for the commits a conflict
@@ -641,8 +661,9 @@ fn shell(command: &str) -> std::process::Command {
   shell.into_command()
 }
 
-/// The output of an inverted stack (`trial_check::inverted_stack`): short ids, the kinds of the fixes, and without one why
-fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, short: &ShortIds) -> InvertedStack {
+/// The output of an inverted stack (`trial_check::inverted_stack`): short ids, the kinds of the fixes, a hunk to move as
+/// the command of `bd`, and without a fix why
+fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, short: &ShortIds, bd: &str) -> InvertedStack {
   let reason = found.fixes.is_empty().then(|| {
     let tried = if found.mutual {
       "moving its commits into the child doesn't build both, and the child's change uses what it adds, so no swap"
@@ -654,6 +675,15 @@ fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, shor
   InvertedStack {
     branch: found.branch,
     child: found.child,
+    needs: found
+      .needs
+      .into_iter()
+      .map(|need| InvertedNeed {
+        commit: short.get(&need.commit).to_string(),
+        needs: short.get(&need.needs).to_string(),
+        file: need.file,
+      })
+      .collect(),
     fixes: found
       .fixes
       .into_iter()
@@ -661,8 +691,13 @@ fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, shor
         kind: match fix.kind {
           InvertedStackFixKind::MoveToChild => "move_to_child",
           InvertedStackFixKind::Swap => "swap",
+          InvertedStackFixKind::MoveToParent => "move_to_parent",
+          InvertedStackFixKind::MoveHunk => "move_hunk",
         }
         .to_string(),
+        command: fix
+          .hunk
+          .map(|(from, to, file)| format!("{bd} move-hunk {} {} {}", short.get(&from), short.get(&to), shell_word(&file))),
         branches: fix
           .branches
           .into_iter()

@@ -492,10 +492,12 @@ holds the commits it needs, in one trial; dangling references are searched after
 line on stderr (`trial 3/12: restack <branch> on <parent> … verified (41 s)`); --max-trials N (12) and
 --time-budget SECONDS (180, the whole command) bound it, and `fix.search: budget` is the best plan so far: run it
 again, the cache makes it faster. `inverted_stack` {branch, child,
-fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is
-`branches`/`unstack` for the plan, checked by a trial build; `reason` when none builds. `warnings`: a
+needs, fixes, reason}: the branch needs a commit of a branch stacked on it (`needs`: the commit, the one it needs, the
+file); each fix (`move_to_child`, `swap`, `move_to_parent`) is `branches`/`unstack` for the plan, or `move_hunk` the
+`command` of `brd move-hunk` to run, checked by a trial build; `reason` when none builds. `warnings`: a
 `possible_dangling_reference` (or `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit
-proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, the
+proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, change_file,
+declared_in}, the
 branch's `result` `missing_declaration` (none when `git config branchdeck.symbols` is `report` or `off`): a use
 whose declaration is outside the branch's tree, git merges it and the build fails: stack the branch on
 `declared_in`, or move one of the two; when the user says it is a false alarm, `brd check --allow-missing` keeps the

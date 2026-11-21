@@ -2731,13 +2731,14 @@ nothing MUST be applied. Each trial MUST be a line on stderr.
 ### Requirement: `brd check`: A use of a name another branch adds is a missing declaration
 
 With `branchdeck.symbols on`, `missing_declarations` MUST name each use, by a commit of a built branch, of a name
-that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an edge by
-symbols), an override of it included, with the evidence. git merges such a branch and its build fails, so a branch
-that builds otherwise MUST be `missing_declaration` (exit 1).
+that a commit outside the branch and the branches it is built on adds or gives the form or reach the use needs, an
+override of it included, with the evidence and `change_file`, the file of the change it needs. git merges such a
+branch and its build fails, so a branch that builds otherwise MUST be `missing_declaration` (exit 1).
 
 #### Scenario: A use of a name another branch adds
 - **WHEN** a commit of a built branch uses a name that a commit outside it and its ancestors adds
-- **THEN** `missing_declarations` names the use with the evidence
+- **THEN** `missing_declarations` names the use with the evidence and the file of the declaration as `change_file`
+  (of `removes_after` the file whose use the commit removed)
 - **AND** the branch is `missing_declaration`, exit 1
   [@test] crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`)
 
@@ -2971,14 +2972,15 @@ package and a single declaration in a file another branch deletes MUST NOT count
 
 ### Requirement: `brd check`: A parent that needs its child is an inverted stack
 
-A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, MUST have
-`inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) MUST be plan
-parts for `brd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
-dangling reference; with no fix that builds, a `reason` instead.
+A branch whose conflict, dangling reference or missing declaration needs a commit of a branch stacked on it, at any
+depth, MUST have `inverted_stack {branch, child, needs, fixes}` and keep its `result`: `needs` the commits and files it
+needs, the fixes those a trial passes for both branches (`move_to_child`, `swap`, `move_to_parent`, `move_hunk`), no
+`swap` for a mutual dangling reference, and with no fix that builds a `reason` instead.
 
 #### Scenario: A parent that needs its child
 - **WHEN** the conflict of a branch needs a commit of a branch stacked on it
-- **THEN** it has `inverted_stack` with the fixes that a trial build passes for both branches, and keeps its `result`
+- **THEN** it has `inverted_stack` with what it needs and the fixes that a trial build passes for both branches, and
+  keeps its `result`
   [@test] crates/bd-rewrite/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`)
 
 #### Scenario: A mutual dangling reference of a stack
@@ -2990,6 +2992,20 @@ dangling reference; with no fix that builds, a `reason` instead.
 - **WHEN** no fix builds
 - **THEN** `inverted_stack` has a `reason` instead
   [@test] crates/bd-rewrite/src/check_test.rs (`an_inverted_stack_that_no_fix_builds_says_why`)
+
+#### Scenario: A parent that needs the visibility its child gives
+- **WHEN** a commit of the parent uses an item that only a commit of its child makes `pub`, beside a change of another
+  file
+- **THEN** the parent is `missing_declaration` with an `inverted_stack` that needs the change of the item's file
+- **AND** its fixes hold the plan parts and `move_hunk`, the `command` of `brd move-hunk` that moves that change into the
+  commit of the use, tried on a rewritten history, after which the trial has none of the missing declarations it was
+  for and none the check didn't have; run as printed, it makes every branch build
+  [@test] crates/bd-rewrite/src/check_test.rs (`a_parent_that_needs_its_childs_visibility_is_an_inverted_stack_with_a_hunk_to_move`)
+
+#### Scenario: A child's commit of only the needed file
+- **WHEN** the child's commit that the parent needs changes only the file of the need
+- **THEN** the fixes hold `move_to_parent`, the child's commit into the parent, and no `move_hunk`
+  [@test] crates/bd-rewrite/src/check_test.rs (`a_childs_commit_of_only_the_needed_file_moves_into_the_parent`)
 
 ### Requirement: `brd check`: `--build` runs a command in the tree of each `ok` branch
 

@@ -384,10 +384,15 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   let command = format!("brd move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
   assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
 
+  run_as_printed_and_check(&repo, &command);
+}
+
+/// Runs `command`, a `brd` command as `brd check` prints it, then `brd check`, which every branch passes
+fn run_as_printed_and_check(repo: &TestRepo, command: &str) {
   let args: Vec<&str> = command.strip_prefix("brd ").unwrap().split(' ').collect();
-  let (exit_code, moved) = run_in(&repo, &args);
+  let (exit_code, moved) = run_in(repo, &args);
   assert_eq!(exit_code, 0, "{moved}");
-  let (exit_code, output) = run_in(&repo, &["check"]);
+  let (exit_code, output) = run_in(repo, &["check"]);
   assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
 }
 
@@ -644,6 +649,7 @@ fn a_parent_that_needs_its_child_is_an_inverted_stack() {
     json!({
       "branch": "a",
       "child": "b",
+      "needs": [{ "commit": short_id(&parent_commit), "needs": short_id(&child_commit) }],
       "fixes": [
         { "kind": "move_to_child", "branches": { "a/b": [short_id(&parent_commit)] } },
         { "kind": "swap", "branches": { "b/a": [] }, "unstack": ["b"] },
@@ -672,9 +678,9 @@ fn a_parent_that_needs_its_child_is_an_inverted_stack() {
 #[test_log::test]
 fn an_inverted_stack_that_no_fix_builds_says_why() {
   let repo = stacked_repo();
-  commit_file(&repo, "(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
+  let child_commit = commit_file(&repo, "(a/b) Add shared", "shared.txt", "one\n", 1_700_000_100);
   commit_file(&repo, "(a) Add own", "own.txt", "own\n", 1_700_000_150);
-  commit_file(&repo, "(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
+  let parent_commit = commit_file(&repo, "(a) Change shared", "shared.txt", "two\n", 1_700_000_200);
   commit_file(&repo, "(a) Change shared again", "shared.txt", "three\n", 1_700_000_250);
   commit_file(&repo, "(a/b) Change own", "own.txt", "own 2\n", 1_700_000_300);
 
@@ -685,6 +691,7 @@ fn an_inverted_stack_that_no_fix_builds_says_why() {
     json!({
       "branch": "a",
       "child": "b",
+      "needs": [{ "commit": short_id(&parent_commit), "needs": short_id(&child_commit) }],
       "fixes": [],
       "reason": "neither moving its commits into the child nor stacking it on the child builds both: `brd check --fix` searches the regroups",
     }),
@@ -714,6 +721,120 @@ fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() 
       .any(|kind| kind == &json!("swap")),
     "{output}"
   );
+}
+
+/// The crate of develar/branch-deck#251 before the range: `TOO_BIG` private in `src/socket.rs`
+const AIR_PAGE: [(&str, &str); 5] = [
+  ("README.md", "readme\n"),
+  ("page/Cargo.toml", "[package]\nname = \"air-page\"\nversion = \"0.1.0\"\n"),
+  ("page/src/lib.rs", "pub mod native;\npub mod socket;\n\n#[cfg(test)]\nmod tests;\n"),
+  ("page/src/socket.rs", "pub const CLOSE_LINGER: u64 = 1;\n\nconst TOO_BIG: u16 = 1009;\n"),
+  ("page/src/tests.rs", "mod pump;\n"),
+];
+
+/// The stack of develar/branch-deck#251: `b` (`native-webview`) on `a` (`a2ui-v1`); the commit of `b` makes `TOO_BIG`
+/// `pub` beside a change of another file, and a later commit of `a` uses it from the module of a test. The ids of the
+/// two commits
+fn commit_visibility_cycle(repo: &TestRepo) -> (String, String) {
+  write(repo, "page/src/socket.rs", "pub const CLOSE_LINGER: u64 = 1;\n\npub const TOO_BIG: u16 = 1009;\n");
+  write(repo, "page/src/native.rs", "pub fn native() -> u8 {\n  1\n}\n");
+  let widens = commit_all(repo, "(a/b) Serve the native page", 1_700_000_100);
+  commit_file(repo, "(a) Add the frame", "page/src/frame.rs", "pub fn frame() -> u8 {\n  2\n}\n", 1_700_000_150);
+  let uses = commit_file(
+    repo,
+    "(a) Test the pump",
+    "page/src/tests/pump.rs",
+    "use crate::socket::{CLOSE_LINGER, TOO_BIG};\n\nfn pump() -> u16 {\n  TOO_BIG\n}\n",
+    1_700_000_200,
+  );
+  (widens, uses)
+}
+
+/// The Safe Push failure of develar/branch-deck#251: the parent uses an item that only a commit of its child makes
+/// `pub`. `brd check` names the missing declaration with the file whose change it needs, and the inverted stack with
+/// what the parent needs and the fixes a trial build proves: the commit of the use into the child, the parent on the
+/// child, and the change of `socket.rs` into the commit of the use, which, run as printed, makes every branch build
+#[test_log::test]
+fn a_parent_that_needs_its_childs_visibility_is_an_inverted_stack_with_a_hunk_to_move() {
+  let repo = repo_with_baseline(&AIR_PAGE);
+  let (widens, uses) = commit_visibility_cycle(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let a = branch(&output, "a");
+  assert_eq!(a["result"], json!("missing_declaration"), "{output}");
+  assert_eq!(
+    output["missing_declarations"],
+    json!([{
+      "branch": "a",
+      "identifier": "TOO_BIG",
+      "file": "page/src/tests/pump.rs",
+      "line": 1,
+      "used_by": short_id(&uses),
+      "declared_by": short_id(&widens),
+      "change_file": "page/src/socket.rs",
+      "declared_in": "b",
+      "evidence": "import",
+    }])
+  );
+  let command = format!("brd move-hunk {} {} page/src/socket.rs", short_id(&widens), short_id(&uses));
+  assert_eq!(
+    a["inverted_stack"],
+    json!({
+      "branch": "a",
+      "child": "b",
+      "needs": [{ "commit": short_id(&uses), "needs": short_id(&widens), "file": "page/src/socket.rs" }],
+      "fixes": [
+        { "kind": "move_to_child", "branches": { "a/b": [short_id(&uses)] } },
+        { "kind": "swap", "branches": { "b/a": [] }, "unstack": ["b"] },
+        { "kind": "move_hunk", "command": command },
+      ],
+    }),
+    "{output}"
+  );
+  assert_check_schema(&repo, &output);
+
+  run_as_printed_and_check(&repo, &command);
+}
+
+/// The commit of the child changes only the file the parent needs: it moves into the parent, a fix of the plan
+#[test_log::test]
+fn a_childs_commit_of_only_the_needed_file_moves_into_the_parent() {
+  let repo = repo_with_baseline(&AIR_PAGE);
+  let widens = commit_file(
+    &repo,
+    "(a/b) Open the close codes",
+    "page/src/socket.rs",
+    "pub const CLOSE_LINGER: u64 = 1;\n\npub const TOO_BIG: u16 = 1009;\n",
+    1_700_000_100,
+  );
+  commit_file(
+    &repo,
+    "(a/b) Serve the native page",
+    "page/src/native.rs",
+    "pub fn native() -> u8 {\n  1\n}\n",
+    1_700_000_120,
+  );
+  commit_file(&repo, "(a) Add the frame", "page/src/frame.rs", "pub fn frame() -> u8 {\n  2\n}\n", 1_700_000_150);
+  commit_file(
+    &repo,
+    "(a) Test the pump",
+    "page/src/tests/pump.rs",
+    "use crate::socket::{CLOSE_LINGER, TOO_BIG};\n\nfn pump() -> u16 {\n  TOO_BIG\n}\n",
+    1_700_000_200,
+  );
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  let fixes = branch(&output, "a")["inverted_stack"]["fixes"].clone();
+  assert!(
+    fixes
+      .as_array()
+      .unwrap()
+      .contains(&json!({ "kind": "move_to_parent", "branches": { "a": [short_id(&widens)] } })),
+    "{output}"
+  );
+  assert!(!fixes.as_array().unwrap().iter().any(|fix| fix["kind"] == json!("move_hunk")), "{output}");
 }
 
 /// `flow` imports a function that `util` adds: git builds both, and the check names the name `flow` misses, which fails
@@ -750,6 +871,7 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
       "line": 3,
       "used_by": short_id(&uses),
       "declared_by": short_id(&declares),
+      "change_file": "src/a/Util.kt",
       "declared_in": "util",
       "evidence": "import",
     }])
@@ -783,6 +905,7 @@ fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
       "line": 7,
       "used_by": short_id(&overrides),
       "declared_by": short_id(&declares),
+      "change_file": "impl/src/p/Manager.kt",
       "declared_in": "abc",
       "evidence": "override",
     }])

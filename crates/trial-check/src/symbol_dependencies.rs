@@ -422,6 +422,11 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     let mut members: BTreeMap<String, Member<'_>> = BTreeMap::new();
     // the entries of keys only present or absent that move to a file of the commit (`follow_entries`)
     let mut follows: Vec<Follow<'_>> = Vec::new();
+    // the declarations of the baseline whose reach the commit changes, with their form before (`reach_changes`)
+    let mut reformed: Vec<(Site<'_>, Site<'_>)> = Vec::new();
+    // every declaration whose reach the commit changes, with its form before: the uses the narrower form forbids need the
+    // commits that removed them (`removed_uses`)
+    let mut reached: Vec<(Site<'_>, Site<'_>)> = Vec::new();
     for (change, before, after) in changed {
       let (added_lines, removed_lines) = changed_lines(change);
       match (before, after) {
@@ -445,6 +450,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
             member.degraded |= before.summary.is_degraded() || after.summary.is_degraded();
           }
           follows.extend(kept_entries(&index, before.path, after));
+          reformed.extend(reach_changes(&index, before, after));
         }
         // a new file, a deleted one, or a moved namespace (a rename, a new package): every key may differ
         _ => {
@@ -495,7 +501,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     added.retain(|site| !removed_keys.contains(&kind_of(site)));
     removed.retain(|site| !added_keys.contains(&kind_of(site)));
     for follow in follows {
-      follow_entries(&mut index, follow);
+      follow_entries(&mut index, follow, position, &mut reached);
     }
     // a key of a type or a member goes by its entries, but only on clean sides: a declaration the parser recovered
     // around may be misread, and two declarations of one side that are the same entry, or the constructors of a type
@@ -557,7 +563,9 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         .and_then(|keys| keys.get(&key))
         .map(|state| state.entries.as_slice())
         .filter(|entries| !entries.is_empty());
-      let Some(entries) = member_entries(known, member, position) else { continue };
+      let Some(entries) = member_entries(known, member, position, &mut reached) else {
+        continue;
+      };
       if !entries.is_empty() {
         index.entry(name).or_default().entry(key).or_default().entries = entries;
       } else if let Some(keys) = index.get_mut(&name)
@@ -570,6 +578,21 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
           keys.remove(&key);
         }
       }
+    }
+
+    // a key of the baseline whose reach the commit changes: an entry of this file whose form before is of the baseline
+    for (before, after) in reformed {
+      let baseline = Rc::new(Origin {
+        commit: None,
+        predecessors: Vec::new(),
+      });
+      let origin = Rc::new(Origin {
+        commit: Some(position),
+        predecessors: vec![Entry::new(before.clone(), baseline)],
+      });
+      let state = index.entry(after.name().to_string()).or_default().entry(after.key.clone()).or_default();
+      replace_by_file(&mut state.present, vec![Entry::new(after.clone(), origin)]);
+      reached.push((before, after));
     }
 
     // the uses on the added lines
@@ -612,7 +635,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     // a removal needs the older commits that removed the uses of the name
     for site in removed.iter().filter(|site| !site.ctx.summary.is_degraded()) {
       for (earlier, earlier_files) in files.iter().enumerate().take(position) {
-        let Some(link) = removed_uses(input, earlier_files, site) else { continue };
+        let Some(link) = removed_uses(input, earlier_files, site, None) else { continue };
         edges.entry((position, earlier)).or_default().push(link);
       }
       // the whole key of a type or a member, the functions of its name aside; of a key only present or absent the
@@ -628,6 +651,21 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         if state.entries.is_empty() && state.present.is_empty() {
           keys.remove(&site.key);
         }
+      }
+    }
+
+    // a narrower reach needs the older commits that removed the uses it forbids, as a removal needs those of all its
+    // uses; the new form is judged as an older one (`Site::older`), since its rejection makes the edge
+    for (before, after) in reached
+      .iter()
+      .filter(|(before, after)| !before.ctx.summary.is_degraded() && !after.ctx.summary.is_degraded())
+    {
+      let after = Site { older: true, ..after.clone() };
+      for (earlier, earlier_files) in files.iter().enumerate().take(position) {
+        let Some(link) = removed_uses(input, earlier_files, before, Some(&after)) else {
+          continue;
+        };
+        edges.entry((position, earlier)).or_default().push(link);
       }
     }
 
@@ -736,7 +774,7 @@ fn resolve_use<'s>(
       // use of a function or a constructor needs the key
       let before = |current: &Site<'_>, call: CallArguments<'_>, judged: bool, older: &Site<'_>| {
         star
-          || (!judged && (older.constructor.is_some() || older.declaration.kind == DeclKind::Function))
+          || (!judged && !binds_one(older) && (older.constructor.is_some() || older.declaration.kind == DeclKind::Function))
           || older_form(older, current).is_none_or(|declaration| {
             let site = Site {
               declaration: &declaration,
@@ -813,6 +851,21 @@ fn site_of<'a>(ctx: &'a FileCtx<'a>, declaration: &'a Declaration) -> Site<'a> {
     containers,
     key,
     older: false,
+  }
+}
+
+/// Whether an older reach of `site`, a key only present or absent, judges a use (a step of its reach, `reach_changes`):
+/// where a name binds one declaration whatever a use passes, so the use compiles by that declaration alone. Of Rust an
+/// item of a module and a field (a path or a glob names one item of a name in each of a module's namespaces), never a
+/// member of an `impl`, whose name a trait the range doesn't show may give the type too, which rustc takes while the
+/// inherent one can't be seen; of TypeScript and JavaScript every declaration, of one binding per name in a file. Not
+/// of the JVM's top-level declarations: a file the range doesn't show may declare a function or a property of the name
+/// in the package, which takes the use while the one of the range can't be seen
+const fn binds_one(site: &Site<'_>) -> bool {
+  match site.ctx.language {
+    Language::Rust => site.declaration.receiver.is_none(),
+    Language::TypeScript => true,
+    _ => false,
   }
 }
 
@@ -898,13 +951,42 @@ fn kept_entries<'a>(index: &Index<'a>, from: &'a str, after: &'a FileCtx<'a>) ->
     .collect()
 }
 
+/// The declarations of `after`, the new side of a file a commit changes within its namespace, of keys only present or
+/// absent of the baseline whose reach the commit changes, each with its form before: the key has one declaration on each
+/// side, its name binds it (`binds_one`), the index holds no entry of it in the file (`kept_entries` moves those), and
+/// every declaration of the file counts, not only those on the changed lines, as TypeScript's `export { name }` changes
+/// the reach of a declaration it doesn't touch
+fn reach_changes<'a>(index: &Index<'a>, before: &'a FileCtx<'a>, after: &'a FileCtx<'a>) -> Vec<(Site<'a>, Site<'a>)> {
+  if before.summary.is_degraded() || after.summary.is_degraded() {
+    return Vec::new();
+  }
+  let held = |site: &Site<'_>| {
+    index
+      .get(site.name())
+      .and_then(|keys| keys.get(&site.key))
+      .is_some_and(|state| state.present.iter().any(|entry| entry.file == before.path))
+  };
+  declared_sites(after)
+    .into_iter()
+    .filter(|site| !has_entries(site) && binds_one(site) && !site.declaration.in_error && !held(site))
+    .filter_map(|site| {
+      let olds = sites_of_key(before, &site);
+      let ([old], [_]) = (olds.as_slice(), sites_of_key(after, &site).as_slice()) else {
+        return None;
+      };
+      (old.declaration.kind == site.declaration.kind && !old.declaration.in_error && old.declaration.reach != site.declaration.reach).then(|| (old.clone(), site))
+    })
+    .collect()
+}
+
 /// Moves the entries of the files of `follow` to its declarations, each with its origin, as a key only present or
-/// absent has no forms: to a declaration of its identity (`same_entry`), else to one of an identity none of them has,
+/// absent has no forms but its reach where its name binds one declaration (`binds_one`): a new reach is a step of
+/// `commit` (both forms into `reached`). To a declaration of its identity (`same_entry`), else to one of an identity none of them has,
 /// in order (a changed signature). A declaration left over is as old as the oldest of them, as the key there is; an
 /// entry left over keeps its form in each file of the declarations, as all do where the parser can't read those
 /// (`is_clean_addition`): one may be its own, and two origins stay two, also when a commit moves the overloads of two
 /// files into one
-fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>) {
+fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>, commit: usize, reached: &mut Vec<(Site<'a>, Site<'a>)>) {
   let Some(first) = follow.sites.first() else { return };
   let Some(state) = index.get_mut(first.name()).and_then(|keys| keys.get_mut(&first.key)) else {
     return;
@@ -915,10 +997,25 @@ fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>) {
     return;
   };
   let files: BTreeSet<&'a str> = follow.sites.iter().map(|site| site.ctx.path).collect();
+  // one declaration on each side, so its reach is the key's (`binds_one`)
+  let single = follow.sites.len() == 1 && moving.len() == 1;
   let mut unmatched: Vec<Site<'a>> = Vec::new();
   for site in follow.sites.into_iter().filter(is_clean_addition) {
     match moving.iter().position(|entry| same_entry(&entry.site, &site)) {
-      Some(found) => state.present.push(Entry::new(site, moving.remove(found).origin)),
+      Some(found) => {
+        let entry = moving.remove(found);
+        // a new reach is a step of the commit, its old form the predecessor (`steps_of`)
+        let origin = if single && binds_one(&site) && entry.site.declaration.reach != site.declaration.reach {
+          reached.push((entry.site.clone(), site.clone()));
+          Rc::new(Origin {
+            commit: Some(commit),
+            predecessors: vec![entry],
+          })
+        } else {
+          entry.origin
+        };
+        state.present.push(Entry::new(site, origin));
+      }
       None => unmatched.push(site),
     }
   }
@@ -939,7 +1036,7 @@ fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>) {
 /// knows, which a commit gave it while the key was only present or absent (an unclean commit), is as old as its
 /// type (`oldest_step`), which it needs. A new entry has the commit for its origin and every entry the commit removed
 /// for its predecessors. Empty when the key keeps no entry, `None` when nothing changed in a key the index doesn't know
-fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: usize) -> Option<Vec<Entry<'a>>> {
+fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: usize, reached: &mut Vec<(Site<'a>, Site<'a>)>) -> Option<Vec<Entry<'a>>> {
   let mut unmatched: Vec<&Entry<'a>> = known.unwrap_or_default().iter().collect();
   let baseline = Rc::new(Origin {
     commit: None,
@@ -966,6 +1063,9 @@ fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: u
       Some(found) if same_form(&gone[found].site, &site) => entries.push(Entry::new(site, gone.swap_remove(found).origin)),
       Some(found) => {
         reformed = true;
+        if gone[found].site.declaration.reach != site.declaration.reach {
+          reached.push((gone[found].site.clone(), site.clone()));
+        }
         let origin = Rc::new(Origin {
           commit: Some(commit),
           predecessors: vec![gone.swap_remove(found)],
@@ -1504,8 +1604,9 @@ fn declared_sites<'a>(ctx: &'a FileCtx<'a>) -> Vec<Site<'a>> {
 const MIN_NAME_LENGTH: usize = 3;
 
 /// The link of a use that the commit of `files` removed of the declaration `site`: a file whose before side has more
-/// uses that resolve to it than its after side
-fn removed_uses(input: &SymbolInput, files: &[ChangedFile<'_>], site: &Site<'_>) -> Option<SymbolLink> {
+/// uses that resolve to it than its after side; with `still`, the new form of a narrowed `site`, only the uses that
+/// `still` rejects count
+fn removed_uses(input: &SymbolInput, files: &[ChangedFile<'_>], site: &Site<'_>, still: Option<&Site<'_>>) -> Option<SymbolLink> {
   let name = site.name();
   files.iter().find_map(|(_, before, after)| {
     let before = before.as_ref().filter(|ctx| ctx.summary.name_id(name).is_some())?;
@@ -1518,7 +1619,7 @@ fn removed_uses(input: &SymbolInput, files: &[ChangedFile<'_>], site: &Site<'_>)
         .references_to(name)
         .filter(|reference| {
           let qualifier = reference.qualifier.as_deref().map(|qualifier| names(ctx.summary, qualifier));
-          resolve(input, ctx, reference, qualifier.as_deref(), site).is_some()
+          resolve(input, ctx, reference, qualifier.as_deref(), site).is_some() && still.is_none_or(|still| resolve(input, ctx, reference, qualifier.as_deref(), still).is_none())
         })
         .collect();
       (uses.len(), uses.first().map(|reference| reference.line))
@@ -2528,16 +2629,29 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
   // the module that holds the item, with the inline modules it is in
   let mut item_module = site.ctx.namespace.clone();
   let inline_modules: Vec<String> = site.containers.clone();
-  let visible = match site.declaration.reach {
-    Reach::Public => true,
-    Reach::Module => same_crate,
-    Reach::Parent => same_crate && use_site.namespace.starts_with(&item_module[..item_module.len().saturating_sub(1)]),
-    Reach::File | Reach::Container => same_crate && use_site.namespace.starts_with(&item_module),
-  };
-  if !visible {
-    return None;
-  }
+  // psi-syntax's one rule of Rust's visibility, between the modules the item and the use are in, inline ones included
+  let visible = site.declaration.reach == Reach::Public
+    || (same_crate
+      && site
+        .declaration
+        .reach
+        .rust_visibility()
+        .reaches_path(&rust_module_of(site.ctx, site.declaration.container), &rust_module_of(use_site, reference.container)));
   let name = site.name();
+  if !visible {
+    // an older form is no stricter than the compiler: a bare name the item's module would bring through a glob may come
+    // from another glob or the preludes while the item can't be seen
+    let through_glob = || {
+      reference.qualifier.is_none()
+        && site.declaration.member == MemberKind::TopLevel
+        && summary.imports.iter().zip(&use_site.import_paths).any(|(import, path)| {
+          import.target == ImportTarget::All
+            && rust_path(input, use_site, path).is_some_and(|(root, module)| root == site.ctx.crate_root && module == [item_module.clone(), inline_modules.clone()].concat())
+        })
+    };
+    let elsewhere = || summary.imports.iter().filter(|import| import.target == ImportTarget::All).nth(1).is_some() || in_rust_preludes(input, name);
+    return (site.older && through_glob() && elsewhere()).then_some(Evidence::StarImport);
+  }
   match site.declaration.member {
     MemberKind::TopLevel => {
       // a top-level item is a member of inline modules only
@@ -2583,6 +2697,85 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
         .then_some(Evidence::Qualified)
     }
   }
+}
+
+/// The Rust module of the declaration of index `container` in `ctx` or of a reference inside it: the module of its file
+/// (`FileCtx::namespace`) and the inline modules around it, outermost first; the type that owns a member is no module
+fn rust_module_of(ctx: &FileCtx<'_>, container: Option<u32>) -> Vec<String> {
+  let mut module: Vec<String> = outward(ctx.summary, container)
+    .filter(|(_, declaration)| declaration.kind == DeclKind::Module)
+    .map(|(_, declaration)| ctx.summary.name(declaration.name).to_string())
+    .collect();
+  module.extend(ctx.namespace.iter().rev().cloned());
+  module.reverse();
+  module
+}
+
+/// The names every Rust module sees without a `use`, which a glob import loses to: the standard prelude (2021), the
+/// primitive types, and the extern prelude, the crates of the workspace and `std`, `core` and `alloc`
+fn in_rust_preludes(input: &SymbolInput, name: &str) -> bool {
+  const PRELUDE: [&str; 59] = [
+    "Copy",
+    "Send",
+    "Sized",
+    "Sync",
+    "Unpin",
+    "Drop",
+    "Fn",
+    "FnMut",
+    "FnOnce",
+    "drop",
+    "Box",
+    "ToOwned",
+    "Clone",
+    "PartialEq",
+    "PartialOrd",
+    "Eq",
+    "Ord",
+    "AsRef",
+    "AsMut",
+    "Into",
+    "From",
+    "Default",
+    "Iterator",
+    "Extend",
+    "IntoIterator",
+    "DoubleEndedIterator",
+    "ExactSizeIterator",
+    "Option",
+    "Some",
+    "None",
+    "Result",
+    "Ok",
+    "Err",
+    "String",
+    "ToString",
+    "Vec",
+    "TryFrom",
+    "TryInto",
+    "FromIterator",
+    "bool",
+    "char",
+    "str",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "i128",
+    "isize",
+    "u8",
+    "u16",
+    "u32",
+    "u64",
+    "u128",
+    "usize",
+    "f32",
+    "f64",
+    "std",
+    "core",
+    "alloc",
+  ];
+  PRELUDE.contains(&name) || input.crates.iter().any(|(_, crate_name)| crate_name == name)
 }
 
 /// Whether the module of a Rust `reference` binds `name` itself, which wins over a glob import: an item or an import

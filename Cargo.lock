@@ -240,7 +240,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -578,7 +578,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 [[package]]
 name = "bazel-build"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "starlark-syntax",
 ]
@@ -1371,7 +1371,7 @@ dependencies = [
 [[package]]
 name = "code-symbols"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "code-tokens",
  "csharp-syntax",
@@ -1389,7 +1389,7 @@ dependencies = [
 [[package]]
 name = "code-tokens"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "csharp-syntax",
  "java-syntax",
@@ -1715,7 +1715,7 @@ dependencies = [
 [[package]]
 name = "csharp-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "psi-builder",
 ]
@@ -1934,7 +1934,7 @@ checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 [[package]]
 name = "diff-marks"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "code-tokens",
  "line-diff",
@@ -1980,7 +1980,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2287,7 +2287,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3675,7 +3675,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "psi-builder",
 ]
@@ -3900,7 +3900,7 @@ checksum = "a037eddb7d28de1d0fc42411f501b53b75838d313908078d6698d064f3029b24"
 [[package]]
 name = "js-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "memchr",
  "oxc_allocator",
@@ -3953,7 +3953,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde48f36530cbd91b65f050101e6c056d6eb743cea2a8f0f19beef69c6742ff8"
 dependencies = [
  "scopeguard",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3969,7 +3969,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "psi-builder",
 ]
@@ -4088,7 +4088,7 @@ dependencies = [
 [[package]]
 name = "line-diff"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "fixedbitset",
  "icu_properties",
@@ -4542,7 +4542,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4960,7 +4960,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -4979,9 +4979,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_allocator"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f65d07f047239a6535aee5f9eb5f741ce9d7a19c13d3f5d68a507878368f847"
+checksum = "aaf8c5fa53291fec5f52e179974cc58cd002e45eab0defdbdfb6b36a1809c9ef"
 dependencies = [
  "allocator-api2",
  "hashbrown 0.17.1",
@@ -4991,9 +4991,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a1cff5a82c7f5480d1103288072df539da8ca8aa3d9acb29f5381c45799420"
+checksum = "bc5ac049e885e553878688ca583184cc2b8de02177914328f59616e59ffc224f"
 dependencies = [
  "bitflags 2.13.2",
  "oxc_allocator",
@@ -5009,9 +5009,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_macros"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e65142ee558d453f2d53bc20ebabccb4fbbccec3889fea4c5e595631ae70197e"
+checksum = "fb36e1df5e540ebd898865ed79ffd8d8f9e06310521dc0d8e5b9cc4567fc6739"
 dependencies = [
  "phf 0.14.0",
  "proc-macro2",
@@ -5021,9 +5021,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_visit"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab53ea63411df424b987fcf4830afe8be259a9d95585f34610603bae61e4eb94"
+checksum = "a019293646229f79954cf7c5d022a13324c84e1b874e8ce030c8e7c0a56e5b0f"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -5033,15 +5033,15 @@ dependencies = [
 
 [[package]]
 name = "oxc_data_structures"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "624adb3217f685fd08e5866ed1a2c9e3bd01878ad6dda1a8427308f9742c610d"
+checksum = "8932e4c5ad3c6973548bf2f7750b778315012ecd7086617721d23f17b43e5a55"
 
 [[package]]
 name = "oxc_diagnostics"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "768fdbb6291cab3d79b44e80e9fae84ce626ee5e54a5df6ca56c3ed1d835838b"
+checksum = "901588f26a8f1e7a0a8f7ebab60bf311bc9a1d22935e740a1b545c33b020f29f"
 dependencies = [
  "bytecount",
  "cow-utils",
@@ -5057,9 +5057,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_ecmascript"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c336b5de230f15686a2b6d3e8661d305ef3af9645efc1cf15ef5e7763fc38274"
+checksum = "4127c1685ec3e85c34bcbe9b4055b1ce34bc0e2614c4bf5cf56c52a5424c7fc5"
 dependencies = [
  "itoa",
  "memchr",
@@ -5075,9 +5075,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_estree"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97635d924b6f8cb6a0ee66d6b9a4970d6a9c2ab361575e84195fe730820e6601"
+checksum = "00c806bed591dc97e36678eeaaccb6e85ecc21766eaf6f8a77e7a261a4457a2c"
 
 [[package]]
 name = "oxc_index"
@@ -5091,9 +5091,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_parser"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7abfa2897dd082cd208a089692dd40e2e00166015de6993398689025ce8ea0ed"
+checksum = "4fd93cb9811da8634acfd28a864889d1bf68bce2c546a52372205afabd4a63e7"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
@@ -5114,13 +5114,14 @@ dependencies = [
 
 [[package]]
 name = "oxc_regular_expression"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a4569041514ee03f1043609b07e36e383a9653aa38ee70171709eea64081c6c"
+checksum = "c85fe16e0f852ba1b1085f08efec7b9d611ecaba1851ca6fecb7f91b09631714"
 dependencies = [
  "bitflags 2.13.2",
  "oxc_allocator",
  "oxc_ast_macros",
+ "oxc_data_structures",
  "oxc_diagnostics",
  "oxc_span",
  "oxc_str",
@@ -5131,35 +5132,34 @@ dependencies = [
 
 [[package]]
 name = "oxc_span"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac083572f49ac3941fb954304666da42e44e9154abbdd32fd9b594fd269a952c"
+checksum = "a0bb9aed024358d262b9daab20b7aa7ae89b42946e549b52ff92ddfef033d0e1"
 dependencies = [
- "compact_str",
  "oxc_allocator",
  "oxc_ast_macros",
  "oxc_estree",
- "oxc_str",
 ]
 
 [[package]]
 name = "oxc_str"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "828e3decc148b651b8be6c8b94569536789069477d7ffbecc4661226bd39dcc7"
+checksum = "3b51303dd938569998ad07110fff48d76da59cfe47748a39833c4652424babb4"
 dependencies = [
  "compact_str",
  "hashbrown 0.17.1",
  "memchr",
  "oxc_allocator",
  "oxc_estree",
+ "oxc_span",
 ]
 
 [[package]]
 name = "oxc_syntax"
-version = "0.158.0"
+version = "0.159.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e23801ef775d1cd5743d7abd9d88f826ec4408b85a715bede0526228d688b372"
+checksum = "6f832591474dac1e451b6619d9e9d6187f08445d9d73c47b331dedc34439eb81"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
@@ -5724,7 +5724,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d"
 dependencies = [
  "anyhow",
- "itertools 0.15.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5742,7 +5742,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 
 [[package]]
 name = "pxfm"
@@ -5828,7 +5828,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5865,15 +5865,15 @@ dependencies = [
 
 [[package]]
 name = "ra_ap_edition"
-version = "0.0.362"
+version = "0.0.363"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd43a65cf099bc9504c03bafc9222be8f5c8f8b21cca99c6ff3fba88f14668f4"
+checksum = "537f158d48e45e27fc96049b4474f08f4f2a43f314e3a94358ae848cdf4506a4"
 
 [[package]]
 name = "ra_ap_parser"
-version = "0.0.362"
+version = "0.0.363"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f1a1d37548815415f0c5d01dec840b6929e70ea8a27316d1140668103ff542a"
+checksum = "804669feda720bade440f88c305b712de0278dd61f38e5eeb829e393c761cc8a"
 dependencies = [
  "drop_bomb",
  "ra-ap-rustc_lexer",
@@ -5885,9 +5885,9 @@ dependencies = [
 
 [[package]]
 name = "ra_ap_stdx"
-version = "0.0.362"
+version = "0.0.363"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c59e7f7080aee5c911e13e9026d8a48d0bad6a27c2ccf00d79287b6686367a4"
+checksum = "8148b3ba69f99b411f76b75995f77fa80ede17c994c0df3cc292b176826de311"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
@@ -5902,9 +5902,9 @@ dependencies = [
 
 [[package]]
 name = "ra_ap_syntax"
-version = "0.0.362"
+version = "0.0.363"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92f0b061ea65326bda07525ff34a50480597a866d721e0bbac6ea4b9026df109"
+checksum = "4db24e4411f20bd1e94b282652d0f13555b1156b491de772c0a4d761a0274dab"
 dependencies = [
  "either",
  "itertools 0.15.0",
@@ -6306,7 +6306,7 @@ dependencies = [
 [[package]]
 name = "rust-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "memchr",
  "psi-builder",
@@ -6363,7 +6363,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6421,7 +6421,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7041,7 +7041,7 @@ dependencies = [
 [[package]]
 name = "spec-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 
 [[package]]
 name = "specta"
@@ -7103,7 +7103,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "starlark-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=0558f3c9b38b33006e7eed59fa433f3516b6e6c9#0558f3c9b38b33006e7eed59fa433f3516b6e6c9"
+source = "git+https://github.com/develar/psi-syntax?rev=e8d2483f78f03095f3397e5237774f0b04899fd8#e8d2483f78f03095f3397e5237774f0b04899fd8"
 dependencies = [
  "psi-builder",
 ]
@@ -7906,7 +7906,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9184,7 +9184,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -9593,7 +9593,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
