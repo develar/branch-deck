@@ -51,7 +51,7 @@ test.describe("Declarations moved whole between files", () => {
     await expect(report).toContainText("fun formatTotal(total: Int): String {")
     await expect(moveTargets(report)).toHaveText(["from Orders.kt:7"])
     await show("src/a/Parsing.kt")
-    await expect(parsing.getByTestId("diff-unit-heading")).toHaveText("parseTotal — moved from Orders.kt · parseSum — moved from Orders.kt")
+    await expect(parsing.getByTestId("diff-unit-heading")).toHaveText("parseTotal and parseSum — moved from Orders.kt")
     await expect(parsing).toContainText("fun parseSum(text: String): Int {")
     await show("src/a/Orders.kt")
     await expect(position).toHaveText(/· Step 2 · .* · part 2 of 2$/)

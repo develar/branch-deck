@@ -537,7 +537,8 @@ describe("the declarations moved whole between two files in the story", () => {
         [[1, "Moved parseTotal and parseSum to Parsing.kt"]],
         [[1, PARSING]],
       ],
-      [PARSING, [[0, "parseTotal — moved from Orders.kt · parseSum — moved from Orders.kt"]], [], []],
+      // each file the code came from once
+      [PARSING, [[0, "parseTotal and parseSum — moved from Orders.kt"]], [], []],
       [LEGACY, [], [[0, "Moved legacyTotal to Orders.kt"]], [[0, "file:src/a/Orders.kt"]]],
     ])
     // a deleted file that holds more than the move: whole, its heading saying where its declaration went
@@ -576,8 +577,63 @@ describe("the declarations moved whole between two files in the story", () => {
       }),
     ).toEqual({
       lines: "12 unchanged lines",
-      places: [{ block: 0, words: "Moved formatTotal to Report.kt in step 1" }],
+      places: [{ block: 0, words: "Moved formatTotal to Report.kt in step 1", detail: null }],
     })
+  })
+
+  it("cuts a long list of the declarations that moved as every list is cut, in the heading of a new file and in the row of the place they left, the whole list in their hover", () => {
+    // ten functions extracted in one block of Orders.kt into the new Parsing.kt
+    const newFile = unit({ kind: "newFile" }, "Parsing.kt", [{ path: PARSING, blocks: [], whole: true }])
+    const names = ["parseA", "parseB", "parseC", "parseD", "parseE", "parseF", "parseG", "parseH", "parseI", "parseJ"]
+    const [first, ...rest] = names.map((name, at) =>
+      declaration("removed", name, ORDERS, 20 + 4 * at, at === 0 ? [removal(0, 18, 40)] : [], { movedTo: place(PARSING, 3 + 4 * at, newFile.id) }),
+    )
+    const steps = [
+      stepWithJoined(
+        reviewStep(
+          "a",
+          [stepCommit("extract the parsing")],
+          [
+            [first!.id, ORDERS],
+            [newFile.id, PARSING],
+          ],
+        ),
+        first!.id,
+        rest.map(it => ({ unit: it.id, block: 0, step: 0 })),
+      ),
+    ]
+    const extracted = (removed: readonly ReviewUnit[]) =>
+      presentNarrative(
+        [movedOut(first!), ...removed, newFile],
+        [diffOf(ORDERS, [removal(0, 18, 40)]), diffOf(PARSING, [addition(0, 0, 42)])],
+        [],
+        [],
+        presentChapters({ steps: commitSteps(steps, false), concerns: [] }),
+      )
+    const [orders, parsing] = extracted(rest)
+    // the first three by name and the rest counted, as one line; each name by itself, the rest for the hover of the count
+    const heading = parsing!.units!.marks.get(0)!
+    expect(headingText(heading)).toBe("parseA, parseB, parseC and 7 more — moved from Orders.kt")
+    expect(heading[0]!.names).toEqual({ shown: ["parseA", "parseB", "parseC"], rest: ["parseD", "parseE", "parseF", "parseG", "parseH", "parseI", "parseJ"] })
+    expect([...orders!.units!.elsewhere]).toEqual([[0, "Moved parseA, parseB, parseC and 7 more to Parsing.kt"]])
+    expect([...(orders!.units!.details ?? [])]).toEqual([[0, "Moved parseA, parseB, parseC, parseD, parseE, parseF, parseG, parseH, parseI and parseJ to Parsing.kt"]])
+    // four are named whole, no "and 1 more"; a short list has no words in full
+    const four = extracted(rest.slice(0, 3))
+    expect(headingText(four[1]!.units!.marks.get(0)!)).toBe("parseA, parseB, parseC and parseD — moved from Orders.kt")
+    expect(four[0]!.units!.details).toBeUndefined()
+    // a fold that hides such a row keeps its words in full for its hover
+    expect(
+      foldWords({
+        kind: "fold",
+        gap: 0,
+        level: 0,
+        lines: [],
+        label: null,
+        unchanged: 3,
+        elsewhere: [{ block: 0, label: "Moved a, b, c and 7 more to P.kt", detail: "Moved a to j to P.kt" }],
+        ignored: 0,
+      }).places,
+    ).toEqual([{ block: 0, words: "Moved a, b, c and 7 more to P.kt", detail: "Moved a to j to P.kt" }])
   })
 })
 

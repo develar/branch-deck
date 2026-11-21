@@ -2,7 +2,7 @@ import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, MovedPlace, Renamed
 import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
-import { joinNames } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 import { fileNameAmong } from "@/presenters/diff-marks"
 import { OTHER_CHANGES } from "@/presenters/review-concerns"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
@@ -118,8 +118,36 @@ function renamedHeading(name: string, from: RenamedFrom, changed: string | null)
  * files of the review (`nameOf`); the note of the move at the start of its block names its line alone
  * (`HeadingPart.moved`)
  */
-function movedHeading(name: string, direction: "from" | "to", place: MovedPlace, nameOf: (path: string) => string): HeadingPart {
-  return { name, words: `moved ${direction} ${nameOf(place.path)}`, moved: { path: place.path } }
+function movedHeading(name: string, direction: "from" | "to", path: string, nameOf: (path: string) => string): HeadingPart {
+  return { name, words: `moved ${direction} ${nameOf(path)}`, moved: { path } }
+}
+
+/** The names of a list cut as every list of the app is (`joinNames`, `cutList`): those it names and the rest it counts */
+const NAMED_MOVES = 3
+
+/**
+ * The heading of the declarations that moved into a file taken whole from one file, or out of it to one file
+ * ("parseTotal and parseSum — moved from Orders.kt"): each file once, the names a list cut as every list of the app is
+ * ("a, b, c and 7 more"), the rest in the hover of its count (`HeadingPart.names`)
+ */
+function movedGroupHeading(names: readonly string[], direction: "from" | "to", path: string, nameOf: (path: string) => string): HeadingPart {
+  const { shown } = cutList(names, NAMED_MOVES)
+  const part = movedHeading(joinNames(names), direction, path, nameOf)
+  return names.length === 1 ? part : { ...part, names: { shown, rest: names.slice(shown.length) } }
+}
+
+/** `names` in a sentence, every one of them: "a", "a and b", "a, b and c" */
+function everyName(names: readonly string[]): string {
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
+}
+
+/** `items` by the key each gives, in the order of the first of each key */
+function groupedBy<T>(items: readonly T[], key: (item: T) => string): [string, T[]][] {
+  const groups = new Map<string, T[]>()
+  for (const item of items) {
+    groups.set(key(item), [...(groups.get(key(item)) ?? []), item])
+  }
+  return [...groups]
 }
 
 /**
@@ -142,9 +170,9 @@ export function formatUnitHeading(unit: ReviewUnit, nameOf: (path: string) => st
       }
       return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":
-      return unit.movedFrom == null ? named("new") : movedHeading(name, "from", unit.movedFrom, nameOf)
+      return unit.movedFrom == null ? named("new") : movedHeading(name, "from", unit.movedFrom.path, nameOf)
     case "removed":
-      return unit.movedTo == null ? named("removed") : movedHeading(name, "to", unit.movedTo, nameOf)
+      return unit.movedTo == null ? named("removed") : movedHeading(name, "to", unit.movedTo.path, nameOf)
     case "newFile":
       return named("new file")
     case "deletedFile":
@@ -640,9 +668,24 @@ function markWholeMoves(
     draft.moved = new Map(blocks.map((_, index) => [index, left.map(unit => ({ name: unit.name ?? "", place: placeOf(unit) }))]))
     return
   }
+  // each other file once, its declarations in the order of their lines here
   const heading = [
-    ...arrived.map(unit => movedHeading(unit.name ?? "", "from", placeOf(unit), nameOf)),
-    ...left.map(unit => movedHeading(unit.name ?? "", "to", placeOf(unit), nameOf)),
+    ...groupedBy(arrived, unit => unit.slices[0]?.path ?? "").map(([path, of]) =>
+      movedGroupHeading(
+        of.map(unit => unit.name ?? ""),
+        "from",
+        path,
+        nameOf,
+      ),
+    ),
+    ...groupedBy(left, unit => unit.slices[0]?.path ?? "").map(([path, of]) =>
+      movedGroupHeading(
+        of.map(unit => unit.name ?? ""),
+        "to",
+        path,
+        nameOf,
+      ),
+    ),
   ]
   if (heading.length > 0) {
     draft.marks.set(0, heading)
@@ -652,9 +695,11 @@ function markWholeMoves(
 /**
  * The words of the row of a block of the place declarations left, of those moves alone: where each went, the
  * declarations of one file together, another chapter by its name ("Moved formatTotal to Report.kt", "Moved parseTotal
- * and parseSum to Parsing.kt in step 1"), and the section that shows the first of them, which a click opens
+ * and parseSum to Parsing.kt in step 1"), a long list cut as every list of the app is ("Moved a, b, c and 7 more to
+ * Parsing.kt"), with the words in full where it cuts one (`detail`, the hover of the row); and the section that shows
+ * the first of them, which a click opens
  */
-function movedRow(draft: Draft, moved: readonly MovedAway[], { shownAt, nameOf }: MoveRows): { label: string; target: Draft | undefined } {
+function movedRow(draft: Draft, moved: readonly MovedAway[], { shownAt, nameOf }: MoveRows): { label: string; detail: string | null; target: Draft | undefined } {
   const groups: { path: string; names: string[]; target: Draft | undefined }[] = []
   for (const move of moved) {
     const group = groups.find(it => it.path === move.place.path)
@@ -664,12 +709,15 @@ function movedRow(draft: Draft, moved: readonly MovedAway[], { shownAt, nameOf }
       group.names.push(move.name)
     }
   }
-  const words = groups.map(group => {
-    const target = group.target
-    const elsewhere = target !== undefined && target.concern !== draft.concern && target.concernName !== null ? ` in ${target.concernName}` : ""
-    return `${joinNames(group.names)} to ${nameOf(group.path)}${elsewhere}`
-  })
-  return { label: `Moved ${joinNames(words)}`, target: groups.find(group => group.target !== undefined)?.target }
+  const words = (names: (of: readonly string[]) => string) =>
+    groups.map(group => {
+      const target = group.target
+      const elsewhere = target !== undefined && target.concern !== draft.concern && target.concernName !== null ? ` in ${target.concernName}` : ""
+      return `${names(group.names)} to ${nameOf(group.path)}${elsewhere}`
+    })
+  const label = `Moved ${joinNames(words(joinNames))}`
+  const full = `Moved ${everyName(words(everyName))}`
+  return { label, detail: full === label ? null : full, target: groups.find(group => group.target !== undefined)?.target }
 }
 
 /**
@@ -843,9 +891,13 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
     }
   }
   // the rows of the blocks of a place declarations left, of those moves alone: each opens where they went
+  const details = new Map<number, string>()
   for (const [block, moved] of draft.moved ?? []) {
-    const { label, target } = movedRow(draft, moved, moves)
+    const { label, detail, target } = movedRow(draft, moved, moves)
     elsewhere.set(block, label)
+    if (detail !== null) {
+      details.set(block, detail)
+    }
     if (target !== undefined) {
       targets.set(block, target.key)
     }
@@ -855,7 +907,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
   return {
     key: draft.key,
     path: draft.path,
-    units: whole ? null : { marks: draft.marks, elsewhere },
+    units: whole ? null : details.size === 0 ? { marks: draft.marks, elsewhere } : { marks: draft.marks, elsewhere, details },
     unitIds: draft.unitIds ?? new Set(),
     story: draft.story ?? NO_STORY,
     targets,

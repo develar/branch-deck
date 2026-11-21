@@ -697,9 +697,12 @@ the review.
 36. **A move is read once, at its new place** (2026-11-21). The window showed an exact move twice, "formatTotal —
    removed" in red and "formatTotal — new" in green, the same code read twice, and a function extracted into a new file
    was a removal beside a new file that said nothing. Now the new place says where the code came from ("formatTotal —
-   moved from Orders.kt"; a new file, above its lines, each declaration that came into it), and the old place, where it
+   moved from Orders.kt"; a new file, above its lines, what came into it, each other file once: "parseTotal and parseSum —
+   moved from Orders.kt", past four names the first three and a count whose hover lists the rest, as every list of the
+   app is cut; the measured top case moves ten in one commit), and the old place, where it
    holds the move alone, is one row of the kind "Shown in Imports only" already is: "Moved formatTotal to Report.kt",
-   which opens the section of the new place, another step by its number ("in step 1"), in a fold the words of the row.
+   which opens the section of the new place, another step by its number ("in step 1"), in a fold the words of the row,
+   a cut list in full in its hover.
    Rust decides what holds the move alone (`UnitSlice::moved_out`): the blocks of a unit `removed` change the old side
    as removing the declarations that moved would, blank lines aside, so a deletion the comparison slid by a closing
    brace counts too; a deleted file holds only its moved declarations and its imports and package line, its comments

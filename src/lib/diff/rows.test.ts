@@ -273,6 +273,15 @@ describe("buildFileRows", () => {
     // a fold of the blocks of another section alone says only where they are, each place with its first block
     const only = { ...(fold as FoldRow), unchanged: 0, elsewhere: [3, 4].map(block => ({ block, label: "Shown in Other changes" })) }
     expect(foldWords(only)).toEqual({ lines: "", places: [{ block: 3, words: "2 changes in Other changes" }] })
+    // the row of the place a declaration left whose words cut a list keeps them in full, in a fold too
+    const moved = { marks: new Map<number, Heading>(), elsewhere: new Map([[0, "Moved a, b, c and 2 more to P.kt"]]), details: new Map([[0, "Moved a, b, c, d and e to P.kt"]]) }
+    const movedRows = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED], false, moved)
+    const row = [...Array(movedRows.rowCount).keys()].map(at => rowAt(movedRows, at)).find(it => it.kind === "note")
+    expect(row).toMatchObject({ tone: "elsewhere", label: "Moved a, b, c and 2 more to P.kt", detail: "Moved a, b, c, d and e to P.kt" })
+    expect(rowAt(buildFileRows(diff, "unified", [], false, moved), 0)).toMatchObject({
+      kind: "fold",
+      elsewhere: [{ block: 0, label: "Moved a, b, c and 2 more to P.kt", detail: "Moved a, b, c, d and e to P.kt" }],
+    })
   })
 
   it("makes a section of no change of its own the rows of the blocks other sections show, alone", () => {

@@ -1036,7 +1036,7 @@ export class DiffPainter {
    * opens it as the row of such a block does: "· 1 change in part 2" (`foldWords`)
    */
   private foldTargets(file: number, fold: FoldRow): HTMLElement[] {
-    return foldWords(fold).places.flatMap(({ block, words }) => {
+    return foldWords(fold).places.flatMap(({ block, words, detail }) => {
       const separator = element("span", "dv-fold-separator")
       separator.textContent = "·"
       const button = element("button", "dv-fold-target")
@@ -1046,6 +1046,7 @@ export class DiffPainter {
       button.dataset.block = String(block)
       button.dataset.testid = "diff-fold-elsewhere"
       button.textContent = words
+      inFull(button, detail)
       return [separator, button]
     })
   }
@@ -1255,14 +1256,36 @@ export class DiffPainter {
         span.textContent = text
         heading.append(span)
       }
+      const name = (text: string) => {
+        const span = element("span", "dv-note-name")
+        span.textContent = text
+        heading.append(span)
+      }
       for (const [index, part] of (note.heading ?? [{ name: null, words: note.label }]).entries()) {
         if (index > 0) {
           words(" · ")
         }
-        if (part.name !== null) {
-          const name = element("span", "dv-note-name")
-          name.textContent = part.name
-          heading.append(name)
+        if (part.names != null) {
+          // the names of one change, each in the code font, the list in the font of the text, the rest counted: its
+          // hover lists them, a screen reader hears them after the count
+          const { shown, rest } = part.names
+          for (const [at, text] of shown.entries()) {
+            if (at > 0) {
+              words(rest.length === 0 && at === shown.length - 1 ? " and " : ", ")
+            }
+            name(text)
+          }
+          if (rest.length > 0) {
+            const more = element("span", "dv-note-words")
+            more.textContent = ` and ${rest.length} more`
+            more.title = rest.join(", ")
+            const said = element("span", "sr-only")
+            said.textContent = `: ${rest.join(", ")}`
+            more.append(said)
+            heading.append(more)
+          }
+        } else if (part.name !== null) {
+          name(part.name)
         }
         if (part.words !== "") {
           // a heading of no declaration ("Changes outside a declaration") is the heading itself, in the text colour
@@ -1287,6 +1310,7 @@ export class DiffPainter {
     button.dataset.file = String(file)
     button.dataset.testid = "diff-unit-elsewhere"
     button.textContent = note.label
+    inFull(button, note.detail)
     return button
   }
 
@@ -2085,6 +2109,14 @@ const viewsOf = new WeakMap<HTMLElement, number>()
 
 /** A file of the subject the view knows nothing of: named without a name, never shown */
 const UNKNOWN_FILE: OtherFile = { path: "another file", name: "another file", shown: false }
+
+/** A button of words that cut a list (`NoteRow.detail`): those words in full, its hover and its name to a screen reader */
+function inFull(button: HTMLElement, detail: string | null | undefined): void {
+  if (detail != null) {
+    button.title = detail
+    button.setAttribute("aria-label", detail)
+  }
+}
 
 /** What the part at column `start` of a line of a side is of a renamed name (`NamePart`); null where no site of `named` holds the column */
 function renamedPart(named: readonly RenameSite[], side: number, start: number): NamePart | null {

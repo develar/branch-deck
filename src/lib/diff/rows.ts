@@ -92,8 +92,11 @@ export interface FoldRow {
   label: string | null
   /** The unchanged lines it hides: neither a block another section shows nor one the whitespace policy hides */
   unchanged: number
-  /** The blocks another section shows that it hides, each with where (`SectionUnits.elsewhere`: "Shown in part 2") */
-  elsewhere: readonly { readonly block: number; readonly label: string }[]
+  /**
+   * The blocks another section shows that it hides, each with where (`SectionUnits.elsewhere`: "Shown in part 2") and
+   * those words in full where they cut a list (`SectionUnits.details`)
+   */
+  elsewhere: readonly { readonly block: number; readonly label: string; readonly detail?: string | null }[]
   /** The changed lines it hides that the whitespace policy ignores: of each ignored block the most of a side */
   ignored: number
 }
@@ -117,6 +120,12 @@ export interface HeadingPart {
    * absent for a heading of no move
    */
   readonly moved?: { readonly path: string } | null
+  /**
+   * Of a change of several declarations ("parseTotal and parseSum — moved from Orders.kt"): their names, each set in
+   * the code font, the list cut as every list of the app is (`joinNames`), `name` that list as one line; `rest` the
+   * names past the cut, which the hover of its count lists and a screen reader hears. Null or absent for one name
+   */
+  readonly names?: { readonly shown: readonly string[]; readonly rest: readonly string[] } | null
 }
 
 /** The heading of a block, a part for each change it starts */
@@ -150,6 +159,8 @@ export interface NoteRow {
   lines: readonly (readonly [number, number])[]
   /** What the diff says of the lines after the row; null for a row without it */
   remark: Remark | null
+  /** Of a row of a block another section shows whose words cut a list, those words in full: its hover and its name (`SectionUnits.details`) */
+  detail?: string | null
 }
 
 export type Row = LineRow | FoldRow | NoteRow
@@ -168,6 +179,11 @@ export interface SectionUnits {
   readonly marks: ReadonlyMap<number, Heading>
   /** The blocks another section shows, each with where: a row of words stands for its lines */
   readonly elsewhere: ReadonlyMap<number, string>
+  /**
+   * Of a block of `elsewhere` whose words cut a list ("Moved a, b, c and 7 more to Parsing.kt"), its words in full: the
+   * hover of its row and of its place in a fold, and their name to a screen reader
+   */
+  readonly details?: ReadonlyMap<number, string>
 }
 
 type Item =
@@ -178,7 +194,7 @@ type Item =
   /** A block of a merge: its lines on each side, from `starts` */
   | { kind: "merge"; block: MergeBlock; index: number; starts: readonly number[]; counts: readonly number[] }
   /** A block another section shows: one row of words for its lines */
-  | { kind: "elsewhere"; block: DiffBlock; index: number; label: string }
+  | { kind: "elsewhere"; block: DiffBlock; index: number; label: string; detail: string | null }
 
 /** Rows `[from, from + count)` of an item, or a fold */
 type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow }
@@ -280,7 +296,7 @@ function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsO
     pushEqual(items, [oldLine, newLine], block.newStart - newLine)
     const label = units?.elsewhere.get(index)
     if (label !== undefined) {
-      items.push({ kind: "elsewhere", block, index, label })
+      items.push({ kind: "elsewhere", block, index, label, detail: units?.details?.get(index) ?? null })
     } else if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
       pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart, true)
     } else {
@@ -369,8 +385,8 @@ function itemRowCount(item: Item): number {
 /** Row `row` of an item */
 function itemRow(item: Item, row: number): LineRow | NoteRow {
   if (item.kind === "elsewhere") {
-    const { block, index, label } = item
-    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block), remark: null }
+    const { block, index, label, detail } = item
+    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block), remark: null, detail }
   }
   if (item.kind === "equal") {
     return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full", run: null, move: null }
@@ -596,7 +612,7 @@ function foldRow(labels: Labels, gap: Gap, index: number, level: number, from: n
 function foldedOf(gap: Gap, from: number, to: number): Pick<FoldRow, "unchanged" | "elsewhere" | "ignored"> {
   let unchanged = 0
   let ignored = 0
-  const elsewhere: { block: number; label: string }[] = []
+  const elsewhere: { block: number; label: string; detail: string | null }[] = []
   let offset = 0
   for (const item of gap.items) {
     const rows = itemRowCount(item)
@@ -609,7 +625,7 @@ function foldedOf(gap: Gap, from: number, to: number): Pick<FoldRow, "unchanged"
           unchanged += overlap
         }
       } else if (item.kind === "elsewhere") {
-        elsewhere.push({ block: item.index, label: item.label })
+        elsewhere.push({ block: item.index, label: item.label, detail: item.detail })
       } else if (item.kind === "block") {
         ignored += Math.max(item.block.oldEnd - item.block.oldStart, item.block.newEnd - item.block.newStart)
       }
@@ -630,19 +646,24 @@ function lineCount(count: number): string {
  * another section shows alone; then each place that shows blocks it hides, with the first of them, "1 change in part 2"
  * from the words of their row ("Shown in part 2")
  */
-export function foldWords(fold: FoldRow): { lines: string; places: { block: number; words: string }[] } {
+export function foldWords(fold: FoldRow): { lines: string; places: { block: number; words: string; detail?: string | null }[] } {
   const lines = [
     fold.unchanged > 0 || (fold.elsewhere.length === 0 && fold.ignored === 0) ? `${fold.unchanged} unchanged ${fold.unchanged === 1 ? "line" : "lines"}` : null,
     fold.ignored > 0 ? `${lineCount(fold.ignored)} hidden by Whitespace` : null,
   ]
   const blocks = new Map<string, number[]>()
-  for (const { block, label } of fold.elsewhere) {
+  const details = new Map<string, string>()
+  for (const { block, label, detail } of fold.elsewhere) {
     blocks.set(label, [...(blocks.get(label) ?? []), block])
+    if (detail != null) {
+      details.set(label, detail)
+    }
   }
   const places = [...blocks].map(([label, of]) => {
-    // the place a declaration left, which says where it went and is no change to count: its words as its row says them
+    // the place a declaration left, which says where it went and is no change to count: its words as its row says them,
+    // in full in its hover where they cut a list
     if (label.startsWith("Moved ")) {
-      return { block: of[0]!, words: label }
+      return { block: of[0]!, words: label, detail: details.get(label) ?? null }
     }
     const where = label.startsWith("Shown in ") ? label.slice("Shown ".length) : label.charAt(0).toLowerCase() + label.slice(1)
     return { block: of[0]!, words: `${of.length === 1 ? "1 change" : `${of.length} changes`} ${where}` }
