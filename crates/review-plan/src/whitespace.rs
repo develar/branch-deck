@@ -21,11 +21,14 @@
 //!   the file are a move, never whitespace. The plan folds it (`MechanicalKind::Moved`) only where the index of the
 //!   repository says the place of the declaration has no meaning (`units::FreeOrder`), and reads it as a change of
 //!   behaviour elsewhere.
+//! - **Lines that moved to another file** are compared by the same content, read of each side alone (`code`, with its
+//!   grammar): a declaration removed from a file and added to another with the same code says so (`moved_across`).
 //!
 //! The tokens of a blob are read once per grammar for the whole plan (`TextTokens`), when first asked: by
 //! `whitespace_only` for a hunk that passed its check of blanks, and by the fingerprint of every unit of a source file
 //! (`fingerprint_text`), which reads both sides of each such file. So a plan parses the two sides of every changed
-//! source file that has a unit: about 0.1 s for the pairs of 141 files.
+//! source file that has a unit: about 0.1 s for the pairs of 141 files. A file the commits add or delete is read only
+//! where a move between files may name it (`moved_across`, "Cost").
 
 use crate::files::without_whitespace;
 use code_tokens::{Equality, Token, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
@@ -46,6 +49,14 @@ pub(crate) struct TextTokens<'t> {
 
 /// A side of a change of a file of a grammar: the grammar of its path and its blob
 type Side<'a> = Option<(Grammar, &'a str)>;
+
+/// The code of lines of a side (`Sides::code`): its grammar and the content of its tokens, equal for the same code in
+/// any file of that grammar
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Code {
+  grammar: Grammar,
+  content: u64,
+}
 
 /// The two sides of a change of a file, as they are compared
 pub(crate) enum Sides<'a, 't> {
@@ -128,6 +139,18 @@ impl Sides<'_, '_> {
       let (old_tokens, new_tokens) = (old_tokens.in_lines(old), new_tokens.in_lines(new));
       !old_tokens.is_empty() && !new_tokens.is_empty() && content(old_tokens) == content(new_tokens)
     })
+  }
+
+  /// The code of the lines `lines` (of the diffs) of the old side, or of the new one (`new_side`), wherever they stand
+  /// and in whichever file: the grammar of the side and the content of their tokens (`code_tokens::content`), as
+  /// `same_code` compares them, of a token at least that is no comment. `None` for a side of no grammar, without its
+  /// blob or its tokens. Read of that side alone: a file the commits add or delete has its code too
+  pub(crate) fn code(&self, new_side: bool, lines: Range<u32>) -> Option<Code> {
+    let Self::Grammar { tokens, old, new } = self else { return None };
+    let (grammar, blob) = if new_side { (*new)? } else { (*old)? };
+    let read = tokens.of(grammar, blob)?;
+    let run = read.in_lines(lines);
+    run.iter().any(|token| !token.is_comment()).then(|| Code { grammar, content: content(run) })
   }
 
   /// Whether the lines `lines` (of the diffs) of the new side hold no code: no token but comments. No without the

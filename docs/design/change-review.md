@@ -264,7 +264,7 @@ the review.
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
 | Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
 | Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
-| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved to another file and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
+| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved whole to another file with the same code says where it went and came from (`moved_from`, `moved_to`; decision 32), still two units; one unit of such a move, a move whose body changed and "rename A→B, N sites" as one unit of the plan not started; a diff has both now, for the lines and the names of its subject ([Diff View](diff-view.md#marks)): the lines that moved between two files are a label at both ends, and a name one file declares and others use is a rename in each, proven where accio lists every use of its declaration in both trees (`accio renames`, the oracle the unit of the plan will ask); no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
@@ -649,6 +649,27 @@ the review.
    below it not yet landed too. Approve says so (`domain_policy::approval_landing`) and stays enabled: the approval
    waits on the pull request. Refusing it, or retargeting the layer, was rejected: the approval is the reviewer's
    judgement of that layer's own diff, still true once it goes into master, and the base is the author's.
+32. **A declaration moved to another file says where, before anything folds it** (2026-11-21). A function moved to
+   another file was two units, "formatTotal — removed" in one file and "formatTotal — new" in the other, each read
+   whole; a function extracted into a new file a removal beside the new file, one moved out of a file the commits
+   delete an addition beside the deleted file. Nothing in the plan tied them, so neither an agent reading `brd
+   review-plan` nor the window could (JetBrains/patch-splitter, a splitter by lines, shows a block moved verbatim as
+   one move). Now the unit of each says the other place (`ReviewUnit::moved_to` of the removal, `moved_from` of the
+   addition: the file and the line of the name there) where exactly one declaration of one side alone before the
+   commits and one after them, in two files, have the same content of their tokens, the comparison a pair moved inside
+   its file gets (`Sides::same_code`). A new or a deleted file is a place by its outermost declarations, as a file
+   that stays is by the outermost declaration of one side; its unit, taken whole, says nothing. The pairing is pure,
+   from the tokens the fingerprints read: `accio moves` lists the declarations it found moved whole (`moved`), but
+   asking it of every plan with a removal would add a query to plans that ask none, its answer comes after the plan of
+   git, and a plan without an index would know no move; what the plan of git can prove needs no oracle. A code of two
+   places on a side says nothing (a word on two files must not guess), nor a move with a changed line, nor a move
+   inside one file, which the diff of the file marks already. It is a word, not one unit: the units, their order and
+   fingerprints, the story and what is left to read (decision 28) are those without it; one unit read at its new
+   place, then a move whose body changed with the diff of its body, are the next steps. Measured
+   ([Review Units → Measurements](../../openspec/specs/branch/review-units/spec.md#measurements)): of 539 removals in
+   the 94 ranges of idea-1 of the lab 5 are such moves (42 lines), 4 of them into a new file; of 154 in 10 commits of
+   this repository that move code between crates 80 (700 lines); all 85 are moves, 11 read by hand, and the units are
+   those of the plan before.
 
 32. **An agent reviews by the plan, never line by line** (2026-11-21). The skill taught no review: an agent asked to
    review a commit had its patch alone, where a wrapped call and a function at another place read as changes, and
@@ -736,8 +757,11 @@ The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan
    with accio's `renames` for the uses of a declaration and its `moves` for a declaration moved whole, in another
    layout too, and for the owner in front of its uses where it moved under another owner, which the window of a diff
    asks after its rows). What is left is the unit of the plan: the same facts read by `review-plan`, which reads the
-   blocks of the scans and no marks today; and the uses a move made the change update in another way (an import of
-   another path, a receiver of another expression), which a diff still reads.
+   blocks of the scans and, since schemas 35, 37 and 38, the marks of its reading (`reading`, `renamed_uses`: a body
+   changed in a rename no index proved says so, a declaration renamed so is one unit); since schema 39 a declaration
+   moved whole to another file says where it went and came from (decision 32), still two units, one of a move read at
+   its new place next, then a move whose body changed; and the uses a move made the change update in another way (an
+   import of another path, a receiver of another expression), which a diff still reads.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
 4. Names of concerns by a language model, behind the same gate as the tour: since the verb of `change` (2026-11-12) a
    model would word the task over the evidence, never in place of it.

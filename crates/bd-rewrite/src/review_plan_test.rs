@@ -2,6 +2,20 @@ use crate::review_plan_command::REVIEW_PLAN_SCHEMA_VERSION;
 use bd_cli::fixture_test::{assert_covered, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use test_utils::git_test_utils::TestRepo;
+
+/// The output of `brd review-plan` in `repo` matches its schema in `brd schema --all`
+fn assert_in_schema(repo: &TestRepo, output: &Value) {
+  let (_, schema) = run_in(repo, &["schema", "--all"]);
+  assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], output, "review_plan");
+}
+
+/// The fields `names` of each unit of the output of `brd review-plan`, in the order of the units: `null` where a unit has
+/// none
+fn unit_fields<const N: usize>(output: &Value, names: &[&str; N]) -> Vec<[Value; N]> {
+  let units = output["units"].as_array().unwrap();
+  units.iter().map(|unit| names.map(|name| unit.get(name).cloned().unwrap_or(Value::Null))).collect()
+}
 
 /// After a mark, a commit added on top is the only commit since the review, its range the scope; after a second mark,
 /// an amend of that commit is `rewritten` with the lines of each version, and the scope is the diff from the reviewed
@@ -237,8 +251,7 @@ fn prints_the_api_and_the_files_of_a_range() {
     matches!(output["index_note"].as_str(), Some("accio is not installed" | "no index of this repository")),
     "{output}"
   );
-  let (_, schema) = run_in(&repo, &["schema", "--all"]);
-  assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
+  assert_in_schema(&repo, &output);
 }
 
 /// The files of a range in dependency order: the file the other imports first, the test right after its subject, a file
@@ -300,8 +313,7 @@ fn prints_the_texts_of_the_ui() {
   let place = usize::try_from(module.as_u64().unwrap()).unwrap();
   // the modules are accio's (`accio modules`), and the repository has no index: its files are of the root
   assert_eq!(output["modules"][place]["label"], json!("(root)"));
-  let (_, schema) = run_in(&repo, &["schema", "--all"]);
-  assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
+  assert_in_schema(&repo, &output);
 }
 
 /// The units of a private function renamed at its declaration and its calls, which no index of the repository proves:
@@ -321,23 +333,67 @@ fn prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
-  let field = |unit: &Value, name: &str| unit.get(name).cloned().unwrap_or(Value::Null);
-  let renamed: Vec<(Value, Value, Value)> = output["units"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .map(|unit| (unit["name"].clone(), field(unit, "renamed"), field(unit, "renamed_from")))
-    .collect();
   assert_eq!(
-    renamed,
+    unit_fields(&output, &["name", "renamed", "renamed_from"]),
     [
-      (
+      [
         json!("balance"),
         json!({ "names": [{ "old": "sumOf", "new": "totalOf" }], "wait": "notProven" }),
         Value::Null
-      ),
-      (json!("totalOf"), Value::Null, json!({ "old": "sumOf", "wait": "notProven" })),
+      ],
+      [json!("totalOf"), Value::Null, json!({ "old": "sumOf", "wait": "notProven" })],
     ],
     "{output}"
   );
+}
+
+/// The units of a function moved whole to a file that stays and of one extracted into a new file, each the same code:
+/// the removed one says where it went (`moved_to`), the added one where it came from (`moved_from`), and the new file,
+/// taken whole, says neither
+#[test_log::test]
+fn prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_file() {
+  let format = "fun formatTotal(total: Int): String {\n  return \"Total: $total\"\n}\n";
+  let parse = "fun parseTotal(text: String): Int {\n  return text.removePrefix(\"Total: \").toInt()\n}\n";
+  let orders = "class Orders(private val items: List<Int>) {\n  fun total(): Int = items.sum()\n}\n";
+  let report = "class Report(private val orders: Orders) {\n  fun render(): String = formatTotal(orders.total())\n}\n";
+  let repo = repo_with_baseline(&[
+    ("src/a/Orders.kt", &format!("package a\n\n{orders}\n{format}\n{parse}")),
+    ("src/a/Report.kt", &format!("package a\n\n{report}")),
+  ]);
+  let base = git(&repo, &["rev-parse", "HEAD"]);
+  write(&repo, "src/a/Orders.kt", format!("package a\n\n{orders}"));
+  write(&repo, "src/a/Report.kt", format!("package a\n\n{report}\n{format}"));
+  write(&repo, "src/a/Parsing.kt", format!("package a\n\n{parse}"));
+  commit_all(&repo, "Move the totals", 1_700_000_100);
+
+  let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
+  assert_eq!(exit_code, 0, "{output}");
+  let mut moved = unit_fields(&output, &["id", "kind", "moved_from", "moved_to"]);
+  moved.sort_by_key(|unit| unit[0].to_string());
+  assert_eq!(
+    moved,
+    [
+      [
+        json!("declaration:src/a/Orders.kt:a.formatTotal:total:Int"),
+        json!("removed"),
+        Value::Null,
+        json!({ "path": "src/a/Report.kt", "line": 7 })
+      ],
+      [
+        json!("declaration:src/a/Orders.kt:a.parseTotal:text:String"),
+        json!("removed"),
+        Value::Null,
+        json!({ "path": "src/a/Parsing.kt", "line": 3 })
+      ],
+      [
+        json!("declaration:src/a/Report.kt:a.formatTotal:total:Int"),
+        json!("added"),
+        json!({ "path": "src/a/Orders.kt", "line": 7 }),
+        Value::Null
+      ],
+      [json!("new:src/a/Parsing.kt"), json!("newFile"), Value::Null, Value::Null],
+    ],
+    "{output}"
+  );
+  assert_in_schema(&repo, &output);
 }

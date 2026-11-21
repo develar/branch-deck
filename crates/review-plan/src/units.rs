@@ -32,6 +32,10 @@
 //!   declaration renamed where the index has not proven it (`DeclaredRenames`) is paired with its old name, as one unit
 //!   (`ReviewUnit::renamed_from`): the key of a declaration before the commits reads as the rename renamed it, or one
 //!   around it (`renamed_key`).
+//! - **Moves between files**: a unit `removed` and a unit `added` whose declarations have the same code, in two files,
+//!   say where each went and came from (`ReviewUnit::moved_to`, `ReviewUnit::moved_from`, `moved_across`), and so does
+//!   such a unit where the other place is an outermost declaration of a file the commits add or delete, whose unit says
+//!   nothing: a word of each, never another kind. The places are collected as the files are cut (`MoveEnds`).
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
@@ -44,6 +48,7 @@
 
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
+use crate::moved_across::{MoveEnd, MoveEnds, mark_moves};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::renamed_uses::{DeclaredRenames, FileRenames, same_but_names};
 use crate::whitespace::{Sides, TextTokens};
@@ -186,6 +191,52 @@ pub struct ReviewUnit {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub renamed_from: Option<RenamedFrom>,
+  /// Of an `added` declaration whose code, the same content of its tokens, the commits removed from another file, and
+  /// from no other place (`moved_across`): the place it left, its line before the commits. `None` for any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub moved_from: Option<MovedPlace>,
+  /// Of a `removed` declaration whose code the commits added to another file, and to no other place (`moved_across`):
+  /// the place it went to, its line after the commits. `None` for any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub moved_to: Option<MovedPlace>,
+}
+
+impl ReviewUnit {
+  /// A unit of no declaration: of a file taken whole, a run of blocks outside any declaration, or a group
+  const fn of_no_declaration(id: String, kind: UnitKind, name: Option<String>, slices: Vec<UnitSlice>, fingerprint: String) -> Self {
+    Self {
+      id,
+      kind,
+      name,
+      key: None,
+      signature: None,
+      api: false,
+      test: false,
+      line: None,
+      slices,
+      fingerprint,
+      renamed: None,
+      renamed_from: None,
+      moved_from: None,
+      moved_to: None,
+    }
+  }
+}
+
+/// The other place of a declaration moved whole to another file (`ReviewUnit::moved_from`, `ReviewUnit::moved_to`):
+/// a unit `added` or `removed` there, or a file the commits add or delete, taken whole
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct MovedPlace {
+  /// The file, as the units name it (`UnitSlice::path`): after the commits, before them for a deleted file
+  pub path: String,
+  /// The line of the name of the declaration there, from 1: before the commits for the place it left, after them for
+  /// the place it went to
+  pub line: u32,
 }
 
 /// The old name of a declaration renamed where the index has not proven the rename (`ReviewUnit::renamed_from`)
@@ -477,6 +528,8 @@ struct Cut {
   repeated_tests: HashSet<String>,
   /// A pair moved and was not folded (`PairUnits::moved`)
   moved: bool,
+  /// The declarations of one side alone that are units, a place each they may have moved from or to (`moved_across`)
+  moves: MoveEnds,
 }
 
 /// The fewest deleted files of one directory that make one unit `DeletedFiles`
@@ -514,22 +567,11 @@ impl PairFile<'_> {
   /// A unit of the whole file
   fn whole_unit(&self, pair: &PairBlocks, kind: UnitKind, tag: &str) -> Placed {
     let slice = self.whole(pair, tag);
+    let fingerprint = slice.fingerprint.clone();
+    let name = Some(file_name(self.file.path).to_string());
     Placed {
       at: (self.at, 0, 0),
-      unit: ReviewUnit {
-        id: format!("{tag}:{}", self.file.path),
-        kind,
-        name: Some(file_name(self.file.path).to_string()),
-        key: None,
-        signature: None,
-        api: false,
-        test: false,
-        line: None,
-        fingerprint: slice.fingerprint.clone(),
-        slices: vec![slice],
-        renamed: None,
-        renamed_from: None,
-      },
+      unit: ReviewUnit::of_no_declaration(format!("{tag}:{}", self.file.path), kind, name, vec![slice], fingerprint),
     }
   }
 }
@@ -563,6 +605,8 @@ pub(crate) fn review_units(
     }
   }
   let mut cut = Cut::default();
+  // the source files the commits add (`true`) or delete, taken whole, by their index: places of moves (`moved_across`)
+  let mut whole: Vec<(usize, bool)> = Vec::new();
   for (index, (file, pair)) in files.iter().zip(pairs).enumerate() {
     if file.before == file.after && file.first_path == file.path {
       continue;
@@ -579,8 +623,12 @@ pub(crate) fn review_units(
     }
     let other = |reason: OtherReason| pair_file.whole_unit(pair, UnitKind::Other { reason }, "other");
     match pair {
-      PairBlocks::Added => cut.placed.push(pair_file.whole_unit(pair, UnitKind::NewFile, "new")),
+      PairBlocks::Added => {
+        whole.push((index, true));
+        cut.placed.push(pair_file.whole_unit(pair, UnitKind::NewFile, "new"));
+      }
       PairBlocks::Deleted => {
+        whole.push((index, false));
         let directory = file.path.rsplit_once('/').map_or("", |(directory, _)| directory);
         cut
           .deleted
@@ -627,7 +675,9 @@ pub(crate) fn review_units(
     deleted,
     repeated_tests,
     moved,
+    mut moves,
   } = cut;
+  whole_file_ends(input, files, texts, tokens, &whole, &mut moves);
   for (directory, files) in deleted {
     if files.len() < MIN_DELETED_GROUP {
       placed.extend(files);
@@ -636,42 +686,18 @@ pub(crate) fn review_units(
     let at = files.iter().map(|file| file.at).min().unwrap_or_default();
     let slices: Vec<UnitSlice> = files.into_iter().flat_map(|file| file.unit.slices).collect();
     let fingerprint = group_fingerprint(&slices);
+    let id = format!("deleted:{directory}/");
     placed.push(Placed {
       at,
-      unit: ReviewUnit {
-        id: format!("deleted:{directory}/"),
-        kind: UnitKind::DeletedFiles { directory },
-        name: None,
-        key: None,
-        signature: None,
-        api: false,
-        test: false,
-        line: None,
-        slices,
-        fingerprint,
-        renamed: None,
-        renamed_from: None,
-      },
+      unit: ReviewUnit::of_no_declaration(id, UnitKind::DeletedFiles { directory }, None, slices, fingerprint),
     });
   }
   for (group, (at, slices)) in repeated {
     let fingerprint = group_fingerprint(&slices);
+    let id = format!("repeated:{fingerprint}");
     placed.push(Placed {
       at,
-      unit: ReviewUnit {
-        id: format!("repeated:{fingerprint}"),
-        kind: UnitKind::RepeatedEdit { group },
-        name: None,
-        key: None,
-        signature: None,
-        api: false,
-        test: false,
-        line: None,
-        slices,
-        fingerprint,
-        renamed: None,
-        renamed_from: None,
-      },
+      unit: ReviewUnit::of_no_declaration(id, UnitKind::RepeatedEdit { group }, None, slices, fingerprint),
     });
   }
   // the declarations without a block that follow one block in the order of their lines, as the source declares them
@@ -681,24 +707,65 @@ pub(crate) fn review_units(
     slices.sort_by_key(|slice| place.get(slice.path.as_str()).copied().unwrap_or(usize::MAX));
     let mechanical = MECHANICAL_ORDER[kind];
     let fingerprint = group_fingerprint(&slices);
-    units.push(ReviewUnit {
-      id: format!("mechanical:{}", mechanical_tag(mechanical)),
-      kind: UnitKind::Mechanical { mechanical },
-      name: None,
-      key: None,
-      signature: None,
-      api: false,
-      test: false,
-      line: None,
-      slices,
-      fingerprint,
-      renamed: None,
-      renamed_from: None,
-    });
+    let id = format!("mechanical:{}", mechanical_tag(mechanical));
+    units.push(ReviewUnit::of_no_declaration(id, UnitKind::Mechanical { mechanical }, None, slices, fingerprint));
   }
+  mark_moves(&mut units, &moves);
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
   let tests = changed_test_paths(input, files, &units, repeated_tests);
   PairUnits { units, tests, moved }
+}
+
+/// Add to `moves` the places of the source files of `files` the commits add (`true`) or delete, taken whole (`whole`,
+/// by their index): their outermost declarations (`outermost`), each with its code, read only where one has the name of
+/// a unit of `moves`, which every place of its code has (`moved_across`, "Cost")
+fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashMap<String, String>, tokens: &TextTokens<'_>, whole: &[(usize, bool)], moves: &mut MoveEnds) {
+  if whole.is_empty() || !moves.has_units() {
+    return;
+  }
+  let names = moves.unit_names();
+  for &(index, new_side) in whole {
+    let file = &files[index];
+    let (path, blob) = if new_side { (file.path, file.after) } else { (file.first_path, file.before) };
+    let Some(blob) = blob else { continue };
+    let Some(declarations) = spanned_declarations(input, path, blob) else { continue };
+    let named = declarations.declarations.iter().any(|declaration| names.contains(&declaration.form.name));
+    let Some(text) = texts.get(blob).filter(|_| named) else { continue };
+    let declarations = in_lines_of_diffs(declarations, &TextLines::of(text));
+    let sides = if new_side {
+      tokens.sides(path, None, path, Some(blob))
+    } else {
+      tokens.sides(path, Some(blob), path, None)
+    };
+    for declaration in outermost(&declarations.declarations).filter(|declaration| names.contains(&declaration.form.name)) {
+      let Some(code) = sides.code(new_side, lines_of(declaration)) else { continue };
+      let end = MoveEnd {
+        unit: None,
+        path: file.path.to_string(),
+        line: declaration.form.line,
+        name: declaration.form.name.clone(),
+        code,
+      };
+      moves.push(new_side, end);
+    }
+  }
+}
+
+/// The declarations of `declarations` that no other one holds: none of the containers of the key of such a declaration
+/// is the key of another, as the units take a declaration of one side alone into the outermost one of that side around
+/// it (`SourceFile::folded`)
+fn outermost(declarations: &[SpannedDeclaration]) -> impl Iterator<Item = &SpannedDeclaration> {
+  let keys: HashSet<&str> = declarations.iter().map(|declaration| declaration.form.key.as_str()).collect();
+  declarations.iter().filter(move |declaration| {
+    let mut key = declaration.form.key.as_str();
+    while let Some((container, _)) = key.rsplit_once('.') {
+      if keys.contains(container) {
+        return false;
+      }
+      key = container;
+    }
+    true
+  })
 }
 
 /// The paths of `files` whose commits change a test inside them: those of a unit of test code (`ReviewUnit::test`),
@@ -1075,6 +1142,20 @@ impl SourceFile<'_, '_> {
       };
       let Some(declaration) = after.or(before) else { continue };
       let form = &declaration.form;
+      let id = format!("declaration:{}:{}:{}", pair_file.file.path, form.key, declaration.signature);
+      // a declaration of one side alone, a place it may have moved from or to (`moved_across`)
+      if let UnitKind::Added | UnitKind::Removed = kind
+        && let Some(code) = self.sides.code(after.is_some(), lines_of(declaration))
+      {
+        let end = MoveEnd {
+          unit: Some(id.clone()),
+          path: pair_file.file.path.to_string(),
+          line: form.line,
+          name: form.name.clone(),
+          code,
+        };
+        cut.moves.push(after.is_some(), end);
+      }
       let fingerprint = digest([form.key.as_str(), declaration.signature.as_str(), old_text.as_str(), new_text.as_str()]);
       // a unit without a block follows the block that changed its lines
       let lines = lines_of(declaration);
@@ -1092,7 +1173,7 @@ impl SourceFile<'_, '_> {
       cut.placed.push(Placed {
         at: (at, first.0, first.1),
         unit: ReviewUnit {
-          id: format!("declaration:{}:{}:{}", pair_file.file.path, form.key, declaration.signature),
+          id,
           kind,
           name: Some(form.name.clone()),
           key: Some(form.key.clone()),
@@ -1104,6 +1185,8 @@ impl SourceFile<'_, '_> {
           fingerprint,
           renamed: None,
           renamed_from,
+          moved_from: None,
+          moved_to: None,
         },
       });
     }
@@ -1111,22 +1194,11 @@ impl SourceFile<'_, '_> {
     for run in outside {
       let fingerprint = self.blocks_fingerprint("outside", &run);
       let first = run.first().map_or(0, |block| block.index as usize);
+      let (id, name) = (format!("outside:{}:{first}", pair_file.file.path), Some(file_name(pair_file.file.path).to_string()));
+      let slices = vec![pair_file.slice(false, run, fingerprint.clone())];
       cut.placed.push(Placed {
         at: (at, first, 0),
-        unit: ReviewUnit {
-          id: format!("outside:{}:{first}", pair_file.file.path),
-          kind: UnitKind::Other { reason: OtherReason::Outside },
-          name: Some(file_name(pair_file.file.path).to_string()),
-          key: None,
-          signature: None,
-          api: false,
-          test: false,
-          line: None,
-          slices: vec![pair_file.slice(false, run, fingerprint.clone())],
-          fingerprint,
-          renamed: None,
-          renamed_from: None,
-        },
+        unit: ReviewUnit::of_no_declaration(id, UnitKind::Other { reason: OtherReason::Outside }, name, slices, fingerprint),
       });
     }
 

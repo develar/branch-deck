@@ -1228,6 +1228,8 @@ fn unit_of(id: &str, kind: UnitKind, line: Option<u32>, blocks: Vec<UnitBlock>) 
     fingerprint: String::new(),
     renamed: None,
     renamed_from: None,
+    moved_from: None,
+    moved_to: None,
   }
 }
 

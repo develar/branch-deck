@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 38` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 39` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -72,7 +72,10 @@
 //! version 37 the `renamed` of a `behaviour` unit whose body changed in renamed names alone that the index has not
 //! proven: its `names` and its `wait`;
 //! version 38 the `renamed_from` of a declaration renamed where the index has not proven it, its `old` name and its
-//! `wait`: the declarations of the old and the new name one unit, in place of a removed and an added one
+//! `wait`: the declarations of the old and the new name one unit, in place of a removed and an added one;
+//! version 39 the `moved_from` of an `added` declaration and the `moved_to` of a `removed` one whose code, the same
+//! content of its tokens, the commits moved whole between two files: the `path` and the `line` of the other place,
+//! the two still two units
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -95,14 +98,14 @@ use review_plan::registrations::Registration;
 use review_plan::shown::ShownForm;
 use review_plan::steps::ReviewSteps;
 use review_plan::texts::UiText;
-use review_plan::units::{OtherReason, RenamedFrom, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
+use review_plan::units::{MovedPlace, OtherReason, RenamedFrom, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 38;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 39;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -420,6 +423,16 @@ pub struct UnitOutput {
   /// (`wait`), the declarations of both names this one unit; absent for any other unit
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub renamed_from: Option<RenamedFrom>,
+  /// Of an `added` declaration whose code, the same content of its tokens, the commits removed from another file and
+  /// from no other place: that place, its `path` and the `line` of its name there before the commits (a `removed` unit,
+  /// or a file deleted whole); absent for any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub moved_from: Option<MovedPlace>,
+  /// Of a `removed` declaration whose code the commits added to another file and to no other place: that place, its
+  /// `path` and the `line` of its name there after the commits (an `added` unit, or a new file taken whole); absent for
+  /// any other unit
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub moved_to: Option<MovedPlace>,
 }
 
 /// What a unit changes
@@ -696,6 +709,8 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     fingerprint: unit.fingerprint,
     renamed: unit.renamed,
     renamed_from: unit.renamed_from,
+    moved_from: unit.moved_from,
+    moved_to: unit.moved_to,
   };
   output.kind = match unit.kind {
     UnitKind::Shape { changes } => {

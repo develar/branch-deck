@@ -10,7 +10,7 @@
 //! - `pair`: the blocks of each changed file from before the commits to after them, as the diffs show the range, and
 //!   the lines at the head they change, which tell a use updated from one left outside
 //! - `units`: those blocks cut into the changes a reviewer reads once (openspec/specs/branch/review-units/spec.md), in the order
-//!   of the story
+//!   of the story; a declaration moved whole to another file says where (`moved_across`)
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
@@ -47,6 +47,7 @@ pub mod links;
 pub mod mark_reviewed;
 pub mod message_steps;
 pub mod modules;
+mod moved_across;
 pub mod order;
 pub mod pair;
 pub mod prose;
@@ -882,6 +883,8 @@ mod mark_reviewed_test;
 mod message_steps_test;
 #[cfg(test)]
 mod modules_test;
+#[cfg(test)]
+mod moved_across_test;
 #[cfg(test)]
 mod order_test;
 #[cfg(test)]

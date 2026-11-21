@@ -5421,6 +5421,20 @@ export type MovedCommit = {
 	change: MoveChange,
 };
 
+/**
+ *  The other place of a declaration moved whole to another file (`ReviewUnit::moved_from`, `ReviewUnit::moved_to`):
+ *  a unit `added` or `removed` there, or a file the commits add or delete, taken whole
+ */
+export type MovedPlace = {
+	/**  The file, as the units name it (`UnitSlice::path`): after the commits, before them for a deleted file */
+	path: string,
+	/**
+	 *  The line of the name of the declaration there, from 1: before the commits for the place it left, after them for
+	 *  the place it went to
+	 */
+	line: number,
+};
+
 /**  What a declaration or a removal of declared needs did to one branch */
 export type NeedResult = {
 	branchName: string,
@@ -8582,6 +8596,16 @@ export type ReviewUnit = {
 	 *  more than one: the two are then removed and added, as without a rename
 	 */
 	renamedFrom?: RenamedFrom | null,
+	/**
+	 *  Of an `added` declaration whose code, the same content of its tokens, the commits removed from another file, and
+	 *  from no other place (`moved_across`): the place it left, its line before the commits. `None` for any other unit
+	 */
+	movedFrom?: MovedPlace | null,
+	/**
+	 *  Of a `removed` declaration whose code the commits added to another file, and to no other place (`moved_across`):
+	 *  the place it went to, its line after the commits. `None` for any other unit
+	 */
+	movedTo?: MovedPlace | null,
 };
 
 /**  A layer of a stack of pull requests to review as a review window showed it: its pull request and the head it showed */

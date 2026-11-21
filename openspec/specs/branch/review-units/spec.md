@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - crates/review-plan/src/units.rs
   - crates/review-plan/src/renamed_uses.rs
+  - crates/review-plan/src/moved_across.rs
   - crates/review-plan/src/pair.rs
   - crates/review-plan/src/whitespace.rs
   - psi-syntax:crates/diff-marks/src/index.rs
@@ -58,7 +59,10 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 
 ## Non-goals
 
-- A move of a block between files as one unit: the units see a removal and an addition.
+- A declaration moved whole to another file as one unit: its two places stay a unit `removed` and a unit `added` (or
+  a file taken whole), each saying the other
+  ([A declaration moved whole](#requirement-units-a-declaration-moved-whole-to-another-file-says-where)); a move whose
+  body changed and a move of lines that are no declaration say nothing.
 - The usages of a change of a body: accio answers the callers of the API alone, until a query of many names costs one
   process (JetBrains/accio#74).
 - A change of a form that the summary does not see (`Form`): a Kotlin return type that is inferred changes with the
@@ -331,6 +335,46 @@ alone ([A declaration renamed](#requirement-units-a-declaration-renamed-where-th
 - **WHEN** another unit holds the block that changes the lines of a declaration of one side alone
 - **THEN** the declaration is still `added` or `removed`, and it has no block
 
+### Requirement: Units: A declaration moved whole to another file says where
+
+A unit `removed` MUST say the file and the line it went to (`moved_to`), and a unit `added` those it came from
+(`moved_from`), where exactly one declaration of one side alone before the commits and one after them, in two files,
+have the same code, the same content of their tokens; the other place is a unit `added` or `removed`, or an outermost
+declaration of a new or a deleted file, whose unit says nothing. Every other unit MUST have neither.
+
+#### Scenario: A function moved to a file that stays, into a new file and out of a deleted file
+- **GIVEN** `formatTotal` and `parseTotal` in `Orders.kt`, and `legacyTotal` alone in `Legacy.kt`
+- **WHEN** the commits move `formatTotal` to `Report.kt`, `parseTotal` into the new `Parsing.kt` and `legacyTotal`
+  into `Orders.kt`, deleting `Legacy.kt`, each with the same code
+- **THEN** the removed `formatTotal` says `moved_to` `Report.kt` and the line of its name there, the added one
+  `moved_from` `Orders.kt` and the line of its name before the commits
+- **AND** the removed `parseTotal` says `moved_to` `Parsing.kt`, and the added `legacyTotal` `moved_from` `Legacy.kt`
+- **AND** the units `newFile` of `Parsing.kt` and `deletedFile` of `Legacy.kt` say neither, and the units are those
+  without a move
+  [@test] crates/review-plan/src/moved_across_test.rs (`a_declaration_moved_whole_to_another_file_says_where_it_went_and_came_from`)
+  [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_file`)
+
+#### Scenario: A function moved into a class of another file, indented again
+- **WHEN** a top-level function moves into a class of another file that was there, indented again
+- **THEN** the removed one says `moved_to` and the added one `moved_from`: the content of their tokens is the same
+  [@test] crates/review-plan/src/moved_across_test.rs (`a_function_moved_into_a_class_of_another_file_indented_again_is_a_move`)
+
+#### Scenario: What is no move
+- **WHEN** a function moves to another file with a changed line, one is added to two files and removed from one, one
+  is removed from two files and added to one, or one moves to another class of its own file
+- **THEN** no unit says `moved_from` or `moved_to`: a word on two files must not guess, and the diff of one file shows
+  a move inside it
+  [@test] crates/review-plan/src/moved_across_test.rs (`a_move_with_a_changed_line_or_of_two_places_on_a_side_says_nothing`)
+
+#### Scenario: The places a move pairs
+- **WHEN** the two places of one code are a unit `removed` and a unit `added` of two files that stay, a unit `removed`
+  and an outermost declaration of a new file, or an outermost declaration of a deleted file and a unit `added`
+- **THEN** the unit of the declaration says the other place, and a file taken whole (`newFile`, `deletedFile`, in
+  `deletedFiles` too) says nothing
+- **AND** a new and a deleted file alone, a member of a new or a removed type (part of its unit), a declaration of a
+  file a kind takes whole (`mechanical`, `other`) and a pair of one declaration (`shape`, `behaviour`, `moved`) are no
+  place of a move
+
 ### Requirement: Units: A declaration inside a new or removed one is part of its unit
 
 A declaration of one side alone inside another of that side alone (a member of a new type, a method of a removed
@@ -556,13 +600,13 @@ MUST NOT change with it.
 
 ### Requirement: In `brd`: `brd review-plan` prints the units
 
-`brd review-plan` MUST print `units` (`"schema": 38`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
+`brd review-plan` MUST print `units` (`"schema": 39`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
 `test`, `line`, its `slices`, its `fingerprint` and, of a body changed in a rename the index has not proven, `renamed`,
-of a declaration renamed so, `renamed_from`.
+of a declaration renamed so, `renamed_from`, of a declaration moved whole to another file, `moved_from` or `moved_to`.
 
 #### Scenario: The units of a range
 - **WHEN** `brd review-plan` runs on a range
-- **THEN** it prints `units` (`"schema": 38`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
+- **THEN** it prints `units` (`"schema": 39`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
   `line`, its `slices` and its `fingerprint`
 - **AND** `kind` is `shape` with `changes`, `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles`
   with `directory`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, or `other` with `reason`
@@ -572,7 +616,9 @@ of a declaration renamed so, `renamed_from`.
   `names` (`old`, `new`) and its `wait` (`checking`, `notProven`); no other unit has it
 - **AND** a declaration renamed where the index has not proven it is one unit with `renamed_from`, its `old` name and its
   `wait`
-  [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration`)
+- **AND** an `added` declaration moved whole from another file has `moved_from`, a `removed` one moved whole to another
+  file `moved_to`, each the `path` of the other place and the `line` of its name there, from 1; no other unit has them
+  [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration`, `prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_file`)
 
 ### Requirement: In the Review Window: The diffs are the story of the units
 
@@ -876,6 +922,9 @@ in 4 files", "Imports only (2)", "Left outside".
   shows other blocks, which the window must map to the units by their lines.
 - A container whose name changed gives its members new keys: they are removed and added.
 - A Kotlin return type that is inferred is no part of the form: a change of it is `behaviour`.
+- An outline module of Rust (`mod x;`) is a declaration of one line: removed from one crate and added to another it is
+  a move by its tokens, true where the file it names moved with it (each of the 6 measured), a guess where two modules
+  of one name are unrelated and no other place of that line is in the change.
 
 ## Measurements
 
@@ -889,3 +938,22 @@ object cache (a next round of a branch: its blobs parsed before), accio answerin
 | `HEAD~5..HEAD` | 40 | 67 | 29 (43%) | 9 `newFile`, 16 `added`, 1 `removed`, 1 `shape`, 9 `other`, 2 `mechanical` | 36 | 0.11 s |
 
 About 40% of the units are a change of a body alone, which the plan before the units did not show at all.
+
+The moves between files (`moved_from`, `moved_to`), 2026-11-21: `brd review-plan` (release build of the change) on
+shared clones without an index, at a load of 57–360. The branch `air-local-launch` is gone; its build of 2026-10-30
+(`6e2c9551a209`, 31, 38 and 40 files as in the table above) is still in the reflog of idea-1. Its units are 40, 54 and
+64 now, the rules since and no index; the same ids, kinds and fingerprints as `brd` 1.18.0, before this change, there
+and on the commits of this repository below. The lines are those of a removed declaration from the line of its name to
+its end: what a reviewer stops reading twice once the two places are one unit.
+
+| Ranges | Units | `removed` | with `moved_to` | Their lines | `added` with `moved_from` |
+|---|---|---|---|---|---|
+| `air-local-launch` `HEAD~1`, `HEAD~3`, `HEAD~5` | 40, 54, 64 | 0, 2, 1 | 0 | 0 | 0 |
+| the 94 ranges of idea-1 of the review-concerns lab | 6121 | 539 | 5, 4 of them into a new file | 42 | 1 |
+| 10 commits of Branch Deck that move code between files and crates (`ded365452`, `7083b1ace`, `03bfb36f6`, `2734ea9e3`, `56f811c38`, `4fb2c5c4f`, `5b5acecbf`, and none in `7f17c7560`, `fd6b8e6cc`, `cc539f195`, whose moved code changed) | 598 | 154 | 80 | 700 | 15 |
+
+Every pair is a move: 11 read by hand (a private Kotlin function and two TypeScript functions extracted into new
+files, a TypeScript constant with its doc, the Rust modules `performance`, `dependencies` and `diff_scan` whose files
+moved with them, a Rust function with its doc and attribute, a type, a test with raw strings), the other 74 by their
+text without whitespace. Few moves are exact in feature work (5 of 539 removals); a refactoring that moves code is
+half of its removals (80 of 154), the rest moved with a changed line or none.
