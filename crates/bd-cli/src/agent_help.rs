@@ -873,7 +873,9 @@ changed since the id was read, `error.blocks` are its ids now.
 
 /// The skill `brd install` writes and `brd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming brd by `command`, its full path. It says when to use brd, what `brd workspace` asks, the rules an
-/// agent must not miss before it reads any help, and where the workflow is; the rest lives in the binary, so it can't
+/// agent must not miss before it reads any help, where the workflow is, and how to review a change by the plan of
+/// `brd review-plan` (its `reading`, then its `units`, the kinds of `UnitKindOutput` and `MechanicalKind` as the output
+/// spells them, which `agent_help_test.rs` checks against its schema); the rest lives in the binary, so it can't
 /// fall out of date: `brd help agent` is the workflow, `brd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
 /// run every brd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
 /// push: a push still waits for the user, by the rule of the body
@@ -889,8 +891,8 @@ commits of a branch into virtual branches and pull requests, to stack selected b
 to sync or push them, to fold fixup commits, to change \
 the message of a commit or move a hunk into another commit, to drop a commit that must not land, to update or rebase a branch onto master or main and \
 resolve its conflicts, to land the commits of a worktree onto a shared branch, to lease or return a worktree, to start \
-a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a pull request, or when the \
-user mentions Branch Deck.
+a Patronus Safe Push or Dry Run or find out why one failed, to review a commit, a branch or a range, to ask code \
+owners to review a pull request, or when the user mentions Branch Deck.
 allowed-tools: {allowed_tools}
 ---
 
@@ -988,6 +990,20 @@ command prints and what each of its refusals asks.
   (`parked`). Never push or unpark it on your own.
 - `brd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and
   `brd reapply <name>` puts it back on top; only when the user asks, and `brd undo <undo_token>` takes either back.
+
+To review a commit, a branch or a range, run `brd review-plan <branch | base..head>` (`<commit>^..<commit>` for one
+commit) and judge it by the JSON:
+- `reading`: every `toRead` 0 and no `unproven` file is nothing to read; say so, with its `proofs`.
+- Else read the `units` in the order printed, at the `new` and `old` lines of their `slices`. Pass only the
+  `mechanical` ones, last (`buildModel`, `moduleList`, `importsOnly`, `whitespace`, `moved`, `renamed`, `generated`);
+  `shape`, `behaviour`, `added` and `removed` are changes of a declaration to judge; read `newFile`, `repeatedEdit` and
+  `other` too.
+- A move is never quiet: read it where it stands now, against its `old` lines; only a declaration of the same code
+  whose place the code index proved free is `moved`. A unit's `renamed` or `renamed_from` is a rename no index proved:
+  check it.
+- Never skip a removal (`removed`, `deletedFile`, `deletedFiles`); `verdict: breaks` is a use left outside that can
+  break (`api[].usages.outside_sites`).
+- Report only the changes of behaviour, each with its file, its lines and what observably changes, or say there is none.
 "
   )
 }

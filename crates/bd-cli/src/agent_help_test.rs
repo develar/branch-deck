@@ -2,6 +2,7 @@ use crate::Cli;
 use crate::agent_help::{AGENT_HELP, PUSH_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::fixture_test::writable_state;
 use crate::fixture_test::{git, repo_with_commits, run_in, write};
+use bd_rewrite::review_plan_command::ReviewPlanOutput;
 use clap::CommandFactory;
 use domain_types::error::ErrorCode;
 use git_ops::lease_slot::object_cache_dir;
@@ -597,6 +598,110 @@ fn the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix() {
   assert!(WORKTREES_HELP.contains("A subject is `(branch) ` and then the subject form of the repository (its agent\n   instructions, else its `git log`)"));
   assert!(WORKTREES_HELP.contains("A new branch is `(name) `; `(parent/leaf) ` only stacks it on an existing virtual\n   branch, never on the baseline"));
   assert!(WORKTREES_HELP.contains("once\n   the stack parents know the leaf, `(leaf) ` and then that form is enough"));
+}
+
+/// The names of a JSON schema: every property, and every value of an enum (`const` of a `oneOf`, `enum`)
+fn names_of_schema(value: &serde_json::Value, names: &mut BTreeSet<String>) {
+  match value {
+    serde_json::Value::Object(object) => {
+      for (key, child) in object {
+        match (key.as_str(), child) {
+          ("properties", serde_json::Value::Object(properties)) => names.extend(properties.keys().cloned()),
+          ("const", serde_json::Value::String(name)) => {
+            names.insert(name.clone());
+          }
+          ("enum", serde_json::Value::Array(values)) => names.extend(values.iter().filter_map(serde_json::Value::as_str).map(str::to_string)),
+          _ => {}
+        }
+        names_of_schema(child, names);
+      }
+    }
+    serde_json::Value::Array(values) => {
+      for child in values {
+        names_of_schema(child, names);
+      }
+    }
+    _ => {}
+  }
+}
+
+/// The values of the enum `name` of the schema of `brd review-plan`, as the output spells them
+fn review_plan_values(schema: &serde_json::Value, name: &str) -> Vec<String> {
+  let definition = &schema["$defs"][name];
+  let values: Vec<String> = definition["oneOf"]
+    .as_array()
+    .map(|variants| variants.iter().filter_map(|variant| variant["const"].as_str()).map(str::to_string).collect())
+    .or_else(|| {
+      definition["enum"]
+        .as_array()
+        .map(|values| values.iter().filter_map(serde_json::Value::as_str).map(str::to_string).collect())
+    })
+    .unwrap_or_default();
+  assert!(!values.is_empty(), "no enum `{name}` in the schema of `brd review-plan`");
+  values
+}
+
+/// An agent asked to review a commit, a branch or a range starts from `brd review-plan`: its `reading` says what is left
+/// to read, then its `units` in their order, the `mechanical` ones passed, a move read where it stands now, no removal
+/// skipped, and a report of the changes of behaviour alone, also when there is none. The recipe names every unit kind
+/// and every mechanical kind as the schema of the output spells them, so a new kind fails here until the recipe says
+/// whether it is read; every other name in backticks is a field or a value of that output
+#[test]
+fn the_skill_reviews_by_the_reading_and_the_units_of_the_plan_and_passes_only_the_mechanical_ones() {
+  let skill = skill_text("brd");
+  let description = skill.lines().find_map(|line| line.strip_prefix("description: ")).unwrap();
+  assert!(description.contains("to review a commit, a branch or a range"), "{description}");
+  let start = skill
+    .find("To review a commit, a branch or a range, run `brd review-plan <branch | base..head>` (`<commit>^..<commit>` for one\ncommit)")
+    .unwrap();
+  let recipe = &skill[start..skill[start..].find("\n\n").map_or(skill.len(), |end| start + end)];
+  let bullet = |first_words: &str| {
+    let at = recipe.find(first_words).unwrap_or_else(|| panic!("the recipe lacks `{first_words}`: {recipe}"));
+    &recipe[at..recipe[at..].find("\n- ").map_or(recipe.len(), |end| at + end)]
+  };
+  let reading = bullet("- `reading`: ");
+  let units = bullet("- Else read the `units` in the order printed");
+  let moves = bullet("- A move is never quiet");
+  let removals = bullet("- Never skip a removal");
+  let report = bullet("- Report only the changes of behaviour, each with its file, its lines and what observably changes");
+  let place = |part: &str| recipe.find(part).unwrap();
+  assert!(
+    place(reading) < place(units) && place(units) < place(moves) && place(moves) < place(removals) && place(removals) < place(report),
+    "{recipe}"
+  );
+  assert!(reading.contains("every `toRead` 0 and no `unproven` file is nothing to read; say so"), "{reading}");
+  assert!(report.contains("or say there is none"), "{report}");
+
+  let schema = schemars::schema_for!(ReviewPlanOutput).to_value();
+  // every mechanical kind is passed by name, in the sentence that passes them
+  let pass = &units[units.find("Pass only the\n  `mechanical` ones").unwrap()..units.find("`shape`").unwrap()];
+  for kind in review_plan_values(&schema, "MechanicalKind") {
+    assert!(pass.contains(&format!("`{kind}`")), "the recipe does not pass the mechanical kind `{kind}`: {pass}");
+  }
+  // every kind of unit is named, the mechanical ones passed above and the others read
+  for kind in review_plan_values(&schema, "UnitKindOutput") {
+    assert!(recipe.contains(&format!("`{kind}`")), "the recipe does not say whether a unit `{kind}` is read: {recipe}");
+  }
+  for kind in ["removed", "deletedFile", "deletedFiles"] {
+    assert!(removals.contains(&format!("`{kind}`")), "{removals}");
+  }
+  assert!(
+    moves.contains("read it where it stands now, against its `old` lines; only a declaration of the same code\n  whose place the code index proved free is `moved`"),
+    "{moves}"
+  );
+
+  // every other name in backticks is a field or a value of the output: `api[].usages.outside_sites`, `verdict: breaks`
+  let mut names = BTreeSet::new();
+  names_of_schema(&schema, &mut names);
+  let unknown: Vec<&str> = recipe
+    .split('`')
+    .skip(1)
+    .step_by(2)
+    .filter(|span| !span.starts_with("brd ") && !span.starts_with('<'))
+    .flat_map(|span| span.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')))
+    .filter(|word| !word.is_empty() && !names.contains(*word))
+    .collect();
+  assert!(unknown.is_empty(), "the recipe names what `brd review-plan` does not print: {unknown:?}");
 }
 
 /// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into

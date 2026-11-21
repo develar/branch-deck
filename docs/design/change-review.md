@@ -297,6 +297,7 @@ the review.
 | Openings of the groups | Landed | this change | each group of a module or a folder of a large step opens above its first card, in place of its divider: its name, "New module", "also shared/code", the tests of the change that reach its code and its code none reaches (`StepGroup.tested`, from the same answer of accio as the step, schema 28), its new API by name, what it opens wider, its new uses between modules by direction ("Now uses view.gui (32 links)", "Now used by view.gui.media"), what its module registers, its texts of the UI; the opening of the step keeps its story and its contract, the wall of 26 test files and 50 names of step 1 of IJAI-5083 goes to the groups where that code is | the entry points of a new module (JetBrains/accio#541) are not named yet, nor do they order its group |
 | What enters a new module | Landed | this change, JetBrains/accio#541 | the declarations of a module the change adds that something outside it uses, from `accio surface` at the head (one process for every new module, a budget of 15 s, beside the usages and the tests; `ModuleShape.entries`, schema 29): its group opens with "Entered by TranscriptEmbedPlayersImpl (applicationService of TranscriptEmbedPlayers)" and reads from that file on; on idea-1 IJAI-5083 (#1512) the one entry of view.gui.media, complete; a module nothing enters says so | a module the change changes is not asked; the budget can cut a large new module (`complete: false`, said in the opening) |
 | What a range leaves to read, read ahead in Your Turn | Landed | 316b12d76, this change | each row and stack header says what its request leaves to read before any window opens, one read of every waiting request a listing names (one fetch, one `rev-parse`, one `diff-tree`), the final readings on disk | the read ahead asks no index (JetBrains/accio#777): a rename across files waits for a window |
+| An agent reviews by the plan | Landed in the skill | this change | the skill `branch-deck` teaches an agent asked to review a commit, a branch or a range the order of the plan: `reading` first (nothing to read is the report), the `units` in their order, the mechanical ones passed, a move read where it stands now, no removal skipped, the changes of behaviour alone reported, or that there is none; its test reads the kinds of the units from the schema of the output | `reading` is summed by role: a unit whose every line the reading passes (a body changed in a rename the index proved) is read all the same; the marks of each line are no output of `brd` |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`brd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -648,6 +649,18 @@ the review.
    below it not yet landed too. Approve says so (`domain_policy::approval_landing`) and stays enabled: the approval
    waits on the pull request. Refusing it, or retargeting the layer, was rejected: the approval is the reviewer's
    judgement of that layer's own diff, still true once it goes into master, and the base is the author's.
+
+32. **An agent reviews by the plan, never line by line** (2026-11-21). The skill taught no review: an agent asked to
+   review a commit had its patch alone, where a wrapped call and a function at another place read as changes, and
+   nothing asked it to say that a change holds no change of behaviour. The skill now teaches the review by
+   `brd review-plan`: its `reading` first, its `units` in their order, the mechanical ones passed, the rest read, a move
+   read where it stands now, no removal skipped, and a report of the changes of behaviour alone, or that there is none.
+   It adds no fact and no second model of the diff: it reads what the plan proves of each unit, and the marks of each
+   line stay out of the output of `brd`
+   ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), non-goal), so the skill names no tool beside
+   brd. Its test reads the kinds from the schema of the output: a new kind of unit fails until the recipe says whether
+   it is read. What the recipe cannot say yet is what is left to read in one unit: `reading` sums by role, so a unit of
+   a rename the index proved is read all the same.
 
 ## Review Rounds
 

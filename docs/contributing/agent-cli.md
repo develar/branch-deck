@@ -808,6 +808,17 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
   the range names no commit; `--since-reviewed` or `--base` of a range.
 - `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
 
+The skill teaches an agent asked to review a commit, a branch or a range to review by this plan, with what it proves and
+nothing else: `reading` first, where every `toRead` 0 and no `unproven` file is nothing to read, said so with its
+`proofs`; then `units` in the order printed, the `mechanical` ones passed by every kind the output prints, every other
+unit read; a move read where it stands now, against its `old` lines (only a declaration of the same code whose place
+the index proved free is `moved`), a `renamed` or `renamed_from` checked; no removal skipped, `verdict: breaks` read;
+and a report of the changes of behaviour alone, each with its file, its lines and what observably changes, or that there
+is none. `agent_help_test.rs` reads the kinds of the units and of the mechanical changes from the schema of this output,
+and every other name in backticks of the recipe must be a field or a value of it. The marks of each line (formatting,
+renames, moves) are no output of `brd`: `brd commits --patch` is the blocks `brd move-hunk` takes
+([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), non-goal), and the skill names no tool beside brd.
+
 ### `brd unapply <branch> [--dry-run] [--expect-head <id>]`
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
@@ -2254,7 +2265,8 @@ How an agent learns that brd exists. `brd install`, or Help → Install Agent CL
   prints it), first of all before the first edit or commit in a Git repository, for `brd workspace`; then grouping or
   splitting commits into branches or pull requests, stacked branches, fixups, a change in the wrong commit, an update
   or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a shared branch, the lease of a
-  worktree, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. The description stays within the
+  worktree, a Safe Push or Dry Run and why it failed, the review of a commit, a branch or a range, a review request,
+  Branch Deck. The description stays within the
   1024 characters of the Agent Skills format. Its body names brd by its full path, so it works without `PATH`; it starts
   with `brd workspace` and what each of its rules asks (the lease: work only in its `path`, land each commit at once,
   return only its own lease; the subject branch: `(branch) ` first, else the subject as the repository writes it) and
@@ -2267,7 +2279,9 @@ How an agent learns that brd exists. `brd install`, or Help → Install Agent CL
   on one branch, and to `brd <command> --help` for the outputs and refusals of a command; it asks for
   `brd safe-push <branch> --dry-run` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
   keeps the rules an agent must not miss before it reads any help (approval, no reorder, `brd pick`, `error.code`,
-  parked, unapply). The workflow and the fields stay in the binary, so the skill can't fall out of date with it. Its `allowed-tools` is `Bash(<brd>:*)`: while the skill is active, Claude Code
+  parked, unapply). It ends with the recipe of a review by `brd review-plan` (see its section). The workflow and the
+  fields stay in the binary, so the skill can't fall out of date with it; it names only the fields its rules and the
+  recipe act on. Its `allowed-tools` is `Bash(<brd>:*)`: while the skill is active, Claude Code
   runs every brd command without a permission prompt, also `brd group`, which rewrites the checked out branch, and
   `brd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
@@ -2332,7 +2346,7 @@ agent follows, versioned with the binary and checked by `agent_help_test.rs`; th
 repeat it. `brd help update` and `brd help worktrees` hold the resolve session and the work beside other sessions, the
 `--help` of a command its outputs and refusals.
 
-What an agent reads, by cost: the skill (about 5 KB, loaded whenever it triggers), `brd help agent` (at most 10 KB,
+What an agent reads, by cost: the skill (about 11 KB, loaded whenever it triggers), `brd help agent` (at most 10 KB,
 before grouping or pushing), then only the `--help` of the command it runs, or the topic of its task; `brd schema
 <command>` for the exact fields. Nothing in this guide is installed.
 
