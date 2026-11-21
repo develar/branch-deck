@@ -60,8 +60,8 @@ pub const AGENT_PULL_REQUEST_CONFIG_KEY: &str = "branchdeck.agentPullRequest";
 
 /// Whether the review windows show the review plan (openspec/specs/branch/review-plan/spec.md, Status: Experimental): Mark
 /// Reviewed and the local Since Your Review, the overview of the plan, the badges and the Mechanical group of the tree.
-/// A git boolean, off when unset (it is an experiment, turned on in Settings), and a value git refuses is off: an
-/// experiment never turns on from a broken value.
+/// A git boolean, on when unset, and a value git refuses is the default, on, with a warning
+/// (`ConfigSnapshot::review_experimental`); Settings turns it off.
 /// Settings → Diffs & Merge → Review writes it; `brd review-plan` and `brd mark-reviewed` work without it
 pub const REVIEW_EXPERIMENTAL_CONFIG_KEY: &str = "branchdeck.reviewExperimental";
 
