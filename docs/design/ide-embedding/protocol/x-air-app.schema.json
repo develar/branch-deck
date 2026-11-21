@@ -2640,7 +2640,7 @@
     "AppEntry": {
       "description": "One app of the apps channel. A project entry of genui-apps.json has no views, no actions and no instances.",
       "type": "object",
-      "required": ["id", "source", "file", "name", "consent", "process", "instances"],
+      "required": ["id", "source", "file", "name", "consent", "process", "instances", "places"],
       "properties": {
         "id": {
           "$ref": "#/$defs/AppId"
@@ -2739,9 +2739,6 @@
               "description": "Each path of covers, quoted and joined by one space. Only when the entry has one.",
               "type": "string",
               "minLength": 1
-            },
-            "agentTools": {
-              "enum": ["unknown", "allowed", "denied"]
             }
           }
         },
@@ -2822,6 +2819,331 @@
               }
             }
           }
+        },
+        "places": {
+          "$ref": "#/$defs/AppPlaces"
+        }
+      }
+    },
+    "AppPlaces": {
+      "description": "The places of the app in the IDE, which air-apps derives from the other fields of the entry at each commit. The IDE keeps its tool windows, editor tabs, frames, dialogs and actions equal to them. An app with a problem keeps its tool windows and has no action and no title action. A list without an item is absent. A text of a title, a tab, a menu or a notification is the shown text of shown-text.ranges, with a space before a text that starts with <html> in any case. A text of a banner is the shown text.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The name of the app as a title, a tab, a menu or a notification shows it.",
+          "type": "string"
+        },
+        "banner": {
+          "$ref": "#/$defs/AppBanner"
+        },
+        "toolWindows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ToolWindowPlace"
+          }
+        },
+        "editors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/InstancePlace"
+          }
+        },
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/InstancePlace"
+          }
+        },
+        "dialogs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/InstancePlace"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ActionPlace"
+          }
+        }
+      }
+    },
+    "AppBanner": {
+      "description": "What stands in each place of the app instead of its page: the problem, else the consent while the user did not allow the app, else the failed process. Absent while the pages show. The consent banner shows commandText, envText and coversText of its consent, and the answer names command, env and covers.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "name", "file", "project", "consent"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "consent"
+            },
+            "name": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string"
+            },
+            "project": {
+              "description": "The entry comes from a project registry, so other files of the project can change what the command runs.",
+              "type": "boolean"
+            },
+            "consent": {
+              "description": "The consent of the entry: the raw command, env and covers, which the answer names, beside their texts.",
+              "$ref": "#/$defs/AppEntry/properties/consent"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "name", "reason", "message"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "problem"
+            },
+            "name": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "name", "restarts", "stderrTail"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "failed"
+            },
+            "name": {
+              "type": "string"
+            },
+            "restarts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stderrTail": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AppPage": {
+      "description": "The page of an instance at its place, only while no banner stands. A new generation loads the frame again with a new ticket.",
+      "type": "object",
+      "required": ["instance", "view", "resource", "generation"],
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "view": {
+          "$ref": "#/$defs/ViewId"
+        },
+        "resource": {
+          "type": "string",
+          "pattern": "^ui://"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "ToolWindowPlace": {
+      "description": "The tool window of a view of the place toolWindow, with a tab for each view of the place toolWindowTab that names it. title is toolWindow.title, else the name of the app. tabTitle is toolWindow.tabTitle, else title. instance is the instance of the view, also under a banner.",
+      "type": "object",
+      "required": ["view", "title", "tabTitle", "anchor", "focus"],
+      "additionalProperties": false,
+      "properties": {
+        "view": {
+          "$ref": "#/$defs/ViewId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tabTitle": {
+          "type": "string"
+        },
+        "anchor": {
+          "enum": ["left", "right", "bottom"]
+        },
+        "page": {
+          "$ref": "#/$defs/AppPage"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "focus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "badge": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "progress": {
+          "type": "object",
+          "required": ["fraction"],
+          "additionalProperties": false,
+          "properties": {
+            "fraction": {
+              "type": ["number", "null"]
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        "tabs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "description": "A tab. title is the title of its instance, else toolWindowTab.title, else the id of the view.",
+            "type": "object",
+            "required": ["view", "title", "focus"],
+            "additionalProperties": false,
+            "properties": {
+              "view": {
+                "$ref": "#/$defs/ViewId"
+              },
+              "title": {
+                "type": "string"
+              },
+              "page": {
+                "$ref": "#/$defs/AppPage"
+              },
+              "instance": {
+                "$ref": "#/$defs/Instance"
+              },
+              "focus": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "titleActions": {
+          "description": "The actions of toolWindow.titleActions in their order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ActionPlace"
+          }
+        },
+        "hides": {
+          "description": "The count of the hides of the tool window that air-ide asked, one for each close of the instance of the view by the app, absent for none. The IDE hides the tool window when the count grows.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "InstancePlace": {
+      "description": "One instance of a view of the place editor, window or dialog, in the order of the numbers of the instances. title is the title of the instance, else the name of the app. size is the size of the app file when it names both. editorKey is the key of the editor tab: the key of an instance of a view of many instances, or its id without a key, and the id of the view for a view of one instance. The IDE reads the params of the instance from the entry.",
+      "type": "object",
+      "required": ["view", "instance", "title", "focus", "editorKey"],
+      "additionalProperties": false,
+      "properties": {
+        "view": {
+          "$ref": "#/$defs/ViewId"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "key": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "size": {
+          "type": "object",
+          "required": ["width", "height"],
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "page": {
+          "$ref": "#/$defs/AppPage"
+        },
+        "focus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "editorKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ActionPlace": {
+      "description": "One action of the app file. text is its text, description its description, as a menu shows them. icon is an absolute path of an SVG or an icon of the IDE, AllIcons.<path>.",
+      "type": "object",
+      "required": ["id", "text", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/AppId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "shortcut": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "other": {
+              "type": "string"
+            }
+          }
+        },
+        "run": {
+          "$ref": "#/$defs/Run"
+        },
+        "icon": {
+          "type": "string"
         }
       }
     },
@@ -3018,18 +3340,38 @@
           }
         },
         {
-          "description": "The life of a place. The result of the echo is {changed}: whether the shown state of the instance flipped, an instance starting hidden, or for a close whether the instance left the channel. The app hears each report.",
+          "description": "What the IDE shows of one of its places of a view: a content of a tool window, or an editor tab, a frame or a dialog by its key. air-ide owns the life of the place. A shown content of a tool window and a shown editor tab without an instance get a new one, once in each show, an editor tab with its key and its params. The app hears viewShown and viewHidden of the instance once for each change, and viewClosed at the close of the place, also of an instance that the app closed while the place stayed. Under a banner nothing changes. The result of the echo is {changed, instance?}: whether the life of the app changed, and the open instance that the place shows after the report. A view that the app file does not declare gets unknownView. Another place than the place of the view, a key of a content of a tool window, an editor tab, a frame or a dialog without its key, params of another place than an editor tab, and an instance of another life than closed get badParams. A key or params past the bounds of an instance, or a new place past 256 places of the channel, get tooLarge.",
           "type": "object",
-          "required": ["type", "app", "instance"],
+          "required": ["type", "app", "place", "view", "life"],
           "properties": {
             "type": {
-              "enum": ["x-air-ide/appViewShown", "x-air-ide/appViewHidden", "x-air-ide/appViewClosed"]
+              "const": "x-air-ide/appPlace"
             },
             "app": {
               "$ref": "#/$defs/AppId"
             },
+            "place": {
+              "description": "The place of the view in its app file.",
+              "enum": ["toolWindow", "toolWindowTab", "editor", "window", "dialog"]
+            },
+            "view": {
+              "$ref": "#/$defs/ViewId"
+            },
+            "key": {
+              "description": "The editor key of an editor tab, a frame or a dialog, editorKey of its place. A content of a tool window has none.",
+              "type": "string"
+            },
+            "params": {
+              "description": "The params of the instance that an editor tab asks for, from the path of its file.",
+              "type": "object"
+            },
             "instance": {
+              "description": "The instance that the IDE showed in the place, only with closed. The close then closes no other instance, also when a show of the place gave it a new instance before the close came. Without it, the close closes the instance that the place showed.",
               "$ref": "#/$defs/Instance"
+            },
+            "life": {
+              "description": "shown: the IDE shows the place, the selected content of a visible tool window, a selected editor tab, an open frame or dialog. hidden: the place stays and does not show. closed: the place is gone, and the instance that it showed closes. An instance that the app opened with the same key after it closed that instance stays.",
+              "enum": ["shown", "hidden", "closed"]
             }
           }
         },
@@ -3174,6 +3516,31 @@
           "minimum": 1
         }
       }
+    },
+    "AppResourceReadResult": {
+      "description": "The answer of x-air-ide/appResourceRead: the first content of the asked uri in the ReadResourceResult of the app. No other content and no other field of the app pass. text is the text of the content, else blob is its blob in base64 as the app wrote it, which the IDE decodes. A text wins over a blob. mimeType is the MIME type of the content, else text/plain for a text and application/octet-stream for a blob.",
+      "type": "object",
+      "required": ["mimeType"],
+      "additionalProperties": false,
+      "properties": {
+        "mimeType": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "blob": {
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["text"]
+        },
+        {
+          "required": ["blob"]
+        }
+      ]
     },
     "Session": {
       "description": "The session of a holder call, by the keys of the session of a view of the views channel of air-ide.",
@@ -3510,7 +3877,7 @@
           "then": {
             "properties": {
               "params": {
-                "description": "A command of the apps channel: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>, and gets the ReadResourceResult of the app as it wrote it. The channel answers when the app answers, so a read holds no worker of the host while the app reads. While the link of the app is not ready, a read waits at most 30 s. It waits for the run whose start goes on, or for the next run of the backoff. It starts no app. A run that ends before its link is ready gives -32002 notStarted with the stderr tail of now. So do a stopped app and the end of the wait. A read that would wait past the cap of the parked calls of the channel gets -32011 tooManyCalls.",
+                "description": "A command of the apps channel: the request handler of the IDE reads one file of a frame of an app, ui://<app>/<path>. The answer is AppResourceReadResult. An answer of the app without a content of the uri, and a content with neither a text nor a blob, give -32603 resourceRead. The channel answers when the app answers, so a read holds no worker of the host while the app reads. While the link of the app is not ready, a read waits at most 30 s. It waits for the run whose start goes on, or for the next run of the backoff. It starts no app. A run that ends before its link is ready gives -32002 notStarted with the stderr tail of now. So do a stopped app and the end of the wait. A read that would wait past the cap of the parked calls of the channel gets -32011 tooManyCalls.",
                 "type": "object",
                 "required": ["channel", "app", "uri"],
                 "properties": {
@@ -3555,6 +3922,7 @@
                     "description": "The number of a notification with an action, by which the IDE runs an action of it, x-air-ide/appNotificationRun. air-ide sends only the actions that it can run, and a notification without one has no number."
                   },
                   "notification": {
+                    "description": "The notification of the app with only the actions that air-ide can run, each text as a menu shows it.",
                     "$ref": "#/$defs/Notify"
                   }
                 }
@@ -3586,14 +3954,135 @@
                     "$ref": "#/$defs/Instance"
                   },
                   "name": {
-                    "type": "string",
-                    "pattern": "^air_",
-                    "description": "A tool of the IDE: air_copy, air_open_file, air_show_diff, air_show_commit or air_navigate. The badge, the progress and a notification are requests of the app, x-air-app/setBadge, setProgress and notify, and no host tool."
+                    "enum": ["air_copy", "air_open_file", "air_show_diff", "air_show_commit", "air_navigate"],
+                    "description": "A tool of the IDE. The badge, the progress and a notification are requests of the app, x-air-app/setBadge, setProgress and notify, and no host tool."
                   },
                   "arguments": {
-                    "type": "object"
+                    "type": "object",
+                    "description": "The arguments that air-ide checked, with no other field. Each path and each root is absolute and normalized: air-ide resolves a relative one from the project directory of the channel. A root of air_show_commit is in that directory. A call with bad arguments gets an error result from air-ide, and the IDE gets no call.",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "line": {
+                        "type": "integer"
+                      },
+                      "column": {
+                        "type": "integer"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "hash": {
+                        "type": "string",
+                        "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                      },
+                      "root": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
                   }
-                }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_copy"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["text"],
+                          "propertyNames": {
+                            "enum": ["text"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_open_file"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["path"],
+                          "propertyNames": {
+                            "enum": ["path", "line"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_show_diff"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["path"],
+                          "propertyNames": {
+                            "enum": ["path"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_navigate"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["path", "line"],
+                          "propertyNames": {
+                            "enum": ["path", "line", "column"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_show_commit"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["hash"],
+                          "propertyNames": {
+                            "enum": ["hash", "root"]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
