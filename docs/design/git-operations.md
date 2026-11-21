@@ -2939,13 +2939,17 @@ the package 4 times.
 
 rustc names a dir of `incremental/` by the crate and an id of its own (`fs_walk-0917nwb68p6zl`), not by the hash of
 the unit. So the rule groups such a dir by its crate, and the library, its check, its test harness and their clippy
-checks share one group of `keep`. Every build script of the workspace shares the crate `build_script_build`. A dir
-therefore also stays while a kept unit of its crate wrote its newest session (`Unit::wrote`). cargo writes
+checks share one group. Every build script of the workspace shares the crate `build_script_build`. Of that group only
+the newest dir and the dirs younger than `age` stay by themselves. A dir also stays while a current unit of its crate
+wrote its newest session (`Unit::wrote`): the last built unit of its group (package and target), or one younger than
+`age`. An older unit that `keep` holds keeps no dir. In accio slot 2 every group held at most 8 units, so with
+`keep = 8` every old unit stayed and kept the dir it wrote: 814 dirs and 22 GB of 32 GB in `target/test-fast`, while
+`deps/` held 1.7 GB. The next build of such an old unit compiles its crate in full once. cargo writes
 `invoked.timestamp` before it starts rustc and the other files of the fingerprint dir once rustc ended, and rustc makes
 the lock of a session (`s-<id>.lock`) at its start. On a slot with 90 dirs and on a probe of stable cargo 1.99.1, the
 lock of every dir fell within the run of at least one unit of its crate. A library and its test harness that cargo
-compiles at the same time both hold the dir of each other, which keeps more. A dir that no kept unit wrote, as its
-unit is gone or its last compile failed, keeps the group of its crate, so the rule deletes no dir that it kept before.
+compiles at the same time both hold the dir of each other, which keeps more. A dir that no current unit wrote, as its
+unit is gone, old or its last compile failed, goes unless it is the newest of its crate.
 The rule does not compute the id: it is a hash internal to rustc.
 
 On macOS the dev default `split-debuginfo=unpacked` keeps the objects of rustc (`*.rcgu.o`) in `out/` of a unit, one

@@ -2032,8 +2032,7 @@ must not run arbitrary code.
 `{ cargo = "<dir>", keep = 8, age = "1h" }` MUST prune the profile dirs under `<dir>` (a dir with `.cargo-lock`, at
 most 4 levels down, also of a cross target, `<triple>/debug`): a unit stays when it is among the `keep` newest of its
 group (its package and the target its fingerprint names) or younger than `age` (`s`, `m`, `h`, `d`), an incremental
-dir also while a kept unit wrote its session, and the files of a unit go together. Each profile dir MUST be pruned in
-the layout it has.
+dir by its own rule below, and the files of a unit go together. Each profile dir MUST be pruned in the layout it has.
 
 #### Scenario: The newest and the young units stay
 - **WHEN** a cargo rule prunes a profile dir
@@ -2070,11 +2069,13 @@ the layout it has.
 
 #### Scenario: Incremental units
 - **WHEN** the profile dir has `incremental/<crate>-<id>/`, in either layout
-- **THEN** it is a unit of its own, grouped by crate
-- **AND** it also stays while a kept unit of its crate wrote its newest session: the lock of the session
-  (`s-<id>.lock`) is not older than `invoked.timestamp` of the unit and not newer than the newest file of its
-  fingerprint dir
-  [@test] crates/lease-pool/src/lease_clean_test.rs (`an_incremental_dir_stays_while_the_unit_that_wrote_it_stays`, `a_target_names_the_crate_of_its_incremental_dir`)
+- **THEN** it is a unit of its own, grouped by crate, and only the newest dir of the crate and the young ones stay by
+  themselves
+- **AND** it also stays while a current unit of its crate (the last built of its group, or one younger than `age`)
+  wrote its newest session: the lock of the session (`s-<id>.lock`) is not older than `invoked.timestamp` of the unit
+  and not newer than the newest file of its fingerprint dir
+- **AND** an older unit that `keep` holds keeps no dir
+  [@test] crates/lease-pool/src/lease_clean_test.rs (`an_incremental_dir_stays_while_the_current_unit_that_wrote_it_stays`, `a_target_names_the_crate_of_its_incremental_dir`, `the_cargo_rule_keeps_the_newest_and_the_young_units`)
 
 #### Scenario: The uplifted artifacts
 - **WHEN** the profile dir has uplifted artifacts at its top (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock`

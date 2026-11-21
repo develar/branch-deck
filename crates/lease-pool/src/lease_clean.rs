@@ -72,10 +72,10 @@ const PROFILE_TRASH: &str = ".brd-trash";
 /// A rule of `[lease] clean`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CleanRule {
-  /// The units of the profile dirs under `dir` (a dir with `.cargo-lock`): `build/<package>/<hash>` and
-  /// `incremental/<crate>-<id>` stay when they are among the `keep` newest of their group or younger than `age`, an
-  /// incremental dir also while a kept unit wrote its newest session; in a kept unit the objects of rustc that no build
-  /// reads go
+  /// The units of the profile dirs under `dir` (a dir with `.cargo-lock`): `build/<package>/<hash>` stays when it is
+  /// among the `keep` newest of its group or younger than `age`; `incremental/<crate>-<id>` when it is the newest of its
+  /// crate, younger than `age`, or while the last built unit of a group of its crate (or a young one) wrote its newest
+  /// session; in a kept unit the objects of rustc that no build reads go
   Cargo { dir: String, keep: usize, age: Duration },
   /// Remove `path`, a file, a directory or a symlink; with `except`, the entries of the directory but the ones named
   Delete { path: String, except: Vec<String> },
@@ -1293,6 +1293,9 @@ struct Unit {
   compiled: Option<Compiled>,
   /// A dir of `incremental/`, whose sessions hold the objects that the next build of its crate reads
   incremental: Option<Session>,
+  /// The last built of its group or built after the cutoff (`split_groups`): only such a unit keeps the incremental dir
+  /// that it wrote (`split_units`)
+  current: bool,
 }
 
 /// The last run of rustc for a unit, as its fingerprint dir tells it: cargo writes `invoked.timestamp` before it starts
@@ -1495,16 +1498,20 @@ fn target_crate(target: &str) -> Option<String> {
 
 /// The stale and the kept units of `units`: a unit stays when it is among the `keep` last built of its group
 /// (`Unit::group`) or was built after `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all.
-/// An incremental dir also stays while a kept unit wrote its newest session (`Unit::wrote`): its crate has a dozen
-/// current units (the library, its check, its test harness, each of them for each set of features), so the group of
-/// its crate keeps fewer dirs than the units that read them. The files of a unit go together
+/// An incremental dir also stays while a current unit (the last built of its group, or one built after `cutoff`) wrote
+/// its newest session (`Unit::wrote`): its crate has a dozen current units (the library, its check, its test harness,
+/// each of them for each set of features). Of the other dirs of a crate only the newest stays, whatever `keep` says. An
+/// older kept unit keeps no dir: in a slot of accio each group held at most 8 units, so each old unit stayed and kept
+/// the dir it wrote, 814 dirs and 22 GB in one profile dir. Its next build without the dir compiles its crate in full
+/// once. The files of a unit go together
 fn split_units(units: Units, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec<Unit>) {
   let (sessions, compiled): (Vec<Unit>, Vec<Unit>) = units.into_values().partition(|unit| unit.incremental.is_some());
   let (mut stale, mut kept) = split_groups(compiled, keep, cutoff);
-  let (stale_sessions, kept_sessions) = split_groups(sessions, keep, cutoff);
-  // the kept units by the crate of their target, which names the incremental dirs of the crate
+  // the newest dir of each crate stays whatever wrote it: the next build of the crate reads it most likely
+  let (stale_sessions, kept_sessions) = split_groups(sessions, 1, cutoff);
+  // the current kept units by the crate of their target, which names the incremental dirs of the crate
   let mut writers: HashMap<String, Vec<&Unit>> = HashMap::new();
-  for unit in &kept {
+  for unit in kept.iter().filter(|unit| unit.current) {
     if let Some(name) = unit.target.as_deref().and_then(target_crate) {
       writers.entry(name).or_default().push(unit);
     }
@@ -1521,7 +1528,8 @@ fn split_units(units: Units, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec
   (stale, kept)
 }
 
-/// The stale and the kept units of `units` by the `keep` last built of each group and `cutoff` alone
+/// The stale and the kept units of `units` by the `keep` last built of each group and `cutoff` alone; a kept unit is
+/// `Unit::current` when it is the last built of its group or built after `cutoff`
 fn split_groups(units: Vec<Unit>, keep: usize, cutoff: SystemTime) -> (Vec<Unit>, Vec<Unit>) {
   let mut groups: HashMap<String, Vec<Unit>> = HashMap::new();
   for unit in units {
@@ -1530,10 +1538,12 @@ fn split_groups(units: Vec<Unit>, keep: usize, cutoff: SystemTime) -> (Vec<Unit>
   let (mut stale, mut kept) = (Vec::new(), Vec::new());
   for mut units in groups.into_values() {
     units.sort_by_key(|unit| std::cmp::Reverse(unit.built));
-    for (index, unit) in units.into_iter().enumerate() {
-      if index >= keep && unit.built.is_some_and(|built| built < cutoff) {
+    for (index, mut unit) in units.into_iter().enumerate() {
+      let old = unit.built.is_some_and(|built| built < cutoff);
+      if index >= keep && old {
         stale.push(unit);
       } else {
+        unit.current = index == 0 || !old;
         kept.push(unit);
       }
     }

@@ -274,7 +274,7 @@ fn the_cargo_rule_keeps_the_newest_and_the_young_units() {
     for (hash, built) in [("h0", 10 * hour), ("h1", 9 * hour), ("h2", minutes(30)), ("h3", minutes(20)), ("h4", minutes(10))] {
       unit(&profile.join("build/git-ops").join(hash), built);
     }
-    // a crate name with `-`: grouped by what comes before the last `-`
+    // a crate name with `-`: grouped by what comes before the last `-`; no unit wrote them, so the newest alone stays
     for (name, built) in [("git_ops-old", 5 * hour), ("git_ops-mid", 4 * hour), ("git_ops-new", 3 * hour)] {
       unit(&profile.join("incremental").join(name), built);
     }
@@ -290,7 +290,7 @@ fn the_cargo_rule_keeps_the_newest_and_the_young_units() {
   for profile in ["target/debug", "target/aarch64-apple-darwin/release"] {
     let left = |dir: &str| entry_names(&root.join(profile).join(dir));
     assert_eq!(left("build/git-ops"), ["h2", "h3", "h4"], "{profile}");
-    assert_eq!(left("incremental"), ["git_ops-mid", "git_ops-new"], "{profile}");
+    assert_eq!(left("incremental"), ["git_ops-new"], "{profile}");
   }
 }
 
@@ -1440,19 +1440,19 @@ fn incremental_dir(dir: &Path, started: Duration) {
   age(dir, ended);
 }
 
-/// A crate with more current units than `keep` (two builds of its library and two of its test harness), in either
-/// layout: the incremental dir of each kept unit stays, as the unit wrote its newest session, and the dir of the stale
-/// unit and the dir that no unit wrote go
+/// A crate with two builds of its library and three of its test harness, in either layout: the incremental dir of the
+/// last build of each target stays, as that unit wrote its newest session. The dirs of the older kept builds go, and so
+/// do the dir of the stale unit and the dir that no unit wrote
 #[cfg(unix)]
 #[test]
-fn an_incremental_dir_stays_while_the_unit_that_wrote_it_stays() {
+fn an_incremental_dir_stays_while_the_current_unit_that_wrote_it_stays() {
   let hours = |hours: u64| Duration::from_hours(hours);
   for classic in [false, true] {
     let (checkout, git) = git_checkout();
     let root = checkout.path();
     let profile = profile_dir(root);
     // the old builds of the library stay, as no other build of it came; the third build of the test harness goes, and
-    // it started after the start of a kept library
+    // it started after the start of a kept library. Only the last build of each target keeps the dir that it wrote
     let units = [
       ("1111111111111111", "lib-probe_core", hours(6)),
       ("2222222222222222", "lib-probe_core", hours(7)),
@@ -1482,11 +1482,7 @@ fn an_incremental_dir_stays_while_the_unit_that_wrote_it_stays() {
     let units = entry_names(&profile.join(if classic { ".fingerprint" } else { "build/probe-app" }));
     assert_eq!(units.len(), 4, "classic {classic}: {units:?}");
     assert!(!units.iter().any(|unit| unit.ends_with("0000000000000000")), "classic {classic}: {units:?}");
-    assert_eq!(
-      entry_names(&profile.join("incremental")),
-      ["probe_core-1", "probe_core-2", "probe_core-3", "probe_core-4"],
-      "classic {classic}"
-    );
+    assert_eq!(entry_names(&profile.join("incremental")), ["probe_core-1", "probe_core-3"], "classic {classic}");
   }
 }
 
