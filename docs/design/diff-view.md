@@ -2230,8 +2230,11 @@ migration, on the streamed diffs. The medians of 3 runs, the machine at a load o
 | any | DOM nodes of the view | — | 964 | 930 | ≤ 4,000 |
 | any | long tasks after the first rows | — | none | none | none over 50 ms |
 
-The frames over 16.7 ms are not in the table: the still control drops as many frames as the scroll in a headless
-browser under load (Chromium 25–35 %, WebKit 100 % at a slow scroll). The heap is not either: `performance.memory` is
+The frames over 16.7 ms are not in the table: the still control drops frames with no work at all in a headless browser
+under load. Counted by rendering updates (2026-11-21, the Studio at a load of 23), headless Chromium renders about 15
+frames a second, 79–85 % of them over 16.7 ms still as at a scroll; WebKit renders 60, 0–13 % of them over it still and
+55–67 % at 20 viewports per second over the 200 files. The counts before, by the timers of the test clock (Chromium
+25–35 %, WebKit 100 % at a slow scroll), were of no rendering update. The heap is not either: `performance.memory` is
 not there in a headless browser. If "ready" alone takes more than 250 ms, the start of the window becomes its own
 task, apart from this renderer: in WebKit it is 322 ms of the 412 ms of the 200 files.
 
@@ -2446,7 +2449,9 @@ fastest run is the nearest to a quiet machine.
   selection, the open 141, 152 and 180 ms: the rows of the view are painted, never the file, so H does not grow with it.
 - **Bytes:** the length of the strings and the typed arrays of each worker message, in a run of its own, because
   counting costs main-thread time.
-- **Scroll:** a scroll per frame through the diffs for 2 s, at 3 and at 20 viewports per second. It records the frame
+- **Scroll:** a scroll per frame through the diffs for 2 s, at 3 and at 20 viewports per second. A frame is a rendering
+  update of the page (`__renderingUpdate` of the e2e fixture, its time on `document.timeline`), not a
+  `requestAnimationFrame`, which the test clock of the fixture runs as a timer of 16 ms. It records the frame
   times, the time of each scroll event of `DiffPainter` with the layout of its rows (the page collects it in
   `__diffPaintTimes` while the benchmark runs),
   and the frames with a point of the viewport that no row covers. The same loop without a scroll ("still") gives

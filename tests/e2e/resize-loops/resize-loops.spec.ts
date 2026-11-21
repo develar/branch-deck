@@ -11,6 +11,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
+import type { RenderingUpdates } from "../setup/rendering-updates"
 import { resizeObservers } from "../setup/resize-observers"
 
 /*
@@ -70,9 +71,9 @@ async function expectSiblingGrownWithoutLoop(page: Page, setupRepo: (template: s
       observed = block
     }
     observed.style.cssText = "width: 10px; height: 10px; position: fixed; left: 0; top: 0"
-    const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
-    await frame()
-    await frame()
+    const { __renderingUpdate: update } = window as unknown as RenderingUpdates
+    await update()
+    await update()
     const before = room.getBoundingClientRect().width
     await new Promise<void>(resolve => {
       const library = new ResizeObserver(() => {
@@ -84,9 +85,9 @@ async function expectSiblingGrownWithoutLoop(page: Page, setupRepo: (template: s
         void chain.then(() => {
           sibling.textContent = "x".repeat(40)
         })
-        // a loop is told at the end of the update: two frames after it the page has logged it
-        void frame()
-          .then(frame)
+        // a loop is told at the end of the update: two updates after it the page has logged it
+        void update()
+          .then(update)
           .then(() => resolve())
       })
       library.observe(observed)
@@ -245,10 +246,11 @@ test.describe("ResizeObserver loops", () => {
 })
 
 /**
- * The frames of a page as painted, in `window.paintedOverlaps`: each frame an `IntersectionObserver` takes the boxes of
- * the overview of a review and of its first file anew, which it reads after the observers of that rendering update and
- * before its paint (a box read in a frame callback would be the layout of a task that ran since the last paint, which
- * that update may correct); the frames with both, and those where the overview lies on the file
+ * The frames of a page as painted, in `window.paintedOverlaps`: after each rendering update an `IntersectionObserver`
+ * takes the boxes of the overview of a review and of its first file anew, which it reads after the observers of the next
+ * update and before its paint (a box read in a task would be the layout of a task that ran since the last paint, which
+ * that update may correct); the frames with both, and those where the overview lies on the file. The updates come from
+ * `__renderingUpdate`, never `requestAnimationFrame`, which the test clock runs as a timer
  */
 function samplePaintedOverlaps(): void {
   const samples = { frames: 0, overlaps: [] as string[] }
@@ -281,9 +283,10 @@ function samplePaintedOverlaps(): void {
       boxes.observe(overview)
       boxes.observe(file)
     }
-    requestAnimationFrame(frame)
+    void (window as unknown as RenderingUpdates).__renderingUpdate().then(frame)
   }
-  requestAnimationFrame(frame)
+  // an init script: the root element comes with the document
+  document.addEventListener("DOMContentLoaded", frame, { once: true })
 }
 
 test.describe("The frames of a review as it opens", () => {

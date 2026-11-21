@@ -106,8 +106,8 @@ rules in one line each and links here.
   whose element may have left the page. For the same reason a scroll asked of a row (`scrollIntoView` in the page)
   may be asked of an element that just left it and move nothing: ask until the row stands where it should
   (`toPass`), measure a row by a box that is there (`boundingBox` is null for a moment), and before a test reads
-  what a view keeps across a new layout, let the scroll event reach the views (`resizeReportsDelivered(page)`: two
-  frames). The painter draws
+  what a view keeps across a new layout, let the scroll event reach the views (`resizeReportsDelivered(page)`: a
+  rendering update). The painter draws
   only the rows around the view: `scrollDiffsTo(scope, target)` scrolls a view in the scroller of its parent (the
   preview of a commit) until a row far below is in view, and never past it once it is painted: a scroll past a row
   that a late paint brought leaves it and its neighbours at the edge of the rows painted, so a read of the row above
@@ -204,7 +204,9 @@ rules in one line each and links here.
   16 ms of the clock, not with a rendering update, and a loaded WebKit rendered no update in eight of them
   (`resize-loops.spec.ts`, 4 of 72 runs under `E2E_RO_TRACE`). A test waits for a rendering update by the first report
   of a `ResizeObserver` made for it, and makes its next change in the task after it: a change or a new observation in
-  the delivery of its observer, no deeper than its report, is a loop of the test's own.
+  the delivery of its observer, no deeper than its report, is a loop of the test's own. In the page that is
+  `window.__renderingUpdate()` (`tests/e2e/setup/rendering-updates.ts`, an init script of every context), which resolves
+  after the next update with its time on `document.timeline`; from the test `resizeReportsDelivered(page)`.
 - **A command the page answers from a cache is asked once**: the texts of the blobs (`get_blob_texts`) are kept by
   blob id (`src/stores/blob-texts.ts`), and a read-ahead asks for them before the file is shown, so a hold installed
   after the window opened may never see the call a test waits for (1 run in 12 of `review-plan.spec.ts`). Hold it on

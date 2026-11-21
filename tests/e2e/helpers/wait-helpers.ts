@@ -1,6 +1,7 @@
 import type { Page, Locator } from "@playwright/test"
 import type { ApiError, StepFact } from "../../../src/lib/bindings"
 import { expect, expectErrorLog } from "../fixtures/base-test"
+import type { RenderingUpdates } from "../setup/rendering-updates"
 
 /**
  * Wait for processing state to complete (animate-pulse class removed)
@@ -69,12 +70,13 @@ export async function expectClosed(popup: Locator): Promise<void> {
 }
 
 /**
- * Resolves once a rendering update of the page delivered its `ResizeObserver` reports of what changed before the call: a
- * frame runs its animation frame callbacks before its layout and its reports, so the second callback is after them. A
- * read of a width laid out (`boundingBox`) forces the layout at once and is no such update
+ * Resolves once a rendering update of the page delivered its `ResizeObserver` reports of what changed before the call,
+ * and the tasks its observers posted ran (`window.__renderingUpdate`, tests/e2e/setup/rendering-updates.ts). Never two
+ * `requestAnimationFrame` callbacks: the test clock runs them as timers, both can come before the update. A read of a
+ * width laid out (`boundingBox`) forces the layout at once and is no such update
  */
 export async function resizeReportsDelivered(page: Page): Promise<void> {
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await page.evaluate(() => (window as unknown as RenderingUpdates).__renderingUpdate())
 }
 
 /** The reports `holdSizeReports` holds: how many wait, and their delivery */

@@ -31,6 +31,7 @@ import { SPLIT_DIFFS } from "../e2e/helpers/setup-options"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../e2e/helpers/sub-window-helpers"
+import type { RenderingUpdates } from "../e2e/setup/rendering-updates"
 import { HUGE_LINES, hugeFileCommit, largeCommit } from "./diff-fixtures"
 import type { SyntheticFile } from "./diff-fixtures"
 
@@ -331,11 +332,11 @@ async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<Ph
   const before = await window.evaluate(async () => {
     const { notesInView } = (window as unknown as { __perf: { notesInView: () => (string | null)[] } }).__perf
     const scroller = document.querySelector<HTMLElement>("[data-testid=diff-view]")!
-    const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+    const { __renderingUpdate: update } = window as unknown as RenderingUpdates
     for (let step = 0; step < 200 && notesInView().length === 0; step++) {
       scroller.scrollTop += scroller.clientHeight / 2
-      await frame()
-      await frame()
+      await update()
+      await update()
     }
     return notesInView()
   })
@@ -366,22 +367,24 @@ async function toggleNotes(window: Page, expanded: "true" | "false"): Promise<Ph
 
 /**
  * Scrolls the diffs from the top by `viewportsPerSecond` each frame for 2 s: the frame times, and the frames whose
- * viewport has a point that no row and no header covers
+ * viewport has a point that no row and no header covers. A frame is a rendering update (`__renderingUpdate`, on the
+ * time of `document.timeline`), never a `requestAnimationFrame`, which the test clock runs as a timer of 16 ms
  */
 async function scrollFrames(window: Page, viewportsPerSecond: number): Promise<Record<string, number>> {
   return window.evaluate(async speed => {
+    const { __renderingUpdate: update } = window as unknown as RenderingUpdates
     const scroller = document.querySelector<HTMLElement>("[data-testid=diff-view]")!
     scroller.scrollTop = 0
-    await new Promise(resolve => requestAnimationFrame(resolve))
+    await update()
     const box = scroller.getBoundingClientRect()
     const times: number[] = []
     ;(window as unknown as { __diffPaintTimes?: number[] }).__diffPaintTimes = times
     const frames: number[] = []
     let empty = 0
-    let last = performance.now()
+    let last = await update()
     const end = last + 2000
-    while (performance.now() < end && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) {
-      const now = await new Promise<number>(resolve => requestAnimationFrame(resolve))
+    while (last < end && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) {
+      const now = await update()
       frames.push(now - last)
       // the frame shows what the last scroll painted: no point below the sticky header is the empty host of the rows
       // (the gap between two cards is no row either, by design)

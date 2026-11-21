@@ -3,6 +3,7 @@ import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { answeredTogether, longTaskOf, NEAR_TIMEOUT_MS, PAGE_HEALTH, pageAnswers, PROBE_MS, watchLongTasks } from "../helpers/page-health"
 import type { PageHealth } from "../helpers/page-health"
 import { ANY_NETWORK_FAILURE, isLeftBehind } from "../setup/network-failure"
+import { renderingUpdates } from "../setup/rendering-updates"
 import { resizeObservers } from "../setup/resize-observers"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
@@ -413,6 +414,8 @@ export const test = base.extend<{ began: number }>({
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockInitScript())
     await watchLongTasks(context)
+    // a wait for a rendering update (`window.__renderingUpdate`): the clock below drives `requestAnimationFrame` as a timer
+    await context.addInitScript(renderingUpdates)
     // the trace of the ResizeObservers of the pages, and a CPU as slow as a loaded machine's (Chromium only), each on its
     // own: what found the loops of the toasts, of a review and of the branch columns (tests/e2e/setup/resize-observers.ts);
     // the throttle alone runs a test as it runs, with the page's own weighing of a loop

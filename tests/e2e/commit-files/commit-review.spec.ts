@@ -26,6 +26,7 @@ import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
+import type { RenderingUpdates } from "../setup/rendering-updates"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -649,7 +650,8 @@ simpleTest.describe("Commit review in Split", () => {
     await expect(diffRows(window, "changed").first()).toBeVisible()
     // the painter paints a row anew when its texts arrive or the layout changes, so a handle of a row can be detached
     // the moment after it was found: every look finds the row and measures it in one step of the page, and twice a
-    // frame apart, so it also tells whether the rows still move
+    // rendering update apart (never a `requestAnimationFrame`, a timer of the test clock), so it also tells whether
+    // the rows still move
     const firstRow = () =>
       window.evaluate(async review => {
         const measure = () => {
@@ -658,7 +660,7 @@ simpleTest.describe("Commit review in Split", () => {
           return { share: left!.width / row.getBoundingClientRect().width, divider: { x: right!.x, y: right!.y + right!.height / 2 } }
         }
         const before = measure()
-        await new Promise(resolve => requestAnimationFrame(resolve))
+        await (globalThis as unknown as RenderingUpdates).__renderingUpdate()
         const after = measure()
         return { ...after, still: before.divider.x === after.divider.x && before.divider.y === after.divider.y }
       })

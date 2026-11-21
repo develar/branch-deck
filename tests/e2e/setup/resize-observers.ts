@@ -5,9 +5,13 @@
  *   the elements whose size is not the one their observer reported last, by owner: the app's (an observer `observeSize`
  *   made, which marks it, src/lib/observe-size.ts) or a library's.
  * - `trace` (`E2E_RO_TRACE=1`, docs/contributing/e2e-tests.md, "Errors are declared"): a line of the error level, which
- *   fails the test with it, of the last deliveries (the frame by `requestAnimationFrame`, the element by an id, its text
- *   and its parents, the size, where its observer was made), the end of each callback, the changes of the texts inside
- *   observed elements, and what was left pending. It found the loops of the toasts, of a review and of the branch columns
+ *   fails the test with it, of the last deliveries (the rendering update, the element by an id, its text and its
+ *   parents, the size, where its observer was made), the end of each callback, the changes of the texts inside observed
+ *   elements, and what was left pending. It found the loops of the toasts, of a review and of the branch columns.
+ *   An update is counted by the report of an observer of the engine on the root element, made before every other and
+ *   observing it anew in the task after each report: `requestAnimationFrame` is a timer of the test clock, which
+ *   counted several frames between two updates of a loaded page.
+ * The observer of a wait for a rendering update (`rendering-updates.ts`, marked) is neither traced nor attributed.
  */
 export function resizeObservers({ attribute, trace }: { attribute?: boolean; trace?: boolean }): void {
   const mark = Symbol.for("branch-deck.observeSize")
@@ -30,12 +34,23 @@ export function resizeObservers({ attribute, trace }: { attribute?: boolean; tra
     const box = element.getBoundingClientRect()
     return `${Math.round(box.width)}x${Math.round(box.height)}`
   }
+  const waitMark = Symbol.for("branch-deck.e2eRenderingUpdate")
+  const Original = globalThis.ResizeObserver
   let frame = 0
-  const tick = () => {
+  const updates = new Original(() => {
     frame++
-    requestAnimationFrame(tick)
+    updates.disconnect()
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      updates.observe(document.documentElement)
+    }
+    channel.port2.postMessage(null)
+  })
+  // the count is of the trace alone; an init script: the root element comes with the document
+  if (trace === true) {
+    document.addEventListener("DOMContentLoaded", () => updates.observe(document.documentElement), { once: true })
   }
-  requestAnimationFrame(tick)
   const push = (line: string) => {
     if (trace === true) {
       log.push(line)
@@ -59,7 +74,6 @@ export function resizeObservers({ attribute, trace }: { attribute?: boolean; tra
       },
     })
   }
-  const Original = globalThis.ResizeObserver
   globalThis.ResizeObserver = class extends Original {
     constructor(callback: ResizeObserverCallback) {
       const reported = new Map<Element, string>()
@@ -72,6 +86,10 @@ export function resizeObservers({ attribute, trace }: { attribute?: boolean; tra
               .join(" | ")
           : ""
       super((entries, observer) => {
+        if (Reflect.get(observer, waitMark) === true) {
+          callback(entries, observer)
+          return
+        }
         for (const entry of entries) {
           reported.set(entry.target, size(entry.target))
           push(`f${frame} ${describe(entry.target)} ${Math.round(entry.contentRect.width)}x${Math.round(entry.contentRect.height)} @ ${site}`)
@@ -92,7 +110,7 @@ export function resizeObservers({ attribute, trace }: { attribute?: boolean; tra
     const owners: { app: string[]; library: string[] } = { app: [], library: [] }
     for (const { observer, reported } of observers) {
       const instance = observer.deref()
-      if (instance === undefined) {
+      if (instance === undefined || Reflect.get(instance, waitMark) === true) {
         continue
       }
       const owner = Reflect.get(instance, mark) === true ? owners.app : owners.library
