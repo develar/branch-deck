@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
-import { moveTargets } from "../helpers/diff-helpers"
+import { diffRows, expectLandedAloneOn, moveTargets } from "../helpers/diff-helpers"
 import { openPlanWindow, reviewedPaths, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 
 // the `review_moves` template: the branch `moves`, two commits that move declarations whole between files, each the
@@ -75,6 +75,9 @@ test.describe("Declarations moved whole between files", () => {
     await expect(extracted).not.toContainText("fun parseTotal")
     await captureHtmlSnapshot(tree, "review-moves-tree")
 
+    // the place two blocks another section of the file shows: one row, as the place the two functions left
+    await expect(extracted.getByTestId("diff-unit-elsewhere")).toHaveText(["Shown in step 2", "Moved parseTotal and parseSum to Parsing.kt"])
+
     // N passes a row: from the top of the place parseTotal and parseSum left, the next change is the new file's
     await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()
     await window.keyboard.press("n")
@@ -92,5 +95,14 @@ test.describe("Declarations moved whole between files", () => {
     await droppedFormat.click()
     await expect(tree.getByRole("treeitem", { name: "src/a/Report.kt", exact: true })).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/· Step 1 · /)
+
+    // back from the new place by the note of the marks of the move: the section whose row stands for the place the code
+    // left, in step 2, its fold opened, the row marked as where the jump landed, the tree and the footer following it;
+    // never the row of step 1 that names step 2
+    await expect(moveTargets(report)).toHaveText(["from Orders.kt:7"])
+    await moveTargets(report).click()
+    await expectLandedAloneOn(window.getByTestId("diff-view"), diffRows(orders, "note", { hasText: "Moved formatTotal to Report.kt in step 1" }))
+    await expect(tree.getByRole("treeitem", { name: "src/a/Orders.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/· Step 2 · .* · part 2 of 2$/)
   })
 })

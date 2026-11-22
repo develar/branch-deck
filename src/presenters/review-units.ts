@@ -904,10 +904,12 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
   }
   // a file shown whole: no units, unless a move came into it or left it, whose headings and rows its whole diff shows
   const whole = draft.blocks === null && draft.marks.size === 0 && elsewhere.size === 0
+  // the rows of the place a move left are this section's own: a jump to one of their lines lands here
+  const held = new Set(draft.moved?.keys() ?? [])
   return {
     key: draft.key,
     path: draft.path,
-    units: whole ? null : details.size === 0 ? { marks: draft.marks, elsewhere } : { marks: draft.marks, elsewhere, details },
+    units: whole ? null : { marks: draft.marks, elsewhere, targets, ...(details.size > 0 && { details }), ...(held.size > 0 && { held }) },
     unitIds: draft.unitIds ?? new Set(),
     story: draft.story ?? NO_STORY,
     targets,

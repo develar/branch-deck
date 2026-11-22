@@ -482,6 +482,9 @@ describe("the declarations moved whole between two files in the story", () => {
     // where it left: one row, which opens the section of where it stands now
     expect([...orders!.units!.elsewhere]).toEqual([[0, "Moved formatTotal to Report.kt"]])
     expect(orders!.targets.get(0)).toBe(report!.key)
+    // the row is this section's own, a jump to a line of its block lands on it; the rows tell its section by the targets
+    expect([...(orders!.units!.held ?? [])]).toEqual([0])
+    expect(orders!.units!.targets).toBe(orders!.targets)
     // where it stands now: read, under the heading that says where it came from
     expect([...report!.units!.marks].map(([block, heading]) => [block, headingText(heading)])).toEqual([[0, "formatTotal — moved from Orders.kt"]])
     expect([...report!.units!.elsewhere]).toEqual([])

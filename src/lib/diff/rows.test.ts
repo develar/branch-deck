@@ -253,6 +253,41 @@ describe("buildFileRows", () => {
     ])
   })
 
+  it("makes the rows side by side of a section of no change of its own of the same words and section one row, and keeps those of another section apart", () => {
+    // the place two functions moved from, between two blocks a section of step 2 shows, beside one of part 3
+    const diff = textDiff(60, 60, [block(4, 8, 4, 4), block(12, 20, 8, 8), block(30, 38, 18, 18), block(44, 46, 24, 25)])
+    const units = {
+      marks: new Map<number, Heading>(),
+      elsewhere: new Map([
+        [0, "Shown in step 2"],
+        [1, "Shown in step 2"],
+        [2, "Moved parseTotal and parseSum to Parsing.kt"],
+        [3, "Shown in step 2"],
+      ]),
+      targets: new Map([
+        [0, "file:src/a/Orders.kt#1"],
+        [1, "file:src/a/Orders.kt#1"],
+        [2, "src/a/Parsing.kt"],
+        [3, "file:src/a/Orders.kt#2"],
+      ]),
+    }
+    const rows = buildFileRows(diff, "unified", [], false, units)
+    expect(outline(rows)).toEqual(["elsewhere Shown in step 2", "elsewhere Moved parseTotal and parseSum to Parsing.kt", "elsewhere Shown in step 2"])
+    // the row of two blocks stands for the lines of both, and opens the section of the first
+    expect(rowAt(rows, 0)).toMatchObject({
+      block: 0,
+      lines: [
+        [4, 20],
+        [4, 8],
+      ],
+    })
+    expect(rowOfLine(rows, 0, 14)).toBe(0)
+    // a fold names each place once, the rows of one place counted together
+    expect(
+      foldWords({ kind: "fold", gap: 0, level: 0, lines: [], label: null, unchanged: 9, elsewhere: [0, 1].map(block => ({ block, label: "Shown in step 2" })), ignored: 0 }).places,
+    ).toEqual([{ block: 0, words: "2 changes in step 2" }])
+  })
+
   it("names in a fold of a section the blocks another section shows that it hides, and counts only its unchanged lines", () => {
     // an import another part shows, in the fold before the change of this section: 62 unchanged lines on the old side
     // against 63 on the new one, the import no unchanged line

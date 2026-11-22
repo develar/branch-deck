@@ -520,10 +520,17 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   }
 }
 
-/** Whether a section shows `line` of a side: no other section of its file shows the block of it */
+/**
+ * Whether a section shows `line` of a side: no other section of its file shows the block of it, as the block of a row
+ * the section holds itself (`SectionUnits.held`: the place a move left, its row standing for the lines)
+ */
 function showsLine(file: PreparedFile, side: number, line: number): boolean {
   const blocks = file.diff?.content.kind === "text" ? file.diff.content.blocks : []
+  const held = file.section?.units.held
   for (const index of file.section?.units.elsewhere.keys() ?? []) {
+    if (held?.has(index) === true) {
+      continue
+    }
     const block = blocks[index]
     const [start, end] = side === OLD ? [block?.oldStart ?? 0, block?.oldEnd ?? 0] : [block?.newStart ?? 0, block?.newEnd ?? 0]
     if (start <= line && line < end) {
@@ -1740,6 +1747,26 @@ export function DiffView({
     }
   }, [layout, prepared, shownPlace])
 
+  // the section a reveal showed is the one shown, for the tree and the bar of the step, as a click on a row of a block
+  // another section shows makes it: the view's own scroll reports no section at its top until the user scrolls
+  const reportRevealed = useEffectEvent((index: number) => {
+    const file = prepared[index]
+    if (file === undefined || scroll !== "own") {
+      return
+    }
+    if (file.key !== visibleKey.current && changeCursor.current?.key !== file.key) {
+      changeCursor.current = null
+    }
+    visibleKey.current = file.key
+    visiblePart.current = "card"
+    visibleStep.current = undefined
+    onVisibleSectionChange?.(file.key, file.path, "card")
+    if (file.path !== visiblePath.current) {
+      visiblePath.current = file.path
+      onVisibleFileChange?.(file.path)
+    }
+  })
+
   // the place a reveal waits for: scrolled to a third of the viewport below the header, then its name selected
   useLayoutEffect(() => {
     const place = pendingReveal.current
@@ -1761,6 +1788,7 @@ export function DiffView({
       // a block of the scroller of its parent: what stands above the view there stays above the row, the focus where it is
       painter.scrollTo(top)
     }
+    reportRevealed(index)
     if (place.wholeLine === true) {
       painter.land(index, side, place.line)
     } else {

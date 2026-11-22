@@ -184,6 +184,17 @@ export interface SectionUnits {
    * hover of its row and of its place in a fold, and their name to a screen reader
    */
   readonly details?: ReadonlyMap<number, string>
+  /**
+   * The section each block of `elsewhere` opens, by its key (`DiffSection.targets`): rows side by side of the same words
+   * and the same section, with no line of their own between them, are one row
+   */
+  readonly targets?: ReadonlyMap<number, string>
+  /**
+   * The blocks of `elsewhere` this section holds itself, whose row stands for lines no other section of the file shows
+   * (the place a move left, which the section of another file reads): a reveal of a line of such a block lands on its
+   * row here, never on a row of another section of the file that names this one
+   */
+  readonly held?: ReadonlySet<number>
 }
 
 type Item =
@@ -193,8 +204,11 @@ type Item =
   | { kind: "block"; block: DiffBlock; index: number; parts: BlockParts }
   /** A block of a merge: its lines on each side, from `starts` */
   | { kind: "merge"; block: MergeBlock; index: number; starts: readonly number[]; counts: readonly number[] }
-  /** A block another section shows: one row of words for its lines */
-  | { kind: "elsewhere"; block: DiffBlock; index: number; label: string; detail: string | null }
+  /**
+   * A block another section shows: one row of words for its lines, the section it opens (`target`); of rows side by
+   * side of the same words and section, the blocks after the first it stands for too (`through`, the last of them)
+   */
+  | { kind: "elsewhere"; block: DiffBlock; index: number; label: string; detail: string | null; target: string | null; through?: DiffBlock }
 
 /** Rows `[from, from + count)` of an item, or a fold */
 type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow }
@@ -296,7 +310,7 @@ function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsO
     pushEqual(items, [oldLine, newLine], block.newStart - newLine)
     const label = units?.elsewhere.get(index)
     if (label !== undefined) {
-      items.push({ kind: "elsewhere", block, index, label, detail: units?.details?.get(index) ?? null })
+      items.push({ kind: "elsewhere", block, index, label, detail: units?.details?.get(index) ?? null, target: units?.targets?.get(index) ?? null })
     } else if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
       pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart, true)
     } else {
@@ -385,8 +399,8 @@ function itemRowCount(item: Item): number {
 /** Row `row` of an item */
 function itemRow(item: Item, row: number): LineRow | NoteRow {
   if (item.kind === "elsewhere") {
-    const { block, index, label, detail } = item
-    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block), remark: null, detail }
+    const { index, label, detail } = item
+    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: elsewhereLines(item), remark: null, detail }
   }
   if (item.kind === "equal") {
     return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full", run: null, move: null }
@@ -415,12 +429,34 @@ function mergeTintOf(block: MergeBlock): LineTint {
   return block.ignored || block.leftRanges.length > 0 || block.baseRanges.length > 0 || block.rightRanges.length > 0 ? "pale" : "full"
 }
 
-/** The lines of each side of a block: [start, end) */
-function blockLines(block: DiffBlock): [number, number][] {
+/** The lines of each side a row of blocks another section shows stands for: of its first block to its last, [start, end) */
+function elsewhereLines(item: Extract<Item, { kind: "elsewhere" }>): [number, number][] {
+  const last = item.through ?? item.block
   return [
-    [block.oldStart, block.oldEnd],
-    [block.newStart, block.newEnd],
+    [item.block.oldStart, last.oldEnd],
+    [item.block.newStart, last.newEnd],
   ]
+}
+
+/**
+ * The rows of a section of no change of its own (`rowsOf`): its rows of the blocks other sections show alone, with no
+ * line between them, so rows side by side of the same words, the same full words and the same section are one row
+ * that stands for all their blocks ("Shown in step 2" once for two blocks there)
+ */
+function joinedRows(items: readonly Item[]): Item[] {
+  const rows: Extract<Item, { kind: "elsewhere" }>[] = []
+  for (const item of items) {
+    if (item.kind !== "elsewhere") {
+      continue
+    }
+    const last = rows.at(-1)
+    if (last !== undefined && last.label === item.label && last.detail === item.detail && last.target === item.target) {
+      rows[rows.length - 1] = { ...last, through: item.block }
+    } else {
+      rows.push(item)
+    }
+  }
+  return rows
 }
 
 /** The lines of each side that rows `[from, from + count)` of an item cover */
@@ -429,7 +465,7 @@ function itemLines(item: Item, from: number, count: number): [number, number][] 
     return item.starts.map(start => [start + from, start + from + count])
   }
   if (item.kind === "elsewhere") {
-    return blockLines(item.block)
+    return elsewhereLines(item)
   }
   if (item.kind === "merge") {
     const clip = (start: number, length: number): [number, number] => [start + Math.min(from, length), start + Math.min(from + count, length)]
@@ -568,9 +604,9 @@ function rowsOf(
       push({ kind: "lines", item: change, from: 0, count: rows }, rows)
     })
   } else {
-    // a section of no change of its own (a declaration whose block another section holds): its rows for the blocks
-    // other sections show, alone
-    for (const item of items.filter(it => it.kind === "elsewhere")) {
+    // a section of no change of its own (a declaration whose block another section holds, the place a move left): its
+    // rows for the blocks other sections show, alone, those side by side of the same words and section one
+    for (const item of joinedRows(items)) {
       push({ kind: "lines", item, from: 0, count: 1 }, 1)
     }
   }
@@ -713,7 +749,7 @@ function itemRowOfLine(item: Item, side: number, line: number): number {
     return Math.max(line - item.starts[side]!, 0)
   }
   if (item.kind === "elsewhere") {
-    return line < blockLines(item.block)[side]![1] ? 0 : 1
+    return line < elsewhereLines(item)[side]![1] ? 0 : 1
   }
   if (item.kind === "merge") {
     const start = item.starts[side]!

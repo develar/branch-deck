@@ -722,7 +722,11 @@ the review.
    section of the new place without a guess by its lines. Where the note of the marks of the move starts the block of
    the heading, it names the line of the other end alone ("legacyTotal — moved from Legacy.kt · line 4"), as a rename
    the heading names says its sites alone; the card of a name says "Moved from Orders.kt". `brd review-plan` prints
-   both facts, schema 40.
+   both facts, schema 40. A section of rows alone (the place two functions left beside blocks another section shows)
+   shows rows side by side of the same words and section as one, and the row of the place a move left is its section's
+   own (`SectionUnits.held`): the jump from the note of the move at its new place lands on it, never on a row of
+   another section of the file that names that one. Measured on the 15 idea-1 commits of an exact move, 19 of 46
+   removals read as a row ([Moves between files](#moves-between-files)).
 
 ## Review Rounds
 
@@ -765,6 +769,20 @@ review-plan` of each commit against its parent on every 5th of the last 3000 non
 the 46 go into a new file. At least 16 removed units in 12 commits have a declaration of the same name in another file
 whose code differs: a lower bound, the declarations of a new file not counted. The ranges of the lab and the
 refactorings of this repository: [Review Units → Measurements](../../openspec/specs/branch/review-units/spec.md#measurements).
+
+What the window reads once (decision 36), by `brd review-plan` of the lease of 2026-11-22 (schema 40) on a shared clone
+of idea-1 without an index, on the 15 commits above: of the 46 `removed` units with `moved_to`, 16 hold a block of their
+own and 11 of those slices are `moved_out`, one row each; 30 have no block of their own, their lines in the block of
+another unit, and 8 of those are in a block that is `moved_out`, named in its row. So 19 of 46 removals read as a row,
+175 removed lines the window no longer shows. 4 declarations moved out of a deleted file, all of one commit
+(2b0b1da63e, `AirProductModeRules.kt`), whose file holds more than them: no deleted file is `moved_out`. Of the places
+that keep their lines five were read, and each holds beside the move a removal that is no exact move: the moved
+`RELOAD_WAITS` of `AirAppPageLink.kt` with four imports and `LOG` (c93b4947ad); `GroupHeaderRow` and `captionInsets` of
+`PyModuleDetailsPane.kt` with `ComboSource` and `ComboRenderer` (ec92f2b765); `serverClasspath` of
+`ExternalProcessBuildToolDriver.kt` with `pluginClasspath` (669fb55fd4); `findSdkToAdopt` of `PythonInterpreterRegistry.kt`
+with `ownerDirectory` and `makeSureNameIsUnique`, and `setPythonSdkForTests` of `ModuleEx.kt` with 16 imports
+(0f58317059); five constants of `MermaidSource.kt` joined to the block of `SEQUENCE_DIAGRAM` (307f6fe7e5). A row never
+stands for such a block: the rest of it is read where it was.
 
 ### What was lost
 
