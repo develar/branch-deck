@@ -245,6 +245,16 @@ impl Default for TestRepo {
 impl TestRepo {
   /// Creates a new test repository
   pub fn new() -> Self {
+    Self::init(&[])
+  }
+
+  /// A new test repository whose object ids are SHA-256 (`git init --object-format=sha256`)
+  pub fn new_sha256() -> Self {
+    Self::init(&["--object-format=sha256"])
+  }
+
+  /// A repository of `git init` with `options`, its config appended
+  fn init(options: &[&str]) -> Self {
     let dir = tempfile::tempdir().unwrap();
     let repo_path = dir.path();
     let git_executor = GitCommandExecutor::new();
@@ -253,9 +263,9 @@ impl TestRepo {
 
     // Pin the initial branch: tests assume `master` regardless of the user's `init.defaultBranch`. No template: the
     // sample hooks, `description` and `info/exclude` are 17 files written and deleted per repository, used by no test
-    git_executor
-      .execute_command(&["init", "--initial-branch=master", "--template="], repo_path)
-      .unwrap_or_else(|e| panic!("Git init failed: {e}"));
+    let mut args = vec!["init", "--initial-branch=master", "--template="];
+    args.extend_from_slice(options);
+    git_executor.execute_command(&args, repo_path).unwrap_or_else(|e| panic!("Git init failed: {e}"));
     append_config(dir.path(), &TEST_REPO_CONFIG);
 
     Self {

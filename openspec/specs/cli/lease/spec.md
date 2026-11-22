@@ -1025,9 +1025,11 @@ unchanged.
 #### Scenario: The stat data without a hash
 - **WHEN** the clone kept the mtime, the size and the mode of the file of an entry, and the entry is not racy
 - **THEN** the entry takes the ctime, the device, the inode, the owner and the group of the file without a hash
+- **AND** a symbolic link takes the stat data of the link itself, not of its target
+- **AND** the index of a SHA-256 repository is read with its object ids of 32 bytes and its SHA-256 checksum
 - **AND** a racy entry, an entry of another size, a split index, a sparse index or an unknown extension is left to the
   refresh, which hashes it; the extensions that cache stat data are dropped
-  [@test] crates/git-ops/src/cloned_index_test.rs (`the_stat_data_of_the_copied_files_goes_into_the_index_without_a_hash`, `a_racy_entry_and_a_changed_file_are_left_to_the_refresh`, `a_stat_cache_goes_and_an_index_it_does_not_know_stays`)
+  [@test] crates/git-ops/src/cloned_index_test.rs (`the_stat_data_of_the_copied_files_goes_into_the_index_without_a_hash`, `a_symbolic_link_takes_the_stat_data_of_the_link_and_not_of_its_target`, `a_sha256_index_takes_the_stat_data_of_the_copied_files`, `a_racy_entry_and_a_changed_file_are_left_to_the_refresh`, `a_stat_cache_goes_and_an_index_it_does_not_know_stays`)
 
 #### Scenario: A prune while the clone is away
 - **WHEN** a `worktree prune` runs beside the clone, the user's or a gc's
