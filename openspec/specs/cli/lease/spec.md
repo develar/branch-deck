@@ -814,16 +814,10 @@ reserve it as free, run a `status` in it, end a wait for the clones lock for it,
 clones lock MUST remove each one as the trim removes a free slot and name it (`removed_unfinished`); one with a process
 in it MUST stay (`busy`).
 
-#### Scenario: An unfinished slot beside a clean free slot
-- **GIVEN** a free slot whose add never finished, returned last, and a clean free slot
-- **WHEN** a get runs
-- **THEN** it reuses the clean slot and runs nothing in the unfinished one
-  [@test] crates/bd-lease/src/unfinished_test.rs (`a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot`)
-
-#### Scenario: No free slot left
-- **WHEN** a get adds a slot and a slot whose add never finished is in the pool
-- **THEN** it removes that slot, its directory, its registration and its entry, names it in `removed_unfinished`, and
-  adds a slot
+#### Scenario: No free slot but an unfinished one
+- **WHEN** a get finds no free slot but one whose add never finished
+- **THEN** it runs no `status` in that slot, removes it (its directory, its registration and its entry), names it in
+  `removed_unfinished`, and adds a slot
   [@test] crates/bd-lease/src/unfinished_test.rs (`a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot`)
   [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_removes_an_unfinished_slot`)
 
@@ -841,6 +835,7 @@ in it MUST stay (`busy`).
 - **WHEN** `brd lease adopt --move` dies during the move of a worktree
 - **THEN** the slot it recorded has the name of the worktree already, so no get removes it; an adopt of an older brd
   left it without one, and the get removes it
+  [@test] crates/bd-lease/src/lease_test.rs (`the_first_record_of_an_adopt_with_move_names_its_slot`)
 
 ### Requirement: Get: The state keeps the first 100 local changes of a slot
 
@@ -854,6 +849,7 @@ change of the pool read and wrote 380 MB under its lock, longer than a return wa
 - **WHEN** the state is written
 - **THEN** it is under 1 MB, and each keeps the first 100 paths and the count of the rest
   [@test] crates/lease-pool/src/lease_test.rs (`the_state_of_thirty_slots_stays_small_with_a_whole_tree_dirty`)
+  [@test] crates/bd-lease/src/takeover_test.rs (`the_check_of_an_idle_lease_keeps_the_first_hundred_local_changes`)
 
 #### Scenario: A state of an older brd
 - **WHEN** a state lists every local change of a slot

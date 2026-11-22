@@ -2792,6 +2792,38 @@ fn adopt_with_move_moves_the_worktree_into_the_pool() {
   assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
 }
 
+/// The first record of an adopt with `--move`, written before the move, names its slot: an adopt killed during the move
+/// leaves a free slot with a name, which no get takes for one whose add never finished and removes
+#[test_log::test]
+fn the_first_record_of_an_adopt_with_move_names_its_slot() {
+  let fixture = Fixture::new();
+  let lane = TestWorktree::detached(&fixture.repo);
+  let pool = lease_pool::lease::Pool::new(Path::new(&slot_path(&fixture.repo.path().join(".git").to_string_lossy())));
+  std::thread::scope(|scope| {
+    // the move waits for the lock of the pool's worktree commands, which the test holds until it read the record
+    let (entry, adopt) = pool
+      .worktree_command(Duration::from_secs(10), || {
+        let adopt = scope.spawn(|| fixture.run(&["lease", "adopt", "--move", &lane.path]));
+        loop {
+          let store = pool.read().unwrap();
+          if let Some(entry) = store
+            .slots
+            .into_iter()
+            .find(|slot| slot.lease.as_ref().is_some_and(|lease| lease.holder == "brd lease adopt"))
+          {
+            return Ok((entry, adopt));
+          }
+          assert!(!adopt.is_finished(), "the adopt ended before its first record");
+          std::thread::sleep(Duration::from_millis(10));
+        }
+      })
+      .unwrap();
+    assert_eq!(entry.name, "lane", "{entry:?}");
+    let (exit_code, output) = adopt.join().unwrap();
+    assert_eq!((exit_code, &output["adopted"][0]["slot"]), (0, &json!("lane")), "{output}");
+  });
+}
+
 /// `brd lease adopt --move` holds no pool lock across `git worktree move`, only the lock of the pool's `worktree`
 /// commands: while the move is held, the state can be written at once, and the target path is `preparing` under an
 /// entry of the adopt, so no get takes it; once the move is done the entry is the free slot

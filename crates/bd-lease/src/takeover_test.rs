@@ -42,6 +42,29 @@ pub(crate) fn update_lease(fixture: &Fixture, path: &str, change: impl FnOnce(&m
   std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
 }
 
+/// The check of an idle lease with more local changes than the state keeps records the first 100 and the count of the
+/// rest, as `brd lease status` names them: a whole tree of changes in a slot of idea-1 made `leases.json` 380 MB
+#[test_log::test]
+fn the_check_of_an_idle_lease_keeps_the_first_hundred_local_changes() {
+  let fixture = Fixture::new();
+  let dirty = path_of(&fixture.get(&["--holder", "dirty"]));
+  for n in 0..150 {
+    std::fs::write(Path::new(&dirty).join(format!("left-{n:03}.txt")), "left\n").unwrap();
+  }
+  make_idle(&fixture, &dirty);
+
+  let got = fixture.get(&[]);
+  assert_eq!(got["skipped"][0]["reason"], json!("idle_with_work"), "{got}");
+  let idle = slot_status(&fixture, &dirty)["lease"]["idle"].clone();
+  assert_eq!((idle["paths"].as_array().unwrap().len(), &idle["paths_omitted"]), (100, &json!(50)), "{idle}");
+  assert_eq!(idle["paths"][0], json!("left-000.txt"), "{idle}");
+  let state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
+  let path = slot_path(&dirty);
+  let slot = state["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(path)).unwrap();
+  let check = &slot["lease"]["idle_check"];
+  assert_eq!((check["paths"].as_array().unwrap().len(), &check["paths_omitted"]), (100, &json!(50)), "{check}");
+}
+
 /// The slot of `brd lease status` at `path`
 fn slot_status(fixture: &Fixture, path: &str) -> Value {
   let path = slot_path(path);

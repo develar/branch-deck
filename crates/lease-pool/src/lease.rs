@@ -3040,11 +3040,15 @@ fn give_back(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, remove:
     } else if let Some(slot) = leased_slot(store, path, lease_id) {
       // the idle lease it took over, before the commit point of the takeover
       slot.lease = slot.lease.take().and_then(|lease| lease.taking_over).map(|old| *old);
+      return Ok(is_unfinished(slot));
     }
-    Ok(())
+    Ok(false)
   });
   match released {
-    Ok(()) => error.context(format!("The lease was rolled back: {path} is free again")),
+    Ok(true) => error.context(format!(
+      "The lease was rolled back: the add of {path} never finished, and the next get that adds a slot removes it"
+    )),
+    Ok(false) => error.context(format!("The lease was rolled back: {path} is free again")),
     Err(release_error) => error.context(format!("The lease of {path} could not be rolled back ({release_error:#}): the next get frees it")),
   }
 }

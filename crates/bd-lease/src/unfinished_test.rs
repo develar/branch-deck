@@ -43,37 +43,43 @@ fn worktrees(fixture: &Fixture) -> Vec<String> {
     .collect()
 }
 
-/// A get with a clean free slot takes that one and never looks into the unfinished one; the next get, with no free slot
-/// left, removes it (its directory, its registration, its entry) before it adds a slot
+/// A get whose only free slot is one whose add never finished runs no `status` in it (an older brd found it dirty and
+/// added a slot beside it): it removes it (its directory, its registration, its entry) before it adds a slot
 #[test_log::test]
 fn a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot() {
   let fixture = Fixture::new();
   let unfinished = path_of(&fixture.get(&["--holder", "unfinished"]));
-  let clean = path_of(&fixture.get(&["--holder", "clean"]));
-  // returned last, so a get would take it first
-  fixture.give_back(&clean);
+  let leased = path_of(&fixture.get(&["--holder", "leased"]));
   fixture.give_back(&unfinished);
   leave_unfinished(&fixture, &unfinished);
   let status = fixture.status();
-  assert_eq!(states(&status), [(unfinished.clone(), "unfinished".to_string()), (clean.clone(), "free".to_string())]);
+  assert_eq!(states(&status), [(unfinished.clone(), "unfinished".to_string()), (leased.clone(), "ready".to_string())]);
   assert_eq!(status["slots"][0]["slot"], json!(""));
 
-  let reused = fixture.get(&[]);
-  assert_eq!((path_of(&reused), &reused["reused"]), (clean.clone(), &json!(true)), "{reused}");
-  assert_eq!(reused.get("skipped"), None, "{reused}");
-  assert!(!a_step_names(&reused, &unfinished), "{reused}");
-
   let added = fixture.get(&[]);
+  // the new slot may take the number of the removed one, so only a `status` before the removal would be of the old slot
+  let steps: Vec<&str> = added["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect();
+  let removal = steps
+    .iter()
+    .position(|step| step.starts_with("removing 1 slot(s) whose add never finished"))
+    .expect("the removal");
+  assert!(!steps[..removal].iter().any(|step| step.starts_with("looking for local changes")), "{steps:?}");
   assert_eq!(added["reused"], json!(false), "{added}");
   assert_eq!(added.get("skipped"), None, "{added}");
   assert_eq!(added["removed_unfinished"].as_array().unwrap().len(), 1, "{added}");
   assert_eq!(added["removed_unfinished"][0]["path"], json!(unfinished), "{added}");
   assert_eq!(added["removed_unfinished"][0].get("errors"), None, "{added}");
-  assert!(a_step_names(&added, "removing 1 slot(s) whose add never finished"), "{added}");
+  assert!(
+    a_step_names(
+      &added,
+      &format!("removing 1 slot(s) whose add never finished, their trees moved into the trash: {unfinished}")
+    ),
+    "{added}"
+  );
   let path = path_of(&added);
   assert_eq!(std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(), "a\n");
   assert_eq!(slot_git(&path, &["status", "--porcelain"]), "");
-  let mut expected = vec![(clean, "ready".to_string()), (path.clone(), "ready".to_string())];
+  let mut expected = vec![(leased, "ready".to_string()), (path.clone(), "ready".to_string())];
   let mut actual = states(&fixture.status());
   expected.sort();
   actual.sort();
@@ -103,6 +109,7 @@ fn an_unfinished_slot_with_a_process_in_it_stays_and_is_no_template() {
   assert_eq!(got["reused"], json!(false), "{got}");
   assert_eq!(got.get("removed_unfinished"), None, "{got}");
   assert_eq!((&got["skipped"][0]["path"], &got["skipped"][0]["reason"]), (&json!(unfinished), &json!("busy")), "{got}");
+  assert!(!a_step_names(&got, "whose add never finished"), "the step names no slot that stays: {got}");
   assert_ne!(got.get("cloned_from"), Some(&json!(unfinished)), "{got}");
   assert_eq!(slot_git(&path, &["status", "--porcelain"]), "");
   assert_eq!(states(&fixture.status()), [(unfinished, "unfinished".to_string()), (path, "ready".to_string())]);

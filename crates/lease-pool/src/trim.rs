@@ -491,9 +491,25 @@ pub(crate) fn remove_unfinished_slots(
       return (Vec::new(), Vec::new());
     }
   };
-  let unfinished: Vec<&Slot> = store.slots.iter().filter(|slot| is_unfinished(slot) && Path::new(&slot.path).is_dir()).collect();
+  let (mut removed, mut skipped) = (Vec::new(), Vec::new());
+  // a slot with a process in it stays before the step names the removals; one with only its Bazel servers goes with them
+  let mut unfinished = Vec::new();
+  for slot in store.slots.iter().filter(|slot| is_unfinished(slot) && Path::new(&slot.path).is_dir()) {
+    let (_, others) = slot_servers(scan, Path::new(&slot.path));
+    if others.is_empty() {
+      unfinished.push(slot);
+    } else {
+      skipped.push(SkippedSlot {
+        name: slot.name.clone(),
+        path: slot.path.clone(),
+        reason: SkipReason::Busy {
+          processes: busy_processes(&others),
+        },
+      });
+    }
+  }
   if unfinished.is_empty() {
-    return (Vec::new(), Vec::new());
+    return (removed, skipped);
   }
   found(unfinished.iter().map(|slot| slot.path.clone()).collect());
   let trash = Trash::new(&pool.trash_dir());
@@ -506,7 +522,6 @@ pub(crate) fn remove_unfinished_slots(
     scan,
     params,
   };
-  let (mut removed, mut skipped) = (Vec::new(), Vec::new());
   for slot in unfinished {
     match removal.remove(git_executor, slot) {
       Removal::Removed(slot, _) => {
