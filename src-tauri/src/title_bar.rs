@@ -1,83 +1,9 @@
 use domain_types::settings::AppSettings;
-use serde::Serialize;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+use domain_types::title_bar::WindowControls;
+use domain_types::title_bar::{ButtonStyle, DoubleClick, NativeReason, PageTitleBar, TitleBar, WindowButton};
 use std::sync::OnceLock;
 use tauri::{Manager, Runtime, WebviewWindow, WebviewWindowBuilder};
-
-/// How every window draws its title bar, decided once per process (`init_title_bar`) and passed to the page as
-/// `window.__BD_TITLE_BAR__` (`src/lib/title-bar.ts`):
-/// - `Overlay` on macOS: the page's top row sits in an overlay title bar beside the traffic lights;
-/// - `Custom` on Windows and Linux: the row is the title bar and draws the window buttons (Windows: no decorations;
-///   Linux: GTK client-side decorations with an empty titlebar, so GTK still draws the shadow and the resize edges);
-/// - `Native` where the system title bar stays above the row: on Linux where a custom one doesn't fit (WSL, a tiling
-///   window manager, an unknown desktop), and wherever the user asked for it (the setting, the environment variable).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum TitleBar {
-  Overlay {
-    double_click: DoubleClick,
-  },
-  /// `corner_radius`: the page rounds the corners of the window as the desktop's windows are (Linux with a compositor:
-  /// GTK3 rounds its decorations but doesn't clip the webview, so the window is transparent and the page clips its
-  /// canvas), 0 where the system does it (Windows 11) or can't (no compositor)
-  Custom {
-    controls: WindowControls,
-    double_click: DoubleClick,
-    corner_radius: u32,
-  },
-  Native {
-    reason: NativeReason,
-  },
-}
-
-/// Why the system title bar stays, for the log and for the setting, which says it
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum NativeReason {
-  /// `BRANCH_DECK_NATIVE_TITLE_BAR=1`
-  Env,
-  /// `WSLg` draws its own frame
-  Wsl,
-  /// No `XDG_CURRENT_DESKTOP`: nothing tells how the desktop decorates its windows
-  NoDesktop,
-  /// A tiling window manager draws the titles itself
-  TilingWm,
-  /// "Use the system title bar" (`appSettings.systemTitleBar`)
-  Setting,
-}
-
-/// The window buttons of a custom title bar, in the order and on the sides the desktop shows them
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct WindowControls {
-  pub start: Vec<WindowButton>,
-  pub end: Vec<WindowButton>,
-  pub style: ButtonStyle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WindowButton {
-  Minimize,
-  Maximize,
-  Close,
-}
-
-/// How the buttons look: the Windows caption buttons, GNOME's (Adwaita) or KDE's (Breeze), as IntelliJ draws them
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ButtonStyle {
-  Windows,
-  Gnome,
-  Kde,
-}
-
-/// What a double click on the empty parts of the title bar does, as the system setting says
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DoubleClick {
-  ToggleMaximize,
-  Minimize,
-  None,
-}
 
 /// The tiling window managers of IntelliJ (`X11UiUtil.TILE_WM`), and niri
 const TILING_WINDOW_MANAGERS: &[&str] = &[
@@ -251,7 +177,7 @@ pub fn init_title_bar(settings: &AppSettings) -> &'static TitleBar {
 
 /// The decided title bar; `Native` before `init_title_bar` (never in the app: setup decides it first)
 pub fn title_bar() -> &'static TitleBar {
-  static UNDECIDED: TitleBar = TitleBar::Native { reason: NativeReason::Env };
+  static UNDECIDED: TitleBar = TitleBar::Native { reason: Some(NativeReason::Env) };
   TITLE_BAR.get().unwrap_or(&UNDECIDED)
 }
 
@@ -267,13 +193,14 @@ fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
   let action = defaults.stringForKey(ns_string!("AppleActionOnDoubleClick")).map(|it| it.to_string());
   TitleBar::Overlay {
     double_click: macos_double_click(action.as_deref()),
+    height: None,
   }
 }
 
 #[cfg(target_os = "windows")]
 fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
   match native_reason(environment, false) {
-    Some(reason) => TitleBar::Native { reason },
+    Some(reason) => TitleBar::Native { reason: Some(reason) },
     None => TitleBar::Custom {
       controls: WindowControls {
         start: Vec::new(),
@@ -290,7 +217,7 @@ fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
 #[cfg(target_os = "linux")]
 fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
   if let Some(reason) = native_reason(environment, true) {
-    return TitleBar::Native { reason };
+    return TitleBar::Native { reason: Some(reason) };
   }
   use gtk::prelude::GtkSettingsExt;
   let settings = gtk::Settings::default();
@@ -311,21 +238,9 @@ fn platform_title_bar(environment: &TitleBarEnvironment) -> TitleBar {
 /// Elsewhere (the BSDs) the system title bar stays: nothing here knows their desktops
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn platform_title_bar(_environment: &TitleBarEnvironment) -> TitleBar {
-  TitleBar::Native { reason: NativeReason::NoDesktop }
-}
-
-/// What the page reads before it loads (`window.__BD_TITLE_BAR__`): how it draws the title bar, and whether the build
-/// updates itself (the `auto-update` feature), whatever draws it: ☰ and the command palette offer Check for Updates…
-/// as the native menu does, the app menu of macOS and the Help menu of a native menu bar
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageTitleBar<'a> {
-  #[serde(flatten)]
-  pub title_bar: &'a TitleBar,
-  pub check_for_updates: bool,
-  /// The host has a folder dialog (`DialogHost::has_folder_dialog`): the page offers Open Repository… and Add
-  /// Companion…; the desktop app always has it
-  pub folder_dialog: bool,
+  TitleBar::Native {
+    reason: Some(NativeReason::NoDesktop),
+  }
 }
 
 /// The line of the initialization script that tells the page how it draws the title bar (`title_bar`)
@@ -334,6 +249,8 @@ pub fn title_bar_script() -> String {
     title_bar: title_bar(),
     check_for_updates: cfg!(feature = "auto-update"),
     folder_dialog: true,
+    view_tabs: false,
+    progress_text: false,
   };
   let json = serde_json::to_string(&page).unwrap_or_else(|_| r#"{"kind":"native","checkForUpdates":false,"folderDialog":true}"#.to_owned());
   format!("window.__BD_TITLE_BAR__ = {json};")

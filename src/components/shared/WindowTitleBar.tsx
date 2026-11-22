@@ -19,9 +19,10 @@ export interface WindowTitleBarProps extends Omit<ComponentProps<"header">, "chi
  * The top row of a window, on the canvas above the islands: the main window's toolbar and the row of every sub-window.
  * Where the page draws the title bar (`titleBar`) it is the title bar: its empty parts drag the window, a double click
  * and a right click do what the system's title bar does there (`installTitleBarMouse`), on macOS it starts after the
- * traffic lights (not in fullscreen, where they are hidden), on Windows and Linux it has the window buttons at the
- * start and the end the desktop puts them. Where the system title bar stays it is a row below it. Its first render is
- * the shell of the window (`markWindowShellDrawn`).
+ * traffic lights (not in fullscreen, where they are hidden), as high as the title bar of a window of the IDE that holds
+ * it (`height`), on Windows and Linux it has the window buttons at the start and the end the desktop puts them. Where
+ * the system title bar stays it is a row below it. Its first render is the shell of the window
+ * (`markWindowShellDrawn`).
  */
 export function WindowTitleBar({ children, end, className, style, ...props }: WindowTitleBarProps) {
   const frame = useWindowFrameState()
@@ -42,6 +43,9 @@ export function WindowTitleBar({ children, end, className, style, ...props }: Wi
     }
   }, [cornerRadius])
   const controls = titleBar.kind === "custom" ? titleBar.controls : null
+  // a window of the IDE gives the row the height of its title bar; the row is 40 px (`h-10`) otherwise
+  const height = titleBar.kind === "overlay" && titleBar.height !== undefined && titleBar.height !== 40 ? titleBar.height : undefined
+  const chrome = height === undefined ? style : { ...style, height }
   const hasStart = controls !== null && controls.start.length > 0
   const hasEnd = controls !== null && controls.end.length > 0
   return (
@@ -58,7 +62,7 @@ export function WindowTitleBar({ children, end, className, style, ...props }: Wi
       // the buttons of an inactive window dim (`in-data-window-inactive`)
       data-window-inactive={drawsTitleBar && !frame.active ? "" : undefined}
       // the title bar keeps the size of the window chrome, the page zoom (`useZoom`) leaves it alone
-      style={zoom === 1 ? style : { ...style, zoom: 1 / zoom }}
+      style={zoom === 1 ? chrome : { ...chrome, zoom: 1 / zoom }}
       {...props}
     >
       {controls !== null && <WindowControls buttons={controls.start} style={controls.style} frame={frame} side="start" />}

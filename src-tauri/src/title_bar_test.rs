@@ -46,11 +46,9 @@ fn the_settings_window_may_destroy_itself_after_its_close_request() {
 }
 
 mod decision {
-  use crate::title_bar::{
-    ButtonStyle, DoubleClick, NativeReason, TitleBarEnvironment, WindowButton, decoration_layout_or_default, gtk_double_click, linux_button_style, macos_double_click,
-    native_reason, parse_decoration_layout,
-  };
+  use crate::title_bar::{TitleBarEnvironment, decoration_layout_or_default, gtk_double_click, linux_button_style, macos_double_click, native_reason, parse_decoration_layout};
   use WindowButton::{Close, Maximize, Minimize};
+  use domain_types::title_bar::{ButtonStyle, DoubleClick, NativeReason, PageTitleBar, TitleBar, WindowButton, WindowControls};
 
   fn desktop(name: &str) -> TitleBarEnvironment {
     TitleBarEnvironment {
@@ -162,16 +160,18 @@ mod decision {
   fn the_page_gets_one_json_object() {
     // whether the build updates itself goes with every kind: ☰ and the command palette offer Check for Updates…; the
     // desktop app has the folder dialog of Open Repository…
-    let json = |title_bar: &crate::title_bar::TitleBar, check_for_updates: bool| {
-      serde_json::to_string(&crate::title_bar::PageTitleBar {
+    let json = |title_bar: &TitleBar, check_for_updates: bool| {
+      serde_json::to_string(&PageTitleBar {
         title_bar,
         check_for_updates,
         folder_dialog: true,
+        view_tabs: false,
+        progress_text: false,
       })
       .unwrap()
     };
-    let custom = crate::title_bar::TitleBar::Custom {
-      controls: crate::title_bar::WindowControls {
+    let custom = TitleBar::Custom {
+      controls: WindowControls {
         start: vec![Close],
         end: vec![],
         style: ButtonStyle::Gnome,
@@ -183,14 +183,17 @@ mod decision {
       json(&custom, true),
       r#"{"kind":"custom","controls":{"start":["close"],"end":[],"style":"gnome"},"doubleClick":"toggle-maximize","cornerRadius":12,"checkForUpdates":true,"folderDialog":true}"#
     );
-    let overlay = crate::title_bar::TitleBar::Overlay {
+    let overlay = TitleBar::Overlay {
       double_click: DoubleClick::ToggleMaximize,
+      height: None,
     };
     assert_eq!(
       json(&overlay, true),
       r#"{"kind":"overlay","doubleClick":"toggle-maximize","checkForUpdates":true,"folderDialog":true}"#
     );
-    let native = crate::title_bar::TitleBar::Native { reason: NativeReason::TilingWm };
+    let native = TitleBar::Native {
+      reason: Some(NativeReason::TilingWm),
+    };
     assert_eq!(json(&native, true), r#"{"kind":"native","reason":"tiling-wm","checkForUpdates":true,"folderDialog":true}"#);
     assert_eq!(
       json(&native, false),

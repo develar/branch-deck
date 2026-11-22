@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import type { FrameLocator, Page } from "@playwright/test"
 import { buildSync } from "esbuild"
 import { TEST_SERVER_PORT, TEST_SERVER_URL } from "../helpers/test-server-url"
-import type { AirHostConfig, HostCall, HostContextTheme, HostView, MirrorEntry, Refusal } from "./host-page"
+import type { AirHostConfig, HostCall, HostContextTheme, HostTitleBar, HostView, MirrorEntry, Refusal } from "./host-page"
 import darkTheme from "./theme-dark.json" with { type: "json" }
 import lightTheme from "./theme-light.json" with { type: "json" }
 
@@ -119,6 +119,14 @@ export class FakeIde {
 
   setTheme(theme: HostContextTheme): Promise<void> {
     return this.page.evaluate(next => (window as unknown as { __airHost: { setTheme(theme: HostContextTheme): void } }).__airHost.setTheme(next), theme)
+  }
+
+  /** The title bar of the window of `instance` changes, null for the system one: its frame gets `host-context-changed` */
+  setTitleBar(instance: string, titleBar: HostTitleBar | null): Promise<void> {
+    return this.page.evaluate(
+      ([it, next]) => (window as unknown as { __airHost: { setTitleBar(instance: string, titleBar: HostTitleBar | null): void } }).__airHost.setTitleBar(it, next),
+      [instance, titleBar] as const,
+    )
   }
 
   closeView(instance: string): Promise<void> {

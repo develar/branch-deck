@@ -156,7 +156,7 @@
             "title": { "type": "string", "minLength": 1 }
           }
         },
-        "window": { "$ref": "#/$defs/Size" },
+        "window": { "$ref": "#/$defs/Window" },
         "dialog": { "$ref": "#/$defs/Size" }
       },
       "allOf": [
@@ -176,6 +176,16 @@
       "properties": {
         "width": { "type": "integer", "minimum": 200, "maximum": 4000 },
         "height": { "type": "integer", "minimum": 150, "maximum": 4000 }
+      }
+    },
+    "Window": {
+      "description": "A frame of the place window: the size of a new frame, and its title bar.",
+      "allOf": [{ "$ref": "#/$defs/Size" }],
+      "properties": {
+        "titleBar": {
+          "description": "native: the frame has the title bar of the OS. overlay: on macOS, in a native web view, the page draws the top band of the frame beside the window buttons, and the page gets the band in hostContext[\"x-air-app\"].titleBar. Elsewhere overlay is native. Without the key the frame is native, and the entry keeps the key only when the file names it. An older IDE ignores the key.",
+          "enum": ["native", "overlay"]
+        }
       }
     },
     "Action": {

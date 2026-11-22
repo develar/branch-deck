@@ -4,7 +4,7 @@
 //!
 //! - **Tools**: `bd_invoke {command, args}` runs one command of app-api by its name (`app_api::dispatch`) for the window
 //!   of the instance of the call, the events of its channel as `x-air-app/callEvent {callId, event}` (the id of the
-//!   call), each before the answer; `bd_bootstrap {view}` gives what the page takes before its main; `sync` and
+//!   call), each before the answer; `bd_bootstrap {view, titleBar}` gives what the page takes before its main; `sync` and
 //!   `open_command_palette` are the actions of the app file (Sync Virtual Branches, Branch Deck Command Palette), and
 //!   `reveal_branch` the action of a notification of brd (`notices.rs`). Each is only for the app, and a call of the
 //!   origin `agent` is refused. A cancel stops a read and leaves no answer; a write
@@ -44,6 +44,7 @@ use base64::Engine;
 use domain_types::error::ApiError;
 use domain_types::session::{Demand, RepositoryView, SubscribeViewParams, ViewPatch};
 use domain_types::settings::SettingsPatch;
+use domain_types::title_bar::{DoubleClick, PageTitleBar, TitleBar};
 use repository_model::patch::PatchRejected;
 use repository_model::session::SubscriptionId;
 use serde_json::{Value, json};
@@ -384,9 +385,10 @@ impl Server {
       Some("bd_bootstrap") => {
         let server = Arc::clone(self);
         let view = arguments["view"].as_str().unwrap_or(MAIN_VIEW).to_owned();
+        let title_bar = title_bar_of(&arguments["titleBar"]);
         tokio::spawn(
           async move {
-            let result = server.bootstrap(&view, instance.as_deref()).await;
+            let result = server.bootstrap(&view, instance.as_deref(), &title_bar).await;
             server.link.respond(&id, json!({ "content": [], "structuredContent": result }));
           }
           .in_current_span(),
@@ -586,10 +588,10 @@ impl Server {
     }
   }
 
-  /// What the page takes before its main (`bd_bootstrap {view}`): the settings of its window as the desktop app hands
-  /// them in its init script, the warm frame of the repository of the main view, the init data of the view and the
-  /// title bar
-  async fn bootstrap(&self, view: &str, instance: Option<&str>) -> Value {
+  /// What the page takes before its main (`bd_bootstrap {view, titleBar}`): the settings of its window as the desktop
+  /// app hands them in its init script, the warm frame of the repository of the main view, the init data of the view
+  /// and the title bar (`title_bar_of`)
+  async fn bootstrap(&self, view: &str, instance: Option<&str>, title_bar: &TitleBar) -> Value {
     let label = instance.map_or_else(|| MAIN_WINDOW.to_owned(), label_of);
     self.bootstrapped.store(true, Ordering::SeqCst);
     let (version, mut values) = window_snapshot(&self.ctx.settings, &label);
@@ -598,17 +600,16 @@ impl Server {
     } else if let Value::Object(values) = &mut values {
       values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
     }
-    // the place of the view is the IDE's, the page draws no title bar of its own; the app updates with the desktop app,
-    // the roots of the project name the repositories where the host has no folder dialog, the views of the main window
-    // are tabs of the tool window, each its own page (`viewTabs`), and the tab of the main view names its progress by
-    // a text (`progressText`)
-    let title_bar = json!({
-      "kind": "native",
-      "checkForUpdates": false,
-      "folderDialog": self.ctx.desktop.dialog.has_folder_dialog(),
-      "viewTabs": true,
-      "progressText": true,
-    });
+    // the app updates with the desktop app, the roots of the project name the repositories where the host has no
+    // folder dialog, the views of the main window are tabs of the tool window, each its own page (`viewTabs`), and the
+    // tab of the main view names its progress by a text (`progressText`)
+    let title_bar = PageTitleBar {
+      title_bar,
+      check_for_updates: false,
+      folder_dialog: self.ctx.desktop.dialog.has_folder_dialog(),
+      view_tabs: true,
+      progress_text: true,
+    };
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
     let (warm_frame, init_data) = if view == MAIN_VIEW || instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
       let repository = self.main_repository();
@@ -881,6 +882,27 @@ const SHOW_VIEW_CALL: &str = "plugin:air|show_view";
 /// The tool of the action Branch Deck Command Palette of the app file, and the event it sends the main view
 const COMMAND_PALETTE_TOOL: &str = "open_command_palette";
 
+/// The title bar of a view of the IDE from the title bar its host context names (`hostContext["x-air-app"].titleBar`,
+/// which the page passes to `bd_bootstrap`): `overlay` where the IDE merges the row of the page into its title bar (a
+/// window on macOS), so the row starts after the traffic lights and the IDE drags the window and does its double click
+/// (`DoubleClick::Host`); else `native`, where the place of the IDE draws its own title (a tool window, an editor tab, a
+/// dialog, a host that names none)
+fn title_bar_of(host: &Value) -> TitleBar {
+  if host["kind"] != "overlay" {
+    return TitleBar::Native { reason: None };
+  }
+  TitleBar::Overlay {
+    double_click: DoubleClick::Host,
+    height: host["height"].as_f64().filter(|height| (1.0..=200.0).contains(height)).map(row_height),
+  }
+}
+
+/// The height of the row in whole px: the IDE names its title bar in points, 1 to 200, maybe with a fraction
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a height of 1 to 200, rounded")]
+const fn row_height(points: f64) -> u32 {
+  points.round() as u32
+}
+
 /// The tools of Branch Deck, each only for the app (`_meta.ui.visibility`), so no agent sees one: `bd_invoke` and
 /// `bd_bootstrap` for the page, the tool of each action of the app file for the IDE, and the tool of the action of a
 /// notification of brd
@@ -897,7 +919,7 @@ fn tools() -> Value {
     {
       "name": "bd_bootstrap",
       "description": "What the page of a view takes before its main: the settings, the warm frame, the init data of the view and the title bar.",
-      "inputSchema": { "type": "object", "properties": { "view": { "type": "string" } }, "required": ["view"] },
+      "inputSchema": { "type": "object", "properties": { "view": { "type": "string" }, "titleBar": { "type": "object" } }, "required": ["view"] },
       "_meta": app_only,
     },
     {

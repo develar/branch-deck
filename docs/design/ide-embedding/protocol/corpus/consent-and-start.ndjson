@@ -22,7 +22,7 @@
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/apps/1","serverSeq":7,"action":{"type":"x-air-ide/appViewCreate","app":"fixture","view":"main"},"origin":{"clientId":"corpus","clientSeq":3},"_meta":{"x-air-ide":{"result":{"instance":"main:1"}}}}}}
 {"step":"appStart","command":["${dir}/fixture-app","serve"]}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/apps/1","level":"info","category":"apps","message":"The app fixture started: pid none, consent allowed, source user","dropped":0}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"experimental":{"x-air-app":{"version":"1.0.0","ahpVersion":"1.0.0"}}},"clientInfo":{"name":"air-ide","version":"${any}"}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"experimental":{"x-air-app":{"version":"1.1.0","ahpVersion":"1.0.0"}}},"clientInfo":{"name":"air-ide","version":"${any}"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"resources":{},"experimental":{"x-air-app":{"version":"1.0.0"}}},"serverInfo":{"name":"fixture","version":"1.0.0"}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"notifications/initialized"}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}

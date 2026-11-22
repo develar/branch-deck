@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { commands } from "@/lib/bindings"
+import { isOnDragRegion } from "@/lib/drag-region"
 import { logError, notifyError } from "@/lib/errors"
 import { isLinux } from "@/lib/platform"
 import { titleBar } from "@/lib/title-bar"
@@ -9,41 +10,6 @@ import { titleBar } from "@/lib/title-bar"
  * does: a double click as the system setting says (Tauri always maximizes), a right click opens the window manager's
  * window menu. Both on the empty parts of the row only, never on its controls.
  */
-
-/** The tags and roles that are controls in a drag region, those of Tauri's drag script (`drag.js`) */
-const CLICKABLE_TAGS = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL", "SUMMARY"])
-const INTERACTIVE_ROLES = new Set(["button", "link", "menuitem", "tab", "checkbox", "radio", "switch", "option"])
-
-/** The event is on the empty parts of a drag region, by the rule of Tauri's drag script */
-export function isOnDragRegion(path: readonly EventTarget[]): boolean {
-  for (const target of path) {
-    if (!(target instanceof HTMLElement)) {
-      continue
-    }
-    const region = target.getAttribute("data-tauri-drag-region")
-    const tabIndex = target.getAttribute("tabindex")
-    const editable = target.getAttribute("contenteditable")
-    const clickable =
-      CLICKABLE_TAGS.has(target.tagName) ||
-      (editable !== null && editable !== "false") ||
-      (tabIndex !== null && tabIndex !== "-1") ||
-      INTERACTIVE_ROLES.has(target.getAttribute("role") ?? "")
-    if (clickable && region === null) {
-      return false
-    }
-    if (region === null) {
-      continue
-    }
-    if (region === "false") {
-      return false
-    }
-    if (region === "deep") {
-      return true
-    }
-    return target === path[0]
-  }
-  return false
-}
 
 /** How far the mouse moves with the button down before a press on the title bar drags the window (GTK's threshold) */
 const DRAG_THRESHOLD = 4
@@ -109,8 +75,9 @@ export function installTitleBarMouse(): void {
 
   if (isLinux && titleBar.kind === "custom") {
     installLinuxDrag(titleBar.doubleClick)
-  } else if (titleBar.doubleClick !== "toggle-maximize") {
-    // before the drag script (a document listener) gets the second click; macOS maximizes on its mouseup
+  } else if (titleBar.doubleClick !== "toggle-maximize" && titleBar.doubleClick !== "host") {
+    // before the drag script (a document listener) gets the second click; macOS maximizes on its mouseup. A host that
+    // does the double click itself hears it from the page (`src/platform/air/title-bar.ts`)
     const action = titleBar.doubleClick
     const takeDoubleClick = (event: MouseEvent) => {
       if (event.button !== 0 || event.detail !== 2 || !isOnDragRegion(event.composedPath())) {

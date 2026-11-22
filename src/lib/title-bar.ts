@@ -1,7 +1,9 @@
 /**
- * How every window draws its title bar, decided once per process by the backend (`src-tauri/src/title_bar.rs`) and set
- * before the page loads; the top row of the page (`WindowTitleBar`) is the title bar unless it is `native`:
- * - `overlay` on macOS: beside the traffic lights;
+ * How every window draws its title bar, decided once per process by the backend (`src-tauri/src/title_bar.rs`), in the
+ * IDE for each view by `bd_bootstrap` (`TitleBar` of `domain_types::title_bar`), and set before the page loads; the top
+ * row of the page (`WindowTitleBar`) is the title bar unless it is `native`:
+ * - `overlay` on macOS: beside the traffic lights, in a window of the IDE too, which drags the window and does the
+ *   double click (`doubleClick: "host"`) and may give the row its own height;
  * - `custom` on Windows and Linux: the row draws the window buttons, in the order and on the sides of the desktop
  *   (`controls`), and the main menu (☰) replaces the native menu bar;
  * - `native`: the system title bar above the row, on Linux where a custom one doesn't fit (WSL, a tiling window
@@ -13,7 +15,12 @@
  * Dock (`progressText`, `brd mcp`)
  */
 export type TitleBar = (
-  | { readonly kind: "overlay"; readonly doubleClick: DoubleClickAction }
+  | {
+      readonly kind: "overlay"
+      readonly doubleClick: DoubleClickAction | "host"
+      /** The height of the row in px that the host gives its title bar (a window of the IDE); 40 when absent */
+      readonly height?: number
+    }
   | {
       readonly kind: "custom"
       readonly controls: WindowControlsLayout
@@ -57,7 +64,10 @@ export interface WindowControlsLayout {
   readonly style: WindowButtonStyle
 }
 
-/** What a double click on the empty parts of the title bar does, as the system setting says */
+/**
+ * What a double click on the empty parts of the title bar does, as the system setting says; `host` in an overlay title
+ * bar: the page tells the host of the click, and the host does what the system setting says
+ */
 export type DoubleClickAction = "toggle-maximize" | "minimize" | "none"
 
 /** Why the system title bar stays */

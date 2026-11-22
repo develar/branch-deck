@@ -67,7 +67,7 @@ export interface HostView {
 }
 
 const APP = "branch-deck"
-const X_AIR_APP = { version: "1.0.0" }
+const X_AIR_APP = { version: "1.1.0" }
 /** The tools of the host itself (`HOST_TOOLS` of src/platform/air/shim.ts): never sent to the app */
 const HOST_TOOLS = new Set(["air_copy"])
 
@@ -276,6 +276,22 @@ const counts = new Map<string, number>()
 let theme = config.theme
 
 /**
+ * The title bar of the place of a view in its host context (`x-air-app.titleBar`): native, or the row of the page in
+ * the title bar of the window from `insetStart` px, after the traffic lights (0 in full screen)
+ */
+export type HostTitleBar = { readonly kind: "native" } | { readonly kind: "overlay"; readonly height: number; readonly insetStart: number }
+
+/**
+ * The views of the place `window` whose app file names `titleBar: overlay` (`settings`): the IDE on macOS merges their row
+ * into the title bar of the window, its traffic lights before `insetStart`
+ */
+const OVERLAY_VIEWS = new Set(["settings"])
+const OVERLAY_TITLE_BAR: HostTitleBar = { kind: "overlay", height: 40, insetStart: 80 }
+
+/** The title bar of each instance that the IDE merges into its window, by the instance */
+const titleBars = new Map<string, HostTitleBar>()
+
+/**
  * The mirrors by their key (`repositoryPath`): one channel each, which every view of the mirror subscribes to, its state
  * by the table rule, and the bridges of the frames that hold it, by their instance
  */
@@ -392,7 +408,19 @@ function leaveMirror(instance: string): Mirror | null {
 const appCalls = new Map<number, { readonly bridge: AppBridge; readonly frameId: string | number; readonly progressToken: string | number | undefined }>()
 
 function hostContext(info: HostView): Record<string, unknown> {
-  return { ...theme, locale: "en-US", "x-air-app": { app: APP, view: info.view, instance: info.instance, ...(info.key !== null && { key: info.key }), params: info.params } }
+  const titleBar = titleBars.get(info.instance)
+  return {
+    ...theme,
+    locale: "en-US",
+    "x-air-app": {
+      app: APP,
+      view: info.view,
+      instance: info.instance,
+      ...(info.key !== null && { key: info.key }),
+      params: info.params,
+      ...(titleBar !== undefined && { titleBar }),
+    },
+  }
 }
 
 /** The answer of a call of the app link as the frame takes it: its result, or its error thrown with its code */
@@ -438,6 +466,11 @@ function bridgeOf(info: HostView): AppBridge {
     return {}
   }
   bridge.onloggingmessage = params => void logs.push(params)
+  // a press on the empty parts of the row in the title bar of the window: the IDE moves the window or does the double
+  // click of the system, which the test reads
+  bridge.setNotificationHandler("x-air-app/windowDrag", { params: z.object({ clickCount: z.number() }) }, params => {
+    calls.push({ method: "x-air-app/windowDrag", params: { clickCount: params.clickCount, instance: info.instance } })
+  })
   bridge.setRequestHandler("x-air-app/subscribe", { params: z.object({ params: z.record(z.string(), z.unknown()).optional() }) }, request =>
     admitted(info.instance, "x-air-app/subscribe", () => viewOpen(info, bridge, request.params ?? {})),
   )
@@ -483,6 +516,9 @@ async function openView(view: string, key: string | null, params: Record<string,
   const count = (counts.get(view) ?? 0) + 1
   counts.set(view, count)
   const info: HostView = { instance: `${view}:${count}`, view, key, title, params }
+  if (OVERLAY_VIEWS.has(view)) {
+    titleBars.set(info.instance, OVERLAY_TITLE_BAR)
+  }
   // the place shows before its page loads, as a tool window shows its frame
   await app.notify("x-air-app/viewShown", { instance: info.instance, view, ...(key !== null && { key }), params })
   const frame = document.createElement("iframe")
@@ -678,6 +714,22 @@ const host = {
       : new Promise(resolve => {
           startWaiters.set(instance, [...(startWaiters.get(instance) ?? []), resolve])
         }),
+  /**
+   * The title bar of the window of `instance` changes (full screen, the system title bar again): its frame gets
+   * `host-context-changed` with the whole `x-air-app`
+   */
+  setTitleBar: (instance: string, titleBar: HostTitleBar | null) => {
+    const open = views.get(instance)
+    if (open === undefined) {
+      throw new Error(`No view ${instance}`)
+    }
+    if (titleBar === null) {
+      titleBars.delete(instance)
+    } else {
+      titleBars.set(instance, titleBar)
+    }
+    open.bridge.setHostContext(hostContext(open.info))
+  },
   /** The IDE switches its theme: every frame gets `host-context-changed` */
   setTheme: (next: HostContextTheme) => {
     theme = next

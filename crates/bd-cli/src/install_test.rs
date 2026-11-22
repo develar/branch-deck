@@ -349,6 +349,11 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
     .map(|view| text.find(view).unwrap())
     .collect();
   assert!(tabs.is_sorted(), "{text}");
+  // the Settings window merges its row into the title bar of the IDE, as the desktop app draws it beside the traffic lights
+  assert_eq!(
+    read_yaml(&text)["views"]["settings"]["window"],
+    json!({ "width": 880, "height": 640, "titleBar": "overlay" })
+  );
 
   // a Windows path keeps its backslashes
   let windows = r"C:\Program Files\Branch Deck\brd.exe";

@@ -4,6 +4,7 @@ use crate::link::Link;
 use crate::mirror::MirrorView;
 use crate::notices::Notices;
 use crate::notices::notices_test::{REPO, failed, robot, view_with};
+use crate::process::process_test::Brd;
 use app_api::transport::EventSink;
 use app_settings::service::SettingsService;
 use domain_types::session::{Demand, RepositoryView, TableChanges, Version, ViewPatch};
@@ -11,7 +12,6 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// A root is a `file://` URI: its path, decoded; a Windows root without the slash before its drive
 #[test]
@@ -45,10 +45,7 @@ fn codes_of_the_contract() -> Vec<(String, i64)> {
 #[tokio::test]
 async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
   let app_data = tempfile::tempdir().unwrap();
-  let (to_brd, input) = tokio::io::duplex(1 << 16);
-  let (output, from_brd) = tokio::io::duplex(1 << 20);
-  let brd = tokio::spawn(crate::process::serve(input, output, Some(app_data.path().to_path_buf())));
-  let (mut to_brd, mut lines) = (to_brd, BufReader::new(from_brd).lines());
+  let mut brd = Brd::start(app_data.path());
   let click = json!({ "x-air-app": { "origin": "click", "instance": "main:1" } });
   let refused = [
     (
@@ -72,13 +69,11 @@ async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
     let mut request = request.clone();
     request["jsonrpc"] = json!("2.0");
     request["id"] = json!(id);
-    to_brd.write_all(format!("{request}\n").as_bytes()).await.unwrap();
-    let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    let answer = brd.ask(&request.to_string()).await;
     assert_eq!((&answer["id"], &answer["error"]["data"]["reason"]), (&json!(id), &json!(reason)), "{answer}");
     answered.push(((*reason).to_owned(), answer["error"]["code"].as_i64().unwrap()));
   }
-  to_brd.write_all(b"not JSON\n").await.unwrap();
-  let answer: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+  let answer = brd.ask("not JSON").await;
   answered.push((answer["error"]["data"]["reason"].as_str().unwrap().to_owned(), answer["error"]["code"].as_i64().unwrap()));
 
   let contract = codes_of_the_contract();
@@ -92,8 +87,7 @@ async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
       .or_else(|| json_rpc.iter().find(|(known, _)| known == reason).map(|(_, code)| *code));
     assert_eq!(expected, Some(*code), "the code of {reason}");
   }
-  drop(to_brd);
-  assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(30), brd).await.unwrap().unwrap(), 0);
+  brd.end().await;
 }
 
 /// The app file the installer writes (the example of the contract)

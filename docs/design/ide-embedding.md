@@ -108,7 +108,7 @@ sequenceDiagram
    **Rationale**: `subscribe_view` answers per session, not per window, so every view of a repository shares one
    mirror, which Air keeps as one channel that each of them subscribes to; the window only matters for
    `forget_window`, which the life of the place drives.
-4. **Decision**: Every tool is app-only: `bd_invoke {command, args}` and `bd_bootstrap {view}` for the page, and the
+4. **Decision**: Every tool is app-only: `bd_invoke {command, args}` and `bd_bootstrap {view, titleBar}` for the page, and the
    tools of the actions of the app file, `sync` and `open_command_palette`, for the IDE (the origin `action`).
    **Rationale**: the page already calls commands by name (`for_each_command!`), so one generic tool keeps the page
    unforked and `app-api` the one list of commands; an action of the IDE calls a tool by its name, and Air accepts an
@@ -176,13 +176,18 @@ sequenceDiagram
   slot that got it asks the server, which serves the request between the messages of air-ide, so a move never runs
   beside a subscription or another move, and does nothing for a mirror whose slot was replaced meanwhile; a session
   that answers no view ends the mirror with `sessionClosed`.
-- **`bd_bootstrap {view}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
+- **`bd_bootstrap {view, titleBar}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
   folderDialog: false, viewTabs: true, progressText: true}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
   so the page offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots
   of the project are its repositories. `viewTabs` says that Branches, Reviews and Landing are tabs of the tool window,
-  and `progressText` that the tab of the main view names its progress.
+  and `progressText` that the tab of the main view names its progress. The page passes the title bar of its host
+  context (`hostContext["x-air-app"].titleBar`). When it is `{kind: "overlay", height, insetStart}`, the answer is
+  `{kind: "overlay", doubleClick: "host", height, …}`: the IDE merges the row of the page into the title bar of the
+  window. The app file asks it for the Settings window only (`window: {titleBar: overlay}`). A tool window, an editor
+  tab and a dialog draw their own title and stay `native`. One Rust type owns the shape of the answer for the desktop
+  app and for `brd mcp` (`domain_types::title_bar`).
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
   `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
   window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
@@ -264,6 +269,16 @@ sequenceDiagram
     badge, the progress and the notification (the browser's `Notification` too) are `bd_invoke` of their plugin calls,
     and the close of a window `bd_invoke` of `plugin:window|close`; the size, the zoom and the theme are the place's,
     and do nothing.
+  - `src/platform/air/title-bar.ts`: the row of a window whose title bar is `overlay` lies beside the traffic lights of
+    the IDE. The page has no drag script of Tauri. A left press on the empty parts of the row (`isOnDragRegion`) sends
+    `x-air-app/windowDrag {clickCount}` at its mouse down, with the count of its clicks (`event.detail`). The IDE takes
+    it only for the press that runs now in its title bar, with the same count. The IDE moves the window, or does the
+    double click of the system for the count 2, so the page installs no double click of its own
+    (`doubleClick: "host"`). The shim maps `plugin:window|start_dragging` and `internal_toggle_maximize` to the same
+    notification. A place whose title bar is `native` sends none. `is_fullscreen` is true when the IDE names the inset
+    0. A change of the title bar comes as `host-context-changed` with the whole `x-air-app`, and the shim then tells
+    the page `tauri://resize`, so the row reads the full screen again and drops `pl-22`. The row takes the height that
+    the IDE gives it.
   - `src/platform/air/view-mirror.ts`: `subscribe_view` is `x-air-app/subscribe {params: {repositoryPath}}`. The state
     of the mirror is the `RepositoryView` of the session, one part per field, with the part `version` (the page compares
     the versions that commands answer, `SyncAnswer.version`, `Outcome.versionAfter`, with that of its view). Each

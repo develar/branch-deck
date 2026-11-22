@@ -301,6 +301,57 @@
         }
       }
     },
+    "FrameContext": {
+      "description": "hostContext[\"x-air-app\"] of a frame: the view of the frame, and the title bar of its window when the IDE gave the page one. A change of the title bar reaches the frame as host-context-changed with the whole object.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/ViewContext"
+        }
+      ],
+      "properties": {
+        "titleBar": {
+          "$ref": "#/$defs/TitleBar"
+        }
+      }
+    },
+    "TitleBarStyle": {
+      "description": "The title bar of a frame of the place window. native: the frame has the title bar of the OS. overlay: on macOS, in a native web view, the page draws the top band of the frame beside the window buttons.",
+      "enum": ["native", "overlay"]
+    },
+    "TitleBar": {
+      "description": "The title bar that the page of a frame has now. native: the page draws no title bar. overlay: the page fills the frame up to its top edge, and its top band of height points is the title bar. insetStart is the width in points at the start of the band that the window buttons take, 0 in full screen. A left mouse down on an empty part of the band sends x-air-app/windowDrag.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "native"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "height", "insetStart"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "overlay"
+            },
+            "height": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "insetStart": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
     "Notify": {
       "type": "object",
       "required": ["title"],
@@ -2094,7 +2145,7 @@
               "type": "string"
             },
             "x-air-app": {
-              "$ref": "#/$defs/ViewContext"
+              "$ref": "#/$defs/FrameContext"
             }
           }
         }
@@ -2320,7 +2371,8 @@
             "x-air-app/resync",
             "x-air-app/subscriptionEnded",
             "x-air-app/event",
-            "x-air-app/callEvent"
+            "x-air-app/callEvent",
+            "x-air-app/windowDrag"
           ]
         },
         "params": {
@@ -2328,6 +2380,31 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/windowDrag"
+              }
+            }
+          },
+          "then": {
+            "description": "The frame asks the host to move its window, on a left mouse down on an empty part of an overlay title bar. clickCount is the count of the click, event.detail. 2 runs the double-click action of a title bar that the user chose in macOS, and each other count moves the window. Without the overlay title bar, the host drops it with a warning.",
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["clickCount"],
+                "properties": {
+                  "clickCount": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -3060,7 +3137,7 @@
       }
     },
     "InstancePlace": {
-      "description": "One instance of a view of the place editor, window or dialog, in the order of the numbers of the instances. title is the title of the instance, else the name of the app. size is the size of the app file when it names both. editorKey is the key of the editor tab: the key of an instance of a view of many instances, or its id without a key, and the id of the view for a view of one instance. The IDE reads the params of the instance from the entry.",
+      "description": "One instance of a view of the place editor, window or dialog, in the order of the numbers of the instances. title is the title of the instance, else the name of the app. size is the size of the app file when it names both. titleBar is the title bar of an instance of the place window, window.titleBar of the app file, else native, and no other place has it. editorKey is the key of the editor tab: the key of an instance of a view of many instances, or its id without a key, and the id of the view for a view of one instance. The IDE reads the params of the instance from the entry.",
       "type": "object",
       "required": ["view", "instance", "title", "focus", "editorKey"],
       "additionalProperties": false,
@@ -3091,6 +3168,9 @@
               "minimum": 1
             }
           }
+        },
+        "titleBar": {
+          "$ref": "#/$defs/TitleBarStyle"
         },
         "page": {
           "$ref": "#/$defs/AppPage"
@@ -4465,12 +4545,12 @@
       ]
     },
     "Step": {
-      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see. httpRequest sends one HTTP request without an upgrade and expects its status, the headers by their lowercase names and the exact body. pageLoad is the load of the host document by the IDE and the address of the page after it. pageShow, pageTheme and pageTicket are the calls window.airAppHost.show({frame, theme}), setTheme(theme) and connect(ticket) of the IDE in the main frame of a loaded page. A runner of air-ide skips the four page steps.",
+      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see. httpRequest sends one HTTP request without an upgrade and expects its status, the headers by their lowercase names and the exact body. pageLoad is the load of the host document by the IDE and the address of the page after it. pageShow, pageTheme, pageTitleBar and pageTicket are the calls window.airAppHost.show({frame, theme, titleBar}), setTheme(theme), setTitleBar(titleBar) and connect(ticket) of the IDE in the main frame of a loaded page. windowDrag is the ask of the host page to its web view to move the window, with the clickCount of the frame. A runner of air-ide skips the five page steps and windowDrag.",
       "type": "object",
       "required": ["step"],
       "properties": {
         "step": {
-          "enum": ["appExit", "appStart", "httpRequest", "wsHandshake", "wsClose", "jcefReload", "pageLoad", "pageShow", "pageTheme", "pageTicket", "clock", "file", "fileRemoved"]
+          "enum": ["appExit", "appStart", "httpRequest", "wsHandshake", "wsClose", "jcefReload", "pageLoad", "pageShow", "pageTheme", "pageTitleBar", "pageTicket", "windowDrag", "clock", "file", "fileRemoved"]
         },
         "code": {
           "type": ["integer", "null"]
@@ -4544,6 +4624,15 @@
               }
             }
           }
+        },
+        "titleBar": {
+          "description": "The title bar that pageShow and pageTitleBar give the page.",
+          "$ref": "#/$defs/TitleBar"
+        },
+        "clickCount": {
+          "description": "The count of the click of windowDrag.",
+          "type": "integer",
+          "minimum": 1
         },
         "command": {
           "type": "array",

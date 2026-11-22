@@ -134,6 +134,39 @@ test.describe("Branch Deck in the IDE", () => {
     await expect(settings.getByTestId("ide-app")).toHaveCount(0)
   })
 
+  test("the row of the Settings window is in the title bar of the IDE: it starts after the traffic lights, a press on its empty parts moves the window and a double click is the double click of the system, full screen moves it to the edge, and the row of the tool window is no drag region", async ({
+    ide,
+  }) => {
+    const instance = await ide.openView("settings")
+    const row = ide.frame(instance).getByTestId("settings-window").locator("header")
+    await expect(row).toHaveAttribute("data-title-bar", "overlay")
+    await expect(row).toHaveAttribute("data-tauri-drag-region", "deep")
+    await expect(row).toHaveCSS("height", "40px")
+    await expect(row).toHaveCSS("padding-left", "88px")
+    const drags = async () => (await ide.calls()).filter(call => call.method === "x-air-app/windowDrag").map(call => call.params)
+
+    // an empty part of the row: right of the title
+    await row.click({ position: { x: 600, y: 20 } })
+    await expect.poll(drags).toEqual([{ clickCount: 1, instance }])
+    await row.dblclick({ position: { x: 600, y: 20 } })
+    await expect.poll(drags).toEqual([
+      { clickCount: 1, instance },
+      { clickCount: 1, instance },
+      { clickCount: 2, instance },
+    ])
+
+    // full screen hides the traffic lights: the IDE names no inset, and the row starts at the edge
+    await ide.setTitleBar(instance, { kind: "overlay", height: 40, insetStart: 0 })
+    await expect(row).toHaveCSS("padding-left", "8px")
+    await ide.setTitleBar(instance, { kind: "overlay", height: 40, insetStart: 80 })
+    await expect(row).toHaveCSS("padding-left", "88px")
+
+    // the tool window draws its own title: its row is no drag region
+    const main = ide.frame("main:1").locator('header[data-title-bar="native"]')
+    await expect(main).toBeVisible()
+    await expect(main).not.toHaveAttribute("data-tauri-drag-region")
+  })
+
   test("the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the roots of the project are the repositories of its selector", async ({ ide }) => {
     const main = ide.frame("main:1")
     // the selector of the roots shows, without the folder button beside it

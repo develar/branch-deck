@@ -7,11 +7,15 @@
  * opens by `ui/open-link`, the clipboard is the tool of the host `air_copy` (`HOST_TOOLS`), the log is
  * `notifications/message`; the badge and the progress of the Dock, an OS notification and the close of the window go to
  * `brd mcp` as their plugin calls (`bd_invoke`), which asks the IDE for them, and a window of the IDE has no size, zoom
- * or frame the page sets. No rule of the domain is here: every command goes to `brd mcp` as the page sends it.
+ * or frame the page sets. A window whose row is in the title bar of the IDE (`HostTitleBar`) moves by the IDE: a drag
+ * of the row and its double click are `x-air-app/windowDrag`, and its full screen is what the IDE says. No rule of the
+ * domain is here: every command goes to `brd mcp` as the page sends it.
  */
 import type { Version, ViewPatch, ViewSubscription } from "@/lib/bindings"
 import { FrameLinkError } from "@/platform/air/frame-link"
 import type { FrameLink } from "@/platform/air/frame-link"
+import { hostTitleBarOf, installWindowDrag, isFullScreen } from "@/platform/air/title-bar"
+import type { HostTitleBar } from "@/platform/air/title-bar"
 import { applyOps, patchOf, versionOf, viewOf } from "@/platform/air/view-mirror"
 import type { MirrorState, ViewOp } from "@/platform/air/view-mirror"
 import { channelArgument, commandChannels, hostRejection, installTauriInternals, PageEvents } from "@/platform/tauri-page"
@@ -25,6 +29,8 @@ export interface AirViewContext {
   readonly key?: string
   readonly title?: string
   readonly params: Readonly<Record<string, unknown>>
+  /** The title bar of the place: absent is `native` (`hostTitleBarOf`) */
+  readonly titleBar?: HostTitleBar
 }
 
 /** The tools of the host the plugins of Tauri map to; the IDE answers them itself, `brd mcp` never sees them */
@@ -181,6 +187,10 @@ export class AirPage {
   private nextSubscriptionId = 1
   /** The epoch of the versions the page numbers itself, for a mirror whose state has no `version` */
   private epoch = 1
+  /** The title bar of the place, as the host context names it now */
+  private titleBar: HostTitleBar
+  /** The window of the page, once installed */
+  private target: Window | null = null
 
   constructor(
     private readonly link: FrameLink,
@@ -188,6 +198,7 @@ export class AirPage {
     commands: readonly PageCommand[],
   ) {
     this.channels = commandChannels(commands)
+    this.titleBar = hostTitleBarOf(context.titleBar)
     link.on("x-air-app/callEvent", params => this.calls.get(params.callId as number)?.onmessage(params.event))
     link.on("x-air-app/event", params => this.events.dispatch(String(params.event), params.payload ?? null))
     link.on("x-air-app/action", params => this.changed(String(params.subscription), params.serverSeq as number, params.action as { type?: string; ops?: ViewOp[] }))
@@ -200,14 +211,45 @@ export class AirPage {
     return this.context.view
   }
 
-  /** Installs the internals of Tauri for this page on `target` and answers the browser's notifications by the IDE's */
+  /**
+   * Installs the internals of Tauri for this page on `target`, answers the browser's notifications by the IDE's, and
+   * tells the IDE of a press on the empty parts of the row in its title bar
+   */
   install(target: Window): void {
+    this.target = target
     installTauriInternals(target, { label: this.label, invoke: (cmd, payload) => this.invoke(cmd, payload), plugins: this.plugins() })
     this.answerNotifications(target)
+    installWindowDrag(target, clickCount => this.windowDrag(clickCount))
     // the events of the page's own window, as the shell tells them
     target.addEventListener("focus", () => this.events.dispatch("tauri://focus", null))
     target.addEventListener("blur", () => this.events.dispatch("tauri://blur", null))
     target.addEventListener("resize", () => this.events.dispatch("tauri://resize", { width: target.innerWidth, height: target.innerHeight }))
+  }
+
+  /**
+   * The title bar of the place changed (`host-context-changed` with the whole `x-air-app`): the window resizes for the
+   * page, which reads its full screen again (`useWindowFrameState`), so the row starts at the edge or after the traffic
+   * lights
+   */
+  setTitleBar(value: unknown): void {
+    const next = hostTitleBarOf(value)
+    if (JSON.stringify(next) === JSON.stringify(this.titleBar)) {
+      return
+    }
+    this.titleBar = next
+    const target = this.target
+    this.events.dispatch("tauri://resize", target === null ? null : { width: target.innerWidth, height: target.innerHeight })
+  }
+
+  /**
+   * The IDE does the double click of the system (a click count of 2) or moves the window (any other count), as its title
+   * bar does: only a window whose row is in its title bar, so the page never moves a tool window or an editor
+   */
+  private windowDrag(clickCount: number): null {
+    if (this.titleBar.kind === "overlay") {
+      this.link.notify("x-air-app/windowDrag", { clickCount })
+    }
+    return null
   }
 
   /** A tool of `brd mcp` or of the host */
@@ -462,6 +504,11 @@ export class AirPage {
           case "is_focused":
             return document.hasFocus()
           case "is_fullscreen":
+            return isFullScreen(this.titleBar)
+          case "start_dragging":
+            return this.windowDrag(1)
+          case "internal_toggle_maximize":
+            return this.windowDrag(2)
           case "is_maximized":
           case "is_minimized":
             return false

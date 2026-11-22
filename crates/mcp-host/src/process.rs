@@ -141,4 +141,4 @@ fn context(connection: &Connection, app_data_dir: Option<PathBuf>) -> std::io::R
 
 #[cfg(test)]
 #[path = "process_test.rs"]
-mod process_test;
+pub(crate) mod process_test;

@@ -5,6 +5,7 @@ import type { RepositoryView, ViewPatch, ViewSubscription } from "@/lib/bindings
 import { FrameLink } from "@/platform/air/frame-link"
 import type { FrameEndpoint } from "@/platform/air/frame-link"
 import { AirPage, HOST_TOOLS } from "@/platform/air/shim"
+import type { AirViewContext } from "@/platform/air/shim"
 import type { PageCommand } from "@/platform/tauri-page"
 import { emptyView } from "@/test-support/fake-sessions"
 
@@ -58,8 +59,8 @@ class FakeHost implements FrameEndpoint {
   }
 }
 
-function pageOn(host: FakeHost): { page: AirPage; tauri: (cmd: string, payload?: Record<string, unknown>) => Promise<unknown> } {
-  const page = new AirPage(new FrameLink(host), { app: "branch-deck", view: "main", instance: "main:1", params: {} }, COMMANDS)
+function pageOn(host: FakeHost, context: Partial<AirViewContext> = {}): { page: AirPage; tauri: (cmd: string, payload?: Record<string, unknown>) => Promise<unknown> } {
+  const page = new AirPage(new FrameLink(host), { app: "branch-deck", view: "main", instance: "main:1", params: {}, ...context }, COMMANDS)
   const target = { addEventListener: () => {} } as unknown as Window
   page.install(target)
   const internals = (target as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, payload?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__
@@ -410,5 +411,40 @@ describe("The shim of the page in the IDE", () => {
     const posted = host.posted.length
     expect(await tauri("plugin:window|set_min_size", { value: { width: 1, height: 1 } })).toBeNull()
     expect(host.posted).toHaveLength(posted)
+  })
+  it("A window whose row is in the title bar of the IDE: a drag and a double click of the row are windowDrag, its full screen is what the IDE says, and a change of the title bar resizes the window for the page", async () => {
+    const host = new FakeHost()
+    const { page, tauri } = pageOn(host, { view: "settings", instance: "settings:1", titleBar: { kind: "overlay", height: 40, insetStart: 80 } })
+    const drags = () => host.posted.filter(message => message.method === "x-air-app/windowDrag").map(message => message.params)
+    await tauri("plugin:window|start_dragging", { label: "settings" })
+    await tauri("plugin:window|internal_toggle_maximize", { label: "settings" })
+    expect(drags()).toEqual([{ clickCount: 1 }, { clickCount: 2 }])
+    expect(await tauri("plugin:window|is_fullscreen", { label: "settings" })).toBe(false)
+
+    // full screen hides the traffic lights: the IDE names no inset, and the window resizes for the page
+    const resizes: unknown[] = []
+    await tauri("plugin:event|listen", { event: "tauri://resize", target: { kind: "Any" }, handler: (event: { payload: unknown }) => resizes.push(event.payload) })
+    page.setTitleBar({ kind: "overlay", height: 40, insetStart: 0 })
+    expect(resizes).toHaveLength(1)
+    expect(await tauri("plugin:window|is_fullscreen", { label: "settings" })).toBe(true)
+    // the same title bar again changes nothing
+    page.setTitleBar({ kind: "overlay", height: 40, insetStart: 0 })
+    expect(resizes).toHaveLength(1)
+
+    // a title bar the IDE draws itself again: the page moves no window
+    page.setTitleBar(undefined)
+    expect(resizes).toHaveLength(2)
+    await tauri("plugin:window|start_dragging", { label: "settings" })
+    expect(drags()).toHaveLength(2)
+    expect(await tauri("plugin:window|is_fullscreen", { label: "settings" })).toBe(false)
+  })
+
+  it("A tool window, an editor tab or a dialog draws its own title: the page moves no window of the IDE", async () => {
+    const host = new FakeHost()
+    const { tauri } = pageOn(host)
+    await tauri("plugin:window|start_dragging", { label: "main" })
+    await tauri("plugin:window|internal_toggle_maximize", { label: "main" })
+    expect(host.posted.filter(message => message.method === "x-air-app/windowDrag")).toEqual([])
+    expect(await tauri("plugin:window|is_fullscreen", { label: "main" })).toBe(false)
   })
 })

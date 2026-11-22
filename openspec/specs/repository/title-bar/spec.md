@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - src-tauri/src/lib.rs
   - src-tauri/src/title_bar.rs
+  - crates/domain-types/src/title_bar.rs
   - crates/app-api/src/app/windows.rs
   - src-tauri/src/desktop.rs
   - src-tauri/src/menu.rs
@@ -39,6 +40,7 @@ targets:
   - src/lib/laid-out.ts
   - src/components/repository/MainMenuButton.tsx
   - src/lib/title-bar-mouse.ts
+  - src/lib/drag-region.ts
   - src/lib/main-menu.ts
   - src/lib/app-commands.ts
   - src/hooks/useAppCommand.ts
@@ -204,6 +206,19 @@ hidden, it MUST start at the edge (`isFullscreen`, re-read on every resize).
 - **THEN** the toolbar starts 15px after the zoom button
 - **AND** once the window enters fullscreen and resizes, the toolbar starts at the edge
   [@test] tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
+
+### Requirement: macOS: In a window of the IDE the row is in its title bar, and the IDE moves the window
+
+Where `bd_bootstrap` answers `{"kind":"overlay","doubleClick":"host","height":…}`, the row MUST start after the
+traffic lights of the IDE at the height of the IDE. The page MUST leave the drag and the double click to the IDE
+(`installTitleBarMouse` installs no double click), and the row MUST start at the edge while the IDE says full screen.
+
+#### Scenario: The Settings window in the IDE
+- **WHEN** the Settings window opens in the IDE on macOS
+- **THEN** its row is 40px high and starts 88px from the left, its empty parts a drag region
+- **AND** a press and a double click there go to the IDE, which moves or zooms the window
+- **AND** in full screen the row starts at the edge
+  [@test] tests/e2e/air/air-page.spec.ts (`the row of the Settings window is in the title bar of the IDE: it starts after the traffic lights, a press on its empty parts moves the window and a double click is the double click of the system, full screen moves it to the edge, and the row of the tool window is no drag region`)
 
 ### Requirement: Windows: The window has no decorations and keeps its shadow
 

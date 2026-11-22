@@ -13,7 +13,7 @@
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/apps/1","serverSeq":4,"action":{"type":"x-air-ide/appViewCreate","app":"fixture","view":"main"},"origin":{"clientId":"corpus","clientSeq":2},"_meta":{"x-air-ide":{"result":{"instance":"main:1"}}}}}}
 {"step":"appStart","command":["${dir}/fixture-app","serve"]}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/apps/1","level":"info","category":"apps","message":"The app fixture started: pid none, consent allowed, source user","dropped":0}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"experimental":{"x-air-app":{"version":"1.0.0","ahpVersion":"1.0.0"}}},"clientInfo":{"name":"air-ide","version":"${any}"}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"experimental":{"x-air-app":{"version":"1.1.0","ahpVersion":"1.0.0"}}},"clientInfo":{"name":"air-ide","version":"${any}"}}}}
 {"comment":"A page reads its frame while the app starts, such as for a view of start: onFirstView. The read waits for the run whose start goes on. The app gets resources/read after the last page of tools/list. A read starts no app and has no check of the marks. It keeps the bound of 30 s and the cap of the parked calls of a holder call."}
 {"link":"ide","from":"ide","message":{"jsonrpc":"2.0","id":15,"method":"x-air-ide/appResourceRead","params":{"channel":"x-air-ide:/apps/1","app":"fixture","uri":"ui://fixture/main"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"resources":{},"experimental":{"x-air-app":{"version":"1.0.0"}}},"serverInfo":{"name":"fixture","version":"1.0.0"}}}}
@@ -57,19 +57,19 @@
 {"step":"wsClose","closeCode":1008}
 {"comment":"A ticket that air-ide did not give closes the WebSocket after its error."}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"${any}","data":{"reason":"badTicket"}}}}
 {"step":"wsClose","closeCode":1008}
 {"comment":"A good ticket binds the connection to its instance. The result names the view, and the page never names it. The instance of the apps channel is connected while a WebSocket holds it, so the IDE knows when a page needs a new ticket."}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/apps/1","serverSeq":6,"action":{"type":"x-air-ide/appEntrySet","key":"fixture","value":{"id":"fixture","source":"user","file":"${home}/.air/apps/fixture.yaml","name":"Fixture","views":{"log":{"resource":"ui://fixture/log","place":"toolWindowTab","instances":"one","toolWindowTab":{"of":"main","title":"Log"}},"main":{"resource":"ui://fixture/main","place":"toolWindow","instances":"one","toolWindow":{"anchor":"bottom","title":"Fixture","tabTitle":"Overview","titleActions":["refresh"]}},"review":{"resource":"ui://fixture/review","place":"editor","instances":"many"},"settings":{"resource":"ui://fixture/settings","place":"window","instances":"one","window":{"width":880,"height":640}}},"actions":[{"id":"refresh","text":"Refresh Fixture","icon":"AllIcons.Actions.Refresh","groups":["Vcs.MainMenu"],"run":{"tool":"refresh","arguments":{}}}],"agentTools":"none","problem":null,"consent":{"state":"allowed","command":["${dir}/fixture-app","serve"],"commandText":"${dir}/fixture-app serve"},"process":{"state":"running","restarts":0,"stderrTail":[]},"instances":{"main:1":{"view":"main","params":{},"generation":1,"focus":0,"connected":true}},"badges":{},"progress":{},"places":{"name":"Fixture","toolWindows":[{"view":"main","title":"Fixture","tabTitle":"Overview","anchor":"bottom","page":{"instance":"main:1","view":"main","resource":"ui://fixture/main","generation":1},"instance":"main:1","focus":0,"tabs":[{"view":"log","title":"Log","focus":0}],"titleActions":[{"id":"refresh","text":"Refresh Fixture","groups":["Vcs.MainMenu"],"run":{"tool":"refresh","arguments":{}},"icon":"AllIcons.Actions.Refresh"}]}],"actions":[{"id":"refresh","text":"Refresh Fixture","groups":["Vcs.MainMenu"],"run":{"tool":"refresh","arguments":{}},"icon":"AllIcons.Actions.Refresh"}]}}}}}}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":2,"method":"ping","params":{"channel":"ahp-root://"}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"result":{}}}
 {"comment":"A ticket is good once. A second connection with it is refused, and the first connection stays."}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"${any}","data":{"reason":"badTicket"}}}}
 {"step":"wsClose","closeCode":1008}
 {"comment":"A ticket after its deadline is refused. The step clock {advanceMs} moves the clock of air-ide."}
@@ -77,7 +77,7 @@
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"result":{"ticket":"${late}","pageUrl":"http://127.0.0.1:${port}/","expiresInMs":10000}}}
 {"step":"clock","advanceMs":10001}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${late}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${late}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"${any}","data":{"reason":"badTicket"}}}}
 {"step":"wsClose","closeCode":1008}
 {"comment":"A connection that sends no frame within 5 s of its handshake is closed."}
@@ -91,30 +91,30 @@
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":7,"result":{"ticket":"${next}","pageUrl":"http://127.0.0.1:${port}/","expiresInMs":10000}}}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${next}","_meta":{"x-air-app":{"version":"2.0.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"${any}","data":{"reason":"vocabularyVersion","supportedVersions":["1.0.0"]}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"${any}","data":{"reason":"vocabularyVersion","supportedVersions":["1.1.0"]}}}}
 {"step":"wsClose","closeCode":1008}
 {"comment":"A text frame over 16 MiB closes the connection with the code 1009. The step names the size, not the text."}
 {"link":"ide","from":"ide","message":{"jsonrpc":"2.0","id":8,"method":"x-air-ide/appViewTicket","params":{"channel":"ahp-root://","apps":"x-air-ide:/apps/1","instance":"main:1"}}}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":8,"result":{"ticket":"${big}","pageUrl":"http://127.0.0.1:${port}/","expiresInMs":10000}}}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${big}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${big}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"link":"page","from":"page","raw":"${16MiB+1}"}
 {"step":"wsClose","closeCode":1009}
 {"comment":"A binary frame closes the connection with the code 1003: each message of the page link is one text frame."}
 {"link":"ide","from":"ide","message":{"jsonrpc":"2.0","id":10,"method":"x-air-ide/appViewTicket","params":{"channel":"ahp-root://","apps":"x-air-ide:/apps/1","instance":"main:1"}}}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":10,"result":{"ticket":"${binary}","pageUrl":"http://127.0.0.1:${port}/","expiresInMs":10000}}}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${binary}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${binary}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"link":"page","from":"page","binary":"AAECAw=="}
 {"step":"wsClose","closeCode":1003}
 {"comment":"A text frame with a line break, LF or CR, would hold more than one message: it closes the connection with the code 1008, and none of its messages gets an answer."}
 {"link":"ide","from":"ide","message":{"jsonrpc":"2.0","id":11,"method":"x-air-ide/appViewTicket","params":{"channel":"ahp-root://","apps":"x-air-ide:/apps/1","instance":"main:1"}}}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","id":11,"result":{"ticket":"${twoLines}","pageUrl":"http://127.0.0.1:${port}/","expiresInMs":10000}}}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
-{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${twoLines}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${twoLines}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
 {"link":"page","from":"page","raw":"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"params\":{\"channel\":\"ahp-root://\"}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\",\"params\":{\"channel\":\"ahp-root://\"}}"}
 {"step":"wsClose","closeCode":1008}
 {"comment":"Only the holder of the apps channel gets a ticket or a file of a frame. An apps channel that air-ide does not have is unknownChannel, and an instance that the channel lacks is unknownInstance. A read is a command of the apps channel, and a held channel is visible only to its holder. So air-host refuses a read of another connection or of a channel that it does not have with unknownChannel. A second connection of the IDE that did not open the apps channel gets notHolder for a ticket, and unknownChannel for a read."}

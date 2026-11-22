@@ -1,7 +1,7 @@
 /**
  * The start of the page of a view of the IDE (`src/air-main.ts`): `ui/initialize` on the frame link with the extension
- * `x-air-app`, the theme of the host context, `bd_bootstrap` of the view, the globals of its init script and the
- * internals of Tauri; then the usual main runs on the path of the page of the view, and `ui/notifications/initialized`
+ * `x-air-app`, the theme of the host context, `bd_bootstrap` of the view with the title bar of its place, the globals of
+ * its init script and the internals of Tauri; then the usual main runs on the path of the page of the view, and `ui/notifications/initialized`
  * follows once the page listens (`whenPageStarted`)
  */
 import { whenPageStarted } from "@/lib/page-start"
@@ -17,7 +17,7 @@ import type { PageCommand } from "@/platform/tauri-page"
 
 /** The version of MCP Apps (SEP-1865) the page speaks, and of the extension of Air */
 export const MCP_APPS_VERSION = "2026-01-26"
-export const X_AIR_APP_VERSION = "1.0.0"
+export const X_AIR_APP_VERSION = "1.1.0"
 
 /** The commands of app-api (`crates/app-api/commands.json`): which argument of a command gets its events */
 const PAGE_COMMANDS = Object.values(import.meta.glob<PageCommand[]>("/crates/app-api/commands.json", { eager: true, import: "default" }))[0] ?? []
@@ -31,7 +31,15 @@ interface InitializeResult {
 export async function startAirPage(target: Window, endpoint: FrameEndpoint = parentEndpoint(target)): Promise<AirPage> {
   const link = new FrameLink(endpoint)
   const theme = new AirTheme(target)
-  link.on("ui/notifications/host-context-changed", params => theme.apply(params as HostTheme))
+  let page: AirPage | null = null
+  // a change of `x-air-app` names all of it: a title bar that it leaves out is `native`
+  link.on("ui/notifications/host-context-changed", params => {
+    theme.apply(params as HostTheme)
+    const context = params["x-air-app"] as AirViewContext | undefined
+    if (context !== undefined) {
+      page?.setTitleBar(context.titleBar)
+    }
+  })
   const initialized = await link.request<InitializeResult>("ui/initialize", {
     protocolVersion: MCP_APPS_VERSION,
     appInfo: { name: "branch-deck", version: X_AIR_APP_VERSION },
@@ -46,8 +54,9 @@ export async function startAirPage(target: Window, endpoint: FrameEndpoint = par
   // effects, after the listens they asked for (a task later)
   whenPageStarted(() => setTimeout(() => link.notify("ui/notifications/initialized"), 0))
 
-  const page = new AirPage(link, context, PAGE_COMMANDS)
-  const bootstrap = await page.callTool(BD_BOOTSTRAP, { view: context.view })
+  page = new AirPage(link, context, PAGE_COMMANDS)
+  // brd answers an overlay title bar only for a place whose row is in the title bar of the IDE
+  const bootstrap = await page.callTool(BD_BOOTSTRAP, { view: context.view, ...(context.titleBar !== undefined && { titleBar: context.titleBar }) })
   if (bootstrap.isError === true) {
     throw new Error(`Cannot start the view ${context.view}: ${JSON.stringify(bootstrap.structuredContent?.error ?? bootstrap.content)}`)
   }

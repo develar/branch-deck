@@ -49,6 +49,7 @@
 //! - `setup`: what in the setup of the machine waits for the user (the Setup dot)
 //! - `sign_in`: the sign-ins of the app's accounts, their events and the status of both accounts (the fact `auth`)
 //! - `stack`: the stacked branches as a sync reports them, the syntax of a stack prefix (`(auth/login)`)
+//! - `title_bar`: how the page draws the title bar of its window, as the desktop app and `brd mcp` tell it
 //! - `update`: the update of the app
 //! - `update_project`: Update Project, the check of the branch against its upstream and the applied update
 //! - `upstream_commit`: a commit of the baseline that carries the user's work
@@ -101,6 +102,7 @@ pub mod settings;
 pub mod setup;
 pub mod sign_in;
 pub mod stack;
+pub mod title_bar;
 pub mod update;
 pub mod update_project;
 pub mod upstream_commit;
