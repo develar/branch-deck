@@ -1746,6 +1746,39 @@ fn an_extension_called_on_a_local_in_its_file_is_no_edge() {
   assert_eq!(edges(&range.in_modules(&["air"])), [(2, 0, same_file()), (3, 0, same_file()), (4, 0, same_file())]);
 }
 
+/// In the file of a declaration a name on an expression receiver of a type the summary doesn't know is no use of it:
+/// `JBPanelWithEmptyText().emptyText.text = "x"` (the test of genui-flakes, 2026-11-22) means a property of the
+/// platform, not the `fun text(value: String)` of the class around it, nor a top-level `val label` of the file in
+/// `panel().label`. A bare name, a receiver of the file's own type and a value of the file named as the receiver are
+/// uses
+#[test]
+fn a_name_on_an_expression_receiver_of_an_unknown_type_in_its_file_is_no_use() {
+  let class = |more: &str, body: &str| {
+    format!(
+      "package p\n\nimport com.intellij.ui.components.JBPanelWithEmptyText\n\nval first = 1\n{more}\nclass RendererTest {{\n  fun panel() = JBPanelWithEmptyText()\n{body}}}\n"
+    )
+  };
+  let declares = ("\nval label = \"\"\n", "\n  fun text(value: String) = value\n");
+  let on_expression = "\n  fun warmUp() {\n    JBPanelWithEmptyText().emptyText.text = \"warm-up\"\n    val name = panel().label\n  }\n";
+  let bare = "\n  fun bare() = text(label)\n";
+  let own = "\n  fun own() {\n    val test = RendererTest()\n    test.text(\"x\")\n  }\n";
+  let path = "impl/testSrc/p/RendererTest.kt";
+  let mut range = Range::default();
+  range
+    .baseline(&[(path, &class("", ""))])
+    .commit(&[(path, Some(&class(declares.0, declares.1)))])
+    .commit(&[(path, Some(&class(declares.0, &format!("{}{on_expression}", declares.1))))])
+    .commit(&[(path, Some(&class(declares.0, &format!("{}{on_expression}{bare}", declares.1))))])
+    .commit(&[(path, Some(&class(declares.0, &format!("{}{on_expression}{bare}{own}", declares.1))))]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [
+      (2, 0, vec![link("label", Evidence::SameFile), link("text", Evidence::SameFile)]),
+      (3, 0, vec![link("text", Evidence::SameFile)]),
+    ]
+  );
+}
+
 /// In the file of a key of the baseline a bare name or `this` means a member of its type only where nothing the file
 /// doesn't show may take the call first: the receiver of a lambda (`buildList`'s, `apply`'s) or of an object
 /// expression, the extension receiver of a member extension function or of the getter of a member extension property
@@ -2308,7 +2341,8 @@ fn a_value_in_capitals_is_no_other_type() {
 
 /// A member its own commit adds is no origin of an unqualified use outside its type: `register("x")` at the top level
 /// of a file whose new class declares a `register(x: String)` that the arguments fit means the function the file
-/// imports, which another commit adds; in the class, the use may mean either
+/// imports, which another commit adds; in the class, the use may mean either. The import `p.register` names the
+/// package `p`, not the class of the file, so its line is the first use of the edge
 #[test]
 fn a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_type() {
   let mut range = Range::default();
@@ -2318,7 +2352,7 @@ fn a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_typ
   )]);
   assert_eq!(
     links(&range.in_modules(&["impl"])),
-    [(1, 0, vec![("register".to_string(), "impl/src/q/Plugin.kt".to_string(), 11, Evidence::Import)])]
+    [(1, 0, vec![("register".to_string(), "impl/src/q/Plugin.kt".to_string(), 3, Evidence::Import)])]
   );
 }
 

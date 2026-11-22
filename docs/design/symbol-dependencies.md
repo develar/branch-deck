@@ -99,7 +99,12 @@ flowchart TD
    (`JBUI`, or a constant): an import doesn't say which it is. A Kotlin extension of the file is a use only by a bare
    name, `this`, `super` or its receiver's type (`AirAuthoredScope::openGlobalPrompt`), of every key, one the range adds
    too (`on_unknown_receiver`): a call on a local, an expression or another name (`prompt.openGlobalPrompt()` on a
-   `val prompt = AirComposerInIdeDriver(…)` beside a `fun AirAuthoredScope.openGlobalPrompt()`) is none. A private
+   `val prompt = AirComposerInIdeDriver(…)` beside a `fun AirAuthoredScope.openGlobalPrompt()`) is none. Any other
+   declaration of the file is no use by a name on a receiver of a type the summary doesn't know
+   (`on_unknown_expression`): an expression or a local (`JBPanelWithEmptyText().emptyText.text` is no use of a
+   `fun text(value: String)` of the class around it, the false edge of the test of `genui-flakes`, 2026-11-22), or a
+   name that the file neither declares nor imports. A qualifier that names the package, a declaration of the file or an
+   imported value (`plugin.register(id)`) stays a use, and a receiver of a known type is `receiver`'s rule. A private
    member is a use only where the compiler lets the file see it (`private_scope`): in Java the whole top-level class,
    nested classes included, for a qualified use (`Inner.helper()`), but its own type for a bare name, `this.name` or
    `super.name`, which outside it mean a member of the class around it, an inherited one or a static import; in Kotlin
@@ -987,7 +992,7 @@ flowchart TD
   `of_another_receiver`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`,
   `inherits_unseen`, `import_decides`), the plain imports of Kotlin and Java that the range adds (`jvm_imports.rs`,
   a child module, `JvmImports::follow` and `JvmImports::resolve`, decision 30), the paths of a static member (`static_paths`), the same-file rule
-  (`names_another_type`, `on_unknown_receiver`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
+  (`names_another_type`, `on_unknown_receiver`, `on_unknown_expression`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
   the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
   removal of the uses, the entities each commit changes.
 - `crates/trial-check/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member

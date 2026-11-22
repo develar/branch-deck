@@ -7,11 +7,11 @@
 //!   so a repository of a million files costs only the blobs the commits change. A use of a name the range doesn't
 //!   add or change is no edge.
 //! - **Evidence, not names.** A use links to a declaration only with evidence that it means that one: an import of
-//!   it, a qualified name, the same file (unless another type qualifies the name, or a value or an expression is the
-//!   receiver of an extension's call), the same Rust module, a type of the same package in the same module, or an
-//!   override in a subtype whose supertype resolves. A call of a function of the same package without an import, or a
-//!   member of an unknown receiver, is no evidence: Kotlin's implicit receivers and extensions decide those, which only
-//!   a compiler sees.
+//!   it, a qualified name, the same file (unless another type qualifies the name, a value or an expression is the
+//!   receiver of an extension's call, or a JVM name is on a receiver of a type the file doesn't show), the same Rust
+//!   module, a type of the same package in the same module, or an override in a subtype whose supertype resolves. A
+//!   call of a function of the same package without an import, or a member of an unknown receiver, is no evidence:
+//!   Kotlin's implicit receivers and extensions decide those, which only a compiler sees.
 //! - **An import is a name too.** The name a private import of the range binds (a Rust `use`, a TypeScript import, a
 //!   Kotlin alias) is needed beside the declaration it names, by a bare use (`Path`, also of `Path::new`), where the
 //!   import reaches: its file, and in Rust its module and the modules below (`use super::*`). It is no alternative to the
@@ -1754,8 +1754,13 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
       return None;
     }
     // the extraction drops locals; a private member is used only in the containers that see it (`private_scope`), and
-    // neither a name qualified by another type nor an extension called on anything but `this` is a use of it
-    if names_another_type(use_site.summary, qualifier, site) || on_unknown_receiver(qualifier, site) || of_another_receiver(use_site.summary, reference, site) {
+    // neither a name qualified by another type, an extension called on anything but `this`, nor a name on a receiver
+    // that the file doesn't show is a use of it
+    if names_another_type(use_site.summary, qualifier, site)
+      || on_unknown_receiver(qualifier, site)
+      || of_another_receiver(use_site.summary, reference, site)
+      || on_unknown_expression(use_site, reference, qualifier, site)
+    {
       return None;
     }
     return match site.declaration.reach {
@@ -1821,6 +1826,24 @@ fn of_another_receiver(summary: &FileSummary, reference: &Reference, site: &Site
 fn on_unknown_receiver(qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
   let names_receiver = qualifier.and_then(<[String]>::last).is_some_and(|last| receiver_of(site) == Some(last.as_str()));
   matches!(site.ctx.language.family(), Family::Jvm | Family::Dotnet) && site.declaration.receiver.is_some() && !bare(qualifier) && !names_receiver
+}
+
+/// Whether a use in the file of the JVM declaration `site`, not an extension, is on a receiver the file doesn't show:
+/// an expression or a local of a type the summary doesn't know (`JBPanelWithEmptyText().emptyText.text`,
+/// `panel().label`, whose qualifier is empty), or a name that the file neither declares nor imports. Such a receiver is
+/// of a type only a compiler knows, and a top-level declaration has no receiver at all. A receiver of a known type is
+/// `of_another_receiver`'s; a qualifier that names the package, a declaration of the file (`Owner.create()`,
+/// `DEFAULT.register(id)` of a `val DEFAULT`), a value the file imports (`plugin.register(id)`) or a container of
+/// `site` stays a use
+fn on_unknown_expression(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+  if site.ctx.language.family() != Family::Jvm || site.declaration.receiver.is_some() || bare(qualifier) || reference.receiver_type.is_some() {
+    return false;
+  }
+  let qualifier = qualifier.unwrap_or_default();
+  let Some(last) = qualifier.iter().rfind(|segment| *segment != "Companion") else {
+    return true;
+  };
+  qualifier != use_site.namespace.as_slice() && !use_site.summary.declares(last) && import_binding(use_site, last).is_none() && !site.containers.contains(last)
 }
 
 /// Whether a use with `qualifier` is one by a bare name, `this.name` or `super.name`: of a member of the type around it
