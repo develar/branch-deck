@@ -86,6 +86,7 @@
         "tooManyCalls",
         "internal",
         "approvalPending",
+        "askOnCall",
         "denied",
         "toolApprovalPending",
         "toolDenied",
@@ -130,7 +131,7 @@
       }
     },
     "ErrorObject": {
-      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32008 unknownChannel, unknownInstance and unknownApp, -32009 noConsent, agentOrigin, notHolder, modelOnly, approvalPending, denied, toolApprovalPending, toolDenied and appProblem, -32011 tooManyCalls, -32601 unknownMethod and unknownTool, -32602 badResource and otherView, -32603 internal, resourceRead, noViews and viewsTimeout, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
+      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32008 unknownChannel, unknownInstance and unknownApp, -32009 noConsent, agentOrigin, notHolder, modelOnly, approvalPending, askOnCall, denied, toolApprovalPending, toolDenied and appProblem, -32011 tooManyCalls, -32601 unknownMethod and unknownTool, -32602 badResource and otherView, -32603 internal, resourceRead, noViews and viewsTimeout, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
       "type": "object",
       "required": ["code", "message"],
       "properties": {
@@ -2646,7 +2647,7 @@
           "$ref": "#/$defs/AppId"
         },
         "source": {
-          "enum": ["user", "project", "local"]
+          "enum": ["user", "project"]
         },
         "file": {
           "type": "string",
@@ -3607,14 +3608,14 @@
                 }
               },
               "problem": {
-                "description": "The data of the error that an agent call of the app gets now, such as agentOrigin or noConsent. notStarted has the stderr tail and the problem of the entry. tooLarge: the tools of the app are over the budget of the answer.",
+                "description": "The data of the error that an agent call of the app gets now, such as agentOrigin or noConsent. notStarted has the stderr tail and the problem of the entry. tooLarge: the tools of the app are over the budget of the answer. askOnCall: the user did not answer the app, and the session has no consent request of it. A list of the app or a call of its tool sets the request.",
                 "$ref": "#/$defs/ErrorData"
               }
             }
           }
         },
         "refused": {
-          "description": "The refused entries of the project registry files, in the order of their names. A file keeps its first 64 refused entries by name.",
+          "description": "The refused entries of the project registry file, in the order of their names. The file keeps its first 64 refused entries by name.",
           "type": "array",
           "items": {
             "type": "object",
@@ -3637,12 +3638,12 @@
           }
         },
         "refusedMore": {
-          "description": "The count of the refused entries that the answer does not name: those past the first 64 of each file, and those over the budget. It can count an entry of the committed file whose name a local app takes. Only when there are some.",
+          "description": "The count of the refused entries that the answer does not name: those past the first 64 of the file, and those over the budget. Only when there are some.",
           "type": "integer",
           "minimum": 1
         },
         "errors": {
-          "description": "Each project registry file that air-apps cannot read or parse. The file keeps the apps of its last good content.",
+          "description": "The project registry file when air-apps cannot read or parse it. The file keeps the apps of its last good content.",
           "type": "array",
           "items": {
             "type": "object",
@@ -4160,7 +4161,7 @@
           "then": {
             "properties": {
               "params": {
-                "description": "A command of the apps channel: the apps of the channel for the proxy tool air_app, or the one app of app. The list checks the marks of each run, and it starts each stopped project entry with the consent, as an agent call does. Its answer is AppsListResult. An app that is no entry and no refused entry of the channel gets -32008 unknownApp.",
+                "description": "A command of the apps channel: the apps of the channel for the proxy tool air_app, or the one app of app. The list checks the marks of each run, and it starts each stopped project entry with the consent, as an agent call does. Its answer is AppsListResult. A list of all apps sets no consent request. An app without an answer of the user then gets askOnCall, or approvalPending with the request that the session has already. A list of app sets the request of app. An app that is no entry and no refused entry of the channel gets -32008 unknownApp.",
                 "type": "object",
                 "required": ["channel", "session"],
                 "properties": {

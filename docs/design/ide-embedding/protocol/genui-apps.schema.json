@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jetbrains.com/air/genui-apps.schema.json",
-  "title": "The project registry of the apps of a session, .air/genui-apps.json and .awb/genui-apps.json",
-  "description": "The apps of a project in the shape of .mcp.json. Each entry is an app with a server and no view. A local entry of .awb replaces the committed entry of its name. A file gives at most 64 apps, the first by name, and refuses each entry after them. An entry that this schema refuses is refused alone, and the other entries stay. A reader ignores a key that it does not know.",
+  "title": "The project registry of the apps of a session, .air/genui-apps.json",
+  "description": "The apps of a project in the shape of .mcp.json. Each entry is an app with a server and no view. A file gives at most 64 apps, the first by name, and refuses each entry after them. An entry that this schema refuses is refused alone, and the other entries stay. A reader ignores a key that it does not know.",
   "type": "object",
   "properties": {
     "mcpServers": {

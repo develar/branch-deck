@@ -8,7 +8,7 @@ These files pin the wire.
 |---|---|
 | `air-app.schema.json` | The app file `~/.air/apps/<id>.yaml`, format 1, with the defaults that the registry fills in |
 | `examples/branch-deck.yaml` | The app file that the installer of Branch Deck writes |
-| `genui-apps.schema.json` | The project registry `.air/genui-apps.json` and `.awb/genui-apps.json` of the apps of a session, with the files that `covers` adds to the fingerprint of an entry |
+| `genui-apps.schema.json` | The project registry `.air/genui-apps.json` of the apps of a session, with the files that `covers` adds to the fingerprint of an entry |
 | `shown-text.ranges` | The code points that a text of a consent banner shows as `\u{<hex>}`: the categories Cc, Cf, Cn, Co, Cs, Zl, Zp and Zs, by Unicode 16.0 as the JDK 25 gives them. `air-apps` embeds the file, and a test of the IDE compares it with the JDK |
 | `x-air-app.schema.json` | One line of the corpus. The defs `AppMessage`, `PageMessage`, `FrameMessage` and `IdeMessage` are the messages of the four links |
 | `corpus/*.ndjson` | The golden frames, one JSON object per line |
