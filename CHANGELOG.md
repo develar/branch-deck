@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.20.0](https://github.com/develar/branch-deck/compare/v1.19.0...v1.20.0) (2026-11-22)
+
+
+### Features
+
+* **brd-host:** `brd-host setup --local` makes this machine its own host, whose agent listens on the loopback address only ([b868024](https://github.com/develar/branch-deck/commit/b8680240e00c295b7ca47b721243ebd439013321))
+* **install:** the review recipe of the skill reads a move between files once, by the moved_to and moved_from of its units ([88ac3b8](https://github.com/develar/branch-deck/commit/88ac3b868272dbe20389a650aa84aeca35afbeb4))
+* **install:** the skill teaches the review of a commit, a branch or a range by `brd review-plan` ([936f333](https://github.com/develar/branch-deck/commit/936f333a97791db0180c60ab1a1addf86c95e3e2))
+* **review:** a declaration moved whole to another file is read once, at its new place, its old place one row that leads there ([336271d](https://github.com/develar/branch-deck/commit/336271d308f77e2af8e1dadd301db96e5d8000a2))
+* **review:** a declaration moved whole to another file says where it went and where it came from, still two units ([deda357](https://github.com/develar/branch-deck/commit/deda3575844760a23e1baa864e572f07441d5e25))
+* **review:** the heading of a file that moves came into names each file they came from once, a long list cut and whole in its hover ([d920007](https://github.com/develar/branch-deck/commit/d920007b27336cf48bda71a6241a8a65a1d2e130))
+* **sync:** a copy that merges a generated file by words says so: the row says regenerate, and the push and every start ask first ([a2b5979](https://github.com/develar/branch-deck/commit/a2b5979eccd1e2bcbf112c8ab6089e4f0b07d4d5)), closes [#232](https://github.com/develar/branch-deck/issues/232)
+
+
+### Bug Fixes
+
+* **bd:** a commit that only makes an item visible is what a later use from another module needs ([#251](https://github.com/develar/branch-deck/issues/251)) ([a801bfd](https://github.com/develar/branch-deck/commit/a801bfd8befa7f0ad5f3a5d970990e8584e9b479))
+* **brd-host:** a heavy run gets the turn of a busy free host after 15 min, the measures of a command ignore its fetched directories, and a held lock of the turn costs a look, not the run ([e6a394f](https://github.com/develar/branch-deck/commit/e6a394f21f9bfd6188e356bfeb531ea1c3c8ef9b))
+* **brd-host:** a heavy run that fits starts past an exclusive run at the head of the queue once its drain has ended without a quiet host ([dd28dc1](https://github.com/develar/branch-deck/commit/dd28dc112a9c3b9187fcb9b36e8513ae84e98d4c))
+* **lease:** a new slot by a clone keeps its cloned files, as the index takes their stat data without a hash ([ecdd477](https://github.com/develar/branch-deck/commit/ecdd47738cf32346c8ceb25a3e73722715944d84))
+* **lease:** brd lease disk reads one history for every slot and walks in a budget of 90 s, so a report of the 16 slots of idea-1 takes two minutes, not 19.5 ([39ca64a](https://github.com/develar/branch-deck/commit/39ca64ad0d55024cc1c9cd4d979eb4b23e863b02))
+* **lease:** the cargo rule keeps an incremental dir only for the current unit that wrote it, and the newest dir of each crate ([9c491de](https://github.com/develar/branch-deck/commit/9c491ded30b75de927298a2f90b88bb1ffa41df0))
+* **review:** rows side by side of one place are one row, and the jump to the place a move left lands on its row and its section ([28da09a](https://github.com/develar/branch-deck/commit/28da09aba854e7594e114d5bbe2d4f6f8dcd0e6b))
+
 ## [1.19.0](https://github.com/develar/branch-deck/compare/v1.18.0...v1.19.0) (2026-11-21)
 
 

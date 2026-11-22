@@ -1,6 +1,6 @@
 {
   "name": "branch-deck",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "private": true,
   "license": "MIT",
   "type": "module",
