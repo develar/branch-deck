@@ -308,22 +308,32 @@ sequenceDiagram
     every subscription that joined. One of another
     repository sends its `x-air-app/subscribe` once the view before it answered and was unsubscribed or ended. The last subscription that leaves the view unsubscribes the frame. So the frame never
     subscribes to the view it holds, and no answer is `held`.
-  - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
-    the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
-    them while the page shows the theme of the IDE: the canvas the first background of the host (the background of the
-    place, so the page is one surface with its tool window), the cards, the popups and the fields the second, the
-    raised surface, lighter than the first in both themes, so the canvas is darker than the cards in the dark theme
-    too (the desktop app follows Islands Dark instead, whose window is lighter than its islands); the query of the
-    system's dark appearance answers the theme of the IDE, so the setting System follows it, and
-    `host-context-changed` switches it without a reload.
+  - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`; Air sends an app view no
+    `com.jetbrains.air/variables`) is set on the root as `--air-host-<name>`, and the semantic tokens (`--background`,
+    `--card`, `--border`, …) read them while the page shows the theme of the IDE: the canvas the first background of the
+    host (the background of the place, so the page is one surface with its tool window), the cards, the popups and the
+    fields the second, the raised surface, lighter than the first in both themes, so the canvas is darker than the cards
+    in the dark theme too (the desktop app follows Islands Dark instead, whose window is lighter than its islands). The
+    separator `--border` is the separator of the IDE (`--color-border-tertiary`), the field `--input` the border of a
+    control, `--radius` the `lg` radius. A token whose meaning the IDE lacks stays the page's: `--info` is the violet of
+    merged, landed and integrated, where the info of the IDE is the color of a link, and `--primary` is the page's,
+    since the button color of the IDE as text is too dark on a dark background. The `styles.variables` of a context is
+    the whole set of the host: a variable that a later set lacks, or that has the empty value, which Air sends for each
+    variable a change removes, leaves the root, and its token is the page's again; a change without `styles` keeps them. So the field `styles` of the app file, which Air owns, selects the tokens: `all`
+    every variable, `neutral` no status tone (`--color-{background,text,border,ring}-{info,danger,success,warning}`), so
+    `--success`, `--warning` and `--destructive` are the page's, `none` no variable. The query of the system's dark
+    appearance answers the theme of the IDE, so the setting System follows it, and `host-context-changed` switches it
+    without a reload. The fake IDE of the E2E sends the output of `ideStyleVariables` of Air
+    (`tests/e2e/air-host/theme-*.json`) and filters it by `styles` as Air does (`themeFor`).
 - The install: the row IntelliJ IDEA of Settings → Tools, after `brd` (`install_ide_app`, `remove_ide_app`, the status
   in `agent_cli_status`), runs `bd_cli::install::install_ide_app` (`crates/bd-cli/src/install.rs`): it writes
   `~/.air/apps/branch-deck.yaml` and the icons of the tool window in `~/.air/apps/icons/`, each file whole through a
   rename, since the IDE reads the file at each change. The file is the example of the contract with the binary of the
   app (`app_binary`, never a translocated one): the app binary with `cli mcp`, `brd` (`brd.exe` beside the app on
-  Windows) with `mcp`. Remove deletes the file and the two icons. The status reads the file and compares it with what an
-  install writes now, so a file another Branch Deck wrote (an app moved or a second copy) says so and Install writes it
-  for this one. `brd mcp` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
+  Windows) with `mcp`, and `styles: neutral`. The user may set `styles` to `all` or `none` in the file: an install
+  keeps that value (`IdeAppStyles`), as the file is the only setting of it. Remove deletes the file and the two icons.
+  The status reads the file and compares it with what an install writes now with its value of `styles`, so a file
+  another Branch Deck wrote (an app moved or a second copy) says so and Install writes it for this one. `brd mcp` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
   before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`). `brd mcp` installs nothing: its
   `agent_cli_status` answers `installable: false`, so the page in the IDE shows neither `brd` nor IntelliJ IDEA on
   Tools and no install of the Agent CLI on Agents or in the hint of the agents.

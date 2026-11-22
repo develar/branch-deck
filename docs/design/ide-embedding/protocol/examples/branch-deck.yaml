@@ -41,3 +41,4 @@ actions:
     run: { view: settings }
 agent:
   tools: none
+styles: neutral

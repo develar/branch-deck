@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/ide-embedding/spec.md
 import { test as base } from "@playwright/test"
-import type { FrameLocator, Page } from "@playwright/test"
-import { closeFakeIde, IDE_THEMES, openFakeIde } from "../air-host/fake-host"
+import type { FrameLocator, Locator, Page } from "@playwright/test"
+import { closeFakeIde, IDE_THEMES, openFakeIde, themeFor } from "../air-host/fake-host"
 import type { FakeIde } from "../air-host/fake-host"
 import type { HostContextTheme } from "../air-host/host-page"
 import { expect } from "../fixtures/base-test"
@@ -464,4 +464,65 @@ test.describe("Branch Deck in the IDE", () => {
     expect(lightness(await token("--canvas"))).toBeLessThan(lightness(await token("--card")))
     await expect(root).toHaveAttribute("data-e2e-document", "first")
   })
+
+  test("with the styles all of the app file, the violet of merged stays the page's, and the lines of the rows are the separator of the IDE", async ({ ide }) => {
+    const root = ide.frame("main:1").locator("html")
+    await expect(root).toHaveAttribute("data-air-theme", "light")
+    await expect.poll(() => tokenOf(root, "--canvas")).toBe(lightVariable("--color-background-primary"))
+    // the IDE has no tone of merged: its info is the color of a link
+    await expectPageToken(root, "--info", "--color-text-info")
+    expect(await tokenOf(root, "--border")).toBe(lightVariable("--color-border-tertiary"))
+    expect(await tokenOf(root, "--input")).toBe(lightVariable("--color-border-primary"))
+  })
+
+  test("with the styles neutral of the app file, the status tones are the page's and the surfaces the IDE's, and a change to none without a reload makes every token the page's", async ({
+    page,
+    repo,
+  }) => {
+    const ide = await openFakeIde(page, { repoId: repo.id, repositoryPath: repo.path, theme: themeFor(IDE_THEMES.light, "neutral") })
+    const root = ide.frame("main:1").locator("html")
+    await expect(root).toHaveAttribute("data-air-theme", "light")
+    await expect.poll(() => tokenOf(root, "--canvas")).toBe(lightVariable("--color-background-primary"))
+    expect(await tokenOf(root, "--card")).toBe(lightVariable("--color-background-secondary"))
+    await expectPageToken(root, "--success", "--color-text-success")
+    await expectPageToken(root, "--destructive", "--color-text-danger")
+    await root.evaluate(element => element.setAttribute("data-e2e-document", "first"))
+
+    // the user edits the field to none: each variable of the host comes with the empty value, and leaves the root
+    await ide.setTheme(themeFor(IDE_THEMES.light, "none"))
+    await expect.poll(() => tokenOf(root, "--canvas")).not.toBe(lightVariable("--color-background-primary"))
+    await expectPageToken(root, "--canvas", "--color-background-primary")
+    await expectPageToken(root, "--card", "--color-background-secondary")
+    await expectPageToken(root, "--border", "--color-border-tertiary")
+    expect(await tokenOf(root, "--air-host-color-background-primary")).toBe("")
+    await expect(root).toHaveAttribute("data-e2e-document", "first")
+  })
 })
+
+/** The value of the variable `name` of the Light theme of the IDE */
+function lightVariable(name: string): string {
+  return IDE_THEMES.light.styles.variables[name]!.toLowerCase()
+}
+
+/** The token `name` on the root of a frame is the page's own, not the value of the variable `variable` of Light */
+async function expectPageToken(root: Locator, name: string, variable: string): Promise<void> {
+  const value = await tokenOf(root, name)
+  expect(value).not.toBe(lightVariable(variable))
+  expect(value).toBe(await pageTokenOf(root, name))
+}
+
+/** The value of the token `name` on the root of a frame */
+function tokenOf(root: Locator, name: string): Promise<string> {
+  return root.evaluate((element, it) => getComputedStyle(element).getPropertyValue(it).trim().toLowerCase(), name)
+}
+
+/** The value of the token `name` of the page's own theme: the root without the theme of the IDE (`data-air-theme`) */
+function pageTokenOf(root: Locator, name: string): Promise<string> {
+  return root.evaluate((element, it) => {
+    const theme = element.getAttribute("data-air-theme")!
+    element.removeAttribute("data-air-theme")
+    const value = getComputedStyle(element).getPropertyValue(it).trim().toLowerCase()
+    element.setAttribute("data-air-theme", theme)
+    return value
+  }, name)
+}

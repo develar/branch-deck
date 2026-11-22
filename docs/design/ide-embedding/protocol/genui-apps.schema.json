@@ -6,10 +6,11 @@
   "type": "object",
   "properties": {
     "mcpServers": {
-      "description": "The entries by their names. A name is the id of the app: lower-case letters, digits and single dashes. A project entry with the id of an app of the user is refused.",
+      "description": "The entries by their names. A name is the id of the app: lower-case letters, digits and single dashes, at most 63. A project entry with the id of an app of the user is refused.",
       "type": "object",
       "propertyNames": {
-        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "maxLength": 63
       },
       "additionalProperties": {
         "$ref": "#/$defs/Entry"

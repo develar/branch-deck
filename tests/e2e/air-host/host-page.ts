@@ -34,7 +34,6 @@ export interface AirHostConfig {
 export interface HostContextTheme {
   readonly theme: "light" | "dark"
   readonly styles: { readonly variables: Record<string, string> }
-  readonly "com.jetbrains.air/variables"?: Record<string, string>
 }
 
 /** A request of `brd mcp` to the IDE, a host tool a page called, or a link a page opened, as the test reads them */
@@ -730,11 +729,19 @@ const host = {
     }
     open.bridge.setHostContext(hostContext(open.info))
   },
-  /** The IDE switches its theme: every frame gets `host-context-changed` */
+  /**
+   * The IDE switches its theme, or the field `styles` of the app file changes: every frame gets `host-context-changed`.
+   * As Air's host page does, each variable of the theme before that the next set lacks comes with the empty value, since
+   * a frame of MCP Apps removes no variable that a change leaves out
+   */
   setTheme: (next: HostContextTheme) => {
+    const removed = Object.keys(theme.styles.variables).filter(name => !(name in next.styles.variables))
+    const variables = { ...Object.fromEntries(removed.map(name => [name, ""])), ...next.styles.variables }
+    // a frame that opens later gets the next set alone
     theme = next
     for (const open of views.values()) {
-      open.bridge.setHostContext(hostContext(open.info))
+      const context: Record<string, unknown> = { ...hostContext(open.info), styles: { variables } }
+      open.bridge.setHostContext(context)
     }
   },
   close: closeView,

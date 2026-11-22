@@ -11,8 +11,30 @@ import lightTheme from "./theme-light.json" with { type: "json" }
 /** The origin of the frames of Branch Deck, as the IDE gives each app its own (`<id>.air-genui-app.local`) */
 export const APP_ORIGIN = "https://branch-deck.air-genui-app.local"
 
-/** The themes of the IDE as its host context names them (`styles.variables` of SEP-1865 and the accent of Air) */
+/**
+ * The themes of the IDE as its host context names them, for the field `styles: all` of the app file: `styles.variables`
+ * of SEP-1865, the output of `ideStyleVariables` of Air (`plugins/air/native/air-apps/host-page/ide-style-variables.js`
+ * of idea-1) over the IDE values of New UI Light and New UI Dark. These are `styles.variables` of `ide-light.json` and
+ * `ide-dark.json` of the theme fixtures of Air (`plugins/air/frontend/genui/jcef/web-bundle/test/fixtures/themes/`).
+ * Air sends an app view no other variables
+ */
 export const IDE_THEMES = { light: lightTheme as HostContextTheme, dark: darkTheme as HostContextTheme }
+
+/** The value of the field `styles` of the app file: the variables of the theme of the IDE that Air sends the views */
+export type AppStyles = "all" | "neutral" | "none"
+
+/** The status tones of the variables: `styles: neutral` sends none of them */
+const STATUS_VARIABLE = /^--color-(background|text|border|ring)-(info|danger|success|warning)$/
+
+/**
+ * The host context of `theme` for the field `styles` of the app file, as Air filters it (`appStyleVariables` of
+ * `ide-style-variables.js`). For `none` it is the empty set; at the start Air sends no `styles`, which the page reads the
+ * same. `FakeIde.setTheme` adds the empty value of each variable that the set before had, as Air does
+ */
+export function themeFor(theme: HostContextTheme, styles: AppStyles): HostContextTheme {
+  const variables = Object.entries(theme.styles.variables).filter(([name]) => styles === "all" || (styles === "neutral" && !STATUS_VARIABLE.test(name)))
+  return { theme: theme.theme, styles: { variables: Object.fromEntries(variables) } }
+}
 
 /**
  * The WebSocket of the app link on the test server: `brd mcp` (`mcp-host`) on the fixture repository `repoId`, as the

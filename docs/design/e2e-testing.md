@@ -695,7 +695,9 @@ for about a second): its build of `dist/` would empty it under the pages of the 
 - **What a test reads**: the frame of a view (`ide.frame("review:1")`), the views (`ide.views()`), the mirrors
   (`ide.mirrorLog()`), the requests of `brd mcp` to the IDE and the host tools the pages called (`ide.calls()`); it
   switches the theme of the IDE
-  (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`), closes a view
+  (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`, the output of
+  `ideStyleVariables` of Air; `themeFor(theme, "neutral")` filters them by the field `styles` of the app file as Air
+  does), closes a view
   (`ide.closeView`, `x-air-app/viewClosed`) and runs an action of the app file as a click in the title of the tool
   window (`ide.runAction("sync", "sync")`: its tool with the origin `action` and the instance of the tool window).
 - **The focus of a frame**: the page refuses to focus a frame of another origin without the user

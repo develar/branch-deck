@@ -40,13 +40,18 @@
       "type": "array",
       "items": { "$ref": "#/$defs/Action" }
     },
-    "agent": { "$ref": "#/$defs/Agent" }
+    "agent": { "$ref": "#/$defs/Agent" },
+    "styles": {
+      "description": "The style variables of the IDE that the views of the app get in hostContext.styles. all: every variable. neutral: every variable but the background, the text, the border and the ring of the tones info, danger, success and warning. none: no styles, only the theme. A reader takes another value as all, with one warn log entry. A change of the file gives each open view host-context-changed with the new variables.",
+      "enum": ["all", "neutral", "none"],
+      "default": "all"
+    }
   },
   "$defs": {
     "Id": {
       "type": "string",
       "pattern": "^[a-z0-9](?:-?[a-z0-9])*$",
-      "maxLength": 64
+      "maxLength": 63
     },
     "ByOs": {
       "description": "One string for every OS, or one string for each OS. An OS without a value has no app.",

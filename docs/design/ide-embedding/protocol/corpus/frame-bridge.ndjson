@@ -3,7 +3,7 @@
 {"step":"pageShow","frame":"https://fixture.air-genui-app.local/main","theme":{"dark":true,"values":{"background":"#1e1f22","foreground":"#dfe1e5"}},"titleBar":{"kind":"native"}}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}},"styles":"all"}}}}}
 {"comment":"ui/initialize: the host serves x-air-app, and hostContext names the view of the ticket and the title bar of its window, with the theme of the IDE."}
 {"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":1,"method":"ui/initialize","params":{"protocolVersion":"2026-01-26","appInfo":{"name":"fixture","version":"1.0.0"},"appCapabilities":{"experimental":{"x-air-app":{"version":"1.0.0"}}}}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2026-01-26","hostInfo":{"name":"air","version":"${any}"},"hostCapabilities":{"openLinks":{},"serverTools":{},"logging":{},"experimental":{"x-air-app":{"version":"1.1.0"}}},"hostContext":{"theme":"dark","styles":{"variables":"${any}"},"locale":"en-US","x-air-app":{"app":"fixture","view":"main","instance":"main:1","params":{},"titleBar":{"kind":"native"}}}}}}
@@ -53,7 +53,7 @@
 {"step":"pageTicket","ticket":"${t2}"}
 {"step":"wsHandshake","origin":"http://127.0.0.1:${port}","host":"127.0.0.1:${port}","expect":101}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${t2}","_meta":{"x-air-app":{"version":"1.1.0"}}}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":7,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":7,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.1.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}},"styles":"all"}}}}}
 {"link":"page","from":"page","message":{"jsonrpc":"2.0","id":2,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}}}
 {"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-air-ide:/appView/2","snapshot":{"resource":"x-air-ide:/appView/2","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}}
 {"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/resync","params":{"subscription":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}

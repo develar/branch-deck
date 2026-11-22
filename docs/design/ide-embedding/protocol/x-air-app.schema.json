@@ -17,7 +17,7 @@
     "AppId": {
       "type": "string",
       "pattern": "^[a-z0-9](?:-?[a-z0-9])*$",
-      "maxLength": 64
+      "maxLength": 63
     },
     "ViewId": {
       "$ref": "#/$defs/AppId"
@@ -1457,13 +1457,17 @@
           "properties": {
             "x-air-app": {
               "type": "object",
-              "required": ["version", "view"],
+              "required": ["version", "view", "styles"],
               "properties": {
                 "version": {
                   "$ref": "#/$defs/Version"
                 },
                 "view": {
                   "$ref": "#/$defs/ViewContext"
+                },
+                "styles": {
+                  "description": "The field styles of the app file at the connect. The host page gives the frame the style variables that it gives, and x-air-ide/styles names each later change.",
+                  "enum": ["all", "neutral", "none"]
                 }
               }
             }
@@ -1707,6 +1711,7 @@
             "x-air-ide/resync",
             "x-air-ide/subscriptionEnded",
             "x-air-ide/log",
+            "x-air-ide/styles",
             "x-air-app/event",
             "x-air-app/callEvent",
             "x-air-app/progress",
@@ -1903,6 +1908,33 @@
                   "dropped": {
                     "type": "integer",
                     "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/styles"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "description": "A change of the field styles of the app file, to each bound page of the app. The host page gives an initialized frame host-context-changed with the variables of the new value, and the empty value for each variable that the frame holds and the new value leaves out.",
+                "type": "object",
+                "required": ["channel", "styles"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppLinkChannel"
+                  },
+                  "styles": {
+                    "enum": ["all", "neutral", "none"]
                   }
                 }
               }
@@ -2763,6 +2795,10 @@
         },
         "agentTools": {
           "enum": ["none", "model"]
+        },
+        "styles": {
+          "description": "The field styles of the app file, all when the file has none. A project entry has all. The page link names it to the host page of each view.",
+          "enum": ["all", "neutral", "none"]
         },
         "problem": {
           "oneOf": [

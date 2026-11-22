@@ -314,8 +314,48 @@ pub struct IdeAppStatus {
   pub current: bool,
 }
 
-/// Writes `~/.air/apps/branch-deck.yaml` and its icons for this binary, replacing what is there; the IDE watches the
-/// directory and shows the app at once. Answers the file
+/// The field `styles` of the app file: the variables of the theme of the IDE that Air sends the views. The user may edit
+/// it in the file, and an install keeps that value
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdeAppStyles {
+  /// Every variable: the status tones of the IDE too, whose info is the color of a link and no violet of merged
+  All,
+  /// The surfaces, the text, the borders and the radii of the IDE; the status tones stay the page's
+  Neutral,
+  /// No variable: the page shows its own theme, light or dark as the IDE
+  None,
+}
+
+impl IdeAppStyles {
+  /// What an install writes when the file names no value: the page is one surface with the IDE, and merged stays violet
+  pub const DEFAULT: Self = Self::Neutral;
+
+  const fn as_str(self) -> &'static str {
+    match self {
+      Self::All => "all",
+      Self::Neutral => "neutral",
+      Self::None => "none",
+    }
+  }
+
+  /// The value of the top-level line `styles:` of the app file `text`, when it names one of the three values
+  pub fn of_file(text: &str) -> Option<Self> {
+    let line = text.lines().find_map(|line| line.strip_prefix("styles:"))?;
+    let value = line.split('#').next().unwrap_or_default().trim().trim_matches(['"', '\'']);
+    [Self::All, Self::Neutral, Self::None].into_iter().find(|styles| styles.as_str() == value)
+  }
+}
+
+/// The value of `styles` that an install of the app file `file` writes: the value the file has, else the default
+fn ide_app_styles_of(file: &Path) -> IdeAppStyles {
+  std::fs::read_to_string(file)
+    .ok()
+    .and_then(|text| IdeAppStyles::of_file(&text))
+    .unwrap_or(IdeAppStyles::DEFAULT)
+}
+
+/// Writes `~/.air/apps/branch-deck.yaml` and its icons for this binary, replacing what is there but the value of
+/// `styles` (`IdeAppStyles`); the IDE watches the directory and shows the app at once. Answers the file
 ///
 /// # Errors
 /// No home directory, a binary the command can't tell or one that macOS runs translocated, a failed write
@@ -330,8 +370,9 @@ pub fn install_ide_app(environment: &Environment) -> Result<String, CliError> {
     let icon = icons.join(name);
     write_atomically(&icon, ide_icon(color).as_bytes(), AtomicWrite::default()).map_err(|e| io_error(&icon, &e))?;
   }
+  let text = ide_app_text(&target, &ide_app_args(&target), ide_app_styles_of(&file));
   // the IDE reads the file whenever it changes: never a cut one
-  write_atomically(&file, ide_app_text(&target, &ide_app_args(&target)).as_bytes(), AtomicWrite::default()).map_err(|e| io_error(&file, &e))?;
+  write_atomically(&file, text.as_bytes(), AtomicWrite::default()).map_err(|e| io_error(&file, &e))?;
   Ok(display(&file))
 }
 
@@ -358,11 +399,13 @@ pub fn uninstall_ide_app(environment: &Environment) -> Result<Option<String>, Cl
   Ok(Some(display(&file)))
 }
 
-/// The app file of the IDE when it exists, without writing anything
+/// The app file of the IDE when it exists, without writing anything; it is current when it is what an install writes
+/// now with the value of `styles` it has
 pub fn ide_app_status(environment: &Environment) -> Option<IdeAppStatus> {
   let file = ide_app_file(environment.home.as_deref()?);
   let text = std::fs::read_to_string(&file).ok()?;
-  let current = app_binary(environment).is_ok_and(|target| text == ide_app_text(&target, &ide_app_args(&target)));
+  let styles = IdeAppStyles::of_file(&text).unwrap_or(IdeAppStyles::DEFAULT);
+  let current = app_binary(environment).is_ok_and(|target| text == ide_app_text(&target, &ide_app_args(&target), styles));
   Some(IdeAppStatus { file: display(&file), current })
 }
 
@@ -371,14 +414,17 @@ pub fn ide_app_args(target: &Path) -> Vec<&'static str> {
   cli_subcommand(target).into_iter().chain(["mcp"]).collect()
 }
 
-/// The app file that starts `command` with `args`, as `docs/design/ide-embedding/protocol/examples/branch-deck.yaml` has
-/// it for each OS; each string is a JSON string, which YAML reads as it is (a Windows path keeps its backslashes)
-pub fn ide_app_text(command: &Path, args: &[&str]) -> String {
+/// The app file that starts `command` with `args`, its field `styles` set to `styles`, as
+/// `docs/design/ide-embedding/protocol/examples/branch-deck.yaml` has it for each OS; each string is a JSON string, which
+/// YAML reads as it is (a Windows path keeps its backslashes)
+pub fn ide_app_text(command: &Path, args: &[&str], styles: IdeAppStyles) -> String {
   let quote = |text: &str| serde_json::Value::from(text).to_string();
   let args = args.iter().map(|arg| quote(arg)).collect::<Vec<_>>().join(", ");
   let command = quote(&display(command));
+  let styles = styles.as_str();
   format!(
     r#"# Branch Deck writes this file (Settings → Tools → IntelliJ IDEA) and deletes it (Remove there); an install writes it anew.
+# An install keeps the value of styles: all (every variable of the theme of the IDE), neutral (no status tones) or none.
 format: 1
 id: {IDE_APP_ID}
 name: Branch Deck
@@ -416,6 +462,7 @@ actions:
     run: {{ view: settings }}
 agent:
   tools: none
+styles: {styles}
 "#
   )
 }

@@ -3,19 +3,18 @@ use crate::fixture_test::assert_covered;
 use crate::fixture_test::environment;
 #[cfg(unix)]
 use crate::fixture_test::run_json;
-use crate::install::{IDE_APPS_DIR, IdeAppStatus, ide_app_args, ide_app_status, ide_app_text, install_ide_app, refuse_temporary_location, uninstall_ide_app};
+use crate::install::{IDE_APPS_DIR, IdeAppStatus, IdeAppStyles, ide_app_args, ide_app_status, ide_app_text, install_ide_app, refuse_temporary_location, uninstall_ide_app};
 #[cfg(unix)]
 use crate::install::{InstallStatus, SKILL_DIRS, SKILL_NAME, install_status};
 #[cfg(unix)]
 use bd_core::bd_command::{BdCommand, bd_command};
 use bd_core::bd_command::{app_binary, app_binary_path};
+use bd_core::context::Environment;
 use domain_types::error::ErrorCode;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-#[cfg(unix)]
 use std::path::PathBuf;
-#[cfg(unix)]
 use tempfile::TempDir;
 
 /// A home directory and an app binary in it, with `~/.local/bin` on `PATH`
@@ -341,7 +340,7 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
   let command = "/Applications/BranchDeck.app/Contents/MacOS/branch-deck";
   expected["server"]["command"] = command.into();
   expected["server"]["args"] = json!(["cli", "mcp"]);
-  let text = ide_app_text(Path::new(command), &["cli", "mcp"]);
+  let text = ide_app_text(Path::new(command), &["cli", "mcp"], IdeAppStyles::DEFAULT);
   assert_eq!(read_yaml(&text), expected);
   // the order of the views is the order of the tabs of the tool window: Branches (the main view), Reviews, Landing, Activity
   let tabs: Vec<usize> = ["\n  main:", "\n  reviews:", "\n  landing:", "\n  activity:"]
@@ -357,7 +356,7 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
 
   // a Windows path keeps its backslashes
   let windows = r"C:\Program Files\Branch Deck\brd.exe";
-  let file = read_yaml(&ide_app_text(Path::new(windows), &["mcp"]));
+  let file = read_yaml(&ide_app_text(Path::new(windows), &["mcp"], IdeAppStyles::DEFAULT));
   assert_eq!((&file["server"]["command"], &file["server"]["args"]), (&windows.into(), &json!(["mcp"])));
 }
 
@@ -368,18 +367,24 @@ fn the_ide_runs_brd_mcp_with_the_app_binary_and_mcp_with_brd() {
   assert_eq!(ide_app_args(Path::new("/opt/branch-deck/brd")), ["mcp"]);
 }
 
-#[test]
-fn installs_the_ide_app_for_this_binary_and_removes_it() {
-  let home = tempfile::tempdir().unwrap();
-  let home = std::fs::canonicalize(home.path()).unwrap();
+/// The app binary of Branch Deck in a new home directory, with `brd.exe` beside it, which Windows runs: the directory
+/// that holds the home, the home and the environment of the binary
+fn app_in_new_home() -> (TempDir, PathBuf, Environment) {
+  let dir = tempfile::tempdir().unwrap();
+  let home = std::fs::canonicalize(dir.path()).unwrap();
   let app = home.join("BranchDeck/branch-deck");
   std::fs::create_dir_all(app.parent().unwrap()).unwrap();
   std::fs::write(&app, "app").unwrap();
-  // Windows runs `brd.exe` beside the app
   std::fs::write(app.with_file_name("brd.exe"), "brd").unwrap();
   let mut environment = environment(&home);
   environment.home = Some(home.clone());
   environment.executable = Some(app);
+  (dir, home, environment)
+}
+
+#[test]
+fn installs_the_ide_app_for_this_binary_and_removes_it() {
+  let (_dir, home, environment) = app_in_new_home();
   let target = app_binary(&environment).unwrap();
   let apps = home.join(IDE_APPS_DIR);
   let file = apps.join("branch-deck.yaml");
@@ -388,7 +393,7 @@ fn installs_the_ide_app_for_this_binary_and_removes_it() {
 
   assert_eq!(install_ide_app(&environment).unwrap(), file.to_string_lossy());
   let text = std::fs::read_to_string(&file).unwrap();
-  assert_eq!(text, ide_app_text(&target, &ide_app_args(&target)));
+  assert_eq!(text, ide_app_text(&target, &ide_app_args(&target), IdeAppStyles::DEFAULT));
   assert_eq!(read_yaml(&text)["server"]["command"], Value::from(target.to_string_lossy().into_owned()));
   for icon in ["branch-deck.svg", "branch-deck_dark.svg"] {
     assert!(std::fs::read_to_string(icons.join(icon)).unwrap().starts_with("<svg "), "{icon}");
@@ -400,7 +405,7 @@ fn installs_the_ide_app_for_this_binary_and_removes_it() {
   assert_eq!(ide_app_status(&environment), Some(installed.clone()));
 
   // the file of another Branch Deck: an install writes it anew
-  std::fs::write(&file, ide_app_text(Path::new("/old/branch-deck"), &["cli", "mcp"])).unwrap();
+  std::fs::write(&file, ide_app_text(Path::new("/old/branch-deck"), &["cli", "mcp"], IdeAppStyles::DEFAULT)).unwrap();
   assert_eq!(
     ide_app_status(&environment),
     Some(IdeAppStatus {
@@ -419,4 +424,36 @@ fn installs_the_ide_app_for_this_binary_and_removes_it() {
   assert!(icons.join("other.svg").exists());
   assert_eq!(ide_app_status(&environment), None);
   assert_eq!(uninstall_ide_app(&environment).unwrap(), None);
+}
+
+#[test]
+fn an_install_keeps_the_styles_the_user_set_in_the_ide_app_file() {
+  let (_dir, home, environment) = app_in_new_home();
+  let file = home.join(IDE_APPS_DIR).join("branch-deck.yaml");
+  install_ide_app(&environment).unwrap();
+  assert_eq!(read_yaml(&std::fs::read_to_string(&file).unwrap())["styles"], Value::from("neutral"));
+  let current = Some(IdeAppStatus {
+    file: file.to_string_lossy().into_owned(),
+    current: true,
+  });
+
+  // the user sets the field in the file: it is still the file of this binary, and an install keeps the value
+  for (line, styles) in [("styles: all", "all"), ("styles: \"none\"   # the page's own theme", "none")] {
+    let text = std::fs::read_to_string(&file).unwrap();
+    let before = text.lines().find(|it| it.starts_with("styles:")).unwrap().to_owned();
+    std::fs::write(&file, text.replace(&before, line)).unwrap();
+    // a comment on the line is no text that an install writes, so only the plain line is current before the install
+    assert_eq!(ide_app_status(&environment).map(|status| status.current), Some(!line.contains('#')), "{line}");
+    install_ide_app(&environment).unwrap();
+    assert_eq!(read_yaml(&std::fs::read_to_string(&file).unwrap())["styles"], Value::from(styles), "{line}");
+    assert_eq!(ide_app_status(&environment), current, "{line}");
+  }
+
+  // a value that Air does not know: an install writes the default
+  let text = std::fs::read_to_string(&file).unwrap().replace("styles: none", "styles: blue");
+  std::fs::write(&file, text).unwrap();
+  assert_eq!(ide_app_status(&environment).map(|status| status.current), Some(false));
+  install_ide_app(&environment).unwrap();
+  assert_eq!(read_yaml(&std::fs::read_to_string(&file).unwrap())["styles"], Value::from("neutral"));
+  assert_eq!(ide_app_status(&environment), current);
 }
