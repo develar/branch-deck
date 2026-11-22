@@ -582,7 +582,7 @@ fn is_bare_use(summary: &FileSummary, reference: &code_symbols::summary::Referen
 }
 
 /// The packages whose names a file of `language` sees without an import
-fn is_default_package(language: Language, path: &[&str]) -> bool {
+pub(crate) fn is_default_package(language: Language, path: &[&str]) -> bool {
   const KOTLIN: [&[&str]; 10] = [
     &["kotlin"],
     &["kotlin", "annotation"],

@@ -588,6 +588,112 @@ fn a_use_of_a_name_another_commit_imports_in_the_same_file_is_an_edge() {
   );
 }
 
+/// The Kotlin test before the range of `jvm_imports`: the platform declares `JBPanelWithEmptyText` and `JBUI`, outside
+/// the range
+const RENDERER_TEST: &str = "package p\n\nclass RendererTest {\n  fun first() = 1\n}\n";
+
+/// `RENDERER_TEST` with the plain imports `imports` and the functions `body` after `first`
+fn renderer_test(imports: &str, body: &str) -> String {
+  RENDERER_TEST
+    .replacen("package p\n", &format!("package p\n{imports}"), 1)
+    .replacen("  fun first() = 1\n", &format!("  fun first() = 1\n{body}"), 1)
+}
+
+/// The Java class before the range of `jvm_imports`
+const LANES: &str = "package q;\n\npublic class Lanes {\n  void first() {}\n}\n";
+
+/// `LANES` with the plain imports `imports` and the methods `body` after `first`
+fn lanes(imports: &str, body: &str) -> String {
+  LANES
+    .replacen("package q;\n", &format!("package q;\n{imports}"), 1)
+    .replacen("  void first() {}\n", &format!("  void first() {{}}\n{body}"), 1)
+}
+
+/// The Safe Push of genui-flakes (2026-11-22): a commit of `a2ui-v1` gave a test the plain import of
+/// `JBPanelWithEmptyText`, a type outside the range, with a use; a later commit of another branch added a bare use
+/// beside it, git merged it onto master without the import, and the build failed. A bare use of a name that a plain
+/// Kotlin or Java import of another commit binds in the same file needs that commit: a type, the head of a qualified
+/// name (`JBUI.scale`, `TimeUnit.SECONDS`), a function of Java's `import static`, and a Kotlin function at the top level
+#[test]
+fn a_bare_use_of_a_name_a_plain_jvm_import_of_another_commit_binds_is_an_edge() {
+  let kotlin = "\nimport com.intellij.ui.components.JBPanelWithEmptyText\nimport com.intellij.util.ui.JBUI\nimport com.intellij.util.text.nullize\n";
+  let java = "\nimport java.util.concurrent.TimeUnit;\nimport static com.intellij.openapi.util.text.StringUtil.isEmpty;\n";
+  let a_kotlin = "\n  fun panel() = JBPanelWithEmptyText()\n\n  fun gap() = JBUI.scale(1)\n\n  fun blank(value: String) = nullize(value)\n";
+  let a_java = "\n  long wait() { return TimeUnit.SECONDS.toMillis(1); }\n\n  boolean blank(String s) { return isEmpty(s); }\n";
+  let b_kotlin =
+    "\n  fun warmUp() {\n    JBPanelWithEmptyText().emptyText.text = \"warm-up\"\n  }\n\n  fun inset() = JBUI.scale(2)\n\n  fun label(value: String) = nullize(value)\n";
+  let b_java = "\n  long pause() { return TimeUnit.SECONDS.toMillis(2); }\n\n  boolean none(String s) { return isEmpty(s); }\n";
+  let (test, class) = ("impl/testSrc/p/RendererTest.kt", "impl/src/q/Lanes.java");
+  let mut range = Range::default();
+  range
+    .baseline(&[(test, RENDERER_TEST), (class, LANES)])
+    .commit(&[(test, Some(&renderer_test(kotlin, a_kotlin))), (class, Some(&lanes(java, a_java)))])
+    .commit(&[
+      (test, Some(&renderer_test(kotlin, &format!("{a_kotlin}{b_kotlin}")))),
+      (class, Some(&lanes(java, &format!("{a_java}{b_java}")))),
+    ]);
+  assert_eq!(
+    edges(&range.in_modules(&["impl"])),
+    [(
+      1,
+      0,
+      vec![
+        link("JBPanelWithEmptyText", Evidence::Import),
+        link("JBUI", Evidence::Import),
+        link("TimeUnit", Evidence::Import),
+        link("isEmpty", Evidence::Import),
+        link("nullize", Evidence::Import),
+      ]
+    )]
+  );
+}
+
+/// A use needs no plain import of another commit where the import is not the commit's to give or not what the name
+/// resolves by: the baseline has the import, the commit of the use adds it itself (after another commit removed it), a
+/// wildcard import of the same package gives the name too, the import is of the file's own package, the file declares
+/// the name, or a lambda's receiver may take a bare call of a function (`with(items) { add(1) }`)
+#[test]
+fn a_use_that_a_plain_jvm_import_of_another_commit_does_not_decide_is_no_edge() {
+  let panel = "\nimport com.intellij.ui.components.JBPanelWithEmptyText\n";
+  let first_use = "\n  fun panel() = JBPanelWithEmptyText()\n";
+  let second_use = "\n  fun warmUp() = JBPanelWithEmptyText()\n";
+  let range_of = |baseline_imports: &str, imports: &str, body: &str| {
+    let path = "impl/testSrc/p/RendererTest.kt";
+    let mut range = Range::default();
+    range
+      .baseline(&[(path, &renderer_test(baseline_imports, ""))])
+      .commit(&[(path, Some(&renderer_test(&format!("{baseline_imports}{imports}"), first_use)))])
+      .commit(&[(path, Some(&renderer_test(&format!("{baseline_imports}{imports}"), &format!("{first_use}{body}"))))]);
+    edges(&range.in_modules(&["impl"]))
+  };
+  assert_eq!(range_of(panel, "", second_use), [], "the baseline has the import");
+  assert_eq!(
+    range_of("\nimport com.intellij.ui.components.*\n", panel, second_use),
+    [],
+    "a wildcard import of its package"
+  );
+  assert_eq!(range_of("", "\nimport p.Panel\n", "\n  fun warmUp() = Panel()\n"), [], "the file's own package");
+  assert_eq!(
+    range_of("", panel, "\n  class JBPanelWithEmptyText\n\n  fun warmUp() = JBPanelWithEmptyText()\n"),
+    [],
+    "a declaration of the file"
+  );
+  assert_eq!(
+    range_of("", "\nimport p.util.add\n", "\n  fun fill(items: MutableList<Int>) = with(items) { add(1) }\n"),
+    [],
+    "a lambda's receiver"
+  );
+
+  let path = "impl/testSrc/p/RendererTest.kt";
+  let mut range = Range::default();
+  range
+    .baseline(&[(path, RENDERER_TEST)])
+    .commit(&[(path, Some(&renderer_test(panel, first_use)))])
+    .commit(&[(path, Some(RENDERER_TEST))])
+    .commit(&[(path, Some(&renderer_test(panel, second_use)))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [], "the commit of the use adds the import itself");
+}
+
 const MANIFEST_BEFORE: &str = "pub struct Manifest {\n  pub name: String,\n}\n";
 
 /// The links of the one edge from a commit that writes `source` in `avl_guest` to a commit of `avl_trace` that adds an

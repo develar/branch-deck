@@ -15,7 +15,8 @@
 //! - **An import is a name too.** The name a private import of the range binds (a Rust `use`, a TypeScript import, a
 //!   Kotlin alias) is needed beside the declaration it names, by a bare use (`Path`, also of `Path::new`), where the
 //!   import reaches: its file, and in Rust its module and the modules below (`use super::*`). It is no alternative to the
-//!   declaration (`of_kind`): a use needs both commits.
+//!   declaration (`of_kind`): a use needs both commits. A plain Kotlin or Java import binds no name in the summary, so
+//!   `jvm_imports` follows the commit that added it, also of a name declared outside the range (decision 30).
 //! - **A key has entries.** The key of a JVM type or a member of one holds each overload and constructor with the
 //!   step that made its form (`Entry`, `Origin`); a use needs the newest commit before its own that every entry it may
 //!   mean needs (`steps_of`, `lineage`), told apart by its arguments where they can (`accepts_call`). A commit whose
@@ -44,11 +45,14 @@ mod bazel_resolution;
 pub mod declaration_checks;
 #[path = "dotnet_resolution.rs"]
 mod dotnet_resolution;
+#[path = "jvm_imports.rs"]
+mod jvm_imports;
 
 /// Why a use means a declaration another commit adds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Evidence {
-  /// An import or `use` of it, an alias included
+  /// An import or `use` of it, an alias included; or the plain Kotlin or Java import of its name in the file of the use,
+  /// which the other commit added (`jvm_imports`)
   Import,
   /// A wildcard import of its package or module, for a type
   StarImport,
@@ -410,6 +414,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     })
     .collect();
   let mut index: Index<'_> = HashMap::new();
+  let mut plain_imports = jvm_imports::JvmImports::default();
   // (from, to) -> links
   let mut edges: BTreeMap<(usize, usize), Vec<SymbolLink>> = BTreeMap::new();
   let mut entities: Vec<BTreeSet<String>> = vec![BTreeSet::new(); commits.len()];
@@ -595,6 +600,11 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       reached.push((before, after));
     }
 
+    // the plain imports of Kotlin and Java that the commit adds or removes, before its uses
+    for (change, before, after) in changed {
+      plain_imports.follow(change, before.as_ref(), after.as_ref(), position);
+    }
+
     // the uses on the added lines
     for (change, _, after) in changed {
       let Some(use_site) = after.as_ref().filter(|ctx| !ctx.summary.is_degraded()) else {
@@ -620,7 +630,9 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         let bound = index
           .get(use_site.summary.name(reference.name))
           .and_then(|candidates| resolve_kind(input, use_site, reference, candidates, true, position));
-        for (owner, name, declared_in, evidence) in found.into_iter().chain(bound) {
+        // and the plain import of its name that another commit added
+        let imported = plain_imports.resolve(use_site, reference, position);
+        for (owner, name, declared_in, evidence) in found.into_iter().chain(bound).chain(imported) {
           edges.entry((position, owner)).or_default().push(SymbolLink {
             name,
             declared_in,

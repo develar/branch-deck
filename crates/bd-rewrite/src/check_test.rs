@@ -887,6 +887,43 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   assert_eq!((exit_code, output.get("missing_declarations")), (0, None), "{output}");
 }
 
+/// The Safe Push of genui-flakes (2026-11-22): `a2ui` gives a test the plain import of `JBPanelWithEmptyText`, a type of
+/// the platform outside the range, and a use; `flakes` adds a bare use in another hunk of the file. git builds both,
+/// and the check names the import `flakes` misses (`missing_declaration`, evidence `import`), which fails the check
+#[test_log::test]
+fn a_branch_that_uses_a_plain_import_another_branch_adds_is_a_missing_declaration() {
+  let test = "impl/testSrc/p/RendererTest.kt";
+  let class = |imports: &str, after_first: &str, after_third: &str| {
+    format!("package p\n{imports}\nclass RendererTest {{\n  fun first() = 1\n{after_first}\n  fun second() = 2\n\n  fun third() = 3\n{after_third}}}\n")
+  };
+  let import = "\nimport com.intellij.ui.components.JBPanelWithEmptyText\n";
+  let panel = "\n  fun panel() = JBPanelWithEmptyText()\n";
+  let repo = repo_with_baseline(&[(test, &class("", "", ""))]);
+  let imports = commit_file(&repo, "(a2ui) Render the panel", test, &class(import, panel, ""), 1_700_000_100);
+  let warm_up = "\n  fun warmUp() {\n    JBPanelWithEmptyText().emptyText.text = \"warm-up\"\n  }\n";
+  let uses = commit_file(&repo, "(flakes) Warm up the panel", test, &class(import, panel, warm_up), 1_700_000_200);
+
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
+  assert_eq!(branch(&output, "flakes")["result"], json!("missing_declaration"), "{output}");
+  assert_eq!(branch(&output, "a2ui")["result"], json!("ok"), "{output}");
+  assert_eq!(
+    output["missing_declarations"],
+    json!([{
+      "branch": "flakes",
+      "identifier": "JBPanelWithEmptyText",
+      "file": test,
+      "line": 15,
+      "used_by": short_id(&uses),
+      "declared_by": short_id(&imports),
+      "change_file": test,
+      "declared_in": "a2ui",
+      "evidence": "import",
+    }])
+  );
+  assert_check_schema(&repo, &output);
+}
+
 /// The Safe Push failure of 2026-10-17: `xyz` overrides an overload that `abc` adds, git builds both, and the check
 /// names the overload `xyz` misses, by the evidence of the override, which fails the check
 #[test_log::test]

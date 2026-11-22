@@ -22,6 +22,7 @@ targets:
   - psi-syntax:crates/js-syntax/src/tsconfig.rs
   - crates/sync-core/src/config_snapshot.rs
   - crates/trial-check/src/symbol_dependencies.rs
+  - crates/trial-check/src/jvm_imports.rs
   - crates/trial-check/src/module_roots.rs
   - crates/trial-check/src/dangling_references.rs
   - crates/trial-check/src/declaration_checks.rs
@@ -1474,6 +1475,32 @@ through an import another commit adds, needs both commits.
 - **WHEN** one commit adds an item, another its import, and a third uses it
 - **THEN** the third depends on both
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_needs_the_import_beside_the_item`)
+
+### Requirement: Edges: A use needs the plain JVM import another commit adds to its file
+
+A bare use of a name that a plain Kotlin or Java import binds (no alias, `import static` too) MUST be an edge to the
+commit that added the import to the file, whatever declares the name. It MUST be no edge when the commit of the use
+adds the import itself, the baseline has it, or the file gives the name another way.
+
+#### Scenario: A use of a name the import of another commit binds
+- **WHEN** a commit adds the plain import of `JBPanelWithEmptyText`, a type outside the range, to a Kotlin file with a
+  use, and a later commit adds a bare use in the same file; or the uses are `JBUI.scale(2)`, a Java
+  `TimeUnit.SECONDS` and a function of `import static`
+- **THEN** each is an edge to the commit of the import, evidence `import`
+  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_bare_use_of_a_name_a_plain_jvm_import_of_another_commit_binds_is_an_edge`)
+
+#### Scenario: A use that the import of another commit does not decide
+- **WHEN** the baseline has the import, the commit of the use adds it itself after another commit removed it, a
+  wildcard import of the same package gives the name, the import is of the file's own package, the file declares the
+  name, or the use is a call in a lambda with a receiver
+- **THEN** it is no edge
+  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_use_that_a_plain_jvm_import_of_another_commit_does_not_decide_is_no_edge`)
+
+#### Scenario: The branch without the commit of the import
+- **WHEN** branch `a2ui` adds the import of `JBPanelWithEmptyText` with a use, and branch `flakes` adds a bare use in
+  another hunk of the file, which git merges onto the baseline
+- **THEN** `brd check` reports `flakes` as `missing_declaration`, `declared_by` the commit of `a2ui`, evidence `import`
+  [@test] crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_plain_import_another_branch_adds_is_a_missing_declaration`)
 
 ### Requirement: Edges: A Rust path through the imports of its file ends
 

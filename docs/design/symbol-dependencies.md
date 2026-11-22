@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-11-21
+**Updated:** 2026-11-22
 **Tags:** [dependencies, psi-syntax, rust-syntax, js-syntax, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -48,7 +48,8 @@ narrower reach) and a declaration a branch adds that its tree already has. `symb
 declaration another commit of the range adds or gives a new form, with evidence that the use means it. Of a Kotlin or
 Java type a declaration is each overload and each constructor, so an override, a call that its arguments select and a
 use that only a new form accepts (a wider reach, `open`, a default, a new or renamed parameter, a type made public)
-need the commit of that overload or form.
+need the commit of that overload or form. A bare use of a name that a plain Kotlin or Java import of another commit
+binds in the same file needs the commit of the import, whatever declares the name (decision 30).
 
 ## Design
 
@@ -82,7 +83,7 @@ flowchart TD
    it would fuse every issue that uses a shared helper into one branch.
 
 2. **Decision**: the index is the declarations the range adds or changes, the names its imports bind among them
-   (decision 19), not the repository.
+   (decision 19), and the plain Kotlin and Java imports it adds (decision 30), not the repository.
    **Rationale**: only those can make one commit of the range need another, and they are a few hundred even in a
    monorepo of 1.4 million files; no build, no language server and no index of the tree is needed. A member key a
    commit changes brings the overloads its file had before the range along (decision 7).
@@ -593,8 +594,8 @@ flowchart TD
     below it had given `execute.rs`. Only a `pub use` was an entry then, so the branch had no edge and was built alone on
     master; its insertion next to the lines that commit rewrote conflicted, the conflict resolved by words, and the
     landing gate found no missing declaration. With the import an entry, the gate refuses such a start as it refuses any
-    `MissingDeclaration`. A Java import and a Kotlin import without an alias bind no name in the summary, so a use of
-    such an import of another commit in the same file is still no edge: a limit.
+    `MissingDeclaration`. A Java import and a Kotlin import without an alias bind no name in the summary: decision 30
+    follows them apart.
 
 20. **Decision**: a Java file is read by psi-syntax's `java-syntax`, a port of IntelliJ's own Java parser whose tree is
     IntelliJ's PSI, at the highest language level, and summarized by a walk of that tree (`java/summary.rs`) by the
@@ -902,6 +903,33 @@ flowchart TD
     [@test] crates/trial-check/src/lost_bindings_test.rs (`a_replay_brings_the_lost_bindings_of_its_copy_in_two_processes`, `a_replay_that_changes_no_file_of_a_copy_reads_no_summary`)
     [@test] crates/trial-check/src/landing_gate_test.rs (`a_commit_whose_branch_keeps_a_use_of_what_it_removes_refuses_the_start`)
 
+30. **Decision**: a plain import of Kotlin or Java (a name without an alias, Java's `import static` too) that a commit
+    of the range adds to a file is needed by a later commit that adds a bare use of the name in that file
+    (`jvm_imports`, `Evidence::Import`), whatever declares the name: the platform outside the range too. The commit of
+    the import is the one that added it to the file or changed the path it imports the name from; an import of the
+    baseline, or of a file the commit adds (a later change of it needs the commit by its lines already), has none. A
+    commit that removes the import removes the name, a rename takes it along, and a side the summary can't read drops
+    what the file had. A use is a type, a value or a call by the bare name, or the head of a qualified name with a
+    capital (`JBUI.scale`, `TimeUnit.SECONDS`), on an added line of a commit that doesn't add the import itself. It is
+    none where the file gives the name another way: a declaration of the name, a wildcard import of the import's own
+    package, an import of the file's own package or of a default one (`is_default_package`), and for a function or a
+    property by a lower-case name a scope where the import doesn't decide it (`import_decides`: a lambda's receiver, a
+    supertype, another import that may bring the name).
+    **Rationale**: the Safe Push of `genui-flakes` (2026-11-22) failed with `Unresolved reference
+    'JBPanelWithEmptyText'`: a commit of `a2ui-v1` gave `AgentSessionGenUiRendererServiceImplTest.kt` the import of
+    `com.intellij.ui.components.JBPanelWithEmptyText` with uses, and a later commit of `genui-flakes`, a root branch of
+    its own, added a bare use in another hunk of the file. git applied it onto master without the import, and
+    `brd check` said `ok`: the index holds only the declarations of the range (decision 2), and the platform's type is
+    none of them. The summary binds no name for a plain import, so the import is no `Binding` entry of decision 19;
+    `jvm_imports` follows the imports of each file of the range beside the index, from the summaries the range has read,
+    with no git process of its own. The other side, a commit that removes an import a later use of another branch needs,
+    is no edge: the later commit, authored after the removal, adds the import itself, and a move that brings the use
+    under the removal is a lost binding of the copy (decision 28). Limits: a wildcard import binds no name the summary
+    knows, so a use through a wildcard import of another commit is no edge; an inherited nested type or field of the
+    name that shadows an import of a capitalized name is left out.
+    [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_bare_use_of_a_name_a_plain_jvm_import_of_another_commit_binds_is_an_edge`, `a_use_that_a_plain_jvm_import_of_another_commit_does_not_decide_is_no_edge`)
+    [@test] crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_plain_import_another_branch_adds_is_a_missing_declaration`)
+
 ### Implementation Notes
 
 - `psi-syntax:crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and a revision of
@@ -957,7 +985,8 @@ flowchart TD
   accessors and the facade of the other JVM language (`accessor_names`, `accessor_fits`, `java_sees`, `boolean_name`,
   `through_facade`, `facade_of`), the receivers (`through_receiver`, `implicit_receiver`, `constructed_otherwise`,
   `of_another_receiver`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`,
-  `inherits_unseen`, `import_decides`), the paths of a static member (`static_paths`), the same-file rule
+  `inherits_unseen`, `import_decides`), the plain imports of Kotlin and Java that the range adds (`jvm_imports.rs`,
+  a child module, `JvmImports::follow` and `JvmImports::resolve`, decision 30), the paths of a static member (`static_paths`), the same-file rule
   (`names_another_type`, `on_unknown_receiver`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
   the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
   removal of the uses, the entities each commit changes.
