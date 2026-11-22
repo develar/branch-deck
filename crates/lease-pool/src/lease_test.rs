@@ -2,8 +2,8 @@ use crate::epoch::slot_epochs;
 #[cfg(unix)]
 use crate::lease::stop_servers;
 use crate::lease::{
-  DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, RECLAIM_ROOM, Reclaimed, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates,
-  stamp_reclaimed, stamp_returned,
+  DirtyCheck, GetStep, IdleCheck, Lease, LeaseState, LeaseStore, PATH_LIMIT, POOL_FILE, Pool, RECLAIM_ROOM, Reclaimed, Slot, SlotMark, commit_takeover, cut_paths, glob_matches,
+  is_unfinished, repository_name, seed_candidates, stamp_reclaimed, stamp_returned,
 };
 use crate::shrink::{next_free, shrink_order};
 use crate::trim::trim_order;
@@ -79,6 +79,147 @@ fn a_dirty_verdict_holds_while_one_dirty_path_has_its_stat() {
   assert!(gone.holds(slot));
   std::fs::write(slot.join(".gitignore"), "/deleted.txt\n").unwrap();
   assert!(!gone.holds(slot), "a new .gitignore");
+}
+
+/// The paths of a whole tree of idea-1 as a half-written slot lists them, deleted
+fn whole_tree() -> Vec<String> {
+  (0..100_000).map(|n| format!("community/platform/module-{n}/src/com/intellij/File{n}.kt")).collect()
+}
+
+/// An idle lease whose check found `paths` changed and left out `paths_omitted` more: a brd before the cut kept them all
+fn idle_lease(paths: Vec<String>, paths_omitted: usize) -> Lease {
+  Lease {
+    idle_check: Some(IdleCheck {
+      at: 1,
+      mark: SlotMark::default(),
+      home_tip: None,
+      commits: Vec::new(),
+      paths,
+      paths_omitted,
+      operation: None,
+    }),
+    ..Lease::marker("idle", "idle", LeaseState::Ready)
+  }
+}
+
+/// The local changes of a dirty free slot and of an idle lease in the state: the first `PATH_LIMIT`, and the count of
+/// the rest
+fn kept_paths(store: &LeaseStore) -> Vec<(usize, usize)> {
+  let dirty = store
+    .slots
+    .iter()
+    .filter_map(|slot| slot.dirty_check.as_ref())
+    .map(|check| (check.paths.len(), check.paths_omitted));
+  let idle = store
+    .slots
+    .iter()
+    .filter_map(|slot| slot.lease.as_ref()?.idle_check.as_ref())
+    .map(|check| (check.paths.len(), check.paths_omitted));
+  dirty.chain(idle).collect()
+}
+
+/// A pool of 30 slots keeps a small state with a whole tree dirty in a free slot and in an idle lease: the state keeps
+/// the first `PATH_LIMIT` local changes and the count of the rest. Two half-written slots of idea-1 listed 3.3 million
+/// paths, `leases.json` grew to 380 MB, and every change of the pool read and wrote it under its lock, longer than a
+/// return waited for that lock
+#[test]
+fn the_state_of_thirty_slots_stays_small_with_a_whole_tree_dirty() {
+  let dir = tempfile::tempdir().unwrap();
+  let pool = Pool::new(dir.path());
+  let mut slots: Vec<Slot> = (0..30).map(|n| returned_slot(dir.path(), n, Some(n), Some(n))).collect();
+  slots[0].dirty = true;
+  slots[0].dirty_check = Some(DirtyCheck::of(Path::new(&slots[0].path), whole_tree()));
+  // as the check of an idle lease records them
+  let (paths, omitted) = cut_paths(whole_tree(), 0);
+  slots[1].lease = Some(idle_lease(paths, omitted));
+  pool
+    .update(Duration::from_secs(10), |store| {
+      store.slots = slots;
+      Ok(())
+    })
+    .unwrap();
+  let size = std::fs::metadata(pool.state_dir().join(POOL_FILE)).unwrap().len();
+  assert!(size < 1_000_000, "{size} bytes");
+  let store = pool.read().unwrap();
+  assert_eq!(kept_paths(&store), [(PATH_LIMIT, 99_900), (PATH_LIMIT, 99_900)]);
+  // the count of a cut list is its whole length
+  let idle = store.slots[1].lease.as_ref().and_then(|lease| lease.idle_check.as_ref()).unwrap();
+  assert_eq!(idle.describe(), "100000 local change(s)");
+}
+
+/// The state of a brd before the cut is read with its paths cut, the count of the rest kept, and a read of the cut state
+/// cuts nothing more; the first change of the pool writes it small
+#[test]
+fn a_state_written_before_the_cut_is_read_cut_and_written_small() {
+  let dir = tempfile::tempdir().unwrap();
+  let pool = Pool::new(dir.path());
+  let mut dirty = returned_slot(dir.path(), 1, Some(1), Some(1));
+  dirty.dirty = true;
+  dirty.dirty_check = Some(DirtyCheck::of(Path::new(&dirty.path), Vec::new()));
+  let old = LeaseStore {
+    slots: vec![
+      dirty,
+      Slot {
+        lease: Some(idle_lease(whole_tree(), 0)),
+        ..returned_slot(dir.path(), 2, Some(2), Some(2))
+      },
+    ],
+    last_returned: Some(2),
+  };
+  let mut json = serde_json::to_value(&old).unwrap();
+  json["slots"][0]["dirty_check"]["paths"] = serde_json::json!(whole_tree());
+  std::fs::create_dir_all(pool.state_dir()).unwrap();
+  std::fs::write(pool.state_dir().join(POOL_FILE), serde_json::to_vec(&json).unwrap()).unwrap();
+  assert!(std::fs::metadata(pool.state_dir().join(POOL_FILE)).unwrap().len() > 10_000_000);
+
+  let read = pool.read().unwrap();
+  assert_eq!(kept_paths(&read), [(PATH_LIMIT, 99_900), (PATH_LIMIT, 99_900)]);
+  let again: LeaseStore = serde_json::from_value(serde_json::to_value(&read).unwrap()).unwrap();
+  assert_eq!(again, read);
+  pool
+    .update(Duration::from_secs(10), |store| {
+      store.last_returned = Some(3);
+      Ok(())
+    })
+    .unwrap();
+  let size = std::fs::metadata(pool.state_dir().join(POOL_FILE)).unwrap().len();
+  assert!(size < 100_000, "{size} bytes");
+}
+
+/// A slot whose add never finished (no name, never returned, no lease or an abandoned one) is no free slot: no get takes
+/// it, so neither the shrink nor the eviction keeps it as the slot of the next get. A slot returned once or leased is
+/// not one
+#[test]
+fn a_slot_whose_add_never_finished_is_not_the_next_free_slot() {
+  let dir = tempfile::tempdir().unwrap();
+  let unfinished = Slot {
+    name: String::new(),
+    ..returned_slot(dir.path(), 1, None, None)
+  };
+  let named = returned_slot(dir.path(), 2, None, None);
+  assert!(is_unfinished(&unfinished));
+  assert!(!is_unfinished(&named));
+  assert_eq!(next_free([&unfinished, &named].into_iter()).map(|slot| slot.name.clone()), Some("slot2".to_string()));
+  assert_eq!(next_free([&unfinished].into_iter()), None);
+
+  let returned = Slot {
+    name: String::new(),
+    ..returned_slot(dir.path(), 3, Some(1), Some(1))
+  };
+  assert!(!is_unfinished(&returned));
+  let adding = Slot {
+    lease: Some(Lease::marker("get", "get", LeaseState::Preparing)),
+    ..unfinished.clone()
+  };
+  assert!(!is_unfinished(&adding), "a get adds it now");
+  let killed = Slot {
+    lease: Some(Lease {
+      pid: u32::MAX,
+      ..Lease::marker("get", "get", LeaseState::Preparing)
+    }),
+    ..unfinished
+  };
+  assert!(is_unfinished(&killed), "its get is gone");
 }
 
 #[test]

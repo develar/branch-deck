@@ -405,15 +405,17 @@ pub fn move_slot(git_executor: &GitCommandExecutor, repository: &str, from: &str
 }
 
 /// Drop the linked worktree of the slot whose directory was at `path` from the repository of `git_common_dir`: one
-/// `worktree remove --force`, which deletes its admin directory. Only after the directory moved away (the trim of the
-/// pool moves it into the trash first, a rename): git would delete the files of a directory that is still there, so a
-/// `path` that exists is refused. It reads every admin directory, so it runs alone too (`register_slot`)
+/// `worktree remove --force --force`, which deletes its admin directory. Only after the directory moved away (the trim
+/// of the pool moves it into the trash first, a rename): git would delete the files of a directory that is still there,
+/// so a `path` that exists is refused. The second `--force` drops a lock too: a get killed in its clone left the lock of
+/// `register_slot` on the slot, and a slot whose add never finished is removed so (`lease::is_unfinished`). It reads
+/// every admin directory, so it runs alone too (`register_slot`)
 pub fn forget_slot(git_executor: &GitCommandExecutor, git_common_dir: &str, path: &Path) -> Result<()> {
   if path.symlink_metadata().is_ok() {
     bail!("{} still exists: a slot is forgotten only once its directory moved away", path.display());
   }
   let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
-  git_executor.execute_command(&["worktree", "remove", "--force", path], git_common_dir)?;
+  git_executor.execute_command(&["worktree", "remove", "--force", "--force", path], git_common_dir)?;
   Ok(())
 }
 

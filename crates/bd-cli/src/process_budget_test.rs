@@ -1944,6 +1944,37 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
   }
 }
 
+/// `brd lease get` that removes a slot whose add never finished before it adds one: the processes of a new slot (on macOS
+/// a clone of the source, never of the unfinished slot; elsewhere the registration and the full checkout) and one
+/// `worktree remove` of the unfinished slot, whose tree only moves into the trash; no `status` of it
+#[test]
+fn a_lease_get_that_removes_an_unfinished_slot() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let slot = free_slots(&environment, 1).remove(0);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let pool = Pool::new(std::path::Path::new(&canonical_path(std::path::Path::new(&context.dirs.git_common_dir))));
+  pool
+    .update(std::time::Duration::from_secs(10), |store| {
+      let unfinished = store.slots.iter_mut().find(|free| free.path == slot).unwrap();
+      unfinished.name = String::new();
+      unfinished.returned = None;
+      unfinished.returned_at = None;
+      Ok(())
+    })
+    .unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert_eq!(got.removed_unfinished.len(), 1, "{got:?}");
+  if cfg!(target_os = "macos") {
+    assert_git_processes(
+      &context.git,
+      &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 3)],
+    );
+  } else {
+    assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("worktree", 2)]);
+  }
+}
+
 /// `brd lease get` of a new slot in a repository that keeps objects of Git LFS, whose smudge filter downloads: the
 /// processes of a new slot (on macOS a clone, elsewhere the registration and the full checkout), its checkout with the
 /// pointers (`-c` options, no process), and one `git lfs pull` after the clones lock; a fake `git lfs` answers it

@@ -1160,7 +1160,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - A pool adds one slot at a time (`clones.lock` beside the state): a get that must add a slot while another adds one
   waits, and a slot a return frees meanwhile ends the wait and is leased instead (`reused: true`), within about a
   second, while the other clone still runs; a get whose turn comes while a slot is being returned or cleaned waits for
-  that slot rather than clone one; the free space is checked again once its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). The wait lasts
+  that slot rather than clone one; the free space is checked again once its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). Under the lock a get
+  first removes the slots whose add never finished (a get failed or was killed after it registered one, its tree half
+  written perhaps), which no get takes or clones (`removed_unfinished`: `path`, `dir`, `errors`). The wait lasts
   while the holder lives; a killed holder frees the lock. Each step goes to stderr as it starts, with the time since the
   get began, the wait with its holder; the answer lists the same steps with when each started (`steps`, `at_ms`):
 
@@ -1224,7 +1226,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.
 - `brd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`brd lease clean` cleans
-  it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease` (`holder_pid`,
+  it), `abandoned` (the get, the return or the clean of it died) or `unfinished` (its add never finished: the next get
+  that adds a slot removes it), `dirty`, `missing`, `lease` (`holder_pid`,
   `holder_alive`: whether the process the get ran for still runs; `idle` of a ready lease whose holder is gone:
   `idle`, or `idle_with_work` with the `commits`, `paths` or `operation` a check found; `taking_over` while a get
   checks one), `reclaimed` (the lease a takeover or a reclaim took from its dead holder), `free_bytes`,

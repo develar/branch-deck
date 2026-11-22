@@ -25,7 +25,7 @@
 //! that needs nothing more behind it.
 
 use crate::free_space::{AvailableBytes, Volume};
-use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, lease_rules_dir, prune_leased_slot, release_marker};
+use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, is_unfinished, lease_rules_dir, prune_leased_slot, release_marker};
 use crate::lease_clean::{CleanMode, CleanOverrides, CleanRule, Cleaned, Trash, apply_clean_rules, read_clean_rules};
 use crate::trim::{machine_pools, mark_free};
 use anyhow::{Context, Result};
@@ -384,9 +384,10 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
 }
 
 /// Of the free slots `free`, the one a get takes first, as `lease::reserve` orders them: clean before dirty, returned
-/// last first, then the first never returned (the first of the minimum, as the stable sort of `reserve` takes it)
+/// last first, then the first never returned (the first of the minimum, as the stable sort of `reserve` takes it). Never
+/// one whose add never finished (`lease::is_unfinished`), which no get takes
 pub fn next_free<'a>(free: impl Iterator<Item = &'a Slot>) -> Option<&'a Slot> {
-  free.min_by_key(|slot| (slot.dirty, Reverse(slot.returned)))
+  free.filter(|slot| !is_unfinished(slot)).min_by_key(|slot| (slot.dirty, Reverse(slot.returned)))
 }
 
 #[cfg(test)]

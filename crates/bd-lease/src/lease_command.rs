@@ -18,8 +18,8 @@ use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParam
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome, LeaseReclaimParams,
-  LeaseRefusal, LeaseReturnParams, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core,
-  lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
+  LeaseRefusal, LeaseReturnParams, PATH_LIMIT, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core,
+  lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, parse_age};
 use lease_pool::lease_notes::read_notes;
@@ -32,9 +32,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use sync_utils::list_cut::kept;
 use sync_utils::size::parse_size;
-
-/// How many local paths an error or a skipped slot names
-const PATH_LIMIT: usize = 100;
 
 #[derive(Debug, clap::Args)]
 pub struct LeaseArgs {
@@ -307,6 +304,10 @@ pub struct LeaseGetOutput {
   /// none
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_for_clone_ms: Option<u64>,
+  /// The slots whose add never finished (a get that failed or was killed after it registered one), which the get
+  /// removed before it added a slot: no lease had them, so they held no work; their trees wait in the trash
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub removed_unfinished: Vec<RemovedUnfinishedOutput>,
   /// The free space was below the minimum: the idle leases of the pools of this machine whose work landed, which the
   /// get returned before the trim, as `brd lease reclaim --idle` prints them; their slots are free
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -327,6 +328,17 @@ pub struct LeaseGetOutput {
   /// Each step as stderr printed it, with when it started: the time a step took is the start of the next one less its
   /// own, the last one ending with the get
   pub steps: Vec<GetStepOutput>,
+}
+
+/// A slot whose add never finished, which a get removed
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RemovedUnfinishedOutput {
+  pub path: String,
+  /// The directory moved into the trash with it: the number directory of the pool, else the slot
+  pub dir: String,
+  /// What failed after the slot left the state: the drop of its admin directory
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub errors: Vec<String>,
 }
 
 /// A step of `brd lease get`
@@ -559,6 +571,9 @@ pub struct IdleOutput {
   /// The local changes
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
+  /// How many local changes `paths` leaves out
+  #[serde(default, skip_serializing_if = "bd_core::sync_command::is_zero")]
+  pub paths_omitted: u32,
   /// A git operation in progress (`rebase`, `merge`, `cherry-pick`, `revert`, `bisect`) or an open resolve session
   #[serde(skip_serializing_if = "Option::is_none")]
   pub operation: Option<String>,
@@ -579,6 +594,7 @@ impl IdleOutput {
         checked_at: None,
         commits: Vec::new(),
         paths: Vec::new(),
+        paths_omitted: 0,
         operation: None,
       },
       Some(check) => Self {
@@ -593,6 +609,7 @@ impl IdleOutput {
           })
           .collect(),
         paths: cut(&check.paths),
+        paths_omitted: omitted_with(&check.paths, check.paths_omitted),
         operation: check.operation.clone(),
       },
     }
@@ -807,10 +824,10 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
       .skipped
       .iter()
       .map(|skipped| {
-        let (reason, paths, processes) = match &skipped.reason {
-          SkipReason::Dirty { paths } => (SkippedReason::Dirty, paths.as_slice(), Vec::new()),
-          SkipReason::Busy { processes } => (SkippedReason::Busy, &[][..], processes_output(processes)),
-          SkipReason::IdleWithWork { .. } => (SkippedReason::IdleWithWork, &[][..], Vec::new()),
+        let (reason, (paths, paths_omitted), processes) = match &skipped.reason {
+          SkipReason::Dirty { paths, omitted } => (SkippedReason::Dirty, (paths.as_slice(), *omitted), Vec::new()),
+          SkipReason::Busy { processes } => (SkippedReason::Busy, (&[][..], 0), processes_output(processes)),
+          SkipReason::IdleWithWork { .. } => (SkippedReason::IdleWithWork, (&[][..], 0), Vec::new()),
         };
         SkippedOutput {
           slot: skipped.name.clone(),
@@ -826,7 +843,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
             SkipReason::Dirty { .. } | SkipReason::Busy { .. } => None,
           },
           paths: cut(paths),
-          paths_omitted: omitted(paths),
+          paths_omitted: omitted_with(paths, paths_omitted),
           processes,
         }
       })
@@ -843,6 +860,15 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
+    removed_unfinished: got
+      .removed_unfinished
+      .iter()
+      .map(|removed| RemovedUnfinishedOutput {
+        path: removed.path.clone(),
+        dir: removed.dir.clone(),
+        errors: removed.errors.clone(),
+      })
+      .collect(),
     reclaimed: reclaimed_output(&got.reclaimed),
     trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
     shrunk: got.shrunk.as_ref().map(crate::trim_command::ShrunkOutput::of),
@@ -1145,8 +1171,9 @@ pub struct SlotOutput {
   pub slot: String,
   pub path: String,
   /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot),
-  /// `returning` (its return runs), `cleaning` (`brd lease clean` cleans it), or `abandoned` (the get, the return or the
-  /// clean died while it ran: the next get takes it as free)
+  /// `returning` (its return runs), `cleaning` (`brd lease clean` cleans it), `abandoned` (the get, the return or the
+  /// clean died while it ran: the next get takes it as free), or `unfinished` (its add never finished: no get takes it,
+  /// the next get that adds a slot removes it)
   pub state: SlotState,
   /// A get found local changes in the free slot: later gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1646,5 +1673,10 @@ fn cut(paths: &[String]) -> Vec<String> {
 
 /// How many paths `cut` leaves out
 fn omitted(paths: &[String]) -> u32 {
-  u32::try_from(paths.len() - kept(paths.len(), PATH_LIMIT)).unwrap_or(u32::MAX)
+  omitted_with(paths, 0)
+}
+
+/// How many paths `cut` leaves out of `paths`, which the state cut already, leaving out `before`
+fn omitted_with(paths: &[String], before: usize) -> u32 {
+  u32::try_from((paths.len() - kept(paths.len(), PATH_LIMIT)).saturating_add(before)).unwrap_or(u32::MAX)
 }

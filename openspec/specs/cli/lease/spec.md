@@ -806,6 +806,60 @@ kept its content, so the slot is dirty still. Otherwise it MUST run one `status`
 - **WHEN** a path was deleted, reverted or edited, as a clean by hand does, or the slot moved
 - **THEN** the get runs one `status` again
 
+### Requirement: Get: A slot whose add never finished is removed by the next get that adds a slot
+
+A free slot whose add never finished (no name, which only a get that ends writes, never returned, no live lease) holds
+no work: a get that failed or died after it registered the slot left it, its tree half written perhaps. No get MUST
+reserve it as free, run a `status` in it, end a wait for the clones lock for it, or clone it. A get that holds the
+clones lock MUST remove each one as the trim removes a free slot and name it (`removed_unfinished`); one with a process
+in it MUST stay (`busy`).
+
+#### Scenario: An unfinished slot beside a clean free slot
+- **GIVEN** a free slot whose add never finished, returned last, and a clean free slot
+- **WHEN** a get runs
+- **THEN** it reuses the clean slot and runs nothing in the unfinished one
+  [@test] crates/bd-lease/src/unfinished_test.rs (`a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot`)
+
+#### Scenario: No free slot left
+- **WHEN** a get adds a slot and a slot whose add never finished is in the pool
+- **THEN** it removes that slot, its directory, its registration and its entry, names it in `removed_unfinished`, and
+  adds a slot
+  [@test] crates/bd-lease/src/unfinished_test.rs (`a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_removes_an_unfinished_slot`)
+
+#### Scenario: A process in the unfinished slot
+- **WHEN** a process works in the unfinished slot
+- **THEN** the slot stays, skipped as `busy`, and the new slot is not cloned from it
+  [@test] crates/bd-lease/src/unfinished_test.rs (`an_unfinished_slot_with_a_process_in_it_stays_and_is_no_template`)
+
+#### Scenario: The next slot of the pool
+- **WHEN** the shrink or the eviction looks for the slot the next get takes
+- **THEN** it passes over a slot whose add never finished
+  [@test] crates/lease-pool/src/lease_test.rs (`a_slot_whose_add_never_finished_is_not_the_next_free_slot`)
+
+#### Scenario: An adopt killed during its move
+- **WHEN** `brd lease adopt --move` dies during the move of a worktree
+- **THEN** the slot it recorded has the name of the worktree already, so no get removes it; an adopt of an older brd
+  left it without one, and the get removes it
+
+### Requirement: Get: The state keeps the first 100 local changes of a slot
+
+The verdict of a dirty free slot and the check of an idle lease MUST keep their first 100 local changes in the state and
+the count of the rest (`paths_omitted`); a state of an older brd MUST be read cut. A pool of 30 slots MUST keep its
+state under 1 MB with a whole tree dirty in a slot: two half-written slots of idea-1 listed 3.3 million paths, and each
+change of the pool read and wrote 380 MB under its lock, longer than a return waited for it.
+
+#### Scenario: A whole tree dirty
+- **GIVEN** a pool of 30 slots, a free slot of them dirty and an idle lease with work, 100,000 local changes each
+- **WHEN** the state is written
+- **THEN** it is under 1 MB, and each keeps the first 100 paths and the count of the rest
+  [@test] crates/lease-pool/src/lease_test.rs (`the_state_of_thirty_slots_stays_small_with_a_whole_tree_dirty`)
+
+#### Scenario: A state of an older brd
+- **WHEN** a state lists every local change of a slot
+- **THEN** it is read with the first 100 and the count of the rest, and the next change of the pool writes it small
+  [@test] crates/lease-pool/src/lease_test.rs (`a_state_written_before_the_cut_is_read_cut_and_written_small`)
+
 ### Requirement: Get: Every status of the pool lists untracked files in the configured mode
 
 Every `status` of the pool (a get, the check of a clone, a return, an adopt) MUST list untracked files with
@@ -1067,7 +1121,7 @@ that the lock does not guard. A get that reuses a slot MUST never take the lock.
 Where the smudge of Git LFS downloads, the checkout of a new slot under the clones lock MUST write the pointers of its
 files of LFS, so no filter of LFS runs under a lock of the pool, and the get MUST pull their content (`git lfs pull`,
 killed after 10 min without progress) after the release of the clones lock, where the repository keeps objects of LFS.
-A pull that fails MUST fail the get and leave the slot dirty, unless the repository skips download errors: then
+A failed pull MUST fail the get and leave the slot unfinished, unless the repository skips download errors: then
 `git lfs checkout` MUST follow.
 
 #### Scenario: A new slot in a repository of Git LFS
@@ -1081,8 +1135,8 @@ A pull that fails MUST fail the get and leave the slot dirty, unless the reposit
 
 #### Scenario: A pull that fails
 - **WHEN** the `git lfs pull` of a new slot fails
-- **THEN** the get fails and deletes the index of the slot, so the next get skips the slot as dirty, as after a checkout
-  that failed, and adds another: a move by the diff would keep the pointers as the content
+- **THEN** the get fails, deletes the index of the slot and gives it back unfinished, so no get moves it by the diff,
+  which would keep the pointers as the content, and the next get that adds a slot removes it
   [@test] crates/bd-lease/src/lfs_test.rs (`a_new_slot_whose_lfs_pull_failed_is_never_reused`)
 
 #### Scenario: A repository without objects of Git LFS
@@ -2513,7 +2567,7 @@ commands, MUST set `keep` and `age` of every cargo rule for that call, but never
 ### Requirement: Status: The status lists every slot from the state alone
 
 `brd lease status` MUST list every slot from the state alone, with its `path`, `state` (`free`, `preparing`, `ready`,
-`templating`, `returning`, `cleaning`, `abandoned`), `dirty`, `missing`, `lease` and `reclaimed`, the `free_bytes` of
+`templating`, `returning`, `cleaning`, `abandoned`, `unfinished`), `dirty`, `missing`, `lease` and `reclaimed`, the `free_bytes` of
 the volume of the pool and the `trash_bytes` a killed run left; it MUST run no `git status`. `--processes` MUST add the
 processes in each slot. It writes nothing.
 
@@ -2521,6 +2575,11 @@ processes in each slot. It writes nothing.
 - **WHEN** `brd lease status` runs
 - **THEN** it lists every slot from the state without a `git status`
   [@test] crates/bd-lease/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`)
+
+#### Scenario: A slot whose add never finished
+- **WHEN** a free slot has no name and was never returned
+- **THEN** its `state` is `unfinished`
+  [@test] crates/bd-lease/src/unfinished_test.rs (`a_slot_whose_add_never_finished_is_removed_by_the_next_get_that_adds_a_slot`)
 
 #### Scenario: The holder of a lease
 - **WHEN** a slot has a lease

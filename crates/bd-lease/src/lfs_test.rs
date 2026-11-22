@@ -143,8 +143,8 @@ fn a_new_slot_gets_the_content_of_its_lfs_files_after_the_clones_lock() {
 }
 
 /// A new slot whose `git lfs pull` failed has the pointers of its files of Git LFS still, which a later move by the diff
-/// would keep as their content: the get fails, and the slot goes back without its index, so the next get finds it dirty,
-/// as after a checkout that failed, and adds another
+/// would keep as their content: the get fails, and the slot goes back unfinished and without its index, so no get takes
+/// it, and the next one removes it before it adds another
 #[test_log::test]
 fn a_new_slot_whose_lfs_pull_failed_is_never_reused() {
   let pool = LfsPool::new();
@@ -154,10 +154,11 @@ fn a_new_slot_whose_lfs_pull_failed_is_never_reused() {
   assert!(format!("{error:?}").contains("Cannot pull the files of Git LFS"), "{error:?}");
   std::fs::remove_file(&fail).unwrap();
 
+  // the failed get gave the slot back unfinished: the next get removes it and adds another, never moves it by the diff
   let got: Value = serde_json::to_value(pool.get("next").0.unwrap()).unwrap();
   assert_eq!(got["reused"], json!(false), "{got}");
-  assert_eq!(got["skipped"][0]["reason"], json!("dirty"), "{got}");
-  assert_ne!(got["skipped"][0]["path"], got["path"], "{got}");
+  assert_eq!(got.get("skipped"), None, "{got}");
+  assert_eq!(got["removed_unfinished"].as_array().map(Vec::len), Some(1), "{got}");
   assert_eq!(pool.log(), ["pull", "pull"]);
 }
 

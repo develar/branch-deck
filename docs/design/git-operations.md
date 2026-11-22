@@ -2257,7 +2257,23 @@ into the trash what a get killed during its clone left (`sweep_clone_leftovers`)
 the machine names and that holds only `<repository>.cloning`. Nothing else would ever delete it, and `next_slot_path`
 passes over its number; the idea-1 pool kept one from 2026-11-07 to 2026-11-18. Under the lock no clone of the
 repository runs, so the directory is no slot; an empty one stays, which a move of `adopt` may be filling. The move is
-a rename, and the trash is left to a later sweep (`Trash::abandon`), never deleted under the lock. The locks of the pool are taken in
+a rename, and the trash is left to a later sweep (`Trash::abandon`), never deleted under the lock. Before that sweep,
+holding the lock, it removes the slots whose add never finished (`trim::remove_unfinished_slots`, `GetStep::RemoveUnfinished`,
+`removed_unfinished`): a free slot without a name, which only the end of a get writes (an adopt writes it in its first
+record), never returned, with no lease or one whose process is gone. A get that failed after it registered the slot
+gave it back free, a killed one left it `preparing`, and its tree can be half written. On 2026-11-22 two such slots
+of idea-1 lacked hundreds of thousands of tracked files: a get had marked each dirty with every path (3.3 million,
+380 MB of `leases.json`, which every change of the pool read and wrote under its lock, longer than the 10 s a return
+waits for it), the eviction kept them as never returned, and a get cloned the next slot from one of them, so that clone
+lacked the same files. Such a slot holds no work, as no lease had it: no get reserves it as free (`reservable`) or runs
+its `status`, no wait for the clones lock ends for it, no get clones it as a template, the shrink and the eviction do
+not keep it as the slot of the next get (`shrink::next_free`), and the get under the lock removes it as the trim
+removes a free slot (`cleaning` marker, its directory into the trash, `forget_slot`, whose `worktree remove --force
+--force` drops the lock of a registration whose clone was killed too, its entry dropped), its `.cloning` going in the
+sweep after it; one with a process in it stays, skipped as `busy`. The removal, not a checkout that finishes the tree:
+a forced checkout over a tree without its index rewrites every file, and one that fails every time would cost each
+later get minutes under the lock, where a clone of a whole template takes 40 s. `brd lease status` names such a slot
+`unfinished`. The locks of the pool are taken in
 one order, `clones.lock`, `leases.lock`, `worktrees.lock`: a get takes the other two under the clones lock, one at a
 time, and nothing is taken under the pool lock or under `worktrees.lock` (the move of an adopt holds only the
 latter); a return and a clean take only the pool lock, so neither waits for a clone. The shrink and the eviction of a
@@ -2280,9 +2296,9 @@ no process): Git for Windows configures the filter in its system config for ever
 repository without files of LFS would scan its tree for nothing. The pull is killed with the processes it started after
 `LFS_IDLE` (10 min, `git_ops::remote_command`) without a line of progress, as a fetch before a move (Git LFS above):
 after the lock it holds only its own get, but a helper that never answers would hold that one without end, and a slow
-download that makes progress runs to its end. A pull that fails fails the get, and the slot goes back without its index: its
-files of LFS are pointers still, which the next move by the diff would keep as their content, so the next get finds it
-dirty, as after a checkout that failed, and adds another; unless the repository lives on the pointers of what it can not
+download that makes progress runs to its end. A pull that fails fails the get, and the slot goes back unfinished and without
+its index: its files of LFS are pointers still, which a move by the diff would keep as their content, so no get moves
+it, and the next get that adds a slot removes it, as after a checkout that failed; unless the repository lives on the pointers of what it can not
 download (`lfs.skipdownloaderrors`, `GIT_LFS_SKIP_DOWNLOAD_ERRORS`, read only then:
 `git_ops::lfs::skips_download_errors`), whose smudge writes them in every checkout: the get logs the failure, runs
 `git lfs checkout` (`git_ops::lfs::checkout_lfs_files`, no network), which writes the content of every object the pull
@@ -2413,7 +2429,9 @@ nothing but LFS puts the content back after a checkout of the blobs.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. The verdict is kept with its proof (`DirtyCheck`, no git:
-   the `SlotMark`, the stat of up to 8 dirty paths, of the top-level `.gitignore` and of `info/exclude`): a later get
+   the `SlotMark`, the first 100 dirty paths and the count of the rest, the stat of up to 8 of them, of the top-level
+   `.gitignore` and of `info/exclude`; the check of an idle lease keeps its paths so too, and a state of an older brd is
+   read cut, `cut_paths`): a later get
    skips the slot under the pool lock without a `status` while the mark and the ignore files hold and one dirty path
    has its stat of then, a file that kept its content, so a get that finds no clean free slot no longer pays 2 to
    40 s for each dirty one in idea-1 before it adds a slot. A clean by hand touches the dirty paths (a stray file
@@ -2463,15 +2481,17 @@ an adopt (the process scan). git still leaves a directory changed in the second 
 4. Seed: the ignored paths that `.worktreeinclude` at the source root names are copied into the slot. A pattern is a
    literal path or a glob in its last component, read from that one directory, never a walk of the tree; one
    `check-ignore -z --stdin` in the source keeps only the ignored ones.
-5. Under the lock again the lease becomes `ready`, with the seeded paths. A failure after step 1 gives the slot back
-   (free, or dropped when it was never added), and the error says so.
+5. Under the lock again the lease becomes `ready`, with the seeded paths and the name of the worktree. A failure after
+   step 1 gives the slot back (free, or dropped when it was never added; a new slot that git registered goes back
+   unfinished, for the next get that adds a slot to remove), and the error says so.
 
 A new slot by a clone (`add_cloned_slot`, `crates/lease-pool/src/clone_dir.rs`). Measured on idea-1 (1,387,212 index
 entries): one `clonefile(2)` of a whole slot took 40 s, the refresh of the copied index 14 s, and a checkout of the
 same tree takes several minutes.
 
 1. The template is a free slot of this repository that the get passed over (dirty or busy, one without a process
-   first), marked `templating` under the pool lock, so no get takes it during the clone. Without one it is the source
+   first; never one whose add never finished, whose tree may lack files), marked `templating` under the pool lock, so
+   no get takes it during the clone. Without one it is the source
    checkout. A free slot is the better template: an ignored file that the template writes during the clone can be
    copied half written, and the source is where the user works.
 2. `clonefile(2)` of the template's top level to `<path>.cloning`, then the marker is released. The destination must

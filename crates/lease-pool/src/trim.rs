@@ -18,7 +18,8 @@
 use crate::bazel_servers::child_dirs;
 use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{
-  Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
+  Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, is_unfinished, release_marker, settle_abandoned, slot_servers,
+  stop_servers,
 };
 use crate::lease_clean::{Trash, remove_measured, remove_measured_until};
 use crate::lease_notes::{DEFAULT_NOTES_KEEP, ExpiredNotes, expire_notes, held_leases, notes_keep};
@@ -465,6 +466,59 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
     orphans: Vec::new(),
     process_scan: scan.is_available(),
   }
+}
+
+/// Remove the slots of the pool of `params.repository` whose add never finished (`lease::is_unfinished`), as the trim
+/// removes a free slot: under the `cleaning` marker, its directory into the trash, its admin directory dropped (the lock
+/// of a registration whose clone was killed too), its entry dropped from the state. A get that adds a slot runs it under
+/// the clones lock, where no add of the pool runs, so no slot that is being added counts. Such a slot holds no work:
+/// no lease ever had it. Its tree, half written perhaps, would be marked dirty by a `status` of minutes, kept by the
+/// eviction as never returned, and cloned as a template into the next slot. What it held stays in the trash for the
+/// next return, clean or get below the minimum free space: the delete of a worktree of idea-1 takes minutes, and the get
+/// goes on at once. A slot with a process in it stays (`skipped`). `found` hears the paths before the removal
+pub(crate) fn remove_unfinished_slots(
+  git_executor: &GitCommandExecutor,
+  params: &TrimParams<'_>,
+  scan: &ProcessScan,
+  found: &dyn Fn(Vec<String>),
+) -> (Vec<RemovedSlot>, Vec<SkippedSlot>) {
+  let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.repository.git_common_dir)));
+  let pool = Pool::new(&git_common_dir);
+  let store = match pool.read() {
+    Ok(store) => store,
+    Err(error) => {
+      warn!(error = %format!("{error:#}"), "cannot read the state to remove the slots whose add never finished");
+      return (Vec::new(), Vec::new());
+    }
+  };
+  let unfinished: Vec<&Slot> = store.slots.iter().filter(|slot| is_unfinished(slot) && Path::new(&slot.path).is_dir()).collect();
+  if unfinished.is_empty() {
+    return (Vec::new(), Vec::new());
+  }
+  found(unfinished.iter().map(|slot| slot.path.clone()).collect());
+  let trash = Trash::new(&pool.trash_dir());
+  let removal = SlotRemoval {
+    git_common_dir: &git_common_dir,
+    pool: &pool,
+    trash: &trash,
+    // no build ran in a slot no lease had
+    bases: &[],
+    scan,
+    params,
+  };
+  let (mut removed, mut skipped) = (Vec::new(), Vec::new());
+  for slot in unfinished {
+    match removal.remove(git_executor, slot) {
+      Removal::Removed(slot, _) => {
+        warn!(slot = %slot.path, "removed a slot whose add never finished");
+        removed.push(*slot);
+      }
+      Removal::Skipped(slot) => skipped.push(*slot),
+      Removal::Passed => {}
+    }
+  }
+  trash.abandon();
+  (removed, skipped)
 }
 
 /// What the removal of a free slot moved into the trash of its pool

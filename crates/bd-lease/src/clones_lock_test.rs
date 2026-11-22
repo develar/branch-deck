@@ -62,6 +62,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Evict => "evict",
       GetStep::WaitForPressure { .. } => "wait for pressure",
       GetStep::SweepCloneLeftovers { .. } => "sweep",
+      GetStep::RemoveUnfinished { .. } => "remove unfinished",
       GetStep::StopServers { .. } => "stop servers",
       GetStep::Status { .. } => "status",
       GetStep::Clone { .. } => "clone",

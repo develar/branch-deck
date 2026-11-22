@@ -400,7 +400,7 @@ fn slot(slot: &SlotReport) -> SlotDisk {
     name: number.filter(|name| name.parse::<u32>().is_ok()).unwrap_or_else(|| slot.slot.clone()),
     path: slot.path.clone(),
     state: match slot.state {
-      SlotState::Free | SlotState::Abandoned => SlotDiskState::Free,
+      SlotState::Free | SlotState::Abandoned | SlotState::Unfinished => SlotDiskState::Free,
       SlotState::Ready => SlotDiskState::Leased,
       SlotState::Preparing | SlotState::Templating | SlotState::Returning | SlotState::Cleaning => SlotDiskState::Changing,
     },

@@ -32,4 +32,6 @@ mod takeover_test;
 #[cfg(test)]
 mod trim_test;
 #[cfg(test)]
+mod unfinished_test;
+#[cfg(test)]
 mod workspace_test;
