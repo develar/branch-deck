@@ -1,7 +1,7 @@
 # Git Rules
 
 **Status:** Active  
-**Updated:** 2026-11-15  
+**Updated:** 2026-11-23  
 **Tags:** [git, rust, bd, safety]
 
 ## Summary
@@ -67,7 +67,8 @@ No `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
 `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
 `GIT_INDEX_FILE` is fine. Besides the apply of `brd-host run --apply` (`crates/git-ops/src/host_client.rs`: the patch of a remote run
 the user asked to apply, all or nothing, the index left alone), the single exception is the guarded two-way `read-tree -m -u` in
-`crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
+`crates/git-ops/src/worktree_update.rs` (a dry run on an index copy first, for `brd pick` and the reapply a check of the
+paths the move changes with the dry run only where that finds one, then the CAS ref move, rollback on failure),
 `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `brd update`, and the update of a lease
 onto its home branch, detached, after a conflict of `brd lease pick`), its undo, the finish
 of a resolve session (`update_resolve.rs`), `brd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and

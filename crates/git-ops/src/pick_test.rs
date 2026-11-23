@@ -1,6 +1,7 @@
 use crate::commit_signing::Signing;
 use crate::pick::{
-  FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo, check_pick_with_signing, pick_dry_run,
+  FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, apply_pick_locked, check_pick, check_pick_undo,
+  check_pick_with_signing, pick_dry_run, recheck_pick,
 };
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
@@ -412,14 +413,7 @@ fn local_changes_on_a_path_the_pick_writes_block_it_in_either_worktree() {
   std::fs::write(repo.path().join("a.txt"), "mine\n").unwrap();
 
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
-  assert_eq!(
-    plan.check.state,
-    PickState::Blocked {
-      worktree: repo.path_str().to_string(),
-      paths: vec!["a.txt".to_string()],
-      path_count: 1,
-    }
-  );
+  assert_eq!(plan.check.state, blocked_in(&repo, &["a.txt"]));
   repo.git(&["checkout", "--", "a.txt"]);
 
   // the source follows onto a commit of the target, and a draft of that file in the source blocks the follow
@@ -432,6 +426,165 @@ fn local_changes_on_a_path_the_pick_writes_block_it_in_either_worktree() {
   assert_eq!((blocked.as_str(), paths.as_slice()), (worktree.path.as_str(), ["own.txt".to_string()].as_slice()));
   assert_ne!(repo.head(), base);
   assert_eq!(read(&repo, "a.txt"), "a\n");
+}
+
+/// A worktree with `(lane) change` of `b.txt` on `base`, and a target that moved on (`(own) other`)
+fn a_lane_beside_an_own_commit() -> (TestRepo, TestWorktree) {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) change", "b.txt", "b\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  (repo, worktree)
+}
+
+/// The state of a pick that `paths` of the target `repo` block
+fn blocked_in(repo: &TestRepo, paths: &[&str]) -> PickState {
+  PickState::Blocked {
+    worktree: repo.path_str().to_string(),
+    paths: paths.iter().map(|path| (*path).to_string()).collect(),
+    path_count: u32::try_from(paths.len()).unwrap(),
+  }
+}
+
+/// A worktree whose one commit turns the directory `dir` (with `dir/inner.txt`) into a file: the repository and the
+/// worktree
+fn a_lane_that_replaces_a_directory_with_a_file() -> (TestRepo, TestWorktree) {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "dir/inner.txt", "inner\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.git(&["rm", "-q", "dir/inner.txt"]);
+  worktree.commit("(lane) a file", "dir", "file\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  (repo, worktree)
+}
+
+/// git refuses to replace a directory with a file while an untracked file is in it: the check by the paths finds it,
+/// before the lock, so the move never runs into it after the branch moved
+#[test]
+fn an_untracked_file_in_a_directory_the_pick_replaces_with_a_file_blocks_it() {
+  let (repo, worktree) = a_lane_that_replaces_a_directory_with_a_file();
+  std::fs::create_dir_all(repo.path().join("dir/deeper")).unwrap();
+  std::fs::write(repo.path().join("dir/deeper/mine.txt"), "mine\n").unwrap();
+  let head = repo.head();
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, blocked_in(&repo, &["dir/deeper/mine.txt"]));
+  assert_eq!(repo.head(), head);
+
+  // only the tracked file the pick deletes is in the directory: it lands
+  std::fs::remove_dir_all(repo.path().join("dir/deeper")).unwrap();
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(read(&repo, "dir"), "file\n");
+}
+
+/// An unmerged entry of the index on a path the pick does not write (a `git stash pop` that conflicted: no merge in
+/// progress) makes `read-tree -m` refuse the whole index: the check, before the lock, finds it blocked by that path, and
+/// nothing moves
+#[test]
+fn an_unmerged_entry_on_another_path_blocks_the_pick_at_its_check() {
+  let (repo, worktree) = a_lane_beside_an_own_commit();
+  let head = repo.head();
+  let blob = repo.git(&["hash-object", "-w", "a.txt"]);
+  let entries = format!("100644 {blob} 1\tu.txt\n100644 {blob} 2\tu.txt\n100644 {blob} 3\tu.txt\n");
+  repo
+    .git_executor()
+    .cmd(&["update-index", "--index-info"], repo.path_str())
+    .stdin(entries.as_bytes())
+    .text()
+    .unwrap();
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, blocked_in(&repo, &["u.txt"]));
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap_err();
+  assert_eq!(repo.head(), head);
+  assert!(!repo.path().join("b.txt").exists());
+}
+
+/// The processes of `check` by subcommand, of an executor that counts them
+fn processes_of(repo: &TestRepo, check: impl FnOnce(&GitCommandExecutor)) -> Vec<(String, u32)> {
+  let counting = repo.git_executor().with_process_stats("test");
+  check(&counting);
+  counting
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect()
+}
+
+fn ran(processes: &[(String, u32)], subcommand: &str) -> u32 {
+  processes.iter().find(|(name, _)| name == subcommand).map_or(0, |(_, count)| *count)
+}
+
+/// The check before the lock reads the paths the move changes, never the whole index: no copy of it is refreshed or
+/// dry run (`update-index`, `read-tree`), only `ls-files -u` for an unmerged entry. Under the lock the check of the
+/// paths reads only what changed since, with the probe of the check: nothing at all here. A sparse checkout, which the
+/// preview does not model, takes the exact dry run
+#[test]
+fn the_check_of_a_pick_dry_runs_the_index_only_where_its_paths_cannot_tell() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) change", "a.txt", "lane\n");
+  repo.create_commit("(own) other", "own.txt", "own\n");
+  // older than the racy margin: the hash of the check answers for it under the lock
+  let file = std::fs::File::options().write(true).open(repo.path().join("a.txt")).unwrap();
+  file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5)).unwrap();
+
+  let mut plan = None;
+  let check = processes_of(&repo, |git| plan = Some(check_pick(git, repo.path_str(), &from(&worktree, false)).unwrap()));
+  let mut plan = plan.unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  assert_eq!(
+    [ran(&check, "read-tree"), ran(&check, "update-index"), ran(&check, "ls-files"), ran(&check, "hash-object")],
+    [0, 0, 1, 1],
+    "{check:?}"
+  );
+  let recheck = processes_of(&repo, |git| assert!(recheck_pick(git, repo.path_str(), &mut plan).unwrap()));
+  assert_eq!(plan.check.state, PickState::Clean);
+  for subcommand in ["read-tree", "update-index", "ls-files", "hash-object", "cat-file"] {
+    assert_eq!(ran(&recheck, subcommand), 0, "{subcommand}: {recheck:?}");
+  }
+
+  repo.git(&["config", "core.sparseCheckout", "true"]);
+  let sparse = processes_of(&repo, |git| {
+    assert_eq!(check_pick(git, repo.path_str(), &from(&worktree, false)).unwrap().check.state, PickState::Clean);
+  });
+  assert_eq!(ran(&sparse, "read-tree"), 1, "{sparse:?}");
+}
+
+/// A stand-in of the repository lock: says when it is dropped
+struct Released<'a>(&'a std::cell::Cell<bool>);
+
+impl Drop for Released<'_> {
+  fn drop(&mut self) {
+    self.0.set(true);
+  }
+}
+
+/// A local change that appears after the check under the lock (or one the check by the paths did not see) makes
+/// `read-tree -m -u` refuse after the branch moved: the branch moves back, and after the lock the exact dry run names
+/// the paths, so the pick is `Blocked` by them, not an error
+#[test]
+fn files_refused_after_the_move_block_the_pick_with_their_paths() {
+  let (repo, worktree) = a_lane_beside_an_own_commit();
+  let head = repo.head();
+  let mut plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  std::fs::write(repo.path().join("b.txt"), "in the way\n").unwrap();
+
+  let released = std::cell::Cell::new(false);
+  let applied = apply_pick_locked(repo.git_executor(), repo.path_str(), &mut plan, Released(&released)).unwrap();
+  assert_eq!(applied, None);
+  assert!(released.get(), "the exact dry run runs after the lock");
+  assert_eq!(plan.check.state, blocked_in(&repo, &["b.txt"]));
+  assert_eq!(repo.head(), head);
+  assert_eq!(repo.git(&["log", "-g", "-n1", "--format=%gs", "refs/heads/master"]), "branch-deck: pick rolled back");
+  assert_eq!(read(&repo, "b.txt"), "in the way\n");
 }
 
 #[test]
@@ -674,11 +827,7 @@ fn a_pick_waits_for_the_index_lock_of_another_process_and_then_lands_with_its_fi
 
 #[test]
 fn a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow() {
-  let repo = TestRepo::new();
-  repo.create_commit("base", "a.txt", "a\n");
-  let worktree = TestWorktree::detached(&repo);
-  worktree.commit("(lane) change", "b.txt", "b\n");
-  repo.create_commit("(own) other", "own.txt", "own\n");
+  let (repo, worktree) = a_lane_beside_an_own_commit();
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
   // what a git killed by SIGKILL leaves: nobody has it open, nobody will remove it
   let lock = repo.path().join(".git").join("index.lock");

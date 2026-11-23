@@ -461,17 +461,18 @@ fn the_check_of_a_pick_runs_before_the_lock() {
 
   wrapped.assert_before_the_lock("replay");
   let commands = wrapped.commands();
-  let dry_runs = commands.iter().filter(|(locked, args)| !locked && args.contains(" read-tree -m -u -n ")).count();
-  assert_eq!(dry_runs, 2, "both dry runs before the lock: {commands:#?}");
+  // the check by the paths: no dry run on a copy of the index, one look for unmerged entries per worktree
+  let before = |what: &str| commands.iter().filter(|(locked, args)| !locked && args.contains(what)).count();
+  assert_eq!((before(" read-tree "), before(" ls-files -u -z")), (0, 2), "{commands:#?}");
   // the marks of interrupted moves, the witness (the target's guards from the directories brd read, HEAD and upstream;
   // the source's guards and HEAD),
-  // the local changes on `a.txt`, the one path a move changes that the old tree has (its index entry, its content), and
+  // the local changes on `a.txt`, the one path a move changes that the old tree has, with the probe of the check: its
+  // index entry not again (the index file is the same), its content once more (written within the racy margin), and
   // each move: the refresh of the stat data, the transaction with its mark and the symref read under its locks, the
   // files (no refresh after them), the mark deleted
   assert_eq!(
     counted(&wrapped.under_lock()),
     [
-      ("cat-file".to_string(), 1),
       ("hash-object".to_string(), 1),
       ("read-tree".to_string(), 2),
       ("rev-parse".to_string(), 8),

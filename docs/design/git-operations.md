@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-11-15  
+**Updated:** 2026-11-23  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -121,9 +121,11 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
    same tip, and its undo, **and the unapply and the reapply of a virtual branch** (see "Drop and unapply",
    "Reapply"), which take its commits and their files out of HEAD and back, and their undo. All use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
-   trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
-   check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
-   other paths survive byte for byte; any overlap refuses the whole move before anything moves. The exemption lives in
+   trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index (for
+   `brd pick` and the reapply, a check of the paths the move changes, the dry run only where that finds one: "Pick",
+   step 5), a check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes
+   on the other paths survive byte for byte; any overlap refuses the whole move before git writes a file, and the
+   branch moves back. The exemption lives in
    `crates/git-ops/src/worktree_update.rs` only. Its functions are `pub(crate)`, and only `update_branch.rs` calls them:
    for the app's Update Project, `brd update` and `brd undo update:`, and, through its `pub(crate)`
    `move_branch_and_files_with` and `files_follow`, for the finish of a resolve session in `update_resolve.rs`, which
@@ -290,7 +292,7 @@ moves the branch. With signing off, this pass does not run.
 
 Every core that takes the repository lock (`$GIT_COMMON_DIR/branch-deck.lock`, see "Regroup, rename, restack") holds
 it only for the witness of what it read and its write: what it computes on the oids it read (the snapshot or the
-history, merge-tree, `replay`, the dry run of the files on a copy of the index, the `fast-import` of the new objects, a
+history, merge-tree, `replay`, the check of the files (a dry run on a copy of the index, or by the paths), the `fast-import` of the new objects, a
 trial, the landed report) runs before the lock or after it. One test per core pins the span: the subcommands that
 start between the first and the last command under the lock, sorted, each once. A core runs on
 `test_utils::lock_span::LockSpan`, a `brd` command on `bd_cli::fixture_test::LockSpanGit`: the same shim, a git that
@@ -323,7 +325,7 @@ taken and deletes it before the release), then runs the real git.
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
 | `brd update --continue` (`continue_resolve`; a `--dry-run` takes no lock) | `cat-file`, `config`, `diff-tree`, `fast-import`, `read-tree`, `replay`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`: the whole round and the finish, an exception (below) | `a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish`, `the_landed_report_of_a_finished_session_runs_after_the_lock` (`crates/bd-update/src/resolve_test.rs`) |
 | `brd update --abort` (`abort_resolve`; the removal of its copies after the lock) | `cat-file`, `for-each-ref`, `update-ref` (the session, its CAS delete, the sweep of stale temporary refs) | `an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete` (`resolve_test.rs`) |
-| `brd pick --from --follow` (`pick_core`; the `log` of the messages of the commit rules before the lock) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
+| `brd pick --from --follow` (`pick_core`; the `log` of the messages of the commit rules before the lock) | `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write with the probe of the check: a file again only when written within its racy margin, the index entries only when the index file changed; the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
 | `brd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `brd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
@@ -2091,7 +2093,8 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    dry runs on index copies of 1.4M entries took about 90 s of a 115 s hold on a copy of it (2026-10-23), and every
    other writer waited (the app's Safe Push failed with `locked`). Only a mark of an interrupted move (`pending_update`, in the target and,
    with `--follow`, in the source) takes the lock first: `finish_pending_update` lets its files follow (a detached HEAD
-   by the reflog of `HEAD`), then the check runs under the lock, as its dry run would read the files behind HEAD.
+   by the reflog of `HEAD`), then the check runs under the lock, as its check of the files would read the files behind
+   HEAD.
 2. Guards: `check_update_guards` in the target; with `--follow`, no rebase, merge, cherry-pick or revert in progress
    in the source (the state files are per worktree). The source must be another worktree of the same repository
    (`repository_dirs`: the same common dir, another git dir).
@@ -2129,21 +2132,35 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    resolve session), its files from one `merge-tree --write-tree --name-only -z` onto the longest clean prefix;
    nothing moves. The upstream bounds both sides: a commit that reached the upstream in another form is not found by
    patch id, it drops as empty or conflicts.
-5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
-   new tip), each on its own index copy and working tree. A check that moves nothing (a conflict, a blocked one, every
-   commit present and the source at the tip) is the answer, the lock never taken.
+5. Both checks of the files before either move, by the paths each move changes, never the whole index
+   (`blocking_paths_by_preview` of the target, HEAD → new tip, and of the source, its HEAD → new tip):
+   `preview_blocking_paths` of those paths (the index entries by one `cat-file --batch-check`, the files hashed by one
+   `hash-object`, an added path by `lstat`; a directory that the move replaces with a file only while every file in it
+   is one the move deletes), at a cost that grows with the paths, not with the index. Only when that finds a path, or
+   in a sparse checkout, which the preview does not model, the exact dry run decides (`blocking_paths`: a refresh and
+   `read-tree -m -u -n` on a copy of the index, the paths of `git status`). One `config` per worktree reads its sparse
+   checkout and its global file of attributes (so the check under the lock can trust the hashes of this one), and one
+   `ls-files -u` its unmerged entries: an unmerged path anywhere (a stash pop that conflicted, no merge in progress)
+   makes a two-way `read-tree -m` refuse the whole index, so the pick is `Blocked` by those paths. The dry runs on index
+   copies were the most of the check on the IntelliJ monorepo: `read-tree -m` frees the cache tree of the index before
+   it merges (`builtin/read-tree.c`), so even a move of no path walks all 1.42M entries (about 2 s of CPU) and builds
+   all 310 000 trees of the cache tree again (3.4 s), a dry run with `-n` too, although the cache tree of the index at
+   rest is whole (2026-11-23, `GIT_TRACE2_PERF` on a copy of its index). A check that moves nothing (a conflict, a
+   blocked one, every commit present and the source at the tip) is the answer, the lock never taken.
 6. The lock (one hold for both worktrees, `recheck_pick`): the marks again (`finish_pending_update`), then the witness,
    the guards and HEAD of the target, the upstream's tip, the guards, HEAD and what HEAD is on of the source, one
    `rev-parse` or `symbolic-ref` each. A witness that moved (another session's pick, a regroup, a fetch, a commit in
    the source) sends the pick back to step 2 without the lock; after two such checks the third runs under the lock,
    where nothing moves the branch, so a busy branch never starves a pick. Then the local changes on the paths each move
-   writes, read again now that nobody else moves a HEAD (`recheck_blocking_paths`): `preview_blocking_paths` of those
-   paths (the index entries by one `cat-file --batch-check`, the files hashed by one `hash-object`, an added path by
-   `lstat`), at a cost that grows with the paths, not with the index; only when that finds a path, the exact dry run
-   of step 5 decides under the lock. A file edited during the check is `Blocked` as one edited before it; the move
-   itself checks every path again before it writes one. What stays under the lock on that copy: the two
-   `read-tree -m -u` of step 7, about 7 s of CPU each, and some 3 s for the rest (a hold of 15 to 59 s at a load
-   average of 50, against 115 s).
+   writes, read again now that nobody else moves a HEAD: the check of step 5 with the probe it kept (`LocalProbe`), so
+   only what changed since is read again, the index entries and the unmerged ones when the index file changed, a file
+   when its stat data changed or it was written within the racy margin of its hash; only when that finds a path, the
+   exact dry run decides under the lock. A file edited during the check is `Blocked` as one edited before it. The move
+   itself checks every path again before it writes one: a refusal of `read-tree -m -u` after the CAS (a change the
+   check by the paths did not see, or one after it, `FilesRefused`) moves the branch back, and after the lock the exact
+   dry run names the paths, the pick `Blocked` by them (`apply_pick_locked`). What stays under the lock on that copy:
+   the two `read-tree -m -u` of step 7, about 6 s of CPU each, most of it the cache tree that `read-tree` builds again,
+   and some 3 s for the rest (a hold of 15 to 59 s at a load average of 50, against 115 s).
 7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
@@ -2163,7 +2180,8 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
 
 **Undo** (`brd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): both moves are checked first,
 before the lock, as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
-detached, must be `branch-deck: pick` to N with the value before it at H or S; the dry run with the trees swapped);
+detached, must be `branch-deck: pick` to N with the value before it at H or S; the exact dry run with the trees
+swapped);
 under the lock the witness of each worktree (one `for-each-ref` of its HEAD and its mark, the source's in its own
 directory, `Witness::elsewhere`), then both move back (`branch-deck: undo pick`). A worktree with the mark of an
 interrupted move before the check lets its files follow under the lock first, and the check runs there; an undo done

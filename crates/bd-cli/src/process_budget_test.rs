@@ -1139,18 +1139,19 @@ fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_lo
   );
   let expected = vec![
     ("cat-file", 1),
-    ("config", 1),
+    ("config", 3),
     ("diff-tree", 2),
     ("for-each-ref", 1),
     ("log", 4 + more_logs),
+    ("ls-files", 2),
     ("merge-base", 4),
-    ("read-tree", 4),
+    ("read-tree", 2),
     ("remote", 1),
     ("replay", 1),
     ("rev-list", 1),
     ("rev-parse", 17),
     ("symbolic-ref", 7),
-    ("update-index", 4),
+    ("update-index", 2),
     ("update-ref", 4),
   ];
   let expected = if signed {
@@ -1162,9 +1163,11 @@ fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_lo
 }
 
 /// `brd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
-/// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
-/// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
-/// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
+/// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`,
+/// the copies, and per worktree the check of the paths its move changes: one `config` of its sparse checkout and
+/// global attributes, one `ls-files -u` for an unmerged entry, no dry run on a copy of the index); under it the marks
+/// again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need no
+/// git) and the two moves with their marks (`update-ref`, the refresh and `read-tree`); after it the grouping of the picked commits
 /// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
 /// pins which of them run under the lock
 #[test]
@@ -1196,7 +1199,8 @@ fn a_pick_with_the_commit_rules() {
 /// `brd pick --remote auth` of a commit someone else pushed: the sync of `brd sync` first, then the fetch of the branch
 /// before the lock (its remote-tracking ref moved from the tip read before: one `for-each-ref`, one `update-ref`), the walks of its remote status (the commits it lacks), the grouping inputs (whose subject groups
 /// elsewhere), the check (the listed commits, one `replay`, the copies, one `cat-file` and one `fast-import` of the
-/// prefixed copies, whose temporary ref goes at once), then the move under the lock and the grouping of the picked commit
+/// prefixed copies, whose temporary ref goes at once; the paths of the move by the config and `ls-files -u`, no dry run on
+/// a copy of the index), then the move under the lock and the grouping of the picked commit
 #[test]
 fn a_remote_pick() {
   let (repo, _remote, _) = their_fix_on_auth();
@@ -1211,21 +1215,22 @@ fn a_remote_pick() {
     &context,
     &[
       ("cat-file", 5),
-      ("config", 2),
+      ("config", 3),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("fetch", 1),
       ("for-each-ref", 4),
       ("log", 9),
+      ("ls-files", 1),
       ("merge-base", 1),
-      ("read-tree", 2),
+      ("read-tree", 1),
       ("reflog", 1),
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 3),
       ("rev-parse", 6),
       ("symbolic-ref", 5),
-      ("update-index", 2),
+      ("update-index", 1),
       ("update-ref", 4),
     ],
   );
@@ -2030,8 +2035,9 @@ fn a_lease_get_of_a_new_slot_with_files_of_git_lfs() {
 }
 
 /// `brd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
-/// replay and without the follow, the grouping, the diffs of the dependency check (`log --raw` of the commits ahead
-/// and the copy, one `cat-file` of their blobs), and the check of the worktree's tree that the dry run reports (one
+/// replay and without the follow (the paths of the move: the config, `ls-files -u`, the index entry of `f0.txt` and
+/// its content, no dry run on a copy of the index), the grouping, the diffs of the dependency check (`log --raw` of the
+/// commits ahead and the copy, one `cat-file` of their blobs), and the check of the worktree's tree that the dry run reports (one
 /// `rev-parse` of its git dir, HEAD and tree; no record, no `diff-tree`)
 #[test]
 fn a_pick_into_a_branch_the_target_has() {
@@ -2043,17 +2049,18 @@ fn a_pick_into_a_branch_the_target_has() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 2),
+      ("cat-file", 3),
+      ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 1),
+      ("hash-object", 1),
       ("log", 4),
+      ("ls-files", 1),
       ("merge-base", 4),
-      ("read-tree", 1),
       ("remote", 1),
       ("rev-list", 1),
       ("rev-parse", 5),
       ("symbolic-ref", 2),
-      ("update-index", 1),
     ],
   );
 }

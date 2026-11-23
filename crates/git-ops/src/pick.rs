@@ -1,8 +1,9 @@
 //! `brd pick`: land the commits of another worktree (or of a range) on the branch checked out here, without
 //! `git cherry-pick` (docs/design/git-operations.md, "Pick"). A commit with the patch id of a target commit is left out
 //! before the replay; the others are replayed in memory with `git replay` onto the target's HEAD, in segments between
-//! the left out ones, where a commit whose change the target has already becomes empty and drops; a dry run on a copy of
-//! the index of each worktree proves its files can follow, and only then does the branch move, through the guarded
+//! the left out ones, where a commit whose change the target has already becomes empty and drops; a check of the paths
+//! each worktree's move changes (`blocking_paths_by_preview`: by their content, the exact dry run on a copy of the index
+//! only where that finds a path) proves its files can follow, and only then does the branch move, through the guarded
 //! update of `update_branch`. With `follow`, the source worktree moves onto the new tip the same way, a detached HEAD
 //! with `option no-deref`. The check needs no lock: its caller checks before the repository lock and, under it, only
 //! the witness (`recheck_pick`) before the moves.
@@ -18,8 +19,8 @@ use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, is_ancestor, merge_base, repository_dirs, resolve_commit, short_id};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
-  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, branch_fork_point, check_move_undo, check_update_guards,
-  move_branch_and_files, move_branch_and_files_carrying, recheck_blocking_paths,
+  BranchSwitched, FileMove, FilesRefused, HeadAttached, HeadRef, LocalProbe, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, blocking_paths_by_preview, branch_fork_point,
+  check_move_undo, check_update_guards, move_branch_and_files, move_branch_and_files_carrying,
 };
 use anyhow::{Result, anyhow, bail};
 use domain_types::rewrite::CopiedCommit;
@@ -145,8 +146,8 @@ pub enum PickState {
   Clean,
   /// A commit of the range conflicts with the target; nothing was changed
   Conflict(PickConflict),
-  /// Uncommitted, staged or untracked files of `worktree` sit on paths the pick (or the follow) writes; nothing was
-  /// changed
+  /// Uncommitted, staged or untracked files of `worktree` sit on paths the pick (or the follow) writes, or its index has
+  /// unmerged paths, which stop git from updating any file; nothing was changed
   Blocked { worktree: String, paths: Vec<String>, path_count: u32 },
 }
 
@@ -181,6 +182,8 @@ pub struct PickPlan {
   upstream_head: Option<String>,
   /// The paths the move of the target changes; empty when its files stay
   changed: Vec<ChangedPath>,
+  /// What the check read of the local state of `changed` in the target, for the check under the lock
+  probe: LocalProbe,
   follow: Option<Follow>,
   /// The git dirs of the target and the source, as the check of a worktree read them: where their index locks are
   git_dirs: Option<(String, String)>,
@@ -191,6 +194,8 @@ struct Follow {
   head_ref: HeadRef,
   /// The paths the move of the source changes
   changed: Vec<ChangedPath>,
+  /// What the check read of the local state of `changed` in the source
+  probe: LocalProbe,
 }
 
 impl PickPlan {
@@ -443,6 +448,7 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
           upstream: request.upstream.map(str::to_string),
           upstream_head,
           changed: Vec::new(),
+          probe: LocalProbe::default(),
           follow: None,
           git_dirs,
         });
@@ -469,23 +475,17 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
   }
 
   let changed = changed_paths(git_executor, target, &head, &check.new_head)?;
-  let blocked = if changed.is_empty() {
-    Vec::new()
-  } else {
-    blocking_paths(git_executor, target, &head, &check.new_head, &changed)?
-  };
+  let mut probe = LocalProbe::default();
+  let blocked = blocking_paths_by_preview(git_executor, target, &head, &check.new_head, &changed, &mut probe)?;
   let follow = match follow {
     Some((follow_check, head_ref)) => {
       let changed = changed_paths(git_executor, &follow_check.worktree, &follow_check.head, &check.new_head)?;
-      let follow_blocked = if changed.is_empty() {
-        Vec::new()
-      } else {
-        blocking_paths(git_executor, &follow_check.worktree, &follow_check.head, &check.new_head, &changed)?
-      };
+      let mut probe = LocalProbe::default();
+      let follow_blocked = blocking_paths_by_preview(git_executor, &follow_check.worktree, &follow_check.head, &check.new_head, &changed, &mut probe)?;
       if blocked.is_empty() && !follow_blocked.is_empty() {
         check.state = blocked_state(&follow_check.worktree, follow_blocked);
       }
-      Some(Follow { head_ref, changed })
+      Some(Follow { head_ref, changed, probe })
     }
     None => None,
   };
@@ -498,6 +498,7 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
     upstream: request.upstream.map(str::to_string),
     upstream_head,
     changed,
+    probe,
     follow,
     git_dirs,
   })
@@ -506,9 +507,10 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
 /// The witness of a clean pick that `check_pick` checked before the repository lock, for its caller under the lock
 /// before `apply_pick`: `false` when the target's branch, its HEAD or the upstream moved since, or, with `follow`, the
 /// source's HEAD or what it is on, so the caller checks again. Else the local changes on the paths each move writes,
-/// read again now that nobody else moves a HEAD (`recheck_blocking_paths`: by the content of those paths, the exact
-/// dry run only where that finds one), which can make the plan `Blocked`. The guards and HEAD of each worktree, the
-/// upstream, then the local changes only when files change
+/// read again now that nobody else moves a HEAD (`blocking_paths_by_preview` with the probe of the check: only the
+/// files and the index that changed since are read again, the exact dry run only where that finds a path), which can
+/// make the plan `Blocked`. The guards and HEAD of each worktree, the upstream, then the local changes only when files
+/// change
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
 pub fn recheck_pick(git_executor: &GitCommandExecutor, target: &str, plan: &mut PickPlan) -> Result<bool> {
   let branch = check_update_guards(git_executor, target)?;
@@ -530,13 +532,20 @@ pub fn recheck_pick(git_executor: &GitCommandExecutor, target: &str, plan: &mut 
     }
   }
   let check = &plan.check;
-  let blocked = recheck_blocking_paths(git_executor, target, &check.head, &check.new_head, &plan.changed)?;
+  let blocked = blocking_paths_by_preview(git_executor, target, &check.head, &check.new_head, &plan.changed, &mut plan.probe)?;
   if !blocked.is_empty() {
     plan.check.state = blocked_state(target, blocked);
     return Ok(true);
   }
-  if let (Some(follow), Some(follow_check)) = (&plan.follow, &check.follow) {
-    let blocked = recheck_blocking_paths(git_executor, &follow_check.worktree, &follow_check.head, &check.new_head, &follow.changed)?;
+  if let (Some(follow), Some(follow_check)) = (&mut plan.follow, &check.follow) {
+    let blocked = blocking_paths_by_preview(
+      git_executor,
+      &follow_check.worktree,
+      &follow_check.head,
+      &check.new_head,
+      &follow.changed,
+      &mut follow.probe,
+    )?;
     if !blocked.is_empty() {
       plan.check.state = blocked_state(&follow_check.worktree, blocked);
     }
@@ -976,6 +985,32 @@ pub struct AppliedPick {
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
 pub fn apply_pick(git_executor: &GitCommandExecutor, target: &str, plan: &PickPlan) -> Result<AppliedPick> {
   apply_pick_carrying(git_executor, target, plan, PICK.done, &RefTransaction::new(), &RefTransaction::new())
+}
+
+/// `apply_pick` of a plan checked under the repository lock `lock`, which it releases: `None` for a plan that is not
+/// clean. When `read-tree -m -u` refuses the files of the target after its branch moved (`FilesRefused`: a local change
+/// the check by the paths did not see, or one that came after it), the branch moved back, and after the lock the exact
+/// dry run names the paths: the plan is `Blocked` with them, `None` applied. The refusal stays the error when that dry
+/// run finds no path
+pub fn apply_pick_locked<L>(git_executor: &GitCommandExecutor, target: &str, plan: &mut PickPlan, lock: L) -> Result<Option<AppliedPick>> {
+  if plan.check.state != PickState::Clean {
+    return Ok(None);
+  }
+  let error = match apply_pick(git_executor, target, plan) {
+    Ok(applied) => return Ok(Some(applied)),
+    Err(error) if error.downcast_ref::<FilesRefused>().is_some() => error,
+    Err(error) => return Err(error),
+  };
+  drop(lock);
+  info!(error = %format!("{error:#}"), "the files of the pick were refused after the move: the exact dry run names the paths");
+  let check = &plan.check;
+  match blocking_paths(git_executor, target, &check.head, &check.new_head, &plan.changed) {
+    Ok(blocked) if !blocked.is_empty() => {
+      plan.check.state = blocked_state(target, blocked);
+      Ok(None)
+    }
+    _ => Err(error),
+  }
 }
 
 /// `apply_pick` by `operation` with more ref changes in the move of the target and in its rollback: the unapplied

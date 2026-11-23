@@ -50,9 +50,11 @@ pub(crate) fn prepare_worktree_update(git_executor: &GitCommandExecutor, repo_pa
 }
 
 /// Update the user's index and working tree from `old_tree` (the tree of the commit HEAD pointed at) to `new_tree`
-/// (HEAD's tree now; for an undo, the tree before the update). Must follow a passed `dry_run_worktree_update`,
-/// `prepare_worktree_update` and the branch move: git checks every path again before it writes any file, so a file
-/// changed since the dry run fails the update with nothing written. A lock of another process waits (`IndexLock::retry`).
+/// (HEAD's tree now; for an undo, the tree before the update). Must follow a passed check of the files (the exact
+/// `dry_run_worktree_update`, or for a pick and a reapply the check by the paths, `blocking_paths_by_preview`, with the
+/// dry run only where that finds a path), `prepare_worktree_update` and the branch move: git checks every path again
+/// before it writes any file, so a file that the check missed or that changed since fails the update with nothing
+/// written, and the caller moves the branch back (`FilesRefused`). A lock of another process waits (`IndexLock::retry`).
 /// `read-tree -u` records the stat data of every file it writes, so no refresh follows it. Where the fetch of the objects
 /// of Git LFS before the lock failed and the repository skips download errors (`lfs::downloads_held_back`), with
 /// `-c lfs.fetchexclude=*`: its smudge filter downloads nothing under the lock

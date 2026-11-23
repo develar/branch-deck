@@ -1151,7 +1151,7 @@ const RACY_MARGIN: Duration = Duration::from_secs(2);
 
 /// What the preview found about the local state of the changed paths
 #[derive(Debug, Clone, Default)]
-struct LocalProbe {
+pub(crate) struct LocalProbe {
   index_path: Option<String>,
   /// The index file `index_ids` were read from: git writes a new file (a new inode) on every change
   index_stamp: Option<FileStamp>,
@@ -1161,10 +1161,35 @@ struct LocalProbe {
   files: HashMap<Vec<u8>, HashedFile>,
   /// `info/attributes` of the git directory the worktrees share, read once
   info_attributes: Option<PathBuf>,
+  /// What the probe read of the config of the worktree, once (`read_config`)
+  config: Option<ProbeConfig>,
+  /// The stamp of the index file in which `ls-files -u` found no unmerged entry: the same file has none still
+  merged_index: Option<FileStamp>,
+}
+
+/// What the index holds of what the preview of its paths does not model (`LocalProbe::index_state`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IndexState {
+  /// Neither: the preview tells
+  Modelled,
+  /// A sparse checkout: the exact dry run tells
+  Sparse,
+  /// These paths are unmerged: `read-tree -m` refuses every move until they are resolved
+  Unmerged(Vec<String>),
+}
+
+/// The config of a worktree that `LocalProbe::index_state` reads once
+#[derive(Debug, Clone)]
+struct ProbeConfig {
+  sparse_checkout: bool,
+  /// The global file of attributes, for a probe whose executor has none (`with_attribute_files`); `None` when the
+  /// preview can't place it
+  attributes: Option<AttributeFiles>,
 }
 
 /// The global file of attributes of the preview of `path`, `None` for none, as its operation placed it
-/// (`with_attribute_files`)
+/// (`with_attribute_files`), or the probe read it (`LocalProbe::read_config`)
+#[derive(Debug, Clone)]
 struct AttributeFiles {
   path: String,
   global: Option<PathBuf>,
@@ -1273,12 +1298,13 @@ impl AttributesKey {
 impl AttributeSources {
   /// The sources of the preview of `repo_path`: `info_attributes`, the global file of `with_attribute_files` and the
   /// system file of the git binary; none of them when its operation placed no global file
-  fn new(git_executor: &GitCommandExecutor, repo_path: &str, info_attributes: Option<&Path>) -> Self {
+  fn new(git_executor: &GitCommandExecutor, repo_path: &str, info_attributes: Option<&Path>, read: Option<&AttributeFiles>) -> Self {
     let stamp = |file: PathBuf| {
       let stamp = std::fs::metadata(&file).ok().map(|metadata| FileStamp::of(&metadata));
       (file, stamp)
     };
-    let fixed = git_executor.fact::<AttributeFiles>().filter(|files| files.path == repo_path).map(|files| {
+    let placed = git_executor.fact::<AttributeFiles>().or(read);
+    let fixed = placed.filter(|files| files.path == repo_path).map(|files| {
       let system = git_executor.system_attributes(repo_path);
       info_attributes
         .map(Path::to_path_buf)
@@ -1415,6 +1441,94 @@ impl LocalProbe {
     let sources: HashSet<Vec<u8>> = changed.iter().flat_map(|c| attribute_files(&c.path)).collect();
     self.index_ids.retain(|path, _| paths.contains(path.as_slice()) || sources.contains(path));
     self.files.retain(|path, _| paths.contains(path.as_slice()));
+  }
+
+  /// The path of the index file of the worktree, read once, and with it `info/attributes`
+  fn index_path(&mut self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<String> {
+    if let Some(path) = &self.index_path {
+      return Ok(path.clone());
+    }
+    let path = match known_dirs(git_executor, repo_path) {
+      Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
+      None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
+    };
+    self.info_attributes = Some(info_attributes_of(git_executor, repo_path, Path::new(&path)));
+    self.index_path = Some(path.clone());
+    Ok(path)
+  }
+
+  /// `core.sparseCheckout` and `core.attributesFile` of the worktree, from one `git config` read once: the global file
+  /// of attributes lets the probe answer for a file in the check under the lock that the check before it hashed, for an
+  /// operation that placed none on its executor (`with_attribute_files`, of a sync)
+  fn read_config(&mut self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<&ProbeConfig> {
+    if self.config.is_none() {
+      let output = git_executor
+        .cmd(&["config", "-z", "--get-regexp", r"^core\.(sparsecheckout|attributesfile)$"], repo_path)
+        .accept(&[1])
+        .text()?;
+      // `<key>\n<value>\0`, or `<key>\0` without a value; the last one of a key wins
+      let mut sparse_checkout = false;
+      let mut attributes_file: Option<Option<String>> = None;
+      for entry in output.split('\0').filter(|entry| !entry.is_empty()) {
+        let (key, value) = entry.split_once('\n').map_or((entry, None), |(key, value)| (key, Some(value)));
+        match key {
+          "core.sparsecheckout" => sparse_checkout = value.is_none_or(is_true),
+          "core.attributesfile" => attributes_file = Some(value.map(str::to_string)),
+          _ => {}
+        }
+      }
+      let setting = match &attributes_file {
+        None => AttributesFileSetting::Unset,
+        Some(None) => AttributesFileSetting::NoValue,
+        Some(Some(value)) => AttributesFileSetting::Value(value),
+      };
+      let attributes = match global_attributes(Path::new(repo_path), setting) {
+        GlobalAttributes::File(file) => Some(Some(file)),
+        GlobalAttributes::NoFile => Some(None),
+        GlobalAttributes::Unplaced => None,
+      };
+      self.config = Some(ProbeConfig {
+        sparse_checkout,
+        attributes: attributes.map(|global| AttributeFiles {
+          path: repo_path.to_string(),
+          global,
+        }),
+      });
+    }
+    Ok(self.config.as_ref().expect("read above"))
+  }
+
+  /// Whether the index holds what the preview does not model: a sparse checkout (its sparse directory entries and
+  /// skip-worktree files, `core.sparseCheckout`), which only the exact dry run tells, or an unmerged entry on any path (a
+  /// stash pop that conflicted, with no merge in progress), which makes a two-way `read-tree -m` refuse the whole index:
+  /// its paths block every move. One `ls-files -u -z`, none again while the index file keeps the stamp it had when it
+  /// found none
+  fn index_state(&mut self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<IndexState> {
+    if self.read_config(git_executor, repo_path)?.sparse_checkout {
+      return Ok(IndexState::Sparse);
+    }
+    let index_path = self.index_path(git_executor, repo_path)?;
+    // read before the entries: an index written meanwhile has another stamp, and the next check reads it again
+    let stamp = std::fs::metadata(&index_path).ok().map(|metadata| FileStamp::of(&metadata));
+    if stamp.is_some() && self.merged_index == stamp {
+      return Ok(IndexState::Modelled);
+    }
+    self.merged_index = None;
+    // `<mode> <id> <stage>\t<path>\0`, a path once per stage
+    let output = git_executor.cmd(&["ls-files", "-u", "-z"], repo_path).bytes()?;
+    let mut unmerged: Vec<String> = Vec::new();
+    for path in output.split(|&b| b == 0).filter_map(|entry| entry.split_once_str("\t").map(|(_, path)| path)) {
+      let path = display_path(path);
+      if unmerged.last() != Some(&path) {
+        unmerged.push(path);
+      }
+    }
+    if !unmerged.is_empty() {
+      debug!(?unmerged, "the index has unmerged entries: git updates no file");
+      return Ok(IndexState::Unmerged(unmerged));
+    }
+    self.merged_index = stamp;
+    Ok(IndexState::Modelled)
   }
 }
 
@@ -2258,7 +2372,8 @@ struct MoveBack<'a> {
 
 impl MoveBack<'_> {
   /// Move the branch back after `error`, the failure of its files, and say so: `IndexLocked` keeps its type (the code
-  /// `locked`), any other failure is a file changed since the check; `outcome` says what the move back left
+  /// `locked`), any other failure is a file changed since the check (`FilesRefused`); `outcome` says what the move back
+  /// left
   fn after(&self, git_executor: &GitCommandExecutor, repo_path: &str, error: anyhow::Error, outcome: &str) -> anyhow::Error {
     if let Err(rollback_error) = roll_back(git_executor, repo_path, self.head_ref, self.head, self.new_head, self.operation, self.rollback_with) {
       return anyhow!("{rollback_error:#}; {error:#}");
@@ -2266,8 +2381,25 @@ impl MoveBack<'_> {
     if error.downcast_ref::<IndexLocked>().is_some() {
       return index_error(error, self.operation, &format!("{} moved back, {outcome}", self.head_ref.name()));
     }
-    anyhow!("Files changed during the {}; {outcome}: {error:#}", noun(self.operation))
+    anyhow::Error::new(FilesRefused {
+      operation: noun(self.operation),
+      outcome: outcome.to_string(),
+      refusal: format!("{error:#}"),
+    })
   }
+}
+
+/// `read-tree -m -u` refused the files of a move after the branch moved, and the branch moved back: a local change
+/// that the check did not see, or that came after it. A pick answers it with the paths of the exact dry run
+/// (`pick::apply_pick_locked`)
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("Files changed during the {operation}; {outcome}: {refusal}")]
+pub struct FilesRefused {
+  pub operation: &'static str,
+  /// What the move back left
+  pub outcome: String,
+  /// git's message
+  pub refusal: String,
 }
 
 /// `IndexLocked` of a move with what the move did, the type kept for the code of the error (`locked`); any other error as
@@ -2433,13 +2565,28 @@ enum Refresh {
   Index,
 }
 
-/// `blocking_paths` once more, under the repository lock, of a move whose exact check ran before the lock (`brd pick`):
-/// `preview_blocking_paths` of the changed paths, at a cost that grows with them, not with the index, and the exact dry
-/// run only when the preview finds a path, as it leans to blocked where the two differ. The move itself checks every
-/// path again before it writes one
-pub(crate) fn recheck_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
-  if changed.is_empty() || preview_blocking_paths(git_executor, repo_path, changed, &mut LocalProbe::default())?.is_empty() {
+/// `blocking_paths` of a move whose files follow it under the repository lock (`brd pick`), before the lock and once
+/// more under it: `preview_blocking_paths` of the changed paths, at a cost that grows with them, not with the index, and
+/// the exact dry run only when the preview finds a path, as it leans to blocked where the two differ, or in a sparse
+/// checkout, which the preview does not model; an unmerged entry of the index blocks with its paths, on whatever path
+/// (`LocalProbe::index_state`). `probe` keeps what the check before the lock read, so the check under it reads only what changed since. The move
+/// itself checks every path again before it writes one (`apply_worktree_update`), and a refusal there moves the branch
+/// back (`FilesRefused`)
+pub(crate) fn blocking_paths_by_preview(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  old: &str,
+  new: &str,
+  changed: &[ChangedPath],
+  probe: &mut LocalProbe,
+) -> Result<Vec<String>> {
+  if changed.is_empty() {
     return Ok(Vec::new());
+  }
+  match probe.index_state(git_executor, repo_path)? {
+    IndexState::Unmerged(paths) => return Ok(paths),
+    IndexState::Modelled if preview_blocking_paths(git_executor, repo_path, changed, probe)?.is_empty() => return Ok(Vec::new()),
+    IndexState::Modelled | IndexState::Sparse => {}
   }
   blocking_paths(git_executor, repo_path, old, new, changed)
 }
@@ -2525,8 +2672,9 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
   }
 
   read_index_ids(git_executor, repo_path, changed, &tracked, probe)?;
-  let mut sources = AttributeSources::new(git_executor, repo_path, probe.info_attributes.as_deref());
-  let mut sparse_checkout: Option<bool> = None;
+  let read = probe.config.as_ref().and_then(|config| config.attributes.as_ref());
+  let mut sources = AttributeSources::new(git_executor, repo_path, probe.info_attributes.as_deref(), read);
+  let mut sparse_checkout: Option<bool> = probe.config.as_ref().map(|config| config.sparse_checkout);
   let mut to_hash = Vec::new();
   // the files whose filtered id is not the old blob, with their length: the id of their bytes as they are tells
   let mut as_they_are: Vec<(usize, u64)> = Vec::new();
@@ -2664,17 +2812,7 @@ fn collect_blocked(changed: &[ChangedPath], blocked: &[bool]) -> Vec<String> {
 /// Read the index entries of the `tracked` changed paths and of the `.gitattributes` of their directories that `probe`
 /// doesn't know for the current index file; all of them once the index file changed
 fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath], tracked: &[usize], probe: &mut LocalProbe) -> Result<()> {
-  let index_path = if let Some(path) = &probe.index_path {
-    path.clone()
-  } else {
-    let path = match known_dirs(git_executor, repo_path) {
-      Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
-      None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
-    };
-    probe.info_attributes = Some(info_attributes_of(git_executor, repo_path, Path::new(&path)));
-    probe.index_path = Some(path.clone());
-    path
-  };
+  let index_path = probe.index_path(git_executor, repo_path)?;
   // read before the entries: an index written meanwhile has another stamp, and the next check reads it again
   let index_stamp = std::fs::metadata(&index_path).ok().map(|metadata| FileStamp::of(&metadata));
   if index_stamp.is_none() || probe.index_stamp != index_stamp {
@@ -2723,6 +2861,11 @@ fn info_attributes_of(git_executor: &GitCommandExecutor, repo_path: &str, index:
   common.join("info/attributes")
 }
 
+/// A true value of a boolean key of the config, as git reads it: `true`, `yes`, `on` in any case, or a number but 0
+fn is_true(value: &str) -> bool {
+  ["true", "yes", "on"].iter().any(|word| value.eq_ignore_ascii_case(word)) || value.parse::<i64>().is_ok_and(|number| number != 0)
+}
+
 fn is_sparse_checkout(git_executor: &GitCommandExecutor, repo_path: &str) -> bool {
   git_executor
     .execute_command_with_status(&["config", "--type=bool", "--get", "core.sparseCheckout"], repo_path)
@@ -2748,12 +2891,13 @@ fn symlink_matches(link: &Path, id: &str) -> bool {
 
 /// Whether something local is in the way of a file the update adds at `path`: anything on disk there, or a file in
 /// place of one of its directories. The update itself removes the paths it deletes, so a file it deletes in place of a
-/// directory, or a directory of files it deletes, is not in the way.
+/// directory, or a directory that holds only files it deletes (`holds_only_deleted`), is not in the way.
 fn is_in_the_way(root: &Path, path: &[u8], deleted: &HashSet<&[u8]>) -> bool {
   // a path the file system can't name (not UTF-8 on Windows): leans to blocked
   let Ok(file) = path.to_path() else { return true };
   if let Ok(metadata) = root.join(file).symlink_metadata() {
-    let replaced_directory = metadata.is_dir() && deleted.iter().any(|d| d.strip_prefix(path).is_some_and(|rest| rest.starts_with(b"/")));
+    let replaced_directory =
+      metadata.is_dir() && deleted.iter().any(|d| d.strip_prefix(path).is_some_and(|rest| rest.starts_with(b"/"))) && holds_only_deleted(&root.join(file), path, deleted);
     return !replaced_directory;
   }
   let mut rest = path;
@@ -2765,6 +2909,29 @@ fn is_in_the_way(root: &Path, path: &[u8], deleted: &HashSet<&[u8]>) -> bool {
     rest = dir;
   }
   false
+}
+
+/// Whether every file under the directory `dir` (the path `path` of the worktree), in its subdirectories too, is a path
+/// the update deletes: git refuses to replace a directory with a file while an untracked or an ignored file is in it.
+/// An entry that can't be read or named leans to no
+fn holds_only_deleted(dir: &Path, path: &[u8], deleted: &HashSet<&[u8]>) -> bool {
+  let Ok(entries) = std::fs::read_dir(dir) else { return false };
+  for entry in entries {
+    let Ok(entry) = entry else { return false };
+    let name = entry.file_name();
+    let Some(name) = <[u8]>::from_os_str(&name) else { return false };
+    let entry_path = [path, b"/", name].concat();
+    let Ok(file_type) = entry.file_type() else { return false };
+    let holds = if file_type.is_dir() {
+      holds_only_deleted(&entry.path(), &entry_path, deleted)
+    } else {
+      deleted.contains(entry_path.as_slice())
+    };
+    if !holds {
+      return false;
+    }
+  }
+  true
 }
 
 /// The paths the update deletes

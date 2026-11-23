@@ -910,7 +910,8 @@ async fn an_undo_of_an_unapply() {
 
 /// The reapply of beta after its unapply: before the lock the unapplied branch with its worktree, the baseline, the
 /// start of its own commits, the grouping inputs, the restored messages (one `fast-import`) and the pick (the range with
-/// the patch id marks, one `replay`, the copies, the dry run of the files); under it the witness (`for-each-ref` of
+/// the patch id marks, one `replay`, the copies, the check of the paths of the move: one `config`, one `ls-files -u`, no
+/// dry run on a copy of the index); under it the witness (`for-each-ref` of
 /// HEAD, the upstream, the issue groups, the unapplied branch and the mark of pending files) and the move with its mark
 #[tokio::test]
 async fn a_reapply() {
@@ -923,19 +924,20 @@ async fn a_reapply() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("for-each-ref", 3),
       ("log", 4),
+      ("ls-files", 1),
       ("merge-base", 1),
-      ("read-tree", 2),
+      ("read-tree", 1),
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 2),
       ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
       ("symbolic-ref", 3),
-      ("update-index", 2),
+      ("update-index", 1),
       ("update-ref", 2),
     ],
   );

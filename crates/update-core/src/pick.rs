@@ -19,8 +19,8 @@ use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::copy_commit::virtual_message_of;
 use git_ops::lfs::{WorktreeMove, prefetch_lfs_objects};
 use git_ops::pick::{
-  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick_undo, check_pick_with_signing,
-  recheck_pick,
+  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, apply_pick_locked, check_pick_undo,
+  check_pick_with_signing, recheck_pick,
 };
 use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
@@ -610,17 +610,17 @@ fn land(
       drop(lock);
       continue;
     }
-    let applied = apply(&plan)?;
+    let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
     return Ok((plan, applied));
   }
-  let _lock = options.lock(git_executor, target)?;
+  let lock = options.lock(git_executor, target)?;
   finish_pending(git_executor, worktrees)?;
-  let plan = check_pick_with_signing(git_executor, target, request, signing)?;
+  let mut plan = check_pick_with_signing(git_executor, target, request, signing)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
   // a check under the lock: new picked commits are read here, the same ones not again
   refuse_unchecked(&plan, land_nothing)?;
   messages.verify(git_executor, target, &plan, true)?;
-  let applied = apply(&plan)?;
+  let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
   Ok((plan, applied))
 }
 
