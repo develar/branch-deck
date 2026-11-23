@@ -382,5 +382,6 @@ The transport is Air's decision, with its measurements in JCEF: the decision rec
 - The contract of Air (idea-1): `plugins/air/native/air-apps/protocol/`, the OpenSpec capability `air-apps-host`, the
   decision record `plugins/air/docs/decisions/2026-11-11-the-ide-hosts-an-app-of-the-user-over-x-air-app.md`
 - The copy: `docs/design/ide-embedding/protocol/` (its `README.md` has the rules of a runner)
+- The one backend of P2, which `brd mcp` becomes a bridge to: [Backend Protocol](backend-protocol.md) (Draft)
 - Related docs: [Distributed Settings](distributed-settings.md), [Rendering Performance](rendering-performance.md),
   [E2E Testing](e2e-testing.md)

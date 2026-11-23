@@ -1,0 +1,17 @@
+{"comment":"The errors of the root commands and the channels: a channel command at the root, arguments that do not parse, a window command without its window, an unknown channel, an unsubscribe without a subscription, a subscription that app-api refuses. ${unprefixed} is a repository of the fixture without a branch prefix."}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}}}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/subscribe_view","params":{"channel":"ahp-root://","window":"main","args":{"params":{"repositoryPath":"${repo}"}}}}}
+{"host":{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"${any}","data":{"reason":"channelCommand"}}}}
+{"client":{"jsonrpc":"2.0","id":3,"method":"x-branch-deck/get_commit_files","params":{"channel":"ahp-root://","args":{}}}}
+{"host":{"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"${any}","data":{"reason":"badParams","apiError":"${any}"}}}}
+{"client":{"jsonrpc":"2.0","id":4,"method":"x-branch-deck/set_setting","params":{"channel":"ahp-root://","args":{"params":"${settingParams}"}}}}
+{"host":{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"${any}","data":{"reason":"badParams"}}}}
+{"client":{"jsonrpc":"2.0","id":5,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/99","_meta":{"x-branch-deck":{"window":"main"}}}}}
+{"host":{"jsonrpc":"2.0","id":5,"error":{"code":-32008,"message":"${any}","data":{"reason":"unknownChannel"}}}}
+{"client":{"jsonrpc":"2.0","id":6,"method":"x-branch-deck/repositoryChannel","params":{"channel":"ahp-root://","repositoryPath":"${unprefixed}"}}}
+{"host":{"jsonrpc":"2.0","id":6,"result":{"channel":"x-branch-deck:/repository/1"}}}
+{"client":{"jsonrpc":"2.0","id":7,"method":"unsubscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}}}
+{"host":{"jsonrpc":"2.0","id":7,"error":{"code":-32008,"message":"${any}","data":{"reason":"notSubscribed"}}}}
+{"client":{"jsonrpc":"2.0","id":8,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}}}
+{"host":{"jsonrpc":"2.0","id":8,"error":{"code":-32603,"message":"${any}","data":{"reason":"apiError","apiError":{"code":"no_branch_prefix","message":"${any}","details":"${any}","retry":"${any}","operation_id":"${any}"}}}}}

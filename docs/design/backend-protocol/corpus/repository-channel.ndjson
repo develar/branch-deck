@@ -1,0 +1,53 @@
+{"comment":"The repository channel on two connections, on the fixture repository ${repo}: a virtual branch synced before, whose session the host opens on the first subscribe from the frame of the fixture (the warm start), so ${view0} is the seed. The first connection is a Tauri shell with the windows main and review-1, the second a bridge with its one mirror window. A subscription is a window's, and each action goes to each subscribed window in a frame of its own. A token ${name} binds at its first appearance in a host line to the value there, and each later appearance is that value; ${name.field} is a field of a bound value; ${any} matches any value. A host line of one connection may come before or after a host line of another: the order holds within a connection. serverSeq is one counter of the host. A step line is an action of the runner on the fixture between the frames. A client line marked invalid breaks the schema on purpose."}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus-1","clientInfo":{"name":"branch-deck-app","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"folderDialog":true,"updater":true,"restart":true,"agentCli":true,"nativeMenu":true,"hostRequests":["openWindow","showWindow","notify"]}}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus-2","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}},"conn":2}
+{"comment":"The channel of a path is one URI for the life of the backend, for every connection."}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/repositoryChannel","params":{"channel":"ahp-root://","repositoryPath":"${repo}"}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-branch-deck:/repository/1"}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/repositoryChannel","params":{"channel":"ahp-root://","repositoryPath":"${repo}"}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-branch-deck:/repository/1"}},"conn":2}
+{"comment":"A subscribe without have: the snapshot holds the view of the session, with its version. A second subscribe of the same window is refused; another window of the same connection subscribes on its own; a subscribe that names no window is badParams."}
+{"client":{"jsonrpc":"2.0","id":3,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":3,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view0}","fromSeq":0}}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":4,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":4,"error":{"code":-32011,"message":"${any}","data":{"reason":"alreadySubscribed"}}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":5,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"review-1"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":5,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view0}","fromSeq":0}}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":6,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1"}},"conn":1,"invalid":true}
+{"host":{"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"${any}","data":{"reason":"badParams"}}},"conn":1}
+{"comment":"The bridge subscribes its mirror window with the version it holds: held, and no catch-up action, as the session did not move."}
+{"client":{"jsonrpc":"2.0","id":3,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"mirror:${repo}","have":"${view0.version}"}}}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":3,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","fromSeq":0,"_meta":{"x-branch-deck":{"held":"${view0.version}"}}}}},"conn":2}
+{"comment":"The demand of a window is the demand of its subscription; the session reads the facts of the union of its subscriptions."}
+{"client":{"jsonrpc":"2.0","id":7,"method":"x-branch-deck/setDemand","params":{"channel":"x-branch-deck:/repository/1","window":"main","demand":{"focused":true,"online":true,"visibleBranches":[],"visibleStacks":[],"needed":[],"robotDetails":[],"watchedRobots":[]}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":7,"result":{}},"conn":1}
+{"comment":"A sync of the main window: one viewPatched to each subscribed window, all with one serverSeq, then the answer of the sync, which names the version it brought, after the frames of its connection (the version fence)."}
+{"client":{"jsonrpc":"2.0","id":8,"method":"x-branch-deck/sync","params":{"channel":"ahp-root://","window":"main","args":{"params":{"repositoryPath":"${repo}","reason":"manual"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","action":{"type":"x-branch-deck/viewPatched","patch":{"base":"${view0.version}","next":"${v1}","changes":"${any}"}},"window":"main","serverSeq":1}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","action":{"type":"x-branch-deck/viewPatched","patch":{"base":"${view0.version}","next":"${v1}","changes":"${any}"}},"window":"review-1","serverSeq":1}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","action":{"type":"x-branch-deck/viewPatched","patch":{"base":"${view0.version}","next":"${v1}","changes":"${any}"}},"window":"mirror:${repo}","serverSeq":1}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":8,"result":{"value":{"outcome":"synced","version":"${v1}"}}},"conn":1}
+{"comment":"The channel takes no intent: the echo rejects it, and the view keeps its version."}
+{"client":{"jsonrpc":"2.0","method":"dispatchAction","params":{"channel":"x-branch-deck:/repository/1","clientSeq":1,"action":{"type":"x-branch-deck/sync"}}},"conn":2}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","serverSeq":2,"action":{"type":"x-branch-deck/sync"},"origin":{"clientId":"corpus-2","clientSeq":1},"rejectionReason":"unknownAction"}},"conn":2}
+{"comment":"A subscribe with the seed after the session moved: held, and the first action of the window is the catch-up the session builds from the seed. The bridge leaves and comes back with the version it held before the sync."}
+{"client":{"jsonrpc":"2.0","id":4,"method":"unsubscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"mirror:${repo}"}}}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":4,"result":{}},"conn":2}
+{"client":{"jsonrpc":"2.0","id":5,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"mirror:${repo}","have":"${view0.version}"}}}},"conn":2}
+{"host":{"jsonrpc":"2.0","id":5,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","fromSeq":2,"_meta":{"x-branch-deck":{"held":"${view0.version}"}}}}},"conn":2}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","action":{"type":"x-branch-deck/viewPatched","patch":{"base":"${view0.version}","next":"${v1}","changes":"${any}"}},"window":"mirror:${repo}","serverSeq":3}},"conn":2}
+{"comment":"Another epoch: the prefix of the fixture changes, and the main window subscribes again. The channel moves to the session of the new prefix: each other subscribed window gets one resync whose version is of another epoch than ${v1}, the main window its snapshot."}
+{"step":"setPrefix","value":"corpus-other"}
+{"client":{"jsonrpc":"2.0","id":9,"method":"unsubscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":9,"result":{}},"conn":1}
+{"client":{"jsonrpc":"2.0","id":10,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/resync","params":{"channel":"x-branch-deck:/repository/1","window":"review-1","snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view2}","fromSeq":4}}},"conn":1}
+{"host":{"jsonrpc":"2.0","id":10,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view2}","fromSeq":4}}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/resync","params":{"channel":"x-branch-deck:/repository/1","window":"mirror:${repo}","snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view2}","fromSeq":4}}},"conn":2}
+{"comment":"The end of the session: the fixture repository goes away, and each subscribed window gets subscriptionEnded."}
+{"step":"deleteRepository"}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/subscriptionEnded","params":{"channel":"x-branch-deck:/repository/1","window":"main","reason":"sessionClosed"}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/subscriptionEnded","params":{"channel":"x-branch-deck:/repository/1","window":"review-1","reason":"sessionClosed"}},"conn":1}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/subscriptionEnded","params":{"channel":"x-branch-deck:/repository/1","window":"mirror:${repo}","reason":"sessionClosed"}},"conn":2}

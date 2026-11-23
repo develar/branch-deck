@@ -1,0 +1,27 @@
+{"comment":"The windows and the Desktop of a socket client: the bridge declares the host requests openWindow, showWindow and notify, and no other capability. A host request has an id of the host. The fixture repository is ${repo}."}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}}}
+{"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowShown","params":{"channel":"ahp-root://","window":"main","view":"main","params":{}}}}
+{"comment":"open_sub_window of a review is the host request openWindow to the connection of its call; the client answers the label of the window in it (the instance of its view in the IDE), and the command answers once the client answered."}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/open_sub_window","params":{"channel":"ahp-root://","window":"main","args":{"params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":null}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"method":"x-branch-deck/openWindow","params":{"channel":"ahp-root://","opener":"main","params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":null},"update":null,"front":true}}}
+{"client":{"jsonrpc":"2.0","id":1,"result":{"window":"review:1"}}}
+{"host":{"jsonrpc":"2.0","id":2,"result":{"value":null}}}
+{"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowShown","params":{"channel":"ahp-root://","window":"review:1","view":"review","params":{}}}}
+{"comment":"A capability the client lacks: check_for_updates answers the ApiError of a desktop without an updater, and nothing runs."}
+{"client":{"jsonrpc":"2.0","id":3,"method":"x-branch-deck/check_for_updates","params":{"channel":"ahp-root://","window":"main","args":null}}}
+{"host":{"jsonrpc":"2.0","id":3,"result":{"error":{"code":"${any}","message":"${any}","details":"${any}","retry":"${any}","operation_id":"${any}"}}}}
+{"comment":"An event of app-api to every window: an activity journal changed. Without window it is for every window of the connection."}
+{"client":{"jsonrpc":"2.0","id":4,"method":"x-branch-deck/record_activity","params":{"channel":"ahp-root://","window":"main","args":{"params":"${pageActivity}"}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/event","params":{"channel":"ahp-root://","event":"activity-changed","payload":null}}}
+{"host":{"jsonrpc":"2.0","id":4,"result":{"value":"${any}"}}}
+{"comment":"A news is claimed once: the first claim of a news of a repository is first, a later one is not."}
+{"client":{"jsonrpc":"2.0","id":5,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":7}}}
+{"host":{"jsonrpc":"2.0","id":5,"result":{"first":true}}}
+{"client":{"jsonrpc":"2.0","id":6,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":7}}}
+{"host":{"jsonrpc":"2.0","id":6,"result":{"first":false}}}
+{"comment":"The close of a window forgets it alone; a close of a window the connection does not hold changes nothing. The end of the connection closes its windows."}
+{"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowClosed","params":{"channel":"ahp-root://","window":"review:1"}}}
+{"client":{"jsonrpc":"2.0","method":"x-branch-deck/pageLoaded","params":{"channel":"ahp-root://","window":"main"}}}
+{"client":{"jsonrpc":"2.0","id":7,"method":"ping","params":{"channel":"ahp-root://"}}}
+{"host":{"jsonrpc":"2.0","id":7,"result":{}}}

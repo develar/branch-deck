@@ -1,0 +1,35 @@
+{"comment":"Root commands with a stream on the fixture repository ${repo}, whose virtual branch has the commit ${commit}: each event of the channel of the command is x-branch-deck/callEvent with the id of its request, before its answer. Tokens as in repository-channel.ndjson."}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}}}
+{"comment":"The diffs of a commit: the files, then the content of each file, then the answer of a command without an output."}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/get_file_diffs","params":{"channel":"ahp-root://","window":"review-1","args":{"params":{"repositoryPath":"${repo}","source":{"kind":"commit","id":"${commit}"},"policy":"default","priorityPaths":[]}}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":2,"event":{"kind":"files","files":"${any}","asksIndex":"${any}"}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":2,"event":{"kind":"content","index":0,"content":"${any}","collapse":"${any}","reading":"${any}"}}}}
+{"host":{"jsonrpc":"2.0","id":2,"result":{"value":null}}}
+{"comment":"A raw command answers bytes in base64."}
+{"client":{"jsonrpc":"2.0","id":3,"method":"x-branch-deck/get_blob_syntax","params":{"channel":"ahp-root://","args":{"params":"${syntaxParams}"}}}}
+{"host":{"jsonrpc":"2.0","id":3,"result":{"bytes":"${any}"}}}
+{"comment":"A command that fails answers its ApiError as its result: a sync of a repository that does not exist."}
+{"client":{"jsonrpc":"2.0","id":4,"method":"x-branch-deck/sync","params":{"channel":"ahp-root://","window":"main","args":{"params":{"repositoryPath":"${repo}/missing","reason":"manual"}}}}}
+{"host":{"jsonrpc":"2.0","id":4,"result":{"error":{"code":"${any}","message":"${any}","details":"${any}","retry":"${any}","operation_id":"${any}"}}}}
+{"comment":"An intent without a subscription (the undo case): execute of a rename of the virtual branch streams its steps and its done event, and answers its Outcome. No subscription of the connection names its repository, so nothing waits for its version."}
+{"client":{"jsonrpc":"2.0","id":5,"method":"x-branch-deck/execute","params":{"channel":"ahp-root://","window":"main","args":{"params":{"repositoryPath":"${repo}","intent":"${renameIntent}","fingerprint":"${fingerprint}"}}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":5,"event":{"kind":"step","op":"${op}","step":"${any}"}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":5,"event":{"kind":"done","outcome":{"op":"${op}","effects":"${any}","newsKey":"${any}","versionAfter":"${any}","result":"${any}","undo":"${any}","stats":"${any}"}}}}}
+{"host":{"jsonrpc":"2.0","id":5,"result":{"value":{"op":"${op}","effects":"${any}","newsKey":"${any}","versionAfter":"${any}","result":"${any}","undo":"${any}","stats":"${any}"}}}}
+{"comment":"The same with a subscription: the viewPatched of the rename comes before the done event and the answer, both of which name its next version."}
+{"client":{"jsonrpc":"2.0","id":6,"method":"x-branch-deck/repositoryChannel","params":{"channel":"ahp-root://","repositoryPath":"${repo}"}}}
+{"host":{"jsonrpc":"2.0","id":6,"result":{"channel":"x-branch-deck:/repository/1"}}}
+{"client":{"jsonrpc":"2.0","id":7,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}}}
+{"host":{"jsonrpc":"2.0","id":7,"result":{"snapshot":{"resource":"x-branch-deck:/repository/1","state":"${view0}","fromSeq":0}}}}
+{"client":{"jsonrpc":"2.0","id":8,"method":"x-branch-deck/execute","params":{"channel":"ahp-root://","window":"main","args":{"params":{"repositoryPath":"${repo}","intent":"${renameBackIntent}","fingerprint":"${fingerprint2}"}}}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":8,"event":{"kind":"step","op":"${op2}","step":"${any}"}}}}
+{"host":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-branch-deck:/repository/1","action":{"type":"x-branch-deck/viewPatched","patch":{"base":"${view0.version}","next":"${v1}","changes":"${any}"}},"window":"main","serverSeq":1}}}
+{"host":{"jsonrpc":"2.0","method":"x-branch-deck/callEvent","params":{"channel":"ahp-root://","requestId":8,"event":{"kind":"done","outcome":{"op":"${op2}","effects":"${any}","newsKey":"${any}","versionAfter":"${v1}","result":"${any}","undo":"${any}","stats":"${any}"}}}}}
+{"host":{"jsonrpc":"2.0","id":8,"result":{"value":{"op":"${op2}","effects":"${any}","newsKey":"${any}","versionAfter":"${v1}","result":"${any}","undo":"${any}","stats":"${any}"}}}}
+{"comment":"A cancel of a stream: the call gets one answer, and no event of it after the answer."}
+{"client":{"jsonrpc":"2.0","id":9,"method":"x-branch-deck/get_file_diffs","params":{"channel":"ahp-root://","window":"review-1","args":{"params":{"repositoryPath":"${repo}","source":{"kind":"uncommitted"},"policy":"default","priorityPaths":[]}}}}}
+{"client":{"jsonrpc":"2.0","method":"x-branch-deck/cancel","params":{"channel":"ahp-root://","requestId":9}}}
+{"host":{"jsonrpc":"2.0","id":9,"result":"${any}"}}
+{"client":{"jsonrpc":"2.0","id":10,"method":"ping","params":{"channel":"ahp-root://"}}}
+{"host":{"jsonrpc":"2.0","id":10,"result":{}}}

@@ -1,0 +1,1260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/develar/branch-deck/docs/design/backend-protocol/backend.schema.json",
+  "title": "The frames of the backend protocol of Branch Deck",
+  "description": "One message of a connection to the backend (docs/design/backend-protocol.md). A result is checked against the def of its method: InitializeResult, SubscribeResult, RepositoryChannelResult, ClaimNewsResult, OpenWindowResult, CommandResult, EmptyResult.",
+  "$ref": "#/$defs/Message",
+  "$defs": {
+    "Message": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Request"
+        },
+        {
+          "$ref": "#/$defs/Notification"
+        },
+        {
+          "$ref": "#/$defs/Result"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "Id": {
+      "description": "The id of a request. The answer carries it verbatim.",
+      "type": ["string", "number"]
+    },
+    "Root": {
+      "const": "ahp-root://"
+    },
+    "RepositoryChannel": {
+      "description": "The channel of a repository path, for the life of the backend.",
+      "type": "string",
+      "pattern": "^x-branch-deck:/repository/[1-9][0-9]*$"
+    },
+    "Channel": {
+      "description": "The root channel, or a channel x-branch-deck:/<kind>/<n>.",
+      "type": "string",
+      "pattern": "^(ahp-root://|x-branch-deck:/[A-Za-z]+/[1-9][0-9]*)$"
+    },
+    "Params": {
+      "description": "Every params has channel.",
+      "type": "object",
+      "required": ["channel"],
+      "properties": {
+        "channel": {
+          "type": "string"
+        },
+        "_meta": {
+          "type": "object"
+        }
+      }
+    },
+    "Request": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/$defs/Params"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "initialize"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/InitializeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ping"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/RootParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "subscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/SubscribeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "unsubscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/UnsubscribeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/repositoryChannel"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/RepositoryChannelParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/setDemand"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/SetDemandParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/claimNews"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/ClaimNewsParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/bootstrap"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/BootstrapParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/showMain"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/RootParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/openWindow"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/OpenWindowParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/showWindow"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/WindowParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/notify"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/NotifyParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "pattern": "^x-branch-deck/[a-z][a-z0-9_]*$",
+                "not": {
+                  "enum": [
+                    "x-branch-deck/repositoryChannel",
+                    "x-branch-deck/setDemand",
+                    "x-branch-deck/claimNews",
+                    "x-branch-deck/bootstrap",
+                    "x-branch-deck/showMain",
+                    "x-branch-deck/openWindow",
+                    "x-branch-deck/showWindow",
+                    "x-branch-deck/notify",
+                    "x-branch-deck/cancel",
+                    "x-branch-deck/windowShown",
+                    "x-branch-deck/windowHidden",
+                    "x-branch-deck/windowClosed",
+                    "x-branch-deck/pageLoaded",
+                    "x-branch-deck/callEvent",
+                    "x-branch-deck/event",
+                    "x-branch-deck/resync",
+                    "x-branch-deck/subscriptionEnded"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/CommandParams"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Notification": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "not": {
+        "required": ["id"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/$defs/Params"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "dispatchAction"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/DispatchActionParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "action"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/ActionEnvelope"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/cancel"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/CancelParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "enum": ["x-branch-deck/windowShown"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/WindowShownParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "enum": ["x-branch-deck/windowHidden", "x-branch-deck/windowClosed", "x-branch-deck/pageLoaded"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/WindowParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/callEvent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/CallEventParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/event"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/EventParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/resync"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/ResyncParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-branch-deck/subscriptionEnded"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/SubscriptionEndedParams"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Result": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "not": {
+        "required": ["error"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "result": true
+      }
+    },
+    "Error": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "not": {
+        "required": ["result"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorObject"
+        }
+      }
+    },
+    "ErrorObject": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [-32700, -32600, -32601, -32602, -32603, -32005, -32008, -32011]
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData"
+        }
+      }
+    },
+    "ErrorData": {
+      "description": "reason names the kind of the error. A receiver ignores a field that it does not know.",
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "parse",
+            "invalidRequest",
+            "notInitialized",
+            "alreadyInitialized",
+            "unknownMethod",
+            "channelCommand",
+            "badParams",
+            "panic",
+            "internal",
+            "apiError",
+            "ahpVersion",
+            "vocabularyVersion",
+            "otherBuild",
+            "unknownChannel",
+            "notSubscribed",
+            "alreadySubscribed"
+          ]
+        },
+        "apiError": {
+          "$ref": "#/$defs/ApiError"
+        },
+        "build": {
+          "description": "otherBuild: the build of the host.",
+          "type": "string"
+        },
+        "exits": {
+          "description": "otherBuild: the host exits after this answer.",
+          "type": "boolean"
+        }
+      }
+    },
+    "Version": {
+      "description": "A SemVer MAJOR.MINOR.PATCH.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "ViewVersion": {
+      "description": "Version of domain_types::session: epoch random per process and session, seq one per patch.",
+      "type": "object",
+      "required": ["epoch", "seq"],
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "Build": {
+      "description": "The build id of a binary: its version and its commit, -dirty for a tree with changes. Compared byte for byte.",
+      "type": "string",
+      "minLength": 1
+    },
+    "VocabularyMeta": {
+      "type": "object",
+      "required": ["x-branch-deck"],
+      "properties": {
+        "x-branch-deck": {
+          "type": "object",
+          "required": ["version"],
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/Version"
+            }
+          }
+        }
+      }
+    },
+    "Capabilities": {
+      "description": "What the Desktop of the windows of the connection has. An absent flag is false.",
+      "type": "object",
+      "properties": {
+        "folderDialog": {
+          "type": "boolean"
+        },
+        "updater": {
+          "type": "boolean"
+        },
+        "restart": {
+          "type": "boolean"
+        },
+        "agentCli": {
+          "type": "boolean"
+        },
+        "nativeMenu": {
+          "type": "boolean"
+        },
+        "hostRequests": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["openWindow", "showWindow", "notify"]
+          }
+        }
+      }
+    },
+    "RootParams": {
+      "type": "object",
+      "required": ["channel"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        }
+      }
+    },
+    "InitializeParams": {
+      "type": "object",
+      "required": ["channel", "protocolVersions", "clientId", "clientInfo", "_meta"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "protocolVersions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Version"
+          }
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientInfo": {
+          "type": "object",
+          "required": ["name", "build"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "build": {
+              "$ref": "#/$defs/Build"
+            }
+          }
+        },
+        "initialSubscriptions": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-branch-deck"],
+          "properties": {
+            "x-branch-deck": {
+              "type": "object",
+              "required": ["version", "capabilities"],
+              "properties": {
+                "version": {
+                  "$ref": "#/$defs/Version"
+                },
+                "capabilities": {
+                  "$ref": "#/$defs/Capabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "InitializeResult": {
+      "type": "object",
+      "required": ["protocolVersion", "serverSeq", "snapshots", "serverInfo", "_meta"],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/Version"
+        },
+        "serverSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshots": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "serverInfo": {
+          "type": "object",
+          "required": ["name", "build"],
+          "properties": {
+            "name": {
+              "const": "branch-deck"
+            },
+            "build": {
+              "$ref": "#/$defs/Build"
+            }
+          }
+        },
+        "_meta": {
+          "$ref": "#/$defs/VocabularyMeta"
+        }
+      }
+    },
+    "RepositoryChannelParams": {
+      "type": "object",
+      "required": ["channel", "repositoryPath"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "repositoryPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "RepositoryChannelResult": {
+      "type": "object",
+      "required": ["channel"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/RepositoryChannel"
+        }
+      }
+    },
+    "SubscribeParams": {
+      "description": "A subscription of the window of the connection. have: the version of the view the window holds (the seed of the warm start).",
+      "type": "object",
+      "required": ["channel", "_meta"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-branch-deck"],
+          "properties": {
+            "x-branch-deck": {
+              "type": "object",
+              "required": ["window"],
+              "properties": {
+                "window": {
+                  "$ref": "#/$defs/WindowLabel"
+                },
+                "have": {
+                  "$ref": "#/$defs/ViewVersion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "UnsubscribeParams": {
+      "type": "object",
+      "required": ["channel", "_meta"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-branch-deck"],
+          "properties": {
+            "x-branch-deck": {
+              "type": "object",
+              "required": ["window"],
+              "properties": {
+                "window": {
+                  "$ref": "#/$defs/WindowLabel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "RepositoryView": {
+      "description": "The RepositoryView of domain_types::session, as src/lib/bindings.ts types it.",
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/ViewVersion"
+        }
+      }
+    },
+    "Snapshot": {
+      "description": "The state, or held: the client holds the view at that version and the catch-up action follows.",
+      "type": "object",
+      "required": ["resource", "fromSeq"],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/RepositoryChannel"
+        },
+        "state": {
+          "$ref": "#/$defs/RepositoryView"
+        },
+        "fromSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-branch-deck"],
+          "properties": {
+            "x-branch-deck": {
+              "type": "object",
+              "required": ["held"],
+              "properties": {
+                "held": {
+                  "$ref": "#/$defs/ViewVersion"
+                }
+              }
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["state"],
+          "not": {
+            "required": ["_meta"]
+          }
+        },
+        {
+          "required": ["_meta"],
+          "not": {
+            "required": ["state"]
+          }
+        }
+      ]
+    },
+    "SubscribeResult": {
+      "type": "object",
+      "required": ["snapshot"],
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot"
+        }
+      }
+    },
+    "ViewPatch": {
+      "description": "The ViewPatch of domain_types::session: changes is its TableChanges.",
+      "type": "object",
+      "required": ["base", "next", "changes"],
+      "properties": {
+        "base": {
+          "$ref": "#/$defs/ViewVersion"
+        },
+        "next": {
+          "$ref": "#/$defs/ViewVersion"
+        },
+        "changes": {
+          "type": "object"
+        }
+      }
+    },
+    "ViewPatched": {
+      "type": "object",
+      "required": ["type", "patch"],
+      "properties": {
+        "type": {
+          "const": "x-branch-deck/viewPatched"
+        },
+        "patch": {
+          "$ref": "#/$defs/ViewPatch"
+        }
+      }
+    },
+    "StateAction": {
+      "description": "An intent or a state action: an object with a string type.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      }
+    },
+    "DispatchActionParams": {
+      "type": "object",
+      "required": ["channel", "clientSeq", "action"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "clientSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "$ref": "#/$defs/StateAction"
+        }
+      }
+    },
+    "ActionEnvelope": {
+      "description": "A state action of a channel to one subscribed window (window), or the echo of an intent (origin, with rejectionReason). The frames of one action carry one serverSeq.",
+      "type": "object",
+      "required": ["channel", "serverSeq", "action"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "serverSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "action": {
+          "$ref": "#/$defs/StateAction"
+        },
+        "origin": {
+          "type": "object",
+          "required": ["clientId", "clientSeq"],
+          "properties": {
+            "clientId": {
+              "type": "string"
+            },
+            "clientSeq": {
+              "type": "integer"
+            }
+          }
+        },
+        "rejectionReason": {
+          "type": "string"
+        }
+      },
+      "if": {
+        "not": {
+          "required": ["origin"]
+        }
+      },
+      "then": {
+        "required": ["window"],
+        "properties": {
+          "action": {
+            "$ref": "#/$defs/ViewPatched"
+          }
+        }
+      }
+    },
+    "ResyncParams": {
+      "type": "object",
+      "required": ["channel", "window", "snapshot"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/RepositoryChannel"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "snapshot": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Snapshot"
+            },
+            {
+              "required": ["state"]
+            }
+          ]
+        }
+      }
+    },
+    "SubscriptionEndedParams": {
+      "type": "object",
+      "required": ["channel", "window", "reason"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/RepositoryChannel"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "reason": {
+          "description": "A client reads a reason it does not know as closed.",
+          "enum": ["closed", "sessionClosed"]
+        }
+      }
+    },
+    "WindowLabel": {
+      "description": "The label of a window in its connection: main, review-\u2026, the instance of a view (review:3).",
+      "type": "string",
+      "minLength": 1
+    },
+    "SetDemandParams": {
+      "type": "object",
+      "required": ["channel", "window", "demand"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/RepositoryChannel"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "demand": {
+          "description": "The Demand of domain_types::session.",
+          "type": "object"
+        }
+      }
+    },
+    "ClaimNewsParams": {
+      "type": "object",
+      "required": ["channel", "repositoryPath", "news"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "repositoryPath": {
+          "type": "string"
+        },
+        "news": {
+          "description": "The id of the news.",
+          "type": ["string", "integer"]
+        }
+      }
+    },
+    "ClaimNewsResult": {
+      "type": "object",
+      "required": ["first"],
+      "properties": {
+        "first": {
+          "type": "boolean"
+        }
+      }
+    },
+    "BootstrapParams": {
+      "type": "object",
+      "required": ["channel", "window", "view"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "view": {
+          "type": "string"
+        }
+      }
+    },
+    "CommandParams": {
+      "description": "A command of for_each_command!, its name of the registry verbatim.",
+      "type": "object",
+      "required": ["channel", "args"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "args": {
+          "description": "The arguments by their camelCase names, as the page's invoke sends them.",
+          "type": ["object", "null"]
+        }
+      }
+    },
+    "CommandResult": {
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["value"],
+          "properties": {
+            "value": true
+          }
+        },
+        {
+          "type": "object",
+          "required": ["bytes"],
+          "properties": {
+            "bytes": {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["error"],
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ApiError"
+            }
+          }
+        }
+      ]
+    },
+    "ApiError": {
+      "description": "The ApiError of domain_types::error, as src/lib/bindings.ts types it.",
+      "type": "object",
+      "required": ["code", "message", "details", "retry", "operation_id"],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": true,
+        "retry": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CancelParams": {
+      "type": "object",
+      "required": ["channel", "requestId"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "requestId": {
+          "$ref": "#/$defs/Id"
+        }
+      }
+    },
+    "CallEventParams": {
+      "type": "object",
+      "required": ["channel", "requestId", "event"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "requestId": {
+          "$ref": "#/$defs/Id"
+        },
+        "event": true
+      }
+    },
+    "EventParams": {
+      "description": "An event of app-api: to every window of the connection, or to window.",
+      "type": "object",
+      "required": ["channel", "event", "payload"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "event": {
+          "type": "string"
+        },
+        "payload": true,
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        }
+      }
+    },
+    "WindowParams": {
+      "type": "object",
+      "required": ["channel", "window"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        }
+      }
+    },
+    "WindowShownParams": {
+      "type": "object",
+      "required": ["channel", "window"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "view": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    "OpenWindowParams": {
+      "type": "object",
+      "required": ["channel", "opener", "params", "front"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "opener": {
+          "$ref": "#/$defs/WindowLabel"
+        },
+        "params": {
+          "description": "The OpenSubWindowParams of app-api.",
+          "type": "object",
+          "required": ["windowId", "url", "title", "data"]
+        },
+        "update": {
+          "type": ["string", "null"]
+        },
+        "front": {
+          "type": "boolean"
+        }
+      }
+    },
+    "OpenWindowResult": {
+      "description": "The label of the window in the connection: the windowId in the app, the instance of its view in the IDE.",
+      "type": "object",
+      "required": ["window"],
+      "properties": {
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        }
+      }
+    },
+    "NotifyParams": {
+      "type": "object",
+      "required": ["channel", "title", "body"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "action": {
+          "type": "object"
+        }
+      }
+    },
+    "EmptyResult": {
+      "type": "object",
+      "maxProperties": 0
+    }
+  }
+}
