@@ -7851,6 +7851,13 @@ export type RepositoryView = {
 	 *  before the first. The toast and the Activity entry of a rewrite offer its Undo while it is this one
 	 */
 	undo: OperationId | null,
+	/**
+	 *  When the check of a focus last found the inputs as the last sync read them (Unix seconds, `SessionHost::unix_now`):
+	 *  it answered `unchanged`, so the branches are as current as a sync would make them, which every window of the
+	 *  session says ("Checked just now"); `None` before such a check and once a run ended after it (it read the inputs
+	 *  anew)
+	 */
+	inputsCheckedAt: number | null,
 	sections: TableSections,
 	/**
 	 *  Every open pull request of the repository the user takes part in beside the requests by name, by section, as
@@ -10522,6 +10529,8 @@ export type TableChanges = {
 	removedOperations?: OperationId[],
 	/**  The rewrite whose Undo the session offers now, `null` for none; absent when it did not change */
 	undo?: OperationId | null,
+	/**  When the check of a focus last found the inputs unchanged, `null` since a run ended; absent when it did not change */
+	inputsCheckedAt?: number | null,
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

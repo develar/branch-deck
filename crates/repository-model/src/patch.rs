@@ -129,6 +129,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     operations,
     removed_operations,
     undo,
+    inputs_checked_at,
     unassigned,
     archived,
     unapplied,
@@ -182,6 +183,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.review_stacks, review_stacks, &removed_review_stacks);
   apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.undo, undo);
+  set_if_some(&mut view.inputs_checked_at, inputs_checked_at);
   set_if_some(&mut view.reviews, reviews);
   set_if_some(&mut view.route, route);
   let sections = &mut view.sections;
@@ -286,6 +288,7 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     operations,
     removed_operations,
     undo,
+    inputs_checked_at,
     unassigned,
     archived,
     unapplied,
@@ -309,6 +312,7 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     operations: operations.clone(),
     removed_operations: removed_operations.clone(),
     undo: undo.clone(),
+    inputs_checked_at: *inputs_checked_at,
     unassigned: unassigned.clone(),
     archived: archived.clone(),
     unapplied: unapplied.clone(),
@@ -461,6 +465,7 @@ pub(crate) struct Now<'a> {
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
   pub(crate) undo: Option<&'a OperationId>,
+  pub(crate) inputs_checked_at: Option<u32>,
   pub(crate) reviews: &'a ReviewsView,
   pub(crate) patronus: &'a PatronusPart,
   pub(crate) route: &'a LandingRoute,
@@ -539,6 +544,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     operations,
     removed_operations,
     undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
+    inputs_checked_at: (last.inputs_checked_at != now.inputs_checked_at).then_some(now.inputs_checked_at),
     unassigned: changed_commits(&last.sections.unassigned, &now.sections.unassigned),
     archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
     unapplied: changed(&last.sections.unapplied, &now.sections.unapplied),
@@ -579,6 +585,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     review_stacks: &to.review_stacks,
     operations: to.operations.values().collect(),
     undo: to.undo.as_ref(),
+    inputs_checked_at: to.inputs_checked_at,
     reviews: &to.reviews,
     patronus: &to.patronus,
     route: &to.route,

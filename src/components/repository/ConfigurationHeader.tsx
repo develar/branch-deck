@@ -133,8 +133,9 @@ export function ConfigurationHeader() {
 }
 
 /**
- * "Last synced 18 minutes ago", or "Checked just now" once a focus found nothing a sync reads changed since
- * (`setSessionWindowFocus`): the branches are as current as a sync would make them, which the age of the sync alone hides.
+ * "Last synced 18 minutes ago", or "Checked just now" once the check of a focus found nothing a sync reads changed since,
+ * in any window of the session (`RepositoryView.inputsCheckedAt`): the branches are as current as a sync would make
+ * them, which the age of the sync alone hides.
  * A check in the minute of the sync (a focus during the sync of the start checks once after it) says nothing "Last
  * synced just now" does not (`readsLater`)
  */

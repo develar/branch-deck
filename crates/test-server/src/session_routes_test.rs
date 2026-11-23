@@ -48,9 +48,12 @@ async fn a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sy
   assert_eq!(snapshot["version"], version);
   assert_eq!(snapshot["sync"], json!({ "kind": "idle" }));
   assert!(!snapshot["order"].as_array().unwrap().is_empty(), "the branches of the sync: {snapshot}");
-  // nothing a sync reads changed: a focus runs nothing
+  // nothing a sync reads changed: a focus runs nothing, and the stream gets the time of its check before the answer
   let focused = post(&client, addr, "/invoke/set_window_focus", json!({ "repositoryPath": path, "focused": true })).await;
   assert_eq!(focused["outcome"], "unchanged", "{focused}");
+  let checked = patches_up_to(&mut messages, &version, &focused["version"]).await;
+  assert_eq!(checked.len(), 1, "{checked:?}");
+  assert!(checked[0]["changes"]["inputsCheckedAt"].is_u64(), "{checked:?}");
 
   post_as(&client, addr, Named::Id(&id), "/invoke/unsubscribe_view", json!({ "id": subscribed["id"] })).await;
   assert_eq!(messages.next_or_end().await, None, "the stream ends with the subscription");

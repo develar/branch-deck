@@ -576,7 +576,12 @@ function projectView(
   // the prefix Rust resolved for the subscription names the branches the page shows
   setSessionAnswer(next.header.prefix, null)
   const state = branchSyncStore.getState()
-  const update: Partial<BranchSyncState> = { viewVersion: next.version, cached: next.cached, syncedBefore: next.synced }
+  const update: Partial<BranchSyncState> = {
+    viewVersion: next.version,
+    cached: next.cached,
+    syncedBefore: next.synced,
+    inputsCheckedAt: next.inputsCheckedAt === null ? null : next.inputsCheckedAt * 1000,
+  }
   // a table of this run: a sync of the session committed it (the frame of an earlier run and a session no sync built
   // have none); a view without a table has none any more (the session of a slot an agent leased again, which opened
   // anew)
@@ -735,8 +740,8 @@ function changesTable(previous: RepositoryView | null, changes: TableChanges | n
   if (changes === null) {
     return true
   }
-  // the operations that run and the Undo the session offers are no part of the table
-  const { sync: _sync, branches, operations: _operations, removedOperations: _removedOperations, undo: _undo, ...parts } = changes
+  // the operations that run, the Undo the session offers and the check of a focus are no part of the table
+  const { sync: _sync, branches, operations: _operations, removedOperations: _removedOperations, undo: _undo, inputsCheckedAt: _inputsCheckedAt, ...parts } = changes
   if (Object.values(parts).some(part => !isEmptyPart(part))) {
     return true
   }
@@ -1211,8 +1216,8 @@ async function askSync(reason: SyncReason, askAgainOnPrefixChange: boolean): Pro
  * Tells the session of the window that the window gained (`true`) or lost the focus (`set_window_focus`, and its demand,
  * which the facts of the session are asked by: `src/model/demand.ts`). Rust decides
  * whether a gained one syncs (Auto-sync on Focus, which it reads itself, and only when what a sync reads changed), and
- * answers when that check, or the run it started, ended: the answer then is recorded as a sync's (`unchanged` says
- * "Checked just now"). Null when nothing was asked (the focus lost, the setting off, no session) or the request failed.
+ * answers when that check, or the run it started, ended: a run is recorded as a sync's; `unchanged` comes after the view
+ * that says "Checked just now" (`RepositoryView.inputsCheckedAt`). Null when nothing was asked (the focus lost, the setting off, no session) or the request failed.
  * Sync is not busy for the check: a run it starts shows in the view
  */
 export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswer | null> {
@@ -1273,7 +1278,7 @@ async function settle(
   }
   const served = await whenServedViewAt(target.repositoryPath, answer.version, true)
   if (served !== null) {
-    recordSync(served.repositoryPath, answer, reason, startedAt)
+    recordSync(served.repositoryPath, answer, startedAt)
   }
   return answer
 }
@@ -1333,18 +1338,17 @@ function failRequest(target: Session, message: string, error: unknown): void {
   branchSyncStore.setState({ syncError, syncFailure: alertedFailure(state.isSyncing, state.syncFailure, syncError, syncErrorCodeOf(target.view)) })
 }
 
-/** What a request that ended tells beyond the table: the repository is synced, or a focus found nothing changed */
-function recordSync(repositoryPath: string, answer: SyncAnswer, reason: SyncReason, startedAt: number): void {
+/** What a request that ended tells beyond the table: the repository is synced */
+function recordSync(repositoryPath: string, answer: SyncAnswer, startedAt: number): void {
   if (answer.outcome === "skipped") {
     return
   }
+  // a check that found nothing changed is the session's (`RepositoryView.inputsCheckedAt`), which every window shows
   if (answer.outcome === "unchanged") {
-    branchSyncStore.setState({ inputsCheckedAt: reason === "focus" ? Date.now() : branchSyncStore.getState().inputsCheckedAt })
     return
   }
   // the usual time of a sync is the share of the sync of an update (`update-progress.ts`): every sync teaches it
   recordSynced(repositoryPath, Date.now() - startedAt)
-  branchSyncStore.setState({ inputsCheckedAt: null })
 }
 
 /**

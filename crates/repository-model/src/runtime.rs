@@ -1054,6 +1054,12 @@ impl Actor {
         }
         self.in_flight = None;
         let decision = self.scheduler.inputs_read(inputs, self.is_watched());
+        // the check of a focus found the inputs as the last sync read them: every window says the branches are current,
+        // before the answer that names the version of it
+        if decision.resolve.iter().any(|(waiter, settled)| waiter.focus && *settled == Ok(SyncOutcome::Unchanged)) {
+          self.state.inputs_checked(self.host.unix_now(&self.key));
+          self.flush();
+        }
         self.follow(decision);
       }
       Message::RunFinished { run, inputs, result } => self.finish_run(run, inputs, *result),
@@ -1329,6 +1335,8 @@ impl Actor {
     };
     let decision = self.scheduler.run_finished(run, inputs, end, self.is_watched());
     self.in_flight = None;
+    // it read the inputs anew: a check before it is no answer any more
+    self.state.run_ended();
     // a run of a worktree that holds another lease than the session opened under synced nothing (`Ran::AnotherLease`):
     // the session opens anew for that lease, as for a stamp that found it (`reopen_for_lease`), and the requests it
     // served were skipped, as for a stamp that came while the session waited for its run; a stamp that found it first
@@ -1768,6 +1776,12 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// nothing by default. Blocking
   fn record_synced(&self, _key: &SessionKey, _epoch: &WorktreeEpoch, _branch_count: usize) {}
 
+  /// Now, in Unix seconds, on the clock of the time `record_synced` records (`SessionHost::unix_now`): the system's by
+  /// default
+  fn unix_now(&self, _key: &SessionKey) -> u32 {
+    unix_now()
+  }
+
   /// The git the session of `key` runs its syncs, its inputs and its Patronus view with: the host's `git` in the app;
   /// the E2E server's carries the global config of the test repository (`GIT_CONFIG_GLOBAL`), as its commands do
   fn git(&self, _key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {
@@ -1897,6 +1911,10 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn synced_before(&self, key: &SessionKey) -> bool {
     self.environment.synced_before(key)
+  }
+
+  fn unix_now(&self, key: &SessionKey) -> u32 {
+    self.environment.unix_now(key)
   }
 }
 

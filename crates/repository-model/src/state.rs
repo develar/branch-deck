@@ -345,6 +345,7 @@ impl Derived {
       review_stacks: &self.review_stacks,
       operations: state.operations().iter().collect(),
       undo: state.offered_undo(),
+      inputs_checked_at: state.inputs_checked_at(),
       reviews: &self.reviews,
       patronus: facts.patronus.part(),
       route: &self.route,

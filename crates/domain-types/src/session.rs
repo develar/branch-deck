@@ -508,6 +508,11 @@ pub struct RepositoryView {
   /// after it saw HEAD; none once HEAD moved (another rewrite or an undo, a commit, an update, a rewrite of `bd`) and
   /// before the first. The toast and the Activity entry of a rewrite offer its Undo while it is this one
   pub undo: Option<OperationId>,
+  /// When the check of a focus last found the inputs as the last sync read them (Unix seconds, `SessionHost::unix_now`):
+  /// it answered `unchanged`, so the branches are as current as a sync would make them, which every window of the
+  /// session says ("Checked just now"); `None` before such a check and once a run ended after it (it read the inputs
+  /// anew)
+  pub inputs_checked_at: Option<u32>,
   pub sections: TableSections,
   /// Every open pull request of the repository the user takes part in beside the requests by name, by section, as
   /// `domain_policy::reviews` orders them over the review requests and the table
@@ -1495,6 +1500,10 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub undo: Option<Option<OperationId>>,
+  /// When the check of a focus last found the inputs unchanged, `null` since a run ended; absent when it did not change
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub inputs_checked_at: Option<Option<u32>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

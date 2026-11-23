@@ -56,6 +56,7 @@ use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
 use sync_utils::commit_subject::subject_of;
 use sync_utils::span::in_current_span;
+use sync_utils::timestamp::unix_now;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -257,6 +258,13 @@ pub trait SessionHost: Send + Sync + 'static {
   fn synced_before(&self, _key: &SessionKey) -> bool {
     false
   }
+
+  /// Now, in Unix seconds, on the clock the windows read the time of the last sync by (`lastSyncTime`): the time of a
+  /// check that found the inputs unchanged (`RepositoryView::inputs_checked_at`). The system's by default; the E2E
+  /// server's is the clock of the page, as is the time of the sync it records
+  fn unix_now(&self, _key: &SessionKey) -> u32 {
+    unix_now()
+  }
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that
@@ -436,6 +444,9 @@ impl Drop for Busy {
 /// A request of a sync as the actor keeps it until the run that serves it ends
 pub(crate) struct Waiter {
   reply: oneshot::Sender<Result<SyncAnswer, ApiError>>,
+  /// A window gained focus (`SyncReason::Focus`): its check that finds the inputs unchanged is the time of the view
+  /// (`RepositoryView::inputs_checked_at`)
+  pub(crate) focus: bool,
   _busy: Busy,
 }
 
@@ -443,7 +454,11 @@ impl Waiter {
   /// A request whose caller hears nothing (the session's own sync when it opens): it keeps the session while it runs
   pub(crate) fn unheard(life: &Arc<SessionLife>) -> Self {
     let (reply, _) = oneshot::channel();
-    Self { reply, _busy: Busy::new(life) }
+    Self {
+      reply,
+      focus: false,
+      _busy: Busy::new(life),
+    }
   }
 
   /// Answers the request; `version` is the view's after the patch of what ended
@@ -914,6 +929,7 @@ impl Sessions {
     self.with_entry(key, |entry| {
       let waiter = Waiter {
         reply,
+        focus: reason == SyncReason::Focus,
         _busy: Busy::new(&entry.life),
       };
       // a send fails only when the actor is gone: the dropped waiter closes the ticket
@@ -932,6 +948,7 @@ impl Sessions {
     let sent = self.lock().get(key).is_some_and(|entry| {
       let waiter = Waiter {
         reply,
+        focus: false,
         _busy: Busy::new(&entry.life),
       };
       entry.mailbox.send(Message::AfterWrites { waiter, pending }).is_ok()

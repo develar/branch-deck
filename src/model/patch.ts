@@ -96,6 +96,8 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     operations,
     // null: the session offers no Undo now
     undo: changes.undo === undefined ? view.undo : changes.undo,
+    // null: no check since the last run
+    inputsCheckedAt: changes.inputsCheckedAt === undefined ? view.inputsCheckedAt : changes.inputsCheckedAt,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

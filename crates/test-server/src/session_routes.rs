@@ -53,6 +53,7 @@ use std::time::Duration;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
+use sync_utils::timestamp::unix_now;
 use trial_check::landing_gate::landing_needs_of;
 
 /// What the syncs of the server's sessions take: the issue links read by the sync, the prefix of the local config read
@@ -195,6 +196,15 @@ impl SessionEnvironment for TestSessionEnvironment {
     {
       app_api::app::services::record_synced(&repository.context, key, epoch, repository.page_now_ms(), branch_count);
     }
+  }
+
+  /// Now on the clock of the page (`TestRepository::page_now_ms`), as the time of the sync it records
+  fn unix_now(&self, key: &SessionKey) -> u32 {
+    let page_ms = self
+      .state
+      .upgrade()
+      .and_then(|state| state.repository(&key.worktree).ok().map(|repository| repository.page_now_ms()));
+    page_ms.map_or_else(unix_now, |ms| u32::try_from(ms / 1000).unwrap_or(u32::MAX))
   }
 
   /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as

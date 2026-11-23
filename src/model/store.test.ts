@@ -509,7 +509,7 @@ describe("a sync of the session", () => {
     expect(archived.settled).toBe(1)
   })
 
-  it("tells the session the focus of the window, and marks the check of a gained one that found nothing changed", async () => {
+  it("tells the session the focus of the window, and shows the check the session says found nothing changed", async () => {
     // no repository: the window names none
     expect(await setSessionWindowFocus(true)).toBeNull()
     expect(fakeSessions.focusCalls).toEqual([])
@@ -519,10 +519,15 @@ describe("a sync of the session", () => {
     expect(check.params).toEqual({ repositoryPath: "/repo", reason: "focus" })
     // Sync is not busy for the check: a run it starts shows in the view
     expect(branchSyncStore.getState().isSyncing).toBe(false)
-    check.answer("unchanged")
-    expect(await checked).toEqual({ outcome: "unchanged", version: { epoch: 1, seq: 0 } })
-    expect(branchSyncStore.getState().inputsCheckedAt).not.toBeNull()
+    // the session tells every window the time of the check (Unix seconds) before it answers with that version
+    const version = await send({ inputsCheckedAt: 1_795_000_000 })
+    expect(branchSyncStore.getState().inputsCheckedAt).toBe(1_795_000_000_000)
+    check.answer("unchanged", version)
+    expect(await checked).toEqual({ outcome: "unchanged", version })
     expect(runEnds).toEqual([])
+    // a run after it takes it back, also in a window that asked nothing
+    await send({ inputsCheckedAt: null })
+    expect(branchSyncStore.getState().inputsCheckedAt).toBeNull()
     // a lost focus, and a gained one while the backend's Auto-sync on Focus is off: told, nothing to wait for
     expect(await setSessionWindowFocus(false)).toBeNull()
     fakeSessions.syncsOnFocus = false

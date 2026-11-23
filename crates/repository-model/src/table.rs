@@ -109,6 +109,10 @@ pub struct TableState {
   rewrites: Vec<RewriteLink>,
   /// The Undo the session offers (`offer_undo`); no part of the table either, so no sync restores one
   undo: Option<UndoOffer>,
+  /// When the check of a focus last found the inputs as the last sync read them (`inputs_checked`, Unix seconds), until
+  /// a run ends (`RepositoryView::inputs_checked_at`); no part of the table either, nor of its frame: a check is of this
+  /// process
+  inputs_checked_at: Option<u32>,
 }
 
 /// The Undo of a rewrite of this process that the session offers (`TableState::offer_undo`)
@@ -317,6 +321,24 @@ impl TableState {
   /// An undo of this process ran: there is nothing to undo after it
   pub fn withdraw_undo(&mut self) {
     self.undo = None;
+  }
+
+  /// The check of a focus at `at` (Unix seconds) found the inputs as the last sync read them: the branches are as current
+  /// as a sync would make them
+  pub const fn inputs_checked(&mut self, at: u32) {
+    self.inputs_checked_at = Some(at);
+  }
+
+  /// A run ended: it read the inputs anew, which a check before it found unchanged no longer says
+  pub const fn run_ended(&mut self) {
+    self.inputs_checked_at = None;
+  }
+
+  /// When the check of a focus last found the inputs unchanged since the last run (the `inputs_checked_at` part of the
+  /// view)
+  #[must_use]
+  pub const fn inputs_checked_at(&self) -> Option<u32> {
+    self.inputs_checked_at
   }
 
   /// The rewrite whose Undo the session offers (the `undo` part of the view)

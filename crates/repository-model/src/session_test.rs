@@ -310,7 +310,14 @@ impl SessionHost for ScriptedHost {
   fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
     self.commits.lock().unwrap().push((key.worktree.clone(), table.baseline.clone()));
   }
+
+  fn unix_now(&self, _key: &SessionKey) -> u32 {
+    CHECKED_AT
+  }
 }
+
+/// Now on the clock of the scripted host (`SessionHost::unix_now`)
+const CHECKED_AT: u32 = 1_795_000_000;
 
 fn key(worktree: &str) -> SessionKey {
   SessionKey {
@@ -345,6 +352,15 @@ fn auth_built() -> Vec<SyncEvent> {
     branch_status("auth", BranchSyncStatus::Created),
     SyncEvent::UnappliedBranchesFound { branches: Vec::new() },
   ]
+}
+
+/// A scripted host whose inputs read the same until the test changes them, with two runs that build auth
+fn two_runs_of_auth() -> Arc<ScriptedHost> {
+  let host = Arc::new(ScriptedHost::default());
+  host.set_inputs(1);
+  host.push(auth_built(), Ok(report(false, &[])));
+  host.push(auth_built(), Ok(report(false, &[])));
+  host
 }
 
 fn report(retry: bool, not_built: &[&str]) -> SyncReport {
@@ -520,6 +536,48 @@ async fn a_focus_during_a_run_is_one_check_after_it() {
   assert_eq!(host.runs(), 2);
   // one read before the manual run, one check after the chain
   assert_eq!(*host.checks.lock().unwrap() - checks_after_open, 2);
+}
+
+/// The check of a focus that finds the inputs as the last sync read them is a fact of the session: every window of it
+/// gets its time in the patch before the answer, which names its version, and a run that ends after it takes it back, as
+/// it read the inputs anew; the check of an open says nothing
+#[tokio::test]
+async fn a_focus_that_finds_nothing_changed_is_told_to_every_window_until_a_run_ends() {
+  let host = two_runs_of_auth();
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  let windows = [Window::default(), Window::default()];
+  for window in &windows {
+    sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  }
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(snapshot(&sessions, &key).await.inputs_checked_at, None, "no check before the first sync");
+  // a window that watches the session anew checks the inputs too, which says nothing a focus asked
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Unchanged));
+  assert_eq!(snapshot(&sessions, &key).await.inputs_checked_at, None, "an open is no check of a focus");
+  for window in &windows {
+    window.take();
+  }
+
+  let answer = sessions.set_window_focus(&key, true).unwrap().wait().await.unwrap();
+  assert_eq!(answer.outcome, SyncOutcome::Unchanged);
+  for window in &windows {
+    let patches = window.take();
+    let checks: Vec<_> = patches.iter().map(|patch| patch.changes.inputs_checked_at).collect();
+    assert_eq!(checks, [Some(Some(CHECKED_AT))], "each window gets the check once");
+    assert_eq!(patches[0].next, answer.version, "the answer names the version of the check");
+  }
+  assert_eq!(snapshot(&sessions, &key).await.inputs_checked_at, Some(CHECKED_AT));
+
+  // a commit in a terminal: the focus runs, and the check before it is no answer any more
+  host.set_inputs(2);
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Synced));
+  assert_eq!(snapshot(&sessions, &key).await.inputs_checked_at, None);
+  for window in &windows {
+    let cleared = window.take().iter().filter(|patch| patch.changes.inputs_checked_at == Some(None)).count();
+    assert_eq!(cleared, 1, "each window hears that the check is gone");
+  }
+  assert_eq!(host.runs(), 2);
 }
 
 /// Each session syncs on its own scheduler (a window that opens another repository while the sync of the first one
@@ -1426,9 +1484,29 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
       assert!(focus.is_none(), "Auto-sync on Focus off: the session is told, nothing syncs");
       assert_eq!(processes_since(&git, &before), []);
     }
-    // no run: the view stays at its version, and the window got no patch
-    assert_eq!(snapshot(&sessions, &key).await, synced);
-    assert_eq!(window.take(), []);
+    // no run: the view and the window get only the time of the check, which a focus not asked has not
+    let view = snapshot(&sessions, &key).await;
+    assert_eq!(view.inputs_checked_at.is_some(), syncs_on_focus);
+    assert_eq!(
+      RepositoryView {
+        inputs_checked_at: None,
+        version: synced.version,
+        ..view
+      },
+      synced
+    );
+    let patches = window.take();
+    assert_eq!(patches.len(), usize::from(syncs_on_focus));
+    for patch in patches {
+      assert_eq!(
+        TableChanges {
+          inputs_checked_at: None,
+          ..patch.changes
+        },
+        TableChanges::default(),
+        "only the check"
+      );
+    }
   }
 }
 
@@ -2877,12 +2955,9 @@ async fn a_page_that_reloads_as_the_first_sync_commits_catches_up_from_the_seed_
 /// synced reads nothing
 #[tokio::test]
 async fn a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed() {
-  let host = Arc::new(ScriptedHost::default());
-  host.set_inputs(1);
+  let host = two_runs_of_auth();
   // the checks answer after the test saw their count: what a run at load 43 did
   *host.late_answer.lock().unwrap() = Duration::from_millis(50);
-  host.push(auth_built(), Ok(report(false, &[])));
-  host.push(auth_built(), Ok(report(false, &[])));
   let (sessions, _clock) = scripted(&host);
   let key = key("/repo");
   let (id, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();

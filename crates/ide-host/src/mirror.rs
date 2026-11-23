@@ -105,6 +105,7 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   ops.keyed("operations", &view.operations, changes.operations.keys(), &changes.removed_operations);
   ops.part(changes.order.is_some(), "order", &view.order);
   ops.part(changes.undo.is_some(), "undo", &view.undo);
+  ops.part(changes.inputs_checked_at.is_some(), "inputsCheckedAt", &view.inputs_checked_at);
   let sections = changes.unassigned.is_some() || changes.archived.is_some() || changes.unapplied.is_some() || changes.landed.is_some();
   ops.part(sections, "sections", &view.sections);
   ops.part(changes.reviews.is_some(), "reviews", &view.reviews);

@@ -3844,7 +3844,11 @@ prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the 
 them (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler reads them
 (`repository_model::sync_scheduler`, [Session facts](#session-facts)): a run reads them first, so a commit made
 while the sync runs is a change, or takes the ones its focus check just read, and the run that ended keeps them with
-its outcome; a focus compares them. A run that failed or that git deferred is kept too: a focus that finds the inputs
+its outcome; a focus compares them. A focus that finds them unchanged is a fact of the session, not of its window: the
+time of its check goes into the view (`RepositoryView::inputs_checked_at`, on the clock of `SessionHost::unix_now`, as
+the time of the sync), in the patch before the answer, so every window of the session, the tool window of the IDE too,
+says "Checked just now", until a run ends (`a_focus_that_finds_nothing_changed_is_told_to_every_window_until_a_run_ends`);
+the check of an open says nothing. A run that failed or that git deferred is kept too: a focus that finds the inputs
 it read answers its error and runs nothing, so a sync of a large repository that fails is not repeated on every return
 to the window (`a_focus_after_a_failed_sync_reads_only_the_fingerprint`); an open of the repository (`Open`) and Sync
 (`Manual`) run anyway, and a run under a prefix the config left (`prefix_changed`) is no outcome to keep. The session's own push moves the remote-tracking refs of what it sent (`refs/remotes/origin/<full
