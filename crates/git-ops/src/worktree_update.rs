@@ -12,7 +12,9 @@
 //!    index, its stat data refreshed;
 //! 3. the same `read-tree -m -u` on that index and those trees: git checks every path, then writes the files;
 //! 4. the put back: the entries the merge changed go into a copy of the user's index (`update-index --index-info`),
-//!    its stat data is refreshed, and the copy takes the place of the index.
+//!    its stat data is refreshed (where a `.gitattributes` of the working tree is not its entry, the entries the merge
+//!    wrote once more by the attributes of the merge, as `read-tree -u` records them), and the copy takes the place of
+//!    the index.
 //!
 //! This process holds the index lock of the worktree from the cut to the put back (`IndexLock::hold`), so no git of
 //! the user commits the old index over the new files. The whole index merges as before (`read-tree -m -u` of the two
@@ -28,7 +30,7 @@
 //! its undo (`brd undo update:`), and through its moves for the finish of a resolve session, `brd pick` and the unapply
 //! of a virtual branch (`MOVE_CALLERS` of the scan).
 
-use crate::commit_utils::empty_tree;
+use crate::commit_utils::{blob_id, empty_tree};
 use crate::index_lock::{HeldIndexLock, INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::paths::{ChangedPath, changed_paths};
 use crate::rewrite_guard::IndexCopy;
@@ -654,8 +656,11 @@ impl SmallIndex {
 
   /// Put the entries the merge changed into a copy of the user's index, refresh its stat data (the entries
   /// `update-index --index-info` writes have none, and a `git status` would hash their files each time), and put the
-  /// copy in the place of the index. The copy lives in the git dir: a rename needs one file system. The lock is
-  /// released when the small index is dropped
+  /// copy in the place of the index. The refresh hashes a file by the attributes of the working tree, the merge wrote
+  /// it by those of its index: where a `.gitattributes` of the merge is not its file, the entries the merge wrote get
+  /// their stat data by the attributes of the merge (`refresh_by_merge_attributes`), as `read-tree -u` records the stat
+  /// data of every file it writes. The copy lives in the git dir: a rename needs one file system. The lock is released
+  /// when the small index is dropped
   fn put_back(&self, git_executor: &GitCommandExecutor, repo_path: &str, small_index: &str) -> Result<()> {
     let merged = git_executor.cmd(&["ls-files", "-s", "-z"], repo_path).env(&[("GIT_INDEX_FILE", small_index)]).bytes()?;
     // `<mode> <id> <stage>\t<path>` per entry: by path, its mode and id
@@ -669,11 +674,19 @@ impl SmallIndex {
       };
       merged_entries.insert(path, (mode, id));
     }
+    let attributes_differ = merged_entries
+      .iter()
+      .any(|(path, (_, id))| (*path == b".gitattributes" || path.ends_with(b"/.gitattributes")) && attributes_file_differs(repo_path, path, id));
     let mut input = Vec::new();
+    // the paths whose files the merge wrote
+    let mut written: Vec<&[u8]> = Vec::new();
     for entry in &self.cut {
       match merged_entries.remove(entry.path.as_slice()) {
         Some((mode, id)) if mode == entry.mode.as_bytes() && id == entry.id.as_bytes() => {}
-        Some((mode, id)) => write_entry(mode.to_str()?, id.to_str()?, b"", &entry.path, &mut input),
+        Some((mode, id)) => {
+          write_entry(mode.to_str()?, id.to_str()?, b"", &entry.path, &mut input);
+          written.push(&entry.path);
+        }
         None => write_removal(&self.null_id, &entry.path, &mut input),
       }
     }
@@ -682,6 +695,7 @@ impl SmallIndex {
     added.sort_unstable();
     for (path, (mode, id)) in added {
       write_entry(mode.to_str()?, id.to_str()?, b"", path, &mut input);
+      written.push(path);
     }
     if input.is_empty() {
       // the index had every changed path as the new tree has it
@@ -701,7 +715,60 @@ impl SmallIndex {
     let env = [("GIT_INDEX_FILE", copy_text.as_str())];
     write_entries(git_executor, repo_path, &env, &input)?;
     refresh_index(git_executor, repo_path, &env)?;
+    if attributes_differ && !written.is_empty() {
+      self.refresh_by_merge_attributes(git_executor, repo_path, small_index, &copy_text, &written)?;
+    }
     held.replace_index(&copy)
+  }
+
+  /// The stat data of the `written` entries of the index at `copy` by the attributes the merge wrote their files with:
+  /// those of the small index, whose tree goes into the temporary object directory (`--attr-source`), on those paths
+  /// alone. `add --refresh` matches its paths against every entry of the index (0.9 s for 50 paths in an index of
+  /// 1.4M entries), so it runs only where a `.gitattributes` of the working tree is not the one of the merge
+  fn refresh_by_merge_attributes(&self, git_executor: &GitCommandExecutor, repo_path: &str, small_index: &str, copy: &str, written: &[&[u8]]) -> Result<()> {
+    let objects = self.path_of("objects")?;
+    let tree = git_executor
+      .cmd(&["write-tree", "--missing-ok"], repo_path)
+      .env(&[("GIT_INDEX_FILE", small_index), ("GIT_OBJECT_DIRECTORY", objects.as_str())])
+      .text()?;
+    let mut paths = Vec::new();
+    for path in written {
+      paths.extend_from_slice(path);
+      paths.push(0);
+    }
+    git_executor
+      .cmd(
+        &[
+          "--literal-pathspecs",
+          "--attr-source",
+          &tree,
+          "add",
+          "--refresh",
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        repo_path,
+      )
+      .env(&[("GIT_INDEX_FILE", copy), ("GIT_ALTERNATE_OBJECT_DIRECTORIES", objects.as_str())])
+      .stdin(&paths)
+      .bytes()
+      .map(drop)
+  }
+}
+
+/// Whether the `.gitattributes` of the working tree at `path` says other than its entry `id` in the merged index: a
+/// file whose bytes are not the blob, with LF or CRLF line ends (git reads a line the same with either, and
+/// `core.autocrlf` checks the file out with CRLF), or what git would not read as a file. None at `path`: git reads the
+/// entry, as the merge did
+fn attributes_file_differs(repo_path: &str, path: &[u8], id: &[u8]) -> bool {
+  let (Ok(path), Ok(id)) = (path.to_path(), id.to_str()) else { return true };
+  let file = Path::new(repo_path).join(path);
+  match std::fs::symlink_metadata(&file) {
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+    Ok(metadata) if metadata.is_file() => std::fs::read(&file).map_or(true, |content| {
+      blob_id(id, &content) != id && (!content.contains_str("\r\n") || blob_id(id, &content.replace("\r\n", "\n")) != id)
+    }),
+    _ => true,
   }
 }
 

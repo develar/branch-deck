@@ -615,7 +615,15 @@ back.
    added or removed go into a copy of the user's index in its git dir (`branch-deck-index-*/index`, by `update-index
    -z --index-info`, which only this file runs), `update-index -q --refresh` gives the copy its stat data (an entry
    `--index-info` writes has none, and every `git status` would hash its file), and the copy takes the place of the
-   index by a rename, as git commits its own lock file. Then the lock is released and the mark deleted. The cache tree
+   index by a rename, as git commits its own lock file. The refresh hashes a file by the attributes of the working
+   tree, the merge wrote it by those of its index: where a `.gitattributes` of the merged small index is not its file
+   (by its lines, so a CRLF checkout of it is the same; compared in process by `commit_utils::blob_id`), a file the
+   merge wrote may not be its entry by the attributes of the working tree (`n.crlf -text` edited over
+   `*.crlf text eol=crlf`), and the refresh would leave it without stat data, where `read-tree -u` on the whole index
+   records the stat data of every file it writes. Then `write-tree --missing-ok` of the small index into the temporary
+   object directory and `--attr-source=<tree> add --refresh --pathspec-from-file=-` of the copy refresh the entries
+   the merge wrote once more, on those paths alone, by the attributes of the merge. Only then: `add --refresh` matches
+   its paths against every entry (0.9 s for 50 paths, 2.8 s for 435 in an index of 1.4M entries). Then the lock is released and the mark deleted. The cache tree
    of the index stays valid but for the directories of the changed paths, which the next `write-tree` or commit
    repairs; the extensions of fsmonitor and of the untracked cache stay.
 
@@ -663,7 +671,10 @@ filter runs in the fixtures).
 `crates/git-ops/src/worktree_update_test.rs` runs every fixture on the whole index and by the small one, in two
 repositories with the same history and the same local state, and compares the answer of git to the dry run and to the
 move, the entries of the index with their flags, every file with its bytes or link target, and the status (which
-names a mode that is not the entry's).
+names a mode that is not the entry's, and an entry without stat data). The status is taken with the index file newer
+than every file: git hashes an entry whose file was written in the second of the index file again (racily clean), so
+a file that is not its entry only by the attributes of the working tree would show as modified or not by the second
+the move ran in, not by the stat data it recorded.
 
 ### Index lock
 

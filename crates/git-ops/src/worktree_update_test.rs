@@ -2,7 +2,8 @@
 //! runs both, in two repositories with the same history and the same local state, and the index, the files and the
 //! status must be the same, as must the refusal.
 
-use super::{INDEX_COPY_PREFIX, IndexLeftBehind, SMALL_INDEX_FROM, WorktreeUpdate, dry_run_from, dry_run_worktree_update};
+use super::{INDEX_COPY_PREFIX, IndexLeftBehind, SMALL_INDEX_FROM, WorktreeUpdate, attributes_file_differs, dry_run_from, dry_run_worktree_update};
+use crate::commit_utils::blob_id;
 use crate::index_lock::IndexLock;
 use crate::revs::ref_exists;
 use crate::update_branch::{FilesBlocked, HeadRef, PENDING_UPDATE_PREFIX, finish_pending_update, move_branch_and_files};
@@ -110,8 +111,9 @@ fn index_lock(repo: &TestRepo) -> IndexLock<'_> {
   IndexLock::of(repo.git_executor(), repo.path_str())
 }
 
-/// What a move left: the entries of the index with their flags, the status (which names a file whose executable bit
-/// is not the one of its entry), and every file with its content or the target of a symlink
+/// What a move left: the entries of the index with their flags, the status by their stat data (which names a file
+/// whose executable bit is not the one of its entry, and one whose entry has no stat data), and every file with its
+/// content or the target of a symlink
 #[derive(Debug, PartialEq, Eq)]
 struct State {
   index: String,
@@ -124,9 +126,20 @@ fn state(repo: &TestRepo) -> State {
   read_files(repo.path(), repo.path(), &mut files);
   State {
     index: repo.git(&["ls-files", "-s", "-v"]),
-    status: repo.git(&["status", "--porcelain=v1", "--untracked-files=all"]),
+    status: status_by_stat_data(repo),
     files,
   }
+}
+
+/// `git status` once the index file is newer than every file by more than a second. git hashes again an entry whose
+/// file was written in the second of the index file (racily clean), so a file whose content differs from its entry
+/// only under the attributes of the working tree shows as modified or not by when the move ran; with the index newer,
+/// git goes by the stat data the move recorded
+fn status_by_stat_data(repo: &TestRepo) -> String {
+  let index = std::fs::File::options().write(true).open(repo.path().join(".git/index")).unwrap();
+  index.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+  drop(index);
+  repo.git(&["status", "--porcelain=v1", "--untracked-files=all"])
 }
 
 fn read_files(root: &Path, dir: &Path, files: &mut BTreeMap<String, String>) {
@@ -328,6 +341,9 @@ fn the_attributes_of_a_move_are_those_of_the_index_in_both_indexes() {
   // of a file it checks out from the index first
   let state = both_follow(|repo| repo.write_file(".gitattributes", "*.crlf text eol=crlf\nn.crlf -text\n*.shout filter=shout\n"));
   assert_eq!(state.files["n.crlf"], "file \"n1\\r\\nn2\\r\\n\"");
+  // under the edited attributes the file is not its entry, yet its entry has the stat data of the file the merge
+  // wrote, as `read-tree -u` records it on the whole index: git takes it as unchanged until the file changes
+  assert_eq!(state.status, "M .gitattributes", "{state:#?}");
   // `core.autocrlf` converts the files without an attribute
   let state = both_follow(|repo| append_config(repo.path(), &[("core.autocrlf", "true")]));
   assert_eq!(state.files["a/added.txt"], "file \"added\\r\\n\"");
@@ -597,6 +613,26 @@ fn pad_index(repo: &TestRepo) {
     .text()
     .unwrap();
   assert!(std::fs::metadata(repo.path().join(".git/index")).unwrap().len() >= SMALL_INDEX_FROM);
+}
+
+#[test]
+fn a_gitattributes_differs_from_its_entry_by_its_lines_not_by_their_ends() {
+  let dir = tempfile::tempdir().unwrap();
+  let root = dir.path().to_str().unwrap();
+  let entry = "*.crlf text eol=crlf\n*.shout filter=shout\n";
+  let id = blob_id(&"0".repeat(40), entry.as_bytes());
+  // none in the working tree: git reads the entry, as the merge did
+  assert!(!attributes_file_differs(root, b".gitattributes", id.as_bytes()));
+  std::fs::write(dir.path().join(".gitattributes"), entry).unwrap();
+  assert!(!attributes_file_differs(root, b".gitattributes", id.as_bytes()));
+  // checked out with CRLF (`core.autocrlf`): the same lines
+  std::fs::write(dir.path().join(".gitattributes"), entry.replace('\n', "\r\n")).unwrap();
+  assert!(!attributes_file_differs(root, b".gitattributes", id.as_bytes()));
+  std::fs::write(dir.path().join(".gitattributes"), format!("{entry}n.crlf -text\n")).unwrap();
+  assert!(attributes_file_differs(root, b".gitattributes", id.as_bytes()));
+  // a directory where the file was: git reads no attributes from it
+  std::fs::create_dir_all(dir.path().join("a/.gitattributes")).unwrap();
+  assert!(attributes_file_differs(root, b"a/.gitattributes", id.as_bytes()));
 }
 
 #[test]

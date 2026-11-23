@@ -92,7 +92,8 @@ which `rewrite_plan::prepare_plan` enforces (a plan that changes it is `RewriteR
 A move the files follow in a large index
 (`crates/git-ops/src/worktree_update.rs`): the entries that its merge of the changed paths changed go into a copy of
 the index by `update-index --index-info`, the
-copy's stat data is refreshed, and the copy takes the place of the index by a rename, all under the index lock the
+copy's stat data is refreshed (by the attributes of the merge where a `.gitattributes` of the working tree is not its
+entry, `--attr-source` of `add --refresh` on the paths the merge wrote), and the copy takes the place of the index by a rename, all under the index lock the
 move holds; `update-index --index-info` is in that file only (`index_entries_are_written_by_the_move_of_the_files_only`
 of `git_usage_scan_test.rs`), and never writes the user's index itself. Staged work on other paths survives; never
 `reset --mixed`, never ignore an index error.

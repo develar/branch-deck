@@ -1225,7 +1225,10 @@ merge on the whole index does; the entries put back MUST have the stat data of t
 - **GIVEN** a local edit of a `.gitattributes` above a file the move adds, or `core.autocrlf`
 - **WHEN** the files follow
 - **THEN** the file is written by the attributes of the index, as on the whole index
+- **AND** its entry has the stat data of that file, as `read-tree -u` records it on the whole index, so the status is
+  that of the whole index: the file is not modified though by the edited attributes it is not its entry
   [@test] crates/git-ops/src/worktree_update_test.rs (`the_attributes_of_a_move_are_those_of_the_index_in_both_indexes`)
+  [@test] crates/git-ops/src/worktree_update_test.rs (`a_gitattributes_differs_from_its_entry_by_its_lines_not_by_their_ends`)
 
 #### Scenario: A staged file in a directory that becomes a file
 - **GIVEN** a staged new file in a directory the move turns into a file
