@@ -1201,8 +1201,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   the update of the lease onto the tip of `home.branch` without a fetch, as `brd update` prints it, and its conflict
   opens a resolve session in the lease (`brd help update`); the lease moves when `brd update --continue` finishes it,
   whose `next` is `brd lease pick` again, and `brd update --abort` closes it; while it is open `brd lease pick` is
-  `resolve_in_progress` (exit 4). The output is `lease_pick`.
-- `brd lease pick --return [--stop-own]` ends a session: the pick without `--follow` (no dry run, refresh or move of
+  `resolve_in_progress` (exit 4). The commit of its round has no `body` there: its `patch` holds the message
+  (`brd update --status` names it). The output is `lease_pick`.
+- `brd lease pick --return [--stop-own]` ends a session: the pick without `--follow` (no check of the paths, refresh or move of
   the lease's index), then, once it landed the commits or found them all on the branch, the return of the lease in the
   same process (`returned`, as `brd lease return` prints it), after the pick released the repository lock. The commits
   of the pick's range are landed by the pick (`landed`, `proof: picked`), so no proof runs for them; a commit the lease
@@ -1215,15 +1216,17 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   owner of the shared checkout updates that; `--dry-run` and the steps of a session go on. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
   ask the user), `no_home_branch` (exit 4; cut from a detached HEAD), `no_lease` (exit 2; not inside a lease), and the
   refusals of `brd pick`.
-- `brd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved] [--stop-own]` frees the slot of `--workspace`, `-C`
+- `brd lease return [--workspace <dir>] [--lease-id <id> | --holder <name>] [--confirm-preserved] [--stop-own]` frees the slot of `--workspace`, `-C`
   or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
-  repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
+  repository, and with `--holder` the one lease of that holder (several: `invalid_arguments`, naming each id and slot,
+  `next_steps` the return of each by its id; none: `no_lease`): the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `resolve_in_progress` (a resolve session of the slot is
   open: finish it with `brd update --continue` or close it with `--abort`), `slot_busy` (a process
   in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server`, `holder` or `other`, `workspace`, `stop_error`}];
   `holder` is a command of the session that holds the lease, seen by a brd it runs: below `holder_pid` by the chain of
   parents, in a tree whose root has no controlling terminal, as a coding agent runs each command; `other` every other
-  process, a shell of a terminal tab too), `unlanded_commits`
+  process, a shell of a terminal tab too; with only `holder` ones, `next_steps` starts with
+  `brd lease return --workspace <slot> --stop-own`), `unlanded_commits`
   (`commits` that no branch, tag or remote branch holds and that no proof finds on the branch of the source: a dry run
   of the pick onto it, a patch id, the identity and the twin of `brd update`, the mapping note of a sync; land them with
   `brd -C <dir> lease pick`),
@@ -1248,7 +1251,7 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   process of another session in the slot it ends nothing. A repeat joins: a return
   retried while the first still runs waits for it, and a return that another return of the lease overtook changes
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.
-- `brd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
+- `brd lease status [--processes]` (alias `brd lease list`) lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`brd lease clean` cleans
   it), `abandoned` (the get, the return or the clean of it died) or `unfinished` (its add never finished: the next get
   that adds a slot removes it), `dirty`, `missing`, `lease` (`holder_pid`,

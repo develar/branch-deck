@@ -136,11 +136,12 @@ fn edit_of(update: &Value, path: &str) -> String {
     .to_string()
 }
 
-/// A lease whose commit conflicts with what another session landed on master since the get, and the lease
+/// A lease whose commit, with a body, conflicts with what another session landed on master since the get, and the lease
 fn conflicting_lease() -> (Fixture, String) {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
-  commit_in(&path, "(lane) Change b", "b.txt");
+  std::fs::write(Path::new(&path).join("b.txt"), "(lane) Change b\n").unwrap();
+  slot_git(&path, &["commit", "-q", "-a", "-m", "(lane) Change b", "-m", "Why b changes."]);
   fixture.repo.create_commit("(peer) Change b", "b.txt", "peer\n");
   (fixture, path)
 }
@@ -165,6 +166,12 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   let steps: Vec<&str> = output["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect();
   let update_step = format!("updating the lease onto master ({})", output["previous_head"].as_str().unwrap());
   assert_eq!(steps, ["checking the commits against master", update_step.as_str()], "{output}");
+  // the message is in the patch of the round, so the answer leaves out its body, which `brd update --status` names
+  let commit = &output["update"]["session"]["commit"];
+  assert_eq!(commit.get("body"), None, "{output}");
+  assert!(std::fs::read_to_string(commit["patch"].as_str().unwrap()).unwrap().contains("Why b changes."), "{output}");
+  let (_, status) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--status"]);
+  assert_eq!(status["session"]["commit"]["body"], json!("Why b changes."), "{status}");
   let next = output["conflict"]["next"].as_str().unwrap();
   // both commands run in the lease, where the resolve session is: one `-C`, the lease, never the home checkout
   let lease_bd = format!("brd -C {}", lease_word(&path));
@@ -301,8 +308,8 @@ fn a_lease_pick_refuses_a_tree_that_no_green_check_recorded() {
 }
 
 /// `--allow-unchecked` lands a tree without a check and the output repeats the reason; `--unchecked`, its name before,
-/// is the same flag; a blank reason is refused. Without `pick_requires_check` the pick reads no record and prints no
-/// `check`
+/// is the same flag; a blank reason is refused. A pick that lands nothing (a dry run, nothing to land, a conflict) does
+/// not repeat it. Without `pick_requires_check` the pick reads no record and prints no `check`
 #[test_log::test]
 fn allow_unchecked_lands_without_a_check_and_says_why() {
   let fixture = gated_fixture();
@@ -317,9 +324,17 @@ fn allow_unchecked_lands_without_a_check_and_says_why() {
     "{output}"
   );
   commit_in(&path, "(lane) Add b", "lane-b.txt");
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--dry-run", "--unchecked", "docs only"]);
+  assert_eq!((exit_code, &output["state"], output.get("unchecked")), (0, &json!("picked"), None), "{output}");
   let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", "docs only"]);
   assert_eq!((exit_code, &output["unchecked"]), (0, &json!("docs only")), "{output}");
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", "docs only"]);
+  assert_eq!((exit_code, &output["state"], output.get("unchecked")), (0, &json!("up_to_date"), None), "{output}");
   fixture.give_back(&path);
+
+  let (fixture, path) = conflicting_lease();
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--allow-unchecked", "docs only"]);
+  assert_eq!((exit_code, &output["state"], output.get("unchecked")), (1, &json!("conflict"), None), "{output}");
 
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));

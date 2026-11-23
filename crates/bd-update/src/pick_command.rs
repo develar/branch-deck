@@ -126,7 +126,8 @@ pub struct PickOutput {
   /// commit without one (`unchecked_tree`); a pick that lands nothing only follows
   #[serde(skip_serializing_if = "Option::is_none")]
   pub check: Option<TreeCheckOutput>,
-  /// `--allow-unchecked <reason>`: the reason the pick did not ask for a check
+  /// `--allow-unchecked <reason>` of a pick that landed commits: the reason they landed without a check; stderr names
+  /// it once. Omitted for a dry run, a conflict and a pick that landed nothing
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unchecked: Option<String>,
   /// The picked commits whose message the commit rules of `[commit] check` reject but that land (with --dry-run: would
@@ -544,12 +545,6 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
   };
   let gate = gate(context, &from, args, home)?;
   let (messages, message_check_skipped) = message_gate(context, &from, args)?;
-  if let Some(reason) = &args.allow_unchecked
-    && !args.dry_run
-  {
-    let command = if home.is_some() { "brd lease pick" } else { "brd pick" };
-    let _ = writeln!(std::io::stderr().lock(), "{command}: the tree lands without a check: {reason}");
-  }
   let params = PickParams {
     repository_path: context.repository.clone(),
     from,
@@ -582,7 +577,16 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
   })?;
   let mut output = output(context, &result, args.dry_run, home)?;
   output.check = gate.check.as_ref().map(tree_check_output);
-  output.unchecked.clone_from(&args.allow_unchecked);
+  // said once, by the pick that landed: a conflict or a refusal lands nothing, and the pick of `brd lease pick` after
+  // the update of its conflict is the one that lands
+  if let Some(reason) = &args.allow_unchecked
+    && !args.dry_run
+    && output.state == PickOutcome::Picked
+  {
+    let command = if home.is_some() { "brd lease pick" } else { "brd pick" };
+    let _ = writeln!(std::io::stderr().lock(), "{command}: the tree lands without a check: {reason}");
+    output.unchecked = Some(reason.clone());
+  }
   output.message_format_allowed = args
     .allow_message_format
     .clone()

@@ -694,7 +694,8 @@ worktree whose records brd could read; the message names the pick from the workt
 ### Requirement: The check of the tree: --allow-unchecked lands without a check and says why
 
 `--allow-unchecked <reason>` MUST land without a check, of a worktree or of revisions: the reason is required (a blank
-one is `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it.
+one is `invalid_arguments`). A pick that landed commits MUST repeat it in the output (`unchecked`) and name it once on
+stderr; a dry run, a conflict and a pick that landed nothing MUST do neither.
 
 #### Scenario: A pick with a reason
 - **WHEN** a pick of a worktree or of revisions runs with `--allow-unchecked <reason>`

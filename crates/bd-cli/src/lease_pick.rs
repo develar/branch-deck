@@ -21,7 +21,8 @@ pub struct LeasePickOutput {
   /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `brd update` prints it. A
   /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `brd update
   /// --continue`, build and test, then `brd lease pick` again; `brd update --abort` closes it, nothing moved. An update
-  /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
+  /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`. The
+  /// commit of its round has no `body`: its `patch` file holds the message
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateOutput>,
   /// With --return, once the pick landed the commits (or found every one on the branch): the HEAD of the lease the pick
@@ -43,10 +44,10 @@ pub struct LeasePickOutput {
 
 impl LeasePickOutput {
   /// The answer of a pick that returns nothing (no --return, a conflict, a dry run), and of an update after a conflict
-  pub const fn of(pick: PickOutput, update: Option<UpdateOutput>) -> Self {
+  pub fn of(pick: PickOutput, update: Option<UpdateOutput>) -> Self {
     Self {
       pick,
-      update,
+      update: without_body(update),
       source_head: None,
       returned: None,
       return_refused: None,
@@ -89,8 +90,17 @@ pub fn returned_after(lease: &LeaseContext, pick: PickOutput, update: Option<Upd
   LeasePickOutput {
     source_head: Some(pick.source_head.clone()),
     pick,
-    update,
+    update: without_body(update),
     returned,
     return_refused,
   }
+}
+
+/// `update` without the body of the commit of its round: the agent reads the message in its `patch` file, and the answer
+/// of a conflict is read whole
+fn without_body(mut update: Option<UpdateOutput>) -> Option<UpdateOutput> {
+  if let Some(commit) = update.as_mut().and_then(|update| update.session.as_mut()).and_then(|session| session.commit.as_mut()) {
+    commit.body.clear();
+  }
+  update
 }

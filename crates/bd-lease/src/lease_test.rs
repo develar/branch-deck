@@ -7,6 +7,7 @@ use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
+use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
 use domain_types::worktree_epoch::WorktreeEpoch;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -209,7 +210,8 @@ fn holder_kinds(shell: &Killed, sleep: &sync_utils::process_scan::Descendant, ki
 }
 
 /// A background command of the agent that holds the lease (a Monitor, a run in the background: in a session of its own,
-/// below the agent) keeps the slot busy as `kind: holder`, and the message names `--stop-own`; nothing is signalled
+/// below the agent) keeps the slot busy as `kind: holder`, and the message names `--stop-own`, the return with it the
+/// first of `next_steps`; nothing is signalled
 #[cfg(unix)]
 #[test_log::test]
 fn a_background_command_of_the_holder_is_named_holder_and_keeps_the_slot_without_stop_own() {
@@ -222,6 +224,11 @@ fn a_background_command_of_the_holder_is_named_holder_and_keeps_the_slot_without
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
     message.contains(&format!("sleep ({}, a command of your own session: sleep 30)", sleep.pid)) && message.contains("`brd lease return --stop-own` ends them"),
+    "{output}"
+  );
+  assert_eq!(
+    output["error"]["next_steps"],
+    json!([{ "command": format!("brd lease return --workspace {} --stop-own", shell_word(&slot_path(&path))), "needs_approval": false }]),
     "{output}"
   );
   assert!(shell.try_wait().unwrap().is_none(), "a refusal signals no command");
@@ -272,6 +279,7 @@ fn stop_own_never_ends_a_process_of_another_session() {
   expected.sort();
   assert_eq!(busy_kinds(&output), expected);
   assert!(output["error"]["message"].as_str().unwrap().contains("never those of another session"), "{output}");
+  assert_eq!(output["error"].get("next_steps"), None, "`--stop-own` would end only some: {output}");
   assert!(other.running() && shell.try_wait().unwrap().is_none());
   assert_eq!(states(&fixture.status())[0].1, "ready");
 }
@@ -2885,6 +2893,32 @@ fn the_status_reads_the_state_without_a_git_status() {
     .map(|slot| (slot.path.as_str(), format!("{:?}", slot.state), slot.lease.as_ref().map(|lease| lease.holder.as_str())))
     .collect();
   assert_eq!(slots, [(leased.as_str(), "Ready".to_string(), Some("lane-1")), (free.as_str(), "Free".to_string(), None)]);
+  // `lease list`, which agents call, is the status
+  let (exit_code, listed) = fixture.run(&["lease", "list"]);
+  assert_eq!((exit_code, &listed["slots"]), (0, &fixture.status()["slots"]), "{listed}");
+}
+
+/// `brd lease return --holder <name>` from the shared checkout returns the one lease of that holder; a holder of
+/// several leases is refused with the return of each by its id, one of none is `no_lease`
+#[test_log::test]
+fn a_return_by_holder_returns_the_one_lease_of_the_holder() {
+  let fixture = Fixture::new();
+  let first = fixture.get(&["--holder", "lane-1"]);
+  let second = fixture.get(&["--holder", "lane-1"]);
+  let (exit_code, refused) = fixture.run(&["lease", "return", "--holder", "lane-1"]);
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
+  let commands: Vec<&Value> = refused["error"]["next_steps"].as_array().unwrap().iter().map(|step| &step["command"]).collect();
+  let expected: Vec<Value> = [&first, &second]
+    .iter()
+    .map(|got| json!(format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap())))
+    .collect();
+  assert_eq!(commands, expected.iter().collect::<Vec<_>>(), "{refused}");
+
+  fixture.give_back(&path_of(&first));
+  let (exit_code, returned) = fixture.run(&["lease", "return", "--holder", "lane-1"]);
+  assert_eq!((exit_code, &returned["lease_id"]), (0, &second["lease_id"]), "{returned}");
+  let (exit_code, refused) = fixture.run(&["lease", "return", "--holder", "lane-1"]);
+  assert_error(&refused, exit_code, (2, "no_lease"));
 }
 
 /// A get that died while preparing a lease leaves it `preparing`; once its process is gone the slot is abandoned, and

@@ -4,7 +4,7 @@
 
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, counted_git};
-use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
+use bd_core::error::{CliError, ErrorExtra, NextStep, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use bd_core::text_input::{message_reason_text, reason_text};
 use domain_types::error::ErrorCode;
@@ -50,6 +50,7 @@ pub enum LeaseCommand {
   /// Give the lease of a worktree back; refused while it has unlanded commits, local changes or a process in it
   Return(LeaseReturnArgs),
   /// Every slot of the pool and its lease, from the state alone. Read only
+  #[command(alias = "list")]
   Status(LeaseStatusArgs),
   /// Add existing linked worktrees of this repository to the pool as free slots, where they are
   Adopt(LeaseAdoptArgs),
@@ -146,6 +147,10 @@ pub struct LeaseReturnArgs {
   /// the repository
   #[arg(long, value_name = "ID")]
   pub lease_id: Option<String>,
+  /// The lease of this holder (`--holder` of its get), from any checkout of the repository; several are refused and
+  /// named, to return one by --lease-id
+  #[arg(long, value_name = "LABEL", conflicts_with_all = ["workspace", "lease_id"])]
+  pub holder: Option<String>,
   /// Give up the unlanded commits and discard the local changes (`reset --hard`, `clean -fd`; ignored files stay)
   #[arg(long)]
   pub confirm_preserved: bool,
@@ -1101,9 +1106,13 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
 /// pick's range, which it landed on the home branch or found there, so the return proves them landed by it
 /// (`landed_work`) and checks only the commits outside it
 pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, picked: &[String]) -> Result<LeaseReturnOutput, CliError> {
+  let of_holder = match &args.holder {
+    Some(holder) => Some(lease_of_holder(context, holder)?),
+    None => None,
+  };
   let params = LeaseReturnParams {
     workspace: &context.dirs,
-    lease_id: args.lease_id.as_deref(),
+    lease_id: of_holder.as_deref().or(args.lease_id.as_deref()),
     find_by_lease_id: args.workspace.is_none(),
     confirm_preserved: args.confirm_preserved,
     stop_own: args.stop_own,
@@ -1166,6 +1175,39 @@ pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, p
     notes: returned.notes.as_ref().map(|notes| notes.dir.to_string_lossy().into_owned()),
     processes_checked: returned.process_scan,
   })
+}
+
+/// The id of the one lease of `holder` in the pool, from the state alone: none is `no_lease`, several are
+/// `invalid_arguments` with the return of each by its id in `next_steps`, as `brd lease notes --holder` names them all
+fn lease_of_holder(context: &LeaseContext, holder: &str) -> Result<String, CliError> {
+  let (slots, _) = lease_status_core(Path::new(&context.dirs.git_common_dir), false).map_err(lease_error)?;
+  let leases: Vec<(&str, &str)> = slots
+    .iter()
+    .filter_map(|status| status.slot.lease.as_ref().map(|lease| (lease, status.slot.path.as_str())))
+    .filter(|(lease, _)| lease.holder == holder)
+    .map(|(lease, path)| (lease.id.as_str(), path))
+    .collect();
+  match leases.as_slice() {
+    [] => Err(CliError::new(
+      ErrorCode::NoLease,
+      format!("No lease of the pool is held by {holder}: `brd lease status` lists them"),
+    )),
+    [(id, _)] => Ok((*id).to_string()),
+    several => {
+      let named = several.iter().map(|(id, path)| format!("{id} ({path})")).collect::<Vec<_>>().join(", ");
+      let mut error = CliError::new(
+        ErrorCode::InvalidArguments,
+        format!(
+          "{holder} holds {} leases: {named}. Return each that is done by its id: `brd lease return --lease-id <id>`",
+          several.len()
+        ),
+      );
+      for (id, _) in several {
+        error.push_next_step(NextStep::new(format!("brd lease return --lease-id {id}"), false));
+      }
+      Err(error)
+    }
+  }
 }
 
 /// `brd lease status`
@@ -1680,6 +1722,13 @@ pub(crate) fn refusal_error(refusal: &LeaseRefusal) -> CliError {
         processes: processes_output(processes),
         ..ErrorExtra::default()
       }));
+      // only commands of the session that returns: the return that ends them is the next step
+      if let LeaseRefusal::SlotBusy { path, .. } = refusal
+        && !processes.is_empty()
+        && processes.iter().all(|process| process.holder)
+      {
+        error.push_next_step(NextStep::new(format!("brd lease return --workspace {} --stop-own", shell_word(path)), false));
+      }
     }
     _ => {}
   }

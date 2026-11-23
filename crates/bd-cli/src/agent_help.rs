@@ -320,8 +320,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      `patch_id`, left out before the replay, or `empty`, the change in another form); never an empty commit.
      `state: up_to_date`: nothing was left to pick.
    - `state: conflict` (exit 1): nothing landed. `brd lease pick` gives the conflict back to your lease: it updates the
-     lease onto the tip of `home.branch` (`update`), and the conflict opens a resolve session there (`brd help
-     update`); the lease moves only when `brd update --continue` finishes it, `brd update --abort` closes it. Resolve it
+     lease onto the tip of `home.branch` (`update`; the message of the commit of its round is in its `patch`), and the
+     conflict opens a resolve session there (`brd help update`); the lease moves only when `brd update --continue` finishes it, `brd update --abort` closes it. Resolve it
      (regenerate a generated file, never keep one side of a code hunk), build and test, then `brd lease pick` again (the
      `next` of the finish). An update that applies at once (the words resolved it) is picked again at once. From a
      worktree that is no lease, do what `conflict.next` says: move the worktree onto the branch, make the commit again
@@ -402,7 +402,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    keeps it too (`return_refused`, with the refusals below); `source_head` is the commit the slot is freed at, which
    holds your commits after a `brd undo <undo_token>` (that undo moves only the branch). `brd lease pick --return
    --stop-own` passes `--stop-own` to the return. With nothing to pick onto, or once the commits landed: `brd lease return` inside it (or --workspace <dir>;
-   --lease-id <id> refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
+   --lease-id <id> refuses another lease, and alone returns the slot of that lease from any checkout; --holder <name>
+   returns the one lease of that holder from any checkout, and names the ids of several). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick, the patch id, the identity and the twin of `brd update` or the mapping note of a sync
    prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land
@@ -411,7 +412,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `processes`: each with `argv` and `kind`): a process works in it; read `processes`, never `ps` or `lsof`. `kind:
    holder` is a command of your own session (a Monitor, a command run in the background): stop it with your own tool, or
    once you no longer need its output, `brd lease return --stop-own` ends it and every process it started, then
-   returns (`stopped_processes`; it ends nothing while another refusal stands). `kind: other` is a process of another
+   returns (`stopped_processes`; it ends nothing while another refusal stands); with only such commands in the slot,
+   `error.next_steps` starts with that return. `kind: other` is a process of another
    session (a shell, a build, a test run): wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
    the worktree is a host slot (holder `bd-host/<n>`) that `bd-host` lends to the runs of other machines, never yours. A repeat after a timed-out call is
    safe: it waits for the running return and answers `joined: true`. Not counted: your own session (brd, its ancestors
@@ -422,7 +424,7 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    return stops them with SIGTERM (`bazel shutdown` on Windows) once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `brd lease status` lists the slots and their leases from the pool state
-   (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`). The return applies the clean rules of
+   (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`; `brd lease list` is the same). The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
    succeeds); the notes of the lease are no path of the worktree, so no rule deletes them:
