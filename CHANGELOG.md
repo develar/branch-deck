@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/develar/branch-deck/compare/v1.22.0...v1.22.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **symbols:** a Rust call is judged by the count of its arguments, and a method call on a value needs the commit whose new arity only it fits ([32ddf75](https://github.com/develar/branch-deck/commit/32ddf75767955826f17d8581d159e63ef170ef06))
+
 ## [1.22.0](https://github.com/develar/branch-deck/compare/v1.21.0...v1.22.0) (2026-11-23)
 
 
