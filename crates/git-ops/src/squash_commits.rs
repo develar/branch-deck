@@ -9,7 +9,7 @@ use crate::history::History;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, short_id};
 use crate::rewrite_guard::{HeadMoved, RewriteTarget, check_rewrite_range};
-use crate::rewrite_plan::{IfEmpty, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
+use crate::rewrite_plan::{IfEmpty, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
 use anyhow::anyhow;
 use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -95,11 +95,7 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
     );
   }
 
-  let checks = PlanChecks {
-    keep_head_tree: true,
-    check_commit_count: true,
-  };
-  prepare_plan(git_executor, repo_path, history, &plan, checks, signing)
+  prepare_plan(git_executor, repo_path, history, &plan, signing)
 }
 
 /// Undo a rewrite that kept HEAD's tree (a squash, a reword or a regroup): move the checked out branch from

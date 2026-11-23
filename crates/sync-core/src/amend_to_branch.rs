@@ -54,7 +54,7 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
       files: files.clone(),
     };
     prepare_amend(git_executor, repo, &history, amend, signing)
-      .and_then(|prepared| prepared.ready(git_executor, repo))
+      .map(|prepared| prepared.ready(git_executor, repo))
       .map_err(failed)
   };
   // under the lock, once its witness missed: a HEAD other than the expected one is refused by one `rev-parse`, before

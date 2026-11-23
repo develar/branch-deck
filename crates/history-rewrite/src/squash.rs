@@ -57,7 +57,7 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   let prepare = || -> Result<PreparedSquash> {
     let PreparedSquash { rewrite, target } = prepare_squash_commits(git_executor, params, &message, options, signing)?;
     Ok(PreparedSquash {
-      rewrite: rewrite.ready(git_executor, repo_path)?,
+      rewrite: rewrite.ready(git_executor, repo_path),
       target,
     })
   };

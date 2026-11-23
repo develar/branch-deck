@@ -31,7 +31,7 @@ fn prepare(repo: &TestRepo, groups: &[SquashGroup]) -> Result<PreparedRewrite, C
     .flat_map(|group| std::iter::once(group.target.as_str()).chain(group.folded.iter().map(String::as_str)))
     .collect();
   let history = History::read_to(repo.git_executor(), repo_path(repo), &ids)?;
-  prepare_squash(repo.git_executor(), repo_path(repo), &history, groups, crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(repo))
+  Ok(prepare_squash(repo.git_executor(), repo_path(repo), &history, groups, crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(repo)))
 }
 
 /// Squashes `folded` into `target`; returns the prepared rewrite (moved already)
@@ -205,7 +205,7 @@ fn the_replayed_commits_whose_trees_stay_keep_their_mapping_notes() -> Result<()
     &[group(&target, &[&folded], SquashMessage::Target)],
     crate::commit_signing::Signing::Off,
   )?
-  .ready(repo.git_executor(), repo_path(&repo))?;
+  .ready(repo.git_executor(), repo_path(&repo));
   prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash 2 commits")?;
 
   // the commit after the folded one has its trees, so its copy stays; the commit in between now has the folded change
@@ -478,7 +478,7 @@ fn a_group_its_folded_commits_cancel_leaves_the_history_only_when_it_says_so() -
     if_empty: IfEmpty::Drop,
     ..group(&target, &[&fixup], SquashMessage::Target)
   };
-  let prepared = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[dropping], crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(&repo))?;
+  let prepared = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[dropping], crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(&repo));
   assert!(prepared.is_dropped(&target));
   assert_eq!(prepared.replacement_of(&target), None);
   prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash fixups")?;

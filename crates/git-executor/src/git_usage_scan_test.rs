@@ -292,8 +292,8 @@ fn the_directories_of_an_operation_are_read_once() {
       },
       Exemption {
         path: "crates/git-ops/src/rewrite_guard.rs",
-        hits: 2,
-        reason: "the markers and the index without known directories",
+        hits: 1,
+        reason: "the markers without known directories",
       },
       Exemption {
         path: "crates/git-ops/src/update_branch.rs",

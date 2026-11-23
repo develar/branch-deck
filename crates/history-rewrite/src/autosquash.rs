@@ -247,8 +247,8 @@ pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &Squas
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
   let signing = commit_signing(git_executor, repo_path)?;
-  let first = prepare_fold(git_executor, params, options, range, signing).and_then(|fold| fold.ready(git_executor, repo_path));
-  let prepare = || prepare_fold(git_executor, params, options, None, signing).and_then(|fold| fold.ready(git_executor, repo_path));
+  let first = prepare_fold(git_executor, params, options, range, signing).map(|fold| fold.ready(git_executor, repo_path));
+  let prepare = || prepare_fold(git_executor, params, options, None, signing).map(|fold| fold.ready(git_executor, repo_path));
   let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, first, prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
@@ -283,14 +283,14 @@ struct PreparedFold {
 }
 
 impl PreparedFold {
-  /// The fold `ready` to move: its index preflight and its carried notes, before the lock
-  fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
+  /// The fold `ready` to move: its carried notes, before the lock
+  fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Self {
     let Self { rewrite, groups, orphans } = self;
-    Ok(Self {
-      rewrite: rewrite.ready(git_executor, repo_path)?,
+    Self {
+      rewrite: rewrite.ready(git_executor, repo_path),
       groups,
       orphans,
-    })
+    }
   }
 }
 

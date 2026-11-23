@@ -10,7 +10,7 @@ use crate::ref_transaction::RefTransaction;
 use crate::replay::{merge_trees, replay_onto};
 use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, stage_worktree_files};
-use crate::rewrite_plan::{PreparedRewrite, check_target};
+use crate::rewrite_plan::{PreparedRewrite, RewrittenHistory, check_target};
 use anyhow::anyhow;
 use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -41,7 +41,7 @@ pub struct AmendResult {
 pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams, signing: Signing) -> Result<AmendResult, CopyCommitError> {
   let original_commit_id = params.original_commit_id.clone();
   let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
-  let prepared = prepare_amend(git_executor, repo_path, &history, params, signing)?.ready(git_executor, repo_path)?;
+  let prepared = prepare_amend(git_executor, repo_path, &history, params, signing)?.ready(git_executor, repo_path);
   apply_amend(git_executor, repo_path, &prepared, &original_commit_id)
 }
 
@@ -115,19 +115,21 @@ pub fn prepare_amend(
   let amended_commit_id = written.ids[0].clone();
 
   let mut prepared = PreparedRewrite {
-    new_head: amended_commit_id.clone(),
-    target,
+    history: RewrittenHistory {
+      new_head: amended_commit_id.clone(),
+      target,
+      written: vec![written],
+      replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
+      dropped: Vec::new(),
+      // an amend changes the trees of every later commit: no note stays
+      carried_notes: Vec::new(),
+      committer: String::new(),
+    },
     index_update: IndexUpdate::FromWorktree(files),
-    written: vec![written],
-    replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
-    dropped: Vec::new(),
-    // an amend changes the trees of every later commit: no note stays
-    carried_notes: Vec::new(),
-    committer: String::new(),
   };
   if position > 0 {
-    match replay_onto(git_executor, repo_path, &amended_commit_id, &original_commit_id, &prepared.target.head) {
-      Ok(Some(new_head)) => prepared.new_head = new_head,
+    match replay_onto(git_executor, repo_path, &amended_commit_id, &original_commit_id, &prepared.history.target.head) {
+      Ok(Some(new_head)) => prepared.history.new_head = new_head,
       Ok(None) => {
         prepared.discard(git_executor, repo_path);
         return Err(CopyCommitError::BranchError(BranchError::Generic(format!(
@@ -140,12 +142,12 @@ pub fn prepare_amend(
         return Err(e);
       }
     }
-    match sign_range(git_executor, repo_path, Some(&amended_commit_id), &prepared.new_head, signing) {
+    match sign_range(git_executor, repo_path, Some(&amended_commit_id), &prepared.history.new_head, signing) {
       Ok(Some(signed)) => {
         if let Some(tip) = signed.ids.last() {
-          prepared.new_head.clone_from(tip);
+          prepared.history.new_head.clone_from(tip);
         }
-        prepared.written.push(signed);
+        prepared.history.written.push(signed);
       }
       Ok(None) => {}
       Err(error) => {
@@ -154,7 +156,7 @@ pub fn prepare_amend(
       }
     }
     // the replayed history must end with exactly the working-tree versions of the files, nothing else changed
-    if resolve_tree_id(git_executor, repo_path, &prepared.new_head)? != worktree_tree {
+    if resolve_tree_id(git_executor, repo_path, &prepared.history.new_head)? != worktree_tree {
       prepared.discard(git_executor, repo_path);
       return Err(CopyCommitError::BranchError(BranchError::Generic(format!(
         "Amending commit {} would change later commits differently than the working tree; amend into a later commit instead",
@@ -163,7 +165,7 @@ pub fn prepare_amend(
     }
   }
 
-  debug!(%amended_commit_id, new_head = %prepared.new_head, "prepared the amend");
+  debug!(%amended_commit_id, new_head = %prepared.history.new_head, "prepared the amend");
   Ok(prepared)
 }
 

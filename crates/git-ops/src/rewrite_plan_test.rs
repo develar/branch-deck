@@ -2,16 +2,11 @@ use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
-use super::rewrite_plan::{IfEmpty, PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, prepare_plan, refused_in};
+use super::rewrite_plan::{IfEmpty, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, prepare_plan, refused_in};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, status, write_file};
 use anyhow::Result;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-
-const SQUASH_CHECKS: PlanChecks = PlanChecks {
-  keep_head_tree: true,
-  check_commit_count: true,
-};
 
 /// A plan that replaces `target` with itself and the changes of `folded`
 fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<(History, RewritePlan)> {
@@ -28,7 +23,7 @@ fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) ->
 }
 
 fn prepare(repo: &TestRepo, history: &History, plan: &RewritePlan) -> Result<PreparedRewrite, CopyCommitError> {
-  prepare_plan(repo.git_executor(), repo_path(repo), history, plan, SQUASH_CHECKS, crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(repo))
+  Ok(prepare_plan(repo.git_executor(), repo_path(repo), history, plan, crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(repo)))
 }
 
 fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<()> {
@@ -127,6 +122,34 @@ fn refusal_after_writing_a_commit_leaves_no_temp_refs() -> Result<()> {
 
   assert!(error.to_string().contains("Removing commit"), "{error}");
   assert_eq!(repo.head(), head_before);
+  assert_no_temp_refs(&repo)
+}
+
+/// A rewrite without files keeps HEAD's tree: a plan whose HEAD would get another one (a drop through
+/// `prepare_plan`, which moves no file and no index entry) is refused as a typed `RewriteRefused`, with nothing changed;
+/// a drop moves its branch with its files (`unapply`)
+#[test]
+fn a_plan_that_would_change_the_tree_of_head_is_refused_and_leaves_the_index() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let dropped = repo.create_commit("Add a", "a.txt", "a");
+  repo.create_commit("Add b", "b.txt", "b");
+  write_file(&repo, "base.txt", "staged")?;
+  repo.git(&["add", "base.txt"]);
+  let head_before = repo.head();
+  let index_before = repo.git(&["ls-files", "-s"]);
+  let history = History::read_to(repo.git_executor(), repo_path(&repo), &[dropped.as_str()])?;
+  let mut plan = RewritePlan::default();
+  plan.steps.insert(history.position(&dropped)?, PlanStep::Drop);
+
+  let error = prepare(&repo, &history, &plan).expect_err("a plan that changes HEAD's tree is refused");
+
+  assert!(error.to_string().contains("would change the files"), "{error}");
+  let wrapped = anyhow::Error::from(error);
+  assert_eq!(refused_in(&wrapped).map(|refused| refused.kind), Some(RefusalKind::Conflict));
+  assert_eq!(repo.head(), head_before);
+  assert_eq!(repo.git(&["ls-files", "-s"]), index_before);
+  assert_eq!(status(&repo)?, "M  base.txt");
   assert_no_temp_refs(&repo)
 }
 

@@ -171,12 +171,12 @@ fn the_index_of_a_rewrite_follows_past_a_lock_that_no_process_owns() {
   repo.create_commit("base", "a.txt", "a\n");
   let old_tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
   let rewritten = repo.create_commit("change", "b.txt", "b\n");
-  let new_tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
-  // the branch was rewritten to `new_tree`, and the index still holds the old tree: a drop's state before its update
+  // the branch was amended with the working-tree version of `b.txt`, and the index still holds the old tree: an
+  // amend's state before its update
   repo.git(&["read-tree", &old_tree]);
   let path = lock_path(&repo);
   std::fs::write(&path, "").unwrap();
-  let update = IndexUpdate::TwoWay { old_tree, new_tree };
+  let update = IndexUpdate::FromWorktree(vec!["b.txt".to_string()]);
   let result = update.apply(repo.git_executor(), repo.path_str());
   if cfg!(windows) {
     // no owner check: the index can't follow, and the error says how to repair it

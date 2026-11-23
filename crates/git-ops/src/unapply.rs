@@ -10,7 +10,7 @@ use crate::copy_commit::CopyCommitError;
 use crate::lfs::WorktreeMove;
 use crate::paths::changed_paths;
 use crate::ref_transaction::RefTransaction;
-use crate::rewrite_plan::{PreparedRewrite, RefusalKind, prepare_drop_commits, refused_in};
+use crate::rewrite_plan::{RefusalKind, RewrittenHistory, prepare_drop_commits, refused_in};
 use crate::update_branch::{
   DROP, FileMove, HeadRef, MAX_BLOCKED_PATHS, MoveOperation, UNAPPLY, UndoCheck, UpdateUndo, apply_move_undo_with, blocking_paths, check_move_undo, check_update_guards,
   move_branch_and_files_carrying,
@@ -77,7 +77,7 @@ impl DropKind {
 pub struct DropPlan {
   kind: DropKind,
   branch: String,
-  prepared: PreparedRewrite,
+  prepared: RewrittenHistory,
   files_change: bool,
 }
 
@@ -110,12 +110,6 @@ impl DropPlan {
       to: self.new_head().to_string(),
       branch: Some(self.branch.clone()),
     })
-  }
-
-  /// The replayed commits that keep the mapping notes of their originals, newest first: a sync keeps their virtual
-  /// copies
-  pub fn carried_notes(&self) -> impl Iterator<Item = &str> {
-    self.prepared.carried_notes()
   }
 
   /// Write the mapping notes the replayed commits keep, before the lock and the move, so a sync that the move wakes

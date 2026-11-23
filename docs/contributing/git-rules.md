@@ -86,9 +86,10 @@ that exists, so git never deletes the files of a worktree.
 
 ## The user's index
 
-The user's index changes only where HEAD's tree changed, and has two writers. A rewrite (`IndexUpdate` in
-`crates/git-ops/src/rewrite_guard.rs`): a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the
-index, an amend stages the amended files. A move the files follow in a large index
+The user's index changes only where HEAD's tree changed, and has two writers. An amend (`IndexUpdate` in
+`crates/git-ops/src/rewrite_guard.rs`) stages the amended files; every other rewrite without files keeps HEAD's tree,
+which `rewrite_plan::prepare_plan` enforces (a plan that changes it is `RewriteRefused`), and a drop moves its files.
+A move the files follow in a large index
 (`crates/git-ops/src/worktree_update.rs`): the entries that its merge of the changed paths changed go into a copy of
 the index by `update-index --index-info`, the
 copy's stat data is refreshed, and the copy takes the place of the index by a rename, all under the index lock the

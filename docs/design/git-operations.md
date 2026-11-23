@@ -95,16 +95,15 @@ flowchart TD
     R -->|content| P[merge-tree --write-tree + git replay: amend, squash]
     R -->|drop, unapply| DR[git replay of the kept runs, then the dry run of the files on a copy of the index]
     W --> T[update-ref --stdin: CAS on the branch, temp refs deleted, reflog message]
-    P --> F[index preflight on a copy of the index]
-    F --> T
+    P --> T
     DR --> M[the guarded move of Update Project: the branch, then read-tree -m -u of the files]
     T --> I{HEAD tree changed?}
     I -->|no: reword, move, squash| D[done: index and working tree untouched]
     I -->|amend| U[update-index the amended files from the working tree]
 ```
 
-Every path ends at one ref transaction. Only a content rewrite reaches the index step, and the working tree is never
-written, except by the guarded move of Update Project: Update Project and the finish of its resolve session, `brd
+Every path ends at one ref transaction. Only an amend writes the index (a squash keeps HEAD's tree: `prepare_plan`
+refuses one that would change it), and the working tree is never written, except by the guarded move of Update Project: Update Project and the finish of its resolve session, `brd
 pick`, the unapply and the reapply, and the drop of commits (their own sections below).
 
 ### Invariants
@@ -152,8 +151,9 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
    --whitespace=nowarn` of the patch of the run to the files of the client, all or nothing, the index left alone. It
    lives in `crates/git-ops/src/host_client.rs` only, and the scan counts it (`CLIENT_WRITE_EXEMPTIONS`, one); an
    `apply` with `--cached`, `--numstat`, `--stat` or `--check` writes no file.
-2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
-   paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
+2. **The user's index changes only where HEAD's tree changes** (see the index policy below): by the move of the files,
+   or the files an amend stages. Staged changes on other paths survive. A conflict with staged work is detected
+   before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
@@ -678,7 +678,7 @@ one `master`), and each rollback made the agent loop again:
   exit, SIGTERM and SIGINT). Every later status skips it, and every write fails on it until someone removes it.
 
 `git_ops::index_lock` handles both, for the moves the files follow (the pick and its follow, Update Project, the
-unapply, the reapply, their undo, the finish of a resolve session) and for `IndexUpdate::apply` of the rewrites:
+unapply, the reapply, their undo, the finish of a resolve session) and for `IndexUpdate::apply` of an amend:
 
 1. **Before the repository lock**, a core whose move changes files waits while a lock is there, so no other writer
    waits for the repository lock while this one waits for git's: the unapply, the reapply and the undo of a move
@@ -6499,26 +6499,22 @@ Patronus view's, the landing needs the host's.
 ### Index policy
 
 When a rewrite changes HEAD's tree, the index has to follow. Otherwise `git status` shows the rewrite reversed as
-staged changes. `IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs` has two forms.
+staged changes. Two kinds of rewrite change it, and each has its one writer of the index:
 
-- **Drop: two-way merge.** `read-tree -m -i <old> <new>`, without `-u`:
-  - entries that matched the old HEAD take the new HEAD's entry;
-  - staged changes on untouched paths and intent-to-add entries are kept;
-  - the working tree is never read or written.
-
-  Before any ref moves, the same command runs on a copy of the index (`GIT_INDEX_FILE`). If a staged path is also
-  changed by the drop, git fails ("Entry 'x' would be overwritten by merge"), and the drop is refused. The exit code
-  decides; the message is not parsed, since a quote in a path would cut it. Only then two `-z` diffs name the paths:
-  `diff-index --cached --raw -z <old>` (staged unlike the old HEAD) and `diff-tree -r --raw -z <old> <new>` (changed
-  by the drop), the paths of both whose staged mode and blob are not the new HEAD's. When none is left (an unmerged
-  index), the refusal says so without paths.
+- **Drop, unapply: the move of the files.** The branch moves with its files and its index ("The files of a move",
+  `move_branch_and_files_carrying`), after the dry run of the files on the paths the drop changes: a local change
+  there, staged or not, refuses it (`MoveBlocked`).
 - **Amend: stage the amended files.** HEAD now holds the working-tree versions of the selected files, so exactly
-  those are staged (`update-index --add --remove -z --stdin`), like `git commit -- <paths>` does. Other staged
-  changes stay staged.
+  those are staged (`IndexUpdate::FromWorktree` in `crates/git-ops/src/rewrite_guard.rs`: `update-index --add
+  --remove -z --stdin`, which records their stat data), like `git commit -- <paths>` does. Other staged changes stay
+  staged. A failure after the ref moved needs a concurrent `git add` and is rare. It is returned as an error with a
+  recovery hint (`git reset -q`).
 
-Both end with `update-index -q --refresh`, which restores the stat data so that `git status` does not rehash the
-files. A failure after the ref moved needs a concurrent `git add` and is rare. It is returned as an error with a
-recovery hint (`git reset -q`).
+Every other rewrite keeps HEAD's tree (reword, squash, the fold of fixups, the move of a hunk) and leaves the index
+alone (`IndexUpdate::Unchanged`). That is held by code, not by the callers: `rewrite_plan::prepare_plan`, which gives
+the `PreparedRewrite` that moves a branch without its files, refuses a plan whose HEAD would get another tree as
+`RewriteRefused` (`a_plan_that_would_change_the_tree_of_head_is_refused_and_leaves_the_index`), and the drop's new
+history (`prepare_drop_commits`, `RewrittenHistory`) has no move of its own.
 
 ### Key Decisions
 

@@ -1,15 +1,14 @@
 //! Checks and index handling shared by every rewrite of the checked out branch (reword, move, amend, drop).
-//! See docs/design/git-operations.md: the working tree is never written, and the user's index changes only when the
-//! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
+//! See docs/design/git-operations.md: the working tree is never written, and the user's index changes only for an
+//! amend, which stages the files it took, keeping whatever is staged on the other paths.
 
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{DETACHED, checked_out_ref, checked_out_target, known_dirs};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::HashMap;
 use std::path::Path;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 /// The checked out branch about to be rewritten, read once: the branch is moved only if it still points at `head`
 #[derive(Debug, Clone)]
@@ -146,14 +145,6 @@ pub struct IndexCopy {
 }
 
 impl IndexCopy {
-  pub fn new(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
-    let index_path = match known_dirs(git_executor, repo_path) {
-      Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
-      None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
-    };
-    Self::of(Path::new(&index_path))
-  }
-
   /// A copy of the index file at `index_path`, which a caller that knows the git dir of the worktree names
   pub(crate) fn of(index_path: &Path) -> Result<Self> {
     let dir = tempfile::Builder::new().prefix("branchdeck-index-").tempdir()?;
@@ -171,63 +162,29 @@ impl IndexCopy {
   }
 }
 
-/// How the user's index follows the branch after a rewrite
+/// How the user's index follows the branch after a rewrite that touches no file: a rewrite whose files change (a drop)
+/// moves the branch with its files and its index (`update_branch`), never through this
 #[derive(Debug)]
 pub enum IndexUpdate {
-  /// HEAD's tree changes from `old_tree` to `new_tree` (drop). A two-way `read-tree -m` without `-u`: index entries
-  /// that matched the old HEAD take the new HEAD's version, anything staged on other paths stays staged, and the
-  /// working tree is not read or written. Refused if a staged change sits on a path the rewrite changes.
-  TwoWay { old_tree: String, new_tree: String },
+  /// HEAD keeps its tree (squash, fold): the index stays as it is. `rewrite_plan::prepare_plan` refuses a plan that
+  /// would change the tree (`RewriteRefused`), so no rewrite of this kind leaves the index behind its HEAD
+  Unchanged,
   /// HEAD now has the working-tree versions of these files (amend): stage exactly them, like `git commit -- <paths>`
   /// does. Other staged changes stay staged.
   FromWorktree(Vec<String>),
 }
 
 impl IndexUpdate {
-  /// Check on a copy of the index that the update can't lose a staged change; run before any ref moves
-  #[instrument(skip(self, git_executor))]
-  pub fn preflight(&self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
-    let Self::TwoWay { old_tree, new_tree } = self else { return Ok(()) };
-    if old_tree == new_tree {
-      return Ok(());
-    }
-    let copy = IndexCopy::new(git_executor, repo_path)?;
-    let env = [("GIT_INDEX_FILE", copy.path())];
-    let output = git_executor.cmd(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).env(&env).status()?;
-    if output.code == 0 {
-      return Ok(());
-    }
-    // the exit code decides; git's message is for people, so the paths come from diffs
-    debug!(stderr = %output.stderr, "index update preflight failed");
-    let paths = staged_overlap(git_executor, repo_path, &env, old_tree, new_tree)?;
-    if paths.is_empty() {
-      return Err(anyhow!("The index can't follow the rewritten files, resolve, unstage or commit the staged changes first"));
-    }
-    Err(anyhow!("Staged changes overlap the rewritten files, unstage or commit them first: {}", paths.join(", ")))
-  }
-
   /// Update the user's index after the branch moved, waiting for the index lock of another process
   /// (`IndexLock::retry`); an error is returned, never ignored
   #[instrument(skip(self, git_executor))]
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
+    let Self::FromWorktree(files) = self else { return Ok(()) };
     let lock = IndexLock::of(git_executor, repo_path);
-    let failed = |e: anyhow::Error| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}");
-    match self {
-      Self::TwoWay { old_tree, new_tree } if old_tree == new_tree => Ok(()),
-      Self::TwoWay { old_tree, new_tree } => {
-        lock
-          .retry(INDEX_LOCK_WAIT, || {
-            git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop)
-          })
-          .map_err(failed)?;
-        // read-tree drops the stat data of the replaced entries; refresh it so `git status` doesn't rehash those
-        // files. Exits with 1 when files are modified, which is not an error here.
-        git_executor.execute_command_with_status(&["update-index", "-q", "--refresh"], repo_path)?;
-        Ok(())
-      }
-      // `update-index --add` hashes the staged files and records their stat data, and no other entry changes: no refresh
-      Self::FromWorktree(files) => lock.retry(INDEX_LOCK_WAIT, || stage_worktree_files(git_executor, repo_path, &[], files)).map_err(failed),
-    }
+    // `update-index --add` hashes the staged files and records their stat data, and no other entry changes: no refresh
+    lock
+      .retry(INDEX_LOCK_WAIT, || stage_worktree_files(git_executor, repo_path, &[], files))
+      .map_err(|e| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}"))
   }
 }
 
@@ -245,38 +202,4 @@ pub(crate) fn stage_worktree_files(git_executor: &GitCommandExecutor, repo_path:
     .stdin(input.as_bytes())
     .text()?;
   Ok(())
-}
-
-/// The paths a two-way `read-tree -m <old_tree> <new_tree>` of the index of `env` refuses: staged as neither tree has
-/// them, where the trees differ. One `diff-index --cached` against the old tree and one `diff-tree` of the two trees,
-/// each entry compared by mode and blob id
-fn staged_overlap(git_executor: &GitCommandExecutor, repo_path: &str, env: &[(&str, &str)], old_tree: &str, new_tree: &str) -> Result<Vec<String>> {
-  let staged = git_executor
-    .cmd(&["diff-index", "--cached", "--raw", "-z", "--no-renames", old_tree], repo_path)
-    .env(env)
-    .bytes()?;
-  let rewritten = git_executor
-    .cmd(&["diff-tree", "-r", "--raw", "-z", "--no-renames", old_tree, new_tree], repo_path)
-    .bytes()?;
-  let new_entries: HashMap<&[u8], (&[u8], &[u8])> = raw_new_entries(&rewritten).collect();
-  Ok(
-    raw_new_entries(&staged)
-      .filter(|(path, staged_entry)| new_entries.get(path).is_some_and(|new_entry| new_entry != staged_entry))
-      .map(|(path, _)| String::from_utf8_lossy(path).into_owned())
-      .collect(),
-  )
-}
-
-/// `(path, (mode, id))` of the new side of each entry of `--raw -z --no-renames` output
-/// (`:<old mode> <new mode> <old id> <new id> <status>\0<path>\0`); a missing file has mode `000000` and the null id
-fn raw_new_entries(output: &[u8]) -> impl Iterator<Item = (&[u8], (&[u8], &[u8]))> {
-  let mut fields = output.split(|&b| b == b'\0');
-  std::iter::from_fn(move || {
-    let meta = fields.next()?.strip_prefix(b":")?;
-    let path = fields.next()?;
-    let mut parts = meta.split(|&b| b == b' ').skip(1);
-    let new_mode = parts.next()?;
-    let new_id = parts.nth(1)?;
-    Some((path, (new_mode, new_id)))
-  })
 }

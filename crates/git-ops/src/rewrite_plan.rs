@@ -1,7 +1,8 @@
 //! Rewrites of the checked out branch that drop commits or replace them with new ones (squash), without touching the
 //! working tree (docs/design/git-operations.md). The kept commits between the changed ones are replayed with
-//! `git replay`, which writes only objects; the branch moves in one ref transaction, and the index follows only where
-//! HEAD's tree changed. A replayed commit whose trees stay keeps its mapping note (`notes::PREFIX`), so a sync keeps
+//! `git replay`, which writes only objects. A squash keeps HEAD's tree (`prepare_plan` refuses one that would change
+//! it), so its branch moves in one ref transaction and the index stays; a drop changes it, so its history
+//! (`RewrittenHistory`) has no move of its own: the branch moves with its files (`unapply`). A replayed commit whose trees stay keeps its mapping note (`notes::PREFIX`), so a sync keeps
 //! its virtual copy; a conflict or a loss of changes refuses the rewrite as `RewriteRefused`.
 
 use crate::commit_chain::CommitChain;
@@ -66,12 +67,12 @@ pub fn refused_in(error: &anyhow::Error) -> Option<&RewriteRefused> {
   error.chain().find_map(|cause| cause.downcast_ref::<RewriteRefused>())
 }
 
-/// A rewrite of the checked out branch whose new commits exist, but whose branch has not moved yet
+/// The new history of a rewrite of the checked out branch: its commits exist (on temporary refs), the branch has not
+/// moved. A drop moves it with its files (`unapply`); a rewrite that keeps HEAD's tree through `PreparedRewrite`
 #[derive(Debug)]
-pub struct PreparedRewrite {
+pub struct RewrittenHistory {
   pub(crate) target: RewriteTarget,
   pub(crate) new_head: String,
-  pub(crate) index_update: IndexUpdate,
   /// The commits written on temporary refs, which keep the new objects reachable until the branch moves
   pub(crate) written: Vec<WrittenCommits>,
   /// `(replaced commit, its replacement)` of every `Replace` step, oldest first
@@ -85,7 +86,7 @@ pub struct PreparedRewrite {
   pub(crate) committer: String,
 }
 
-impl PreparedRewrite {
+impl RewrittenHistory {
   /// The tip the branch moves to
   #[must_use]
   pub fn new_head(&self) -> &str {
@@ -122,41 +123,6 @@ impl PreparedRewrite {
     self.carried_notes.iter().map(|(commit, _)| commit.as_str())
   }
 
-  /// What the rewrite runs once it is computed, before the repository lock of a core and before `apply`: the preflight
-  /// of the index (a staged change the move would lose refuses it, its temporary refs deleted, nothing changed) and the
-  /// carried mapping notes, written before the branch moves, so a sync that the move wakes finds them. A note of a
-  /// commit the branch never reaches harms nothing, a note that is not written only costs a sync the copy, and the notes
-  /// ref moves by its own compare-and-swap (`write_cache_notes`), so neither needs the lock. A trial that only checks
-  /// the rewrite runs neither
-  #[instrument(skip(self, git_executor), fields(new_head = %self.new_head))]
-  pub fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self, CopyCommitError> {
-    if let Err(e) = self.index_update.preflight(git_executor, repo_path) {
-      self.discard(git_executor, repo_path);
-      return Err(CopyCommitError::BranchError(BranchError::Generic(format!("{e:#}"))));
-    }
-    self.write_carried_notes(git_executor, repo_path);
-    Ok(self)
-  }
-
-  /// Move the branch of a rewrite that is `ready` in one transaction with `transaction` (other ref changes of the same
-  /// operation), then let the index follow. Nothing changes if the branch moved meanwhile
-  #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.new_head))]
-  pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut transaction: RefTransaction, operation: &str) -> Result<(), CopyCommitError> {
-    transaction.update(&self.target.full_ref(), &self.new_head, Some(&self.target.head));
-    for written in &self.written {
-      written.delete_temp_refs(&mut transaction);
-    }
-    if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
-      self.discard(git_executor, repo_path);
-      return Err(CopyCommitError::Other(anyhow!(
-        "Branch {} changed while rewriting, sync and try again: {e:#}",
-        self.target.branch
-      )));
-    }
-
-    self.index_update.apply(git_executor, repo_path).map_err(CopyCommitError::Other)
-  }
-
   /// The carried notes in one `fast-import` on the mapping notes ref, which exists: the notes were read from it. Best
   /// effort (`write_cache_notes`): a sync writes a missing note when it copies the commit again
   pub(crate) fn write_carried_notes(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
@@ -182,6 +148,88 @@ impl PreparedRewrite {
   /// Abandon the rewrite: delete the temporary refs, leaving the unreferenced objects to `git gc`
   pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
     delete_temp_refs(git_executor, repo_path, &self.written);
+  }
+}
+
+/// A rewrite of the checked out branch that touches no file, whose new commits exist, but whose branch has not moved
+/// yet: HEAD keeps its tree (`prepare_plan`), or the index takes the files of an amend (`IndexUpdate`)
+#[derive(Debug)]
+pub struct PreparedRewrite {
+  pub(crate) history: RewrittenHistory,
+  pub(crate) index_update: IndexUpdate,
+}
+
+impl PreparedRewrite {
+  /// The tip the branch moves to
+  #[must_use]
+  pub fn new_head(&self) -> &str {
+    self.history.new_head()
+  }
+
+  /// The tip the branch moves from
+  #[must_use]
+  pub fn old_head(&self) -> &str {
+    self.history.old_head()
+  }
+
+  /// The checked out branch it moves
+  #[must_use]
+  pub fn branch(&self) -> &str {
+    self.history.branch()
+  }
+
+  /// The id of the commit that replaces `commit_id` (a `Replace` step)
+  #[must_use]
+  pub fn replacement_of(&self, commit_id: &str) -> Option<&str> {
+    self.history.replacement_of(commit_id)
+  }
+
+  /// Whether the folded commits of the `Replace` step of `commit_id` cancel it (`RewrittenHistory::is_dropped`)
+  #[must_use]
+  pub fn is_dropped(&self, commit_id: &str) -> bool {
+    self.history.is_dropped(commit_id)
+  }
+
+  /// The replayed commits that keep the mapping notes of their originals, newest first
+  pub fn carried_notes(&self) -> impl Iterator<Item = &str> {
+    self.history.carried_notes()
+  }
+
+  /// What the rewrite runs once it is computed, before the repository lock of a core and before `apply`: the carried
+  /// mapping notes, written before the branch moves, so a sync that the move wakes finds them. A note of a commit the
+  /// branch never reaches harms nothing, a note that is not written only costs a sync the copy, and the notes ref moves
+  /// by its own compare-and-swap (`write_cache_notes`), so it needs no lock. A trial that only checks the rewrite does
+  /// not run it
+  #[instrument(skip(self, git_executor), fields(new_head = %self.history.new_head))]
+  #[must_use]
+  pub fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Self {
+    self.history.write_carried_notes(git_executor, repo_path);
+    self
+  }
+
+  /// Move the branch of a rewrite that is `ready` in one transaction with `transaction` (other ref changes of the same
+  /// operation), then let the index follow. Nothing changes if the branch moved meanwhile
+  #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.history.new_head))]
+  pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut transaction: RefTransaction, operation: &str) -> Result<(), CopyCommitError> {
+    let history = &self.history;
+    transaction.update(&history.target.full_ref(), &history.new_head, Some(&history.target.head));
+    for written in &history.written {
+      written.delete_temp_refs(&mut transaction);
+    }
+    if let Err(e) = transaction.commit(git_executor, repo_path, operation) {
+      self.discard(git_executor, repo_path);
+      return Err(CopyCommitError::Other(anyhow!(
+        "Branch {} changed while rewriting, sync and try again: {e:#}",
+        history.target.branch
+      )));
+    }
+
+    self.index_update.apply(git_executor, repo_path).map_err(CopyCommitError::Other)
+  }
+
+  /// Abandon the rewrite: delete the temporary refs, leaving the unreferenced objects to `git gc`
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    self.history.discard(git_executor, repo_path);
   }
 }
 
@@ -239,13 +287,13 @@ pub struct RewritePlan {
   pub steps: BTreeMap<usize, PlanStep>,
 }
 
-/// Checks of the rewritten history before the branch can move
-#[derive(Debug, Clone, Copy, Default)]
-pub struct PlanChecks {
-  /// HEAD keeps its tree, so the index and the working tree are not affected (squash)
-  pub keep_head_tree: bool,
-  /// No commit is lost on the way: `git replay` silently drops commits that become empty
-  pub check_commit_count: bool,
+/// What a plan does with the tree of HEAD
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadTree {
+  /// It stays (a squash): a plan that would change it is refused, so the index has nothing to follow
+  Kept,
+  /// It changes (a drop): the files and the index follow with the move of the branch
+  Changes,
 }
 
 #[derive(Clone, Copy)]
@@ -255,18 +303,29 @@ enum Role<'a> {
   Folded,
 }
 
-/// Prepare the rewrite of the checked out branch described by `plan`, with positions in `history`. The new commits
-/// are written and the kept ones replayed, oldest first; the branch is not moved, `PreparedRewrite::apply` does it.
-/// A refusal (conflict, empty result, failed check) leaves no temporary refs.
+/// Prepare the rewrite of the checked out branch described by `plan`, with positions in `history`, that keeps HEAD's
+/// tree, so neither the files nor the index follow it. The new commits are written and the kept ones replayed, oldest
+/// first; the branch is not moved, `PreparedRewrite::apply` does it. A plan whose HEAD would get another tree is
+/// refused as `RewriteRefused` of `RefusalKind::Conflict`; a refusal (conflict, empty result, failed check) leaves no
+/// temporary refs.
 #[instrument(skip(git_executor, history, plan))]
-pub fn prepare_plan(
+pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, plan: &RewritePlan, signing: Signing) -> Result<PreparedRewrite, CopyCommitError> {
+  Ok(PreparedRewrite {
+    history: write_plan(git_executor, repo_path, history, plan, HeadTree::Kept, signing)?,
+    index_update: IndexUpdate::Unchanged,
+  })
+}
+
+/// Write the new history of `plan` (`prepare_plan`), whose HEAD keeps its tree or, with `HeadTree::Changes`, may get
+/// another one
+fn write_plan(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   history: &History,
   plan: &RewritePlan,
-  checks: PlanChecks,
+  head_tree: HeadTree,
   signing: Signing,
-) -> Result<PreparedRewrite, CopyCommitError> {
+) -> Result<RewrittenHistory, CopyCommitError> {
   let roles = plan_roles(history, plan)?;
   let Some((&oldest_position, _)) = roles.last_key_value() else {
     return Err(CopyCommitError::Other(anyhow!("Nothing to rewrite")));
@@ -289,7 +348,7 @@ pub fn prepare_plan(
     dropped: Vec::new(),
     carried_notes: Vec::new(),
   };
-  let outcome = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
+  let outcome = writer.write(&roles, oldest_position, head_tree).and_then(|new_head| {
     let new_head = if writer.replayed {
       match sign_range(git_executor, repo_path, history.parent(oldest_position), &new_head, signing)? {
         Some(signed) => {
@@ -302,8 +361,7 @@ pub fn prepare_plan(
     } else {
       new_head
     };
-    let new_tree = writer.tree(&new_head)?;
-    Ok((new_head, new_tree))
+    Ok(new_head)
   });
   let PlanWriter {
     written,
@@ -315,7 +373,7 @@ pub fn prepare_plan(
     ..
   } = writer;
   let finished = merger.finish().map_err(CopyCommitError::Other);
-  let (new_head, new_tree) = match outcome.and_then(|outcome| finished.map(|()| outcome)) {
+  let new_head = match outcome.and_then(|outcome| finished.map(|()| outcome)) {
     Ok(outcome) => outcome,
     Err(e) => {
       delete_temp_refs(git_executor, repo_path, &written);
@@ -323,13 +381,10 @@ pub fn prepare_plan(
     }
   };
 
-  // `check_target` saw HEAD at the history's head
-  let old_tree = history.commit(0).tree.clone();
   debug!(%new_head, "prepared rewrite");
-  Ok(PreparedRewrite {
+  Ok(RewrittenHistory {
     target,
     new_head,
-    index_update: IndexUpdate::TwoWay { old_tree, new_tree },
     written,
     replacements,
     // oldest first, as the replacements
@@ -402,7 +457,7 @@ struct PlanWriter<'a> {
 
 impl PlanWriter<'_> {
   /// Write the new history; returns the new HEAD
-  fn write(&mut self, roles: &BTreeMap<usize, Role<'_>>, oldest_position: usize, checks: PlanChecks) -> Result<String, CopyCommitError> {
+  fn write(&mut self, roles: &BTreeMap<usize, Role<'_>>, oldest_position: usize, head_tree: HeadTree) -> Result<String, CopyCommitError> {
     if roles.values().any(|role| matches!(role, Role::Replace(_))) {
       self.read_replaced_commits(roles)?;
       self.committer = current_committer(self.git_executor, self.repo_path)?;
@@ -440,8 +495,9 @@ impl PlanWriter<'_> {
 
     let base = self.history.parent(oldest_position);
     // the listing of the new history gives the tree of the new HEAD too
-    let chain = if checks.check_commit_count { Some(self.list_chain(&new_head, base)?) } else { None };
-    if checks.keep_head_tree && self.tree(&new_head)? != self.history.commit(0).tree {
+    let chain = self.list_chain(&new_head, base)?;
+    // `check_target` saw HEAD at the history's head
+    if head_tree == HeadTree::Kept && self.tree(&new_head)? != self.history.commit(0).tree {
       return Err(refused(
         RefusalKind::Conflict,
         Vec::new(),
@@ -452,30 +508,28 @@ impl PlanWriter<'_> {
         ),
       ));
     }
-    if let Some(chain) = chain {
-      let removed = roles.values().filter(|role| !matches!(role, Role::Replace(_))).count() + self.dropped.len();
-      let expected = oldest_position + 1 - removed;
-      if chain.len() != expected {
-        return Err(refused(
-          RefusalKind::Empty,
-          Vec::new(),
-          Vec::new(),
-          format!(
-            "The rewrite would leave {} later commits of {} empty: their changes are already in the squashed commit",
-            expected.abs_diff(chain.len()),
-            self.target.branch
-          ),
-        ));
-      }
-      let base_tree = match base {
-        Some(base) => self.tree(base)?,
-        None => self.empty_tree(),
-      };
-      self.carried_notes = self.notes_to_carry(roles, oldest_position, &chain, &base_tree);
-      // a plan that only drops wrote no commit: the notes commit needs the committer all the same
-      if !self.carried_notes.is_empty() && self.committer.is_empty() {
-        self.committer = current_committer(self.git_executor, self.repo_path)?;
-      }
+    let removed = roles.values().filter(|role| !matches!(role, Role::Replace(_))).count() + self.dropped.len();
+    let expected = oldest_position + 1 - removed;
+    if chain.len() != expected {
+      return Err(refused(
+        RefusalKind::Empty,
+        Vec::new(),
+        Vec::new(),
+        format!(
+          "The rewrite would leave {} later commits of {} empty: their changes are already in the squashed commit",
+          expected.abs_diff(chain.len()),
+          self.target.branch
+        ),
+      ));
+    }
+    let base_tree = match base {
+      Some(base) => self.tree(base)?,
+      None => self.empty_tree(),
+    };
+    self.carried_notes = self.notes_to_carry(roles, oldest_position, &chain, &base_tree);
+    // a plan that only drops wrote no commit: the notes commit needs the committer all the same
+    if !self.carried_notes.is_empty() && self.committer.is_empty() {
+      self.committer = current_committer(self.git_executor, self.repo_path)?;
     }
     Ok(new_head)
   }
@@ -690,7 +744,7 @@ impl PlanWriter<'_> {
 /// (`git replay` leaves it out) refuses it as `RewriteRefused` of `RefusalKind::Empty`. The branch is not moved: the
 /// guarded move of `unapply` does it, the files following
 #[instrument(skip(git_executor))]
-pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String], signing: Signing) -> Result<PreparedRewrite, CopyCommitError> {
+pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String], signing: Signing) -> Result<RewrittenHistory, CopyCommitError> {
   if commit_ids_to_drop.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No commits specified to drop")));
   }
@@ -701,9 +755,5 @@ pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
   for id in commit_ids_to_drop {
     plan.steps.insert(history.position(id)?, PlanStep::Drop);
   }
-  let checks = PlanChecks {
-    keep_head_tree: false,
-    check_commit_count: true,
-  };
-  prepare_plan(git_executor, repo_path, &history, &plan, checks, signing)
+  write_plan(git_executor, repo_path, &history, &plan, HeadTree::Changes, signing)
 }
