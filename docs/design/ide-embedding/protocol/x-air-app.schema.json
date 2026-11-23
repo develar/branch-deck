@@ -4071,12 +4071,12 @@
                     "$ref": "#/$defs/Instance"
                   },
                   "name": {
-                    "enum": ["air_copy", "air_open_file", "air_show_diff", "air_show_commit", "air_navigate"],
+                    "enum": ["air_copy", "air_open_file", "air_show_diff", "air_show_commit", "air_navigate", "air_open_url"],
                     "description": "A tool of the IDE. The badge, the progress and a notification are requests of the app, x-air-app/setBadge, setProgress and notify, and no host tool."
                   },
                   "arguments": {
                     "type": "object",
-                    "description": "The arguments that air-ide checked, with no other field. Each path and each root is absolute and normalized: air-ide resolves a relative one from the project directory of the channel. A root of air_show_commit is in that directory. A call with bad arguments gets an error result from air-ide, and the IDE gets no call.",
+                    "description": "The arguments that air-ide checked, with no other field. Each path and each root is absolute and normalized: air-ide resolves a relative one from the project directory of the channel. A root of air_show_commit is in that directory. A url of air_open_url is a URL of http or https that the URL parser of WHATWG takes, after the first step of the parser, and its host is not under .invalid. A call with bad arguments gets an error result from air-ide, and the IDE gets no call.",
                     "properties": {
                       "path": {
                         "type": "string",
@@ -4098,6 +4098,10 @@
                       "root": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "url": {
+                        "type": "string",
+                        "pattern": "^[Hh][Tt][Tt][Pp][Ss]?:"
                       }
                     },
                     "additionalProperties": false
@@ -4194,6 +4198,25 @@
                           "required": ["hash"],
                           "propertyNames": {
                             "enum": ["hash", "root"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "name": {
+                          "const": "air_open_url"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "arguments": {
+                          "required": ["url"],
+                          "propertyNames": {
+                            "enum": ["url"]
                           }
                         }
                       }
