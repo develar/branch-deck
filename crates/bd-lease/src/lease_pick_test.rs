@@ -162,6 +162,10 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   );
   assert_eq!((fixture.repo.head(), slot_git(&path, &["rev-parse", "HEAD"])), (home.clone(), lease), "nothing moved");
   assert_eq!(output["update"]["upstream"], json!("master"));
+  // the steps of the whole lease pick, the update after the conflict too
+  let steps: Vec<&str> = output["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect();
+  let update_step = format!("updating the lease onto master ({})", output["previous_head"].as_str().unwrap());
+  assert_eq!(steps, ["checking the commits against master", update_step.as_str()], "{output}");
   let next = output["conflict"]["next"].as_str().unwrap();
   // both commands run in the lease, where the resolve session is: one `-C`, the lease, never the home checkout
   let lease_bd = format!("brd -C {}", lease_word(&path));

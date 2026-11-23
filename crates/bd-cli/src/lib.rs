@@ -17,6 +17,7 @@ use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{WithOperation, write_json};
+use bd_core::progress::CommandSteps;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
@@ -418,8 +419,23 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// HEAD that no green build or test recorded lands nothing (`unchecked_tree`) unless `--allow-unchecked` says why, and a
 /// lease with nothing to land follows without a record; the tree of an update that applies is new, so it is picked
 /// again only when a record names it too or carries over onto it (a clean merge of the checked tree onto the new base),
-/// else the conflict says to build first
+/// else the conflict says to build first. Each step goes to stderr as it starts,
+/// the update's too, and the answer lists them (`steps`)
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
+  let steps = CommandSteps::new("brd lease pick");
+  let mut output = lease_pick_reporting(lease, environment, options, args, &steps)?;
+  output.pick.steps = steps.take();
+  Ok(output)
+}
+
+/// `lease_pick` whose steps go to `steps`
+fn lease_pick_reporting(
+  lease: &LeaseContext,
+  environment: &Environment,
+  options: &RepoOptions<'_>,
+  args: &LeasePickArgs,
+  steps: &CommandSteps,
+) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
   let in_dir = |dir: &str| {
     RepoContext::resolve(
@@ -433,10 +449,11 @@ fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOpt
     )
   };
   let home = in_dir(&checkout)?;
-  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), None, environment, args)?;
+  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), None, environment, args, steps)?;
   if pick.state != PickOutcome::Conflict || args.dry_run {
     return Ok(LeasePickOutput { pick, update: None });
   }
+  steps.tell(&format_args!("updating the lease onto {branch} ({})", pick.previous_head));
   let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch)?;
   if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
     return Ok(LeasePickOutput { pick, update: Some(update) });
@@ -460,12 +477,12 @@ fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOpt
     pick.check = Some(tree_check_output(check));
     return Ok(LeasePickOutput { pick, update: Some(update) });
   }
-  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch, check, environment, args)?;
+  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch, check, environment, args, steps)?;
   Ok(LeasePickOutput { pick, update: Some(update) })
 }
 
 /// `brd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`; with `check`
-/// the check of the lease's tree that the gate reads instead of asking git again
+/// the check of the lease's tree that the gate reads instead of asking git again; its steps go to `steps`
 fn lease_pick_in(
   context: &RepoContext,
   lease_dir: &str,
@@ -473,6 +490,7 @@ fn lease_pick_in(
   check: Option<TreeCheck>,
   environment: &Environment,
   args: &LeasePickArgs,
+  steps: &CommandSteps,
 ) -> Result<PickOutput, CliError> {
   let pick_args = PickArgs {
     from: Some(PathBuf::from(lease_dir)),
@@ -487,7 +505,7 @@ fn lease_pick_in(
     lease_bd: format!("{} -C {}", bd_core::bd_command::CLI_NAME, bd_core::bd_command::shell_word(lease_dir)),
     check,
   };
-  pick_into(context, &pick_args, environment, Some(&home))
+  pick_into(context, &pick_args, environment, Some(&home), steps)
 }
 
 /// Runs the command inside its root span `operation{op, operation_id}` (`OperationId::span`), so every log line of it

@@ -700,9 +700,14 @@ impl<'a> RewriteOptions<'a> {
   /// The lock of the rewrite, held until the guard is dropped: none when the caller holds it, else the lock waited for
   /// as `lock_wait` says
   pub fn lock(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<RepositoryLock>> {
+    self.lock_with(git_executor, repository_path, &|| {})
+  }
+
+  /// `lock`; `on_wait` is called once, when another holds the lock and the wait starts (`brd pick` tells it as a step)
+  pub fn lock_with(&self, git_executor: &GitCommandExecutor, repository_path: &str, on_wait: &dyn Fn()) -> Result<Option<RepositoryLock>> {
     match self.held_lock {
       Some(_) => Ok(None),
-      None => self.lock_wait.lock(git_executor, repository_path).map(Some),
+      None => self.lock_wait.lock_with(git_executor, repository_path, on_wait).map(Some),
     }
   }
 

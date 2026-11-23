@@ -3,8 +3,10 @@ use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
+use bd_core::progress::progress_line;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::history::HistoryCommit;
 
@@ -555,6 +557,50 @@ fn a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last() {
     git(&repo, &["log", "--format=%s", "-4"]),
     "(lane) Add b\n(lane) Change a\n(own) Meanwhile 1\n(own) Meanwhile 0"
   );
+}
+
+/// Each step of a pick goes to stderr as it starts and into the answer with when it started: the check, the moves of
+/// both worktrees, the read of the landing
+#[test_log::test]
+fn a_pick_tells_each_step_with_when_it_started() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) Add b", "b.txt", "b\n");
+  repo.create_commit("(own) Other", "own.txt", "own\n");
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  let moving = format!(
+    "moving master and the files of {}, then the files of {}",
+    output["repository"].as_str().unwrap(),
+    output["followed"]["worktree"].as_str().unwrap()
+  );
+  assert_eq!(
+    steps(&output),
+    ["checking the commits against the checked out branch", moving.as_str(), "reading how the commits land"]
+  );
+  let starts: Vec<u64> = output["steps"].as_array().unwrap().iter().map(|step| step["at_ms"].as_u64().unwrap()).collect();
+  assert!(starts.is_sorted(), "{starts:?}");
+  let (exit_code, dry_run) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!((exit_code, steps(&dry_run)), (0, vec!["checking the commits against the checked out branch"]), "{dry_run}");
+}
+
+/// The stderr line of a step names the time since the pick began, so a slow step shows in the gap to the next line
+#[test]
+fn a_step_on_stderr_names_when_it_started() {
+  let step = "checking the commits against master";
+  assert_eq!(
+    progress_line("brd pick", Duration::from_millis(900), step),
+    "brd pick: [0 s] checking the commits against master"
+  );
+  assert_eq!(
+    progress_line("brd lease pick", Duration::from_secs(192), step),
+    "brd lease pick: [3 min 12 s] checking the commits against master"
+  );
+}
+
+fn steps(output: &Value) -> Vec<&str> {
+  output["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect()
 }
 
 /// A file the pick writes, edited while the pick replays: the local changes are read again under the lock, so the pick

@@ -1082,6 +1082,15 @@ pool, `brd lease pick` is this pick, run in the checkout the lease was cut from 
   writes at most git objects: it answers "does the branch hold my commits?" by content, never by date.
 - `picked[].group` is the branch Branch Deck groups the copy into, `grouped_by` `prefix`, `issue_group`, `issue` or
   `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.
+- Each step goes to stderr as it starts, with the time since the pick began; `steps` lists them with `at_ms`:
+
+  ```
+  brd lease pick: [0 s] checking the commits against master
+  brd lease pick: [14 s] waiting for the repository lock
+  brd lease pick: [14 s] checking the commits against master (round 2)
+  brd lease pick: [27 s] moving master and the files of /Users/me/idea-1, then the files of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/3/idea-1
+  brd lease pick: [41 s] reading how the commits land
+  ```
 - `dependencies` (also with `--dry-run`, so the prefix can be fixed in the worktree before the pick): a picked commit
   whose prefix names a branch the branch has already (`prefix_branch`), which is not built on every branch whose
   commits its hunks depend on (`depends_on`; the edges by lines of `brd commits`, without symbols), so that branch

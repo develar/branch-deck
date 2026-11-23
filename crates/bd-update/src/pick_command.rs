@@ -4,7 +4,8 @@
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing. A pick that writes is
 //! recorded in the operations registry of the repository first (`Intent::Pick`, of `--remote` the rewrite `PickRemote`,
 //! `bd_core::operation_record`). With `[commit] check` of `.branchdeck.toml` of the target, the core checks the
-//! message of each picked commit by the commit rules (`commit_rules`) and refuses a STRICT one (`message_format`)
+//! message of each picked commit by the commit rules (`commit_rules`) and refuses a STRICT one (`message_format`). Each
+//! step goes to stderr as it starts, with the time since the pick began (`bd_core::progress`)
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::bd_command::{CLI_NAME, shell_word};
@@ -12,6 +13,7 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput, NextStep};
 use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::progress::{CommandSteps, StepOutput};
 use bd_core::suggest_plan::SuggestPlan;
 use bd_core::sync_command::sync;
 use bd_core::text_input::{message_reason_text, reason_text};
@@ -34,8 +36,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use sync_utils::timestamp::format_utc_timestamp;
 use update_core::pick::{
-  BaselineParentRefused, DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick,
-  UncheckedTreeRefused, UndonePick, pick_core, undo_pick_core,
+  BaselineParentRefused, DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickStep, PickUndoToken,
+  RemotePick, UncheckedTreeRefused, UndonePick, pick_core, undo_pick_core,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -137,6 +139,11 @@ pub struct PickOutput {
   /// `brd undo` moves both back; omitted when nothing moved
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
+  /// Each step as stderr printed it, with when it started (`at_ms`, since the pick began): the checks, the wait for
+  /// the repository lock, the moves, the read of the landing; of `brd lease pick` also the update of
+  /// the lease after a conflict and the pick after it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub steps: Vec<StepOutput>,
 }
 
 impl PickOutput {
@@ -342,8 +349,17 @@ pub struct PickConflictOutput {
   pub next: String,
 }
 
+/// `brd pick`, each step on stderr as it starts
 pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -> Result<PickOutput, CliError> {
-  pick_into(context, args, environment, None)
+  let steps = CommandSteps::new("brd pick");
+  pick_reporting(context, args, environment, &steps)
+}
+
+/// `brd pick` whose steps go to `steps`; the answer lists them
+pub fn pick_reporting(context: &RepoContext, args: &PickArgs, environment: &Environment, steps: &CommandSteps) -> Result<PickOutput, CliError> {
+  let mut output = pick_into(context, args, environment, None, steps)?;
+  output.steps = steps.take();
+  Ok(output)
 }
 
 /// Where `brd lease pick` lands a lease's commits: the branch the lease was cut from, and the command that picks again
@@ -495,8 +511,9 @@ pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
   }
 }
 
-/// `brd pick`, or with `home` the pick of `brd lease pick` (`args.from` the lease, `args.follow` set)
-pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
+/// `brd pick`, or with `home` the pick of `brd lease pick` (`args.from` the lease, `args.follow` set): its steps told
+/// to `steps`; the caller takes them for the answer
+pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps) -> Result<PickOutput, CliError> {
   let intent = match (&args.from, &args.revisions, &args.remote) {
     _ if args.dry_run => None,
     (Some(dir), _, _) => Some(Intent::Pick {
@@ -513,13 +530,13 @@ pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environme
     (None, None, None) => None,
   };
   match intent {
-    Some(intent) => recorded(context, &intent, || picked(context, args, environment, home)),
-    None => picked(context, args, environment, home),
+    Some(intent) => recorded(context, &intent, || picked(context, args, environment, home, steps)),
+    None => picked(context, args, environment, home, steps),
   }
 }
 
 /// `pick_into`, recorded unless a dry run
-fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
+fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps) -> Result<PickOutput, CliError> {
   let from = match (&args.from, &args.revisions, &args.remote) {
     (Some(dir), _, _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
     (None, Some(revisions), _) => PickFrom::Revisions(revisions.clone()),
@@ -554,7 +571,8 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(|error| {
+  let progress = |step: &PickStep<'_>| steps.tell(step);
+  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs(), &progress).map_err(|error| {
     if error.is::<UncheckedTreeRefused>()
       && let (PickFrom::Worktree(dir), Some(check)) = (&params.from, &gate.check)
     {
@@ -835,6 +853,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Optio
     message_format_allowed: None,
     message_check_skipped: None,
     undo_token: result.undo_token().map(|token| token.to_string()),
+    steps: Vec::new(),
   })
 }
 

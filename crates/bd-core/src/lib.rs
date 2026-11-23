@@ -17,6 +17,7 @@
 //! - `operation_record`: the record of a run in the operations registry of its repository and its entry in the journal:
 //!   of an operation of the remote once its plan holds, of a rewrite, an update and a pick before any lock
 //! - `suggest_plan`: the plan of `brd suggest`, read by `brd check --plan` and `brd pick`
+//! - `progress`: the steps of a long command on stderr and in its answer, and its wait for the repository lock
 
 pub mod bd_command;
 pub mod branch_view;
@@ -26,6 +27,7 @@ pub mod error;
 pub mod next_step_summary;
 pub mod operation_record;
 pub mod output;
+pub mod progress;
 pub mod review_summary;
 pub mod services;
 pub mod stack_summary;

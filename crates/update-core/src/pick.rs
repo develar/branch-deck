@@ -5,6 +5,7 @@
 //! is not built on the branches they need. With the commit rules of the repository (`MessageGate`), the check reads
 //! the message and the paths of each picked commit once and refuses a STRICT violation before the lock. A source whose
 //! tree no green check recorded (`PickParams::land_nothing`) may only follow: each check refuses a pick that lands a commit.
+//! Each step is told to the caller as it starts (`PickStep`): `brd pick` prints it on stderr with its time.
 
 use anyhow::{Result, anyhow};
 use commit_rules::{MessageRules, Severity};
@@ -31,6 +32,7 @@ use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::stack_top;
 use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
@@ -334,6 +336,47 @@ impl PickResult {
   }
 }
 
+/// A step of a pick, told to the caller as it starts (`pick_core`'s `progress`): `brd pick` prints it on stderr with the
+/// time since it began and lists it in its answer (`steps`), so a pick of minutes shows where the time went. None is
+/// told between the move of the target's branch and the end of the moves of the files: a write to a closed pipe there
+/// must not be able to stop the pick halfway
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PickStep<'a> {
+  /// The check: the range, the replay, the dry runs of both worktrees. `onto`: the branch the pick expects
+  /// (`PickParams::expect_branch`); `round` from 1; `locked` under the repository lock
+  Check { onto: Option<&'a str>, round: usize, locked: bool },
+  /// Another process holds the repository lock: the wait for it starts
+  WaitForLock,
+  /// Under the lock, the witness held: the branch moves and the files of the target follow, then those of the source
+  Move { branch: &'a str, target: &'a str, follow: Option<&'a str> },
+  /// After the lock: how the picked commits group on the target (`landing`)
+  Landing,
+}
+
+impl fmt::Display for PickStep<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Check { onto, round, locked } => {
+        write!(f, "checking the commits against {}", onto.unwrap_or("the checked out branch"))?;
+        match (round, locked) {
+          (1, false) => Ok(()),
+          (_, false) => write!(f, " (round {round})"),
+          (_, true) => write!(f, " (round {round}, under the repository lock)"),
+        }
+      }
+      Self::WaitForLock => f.write_str("waiting for the repository lock"),
+      Self::Move { branch, target, follow } => {
+        write!(f, "moving {branch} and the files of {target}")?;
+        match follow {
+          Some(follow) => write!(f, ", then the files of {follow}"),
+          None => Ok(()),
+        }
+      }
+      Self::Landing => f.write_str("reading how the commits land"),
+    }
+  }
+}
+
 /// The remote the virtual branches are pushed to and fetched from
 const REMOTE: &str = "origin";
 
@@ -344,9 +387,16 @@ const REMOTE: &str = "origin";
 /// changes on the paths the moves write), then the move of the target and of the source (`land`). After the lock, how
 /// the branch groups with the picked commits (`landing`), from the head and the commits the check froze: a report that
 /// decides nothing, so its `log` and the diffs of its dependency check never make another writer wait. `cache` and
-/// `file_diffs` give those diffs
-#[instrument(skip(git_executor, options, cache, file_diffs))]
-pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>, cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<PickResult> {
+/// `file_diffs` give those diffs; `progress` hears each step as it starts (`PickStep`)
+#[instrument(skip(git_executor, options, cache, file_diffs, progress))]
+pub fn pick_core(
+  git_executor: &GitCommandExecutor,
+  params: &PickParams,
+  options: &RewriteOptions<'_>,
+  cache: &ObjectCache,
+  file_diffs: &FileDiffs,
+  progress: &dyn Fn(&PickStep<'_>),
+) -> Result<PickResult> {
   let target = params.repository_path.as_str();
   // the steps on the target take its directories from here; those on the source worktree read its own
   let git_executor = &with_dirs_of(git_executor, target)?;
@@ -388,6 +438,11 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     last: None,
   };
   let (plan, applied) = if params.dry_run {
+    progress(&PickStep::Check {
+      onto: request.expect_branch,
+      round: 1,
+      locked: false,
+    });
     let plan = check_pick_with_signing(git_executor, target, &request, signing)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
     messages.verify(git_executor, target, &plan, false)?;
@@ -397,11 +452,17 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
       worktrees.push(source);
     }
-    land(git_executor, &worktrees, &request, options, &mut messages, signing, params.land_nothing)?
+    let checks = Checks {
+      messages: &mut messages,
+      signing,
+      land_nothing: params.land_nothing,
+    };
+    land(git_executor, &worktrees, &request, options, checks, progress)?
   };
   let landing = if plan.check.picked.is_empty() {
     Landing::default()
   } else {
+    progress(&PickStep::Landing);
     let diffs = Diffs { cache, file_diffs };
     match landing(git_executor, target, baseline.as_deref(), &plan.check.head, &plan.check.picked, &diffs) {
       Ok(landing) => landing,
@@ -479,7 +540,7 @@ pub fn pick_remote_commits_core(
     messages: None,
     land_nothing: false,
   };
-  let result = pick_core(git_executor, &pick, options, cache, file_diffs)?;
+  let result = pick_core(git_executor, &pick, options, cache, file_diffs, &|_| {})?;
   match &result.check.state {
     PickState::Clean => {}
     PickState::Conflict(conflict) => {
@@ -566,29 +627,61 @@ fn remote_commits(git_executor: &GitCommandExecutor, target: &str, baseline: Opt
   })
 }
 
+/// What each check of a pick verifies besides the replay: the commit rules, the signing of the copies, and whether the
+/// pick may only follow (`PickParams::land_nothing`)
+struct Checks<'a, 'b> {
+  messages: &'a mut MessageCheck<'b>,
+  signing: Signing,
+  land_nothing: bool,
+}
+
 /// The check and the moves of a pick into `worktrees[0]`, the source following when it is `worktrees[1]`. The check runs
 /// without the lock, then the wait for the index locks of other processes (`PickPlan::wait_for_index_locks`, so nobody
 /// waits for the repository lock while this pick waits for git's), and under it the witness: a target or a source that
 /// moved in between (another session's pick, a regroup, a fetch), or an index lock that appeared since the wait
 /// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
-/// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock
+/// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock. Each step is told to
+/// `progress` as it starts, the move before the witness's compare-and-swap, none during the moves
 fn land(
   git_executor: &GitCommandExecutor,
   worktrees: &[&str],
   request: &PickRequest<'_>,
   options: &RewriteOptions<'_>,
-  messages: &mut MessageCheck<'_>,
-  signing: Signing,
-  land_nothing: bool,
+  checks: Checks<'_, '_>,
+  progress: &dyn Fn(&PickStep<'_>),
 ) -> Result<(PickPlan, Option<AppliedPick>)> {
   let target = worktrees[0];
-  let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
-  for _ in 0..CHECKS_WITHOUT_THE_LOCK {
+  let Checks { messages, signing, land_nothing } = checks;
+  let apply = |plan: &PickPlan| {
+    if plan.check.state != PickState::Clean {
+      return Ok(None);
+    }
+    if plan.moves_anything() {
+      progress(&PickStep::Move {
+        branch: &plan.check.branch,
+        target,
+        follow: plan.check.follow.as_ref().map(|follow| follow.worktree.as_str()),
+      });
+    }
+    apply_pick(git_executor, target, plan).map(Some)
+  };
+  let check = |round: usize, locked: bool| {
+    progress(&PickStep::Check {
+      onto: request.expect_branch,
+      round,
+      locked,
+    });
+    check_pick_with_signing(git_executor, target, request, signing)
+  };
+  let on_wait = || progress(&PickStep::WaitForLock);
+  let mut round = 1;
+  while round <= CHECKS_WITHOUT_THE_LOCK {
     if options.held_lock.is_some() || any_pending(git_executor, worktrees)? {
       break;
     }
-    let mut plan = check_pick_with_signing(git_executor, target, request, signing)?;
+    let mut plan = check(round, false)?;
+    round += 1;
     options.ensure_head(git_executor, target, &plan.check.head)?;
     refuse_unchecked(&plan, land_nothing)?;
     messages.verify(git_executor, target, &plan, true)?;
@@ -599,7 +692,7 @@ fn land(
     // the objects of Git LFS of the moves before the lock: the smudge filter under it reads the store only
     prefetch_lfs_objects(git_executor, &plan.worktree_moves(target), &|| options.lock_wait.canceled())?;
     plan.wait_for_index_locks(git_executor, target)?;
-    let lock = options.lock(git_executor, target)?;
+    let lock = options.lock_with(git_executor, target, &on_wait)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
       info!("the target or the source moved during the check of the pick: it checks again");
       drop(lock);
@@ -613,9 +706,9 @@ fn land(
     let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
     return Ok((plan, applied));
   }
-  let lock = options.lock(git_executor, target)?;
+  let lock = options.lock_with(git_executor, target, &on_wait)?;
   finish_pending(git_executor, worktrees)?;
-  let mut plan = check_pick_with_signing(git_executor, target, request, signing)?;
+  let mut plan = check(round, true)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
   // a check under the lock: new picked commits are read here, the same ones not again
   refuse_unchecked(&plan, land_nothing)?;
@@ -841,8 +934,8 @@ impl PickUndoToken {
   }
 }
 
-impl std::fmt::Display for PickUndoToken {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for PickUndoToken {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(PICK_TOKEN)?;
     if let Some((previous, new)) = &self.head {
       write!(f, "{previous}..{new}")?;

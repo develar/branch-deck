@@ -11,6 +11,7 @@ use crate::remote_fixture_test::{
 };
 use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
+use bd_core::progress::CommandSteps;
 use bd_core::sync_command::sync;
 use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
@@ -1783,6 +1784,7 @@ fn a_lease_pick_that_conflicts() {
     None,
     &environment,
     &bd_lease::lease_command::LeasePickArgs::default(),
+    &CommandSteps::new("brd lease pick"),
   )
   .unwrap();
   assert_eq!(output.state, bd_update::pick_command::PickOutcome::Conflict);
@@ -1909,7 +1911,8 @@ fn a_lease_pick() {
   let context = context(&repo);
   // the checkout as the pool keeps it, the repository as git names its top level (forward slashes on Windows)
   assert_eq!(canonical(std::path::Path::new(&checkout)), canonical(std::path::Path::new(&context.repository)));
-  let output = crate::lease_pick_in(&context, &got.path, branch, None, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
+  let steps = CommandSteps::new("brd lease pick");
+  let output = crate::lease_pick_in(&context, &got.path, branch, None, &environment, &bd_lease::lease_command::LeasePickArgs::default(), &steps).unwrap();
   assert_followed_pick(&context, &output, true);
   let tip = repo.head();
   assert_signed_commits(&repo, &base, &tip);

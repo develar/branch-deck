@@ -2178,6 +2178,13 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    branch. Offered, never applied: the pick stays one guarded move, and `brd group` and `brd restack` have their own lock
    and undo. A failure of this report after a move is logged, and the pick stands with its undo token.
 
+**Steps.** The core tells each step to its caller as it starts (`PickStep`): each check with its round and whether it
+runs under the lock, the wait for the lock, the moves (before the compare-and-swap of step 7, so nothing is told
+between the move of the branch and the end of the moves of the files), and the read of step 8. `brd pick` and
+`brd lease pick` print each one on stderr with the time since they began (`bd_core::progress::CommandSteps`, as
+`brd lease get` does), a failed write ignored (an agent pipes stderr into `head -c`), and list them in `steps` with
+`at_ms`; `brd lease pick` adds the update of the lease after a conflict. The app's Pick Remote Commits hears none.
+
 **Undo** (`brd undo pick:<H>..<N>[+follow:<worktree id>:<S>..<N>]`, `undo_pick_core`): both moves are checked first,
 before the lock, as the undo of an update is (`check_pick_undo`, the last reflog entry of the branch, of `HEAD` when
 detached, must be `branch-deck: pick` to N with the value before it at H or S; the exact dry run with the trees
