@@ -85,9 +85,12 @@ over the in-process transport: the behaviour of P1, one backend per project.
   `protocolVersion`, `serverSeq`, `snapshots: []`, `serverInfo: {name: "branch-deck", build}` and its own
   `_meta["x-branch-deck"].version`. A request before it is `-32600 notInitialized`, a second one
   `alreadyInitialized`. `ping` answers `{}` at any time.
-- **`build`** is the build id of the binary: its version and the commit it was built from (`-dirty` for a tree with
-  changes), compared byte for byte: `<version>+<commit>`, the commit `BRANCH_DECK_COMMIT` of the build and `dev`
-  without one (`backend_host::identity::build_id`).
+- **`build`** is the build id of the binary, compared byte for byte: `<version>+<commit>`
+  (`backend_host::identity::build_id`). The commit is the builder's word, read by `crates/backend-host/build.rs`, never
+  a git process of the app: `BRANCH_DECK_COMMIT` (`scripts/install-app.sh` sets it to `git rev-parse HEAD`, with
+  `-dirty` for a tree with changes), else `GITHUB_SHA` of the job of GitHub Actions (CI, the release of
+  `build-tauri.yml`), else `dev`. So two releases of one version from different commits are two builds; a dev build is
+  `dev`, and its executable path gives it a backend of its own beside a release ([The socket](#the-socket)).
 - **Capabilities** say what the Desktop of the connection's windows has ([The Desktop](#the-desktop-of-a-connection)):
   `folderDialog`, `updater`, `restart`, `agentCli`, `nativeMenu` (each a boolean, absent is false) and `hostRequests`,
   the host requests the client answers (`openWindow`, `showWindow`, `notify`). The Tauri shell declares every one; the
@@ -129,13 +132,16 @@ sequenceDiagram
 - **The snapshot**: `{snapshot: {resource, state, fromSeq}}`. With `have`, the version the window holds (the seed of the
   warm start, `window.__BD_MODEL__` or `warmFrame`), the session builds the catch-up for that subscriber as now
   (`ViewSubscription.catchUp`): the snapshot has no state but `_meta["x-branch-deck"].held: have`, and the first action
-  of the window is the catch-up `viewPatched`, when the session moved since; a `have` the session cannot patch from
-  (another epoch) gets the whole state. A subscription the session refuses is `-32603 apiError` with the `ApiError` in
-  `data.apiError` (`no_branch_prefix` is the welcome card).
+  of the window is the catch-up `viewPatched`, when the session moved since. The session patches only from its seed
+  (`View::join` of `repository-model`): a `have` that is the version it holds is `held` with no catch-up, the seed
+  `held` with the catch-up from it, and any other (an older version of the epoch, another epoch) gets the whole state.
+  A subscription the session refuses is `-32603 apiError` with the `ApiError` in `data.apiError` (`no_branch_prefix`
+  is the welcome card).
 - **Action**: `x-branch-deck/viewPatched {patch: ViewPatch}`, one per patch of the session, in its order, to each
   subscribed window: one frame per window, which names it (`params.window`), all with the `serverSeq` of the action
   ([Key decision 3](#key-decisions)). A client applies it with `apply_patch` (the page with `src/model/patch.ts`), only
-  at `base`.
+  at `base`. A sync or an operation is several patches (the sync running, its steps, its table; the operation in the
+  view), and the session sends patches of its own (a fact read again): a client never counts on one patch per command.
 - **`get_snapshot`** stays a root command of the session, answered by the host for the window that asks (a window that
   lost a patch).
 - **Epochs**: a new prefix, or a session opened anew (a slot of a lease pool leased again), moves the channel to the
@@ -170,7 +176,9 @@ sequenceDiagram
   `sync` and `set_window_focus`, the answer of `refresh_facts`, `Outcome.versionAfter` of `execute` and of its `done`
   event) goes into the queue of the connection after every action of that channel up to V to each window of the
   connection that subscribes to it: behind a resync when one is due, at once when no window of the connection
-  subscribes to the repository.
+  subscribes to the repository. Each is fenced to its own version: the `done` of a rewrite names the version of the
+  rewrite and its answer the version after the sync that follows it. The other events of a stream (the steps of an
+  operation) have no order against the actions of the channel.
 - **A cancel**: `x-branch-deck/cancel {requestId}`, a root notification, ends the call of that id of the same
   connection where the command can stop (its `Sink` gone, as a page that went away); the explicit cancels of the
   registry (`cancel_operation`, `cancel_symbol_search`, `cancel_conflict_fix`, `cancel_sign_in`, `stop_air_watch`,
@@ -353,7 +361,8 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
   `docs/design/backend-protocol/corpus/*.ndjson`: `connection`, `repository-channel`, `command-stream`,
   `host-requests`, `errors`. A line is `{"comment"}`, `{"client": <frame>}`, `{"clientRaw": <text>}`, `{"host":
   <frame>}` or `{"step": <name>}`, an action of the runner on its fixture (`setPrefix`, `deleteRepository`), with
-  `"conn": <n>` for another connection, as Air's corpus. A runner sends each client line and expects the host lines
+  `"conn": <n>` for another connection, as Air's corpus. Its arguments are as the page sends them (`openedAt` a number,
+  never `null`). A runner sends each client line and expects the host lines
   that follow before the next client line, in order within a connection; a host request of a host line is answered by
   the client line after it. A token is a whole string: `${any}` matches any value; `${repo}`, `${build}`, `${seed}` and
   the arguments a fixture prepares (`${renameIntent}`, `${fingerprint}`) are values of the runner; any other `${name}`

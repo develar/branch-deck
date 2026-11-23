@@ -1,6 +1,6 @@
 //! The build of a binary and the rule of another build (docs/design/backend-protocol.md, "The socket", "Another
-//! build"): the build id is the version and the commit the binary was built from (`BRANCH_DECK_COMMIT` of the build,
-//! `-dirty` for a tree with changes, `dev` without one), compared byte for byte; the stale side yields, stale being a
+//! build"): the build id is the version and the commit the binary was built from (`build.rs`: `BRANCH_DECK_COMMIT` of
+//! the build, `-dirty` for a tree with changes, else `GITHUB_SHA` of CI, else `dev`), compared byte for byte; the stale side yields, stale being a
 //! process whose executable on disk is no longer the file it started from (the app updated in place), told by its
 //! identity: the device, the inode, the size and the modification time (on Windows the size, the modification and the
 //! creation time).
@@ -8,9 +8,10 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// The build id of this binary
+/// The build id of this binary: its version and the commit its build named (`build.rs`: `BRANCH_DECK_COMMIT`, else
+/// `GITHUB_SHA`, else `dev`)
 pub fn build_id() -> String {
-  format!("{}+{}", env!("CARGO_PKG_VERSION"), option_env!("BRANCH_DECK_COMMIT").unwrap_or("dev"))
+  format!("{}+{}", env!("CARGO_PKG_VERSION"), env!("BACKEND_BUILD_COMMIT"))
 }
 
 /// What tells one file of an executable from another at the same path

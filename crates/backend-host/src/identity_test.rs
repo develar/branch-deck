@@ -27,3 +27,12 @@ fn a_removed_executable_is_stale_and_an_unknown_one_never() {
   assert!(executable.is_stale());
   assert!(!Executable::at(dir.path().join("missing")).is_stale());
 }
+
+/// The build id is the version and the commit of the build, `dev` without one
+#[test]
+fn the_build_id_names_the_version_and_the_commit() {
+  let build = crate::identity::build_id();
+  let (version, commit) = build.split_once('+').unwrap();
+  assert_eq!(version, env!("CARGO_PKG_VERSION"));
+  assert_ne!(commit, "");
+}

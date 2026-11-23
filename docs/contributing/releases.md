@@ -5,6 +5,14 @@
 after every build and verification succeeds. A failed build leaves the release as a draft. Retry it with **Build
 Tauri Assets → Run workflow**, using its existing tag.
 
+## The build id
+
+The backend names its build `<version>+<commit>` (`crates/backend-host/build.rs`): a bridge of the IDE of another
+build is told `otherBuild` ([Backend Protocol](../design/backend-protocol.md#the-socket)). The commit is the builder's
+word, never a git process of the app: `BRANCH_DECK_COMMIT` when set (`scripts/install-app.sh` sets the commit and
+`-dirty` for a tree with changes), else `GITHUB_SHA`, which GitHub Actions sets in every job (`build-tauri.yml`,
+`test.yml`), else `dev`. A build of another kind sets `BRANCH_DECK_COMMIT` before `pnpm tauri build`.
+
 ## macOS signing and notarization
 
 The macOS release requires an active Apple Developer Program membership, a **Developer ID Application** certificate

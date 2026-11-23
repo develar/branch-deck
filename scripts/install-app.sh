@@ -9,6 +9,11 @@ cd "$PROJECT_ROOT"
 # rustup's cargo must win over Homebrew's: the workspace manifest needs the pinned nightly
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# the commit of the build id of the backend (crates/backend-host/build.rs), `-dirty` for a tree with changes: two
+# builds of one version from different trees are other builds for a bridge of the IDE
+BRANCH_DECK_COMMIT="$(git rev-parse HEAD)$(git diff --quiet HEAD -- || echo -dirty)"
+export BRANCH_DECK_COMMIT
+
 # --no-sign skips code signing and updater signing (no TAURI_SIGNING_PRIVATE_KEY needed), as in test.yml; the config
 # bundles brd-host (scripts/build-bd-host.mjs)
 pnpm tauri build --bundles app --no-sign --config src-tauri/tauri.macos-bd-host.conf.json

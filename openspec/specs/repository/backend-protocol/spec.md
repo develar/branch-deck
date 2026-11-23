@@ -17,6 +17,8 @@ targets:
   - crates/backend-host/src/outbox.rs
   - crates/backend-host/src/wire.rs
   - crates/backend-host/src/identity.rs
+  - crates/backend-host/build.rs
+  - scripts/install-app.sh
   - crates/backend-host/src/in_process.rs
   - crates/backend-host/src/stream.rs
   - crates/backend-host/src/socket.rs
@@ -85,6 +87,17 @@ highest version it serves in their caret ranges, `serverSeq`, `serverInfo.build`
 - **THEN** the host answers `-32005 ahpVersion`
   [@test] crates/backend-host/src/corpus_test.rs (`the_connection_corpus_runs`)
   [@test] crates/backend-host/src/wire_test.rs (`the_host_takes_the_highest_offered_version_of_its_major`)
+
+### Requirement: Wire: The build id names the version and the commit
+
+The build id of a binary MUST be `<version>+<commit>`, the commit as its build names it (`BRANCH_DECK_COMMIT`, with
+`-dirty` for a tree with changes, else `GITHUB_SHA` of the job of CI, else `dev`) and never read by a git process of
+the app, so two releases of one version from different commits are two builds.
+
+#### Scenario: The build of a binary
+- **WHEN** a client reads `serverInfo.build` of a backend
+- **THEN** it is the version of the binary, `+`, and the commit its build named
+  [@test] crates/backend-host/src/identity_test.rs (`the_build_id_names_the_version_and_the_commit`)
 
 ### Requirement: Errors: A failure of the protocol is a code with data.reason
 
@@ -245,7 +258,8 @@ is `-32603 apiError` with its `ApiError`.
 
 A subscribe with `_meta["x-branch-deck"].have`, the version the window holds, MUST answer a snapshot without state and
 with `_meta["x-branch-deck"].held` that version, then as the first action of the window the `viewPatched` the session
-builds from `have`, when it moved since; a `have` the session cannot patch from SHALL get the whole state.
+builds from `have`, when it moved since: the session patches only from the seed of its warm start, so any other `have`
+but the version it holds SHALL get the whole state.
 
 #### Scenario: The seed of the warm start
 - **WHEN** a window subscribes with the version of the seed and the session synced once since
@@ -266,7 +280,9 @@ builds from `have`, when it moved since; a `have` the session cannot patch from 
 
 Each patch of the session MUST be one action `x-branch-deck/viewPatched {patch}` of its channel, in the order of the
 session, in one frame per subscribed window that names the window, every frame with the `serverSeq` of the action; a
-client SHALL apply it with `repository_model::patch::apply_patch` only to the view at its `base`.
+client SHALL apply it with `repository_model::patch::apply_patch` only to the view at its `base`. A sync or an operation
+is several patches, and the session sends patches of its own (a fact read again): no client SHALL count on one per
+command.
 
 #### Scenario: Two connections
 - **WHEN** a sync of a repository that a window of each of two connections subscribes to ends
@@ -383,9 +399,10 @@ call where the command can stop, and the call gets exactly one answer.
 
 ### Requirement: Commands: An answer that names a version follows that version
 
-An answer or a stream event that names a version V of a repository (`SyncAnswer.version`, the answer of
-`refresh_facts`, `Outcome.versionAfter`) MUST reach a connection after every action of that channel up to V to each of
-its subscribed windows, a due resync included; it SHALL not wait when no window of the connection subscribes.
+An answer or a stream event that names a version V of a repository (`SyncAnswer.version`, `refresh_facts`,
+`Outcome.versionAfter`, the `done` of a rewrite the rewrite's, its answer the one after its sync) MUST reach a
+connection after every action of that channel up to V to each of its subscribed windows, a due resync included; it
+SHALL not wait when no window of the connection subscribes. Other stream events have no order against the actions.
 
 #### Scenario: A rewrite
 - **WHEN** a subscribed client runs `x-branch-deck/execute` of a rewrite
