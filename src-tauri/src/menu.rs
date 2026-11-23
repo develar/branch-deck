@@ -31,7 +31,7 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
 
   #[cfg(target_os = "macos")]
   let mac_menu = {
-    let submenu = SubmenuBuilder::new(app, app_name).about(None).separator();
+    let submenu = SubmenuBuilder::new(app, &app_name).about(None).separator();
     // the macOS place of the settings of an app, ⌘,
     let settings = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
     let submenu = submenu.item(&settings).separator();
@@ -43,7 +43,10 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
       submenu.item(&check_for_updates).separator()
     };
 
-    &submenu.services().separator().hide().hide_others().show_all().separator().quit().build()?
+    // our own Quit, not the predefined one: that is `terminate:`, which ends the process with no event to keep it for an
+    // IDE (`AppLife::quit`)
+    let quit = MenuItemBuilder::with_id(QUIT, format!("Quit {app_name}")).accelerator("CmdOrCtrl+Q").build(app)?;
+    &submenu.services().separator().hide().hide_others().show_all().separator().item(&quit).build()?
   };
 
   let sync_branches = MenuItemBuilder::with_id(SYNC_BRANCHES, "Sync Branches").accelerator("CmdOrCtrl+R").build(app)?;
@@ -172,6 +175,9 @@ const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
 const CHECK_FOR_UPDATES: &str = "check_for_updates";
 const AUTO_SYNC_ON_FOCUS: &str = "auto_sync_on_focus";
+/// Quit of the app menu of macOS: the app exits, or only its windows close while an IDE is connected
+#[cfg(target_os = "macos")]
+const QUIT: &str = "quit";
 
 /// The native menus of the app (`MenuHost` of app-api): Auto-sync on Focus of the main menu, and the window manager's
 /// menu of a window, on the main thread, where GDK and Win32 menus live (the commands that call them are synchronous)
@@ -253,6 +259,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     | CHECK_FOR_UPDATES) => {
       emit_to_main(app, id, ());
     }
+    #[cfg(target_os = "macos")]
+    QUIT => app.state::<std::sync::Arc<crate::life::AppLife>>().quit(),
     // one level for all windows: the main window changes it, the settings sync carries it to the others
     id @ ("zoom_in" | "zoom_out" | "zoom_reset") => emit_to_main(app, "zoom", &id["zoom_".len()..]),
     // the item checked itself; the main window saves the setting, and its sync reaches the other windows

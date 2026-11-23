@@ -3,6 +3,7 @@ pub mod api;
 pub mod auto_update;
 pub mod desktop;
 pub mod legacy_model_cache;
+pub mod life;
 pub mod menu;
 pub mod presentation;
 pub mod services;
@@ -31,6 +32,7 @@ mod warm_start_test;
 #[cfg(test)]
 mod zoom_test;
 
+use app_api::app::life::{BridgeConnections, is_background_start};
 use app_api::app::services::{AppServices, ProcessParts, RemoteServices, start_sessions};
 use app_api::app::windows::{BuiltPage, epoch_millis, open_script, settings_script, show_when_settled};
 use app_api::transport::Desktop;
@@ -43,6 +45,7 @@ use app_api::context::AppContext;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::WindowId;
 use git_executor::git_command_executor::GitCommandExecutor;
+use life::AppLife;
 use menu::{TauriMenu, configure_app_menu, handle_menu_event};
 use std::sync::Arc;
 use tauri::Manager;
@@ -112,6 +115,8 @@ pub fn run() {
   // the tokens of the sign-ins in the login keychain on macOS (`sync_utils::secret_store`)
   sync_utils::secret_store::enable_keychain();
   let ts_builder = specta_builder();
+  // the start of the bridge of an IDE: the backend without a window (`app_api::app::life`)
+  let background = is_background_start(&std::env::args_os().skip(1).collect::<Vec<_>>());
 
   #[cfg(feature = "devtools")]
   let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());
@@ -161,7 +166,7 @@ pub fn run() {
   // the commands of the typed bindings, and those whose answer is raw bytes (`get_blob_syntax`), which they cannot say
   let typed_handler = ts_builder.invoke_handler();
   let raw_handler = api::raw_handler();
-  builder
+  let app = builder
     .invoke_handler(move |invoke| {
       if api::RAW_COMMANDS.contains(&invoke.message.command()) {
         raw_handler(invoke)
@@ -234,72 +239,114 @@ pub fn run() {
         runtime,
       }));
       app.manage(settings_service);
-      let ctx = app.state::<AppContext>();
-
-      // the settings and the title bar, before the page's own scripts
-      // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
-      // runs this script again
-      let (settings_script, _) = settings_script(&ctx.settings, app_settings::windows::MAIN_WINDOW);
-      // the rows of the selected project as its session left them, seeded before the window, whose first sync runs
-      // while the webview loads (`warm_start`)
-      let model_script = app_settings::projects::selected_project(&ctx.settings).map_or_default(|path| warm_start::model_script(&ctx, &path));
-      // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
-      let open = ctx.sub_windows.next_open(epoch_millis());
-      let init_script = format!("{settings_script} {model_script} {} {}", open_script(&open), title_bar_script());
-
-      let zoom = app_settings.zoom;
-      let min_width = min_window_width(zoom);
-      // the toolbar of the page is the title bar (`with_title_bar`)
-      let builder = with_title_bar(
-        tauri::WebviewWindowBuilder::new(app, app_settings::windows::MAIN_WINDOW, tauri::WebviewUrl::App("index.html".into()))
-          .title("BranchDeck")
-          .inner_size(min_width.max(1024.0), 900.0)
-          .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
-          .initialization_script(&init_script)
-          // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
-          .disable_drag_drop_handler(),
-      );
-      // known before the page can load and say it drew its first rows
-      let deadline = ctx.sub_windows.built(&WindowId::main(), open, BuiltPage::Main);
-      let window = builder.build()?;
-      apply_zoom(&window, zoom);
-      // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
-      // canvas, nor a title row over an empty body
-      prepare_title_bar(&window);
-      show_when_settled(&ctx, WindowId::main(), deadline);
+      // the life of the process beside its windows; the count of the bridges of an IDE comes from the host of the
+      // socket, none connect without it
+      let life = AppLife::new(app.handle().clone(), background, BridgeConnections::none());
+      app.manage(Arc::clone(&life));
+      life.watch();
+      // without a window the app checks for its updates itself, as the page of the main window does
+      auto_update::check_while_windowless(app.handle());
+      if background {
+        tracing::info!("started without a window, for an IDE");
+      } else {
+        build_main_window(app.handle())?;
+      }
 
       Ok(())
     })
     .build(tauri::generate_context!())
-    .expect("error while running tauri application")
-    .run(|app_handle, event| {
-      // the app quits: the settings changed within the debounce of the writer reach the file first
-      if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
-        if let Some(service) = app_handle.try_state::<Arc<app_settings::service::SettingsService>>()
-          && let Err(e) = service.flush()
-        {
-          tracing::error!(error = %e, "the settings changed last are lost");
-        }
-        return;
+    .expect("error while running tauri application");
+  // out of the Dock from the start, before the event loop shows the app (`life::set_in_dock`)
+  #[cfg(target_os = "macos")]
+  let app = {
+    let mut app = app;
+    if background {
+      app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+    app
+  };
+  app.run(|app_handle, event| match event {
+    tauri::RunEvent::ExitRequested { code, api, .. } => {
+      // the settings changed within the debounce of the writer reach the file first, also when the app stays
+      flush_settings(app_handle);
+      app_handle.state::<Arc<AppLife>>().exit_requested(code, &api);
+    }
+    tauri::RunEvent::Exit => {
+      flush_settings(app_handle);
+      app_handle.state::<Arc<AppLife>>().run_restart();
+    }
+    // a closed window: its review fetches and its symbol search are stopped, its page state forgotten
+    tauri::RunEvent::WindowEvent {
+      label,
+      event: tauri::WindowEvent::Destroyed,
+      ..
+    } => {
+      app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
+      title_bar::forget_window(&label);
+      if label == app_settings::windows::MAIN_WINDOW {
+        close_sub_windows(app_handle);
       }
-      // a closed window: its review fetches and its symbol search are stopped, its page state forgotten
-      if let tauri::RunEvent::WindowEvent {
-        label,
-        event: tauri::WindowEvent::Destroyed,
-        ..
-      } = event
-      {
-        app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
-        title_bar::forget_window(&label);
-        if label == app_settings::windows::MAIN_WINDOW {
-          close_sub_windows(app_handle);
-        }
-      }
-    });
+    }
+    // a click on the Dock icon or an open of the running app with no window shown: the main window
+    #[cfg(target_os = "macos")]
+    tauri::RunEvent::Reopen { has_visible_windows, .. } if !has_visible_windows => {
+      app_api::app::life::MainWindowHost::show_main(&**app_handle.state::<Arc<AppLife>>());
+    }
+    _ => {}
+  });
 }
 
-/// The main window closed: its sub-windows go with it, and the app quits with the last window. The main window runs what
-/// a sub-window asks for (`sub-window-link.ts`), so a sub-window without it would wait for answers that never come.
+/// The settings changed within the debounce of the writer, saved before the app quits
+fn flush_settings(app_handle: &tauri::AppHandle) {
+  if let Some(service) = app_handle.try_state::<Arc<app_settings::service::SettingsService>>()
+    && let Err(e) = service.flush()
+  {
+    tracing::error!(error = %e, "the settings changed last are lost");
+  }
+}
+
+/// Builds the main window, hidden: it shows once its page drew its first rows (`show_when_settled`). At the start, and
+/// again when the app without a window shows it (`AppLife::show_main`)
+pub(crate) fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+  let ctx = app.state::<AppContext>();
+  let app_settings = ctx.settings.app();
+  // the settings and the title bar, before the page's own scripts
+  // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload
+  // runs this script again
+  let (settings_script, _) = settings_script(&ctx.settings, app_settings::windows::MAIN_WINDOW);
+  // the rows of the selected project as its session left them, seeded before the window, whose first sync runs
+  // while the webview loads (`warm_start`)
+  let model_script = app_settings::projects::selected_project(&ctx.settings).map_or_default(|path| warm_start::model_script(&ctx, &path));
+  // the open of the window, which its page settles once it drew its first rows (`sub_window_ready`)
+  let open = ctx.sub_windows.next_open(epoch_millis());
+  let init_script = format!("{settings_script} {model_script} {} {}", open_script(&open), title_bar_script());
+
+  let zoom = app_settings.zoom;
+  let min_width = min_window_width(zoom);
+  // the toolbar of the page is the title bar (`with_title_bar`)
+  let builder = with_title_bar(
+    tauri::WebviewWindowBuilder::new(app, app_settings::windows::MAIN_WINDOW, tauri::WebviewUrl::App("index.html".into()))
+      .title("BranchDeck")
+      .inner_size(min_width.max(1024.0), 900.0)
+      .min_inner_size(min_width, MIN_WINDOW_HEIGHT)
+      .initialization_script(&init_script)
+      // the native file drop handler would swallow the HTML5 drag and drop of commits (on Windows)
+      .disable_drag_drop_handler(),
+  );
+  // known before the page can load and say it drew its first rows
+  let deadline = ctx.sub_windows.built(&WindowId::main(), open, BuiltPage::Main);
+  let window = builder.build()?;
+  apply_zoom(&window, zoom);
+  // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
+  // canvas, nor a title row over an empty body
+  prepare_title_bar(&window);
+  show_when_settled(&ctx, WindowId::main(), deadline);
+  Ok(())
+}
+
+/// The main window closed: its sub-windows go with it, and the app quits with the last window unless an IDE is connected
+/// (`AppLife::exit_requested`). The main window runs what a sub-window asks for (`sub-window-link.ts`), so a sub-window
+/// without it would wait for answers that never come.
 fn close_sub_windows(app_handle: &tauri::AppHandle) {
   for (label, window) in app_handle.webview_windows() {
     if let Err(e) = window.destroy() {

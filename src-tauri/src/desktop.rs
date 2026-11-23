@@ -106,8 +106,9 @@ impl DialogHost for TauriDesktop {
 }
 
 impl RestartHost for TauriDesktop {
+  /// With the windows as they are now: a start `--background` that shows a window restarts with it
   fn restart(&self) -> ApiError {
-    self.0.restart()
+    self.0.state::<std::sync::Arc<crate::life::AppLife>>().restart()
   }
 }
 

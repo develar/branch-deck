@@ -9,6 +9,8 @@ use domain_types::error::ApiError;
 use domain_types::update::{UpdateInfo, UpdateStatus};
 use std::sync::Arc;
 use sync_utils::single_flight::SingleFlight;
+#[cfg(feature = "auto-update")]
+use tauri::Manager;
 use tracing::error;
 #[cfg(feature = "auto-update")]
 use tracing::info;
@@ -263,9 +265,9 @@ impl Updater for AppUpdater {
           return Err(record_error(&self.state, e));
         }
 
-        // the restart after the install never returns
+        // the restart after the install never returns; with the windows as they are now
         info!("Update installed, restarting app");
-        self.app.restart()
+        self.app.state::<Arc<crate::life::AppLife>>().restart()
       }
 
       #[cfg(not(feature = "auto-update"))]
@@ -289,6 +291,43 @@ impl Updater for AppUpdater {
   fn check_failure(&self) -> Option<String> {
     self.state.lock().ok()?.check_failure.clone()
   }
+}
+
+/// The silent check of the page of the main window (`useAutoUpdate.ts`): shortly after the start, then every six hours
+#[cfg(feature = "auto-update")]
+const STARTUP_CHECK_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+#[cfg(feature = "auto-update")]
+const UPDATE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_hours(6);
+
+/// The silent check of an app without a main window, whose page checks while it is open: at the times of the page's,
+/// skipped while the main window is open; never in a development build, as the page's. An update it finds is downloaded,
+/// and the Setup dot of the next main window offers it (`Updater::downloaded`)
+pub fn check_while_windowless(app: &tauri::AppHandle) {
+  #[cfg(feature = "auto-update")]
+  {
+    use app_api::context::AppContext;
+    use tracing::Instrument;
+    if cfg!(debug_assertions) {
+      return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(
+      async move {
+        tokio::time::sleep(STARTUP_CHECK_DELAY).await;
+        loop {
+          if app.get_webview_window(app_settings::windows::MAIN_WINDOW).is_none()
+            && let Err(e) = app.state::<AppContext>().desktop.updater.check().await
+          {
+            error!(error = %e.message, "the update check of the app without a window failed");
+          }
+          tokio::time::sleep(UPDATE_CHECK_INTERVAL).await;
+        }
+      }
+      .in_current_span(),
+    );
+  }
+  #[cfg(not(feature = "auto-update"))]
+  let _ = app;
 }
 
 #[cfg(all(test, feature = "auto-update"))]

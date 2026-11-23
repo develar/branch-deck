@@ -14,7 +14,8 @@
 //! the remote services, the sign-ins), and the seed of the main view from the frame of its session (`warm_start`).
 //!
 //! And the app itself, beside its repositories: its windows (`windows`: the opens and the first frame of every window,
-//! openspec/specs/repository/title-bar/spec.md), what it does on the desktop (`desktop`: the folder dialog, the native menu, the
+//! openspec/specs/repository/title-bar/spec.md), the life of its process beside them (`life`: a start without a window,
+//! the stay while an IDE is connected, openspec/specs/repository/ide-embedding/spec.md), what it does on the desktop (`desktop`: the folder dialog, the native menu, the
 //! restart, the updater), its agent CLI (`agent_cli`, openspec/specs/cli/agent-cli/spec.md) and the CLIs of Settings → Tools
 //! (`cli_tools`, openspec/specs/repository/cli-tools/spec.md), the disk of the lease pools of this Mac and of the hosts (`disk`,
 //! openspec/specs/repository/disk-usage/spec.md); beside the app, Start in Air: the launch of an agent session in the
@@ -27,6 +28,7 @@ pub mod cli_tools;
 pub mod config_writer;
 pub mod desktop;
 pub mod disk;
+pub mod life;
 pub mod mark_reviewed;
 pub mod repository_config;
 pub mod services;
