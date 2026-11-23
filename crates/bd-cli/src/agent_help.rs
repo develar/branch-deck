@@ -396,8 +396,13 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `order` lists the files to read, each declaration before its uses, and `units` the changes to read once in that
    order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit); `reading` what
    the pair leaves to read, by the role of each file, proven from the marks of the diffs.
-5. Return your worktree once your commits landed: `brd lease return` inside it (or --workspace <dir>; --lease-id <id>
-   refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
+5. End the session with `brd lease pick --return` in your lease (`brd -C <your lease> lease pick --return`): it lands what is left without moving your lease
+   onto the new tip, then returns the lease in the same call (`returned`), the pick being the proof of its commits; a
+   conflict or a refusal of the pick keeps the lease as without it, and a refusal of the return after the pick landed
+   keeps it too (`return_refused`, with the refusals below); `source_head` is the commit the slot is freed at, which
+   holds your commits after a `brd undo <undo_token>` (that undo moves only the branch). `brd lease pick --return
+   --stop-own` passes `--stop-own` to the return. With nothing to pick onto, or once the commits landed: `brd lease return` inside it (or --workspace <dir>;
+   --lease-id <id> refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick, the patch id, the identity and the twin of `brd update` or the mapping note of a sync
    prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land
@@ -923,7 +928,8 @@ wins over it:
   `home.build_config_changed` names files, your builds use an old build config: run `brd -C <path> lease pick` before
   the build, once your commits pass their tests, or at once when nothing is unlanded. A pick that lands nothing needs
   no green check.
-  Once the task is done and every commit landed, `brd lease return --lease-id <lease_id>`. Never `git rebase` or
+  Once the task is done, `brd -C <path> lease pick --return` lands what is left and returns the lease in one call
+  (`brd lease return --lease-id <lease_id>` when nothing is left to land). Never `git rebase` or
   `git merge` into the shared checkout, and never `brd update` in a lease. Return only your own lease, never one of
   `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout: when the task
   needs them, ask the user. Your own files ignored by git and kept by your harness in the shared checkout (a plan,

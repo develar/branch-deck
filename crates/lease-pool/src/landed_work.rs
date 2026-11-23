@@ -22,6 +22,11 @@
 //!
 //! No range comes from the reflog of the branch: the fork point a pick starts from can leave commits out, and a commit
 //! that no rung proves is unlanded.
+//!
+//! A return right after a pick of the lease in the same process (`brd lease pick --return`) is given the commits of the
+//! pick's range, which the pick landed or found on the branch under the repository lock: each of them is proven by that
+//! pick (`Proof::Picked`) before any rung runs, and only a commit outside the range (one made after the pick read the
+//! HEAD of the lease, one below its fork point) goes through the rungs.
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -64,7 +69,7 @@ pub enum Purpose {
 /// How the home branch proves that it has a commit of the lease
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Proof {
-  /// The dry run of a pick onto the branch would not pick it
+  /// A pick onto the branch would not pick it: its dry run, or the pick of `brd lease pick --return` that landed it
   Picked,
   /// A commit of the branch has its patch id
   PatchId,
@@ -136,8 +141,10 @@ pub struct LandedWork {
 
 /// Whether the work of the lease in `slot` landed, for `purpose`: `source_head` is the commit it was leased at, whose
 /// commits are never its work, and `source_branch` the home branch. A candidate lands only by a proof against the tip of
-/// that branch (the module's rungs); without the branch, nothing is proven
-pub fn landed_work(git_executor: &GitCommandExecutor, slot: &str, source_head: &str, source_branch: Option<&str>, purpose: Purpose) -> Result<LandedWork> {
+/// that branch (the module's rungs); without the branch, nothing is proven. `picked` are the commits of the range of a
+/// pick of the lease onto that branch that just landed them or found them there (`brd lease pick --return`): they are
+/// proven by it, the rest by the rungs
+pub fn landed_work(git_executor: &GitCommandExecutor, slot: &str, source_head: &str, source_branch: Option<&str>, purpose: Purpose, picked: &[String]) -> Result<LandedWork> {
   let base = Some(source_head).filter(|head| !head.is_empty());
   let unproven = |candidates: Vec<UnlandedCommit>, check: LandedCheck| LandedWork {
     landed: Vec::new(),
@@ -178,7 +185,12 @@ pub fn landed_work(git_executor: &GitCommandExecutor, slot: &str, source_head: &
     return Ok(unproven(candidates, check));
   }
   let mut proofs = Proofs::new(&candidates);
-  prove(git_executor, slot, branch, base, &mut proofs)?;
+  for id in picked {
+    proofs.add(id, Proof::Picked);
+  }
+  if !proofs.is_done() {
+    prove(git_executor, slot, branch, base, &mut proofs)?;
+  }
   Ok(proofs.finish(check))
 }
 

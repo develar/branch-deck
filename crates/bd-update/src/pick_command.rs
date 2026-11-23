@@ -8,7 +8,7 @@
 //! step goes to stderr as it starts, with the time since the pick began (`bd_core::progress`), and the pick waits for
 //! the repository lock while its holder lives, up to `--lock-wait`
 
-use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
+use crate::update_command::{core_error, uncommitted_overlap, undo_core_error};
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput, NextStep};
@@ -149,6 +149,13 @@ pub struct PickOutput {
   /// the lease after a conflict and the pick after it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub steps: Vec<StepOutput>,
+  /// The newest commit of the range, a full id: the HEAD of the worktree of --from as the pick read it, or `<b>`
+  #[serde(skip)]
+  pub source_head: String,
+  /// The commits of the range that the pick landed or found on the branch, full ids: every commit of it for a pick that
+  /// wrote (`picked` and `up_to_date`), none for a conflict and a dry run. `brd lease pick --return` takes them as landed
+  #[serde(skip)]
+  pub landed_range: Vec<String>,
 }
 
 impl PickOutput {
@@ -156,20 +163,6 @@ impl PickOutput {
   pub const fn exit_code(&self) -> i32 {
     if self.conflict.is_some() { CONFLICT_EXIT } else { 0 }
   }
-}
-
-/// `brd lease pick`: the pick of the lease's commits onto its home branch, and after a conflict the update of the lease
-/// onto that branch
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct LeasePickOutput {
-  #[serde(flatten)]
-  pub pick: PickOutput,
-  /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `brd update` prints it. A
-  /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `brd update
-  /// --continue`, build and test, then `brd lease pick` again; `brd update --abort` closes it, nothing moved. An update
-  /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub update: Option<UpdateOutput>,
 }
 
 /// The check of the tree of HEAD of the worktree the commits come from: a lease, or the worktree of `brd pick --from`
@@ -213,13 +206,6 @@ pub struct CheckRecordOutput {
   /// `stale`: the first 10 of those files, which no check saw as they are in HEAD
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub changed_paths: Vec<String>,
-}
-
-impl LeasePickOutput {
-  /// 1 while the commits did not land, else 0
-  pub const fn exit_code(&self) -> i32 {
-    self.pick.exit_code()
-  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
@@ -863,6 +849,18 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Optio
     message_check_skipped: None,
     undo_token: result.undo_token().map(|token| token.to_string()),
     steps: Vec::new(),
+    source_head: check.source_head.clone(),
+    landed_range: if check.state == PickState::Clean && !dry_run {
+      check
+        .picked
+        .iter()
+        .map(|commit| &commit.commit)
+        .chain(check.present.iter().map(|commit| &commit.commit))
+        .cloned()
+        .collect()
+    } else {
+      Vec::new()
+    },
   })
 }
 

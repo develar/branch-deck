@@ -44,7 +44,8 @@ pub enum LeaseCommand {
   /// Lease a worktree of the pool at the HEAD of this checkout: a free slot moved there, else a new one
   Get(LeaseGetArgs),
   /// Land the commits of this lease on the branch of the checkout it was leased from, the lease following onto the new
-  /// tip: `brd pick --from <lease> --follow` run in that checkout. Nothing to land: the lease only follows
+  /// tip: `brd pick --from <lease> --follow` run in that checkout. Nothing to land: the lease only follows. With
+  /// --return the lease does not follow and is returned once its commits landed: the end of a session
   Pick(LeasePickArgs),
   /// Give the lease of a worktree back; refused while it has unlanded commits, local changes or a process in it
   Return(LeaseReturnArgs),
@@ -126,6 +127,14 @@ pub struct LeasePickArgs {
   /// every 10 s; past it the answer is `locked`
   #[arg(long, value_name = "SECS")]
   pub lock_wait: Option<u64>,
+  /// Return the lease once its commits landed, in the same call: the end of a session. The lease does not follow onto
+  /// the new tip, and the pick is the proof that its commits landed (`returned`); a conflict or a refusal of the pick
+  /// keeps the lease, and a refusal of the return after the pick landed keeps it too (`return_refused`)
+  #[arg(long = "return", conflicts_with = "dry_run")]
+  pub return_lease: bool,
+  /// With --return: `brd lease return --stop-own`, which ends the commands of your own session in the lease
+  #[arg(long, requires = "return_lease")]
+  pub stop_own: bool,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -390,8 +399,9 @@ impl LeaseHomeOutput {
 
 /// The commands of a session in the lease at `path`, in order: the pick of each commit onto its home (none while the
 /// home has no branch to land on), with `pull_request` (`branchdeck.agentPullRequest`) the push of its branch from the
-/// home, whose `gh pr create` opens the pull request, the return once the task is done, and for a lease with `notes`
-/// the command that finds them after it
+/// home, whose `gh pr create` opens the pull request, the end of the session once the task is done (the pick of what is
+/// left with the return of the lease, `lease pick --return`; the return alone without a branch to land on), and for a
+/// lease with `notes` the command that finds them after it
 pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool, notes: bool) -> Vec<String> {
   let mut next = Vec::new();
   if home.branch.is_some() && !home.checkout.is_empty() {
@@ -399,8 +409,10 @@ pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bo
     if pull_request {
       next.push(format!("{CLI_NAME} -C {} push <branch>", shell_word(&home.checkout)));
     }
+    next.push(format!("{CLI_NAME} -C {} lease pick --return", shell_word(path)));
+  } else {
+    next.push(format!("brd lease return --lease-id {lease_id}"));
   }
-  next.push(format!("brd lease return --lease-id {lease_id}"));
   if notes {
     next.push(format!("brd lease notes --lease-id {lease_id}"));
   }
@@ -1025,7 +1037,7 @@ pub struct LandedCommitOutput {
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LandedProofOutput {
-  /// The dry run of a pick onto it would not pick the commit
+  /// A pick onto it would not pick the commit: its dry run, or the pick of `brd lease pick --return` that landed it
   Picked,
   /// A commit of the branch has its patch id
   PatchId,
@@ -1082,6 +1094,13 @@ pub struct GivenUpOutput {
 
 /// `context` is of the worktree to return: --workspace, else -C, else the current directory
 pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<LeaseReturnOutput, CliError> {
+  lease_return_after_pick(context, args, &[])
+}
+
+/// `lease_return` of the lease of `brd lease pick --return`, right after its pick: `picked` are the commits of the
+/// pick's range, which it landed on the home branch or found there, so the return proves them landed by it
+/// (`landed_work`) and checks only the commits outside it
+pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, picked: &[String]) -> Result<LeaseReturnOutput, CliError> {
   let params = LeaseReturnParams {
     workspace: &context.dirs,
     lease_id: args.lease_id.as_deref(),
@@ -1093,6 +1112,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     bazel: None,
     lock_timeout: context.lock_timeout,
     cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
+    picked,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;
   let lease = returned

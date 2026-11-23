@@ -10,7 +10,8 @@
 //! lock or the lock of the `worktree` commands (the move of an adopt holds only the latter), and a return or a clean
 //! never takes the clones lock. The
 //! lock of the lend table of the host slots (`host-slots.lock`, `host_slots`) comes before all three and is a leaf: it is
-//! never held while another is taken.
+//! never held while another is taken. The repository lock (`branch-deck.lock`) is never held across a lock of the pool:
+//! `brd lease pick --return` releases it with the end of its pick, before its return takes `leases.lock`.
 
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
@@ -2604,7 +2605,7 @@ fn check_idle_work(git_executor: &GitCommandExecutor, (path, name): (&str, &str)
       fresh: true,
     }
   };
-  let landed = landed_work(git_executor, path, &old.source_head, old.source_branch.as_deref(), Purpose::TakeOver)?;
+  let landed = landed_work(git_executor, path, &old.source_head, old.source_branch.as_deref(), Purpose::TakeOver, &[])?;
   if !landed.unlanded.is_empty() {
     let commits = landed
       .unlanded
@@ -3244,6 +3245,10 @@ pub struct LeaseReturnParams<'a> {
   /// How long a cargo rule waits for the locks of cargo of a profile dir that another clean holds
   /// (`lease_clean::RETURN_CARGO_LOCK_WAIT`); after it the profile dir stays as it is and the slot is free all the same
   pub cargo_lock_wait: Duration,
+  /// The commits of the range of the pick of `brd lease pick --return`, which landed them on the home branch or found
+  /// them there in the same process just before: they are landed by that pick (`landed_work`), and no proof runs for
+  /// them. Empty for any other return
+  pub picked: &'a [String],
 }
 
 /// What a return did
@@ -3624,7 +3629,7 @@ fn return_once(
   if ref_exists(git_executor, &path, &session) {
     bail!(LeaseRefusal::ResolveInProgress { path, session });
   }
-  let work = landed_work(git_executor, &path, &lease.source_head, lease.source_branch.as_deref(), Purpose::Return)?;
+  let work = landed_work(git_executor, &path, &lease.source_head, lease.source_branch.as_deref(), Purpose::Return, params.picked)?;
   let (unlanded, landed_check) = (work.unlanded, work.check);
   if !unlanded.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::UnlandedCommits {

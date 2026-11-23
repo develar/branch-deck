@@ -109,6 +109,7 @@ fn a_return_that_meets_a_held_cargo_lock_frees_the_slot_and_names_it() {
       clean: Some(lease_pool::lease_clean::CleanOverrides::default()),
       lock_timeout: context.lock_timeout,
       cargo_lock_wait: std::time::Duration::from_millis(100),
+      picked: &[],
     },
   )
   .unwrap();

@@ -64,7 +64,7 @@ Hard rules in one place; the linked section says why and what instead.
    is then, the lease follows; a conflict lands nothing and comes back to you (`conflict.next`). Never `git rebase` or
    `git merge` for it, never `brd update` in the lease.
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
-   `brd lease return --workspace <path>`.
+   `brd -C <path> lease pick --return`.
 
 ### Worktrees
 Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,

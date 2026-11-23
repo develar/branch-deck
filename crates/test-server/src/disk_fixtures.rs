@@ -176,6 +176,7 @@ fn return_slot(git: &GitCommandExecutor, slot: &str, lease_id: Option<&str>) -> 
       clean: Some(CleanOverrides::default()),
       lock_timeout: Duration::from_secs(10),
       cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
+      picked: &[],
     },
   )?;
   Ok(())

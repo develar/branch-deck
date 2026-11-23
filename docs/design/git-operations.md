@@ -2820,6 +2820,22 @@ its finish names `brd lease pick` again. An update that applies at once (the wor
 is picked again at once. While that session is open (one `show-ref` of its ref) `brd lease pick` refuses
 (`resolve_in_progress`): a pick that lands meanwhile would leave the session stale.
 
+An agent almost always ends a lease with `brd lease pick` and then `brd lease return`. The follow of that pick moves a
+lease the return frees at once, and in the IntelliJ monorepo (1.42M index entries) it costs a full unpack_trees of the
+lease's index under the lock (its `read-tree -m -u`, about 6 s of CPU), the check of the lease's paths before it and
+the refresh of that index, 7.6 s without fsmonitor; before the check by paths it cost two of the four unpack_trees of a
+pick. `brd lease pick --return` is the pick without `--follow` and the return of the lease in
+the same process (`bd_cli::lease_pick::returned_after`), after the pick released the repository lock: the return takes
+only `leases.lock`, so no lock of the pool is taken under `branch-deck.lock`. The proof that the work landed is the
+pick itself: the commits of its range, which it landed or found on the branch (`PickOutput::landed_range`), are landed
+by the pick (`landed_work`, `Proof::Picked`) and no rung runs for them; a commit outside the range, one the lease got
+after the pick read its HEAD, goes through the rungs and is refused when none proves it. Every other refusal of a
+return stands (a process, local changes, an open resolve session, `--stop-own`), and keeps the lease
+(`return_refused`, the exit code of its code) though the commits landed. The slot is freed at the HEAD the pick read
+(`source_head`): the undo token has no `+follow`, so `brd undo` moves only the home branch back, never a slot that a
+get may have leased since, and the answer names that HEAD, which holds the lease's commits after such an undo
+(`a_lease_pick_with_return_lands_the_commits_and_frees_the_slot`; the processes: `a_lease_pick_that_returns`).
+
 A lease builds with the build config of its own tree: the cargo config and the toolchain at any depth, the `profile`
 table of a root manifest, the `[host]` table that a remote run reads from its commit. No task edits these files, so a
 holder that works for hours without a pick does not see that its home branch changed them (on 2026-11-15 master turned

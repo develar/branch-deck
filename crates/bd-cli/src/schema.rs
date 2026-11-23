@@ -1,4 +1,5 @@
 use crate::install::InstallOutput;
+use crate::lease_pick::LeasePickOutput;
 use bd_core::error::CliError;
 use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
@@ -31,7 +32,7 @@ use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::squash_command::SquashOutput;
 use bd_rewrite::suggest::SuggestOutput;
 use bd_update::drop_command::DropOutput;
-use bd_update::pick_command::{LeasePickOutput, PickOutput};
+use bd_update::pick_command::PickOutput;
 use bd_update::unapply_command::{ReapplyOutput, UnapplyOutput};
 use bd_update::undo_command::UndoOutput;
 use bd_update::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOutput};

@@ -1,4 +1,4 @@
-use crate::lease_test::{Fixture, path_of, slot_git};
+use crate::lease_test::{Fixture, path_of, proofs, slot_git, slot_path, states};
 use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, canonical, git, record_check};
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use pretty_assertions::assert_eq;
@@ -37,7 +37,7 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
     got["next"],
     json!([
       format!("{CLI_NAME} -C {} lease pick", shell_word(&path)),
-      format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap()),
+      format!("{CLI_NAME} -C {} lease pick --return", shell_word(&path)),
       format!("brd lease notes --lease-id {}", got["lease_id"].as_str().unwrap()),
     ])
   );
@@ -81,8 +81,7 @@ fn a_lease_pick_lands_the_commits_on_the_home_branch_and_the_lease_follows() {
     (0, &json!("picked"), &json!("master"), &json!("moved")),
     "{output}"
   );
-  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) Add a");
-  assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD^"]), before, "on top of the peer's commit");
+  assert_landed_on(&fixture, "(lane) Add a", &before);
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), fixture.repo.head(), "the lease follows");
 
   // another session lands a commit: the lease only follows
@@ -411,4 +410,120 @@ fn a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease() {
   commit_in(&path, "(lane) add more", "lane-b.txt");
   let (exit_code, picked) = lease_pick(&fixture, &path, &["--allow-message-format", "the user agreed"]);
   assert_eq!((exit_code, &picked["message_format_allowed"]), (0, &json!("the user agreed")), "{picked}");
+}
+
+/// `brd lease pick --return` lands the commits of the lease onto a tip that moved since and returns the lease in the same
+/// call: the lease does not follow, the return takes the pick as the proof of its commits (`picked`), the slot is free
+/// at the HEAD the pick read (`source_head`), and the undo token moves only the home branch back
+#[test_log::test]
+fn a_lease_pick_with_return_lands_the_commits_and_frees_the_slot() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let own = commit_in_lease(&path, "(lane) Add a", "lane-a.txt");
+  fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let before = fixture.repo.head();
+
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--return"]);
+  assert_eq!(
+    (exit_code, &output["state"], output.get("followed"), &output["source_head"]),
+    (0, &json!("picked"), None, &json!(own)),
+    "{output}"
+  );
+  let returned = &output["returned"];
+  assert_eq!(
+    (&returned["landed_check"], proofs(&returned["landed"])),
+    (&json!("content"), vec![(own.clone(), "picked".to_string())]),
+    "{output}"
+  );
+  assert_landed_on(&fixture, "(lane) Add a", &before);
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), own, "the slot is free at the HEAD the pick read");
+  assert!(states(&fixture.status()).contains(&(slot_path(&path), "free".to_string())), "{}", fixture.status());
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  assert_covered(&schema["outputs"]["lease_pick"], &schema["outputs"]["lease_pick"], &output, "lease_pick");
+
+  let token = output["undo_token"].as_str().unwrap();
+  assert_eq!(token, format!("pick:{before}..{}", fixture.repo.head()), "the lease did not follow: no `+follow`");
+  let (exit_code, undone) = fixture.run(&["--prefix", PREFIX, "undo", token]);
+  assert_eq!(exit_code, 0, "{undone}");
+  assert_eq!(
+    (fixture.repo.head(), slot_git(&path, &["rev-parse", "HEAD"])),
+    (before, own),
+    "only the home branch moved back"
+  );
+}
+
+/// A pick with --return whose return refuses keeps the lease, and its answer says so: local changes in the lease stay
+/// there (`dirty_worktree`, the exit code of the refusal) though the commits landed; a conflict lands nothing and comes
+/// back to the lease as without --return, nothing returned
+#[test_log::test]
+fn a_lease_pick_with_return_keeps_the_lease_on_local_changes_and_on_a_conflict() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let own = commit_in_lease(&path, "(lane) Add a", "lane-a.txt");
+  std::fs::write(Path::new(&path).join("a.txt"), "local\n").unwrap();
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--return"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["return_refused"]["code"], output.get("returned")),
+    (4, &json!("picked"), &json!("dirty_worktree"), None),
+    "{output}"
+  );
+  assert!(
+    output["return_refused"]["message"].as_str().unwrap().starts_with("The commits landed, the lease stays: "),
+    "{output}"
+  );
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) Add a");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), own, "the lease did not follow");
+  assert!(states(&fixture.status()).contains(&(slot_path(&path), "ready".to_string())), "{}", fixture.status());
+  slot_git(&path, &["checkout", "--", "a.txt"]);
+  // the pick was a fast-forward: master holds the commit of the lease
+  let returned = fixture.give_back(&path);
+  assert_eq!(returned["landed_check"], json!("reachability"), "{returned}");
+
+  let (fixture, path) = conflicting_lease();
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--return"]);
+  assert_eq!(
+    (
+      exit_code,
+      &output["state"],
+      &output["update"]["state"],
+      output.get("returned"),
+      output.get("return_refused")
+    ),
+    (1, &json!("conflict"), &json!("conflict"), None, None),
+    "{output}"
+  );
+  assert!(states(&fixture.status()).contains(&(slot_path(&path), "ready".to_string())), "{}", fixture.status());
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--return", "--dry-run"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+}
+
+/// The return after the pick of --return takes only the commits of the pick's range as landed by it: a commit the lease
+/// got after the pick read its HEAD goes through the check of any return, and is refused as unlanded
+#[test_log::test]
+fn the_return_after_a_pick_checks_a_commit_made_after_the_pick() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let picked = commit_in_lease(&path, "(lane) Add a", "lane-a.txt");
+  fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let (exit_code, output) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", &picked]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  let after = commit_in_lease(&path, "(lane) Add b", "lane-b.txt");
+
+  let environment = fixture.environment(Path::new(&path));
+  let context = crate::lease_command::LeaseContext::resolve(&environment, None).unwrap();
+  let refused = crate::lease_command::lease_return_after_pick(&context, &crate::lease_command::LeaseReturnArgs::default(), std::slice::from_ref(&picked)).unwrap_err();
+  assert_eq!((refused.code, refused.commits), (domain_types::error::ErrorCode::UnlandedCommits, vec![after]));
+}
+
+/// The tip of master is the copy of `subject`, on top of `before`, the peer's commit
+#[track_caller]
+fn assert_landed_on(fixture: &Fixture, subject: &str, before: &str) {
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), subject);
+  assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD^"]), before, "on top of the peer's commit");
+}
+
+/// Commit `file` in the lease at `path` as `subject`: its id
+fn commit_in_lease(path: &str, subject: &str, file: &str) -> String {
+  commit_in(path, subject, file);
+  slot_git(path, &["rev-parse", "HEAD"])
 }

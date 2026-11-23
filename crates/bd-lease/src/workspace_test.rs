@@ -17,14 +17,14 @@ fn display(path: &Path) -> String {
 }
 
 /// The `next` of the lease `lease` of `slot`: its pick, the push of its branch from `push_from` where the landing includes
-/// the pull request, its return, the command that finds its notes
+/// the pull request, its pick with the return, the command that finds its notes
 fn lease_next(slot: &str, push_from: Option<&str>, lease: &Value) -> Value {
   let mut next = vec![format!("{CLI_NAME} -C {} lease pick", shell_word(slot))];
   if let Some(shared) = push_from {
     next.push(format!("{CLI_NAME} -C {} push <branch>", shell_word(shared)));
   }
+  next.push(format!("{CLI_NAME} -C {} lease pick --return", shell_word(slot)));
   let lease_id = lease["lease_id"].as_str().unwrap();
-  next.push(format!("brd lease return --lease-id {lease_id}"));
   next.push(format!("brd lease notes --lease-id {lease_id}"));
   json!(next)
 }

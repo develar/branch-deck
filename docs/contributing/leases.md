@@ -26,7 +26,8 @@ and links here; the commands are [brd lease](../../openspec/specs/cli/lease/spec
    lands nothing and comes back to you (`conflict.next`). Never `git rebase` or `git merge` for it, never `brd update`
    in the lease.
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
-   `brd lease return --workspace <path>`; a run on the Studio keeps nothing there.
+   `brd -C <path> lease pick --return`, which lands the last commit without moving the lease and returns it in the same
+   call (`brd lease return --workspace <path>` when everything landed already); a run on the Studio keeps nothing there.
 
 ## Worktrees
 

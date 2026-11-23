@@ -1142,7 +1142,7 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 {"schema":2,"repository":"/Users/me/idea-1","pool":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01",
  "path":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1","lease_id":"<uuid>","holder":"lane-1","slot":"idea-12",
  "source_head":"<full id>","home":{"checkout":"/Users/me/idea-1","branch":"master"},
- "next":["brd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick","brd lease return --lease-id <uuid>"],
+ "next":["brd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick","brd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick --return"],
  "leased_at":1792411982,"reused":true,"seeded":[".claude/settings.local.json"],
  "skipped":[{"slot":"idea-1","path":"…/1/idea-1","reason":"dirty","paths":["left.txt"]}],"processes_checked":true}
 ```
@@ -1192,8 +1192,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   ```
 - `home` names where the commits of the lease land: `checkout`, the source of the get, and `branch`, the branch it
   had checked out (`null` for a detached HEAD: nothing to pick onto, and `next` is only the return). `next` is what the
-  session runs, in order: `brd -C <path> lease pick` after each commit that builds and passes its tests, and the
-  return once the task is done.
+  session runs, in order: `brd -C <path> lease pick` after each commit that builds and passes its tests, and
+  `brd -C <path> lease pick --return` once the task is done.
 - `brd lease pick [--dry-run]` inside the lease is `brd pick --from <lease> --follow` in `home.checkout`, onto
   `home.branch`, and prints what `brd pick` prints: the commits replayed onto the tip as it is then, whatever other
   sessions landed meanwhile, and the lease moved onto the new tip; with nothing to land the lease only follows
@@ -1202,6 +1202,15 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   opens a resolve session in the lease (`brd help update`); the lease moves when `brd update --continue` finishes it,
   whose `next` is `brd lease pick` again, and `brd update --abort` closes it; while it is open `brd lease pick` is
   `resolve_in_progress` (exit 4). The output is `lease_pick`.
+- `brd lease pick --return [--stop-own]` ends a session: the pick without `--follow` (no dry run, refresh or move of
+  the lease's index), then, once it landed the commits or found them all on the branch, the return of the lease in the
+  same process (`returned`, as `brd lease return` prints it), after the pick released the repository lock. The commits
+  of the pick's range are landed by the pick (`landed`, `proof: picked`), so no proof runs for them; a commit the lease
+  got after the pick read its HEAD is checked as by any return. A refusal of the return keeps the lease though the
+  commits landed: `return_refused`, the error of `brd lease return` ("The commits landed, the lease stays: …"), and the
+  exit code of its code. A conflict or a refusal of the pick keeps the lease as without `--return`. `source_head` is the
+  HEAD the pick read, where the slot is freed: the undo token has no `+follow`, so `brd undo` moves only the branch
+  back, and `source_head` holds the commits then. `--dry-run` with `--return` is `invalid_arguments`.
 - In a lease `brd update` onto the baseline is `lease_follows_home` (exit 4): the lease follows its home branch, and the
   owner of the shared checkout updates that; `--dry-run` and the steps of a session go on. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
   ask the user), `no_home_branch` (exit 4; cut from a detached HEAD), `no_lease` (exit 2; not inside a lease), and the

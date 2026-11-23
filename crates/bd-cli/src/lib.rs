@@ -4,6 +4,7 @@
 pub mod agent_help;
 pub mod flag_names;
 pub mod install;
+pub mod lease_pick;
 pub mod schema;
 
 use crate::agent_help::{
@@ -12,6 +13,7 @@ use crate::agent_help::{
 };
 use crate::flag_names::{renamed_in, unknown_argument};
 use crate::install::{InstallArgs, install};
+use crate::lease_pick::{LeasePickOutput, returned_after};
 use crate::schema::{SchemaArgs, schema};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
@@ -50,7 +52,7 @@ use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
 use bd_update::drop_command::{DropArgs, drop_commits};
-use bd_update::pick_command::{HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, branch_ref, pick, pick_check, pick_into, tree_check, tree_check_output};
+use bd_update::pick_command::{HomePick, PickArgs, PickOutcome, PickOutput, branch_ref, pick, pick_check, pick_into, tree_check, tree_check_output};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, update, update_lease_onto};
@@ -422,7 +424,8 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// again only when a record names it too or carries over onto it (a clean merge of the checked tree onto the new base),
 /// else the conflict says to build first. Each step goes to stderr as it starts,
 /// the update's too, and the answer lists them (`steps`); the waits for the repository lock of the picks and the update
-/// go on while the holder lives, up to `--lock-wait` in all
+/// go on while the holder lives, up to `--lock-wait` in all. With `--return` the lease does
+/// not follow, and once the commits landed it is returned in the same process (`lease_pick::returned_after`)
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
   let steps = CommandSteps::new("brd lease pick", lock_wait_of(args.lock_wait), lease.lock_timeout);
   let mut output = lease_pick_reporting(lease, environment, options, args, &steps)?;
@@ -453,12 +456,12 @@ fn lease_pick_reporting(
   let home = in_dir(&checkout)?;
   let pick = lease_pick_in(&home, &lease.dirs, branch.clone(), None, environment, args, steps)?;
   if pick.state != PickOutcome::Conflict || args.dry_run {
-    return Ok(LeasePickOutput { pick, update: None });
+    return Ok(returned_after(lease, pick, None, args, steps));
   }
   steps.tell(&format_args!("updating the lease onto {branch} ({})", pick.previous_head));
   let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch, steps)?;
   if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
-    return Ok(LeasePickOutput { pick, update: Some(update) });
+    return Ok(LeasePickOutput::of(pick, Some(update)));
   }
   let settings = pick_check(&home.repository)?;
   let gated = args.allow_unchecked.is_none() && settings.required;
@@ -477,14 +480,15 @@ fn lease_pick_reporting(
       );
     }
     pick.check = Some(tree_check_output(check));
-    return Ok(LeasePickOutput { pick, update: Some(update) });
+    return Ok(LeasePickOutput::of(pick, Some(update)));
   }
   let pick = lease_pick_in(&home, &lease.dirs, branch, check, environment, args, steps)?;
-  Ok(LeasePickOutput { pick, update: Some(update) })
+  Ok(returned_after(lease, pick, Some(update), args, steps))
 }
 
 /// `brd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`; with `check`
-/// the check of the lease's tree that the gate reads instead of asking git again; its steps go to `steps`
+/// the check of the lease's tree that the gate reads instead of asking git again; its steps go to `steps`. The lease
+/// follows but with `--return`, whose lease is returned instead: no check of its paths, refresh or move of its index
 fn lease_pick_in(
   context: &RepoContext,
   lease_dirs: &RepositoryDirs,
@@ -497,7 +501,7 @@ fn lease_pick_in(
   let lease_dir = lease_dirs.top_level.as_str();
   let pick_args = PickArgs {
     from: Some(PathBuf::from(lease_dir)),
-    follow: true,
+    follow: !args.return_lease,
     dry_run: args.dry_run,
     allow_unchecked: args.allow_unchecked.clone(),
     allow_message_format: args.allow_message_format.clone(),

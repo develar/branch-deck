@@ -1886,16 +1886,9 @@ fn the_tree_check_of_a_lease_pick() {
   assert_git_processes(&lease.git, &[("merge-base", 2), ("merge-tree", 1), ("rev-list", 1), ("rev-parse", 2)]);
 }
 
-/// `brd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `brd pick --from <lease>
-/// --follow` in the checkout it was cut from (`a_pick`)
-#[test]
-fn a_lease_pick() {
-  #[cfg(windows)]
-  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
-    return;
-  }
-
-  let (repo, _home, environment, got) = leased_repo();
+/// `leased_repo` with two commits of the lease, `(lane) Add a` and `(lane) Add b`, and one of master since the get
+fn lease_with_two_commits() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment, bd_lease::lease_command::LeaseGetOutput) {
+  let (repo, home, environment, got) = leased_repo();
   let lane = std::path::Path::new(&got.path);
   for (subject, file) in [("(lane) Add a", "a.txt"), ("(lane) Add b", "b.txt")] {
     std::fs::write(lane.join(file), "x\n").unwrap();
@@ -1907,6 +1900,20 @@ fn a_lease_pick() {
       .unwrap();
   }
   commit_subjects(&repo, &["(own) Add c"]);
+  (repo, home, environment, got)
+}
+
+/// `brd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `brd pick --from <lease>
+/// --follow` in the checkout it was cut from (`a_pick`)
+#[test]
+fn a_lease_pick() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (repo, _home, environment, got) = lease_with_two_commits();
+  let lane = std::path::Path::new(&got.path);
   let base = repo.head();
   repo.enable_ssh_signing();
   let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
@@ -1929,6 +1936,52 @@ fn a_lease_pick() {
   assert_followed_pick(&context, &output, true);
   let tip = repo.head();
   assert_signed_commits(&repo, &base, &tip);
+}
+
+/// `brd lease pick --return`: the pick of `a_lease_pick` without the follow, so neither the check of the lease's paths
+/// nor its move (one `ls-files`, one `config`, one `read-tree`, one `update-index` and a `diff-tree` fewer), nor the reads
+/// of the lease's HEAD, guards and marks (nine `rev-parse` and three `symbolic-ref` fewer), nor the move of the lease and
+/// its mark (two `update-ref`); then, in the lease, the return of `a_lease_get_and_return`, whose commits the pick
+/// proved: no proof runs
+#[test]
+fn a_lease_pick_that_returns() {
+  let (repo, _home, environment, got) = lease_with_two_commits();
+  let lane = std::path::Path::new(&got.path);
+  let context = context(&repo);
+  let args = bd_lease::lease_command::LeasePickArgs {
+    return_lease: true,
+    ..bd_lease::lease_command::LeasePickArgs::default()
+  };
+  let steps = CommandSteps::new("brd lease pick", DEFAULT_LOCK_WAIT, context.lock_timeout);
+  let output = crate::lease_pick_in(&context, &got.path, "master".to_string(), None, &environment, &args, &steps).unwrap();
+  assert_eq!((output.picked.len(), output.followed.is_none()), (2, true));
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("diff-tree", 1),
+      ("for-each-ref", 1),
+      ("log", 4),
+      ("ls-files", 1),
+      ("merge-base", 4),
+      ("read-tree", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 1),
+      ("rev-parse", 8),
+      ("symbolic-ref", 4),
+      ("update-index", 1),
+      ("update-ref", 2),
+    ],
+  );
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
+  let output = crate::lease_pick::returned_after(&lease, output, None, &args, &steps);
+  let returned = output.returned.expect("the lease returned");
+  assert_eq!(returned.landed.len(), 2, "{returned:?}");
+  // the directories, the resolve session, the unlanded commits and whether the home branch exists, the untracked mode
+  // of the config, the `status` and HEAD
+  assert_git_processes(&lease.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("show-ref", 2), ("status", 1)]);
 }
 
 /// `brd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
