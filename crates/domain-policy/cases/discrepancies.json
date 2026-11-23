@@ -233,7 +233,7 @@
     "closed": "s1-holes",
     "today": {
       "app": [
-        "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));",
+        "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots).into());",
         "crates/operations/src/robot.rs#let mut blockers: Vec<Reason> = restart.refusal.iter().cloned().collect();",
         "crates/operations/src/robot.rs#check_admitted(guard, &accepted, &plan)?;",
         "crates/operations/src/push.rs#if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {"

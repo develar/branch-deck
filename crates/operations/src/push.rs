@@ -18,7 +18,7 @@
 //! branch of a whole stack alone (`whole_stack_planned`). `brd push` plans one intent per branch it names over its
 //! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
-use crate::engine::{Holding, frame_refusal, remote_holds, run, run_planned_in, with_all};
+use crate::engine::{Holding, Replan, frame_refusal, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
@@ -911,35 +911,41 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     if let Some(refusal) = frame {
       return Err(waited.failed.unwrap_or(refusal));
     }
-    let mut waited = waited.waited;
+    let mut replan = Replan::after(waited.waited);
     let mut checked = checked_of(services, sessions, key, robots).await;
-    let planned = loop {
-      let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
-      let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
-      let planned = sessions
-        .read(key, move |state, facts| push_planned(state, facts, &prefix, &intent, holds.as_deref(), expect))
-        .await
-        .flatten()
-        .ok_or_else(|| no_push_plan(&push))?;
-      // what refuses it, in the words of the robots it was checked on
-      if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
-        return Err(refusal);
+    let start = push_start(services, sessions, key).await?;
+    loop {
+      let planned = loop {
+        let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
+        let expect = if replan.waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
+        let planned = sessions
+          .read(key, move |state, facts| push_planned(state, facts, &prefix, &intent, holds.as_deref(), expect))
+          .await
+          .flatten()
+          .ok_or_else(|| no_push_plan(&push))?;
+        // what refuses it, in the words of the robots it was checked on
+        if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
+          return Err(refusal);
+        }
+        // the robots asked now may give it a retarget, a restart or a branch the session held: held before its first effect
+        let mut queued = false;
+        if holding
+          .covers(guard, &push_request(&key.prefix, &push, Some(&planned)).resources, &planned.plan.intent, &mut queued)
+          .await?
+        {
+          break planned;
+        }
+        if queued {
+          // the operations it waited for start and restart robots: decided again on the robots as Patronus has them now
+          replan.waited = true;
+          checked = checked_of(services, sessions, key, robots_to_check(services, key, &push).await).await;
+        }
+      };
+      // else decided again on the sync that moved its branch: over the remote head the session has now
+      if let Some(answer) = run_planned_in(guard, (sessions, key), &start, planned, &accepted, &mut replan).await {
+        return answer;
       }
-      // the robots asked now may give it a retarget, a restart or a branch the session held: held before its first effect
-      let mut queued = false;
-      if holding
-        .covers(guard, &push_request(&key.prefix, &push, Some(&planned)).resources, &planned.plan.intent, &mut queued)
-        .await?
-      {
-        break planned;
-      }
-      if queued {
-        // the operations it waited for start and restart robots: decided again on the robots as Patronus has them now
-        waited = true;
-        checked = checked_of(services, sessions, key, robots_to_check(services, key, &push).await).await;
-      }
-    };
-    run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, waited).await
+    }
   })
   .await
 }

@@ -69,6 +69,11 @@ pub(crate) fn held_sync_host(released: watch::Receiver<bool>, started: watch::Se
 }
 
 async fn fixture_with_running_sync() -> (Fixture, RunningSync) {
+  fixture_with_running_sync_of(SyncReason::Manual).await
+}
+
+/// A fixture whose session runs the sync of `reason`, held until `RunningSync::release`
+async fn fixture_with_running_sync_of(reason: SyncReason) -> (Fixture, RunningSync) {
   let Fixture { repo, .. } = fixture(false).await;
   let (release, released) = watch::channel(false);
   let (started, mut did_start) = watch::channel(false);
@@ -77,7 +82,7 @@ async fn fixture_with_running_sync() -> (Fixture, RunningSync) {
   let registry = fixture.registry.clone();
   let key = fixture.key.clone();
   let task = tokio::spawn(async move {
-    assert!(registry.sessions().sync(&key, SyncReason::Manual).wait().await.is_ok(), "the held sync completes");
+    assert!(registry.sessions().sync(&key, reason).wait().await.is_ok(), "the held sync completes");
   });
   did_start.wait_for(|started| *started).await.expect("the session sync started");
   (fixture, RunningSync { release, task })
@@ -147,13 +152,13 @@ async fn queued_operation_is_waited(sync: SyncWait) -> bool {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_operation_queued_behind_head_is_reported_as_waited() {
   assert!(queued_operation_is_waited(SyncWait::Running).await);
-  assert!(queued_operation_is_waited(SyncWait::Never).await);
+  assert!(queued_operation_is_waited(SyncWait::Writes).await);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_land_during_a_running_sync_does_not_wait_for_it() {
   let (fixture, sync) = fixture_with_running_sync().await;
-  let (land, waited) = operation_waiting_for_facts(&fixture, SyncWait::Never);
+  let (land, waited) = operation_waiting_for_facts(&fixture, SyncWait::Writes);
   let release_sync = async move {
     assert!(!waited.await.expect("the land prologue returned while the sync was held"));
     assert!(!sync.task.is_finished(), "the session sync is still held");
@@ -165,21 +170,47 @@ async fn a_land_during_a_running_sync_does_not_wait_for_it() {
   assert_eq!(land.unwrap_err().code, ErrorCode::Canceled);
 }
 
+/// Runs an operation of `fixture` waiting for the facts `sync` names, and releases `held` once it waits for a sync
+/// (`WaitingForSync`), held until then: whether the operation reported a wait
+async fn waits_through_held_sync(fixture: &Fixture, held: RunningSync, sync: SyncWait) -> bool {
+  let (operation, waited) = operation_waiting_for_facts(fixture, sync);
+  let release_sync = async move {
+    fixture
+      .until(|operations| operations.iter().any(|operation| operation.step == OperationStep::WaitingForSync))
+      .await;
+    assert!(!held.task.is_finished(), "the operation waits while the session sync is held");
+    held.release.send_replace(true);
+    held.task.await.expect("the held sync task finishes");
+  };
+  let (operation, ()) = tokio::join!(operation, release_sync);
+  assert_eq!(operation.unwrap_err().code, ErrorCode::Canceled);
+  waited.await.expect("the operation reported its wait")
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_during_a_running_sync_waits_for_it() {
   let (fixture, sync) = fixture_with_running_sync().await;
-  let (push, waited) = operation_waiting_for_facts(&fixture, SyncWait::Running);
-  let fixture_ref = &fixture;
-  let release_sync = async move {
-    fixture_ref
-      .until(|operations| operations.iter().any(|operation| operation.step == OperationStep::WaitingForSync))
-      .await;
-    assert!(!sync.task.is_finished(), "the push is waiting while the session sync is held");
-    sync.release.send_replace(true);
-    sync.task.await.expect("the held sync task finishes");
-  };
+  assert!(waits_through_held_sync(&fixture, sync, SyncWait::Running).await);
+}
 
-  let (push, ()) = tokio::join!(push, release_sync);
-  assert_eq!(push.unwrap_err().code, ErrorCode::Canceled);
-  assert!(waited.await.expect("the push reported its wait"));
+/// The sync an Update Project, a rewrite or a fetch asked as it ended (`AfterRewrite`) rebuilds the branches a start
+/// pushes: a start admitted while it runs, after the operation that asked it ended, waits for it and decides on its table
+#[tokio::test(flavor = "multi_thread")]
+async fn a_land_during_the_sync_of_a_write_waits_for_it() {
+  for sync in [SyncWait::Writes, SyncWait::Running] {
+    let (fixture, held) = fixture_with_running_sync_of(SyncReason::AfterRewrite).await;
+    assert!(waits_through_held_sync(&fixture, held, sync).await, "{sync:?}");
+  }
+}
+
+/// A write asked during a run no write asked (⌘R) is synced by the follow-up: an operation waits for that follow-up
+/// too, though the running sync is not the write's, and a start, which waits for no ⌘R, waits for it
+#[tokio::test(flavor = "multi_thread")]
+async fn an_operation_waits_for_the_follow_up_of_a_write_asked_during_a_running_sync() {
+  let (fixture, held) = fixture_with_running_sync().await;
+  // asked before the operation runs: the mailbox of the session hears it first
+  let ticket = fixture.registry.sessions().sync(&fixture.key, SyncReason::AfterRewrite);
+  let write = tokio::spawn(async move { ticket.wait().await.is_ok() });
+  assert!(waits_through_held_sync(&fixture, held, SyncWait::Writes).await);
+  assert!(write.await.expect("the write's sync ends"), "the follow-up synced the write");
 }

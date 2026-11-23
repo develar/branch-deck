@@ -1,7 +1,7 @@
 use crate::events::EventSink;
 use crate::journal::read;
 use crate::land_execute::Accepted;
-use crate::push::push_test::{AGENT_PUSH, OFFLINE, TestLease, host_under, registry_of, registry_on};
+use crate::push::push_test::{AGENT_PUSH, OFFLINE, TestLease, host_under, registry_of, registry_on, sync_as_another_process};
 use crate::registry::Registry;
 use crate::registry::registry_test::{Heard, operations_until, view_operations};
 use crate::rewrite::execute_rewrite;
@@ -850,4 +850,73 @@ async fn a_merge_by_rebase_is_followed_by_an_update_that_drops_the_original_whos
   assert_eq!(result.landed.iter().map(|branch| branch.name.clone()).collect::<Vec<_>>(), [Some("alpha".to_owned())]);
   assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), merged);
   assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");
+}
+
+/// The plan of the start of alpha once the Patronus view and its landing needs of the session are in, as the click
+/// accepts it
+async fn accepted_start_of_alpha(registry: &Registry, key: &SessionKey) -> (Intent, Accepted) {
+  let intent = land_intent("alpha", PatronusPushMode::RebaseAutosquash);
+  let plan = within_a_minute(async {
+    loop {
+      if let Some(plan) = crate::engine::prepare(registry.sessions(), key, intent.clone()).await.unwrap()
+        && plan.waits.is_empty()
+      {
+        break plan;
+      }
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  let accepted = Accepted {
+    fingerprint: plan.fingerprint,
+    confirmations: plan.confirmations,
+  };
+  (intent, accepted)
+}
+
+/// Runs the start of alpha `start` the click accepted on the session of `repo` after a commit of alpha its branch was
+/// rebuilt with: it waited for a sync (`WaitingForSync`) and pushed the build with that commit into the target
+async fn assert_lands_the_rebuild(repo: &TestRepo, (registry, key): (&Registry, &SessionKey), (intent, accepted): (Intent, Accepted)) {
+  let heard = Arc::new(Heard::default());
+  let events = Arc::clone(&heard) as Arc<dyn EventSink>;
+  let outcome = within_a_minute(Box::pin(crate::engine::execute(registry, key, intent, accepted, OFFLINE.hosts(), events)))
+    .await
+    .unwrap();
+  assert!(
+    matches!(effects(&outcome).as_slice(), [(PlannedEffect::PushBaseline { .. }, "done")]),
+    "{:?}",
+    outcome.effects
+  );
+  assert!(steps(&heard).contains(&OperationStep::WaitingForSync));
+  let landed = repo.git(&["--git-dir", ".git/origin.git", "log", "--format=%s", "master"]);
+  assert_eq!(landed, "More alpha\nAlpha\nInitial commit", "the build with the commit landed");
+}
+
+/// A start asked while the sync of a write of the session runs (the one an Update Project or a rewrite asked as it
+/// ended) waits for that sync, which rebuilds the branch it lands: it lands that build, decided again on the table of
+/// that sync, never the build of the table the click saw, and is never refused as a plan that changed
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_during_the_sync_of_a_write_waits_for_it_and_lands_the_branch_it_rebuilt() {
+  let (repo, registry, key) = push_landing_fixture().await;
+  let start = accepted_start_of_alpha(&registry, &key).await;
+  repo.create_commit("(alpha) More alpha", "more.txt", "more\n");
+  // asked before the start: the session hears it first, as the sync an Update Project asks before its operation ends
+  let write = registry.sessions().sync(&key, SyncReason::AfterRewrite);
+  assert_lands_the_rebuild(&repo, (&registry, &key), start).await;
+  write.wait().await.unwrap();
+}
+
+/// The virtual branch of a start that another process rebuilt after the sync of the session (`brd sync` beside the
+/// app, after a commit) moved before the first effect of the start: the start waits for the sync of the session that
+/// shows it and lands that build, decided again once, never refused as a plan that changed
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_whose_branch_another_process_rebuilt_lands_that_build_after_the_sync_that_shows_it() {
+  let (repo, registry, key) = push_landing_fixture().await;
+  let start = accepted_start_of_alpha(&registry, &key).await;
+  let before = repo.rev_parse("test/virtual/alpha").unwrap();
+  repo.create_commit("(alpha) More alpha", "more.txt", "more\n");
+  sync_as_another_process(&repo).await;
+  assert_ne!(repo.rev_parse("test/virtual/alpha").unwrap(), before, "the other process rebuilt the branch");
+
+  assert_lands_the_rebuild(&repo, (&registry, &key), start).await;
 }

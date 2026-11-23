@@ -701,10 +701,12 @@ fn plan_with_confirmations(confirmations: Vec<Confirmation>) -> Plan {
   }
 }
 
-/// A waited plan is retryable only when its target tracking ref alone changed
+/// A waited plan is retryable only when its target tracking ref alone changed (`BaselineMoved`), and one whose local
+/// branches alone moved is decided again after the sync that moved them (`NotRun::BranchesMoved`); a remote-tracking ref
+/// that moved besides refuses it
 #[test]
 fn only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal() {
-  use super::{only_target_ref_moved, witnessed_or_retry_target};
+  use super::{NotRun, only_target_ref_moved, witnessed_or_retry_target};
   let plan = plan_with_confirmations(Vec::new());
   let target_ref = "refs/remotes/origin/master";
   let witness = Witness {
@@ -714,20 +716,32 @@ fn only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal() {
     leases: BTreeMap::new(),
     route: None,
   };
+  let code = |not_run: NotRun| not_run.into_error().code;
   let mut target_moved = witness.refs.clone();
   target_moved.insert(target_ref.to_owned(), Some("new-base".to_owned()));
   assert!(only_target_ref_moved(&plan, &witness, &target_moved));
-  assert_eq!(witnessed_or_retry_target(&plan, &witness, &target_moved, true).unwrap_err().code, ErrorCode::BaselineMoved);
-  assert_eq!(witnessed_or_retry_target(&plan, &witness, &target_moved, false).unwrap_err().code, ErrorCode::PlanChanged);
+  assert_eq!(code(witnessed_or_retry_target(&plan, &witness, &target_moved, true).unwrap_err()), ErrorCode::BaselineMoved);
+  assert!(matches!(
+    witnessed_or_retry_target(&plan, &witness, &target_moved, false).unwrap_err(),
+    NotRun::Refused(error) if error.code == ErrorCode::PlanChanged
+  ));
 
   let mut another_ref_moved = witness.refs.clone();
   another_ref_moved.insert("refs/heads/main".to_owned(), Some("new-head".to_owned()));
   let mut both_refs_moved = another_ref_moved.clone();
   both_refs_moved.insert(target_ref.to_owned(), Some("new-base".to_owned()));
-  for moved in [another_ref_moved, both_refs_moved] {
-    assert!(!only_target_ref_moved(&plan, &witness, &moved));
-    assert_eq!(witnessed_or_retry_target(&plan, &witness, &moved, true).unwrap_err().code, ErrorCode::PlanChanged);
+  assert!(!only_target_ref_moved(&plan, &witness, &another_ref_moved));
+  for waited in [true, false] {
+    assert!(matches!(
+      witnessed_or_retry_target(&plan, &witness, &another_ref_moved, waited).unwrap_err(),
+      NotRun::BranchesMoved(error) if error.code == ErrorCode::PlanChanged && error.message.contains("(main moved)")
+    ));
   }
+  assert!(!only_target_ref_moved(&plan, &witness, &both_refs_moved));
+  assert!(matches!(
+    witnessed_or_retry_target(&plan, &witness, &both_refs_moved, true).unwrap_err(),
+    NotRun::Refused(error) if error.code == ErrorCode::PlanChanged
+  ));
 }
 
 /// A retry updates the accepted fingerprint, but never silently accepts a new confirmation

@@ -19,6 +19,11 @@
 //! - `Stamp` (`bd` touched the stamp of the repository after a mutation, `operations::registry_watch`) is a focus that
 //!   no window gained, decided as a focus: it runs when the inputs changed since the last run, at once in a session that
 //!   never ran, and while a run is in flight it checks once after the chain.
+//! - A wait for the writes (`after_writes`) runs nothing: it joins the run that serves the last `AfterRewrite` not yet
+//!   ended (the follow-up when one waits there, else the run in flight, or the run its check starts), and answers at
+//!   once `Skipped` when every write is synced. An operation of the session decides on the table that run commits
+//!   (`operations::run_frame::wait_for_facts`): the sync an Update Project, a rewrite or a fetch asked as it ended, also
+//!   while a focus check runs.
 //! - A focus or a stamp of a session without subscribers is skipped: no window shows it, so nothing runs. So is one of a
 //!   session that does not sync of itself (the request says it, `syncs_itself`): its worktree was never synced, by the
 //!   app or by `brd`, and the user asked no Sync and no rewrite of it yet. Its first sync is the user's, as it creates
@@ -94,8 +99,12 @@ pub(crate) struct SyncScheduler<W> {
   phase: Phase,
   /// The requests the check or the run in flight serves
   serving: Vec<W>,
+  /// Whether the check or the run in flight serves an `AfterRewrite`: the sync of a write of the session
+  serving_writes: bool,
   /// The requests a run made while one was in flight: one quiet follow-up serves them all
   follow_up: Vec<W>,
+  /// Whether the follow-up serves an `AfterRewrite`
+  follow_up_writes: bool,
   /// The focuses while a run was in flight: one check after the chain serves them all
   recheck: Vec<W>,
   /// What the last run that ended read and how it ended; `None` before one, or when git could not tell
@@ -111,7 +120,9 @@ impl<W> SyncScheduler<W> {
     Self {
       phase: Phase::Idle,
       serving: Vec::new(),
+      serving_writes: false,
       follow_up: Vec::new(),
+      follow_up_writes: false,
       recheck: Vec::new(),
       last: None,
       pushed_meanwhile: Vec::new(),
@@ -150,9 +161,11 @@ impl<W> SyncScheduler<W> {
       };
     }
     let open = reason == SyncReason::Open;
+    let write = reason == SyncReason::AfterRewrite;
     match self.phase {
       Phase::Idle => {
         self.serving.push(waiter);
+        self.serving_writes = write;
         if checks_inputs && self.last.as_ref().is_some_and(|last| last.answers(open)) {
           self.phase = Phase::Checking { open };
           Decision::next(Step::CheckInputs)
@@ -176,9 +189,33 @@ impl<W> SyncScheduler<W> {
       }
       Phase::Checking { .. } | Phase::Running { .. } => {
         self.follow_up.push(waiter);
+        self.follow_up_writes |= write;
         Decision::next(Step::Nothing)
       }
     }
+  }
+
+  /// A wait for the sync of the writes of the session (`AfterRewrite`) that has not ended: `waiter` joins the run that
+  /// serves the last of them (the follow-up when one waits there, else the check or the run in flight, which serves it),
+  /// or is answered `Skipped` at once when there is none. It asks no run
+  pub(crate) fn after_writes(&mut self, waiter: W) -> Decision<W> {
+    if self.follow_up_writes {
+      self.follow_up.push(waiter);
+    } else if self.serving_writes && self.phase != Phase::Idle {
+      self.serving.push(waiter);
+    } else {
+      return Decision {
+        resolve: vec![(waiter, Ok(SyncOutcome::Skipped))],
+        next: Step::Nothing,
+      };
+    }
+    Decision::next(Step::Nothing)
+  }
+
+  /// Whether a sync of a write of the session has not ended (`after_writes` would wait)
+  #[cfg(test)]
+  pub(crate) const fn writes_pending(&self) -> bool {
+    self.follow_up_writes || self.serving_writes && !matches!(self.phase, Phase::Idle)
   }
 
   /// A push of the session left the remote-tracking refs `refs`, each at its commit or gone (`None`): the table has its
@@ -207,11 +244,13 @@ impl<W> SyncScheduler<W> {
     if let Some(answer) = answer {
       let mut resolve = self.serving.drain(..).map(|waiter| (waiter, answer.clone())).collect();
       self.phase = Phase::Idle;
+      self.serving_writes = false;
       let next = self.after_chain(watched, &mut resolve);
       return Decision { resolve, next };
     }
     let follow_up = std::mem::take(&mut self.follow_up);
     self.serving.extend(follow_up);
+    self.serving_writes |= std::mem::take(&mut self.follow_up_writes);
     Decision::next(self.start(inputs, false))
   }
 
@@ -246,6 +285,7 @@ impl<W> SyncScheduler<W> {
     };
     let mut resolve = self.serving.drain(..).map(|waiter| (waiter, settled.clone())).collect();
     self.phase = Phase::Idle;
+    self.serving_writes = false;
     let next = self.after_chain(watched, &mut resolve);
     Decision { resolve, next }
   }
@@ -255,6 +295,7 @@ impl<W> SyncScheduler<W> {
   fn after_chain(&mut self, watched: bool, resolve: &mut Vec<(W, Settled)>) -> Step {
     if !self.follow_up.is_empty() {
       self.serving = std::mem::take(&mut self.follow_up);
+      self.serving_writes = std::mem::take(&mut self.follow_up_writes);
       return self.start(None, false);
     }
     let recheck = std::mem::take(&mut self.recheck);
@@ -278,6 +319,8 @@ impl<W> SyncScheduler<W> {
   /// session opens anew for another lease of its slot (`Actor::finish_run`); the scheduler is idle after it
   pub(crate) fn abandon(&mut self) -> Vec<W> {
     self.phase = Phase::Idle;
+    self.serving_writes = false;
+    self.follow_up_writes = false;
     let mut waiters = std::mem::take(&mut self.serving);
     waiters.append(&mut self.follow_up);
     waiters.append(&mut self.recheck);

@@ -23,8 +23,8 @@
 //! and its sync. It adds HEAD after any fetch and sends the start outcome before the update outcome on the same channel.
 
 use crate::events::EventSink;
-use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
-use crate::land_session::{SessionStart, pull_request_start, session_start};
+use crate::land_execute::{self, Accepted, NotRun, Planned, StartHost, StartServices, Steps};
+use crate::land_session::{SessionStart, StartFetch, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::run_frame::{self, SyncWait, wait_for_facts};
@@ -247,17 +247,48 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
   .with_record(guard.record())
 }
 
-/// Runs `planned`, decided again once its operation `guard` was admitted, on `start` (the host and the services of the
-/// session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the view:
-/// on the plan the wait left after it `waited` (in the queue, or for the sync of a push), on the one `accepted` names
-/// else (`Accepted::decided_again`); answers its outcome
-pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, StartServices), planned: Planned, accepted: &Accepted, waited: bool) -> Answer {
+/// How an operation decides its plan once admitted: on what the operations and the syncs it `waited` for left, and
+/// whether a move of its branches before its first effect may still have it decided again (once per operation)
+pub(crate) struct Replan {
+  pub(crate) waited: bool,
+  again: bool,
+}
+
+impl Replan {
+  /// The plan of an operation that `waited` for facts once admitted (`run_frame::wait_for_facts`)
+  pub(crate) const fn after(waited: bool) -> Self {
+    Self { waited, again: true }
+  }
+}
+
+/// Runs `planned`, decided again once the operation of `guard` was admitted, on `start` (the host and the services of
+/// the session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the
+/// view: on the plan the wait left after it waited (`Replan::waited`: in the queue, or for the sync of a push), on the
+/// one `accepted` names else (`Accepted::decided_again`); answers its outcome. A plan whose local branches alone moved
+/// before its first effect (`NotRun::BranchesMoved`: a sync moved them since the table it was decided on) waits for the
+/// sync that shows them (`run_frame::catch_up`), once per operation, and answers `None`: the caller decides it again
+/// after that wait and runs it here once more; a second move refuses it
+pub(crate) async fn run_planned_in(
+  guard: &RunningGuard,
+  (sessions, key): (&Sessions, &SessionKey),
+  start: &(SessionStart, StartServices),
+  planned: Planned,
+  accepted: &Accepted,
+  replan: &mut Replan,
+) -> Option<Answer> {
   let (host, services) = start;
   let steps = steps_of(guard);
-  let accepted = accepted.decided_again(&planned.plan, waited);
+  let decided = accepted.decided_again(&planned.plan, replan.waited);
   // the run of a plan is a large future: on the heap
-  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted, waited)).await?;
-  Ok(started.outcome)
+  match Box::pin(land_execute::try_planned(host, services, &steps, guard.id().clone(), planned, &decided, replan.waited)).await {
+    Ok(started) => Some(Ok(started.outcome)),
+    Err(NotRun::BranchesMoved(error)) if replan.again => {
+      debug!(error = %error.message, "a branch of the plan moved before its first effect: decided again on the sync that shows it");
+      *replan = Replan { waited: true, again: false };
+      run_frame::catch_up(sessions, key, guard).await.err().map(Err)
+    }
+    Err(not_run) => Some(Err(not_run.into_error())),
+  }
 }
 
 /// What an operation holds once admitted, and whether it held more once already (`cover`)
@@ -333,7 +364,10 @@ impl Holding {
 /// robot, `pull_request_start`)
 /// with its steps in the view and its progress and outcome to `events`, on
 /// the table of the last sync and what the operations it queued behind left (the push of its branch pressed just before
-/// it: the start pushes nothing more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
+/// it: the start pushes nothing more), after the sync of the writes of the session (`SyncWait::Writes`: the one an
+/// Update Project before it asked, which rebuilds the branches it pushes), the target fetched meanwhile
+/// (`StartFetch`); a plan whose branches a sync moved before its first effect is decided once more on the table of
+/// that sync (`run_frame::catch_up`); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
 /// guard (`land_direct::update_after`): its steps and, after the start's `Done`, its outcome go to `events`, while the
 /// target stays held until its sync; the answer is the start's. The journal contains one operation for both phases
 ///
@@ -346,37 +380,72 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   let planned = land::prepare_planned(sessions, key, land.clone()).await;
   let request = land_request(&key.prefix, &land, planned.as_ref());
   let mut holding = Holding::new(request.resources.clone());
+  // the target its checks replay onto, fetched beside its wait for facts: a start that lands by a push into the
+  // target replays nothing
+  let prefetch = planned.as_ref().is_some_and(|planned| !pushes_into_target(&planned.plan));
+  // what the plan of the click waited for: a fact it had answered that a sync makes the session read again is waited for
+  let waited_before = planned.as_ref().map(|planned| planned.plan.waits.clone());
+  let fetch = StartFetch::default();
   run(registry, key, request, Arc::clone(&events), async |guard| {
-    // A start lands the table of the last sync; it needs nothing a running sync writes.
-    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Never).await.waited;
+    // A start lands the table of the last sync, and the one the sync of a write of the session (an Update Project, a
+    // rewrite) commits: that sync rebuilds the branches it pushes; it waits for no other sync
+    let facts = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Writes);
+    let fetched = async {
+      if prefetch {
+        // an error of the fetch is a note of the check that reads it
+        let _ = fetch.fetched(&services.git(), &key.worktree).await;
+      }
+    };
+    // a sync of the writes that failed leaves the table of the last one: the witness tells the branches it moved
+    let (facts, ()) = tokio::join!(facts, fetched);
+    let mut waited = facts.waited;
     // planned over the host that needs no Patronus, then run over the host of the route its plan decided: a robot of
     // Patronus needs its service (`session_start` refuses where there is none), a push into the target does not
     let (mut host, mut run) = pull_request_start(services, sessions, key).await?;
-    host.exclude_operation(guard.id().clone());
+    let of_this_start = |host: &mut SessionStart| {
+      host.exclude_operation(guard.id().clone());
+      host.share_fetch(fetch.clone());
+      if let Some(waits) = &waited_before {
+        host.answered_before(waits);
+      }
+    };
+    of_this_start(&mut host);
     let steps = steps_of(guard);
     steps.step(OperationStep::Checking);
-    let (planned, queued) = covered_plan(&host, &land, guard, &mut holding).await?;
+    let (mut planned, queued) = covered_plan(&host, &land, guard, &mut holding).await?;
     waited |= queued;
     let into_target = pushes_into_target(&planned.plan);
     if !into_target {
       (host, run) = session_start(services, sessions, key).await?;
-      host.exclude_operation(guard.id().clone());
+      of_this_start(&mut host);
     }
-    let decided = accepted.decided_again(&planned.plan, waited);
-    let started = match land_execute::run_planned(&host, &run, &steps, guard.id().clone(), planned, &decided, waited).await {
-      Ok(started) => started,
-      Err(error) if waited && error.code == ErrorCode::BaselineMoved => {
-        run_frame::refresh_baseline(sessions, key, guard, hosts).await?;
-        // decided again on the updated baseline, over what the admission and the first plan held: one hold of more for
-        // both plans; on the host of the route the first plan decided
-        let (planned, _) = covered_plan(&host, &land, guard, &mut holding).await?;
-        if pushes_into_target(&planned.plan) != into_target {
-          return Err(plan_changed(&planned.plan.intent, Some("it lands by another route after the update of its baseline")));
+    // one plan decided again per start: after the update of its baseline (`BaselineMoved`), or after the sync that
+    // moved its branches before its first effect (`NotRun::BranchesMoved`); over what the admission and the first plan
+    // held, one hold of more for both plans, on the host of the route the first plan decided
+    let mut decided = accepted.decided_again(&planned.plan, waited);
+    let mut again = true;
+    let started = loop {
+      let changed = match land_execute::try_planned(&host, &run, &steps, guard.id().clone(), planned, &decided, waited).await {
+        Ok(started) => break started,
+        Err(NotRun::Refused(error)) if again && waited && error.code == ErrorCode::BaselineMoved => {
+          run_frame::refresh_baseline(sessions, key, guard, hosts).await?;
+          "it lands by another route after the update of its baseline"
         }
-        let accepted = accepted.decided_again(&planned.plan, true);
-        land_execute::run_planned(&host, &run, &steps, guard.id().clone(), planned, &accepted, false).await?
+        Err(NotRun::BranchesMoved(error)) if again => {
+          debug!(error = %error.message, "a branch of the start moved before its first effect: decided again on the sync that shows it");
+          run_frame::catch_up(sessions, key, guard).await?;
+          "it lands by another route after the sync that moved its branches"
+        }
+        Err(not_run) => return Err(not_run.into_error()),
+      };
+      again = false;
+      (planned, _) = covered_plan(&host, &land, guard, &mut holding).await?;
+      if pushes_into_target(&planned.plan) != into_target {
+        return Err(plan_changed(&planned.plan.intent, Some(changed)));
       }
-      Err(error) => return Err(error),
+      decided = accepted.decided_again(&planned.plan, true);
+      // the plan decided again runs as asked: no retry signal of the target any more
+      waited = false;
     };
     if let Some(intent) = update_after(&started.outcome.effects) {
       // the start's outcome comes first on the channel; the follow-up keeps the target held until its sync ends

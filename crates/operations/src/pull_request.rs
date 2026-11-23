@@ -20,7 +20,7 @@
 //! request the reviewers of its pull request (`PullRequestField::Reviewers`), so a retarget of it runs beside, unless its
 //! push retargets the pull request too, which holds its base.
 
-use crate::engine::{Holding, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
+use crate::engine::{Holding, Replan, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
@@ -737,19 +737,19 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
   }
   let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited;
+    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited);
+    let start = pull_request_start(services, sessions, key).await?;
     // decided again once admitted: an operation it waited for changed what it decides on; what it holds more is held
     // before its first effect
-    let planned = loop {
+    loop {
       let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-      if holding
-        .covers(guard, &pull_request_request(&intent, Some(&planned)).resources, &intent, &mut waited)
-        .await?
+      let needs = pull_request_request(&intent, Some(&planned)).resources;
+      if holding.covers(guard, &needs, &intent, &mut replan.waited).await?
+        && let Some(answer) = run_planned_in(guard, (sessions, key), &start, planned, &accepted, &mut replan).await
       {
-        break planned;
+        return answer;
       }
-    };
-    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, waited).await
+    }
   })
   .await
 }

@@ -168,6 +168,15 @@ pub(crate) async fn fixture(synced: bool) -> Fixture {
   Fixture { repo, registry, key }
 }
 
+/// Syncs `repo` under the prefix `test` as another process does (`brd sync` beside the app): it writes the virtual
+/// branches, and no session learns of it until it syncs
+pub(crate) async fn sync_as_another_process(repo: &TestRepo) {
+  let reporter = test_utils::sync_fixtures::TestReporter::new();
+  sync_core::sync::sync_branches(repo.git_executor(), repo.path_str(), "test", reporter, SyncOptions::default())
+    .await
+    .unwrap();
+}
+
 /// The host of the sessions of the tests: their syncs run with git as the app's do
 pub(crate) fn test_host() -> Arc<dyn SessionHost> {
   Arc::new(GitSessionHost::new(GitCommandExecutor::new(), TestEnvironment::default()))
@@ -1522,4 +1531,24 @@ fn a_push_is_admitted_with_the_bases_of_its_stack_and_the_robots_of_the_branch_i
     ]
   );
   assert_eq!(sources.with(|sources| super::admission_holds(sources, &push(true, PushScope::Unapplied))), []);
+}
+
+/// A branch another process rebuilt after the sync of the session (`brd sync` beside the app, after a commit) moved
+/// before the first effect of its push: the push waits for the sync of the session that shows it and pushes that build,
+/// decided again once, never refused as a plan that changed
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_whose_branch_another_process_rebuilt_pushes_that_build_after_the_sync_that_shows_it() {
+  let fixture = fixture(true).await;
+  let push = alone("beta", None);
+  let accepted = Accepted {
+    fingerprint: fixture.plan(&push).await.fingerprint,
+    confirmations: Vec::new(),
+  };
+  fixture.repo.create_commit("(alpha/beta) More beta", "more.txt", "more\n");
+  sync_as_another_process(&fixture.repo).await;
+  let rebuilt = fixture.repo.rev_parse("test/virtual/beta").unwrap();
+
+  let outcome = execute_push(&fixture.registry, &fixture.key, push, accepted, &OFFLINE, Arc::new(NoEvents)).await.unwrap();
+  assert!(matches!(outcome.effects.as_slice(), [pushed] if pushed.status == EffectStatus::Done), "{outcome:?}");
+  assert_eq!(fixture.remote_tip("beta"), rebuilt, "the build of the other process went");
 }

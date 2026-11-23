@@ -717,7 +717,9 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    token could only fail as `undo_stale` after that. Then the operation asks the sync that shows what it changed
    (`SyncReason::AfterRewrite`, the effect `Sync`; none when the core changed nothing) and ends: it does not wait for
    that sync, a rewrite queued behind it runs beside it, and the sync of the one after joins its chain as one
-   follow-up. Its request answers once that sync ended, with the version of its last patch (`Outcome::version_after`),
+   follow-up. An operation that plans on the table (a start, a push, a pull request intent, a restart) waits for that
+   sync, the sync of the writes of the session (`Sessions::after_writes`: the run that serves the last `AfterRewrite`
+   not yet ended, also one a focus check or a run before it delays), as it rebuilds the branches the operation pushes. Its request answers once that sync ended, with the version of its last patch (`Outcome::version_after`),
    so the toast of the window that asked shows beside what it changed; without that sync, or after one that failed, the
    version of the patch of the offer, so the toast shows with its Undo; a request that joined it answers as it ended.
    A delete asks no sync: the table drops the branch at once (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
@@ -4913,8 +4915,8 @@ and holds the repository lock only in the second (C1, [Rust as the Domain Author
    before left; a second click of the same push joins it; the pushes of other refs run side by side. It waits behind
    the rewrites of the process admitted before it (`RunningGuard::wait_behind`: `Queued` behind the newest holder of
    HEAD in the view, holding no HEAD, so a rewrite after it runs at once), then for a sync of its session that runs and
-   the follow-up that starts as it ends (`WaitingForSync`, joining those runs, not the syncs asked after them), and is
-   decided again on what they left; then it reads the
+   the follow-up that starts as it ends, and for the sync of the writes of the session (`WaitingForSync`, joining those
+   runs, not the syncs asked after them), and is decided again on what they left; then it reads the
    user's robots, one full list (none for an unapplied branch, on which no Safe Push runs: C3). `brd push` reads its
    robots and the pull requests once after its sync, as the session reads them ("Agent push").
 2. Under the lock: the full witness and the freeze of the commits and leases of every ref (`PreparedPush::leased`, one
@@ -5043,7 +5045,17 @@ for left, while the user accepted every confirmation of it (`Accepted::decided_a
 creation of a pull request or a review request pressed while the push of its branch sends is one push, then its last
 effect; a plan that changed under a click without a wait is `plan_changed`, worded by what the user asked
 (`witness::plan_changed`: "What the push of auth was decided on changed before it began; nothing was done: push
-again"). `operations/src/land_execute_test.rs` pins the order of the effects, the lock free while the
+again"). A start waits for no sync but the sync of the writes of the session (`SyncWait::Writes`: the one an Update
+Project or a rewrite before it asked, which rebuilds the branch it lands), its target fetched meanwhile, once
+(`land_session::StartFetch`, onto which every check of the start replays), and the facts of its plan that the plan
+of the click had answered and that sync made the session read again (the review of the commits it rebuilt), within a
+minute (`SessionStart::answered_before`); a start pressed during ⌘R or a focus sync starts at once on the table of the
+last sync. A witness whose local branches alone moved before the first effect
+(`land_execute::NotRun::BranchesMoved`: a sync rebuilt them, or shows the rebuild of `brd sync` beside the app) waits
+for the sync that shows them (`run_frame::catch_up`: the sync of the writes, then `SyncReason::Open`) and is decided
+again once on what the user accepted, for a start, a push, a pull request intent and a restart alike
+(`engine::run_planned_in`); one plan decided again per start, shared with the retry after an update of its baseline; a
+remote-tracking ref that moved, or a second move, is `plan_changed`. `operations/src/land_execute_test.rs` pins the order of the effects, the lock free while the
 push sends, the first failure stopping the start, a rewrite while the push sends, and the refusals before the first
 effect; `remote_fixtures_test.rs` (`a_start_through_execute_asks_no_list_of_its_own`) that a start asks Patronus no list
 of its own (C2).
@@ -6147,7 +6159,8 @@ and only a change, `src/model/demand.ts`): `Demand { focused, online, visibleBra
 robotDetails, watchedRobots }`, each list held by the surfaces that show it (`demandReviewReadiness`, `showRobotDetails`, the rows
 whose step waits for the readiness). Of the visible subjects the session asks the readiness only of those whose own next
 step waits for it (`derive::wanted_readiness`, `domain_policy::readiness::wanted`, computed before each update of the
-asks: whether a step waits for the readiness never depends on its answer). The session keeps the demand of each
+asks: whether a step waits for the readiness never depends on its answer), and of the subject of each start that runs
+in the session, which waits for the review of the commits a sync rebuilt. The session keeps the demand of each
 subscription, gone with it, and asks by their
 union (`SessionEventKind::Demand`): the focus sets the cadence of the polls, offline polls nothing, `needed` (the Safe
 Push popover and its click, the "Create pull request" dialog) is asked at once in a call of its own, the visible rows

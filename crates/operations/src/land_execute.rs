@@ -505,15 +505,55 @@ pub async fn run_planned(
   accepted: &Accepted,
   waited: bool,
 ) -> Result<Started, ApiError> {
+  try_planned(host, services, steps, op, planned, accepted, waited).await.map_err(NotRun::into_error)
+}
+
+/// Why a plan did not run, before its first effect
+#[derive(Debug)]
+pub(crate) enum NotRun {
+  /// A local branch the plan pushes (`refs/heads/…`) moved since the table it was decided on, and nothing else of its
+  /// witness: a sync of the session moved it, or shows the write of another process that did, and the plan decided on
+  /// the table that sync commits is what the user asked (`run_frame::catch_up`); `plan_changed` once told
+  BranchesMoved(ApiError),
+  Refused(ApiError),
+}
+
+impl NotRun {
+  pub(crate) fn into_error(self) -> ApiError {
+    match self {
+      Self::BranchesMoved(error) | Self::Refused(error) => error,
+    }
+  }
+}
+
+impl From<ApiError> for NotRun {
+  fn from(error: ApiError) -> Self {
+    Self::Refused(error)
+  }
+}
+
+/// `run_planned`, with a refusal of a witness whose local branches alone moved told apart (`NotRun::BranchesMoved`)
+///
+/// # Errors
+/// As `run_planned`
+pub(crate) async fn try_planned(
+  host: &dyn StartHost,
+  services: &StartServices,
+  steps: &Steps,
+  op: OperationId,
+  planned: Planned,
+  accepted: &Accepted,
+  waited: bool,
+) -> Result<Started, NotRun> {
   // what refuses it now is told as itself, a refusal the check against the newest target found too
   if let Some(blocker) = planned.plan.blockers.first() {
-    return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));
+    return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots).into());
   }
   let intent = &planned.plan.intent;
   check(&accepted.fingerprint, &planned.plan.fingerprint, intent)?;
   check_confirmations(accepted, &planned.plan)?;
   if !planned.plan.waits.is_empty() {
-    return Err(plan_changed(intent, Some("it waits for facts nobody answered yet")));
+    return Err(plan_changed(intent, Some("it waits for facts nobody answered yet")).into());
   }
   // a plan that moves and leases no ref (a restart on the remote branch as it is) has no witness to read, no lock
   let prepared = if planned.witness.refs.is_empty() {
@@ -562,19 +602,41 @@ async fn frozen_under_lock(services: &StartServices, steps: &Steps, witness: &Wi
   .await
 }
 
-/// The witness holds when the refs read now are the ones the plan of `intent` was decided on
-fn witnessed(intent: &Intent, witness: &Witness, read: &BTreeMap<String, Option<String>>) -> Result<(), ApiError> {
+/// What of a witness moved: the full names of its refs whose tips read now differ
+#[derive(Debug)]
+struct WitnessMiss {
+  moved: Vec<String>,
+}
+
+impl WitnessMiss {
+  /// Whether only local branches moved (`refs/heads/…`), no remote-tracking ref: a sync of the session moves them
+  fn local_only(&self) -> bool {
+    self.moved.iter().all(|name| name.starts_with("refs/heads/"))
+  }
+
+  /// `plan_changed` of `intent` naming what moved as git names a branch: "user/virtual/auth", "origin/user/virtual/auth"
+  fn refusal(&self, intent: &Intent) -> ApiError {
+    let moved: Vec<&str> = self
+      .moved
+      .iter()
+      .map(|name| name.strip_prefix("refs/heads/").or_else(|| name.strip_prefix("refs/remotes/")).unwrap_or(name))
+      .collect();
+    plan_changed(intent, Some(&format!("{} moved", moved.join(", "))))
+  }
+}
+
+/// The witness holds when the refs read now are the ones the plan was decided on; else what moved
+fn witnessed(witness: &Witness, read: &BTreeMap<String, Option<String>>) -> Result<(), WitnessMiss> {
   if witness.refs == *read {
     return Ok(());
   }
-  let moved: Vec<&str> = read
+  let moved: Vec<String> = read
     .iter()
     .filter(|(name, tip)| witness.refs.get(*name) != Some(tip))
-    // as git names a branch: "user/virtual/auth", "origin/user/virtual/auth"
-    .map(|(name, _)| name.strip_prefix("refs/heads/").or_else(|| name.strip_prefix("refs/remotes/")).unwrap_or(name))
+    .map(|(name, _)| name.clone())
     .collect();
   debug!(?moved, "a ref of the plan moved before its first effect");
-  Err(plan_changed(intent, Some(&format!("{} moved", moved.join(", ")))))
+  Err(WitnessMiss { moved })
 }
 
 /// A plan may ask for the confirmations its caller accepted, never one newly needed after a waited update
@@ -585,14 +647,21 @@ fn check_confirmations(accepted: &Accepted, plan: &Plan) -> Result<(), ApiError>
   Ok(())
 }
 
-/// A waited landing may refresh once when the only ref that moved is the remote-tracking ref it will push into; every
-/// other mismatch remains `plan_changed`
-fn witnessed_or_retry_target(plan: &Plan, witness: &Witness, read: &BTreeMap<String, Option<String>>, waited: bool) -> Result<(), ApiError> {
-  match witnessed(&plan.intent, witness, read) {
-    Ok(()) => Ok(()),
-    Err(error) if waited && only_target_ref_moved(plan, witness, read) => Err(ApiError::new(ErrorCode::BaselineMoved, error.message)),
-    Err(error) => Err(error),
+/// A waited landing may refresh once when the only ref that moved is the remote-tracking ref it will push into
+/// (`BaselineMoved`); a plan whose local branches alone moved is decided again once after the sync that moved them
+/// (`NotRun::BranchesMoved`); every other mismatch remains `plan_changed`
+fn witnessed_or_retry_target(plan: &Plan, witness: &Witness, read: &BTreeMap<String, Option<String>>, waited: bool) -> Result<(), NotRun> {
+  let Err(miss) = witnessed(witness, read) else {
+    return Ok(());
+  };
+  let error = miss.refusal(&plan.intent);
+  if waited && only_target_ref_moved(plan, witness, read) {
+    return Err(NotRun::Refused(ApiError::new(ErrorCode::BaselineMoved, error.message)));
   }
+  if miss.local_only() {
+    return Err(NotRun::BranchesMoved(error));
+  }
+  Err(NotRun::Refused(error))
 }
 
 /// Whether the only ref that differs from `witness` is the remote-tracking ref of the target of its baseline push

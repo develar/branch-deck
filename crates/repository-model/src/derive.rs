@@ -79,10 +79,10 @@ use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
-use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
+use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandFact, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, PushSlot, RowStatus, StackPullRequest};
-use domain_types::operation::{Resource, RunningOperation};
+use domain_types::operation::{Intent, Resource, RunningOperation};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
@@ -1376,7 +1376,7 @@ pub fn declared_needs_of(table: &BranchTable, unapplied: impl Fn(&str) -> bool, 
 /// the same), of the declared needs of the table now for a declared need, of the fresh landing needs of the view for a
 /// refusal of the gate; `None` while those needs are not fresh (the needs of tips a sync moved are computed), which the
 /// fix waits for. A computation that failed tells nothing, and a session without a table or without a view of its robots
-/// (derived, or of the frame of an earlier run) computes no needs, as a start reads them (`needs_fresh` of the engine):
+/// (derived, or of the frame of an earlier run) computes no needs, as a start reads them (`facts_answered` of the engine):
 /// the fix runs
 #[must_use]
 pub fn landing_refusal_stands(state: &TableState, facts: &FactStore, refusal: &LandingRefusal) -> Option<bool> {
@@ -2101,14 +2101,29 @@ fn shown_tip(tip: Option<&str>) -> Option<&str> {
 }
 
 /// The subjects a window shows (`Demand::visible_branches`, `visible_stacks` by root) whose next step waits for the
-/// readiness (`domain_policy::readiness::wanted`): the session asks only those of them, by subject key
+/// readiness (`domain_policy::readiness::wanted`), and the subject of each start that runs in the session whose decision
+/// waits for it: the session asks only those of them, by subject key. A start decided again after the sync that rebuilt
+/// its branch waits for the review of its new commits (`land_session::SessionStart::answered_before`), whatever its row
+/// shows meanwhile
 #[must_use]
 pub fn wanted_readiness(state: &TableState, facts: &FactStore, prefix: &str, demand: &Demand) -> HashSet<String> {
   let open = session_open_pull_requests(state, facts, prefix);
   let steps = next_steps_of(state, facts, &open, &landed_states_of(state, facts));
   let stacks: Vec<String> = demand.visible_stacks.iter().map(|root| stack_readiness_key(root)).collect();
   let shown = demand.visible_branches.iter().chain(&stacks).map(String::as_str);
-  wanted(shown, |key| steps.get(key).map(|view| &view.step)).into_iter().map(str::to_owned).collect()
+  // of a start whose decision waits for the review: never a Dry Run or a start without approvals, which read none
+  let starting = state.operations().iter().filter_map(|operation| match &operation.intent {
+    Intent::Land(land) => with_land_sources(state, facts, prefix, |sources| land_decision(sources, land))
+      .flatten()
+      .is_some_and(|(decision, _)| decision.waits.iter().any(|wait| wait.fact == LandFact::Readiness))
+      .then(|| land.subject.key()),
+    _ => None,
+  });
+  wanted(shown, |key| steps.get(key).map(|view| &view.step))
+    .into_iter()
+    .map(str::to_owned)
+    .chain(starting)
+    .collect()
 }
 
 /// What the rules decide of `table` over the Patronus facts of `view` (module docs), written into it. `running_spans`:

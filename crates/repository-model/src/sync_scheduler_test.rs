@@ -1,4 +1,4 @@
-use crate::sync_scheduler::{RunEnd, Settled, Step, SyncScheduler};
+use crate::sync_scheduler::{Decision, RunEnd, Settled, Step, SyncScheduler};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncOutcome, SyncReason};
 use pretty_assertions::assert_eq;
@@ -341,4 +341,94 @@ fn a_focus_after_the_sessions_own_push_runs_nothing() {
 
   assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(3, Some(inputs(2)), false));
+}
+
+const SKIPPED: Settled = Ok(SyncOutcome::Skipped);
+
+/// A wait for the writes that joins a run: nothing answered, no run asked
+fn joins(decision: Decision<&'static str>) {
+  assert_eq!((decision.resolve, decision.next), (Vec::new(), Step::Nothing));
+}
+
+/// A wait for the writes with none unsynced asks no run and is answered at once, also during a run no write asked (⌘R)
+/// or a focus check
+#[test]
+fn a_wait_for_the_writes_without_one_unsynced_is_answered_at_once() {
+  let mut scheduler = synced_once();
+  let decision = scheduler.after_writes("idle");
+  assert_eq!((decision.resolve, decision.next), (vec![("idle", SKIPPED)], Step::Nothing));
+
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  let decision = scheduler.after_writes("during manual");
+  assert_eq!((decision.resolve, decision.next), (vec![("during manual", SKIPPED)], Step::Nothing));
+  assert_eq!(scheduler.run_finished(2, Some(inputs(2)), OK, true).resolve, [("manual", SYNCED)]);
+
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  let decision = scheduler.after_writes("during focus");
+  assert_eq!((decision.resolve, decision.next), (vec![("during focus", SKIPPED)], Step::Nothing));
+  assert!(!scheduler.writes_pending());
+}
+
+/// A wait for the writes joins the run that serves the write in flight and resolves with it; a write synced is no
+/// longer waited for
+#[test]
+fn a_wait_for_the_writes_joins_the_run_of_the_write_in_flight() {
+  let mut scheduler = synced_once();
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "update", true, true).next, run(2, None, false));
+  joins(scheduler.after_writes("start"));
+
+  let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
+  assert_eq!(decision.resolve, [("update", SYNCED), ("start", SYNCED)]);
+  assert_eq!(decision.next, Step::Nothing);
+  assert!(!scheduler.writes_pending());
+  assert_eq!(scheduler.after_writes("later").resolve, [("later", SKIPPED)]);
+}
+
+/// A write asked while a run no write asked is in flight, or while a focus check runs, is synced by the follow-up: a
+/// wait for the writes joins that follow-up, not the run before it
+#[test]
+fn a_wait_for_the_writes_joins_the_follow_up_of_a_write_asked_during_a_run_or_a_check() {
+  let mut scheduler = synced_once();
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "rewrite", true, true).next, Step::Nothing);
+  joins(scheduler.after_writes("push"));
+  let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
+  assert_eq!(decision.resolve, [("manual", SYNCED)]);
+  assert_eq!(decision.next, run(3, None, false));
+  assert_eq!(scheduler.run_finished(3, Some(inputs(3)), OK, true).resolve, [("rewrite", SYNCED), ("push", SYNCED)]);
+
+  // the focus check finds nothing changed: the write asked during it runs as its follow-up
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "update", true, true).next, Step::Nothing);
+  joins(scheduler.after_writes("start"));
+  let decision = scheduler.inputs_read(Some(inputs(3)), true);
+  assert_eq!(decision.resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
+  assert_eq!(decision.next, run(4, None, false));
+  assert_eq!(scheduler.run_finished(4, Some(inputs(4)), OK, true).resolve, [("update", SYNCED), ("start", SYNCED)]);
+
+  // the focus check finds a change: its run serves the write asked during it, and the wait with it
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true, true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "fetch", true, true).next, Step::Nothing);
+  joins(scheduler.after_writes("restart"));
+  assert_eq!(scheduler.inputs_read(Some(inputs(5)), true).next, run(5, Some(inputs(5)), false));
+  assert!(scheduler.writes_pending());
+  assert_eq!(
+    scheduler.run_finished(5, Some(inputs(5)), OK, true).resolve,
+    [("focus", SYNCED), ("fetch", SYNCED), ("restart", SYNCED)]
+  );
+  assert!(!scheduler.writes_pending());
+}
+
+/// The sync of a write that failed answers the wait for the writes with its error: the follow-up of a write asked during
+/// ⌘R fails, and the wait hears its error, not the success of the ⌘R before it
+#[test]
+fn a_wait_for_the_writes_hears_the_error_of_the_sync_of_the_write() {
+  let mut scheduler = synced_once();
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true, true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::AfterRewrite, "park", true, true).next, Step::Nothing);
+  joins(scheduler.after_writes("push"));
+  assert_eq!(scheduler.run_finished(2, Some(inputs(2)), OK, true).resolve, [("manual", SYNCED)]);
+  let error = ApiError::new(ErrorCode::Internal, "git failed");
+  let decision = scheduler.run_finished(3, None, RunEnd::Failed(error.clone()), true);
+  assert_eq!(decision.resolve, [("park", Err(error.clone())), ("push", Err(error))]);
 }

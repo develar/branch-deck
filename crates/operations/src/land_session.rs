@@ -16,7 +16,7 @@ use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSetting
 use crate::push::Sent;
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{BaselinePush, Land, LandFact, LandingRefusal, Subject};
+use domain_types::landing::{BaselinePush, FactWait, Land, LandFact, LandingRefusal, Subject};
 use domain_types::landing_route::LandingRoute;
 use domain_types::operation::{OperationId, StartNote};
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
@@ -45,7 +45,7 @@ use sync_core::patronus::no_target_message;
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetOutcome, check_target, fetch_target};
 use sync_utils::span::in_current_span;
-use tracing::warn;
+use tracing::{debug, warn};
 use trial_check::check::CheckSession;
 use trial_check::landing_gate::check_landing_gate;
 
@@ -63,6 +63,37 @@ pub struct SessionStart {
   pub cache: ObjectCache,
   /// The start being planned, which must not count itself as a landing already in flight
   excluded_operation: Option<OperationId>,
+  /// The fetch of the target the checks of the start replay onto, once per start
+  fetch: StartFetch,
+  /// The facts the plan of the click waited for, when it had one (`answered_before`): a fact it had answered that a sync
+  /// since made the session read again (the review of the commits it rebuilt) is waited for, never a refusal
+  waited_before: Option<Vec<LandFact>>,
+}
+
+/// The fetch of the target of one start, run once (`fetched`): beside the wait of the start for the facts of its
+/// session (`engine::execute_land`), and every check of the start (the plan again after a sync moved the tips, after
+/// an update of the baseline) replays onto what it fetched, its error a note of each
+#[derive(Clone, Default)]
+pub struct StartFetch(Arc<tokio::sync::OnceCell<Option<String>>>);
+
+impl StartFetch {
+  /// The fetch of the target of the worktree `path`, run by the first call, which the next ones wait for: the error of
+  /// a fetch that failed (the checks replay onto the tip fetched last)
+  ///
+  /// # Errors
+  /// The thread of the fetch failed
+  pub async fn fetched(&self, git: &GitCommandExecutor, path: &str) -> Result<Option<String>, ApiError> {
+    let (git, path) = (git.clone(), path.to_owned());
+    self
+      .0
+      .get_or_try_init(async move || {
+        tokio::task::spawn_blocking(in_current_span(move || fetch_target(&git, &path, None).into_error()))
+          .await
+          .map_err(|error| ApiError::internal(format!("The fetch of the target of the start failed: {error}")))
+      })
+      .await
+      .cloned()
+  }
 }
 
 /// What the plan of a start reads of the session before its checks: the tip of what lands and the baseline it is
@@ -79,6 +110,17 @@ impl SessionStart {
   /// Excludes the current start when it derives whether another landing holds its target
   pub fn exclude_operation(&mut self, operation: OperationId) {
     self.excluded_operation = Some(operation);
+  }
+
+  /// Its checks replay onto the target `fetch` fetched (or fetches), the fetch of the start that runs
+  pub fn share_fetch(&mut self, fetch: StartFetch) {
+    self.fetch = fetch;
+  }
+
+  /// The start was asked on a plan that waited for `waits` (none answered of them): a fact of its plan unanswered now
+  /// that the plan asked had answered is one a sync made the session read again, which it waits for
+  pub fn answered_before(&mut self, waits: &[FactWait]) {
+    self.waited_before = Some(waits.iter().map(|wait| wait.fact.clone()).collect());
   }
 
   async fn inputs(&self, subject: &Subject) -> Option<Inputs> {
@@ -119,12 +161,21 @@ impl SessionStart {
       .flatten()
   }
 
-  /// The checks of the start on the blocking pool, side by side: against the newest target (the target fetched first, a
-  /// failed fetch replays onto the tip fetched last), and of a whole stack its landing gate; what did not run in full is
-  /// a note, never a refusal
+  /// The checks of the start on the blocking pool, side by side: against the newest target (the target the start
+  /// fetched, `StartFetch`; a failed fetch replays onto the tip fetched last), and of a whole stack its landing gate; what
+  /// did not run in full is a note, never a refusal
   async fn checks(&self, subject: &Subject, inputs: Inputs) -> Result<(StartChecks, Vec<StartNote>), ApiError> {
-    let (git, path, baseline, tip) = (self.git.clone(), self.key.worktree.clone(), inputs.baseline, inputs.tip);
-    let target = tokio::task::spawn_blocking(in_current_span(move || target_check(&git, &path, &baseline, tip)));
+    let failed = |error: tokio::task::JoinError| ApiError::internal(format!("A check of the start failed: {error}"));
+    let (git, path, baseline, tip, fetch) = (self.git.clone(), self.key.worktree.clone(), inputs.baseline, inputs.tip, self.fetch.clone());
+    let target = async move {
+      let Some(tip) = tip else {
+        return Ok((None, Vec::new()));
+      };
+      let fetch_error = fetch.fetched(&git, &path).await?;
+      tokio::task::spawn_blocking(in_current_span(move || target_check(&git, &path, &baseline, &tip, fetch_error)))
+        .await
+        .map_err(failed)
+    };
     let gate = match (subject, inputs.landed) {
       (Subject::WholeStack { .. }, Some(landed)) => {
         let (git, path, prefix, cache, subject) = (self.git.clone(), self.key.worktree.clone(), self.key.prefix.clone(), self.cache.clone(), subject.clone());
@@ -137,8 +188,7 @@ impl SessionStart {
       // the landing gate of a branch is the landing needs of the view, which the session keeps for the refs of its sync
       _ => None,
     };
-    let failed = |error: tokio::task::JoinError| ApiError::internal(format!("A check of the start failed: {error}"));
-    let (target_conflict, mut notes) = target.await.map_err(failed)?;
+    let (target_conflict, mut notes) = target.await?;
     let gate = match gate {
       None => None,
       Some(gate) => Some(gate_refusals(gate.await.map_err(failed)?, &mut notes)),
@@ -167,28 +217,20 @@ impl SessionStart {
     Ok(planned.flatten().flatten().map(|planned| Planned { notes, ..planned }))
   }
 
-  /// Whether the landing needs `land` reads are fresh in the session as it is: its plan without the checks of the start
-  /// (a read of the session, no git) waits for none of them; a subject the session lacks waits for nothing
-  async fn needs_fresh(&self, land: &Land) -> bool {
-    let (prefix, land) = (self.key.prefix.clone(), land.clone());
-    let planned = self
-      .sessions
-      .read(&self.key, move |state, facts| {
-        with_checked_land_sources(state, facts, &prefix, &StartChecks::default(), |sources| planned_of(sources, &land))
-      })
-      .await;
-    planned.flatten().flatten().is_none_or(|planned| !waits_for_landing_needs(&planned))
+  /// Whether the facts `facts` of what `land` reads are answered in the session as it is: its plan without the checks of
+  /// the start (a read of the session, no git) waits for none of them; a subject the session lacks waits for nothing
+  async fn facts_answered(&self, land: &Land, facts: &[LandFact]) -> bool {
+    self.sessions.read(&self.key, answered_in(&self.key.prefix, land, facts)).await.unwrap_or(true)
   }
 
-  /// Waits until the landing needs `land` reads are fresh (`needs_fresh`), asked again after each patch of the session
-  /// while they are computed (a sync moved the tips, a Safe Push merged, the queue of the start held a sync)
-  async fn wait_for_landing_needs(&self, land: &Land) -> Result<(), ApiError> {
-    let (prefix, land) = (self.key.prefix.clone(), land.clone());
-    when_session_answers(&self.sessions, &self.key, move |state, facts| {
-      let planned = with_checked_land_sources(state, facts, &prefix, &StartChecks::default(), |sources| planned_of(sources, &land));
-      planned.flatten().is_none_or(|planned| !waits_for_landing_needs(&planned)).then_some(())
-    })
-    .await
+  /// Waits until the facts `asked` of what `land` reads are answered (`facts_answered`), asked again after each patch of
+  /// the session while it computes or reads them (a sync moved the tips: their landing needs, the review of the new
+  /// commits; a Safe Push merged; the queue of the start held a sync), for `FACTS_WAIT` at most: past it the plan says
+  /// what it waits for
+  async fn wait_for_facts(&self, land: &Land, asked: &[LandFact]) -> Result<(), ApiError> {
+    let answered = answered_in(&self.key.prefix, land, asked);
+    let waited = when_session_answers(&self.sessions, &self.key, move |state, facts| answered(state, facts).then_some(()));
+    tokio::time::timeout(FACTS_WAIT, waited).await.unwrap_or(Ok(()))
   }
 }
 
@@ -224,10 +266,30 @@ pub(crate) async fn when_session_answers<T: Send + 'static>(
   }
 }
 
-/// The plan waits for the landing needs of what it lands, which the session computes (none failed)
-fn waits_for_landing_needs(planned: &Planned) -> bool {
-  planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds))
+/// The facts the plan waits for that nobody answered yet (none failed): the landing needs of what it lands, the review of
+/// the commits a sync rebuilt, as the page waits for them before its click (openspec/specs/branch/patronus/spec.md, "A
+/// click waits for the facts its plan needs")
+fn unanswered(planned: &Planned) -> Vec<LandFact> {
+  planned.plan.waits.iter().filter(|wait| wait.failed.is_none()).map(|wait| wait.fact.clone()).collect()
 }
+
+/// Whether the plan of `land` without the checks of the start, over a session of `prefix`, waits for none of `facts`
+fn answered_in(prefix: &str, land: &Land, facts: &[LandFact]) -> impl Fn(&TableState, &FactStore) -> bool + Clone + Send + 'static {
+  let (prefix, land, asked) = (prefix.to_owned(), land.clone(), facts.to_vec());
+  move |state, facts| {
+    let planned = with_checked_land_sources(state, facts, &prefix, &StartChecks::default(), |sources| planned_of(sources, &land));
+    planned.flatten().is_none_or(|planned| !waits_for_any(&planned, &asked))
+  }
+}
+
+/// The plan waits for one of `facts`, unanswered
+fn waits_for_any(planned: &Planned, facts: &[LandFact]) -> bool {
+  planned.plan.waits.iter().any(|wait| wait.failed.is_none() && facts.contains(&wait.fact))
+}
+
+/// How long a start waits for the facts of its plan the session has not answered (`SessionStart::wait_for_facts`): the
+/// session answers each, a failure too; one it never asks leaves the start refused as a plan that waits, not stuck
+const FACTS_WAIT: std::time::Duration = std::time::Duration::from_mins(1);
 
 struct PlanChanges(tokio::sync::mpsc::UnboundedSender<()>);
 
@@ -257,13 +319,10 @@ fn gate_refusals(checked: anyhow::Result<Vec<LandingRefusal>>, notes: &mut Vec<S
   })
 }
 
-/// The check of `tip` against the newest `baseline`: its fetch, then the replay of what lands onto its tip, as Patronus
-/// rebases it; the conflict (a copy of the virtual branch and its files), and what did not run in full
-fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Option<String>) -> (Option<(String, Vec<String>)>, Vec<StartNote>) {
-  let Some(tip) = tip else {
-    return (None, Vec::new());
-  };
-  let fetch_error = fetch_target(git, path, None).into_error();
+/// The check of `tip` against the newest `baseline`, fetched by the start (`fetch_error` when that fetch failed): the
+/// replay of what lands onto its tip, as Patronus rebases it; the conflict (a copy of the virtual branch and its files),
+/// and what did not run in full
+fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: &str, fetch_error: Option<String>) -> (Option<(String, Vec<String>)>, Vec<StartNote>) {
   let mut notes: Vec<StartNote> = fetch_error
     .iter()
     .map(|error| StartNote::TargetFetchFailed {
@@ -283,7 +342,7 @@ fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Optio
       return (None, notes);
     }
   };
-  match check_target(git, path, baseline, &target_tip, &tip, fetch_error).outcome {
+  match check_target(git, path, baseline, &target_tip, tip, fetch_error).outcome {
     TargetOutcome::Conflict(conflict) => (Some((conflict.commit.id, conflict.files)), notes),
     TargetOutcome::Clean => (None, notes),
     TargetOutcome::NotRun { error } => {
@@ -297,21 +356,33 @@ fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Optio
 }
 
 impl StartHost for SessionStart {
-  /// The plan of `land` on fresh landing needs: a start reads only them, never those an earlier table left standing while
-  /// the needs of new tips are computed, and waits for them, never refuses for them; the checks of the start (a fetch of
-  /// the target) run once they are fresh, and again only after a sync that moved the tips while they ran
+  /// The plan of `land` on answered facts: a start reads only fresh landing needs, never those an earlier table left
+  /// standing while the needs of new tips are computed, and waits for them and for every fact of its plan the plan of the
+  /// click had answered (`answered_before`: the review of the commits a sync rebuilt since), never refuses for them,
+  /// within `FACTS_WAIT`; the checks of
+  /// the start (the replay onto the target its one fetch brought) run once they are answered, and again only after a
+  /// sync that moved the tips while they ran
   fn plan<'a>(&'a self, land: &'a Land) -> Read<'a, Result<Option<Planned>, ApiError>> {
     Box::pin(async move {
+      let deadline = tokio::time::Instant::now() + FACTS_WAIT;
+      // the landing needs first, which the checks read; then what the plan with its checks waits for that the plan of the
+      // click had answered
+      let mut asked = vec![LandFact::LandingNeeds];
       loop {
-        if !self.needs_fresh(land).await {
-          self.wait_for_landing_needs(land).await?;
+        if !self.facts_answered(land, &asked).await {
+          self.wait_for_facts(land, &asked).await?;
         }
         let Some(planned) = self.current_plan(land).await? else {
           return Ok(None);
         };
-        if !waits_for_landing_needs(&planned) {
+        asked = unanswered(&planned)
+          .into_iter()
+          .filter(|fact| self.waited_before.as_ref().is_some_and(|before| !before.contains(fact)))
+          .collect();
+        if asked.is_empty() || tokio::time::Instant::now() >= deadline {
           return Ok(Some(planned));
         }
+        debug!(?asked, "the start waits for the facts of its plan a sync made the session read again");
       }
     })
   }
@@ -542,6 +613,8 @@ async fn start_of(
     new_api: services.new_api(key),
     cache: services.object_cache(key).await,
     excluded_operation: None,
+    fetch: StartFetch::default(),
+    waited_before: None,
   };
   let lock_dir = common_dir.clone();
   let lock: Locker = Arc::new(move |on_wait, canceled| {

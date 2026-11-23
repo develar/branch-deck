@@ -13,7 +13,8 @@
 //! the move (`update_core::update_project`), a wait for another holder its step `WaitingForLock`, which
 //! `Registry::cancel` stops (`canceled`, nothing changed but the fetch). The sync that shows what the fetch and the move
 //! changed is asked last (`SyncReason::AfterRewrite`), after every update whose fetch finished, and the operation ends
-//! with that request: a rewrite queued behind it runs beside that sync. The answer of an applied update comes once that
+//! with that request: a rewrite queued behind it runs beside that sync, and an operation that plans on the table (a
+//! start, a push) waits for it (`Sessions::after_writes`), as it rebuilds the branches they push. The answer of an applied update comes once that
 //! sync ended (`Outcome::version_after`), its undo the token `update:<previous>..<new>` (`UndoKind::Update`). The fetch
 //! is the first effect: a failure from it on is the failed effect of an outcome, the effects after it skipped.
 

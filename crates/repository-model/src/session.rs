@@ -910,6 +910,23 @@ impl Sessions {
     SyncTicket(answer)
   }
 
+  /// The sync of the writes of the open session of `key` that has not ended (`SyncReason::AfterRewrite`: an Update
+  /// Project, a rewrite, a fetch asked it), running, checked or waiting as a follow-up: its ticket resolves when the run
+  /// that serves the last of them ends. `None` when every write is synced or the session is not open: nothing to wait
+  /// for. It asks no run; the operation that waits decides on the table that run commits
+  pub async fn after_writes(&self, key: &SessionKey) -> Option<SyncTicket> {
+    let (reply, answer) = oneshot::channel();
+    let (pending, is_pending) = oneshot::channel();
+    let sent = self.lock().get(key).is_some_and(|entry| {
+      let waiter = Waiter {
+        reply,
+        _busy: Busy::new(&entry.life),
+      };
+      entry.mailbox.send(Message::AfterWrites { waiter, pending }).is_ok()
+    });
+    (sent && is_pending.await.unwrap_or(false)).then_some(SyncTicket(answer))
+  }
+
   /// Changes the table of an open session outside a sync (the result of an operation): the windows get the patch at
   /// once, after the events the session got before. Nothing for a session that is not open
   pub fn apply(&self, key: &SessionKey, change: impl FnOnce(&mut TableState) + Send + 'static) -> Applied {

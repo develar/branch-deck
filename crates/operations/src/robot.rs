@@ -20,7 +20,7 @@
 //! a restart and a cancel of one robot run one after the other, a second click of the same joins it; a restart holds
 //! what its robot lands too (`Resource::Lands`) and the ref it pushes (`Resource::Ref`).
 
-use crate::engine::{Holding, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
+use crate::engine::{Holding, Replan, check_admitted, outcome_of, remote_holds, run, run_planned_in, with_all};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
@@ -363,23 +363,26 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
   let request = restart_request(robot_id, planned.as_ref());
   let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let mut waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited;
+    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited);
+    let start = session_start(services, sessions, key).await?;
     // decided again once admitted: an operation it waited for changed what it decides on; refused before its push and
     // its restart where the session offers the restart not; what the plan holds more than its admission (a robot the
     // session listed no plan of before, a branch its stack took meanwhile, a push it needs now) is held first, as an
     // effect on it would run beside the operations that hold it (a Safe Push of its branch: two robots of the branch)
-    let planned = loop {
+    loop {
       let planned = prepare_restart(sessions, key, robot_id)
         .await?
         .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-      if holding
-        .covers(guard, &restart_request(robot_id, Some(&planned)).resources, &planned.plan.intent, &mut waited)
-        .await?
-      {
-        break planned;
+      let intent = planned.plan.intent.clone();
+      let needs = restart_request(robot_id, Some(&planned)).resources;
+      if !holding.covers(guard, &needs, &intent, &mut replan.waited).await? {
+        continue;
       }
-    };
-    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited).await
+      // none: decided again after the sync that moved its branch
+      if let Some(answer) = run_planned_in(guard, (sessions, key), &start, planned, &accepted, &mut replan).await {
+        return answer;
+      }
+    }
   })
   .await
 }

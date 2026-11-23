@@ -220,6 +220,12 @@ pub(crate) enum Message {
     reason: SyncReason,
     waiter: Waiter,
   },
+  /// A wait for the sync of the writes of the session that has not ended (`SyncScheduler::after_writes`); `pending`
+  /// hears whether there is one, before `waiter` hears its end
+  AfterWrites {
+    waiter: Waiter,
+    pending: oneshot::Sender<bool>,
+  },
   /// A focus of a session that did not sync of itself, or a stamp of a watched one, once the host said again whether
   /// the worktree was synced before (`SessionHost::synced_before`: `brd sync` in a terminal may have marked it since the
   /// open) and, for a stamp, its epoch (`SessionHost::epoch`: `brd lease return` and `get` touch the stamp too)
@@ -917,6 +923,12 @@ impl Actor {
         let _ = reply.send(self.facts.readiness.digest().clone());
       }
       Message::Sync { reason, waiter } => self.request_sync(reason, waiter),
+      Message::AfterWrites { waiter, pending } => {
+        let decision = self.scheduler.after_writes(waiter);
+        // a caller that stopped waiting has nothing to hear
+        let _ = pending.send(decision.resolve.is_empty());
+        self.follow(decision);
+      }
       Message::SyncedBeforeRead {
         reason,
         waiter,

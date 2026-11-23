@@ -1182,6 +1182,37 @@ test.describe("Patronus actions", () => {
     await expect(toastWith(page, "Cannot start")).toHaveCount(0)
   })
 
+  test("should start the Safe Push pressed during Update Project once the sync of the update rebuilt the branch: one push of the rebuilt branch, one start", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const before = await repo.revision(virtualBranch("JIRA-456"))
+    // someone landed a change into master; an agent holds the repository lock, so Update Project waits for it holding HEAD
+    await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+    await repo.holdRepositoryLock(true)
+    const executions = await recordCommand(page, "execute")
+    await page.getByTestId("update-project-button").click()
+    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "waiting")
+
+    // the click meanwhile goes to the session: the start waits behind the update, then for the sync the update asks,
+    // which rebuilds JIRA-456 onto the new master (held here): nothing is pushed or started on the build before it
+    await slotSafePush(page, "JIRA-456").click()
+    await expect.poll(() => executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject", "land"])
+    await repo.holdRemoteAnswers({ hold: ["sync"] })
+    await repo.holdRepositoryLock(false)
+    await repo.arrival("sync")
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+    await repo.holdRemoteAnswers({ release: ["sync"] })
+
+    await expectJiraStarted(page, repo)
+    expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(before)
+    await expectPushedToRemote(repo, ["JIRA-456"])
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  })
+
   test("should cancel the robot for a new Safe Push from the popover, and not restart it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the robot runs on an older commit, so a start runs on the branch as it is
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)

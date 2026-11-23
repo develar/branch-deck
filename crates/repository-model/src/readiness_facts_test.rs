@@ -321,6 +321,38 @@ fn a_shown_subject_is_asked_only_while_its_next_step_waits_for_the_readiness() {
   assert_eq!(wanted_readiness(&state, &facts, "user", &demand), HashSet::new(), "the steps wait for the listing first");
 }
 
+/// The subject of a start that runs is asked whatever its row shows: a start decided again after the sync that rebuilt
+/// its branch waits for the review of its new commits, which no step of a row with a running robot asks
+#[test]
+fn the_subject_of_a_running_start_is_asked_whatever_its_row_shows() {
+  use crate::table::OperationPatch;
+  use domain_types::fixtures::land_intent;
+  use domain_types::operation::{OperationId, OperationStep, Origin, RunningOperation};
+  use domain_types::patronus::PatronusPushMode;
+  let (mut state, facts) = crate::derive::derive_budget_test::session();
+  let demand = Demand {
+    visible_branches: state.order().to_vec(),
+    ..Demand::default()
+  };
+  let running = facts.robots.view().robots["r0"].branch_name.clone().unwrap();
+  assert!(!wanted_readiness(&state, &facts, "user", &demand).contains(&running), "row 1: its robot runs");
+  let start = |id: &str, mode| {
+    OperationPatch::Admitted(RunningOperation {
+      id: OperationId(id.to_owned()),
+      intent: land_intent(&running, mode),
+      resources: Vec::new(),
+      step: OperationStep::Checking,
+      origin: Origin::ThisProcess,
+      moves: Vec::new(),
+      joined: 0,
+    })
+  };
+  state.apply_operation(start("dry-run", PatronusPushMode::DryRun));
+  assert!(!wanted_readiness(&state, &facts, "user", &demand).contains(&running), "a Dry Run reads no review");
+  state.apply_operation(start("safe-push", PatronusPushMode::RebaseAutosquash));
+  assert!(wanted_readiness(&state, &facts, "user", &demand).contains(&running), "its Safe Push reads the review");
+}
+
 /// A pull request of someone else a review window shows into the default branch is asked once the head the listing
 /// names is the one its review fetch brought: as its head branch, from the pull request with its reviewers and its
 /// author, needed now; a new head waits for its fetch, a new review asks again, its approvals are no news, and its record

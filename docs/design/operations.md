@@ -127,7 +127,8 @@ operations over the actions the surfaces offer.
    table lacks) what the intent names of its subject (the branch a start lands, the head a pull request intent pushes,
    the pull request a close closes), so the operation is in the view at once with its steps (a push, a pull request
    intent and a restart wait there for the first sync, `WaitingForSync`, which Stop Waiting stops; a start waits for no
-   sync, and with no table it is refused `unknown_subject`). A
+   sync but the sync of the writes of the session, the one an Update Project or a rewrite before it asked
+   (`SyncWait::Writes`), and with no table it is refused `unknown_subject`). A
    push is admitted also with the base of the open pull request of each branch of its stack and the robots of the
    branch whose Safe Push it restarts (`push::admission_holds`: the robots it asks once admitted may let a branch go).
    Before its first effect the plan decided again is checked against what the operation holds (HEAD aside, which the
@@ -322,7 +323,9 @@ Update Project (⌘T, `runUpdateProject`), the Fetch of a merge toast (`runFetch
   refused. A second ⌘T joins it. Its check runs before the repository lock, its wait for another holder is its step
   `waitingForLock`, stopped by `cancel_operation`.
 - **The end**: the operation asks the sync after its fetch and its move, then ends; the toast comes with its outcome
-  (the `done` event), and an applied update answers once that sync ended, which is the last step of its run. A failure
+  (the `done` event), and an applied update answers once that sync ended, which is the last step of its run. A start,
+  a push, a pull request intent or a restart pressed meanwhile waits for that sync (`Sessions::after_writes`) and runs
+  on the branches it rebuilt. A failure
   after the fetch is the failed `update` effect of the outcome: a toast, with "Retry Without Fetch" for an error the
   same request may pass (`retry: same`), the intent with `fetch: false`.
 - **The page** keeps the run it shows of each repository (`src/stores/update-project.ts`): its steps and the percent of
