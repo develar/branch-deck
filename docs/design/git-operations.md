@@ -121,7 +121,8 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
    same tip, and its undo, **and the unapply and the reapply of a virtual branch** (see "Drop and unapply",
    "Reapply"), which take its commits and their files out of HEAD and back, and their undo. All use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
-   trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index (for
+   trees, and in a large index runs on an index of those paths cut out of the user's index ("The files of a move");
+   the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index (for
    `brd pick` and the reapply, a check of the paths the move changes, the dry run only where that finds one: "Pick",
    step 5), a check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes
    on the other paths survive byte for byte; any overlap refuses the whole move before git writes a file, and the
@@ -334,8 +335,12 @@ taken and deletes it before the release), then runs the real git.
 | `brd land` by a push into the target (its sync before the lock, then the start above) | `for-each-ref` (the witness of the copy, the remote-tracking ref of the baseline and the checked out branch) | `a_land_by_a_push_locks_only_the_witness` (`crates/bd-remote/src/land_test.rs`) |
 | `brd request-review` (its sync before the lock, then the request; the lock only for the push of `--push`) | `for-each-ref` (the full witness and the freeze of the push) | `a_request_locks_only_the_witness_and_the_freeze_of_its_push` (`crates/bd-remote/src/request_review_test.rs`) |
 
-The `read-tree` of these rows is the move of the files (`read-tree -m -u`), and in a repository of Git LFS it runs the
-smudge filter, which downloads what the store lacks: every core whose move writes files fetches those objects before
+The `read-tree` of these rows is the move of the files (`read-tree -m -u`), with the `update-index` that refreshes the
+user's index before it. Where the index file has 16 MB or more the move merges an index of the paths it changes ("The
+files of a move"), and each of these rows has `diff-tree`, `ls-files` and `write-tree` too, and more `update-index`;
+the repositories of these tests are below that, and `a_move_in_a_large_index_follows_by_the_small_index_and_its_dry_run_merges_it`
+(`crates/git-ops/src/worktree_update_test.rs`) pins the processes of such a move. In a repository of Git LFS the
+`read-tree` runs the smudge filter, which downloads what the store lacks: every core whose move writes files fetches those objects before
 its lock ("Git LFS" below), so its smudge under the lock reads the store only.
 
 **The wait.** A core waits for another process that holds the lock as its caller says (`RewriteOptions::lock_wait`):
@@ -574,6 +579,92 @@ stdout on success, trimmed stderr otherwise, and the code); every other call is 
 counts (`with_process_stats`, `process_stats`), that is all the executor offers: it knows no git command, and what a
 command means (a commit or a tree by name, whether a ref exists) is a function of `git_ops::revs`.
 
+### The files of a move
+
+A move of HEAD that the files follow (Update Project, a pick and its follow, the unapply, the reapply, the drop, their
+undo, the finish of a resolve session: `move_with_index_lock` of `crates/git-ops/src/update_branch.rs`) writes the
+working tree with one two-way `read-tree -m -u`, the exception of invariant 1. On the user's index that command costs
+the whole index, whatever the move changes: `builtin/read-tree.c` frees the cache tree before it merges, so it walks
+every entry and builds every tree again, 7 s of CPU on the 1.42M entries of the IntelliJ monorepo for a move of 50
+paths, under the repository lock. So where the index file has 16 MB or more (`SMALL_INDEX_FROM`) the merge runs on
+an index of the paths the move changes (`crates/git-ops/src/worktree_update.rs`, `SmallIndex`): cut, merge, put
+back.
+
+1. **The trees.** The changed paths with both sides (`diff-tree -r -z --no-renames <old> <new>`) go into one temporary
+   index, the old entries under `o/` and the new ones under `n/` (`update-index -z --index-info`), and one `write-tree
+   --missing-ok` gives the trees of the changed paths alone, `<tree>:o` and `<tree>:n`; the empty tree for a side
+   without a path. Its objects go into a temporary object directory (`GIT_OBJECT_DIRECTORY`), which the merge reads as
+   an alternate: no object lands in the repository, so a move leaves nothing for `gc --auto`.
+2. **The index lock.** brd takes `index.lock` of the worktree itself (`IndexLock::hold`, "Index lock") and holds it to
+   the end of step 6: a `git commit` of the user between the files and the index would commit the old entries over
+   the new files, a revert of the move. A lock of another process is waited for here, while nothing has moved.
+3. **The cut.** One `ls-files -s -v -z` of the user's index, read as it streams by, each entry looked at once: the
+   entries on a changed path, on a directory above one (a file where the move needs a directory), below one (a file in
+   a directory the move turns into a file), and the `.gitattributes` of the directories above the changed paths (git
+   reads the attributes of a file it checks out from the index first, so a local edit of a `.gitattributes` does not
+   change how a file is written). They go into the small index (`update-index -z --index-info`; `read-tree --empty`
+   when the user's index has none of them: an index without a file is unborn, and a two-way merge into an unborn index
+   takes every path of the new tree), and `update-index -q --refresh` gives it the stat data of their files, hashing
+   only these.
+4. **The move** of the branch by compare-and-swap, with the mark of pending files, as before.
+5. **The merge.** `read-tree -m -u --no-recurse-submodules <tree>:o <tree>:n` on the small index: the same command and
+   the same code of git as on the whole index, so the check of every path before any file is written, the filters and
+   the smudge of Git LFS, the line ends, the symlinks, the modes and the directories are git's. A refusal wrote
+   nothing, and the branch moves back (`FilesRefused`).
+6. **The put back.** The entries of the small index now (`ls-files -s -z`) against the cut: those the merge changed,
+   added or removed go into a copy of the user's index in its git dir (`branch-deck-index-*/index`, by `update-index
+   -z --index-info`, which only this file runs), `update-index -q --refresh` gives the copy its stat data (an entry
+   `--index-info` writes has none, and every `git status` would hash its file), and the copy takes the place of the
+   index by a rename, as git commits its own lock file. Then the lock is released and the mark deleted. The cache tree
+   of the index stays valid but for the directories of the changed paths, which the next `write-tree` or commit
+   repairs; the extensions of fsmonitor and of the untracked cache stay.
+
+**The exact dry run** of a move (`dry_run_worktree_update`: the check of an update, an undo, an unapply, and of a pick
+where its paths find a local change) merges the same small index with `read-tree -m -u -n`: steps 1, 3 and 5 without
+the lock and the put back, in the place of a copy of the whole index, its refresh and the same 7 s.
+
+**The whole index** merges as before (`update-index -q --refresh` of the user's index before the branch moves, then
+`read-tree -m -u <old> <new>` on it, a lock of another process waited for at each; the dry run on a refreshed copy)
+where the small one costs more than it saves or does not model the index or the move: an index file below 16 MB (the
+small index is ten processes where the whole one is two, and `read-tree -m` costs about 50 ms per megabyte of index: in
+a repository of 4 300 files a move of 170 paths took 0.5–0.7 s by the small index and 0.2–0.3 s on the whole one; a
+move interrupted by a kill is finished by the small index whatever the size), a sparse checkout (its patterns file
+exists), an entry with the skip-worktree bit or an
+unmerged entry anywhere, an assume-unchanged entry on a path of the move (the put back would drop the bit), a
+submodule among the changed paths, or a small index that could not be built (logged). An unmerged entry refuses the
+whole index, as before.
+
+**What can fail.** The index lock of another process stays past its wait: `locked`, before the branch moved. The put
+back fails after the files were written: the merge the other way on the small index takes the files back, the branch
+moves back, nothing changed; where that fails too (`IndexLeftBehind`), the branch stays with its files and the mark
+of the move. A killed move leaves the mark, the lock (which no process owns: the next wait removes it after two looks
+2 s apart) and maybe a copy of the index (the next put back removes it). `finish_pending_update` finishes it:
+`files_follow` first builds the small index of an interrupted move (`WorktreeUpdate::prepare_interrupted`), in which
+a changed path whose file has the new content already (an index of the new entries, refreshed, calls it unmodified),
+and whose entry in the user's index is the old one, goes in with its new entry, so the merge writes the files the
+kill left and the put back brings the index after them. Only where that does not apply or git refuses it, with
+nothing written, the exact dry run on the whole index decides as before, and a local change moves the branch back
+(`FilesBlocked`).
+
+**Numbers** (2026-11-23, a lease of the IntelliJ monorepo: 1 423 898 index entries, fsmonitor on, load average 20–30,
+`the_files_of_a_move_of_a_rig` of `worktree_update_test.rs`, release build), the files and the index of one move:
+
+| Move | Small index | Whole index |
+| --- | --- | --- |
+| 53 paths | 1.5–2.1 s of wall (3.1 s once), 1.6–2.0 s of CPU | 6.9–7.2 s of wall (11.0 s once), 6.7–7.8 s of CPU |
+| 435 paths | 2.6–3.0 s of wall, 2.2–2.4 s of CPU | 7.4–7.6 s of wall, 6.6–7.1 s of CPU |
+
+The exact dry run of the same moves took 1.2 s and 1.8 s by the small index, 8.5–13.5 s on a copy of the whole one.
+Of the small index, the two writes of the copy of the user's index (the entries, then the stat data) take 0.9 s, the
+cut 0.4 s, and each of its ten processes at least 50 ms to start in that repository; after it `git status` is clean,
+asks fsmonitor and hashes no file. Not measured: the smudge of Git LFS on a real repository (the monorepo has none; a
+filter runs in the fixtures).
+
+`crates/git-ops/src/worktree_update_test.rs` runs every fixture on the whole index and by the small one, in two
+repositories with the same history and the same local state, and compares the answer of git to the dry run and to the
+move, the entries of the index with their flags, every file with its bytes or link target, and the status (which
+names a mode that is not the entry's).
+
 ### Index lock
 
 A write of the user's index takes `<git dir>/index.lock`, and git does not wait for it: `core.filesRefLockTimeout` is
@@ -599,7 +690,12 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    once more (`INDEX_TURNS`, 3, for the cores; a pick checks again in its loop). Then, before the CAS move, a move whose
    git dir is known (`move_branch_and_files_carrying`: `current_worktree` reads it anyway; a pick's check reads both
    worktrees' dirs) waits while a lock is there, which after the look is a fallback for a lock that came in the
-   microseconds since, and the refresh of the stat data runs (`prepare_worktree_update`). `brd update --continue`, which
+   microseconds since, and the refresh of the stat data runs (`prepare_worktree_update`). A move whose files follow by
+   the index of the paths it changes ("The files of a move") takes the lock itself there instead
+   (`IndexLock::hold`: the file created as git creates it, so a lock of another process fails the create and is
+   waited for the same way; kept open, so the wait of another process names this one as its owner and never removes
+   it) and holds it until the index followed the files: no git of the user writes the index between them, and no step
+   of the move after the branch moved can meet a lock of another process. `brd update --continue`, which
    holds the lock for its whole round, waits under it (its exception in "Lock spans").
    `a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock`
    (`crates/history-rewrite/src/repository_lock_test.rs`).
@@ -616,12 +712,15 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    race left is microseconds after a lock that stood ownerless for 2 s. A lock brd can't judge (a sandbox that hides the
    processes, Windows) stays.
 4. **After 30 s** (`INDEX_LOCK_WAIT`, per write) the answer is `IndexLocked` with the file, its age and the processes
-   that may own it: `locked` (retryable) with `processes` in bd. A move that gives up after the branch moved moves it
+   that may own it: `locked` (retryable) with `processes` in bd. A move by the index of the changed paths gives up
+   before its branch moved; one on the whole index that gives up after the branch moved moves it
    back first, so nothing was changed; a follow that gives up is `followed: blocked`, the target picked. A rewrite has
    rewritten the branch already: its error stays the non-retryable one with the `git reset -q` advice, naming the lock.
 5. No refresh follows `read-tree -m -u`: it records the stat data of every file it writes (git 2.56: `diff-files`
    right after it is empty, also within the second of the index write; `touched_only_file_passes_thanks_to_the_refresh`,
-   `a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`).
+   `a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`). By the index of the changed paths that stat
+   data is the small index's, so the copy of the user's index is refreshed before it takes its place
+   (`the_entries_the_small_index_puts_back_have_the_stat_data_of_their_files`).
 
 The happy path costs no process: the lock file is looked at only when a step failed or the git dir is known.
 
@@ -1565,6 +1664,8 @@ Details:
   a dry run before the lock (`brd update`, its `--dry-run`, a pick, an unapply, an undo) refreshes the copy, since it
   writes nothing of the user's, and its move refreshes the real index under the lock, which after the wait for the
   index before the lock ("Index lock") finds the stat data fresh and needs no lock of git.
+  Where the index file has 16 MB or more, the dry run and the move merge an index of the changed paths, refreshed on
+  its own ("The files of a move").
 - **Ignored files.** `read-tree -u` overwrites an ignored file where the update adds one, silently, as `checkout`
   does. Step 8 refuses that instead: an added path that exists on disk (or has a file in place of one of its
   directories) blocks the update.
@@ -1578,7 +1679,9 @@ Details:
   between the dry run and step 10 fails it with nothing written; the branch then moves back with a second CAS
   transaction and the update reports "Files changed during the update; nothing was changed". The index lock of
   another process is waited for, before the move and at `read-tree`, and an ownerless one removed
-  ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`.
+  ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`. In an index file of 16 MB or more
+  the `read-tree` merges an index of the paths the update changes ([The files of a move](#the-files-of-a-move)), under
+  the index lock that the move takes before the branch moves: a lock that stays answers `locked` with nothing moved.
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
   `brd update` names each in `dropped` with `proof: empty`: the commits of the landed report that the pairing did not
@@ -2184,7 +2287,9 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    and builds the cache tree again, even when no path changes: `read-tree -m -i HEAD HEAD` on a copy of the index of
    the monorepo took 1.8 s for the walk and 4.1 s for the cache tree, `-m -u -n` 2.8 s and 3.5 s, while the cache
    tree at rest was whole (0 of 309 831 trees invalid, 2026-11-23). A two-way merge that kept it would only walk the
-   trees the move changes (`traverse_by_cache_tree`) and repair their cache entries.
+   trees the move changes (`traverse_by_cache_tree`) and repair their cache entries. So in an index file of 16 MB or
+   more each move merges an index of the paths it changes, cut out of the user's index and put back ("The files of a
+   move"): 1.5–3 s of wall per move on a lease of the monorepo, where the whole index took 7–11 s.
 7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A

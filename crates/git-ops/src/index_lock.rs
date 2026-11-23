@@ -6,6 +6,11 @@
 //! index (the files of a move, the index of a rewrite) runs through `IndexLock::retry`: a step that the lock blocked
 //! runs again once the lock is gone, a lock that no process owns is removed, and after the wait the answer is
 //! `IndexLocked`. The happy path costs no process: the lock file is looked at only after a step failed.
+//!
+//! A move whose files follow by an index of the paths it changes (`worktree_update`) holds the lock itself
+//! (`IndexLock::hold`, `HeldIndexLock`), as git does: it creates `index.lock`, keeps it open, so that a wait of another
+//! process names it as the owner, writes the new index beside it and renames that over `index`, then removes the lock.
+//! No git of the user writes the index between the files and the index of the move.
 
 use crate::revs::known_dirs;
 use anyhow::Result;
@@ -170,6 +175,12 @@ impl<'a> IndexLock<'a> {
     Ok(self.path.get_or_init(|| path))
   }
 
+  /// The git dir of the worktree, where its index and the lock live
+  pub fn git_dir(&self) -> Result<&Path> {
+    let path = self.path()?;
+    Ok(path.parent().unwrap_or(path))
+  }
+
   /// Run `step`, a git that writes the index of the worktree, and run it again while the lock of another process blocks
   /// it: the step failed, and the lock exists now and appeared before the step started (`TIMESTAMP_SLACK`; a step that
   /// refused for its own reasons held the lock itself, and a lock that exists now appeared after it started). Such a step wrote nothing: git
@@ -206,6 +217,31 @@ impl<'a> IndexLock<'a> {
   /// move whose wait for the index came before it looks once more before it moves (`update_branch::index_held`)
   pub fn is_held(&self) -> bool {
     self.path.get().is_some_and(|path| Identity::of(path).is_some())
+  }
+
+  /// Take the lock, as git does (`index.lock` created, and no other file of that name before): a write of the index
+  /// in more than one git process holds it from its first step to its last, so no git of the user reads an index
+  /// between them and writes it back. A lock of another process is waited for at most `wait`, one that no process owns
+  /// is removed (`wait_until`), then `IndexLocked`. The file stays open while it is held, so a wait of another process
+  /// names this one as its owner and never removes it
+  pub fn hold(&self, wait: Duration) -> Result<HeldIndexLock> {
+    let path = self.path()?;
+    let deadline = Instant::now() + wait;
+    loop {
+      match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => {
+          return Ok(HeldIndexLock {
+            path: path.to_path_buf(),
+            file: Some(file),
+          });
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+          debug!(path = %path.display(), "the index lock of another process is there: the move waits for it");
+          self.wait_until(deadline)?;
+        }
+        Err(e) => return Err(anyhow::anyhow!("Cannot take the index lock {}: {e}", path.display())),
+      }
+    }
   }
 
   /// Poll the lock until it is gone, asking every `owner_check` who owns it: a lock that no process owns at two answers
@@ -279,6 +315,44 @@ impl<'a> IndexLock<'a> {
       .collect();
     holders.truncate(MAX_HOLDERS);
     Some(holders)
+  }
+}
+
+/// The index lock of a worktree, held by this process (`IndexLock::hold`): released when dropped, after the new index
+/// took the place of the old one (`replace_index`) or with the index as it was
+#[derive(Debug)]
+pub struct HeldIndexLock {
+  path: PathBuf,
+  /// Open while the lock is held: who owns a lock is asked by who has it open
+  file: Option<std::fs::File>,
+}
+
+impl HeldIndexLock {
+  /// The index the lock guards: `<git dir>/index`
+  pub fn index_path(&self) -> PathBuf {
+    self.path.with_extension("")
+  }
+
+  /// The git dir of the worktree, where the lock lives
+  pub fn git_dir(&self) -> &Path {
+    self.path.parent().unwrap_or(&self.path)
+  }
+
+  /// Put `new_index`, a file of the file system of the index, in its place (a rename, as git commits its lock file).
+  /// The lock stays until this is dropped. On a failure the index is as it was
+  pub fn replace_index(&self, new_index: &Path) -> Result<()> {
+    let index = self.index_path();
+    sync_utils::fs_retry::rename(new_index, &index).map_err(|e| anyhow::anyhow!("Cannot put the new index in the place of {}: {e}", index.display()))
+  }
+}
+
+impl Drop for HeldIndexLock {
+  fn drop(&mut self) {
+    // closed first: Windows removes no open file
+    drop(self.file.take());
+    if let Err(e) = sync_utils::fs_retry::remove_file(&self.path) {
+      warn!(path = %self.path.display(), error = %e, "cannot remove the index lock this process held");
+    }
   }
 }
 

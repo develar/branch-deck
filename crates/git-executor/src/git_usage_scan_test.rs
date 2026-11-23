@@ -175,6 +175,22 @@ fn refs_move_only_through_ref_transaction() {
 }
 
 #[test]
+fn index_entries_are_written_by_the_move_of_the_files_only() {
+  check(
+    "entries are written into an index by an update-index --index-info of its own",
+    "let the files follow a move of HEAD through git_ops::update_branch, and the index a rewrite through \
+     git_ops::rewrite_guard::IndexUpdate; stage working-tree files with rewrite_guard::stage_worktree_files",
+    &[Exemption {
+      path: "crates/git-ops/src/worktree_update.rs",
+      hits: 1,
+      reason: "the second writer of the user's index: the entries of the paths a move changes, into the temporary indexes of its merge \
+               and into the copy that takes the place of the user's index under the index lock the move holds",
+    }],
+    |source| list_lines(source, |list| list.subcommand() == Some("update-index") && list.has(|arg| arg == "--index-info")),
+  );
+}
+
+#[test]
 fn the_baseline_push_is_the_named_cas_writer_of_its_tracking_ref() {
   check(
     "the baseline push is the named extra writer of its remote-tracking ref",

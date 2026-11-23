@@ -339,13 +339,13 @@ next unapply as local changes.
 ### Requirement: Refusals: The index lock of another process makes a rewrite wait
 
 The index lock of another process MUST make the unapply, the reapply and their undo wait (at most 30 s per write) and
-an ownerless one be removed, as for `brd pick`; one that stays MUST move HEAD back and answer `locked`. The wait MUST
-come before the repository lock, so no other writer waits for it.
+an ownerless one be removed, as for `brd pick`; one that stays MUST answer `locked` with HEAD where it was. The wait
+MUST come before the repository lock, so no other writer waits for it.
 
 #### Scenario: Another process holds the index lock
 - **WHEN** another process holds the index lock
 - **THEN** the rewrite waits for it, at most 30 s per write, before the repository lock
-- **AND** a lock that stays moves HEAD back and answers `locked`
+- **AND** a lock that stays answers `locked`, HEAD where it was
   [@test] crates/history-rewrite/src/repository_lock_test.rs (`a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock`)
 
 #### Scenario: An index lock that no process owns

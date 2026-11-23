@@ -45,9 +45,7 @@ fn a_history_is_two_processes_and_the_commits_of_git_commit() {
       continue;
     }
     for (path, content) in &commit.files {
-      let file = committed.path().join(path);
-      std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-      std::fs::write(file, content).unwrap();
+      committed.write_file(path, content);
     }
     for path in &commit.deleted {
       std::fs::remove_file(committed.path().join(path)).unwrap();

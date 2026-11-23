@@ -66,7 +66,8 @@ pub struct ChangedPath {
   /// The mode and the blob in the old tree, `000000` and the null id for an added path
   pub(crate) old_mode: String,
   pub(crate) old_id: String,
-  /// The blob in the new tree, the null id for a deleted path
+  /// The mode and the blob in the new tree, `000000` and the null id for a deleted path
+  pub(crate) new_mode: String,
   pub(crate) new_id: String,
   /// As git stores it, not necessarily UTF-8: it names the index entry and the file
   pub(crate) path: Vec<u8>,
@@ -130,13 +131,14 @@ fn parse_changed_paths(output: &[u8], mut keep: impl FnMut(&[u8]) -> bool) -> Re
       continue;
     }
     let mut meta = meta.to_str()?.trim_start_matches(':').split(' ');
-    let (Some(old_mode), Some(_), Some(old_id), Some(new_id), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
+    let (Some(old_mode), Some(new_mode), Some(old_id), Some(new_id), Some(status)) = (meta.next(), meta.next(), meta.next(), meta.next(), meta.next()) else {
       bail!("Unexpected diff-tree output: {:?}", output.as_bstr());
     };
     paths.push(ChangedPath {
       status: status.chars().next().unwrap_or('M'),
       old_mode: old_mode.to_string(),
       old_id: old_id.to_string(),
+      new_mode: new_mode.to_string(),
       new_id: new_id.to_string(),
       path: path.to_vec(),
     });

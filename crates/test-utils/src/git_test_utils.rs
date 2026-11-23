@@ -344,6 +344,16 @@ impl TestRepo {
     self.dir.path()
   }
 
+  /// Writes `content` to the file `path` of the working tree, with the directories above it
+  ///
+  /// # Panics
+  /// When the file cannot be written
+  pub fn write_file(&self, path: &str, content: &str) {
+    let file = self.path().join(path);
+    fs::create_dir_all(file.parent().expect("a file of the working tree")).unwrap();
+    fs::write(file, content).unwrap();
+  }
+
   /// Get the repository path as a string
   pub fn path_str(&self) -> &str {
     self.dir.path().to_str().unwrap()

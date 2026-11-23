@@ -151,10 +151,15 @@ impl IndexCopy {
       Some(dirs) => dirs.git_path("index").to_string_lossy().into_owned(),
       None => git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-path", "index"], repo_path)?,
     };
+    Self::of(Path::new(&index_path))
+  }
+
+  /// A copy of the index file at `index_path`, which a caller that knows the git dir of the worktree names
+  pub(crate) fn of(index_path: &Path) -> Result<Self> {
     let dir = tempfile::Builder::new().prefix("branchdeck-index-").tempdir()?;
     let copy = dir.path().join("index");
-    if Path::new(&index_path).exists() {
-      std::fs::copy(&index_path, &copy).map_err(|e| anyhow!("Failed to copy the index: {e}"))?;
+    if index_path.exists() {
+      std::fs::copy(index_path, &copy).map_err(|e| anyhow!("Failed to copy the index: {e}"))?;
     }
     let path = copy.to_str().ok_or_else(|| anyhow!("Temporary index path is not valid UTF-8"))?.to_string();
     Ok(Self { _dir: dir, path })

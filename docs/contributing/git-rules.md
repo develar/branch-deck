@@ -68,8 +68,10 @@ No `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
 `GIT_INDEX_FILE` is fine. Besides the apply of `brd-host run --apply` (`crates/git-ops/src/host_client.rs`: the patch of a remote run
 the user asked to apply, all or nothing, the index left alone), the single exception is the guarded two-way `read-tree -m -u` in
 `crates/git-ops/src/worktree_update.rs` (a dry run on an index copy first, for `brd pick` and the reapply a check of the
-paths the move changes with the dry run only where that finds one, then the CAS ref move, rollback on failure),
-`pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `brd update`, and the update of a lease
+paths the move changes with the dry run only where that finds one, then the CAS ref move, rollback on failure). Where
+the index file has 16 MB or more it merges an index of the paths the move changes, cut out of the user's index and put
+back after it ([The files of a move](../design/git-operations.md#the-files-of-a-move)), and the whole index where
+that one does not model it. It is `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `brd update`, and the update of a lease
 onto its home branch, detached, after a conflict of `brd lease pick`), its undo, the finish
 of a resolve session (`update_resolve.rs`), `brd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and
 the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`), the drop of commits (`unapply.rs`,
@@ -84,16 +86,26 @@ that exists, so git never deletes the files of a worktree.
 
 ## The user's index
 
-The user's index changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
-a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
-Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
+The user's index changes only where HEAD's tree changed, and has two writers. A rewrite (`IndexUpdate` in
+`crates/git-ops/src/rewrite_guard.rs`): a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the
+index, an amend stages the amended files. A move the files follow in a large index
+(`crates/git-ops/src/worktree_update.rs`): the entries that its merge of the changed paths changed go into a copy of
+the index by `update-index --index-info`, the
+copy's stat data is refreshed, and the copy takes the place of the index by a rename, all under the index lock the
+move holds; `update-index --index-info` is in that file only (`index_entries_are_written_by_the_move_of_the_files_only`
+of `git_usage_scan_test.rs`), and never writes the user's index itself. Staged work on other paths survives; never
+`reset --mixed`, never ignore an index error.
 
 ## Index lock
 
 A write of the user's index (a move the files follow, `IndexUpdate::apply`) goes through
 `git_ops::index_lock`: it waits up to 30 s for the `index.lock` of another process (an IDE's `git status`),
 removes one that no process owns (a killed git's), and answers `IndexLocked` (`locked`) after the wait; never a
-removal of any other lock file of git ([Index lock](../design/git-operations.md#index-lock)).
+removal of any other lock file of git ([Index lock](../design/git-operations.md#index-lock)). A move whose files
+follow by the index of the changed paths takes the lock itself before the branch moves (`IndexLock::hold`: the file
+created as git creates it, kept open) and holds it until the index followed the files, so a `git commit` of the user
+between the two fails on the lock instead of committing the old index; only `index_lock.rs` creates or removes an
+`index.lock`.
 
 ## Ref moves
 
