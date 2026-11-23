@@ -26,12 +26,15 @@
 //!    (`Pack` with `PackTarget::Run`) on a connection of its own (`pack`). When the pack fails, the client cancels the
 //!    run, stops the follow, and refuses with the code of the pack.
 //! 5. After the pack, a thread syncs the base of the next packs (`base`).
-//! 6. Copies the staged files of the `fetch` directories, the outputs and the changes into the local checkout (`Fetch`),
-//!    then forgets the run on the agent (`Forget`: its files go, its end and the tail of its log stay). The fetch takes
-//!    only what the run record asked for. The client forgets the run only when it saw the end of the run and every file
+//! 6. Takes the lock of the end of the run in the checkout (`RunFiles::lock`), so a `brd-host wait` of the same run
+//!    never fetches or applies it a second time; an end that such a wait finished first is the answer. Then it copies
+//!    the staged files of the `fetch` directories, the outputs and the changes into the local checkout (`Fetch`), and
+//!    forgets the run on the agent (`Forget`: its files go, its end and the tail of its log stay). The fetch takes only
+//!    what the run record asked for. The client forgets the run only when it saw the end of the run and every file
 //!    came. Otherwise the run keeps its files on the agent, and the client names `brd-host fetch` and `brd-host forget`.
 //! 7. Waits for the base sync. With `RunOptions::apply`, it applies the patch of the changes of the command to the
-//!    working tree (the files only, not the index). Then it answers the steps of the run with their durations.
+//!    working tree (the files only, not the index). It writes the end of the run (`<run>.end.json`) and lets the lock
+//!    go. Then it answers the steps of the run with their durations.
 //!
 //! A refusal carries the exit of `brd-host` by how far the run came (`host_link::refusal::Reached`): a refusal before the
 //! command exits 75, so the caller can run it locally instead.
@@ -46,7 +49,7 @@ use crate::git::{Checkout, Snapshot};
 use crate::host::{AgentInfo, Host, Latest, another_build_hint};
 use crate::pack::{PackOf, plan_pack};
 use crate::phases::{phase, phases_line};
-use crate::record::{RunFiles, RunRecord};
+use crate::record::{RunEnd, RunFiles, RunLock, RunRecord};
 use crate::{Client, Timing, short};
 use git_ops::host_client::{FARTHEST, Scan};
 use host_link::channel::Closer;
@@ -54,6 +57,8 @@ use host_link::heavy::script_in;
 use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
+use std::fs::File;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
@@ -194,7 +199,7 @@ enum Broken {
 }
 
 /// How a followed run ended
-enum Ended {
+pub(crate) enum Ended {
   /// The command exited
   Exit(Followed),
   /// The agent ended the run with a refusal of its own, such as `lease_failed`, after the steps of the host
@@ -204,7 +209,7 @@ enum Ended {
 }
 
 /// What the watch of a run and the follow share
-struct Watch {
+pub(crate) struct Watch {
   /// The follow ended
   finished: Arc<AtomicBool>,
   /// The connection of the follow, which a second Ctrl+C closes
@@ -214,7 +219,7 @@ struct Watch {
 }
 
 impl Watch {
-  fn new() -> Self {
+  pub(crate) fn new() -> Self {
     Self {
       finished: Arc::new(AtomicBool::new(false)),
       current: Mutex::new(None),
@@ -238,6 +243,12 @@ struct Finished {
   fetched: Result<Fetched, Refusal>,
   /// The step `fetch`, when the run names fetch directories, outputs or changes
   fetch: Option<Phase>,
+  /// The lock of the end of the run, held up to its end file; `None` when no process of the checkout holds it
+  lock: Option<RunLock>,
+  /// The host forgot the run
+  forgotten: bool,
+  /// The end that a `brd-host wait` of this checkout finished first: the fetch, the apply and the forget are done
+  done: Option<RunEnd>,
 }
 
 /// What the commit and the `Have` of a run found
@@ -343,12 +354,12 @@ impl Client<'_> {
     let ended = thread::scope(|scope| {
       let mut followed = host.clone();
       let (run, watch, record) = (&run, &watch, &record);
-      let patch = files.patch(run);
+      let files = &files;
       let local = Local {
         root: &root,
         git_common_dir: &git_common_dir,
       };
-      let following = scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, local, record, &patch, watch)));
+      let following = scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, local, record, files, watch)));
       if let Some(plan) = &plan {
         match self.send_pack(&mut host, &pack, plan, self.say) {
           Ok(steps) => {
@@ -396,8 +407,47 @@ impl Client<'_> {
       }
     };
     let code = finished.followed.code;
+    if let Some(done) = finished.done {
+      // a wait of this checkout finished the run while this process followed it
+      facts.phases.extend(done.phases);
+      facts.fetched = done.fetched;
+      facts.applied_files = done.applied_files;
+      facts.phases.push(phase("total", started.elapsed()));
+      return match done.refusal {
+        Some(refusal) => Err(RunFailure {
+          command_exit: done.command_exit,
+          exit: refusal.code.exit(Reached::CommandStarted),
+          refusal,
+          facts,
+        }),
+        None => Ok(RunOutcome {
+          code,
+          stdout: finished.followed.stdout,
+          facts,
+        }),
+      };
+    }
+    let lock = finished.lock;
+    let forgotten = finished.forgotten;
     facts.phases.extend(finished.followed.phases.iter().cloned());
     facts.phases.extend(finished.fetch);
+    // The end file says what came, so a later `wait` answers from it and never applies the changes again
+    let write_end = |facts: &RunFacts, refusal: Option<&Refusal>| {
+      if lock.is_some() {
+        let end = RunEnd {
+          exit: refusal.map_or_else(|| crate::report::command_exit_code(code), |refusal| refusal.code.exit(Reached::CommandStarted).code()),
+          command_exit: Some(code),
+          refusal: refusal.cloned(),
+          phases: facts.phases.clone(),
+          fetched: facts.fetched.clone(),
+          applied_files: facts.applied_files,
+          forgotten,
+        };
+        if let Err(refusal) = files.write_end(&run, &end) {
+          (self.say)(&format!("brd-host: {refusal}"));
+        }
+      }
+    };
     let after_command = |refusal: Refusal, facts: &RunFacts| RunFailure {
       command_exit: Some(code),
       ..RunFailure::at(refusal, Reached::CommandStarted, facts)
@@ -418,8 +468,16 @@ impl Client<'_> {
     };
     facts.fetched.clone_from(&fetched.files);
     if options.apply {
-      facts.applied_files = Some(self.apply_changes(&checkout, &run, &fetched, code).map_err(|refusal| after_command(refusal, &facts))?);
+      match self.apply_changes(&checkout, &run, &fetched, code) {
+        Ok(files) => facts.applied_files = Some(files),
+        Err(refusal) => {
+          write_end(&facts, Some(&refusal));
+          return Err(after_command(refusal, &facts));
+        }
+      }
     }
+    write_end(&facts, None);
+    drop(lock);
     facts.phases.push(phase("total", started.elapsed()));
     Ok(RunOutcome {
       code,
@@ -503,7 +561,7 @@ impl Client<'_> {
 
   /// Applies the patch of the changes of the command to the working tree. Answers the count of its files. A patch that
   /// does not apply stays, and the refusal names it
-  fn apply_changes(&self, checkout: &Checkout, run: &str, fetched: &Fetched, code_of_command: i32) -> Result<u64, Refusal> {
+  pub(crate) fn apply_changes(&self, checkout: &Checkout, run: &str, fetched: &Fetched, code_of_command: i32) -> Result<u64, Refusal> {
     let Some(patch) = &fetched.changes else {
       (self.say)("brd-host: the command changed no file");
       return Ok(0);
@@ -573,13 +631,22 @@ impl Client<'_> {
     }
   }
 
-  /// Follows a started run to its end, then copies the files that `record` asks for, with the changes to `patch`, and
-  /// forgets the run on the host. A run that the agent refused is forgotten too, and its failure carries how far it came
+  /// Follows a started run to its end, takes the lock of its end, then copies the files that `record` asks for, with the
+  /// changes to the patch file of the run, and forgets the run on the host. An end that a wait finished first is the
+  /// answer instead. A run that the agent refused is forgotten too, and its failure carries how far it came
   /// and the steps of the host. A run that vanished on the host after it started (`unknown_run`) may have run its
   /// command, so its exit is 255, and a caller never runs the command a second time
-  fn follow_and_fetch(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path, watch: &Watch) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
+  fn follow_and_fetch(
+    &self,
+    host: &mut Host,
+    run: &str,
+    local: Local<'_>,
+    record: &RunRecord,
+    files: &RunFiles,
+    watch: &Watch,
+  ) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
     let alias = host.alias().to_owned();
-    let followed = match self.follow(host, run, true, watch) {
+    let followed = match self.follow(host, run, true, watch, None) {
       Ended::Exit(followed) => followed,
       Ended::Refused(refusal, steps) if refusal.code == Code::UnknownRun => return Err((vanished(&refusal, run, &alias), Reached::Started, steps)),
       Ended::Refused(refusal, steps) => {
@@ -593,20 +660,46 @@ impl Client<'_> {
       }
       Ended::Unseen(refusal) => return Err((unseen_after_start(refusal), Reached::Started, Vec::new())),
     };
+    // A `brd-host wait` of this checkout may finish the run at the same time: one process fetches, applies and forgets
+    let lock = match files.lock(run, None, self.timing.interrupt_poll, &|| watch.abandoned.load(Ordering::Acquire)) {
+      Ok(lock) => lock,
+      Err(refusal) => {
+        (self.say)(&format!("brd-host: {refusal}"));
+        None
+      }
+    };
+    match files.read_end(run) {
+      Ok(Some(done)) => {
+        return Ok(Finished {
+          followed,
+          fetched: Ok(Fetched::default()),
+          fetch: None,
+          lock,
+          forgotten: done.forgotten,
+          done: Some(done),
+        });
+      }
+      Ok(None) => {}
+      Err(refusal) => (self.say)(&format!("brd-host: {refusal}")),
+    }
     if !record.asks_for_files() {
-      self.forget_or_say(host, run);
+      let forgotten = self.forget_or_say(host, run);
       return Ok(Finished {
         followed,
         fetched: Ok(Fetched::default()),
         fetch: None,
+        lock,
+        forgotten,
+        done: None,
       });
     }
     let fetching = Instant::now();
-    let fetched = self.fetch_run(host, run, local, record, patch);
+    let fetched = self.fetch_run(host, run, local, record, &files.patch(run));
     let fetch = Some(phase("fetch", fetching.elapsed()));
+    let mut forgotten = false;
     let fetched = match fetched {
       Ok(fetched) => {
-        self.forget_or_say(host, run);
+        forgotten = self.forget_or_say(host, run);
         Ok(fetched)
       }
       Err(refusal) => {
@@ -623,7 +716,14 @@ impl Client<'_> {
         Err(Refusal::new(code, message))
       }
     };
-    Ok(Finished { followed, fetched, fetch })
+    Ok(Finished {
+      followed,
+      fetched,
+      fetch,
+      lock,
+      forgotten,
+      done: None,
+    })
   }
 
   /// Cancels a started run whose start or pack failed, so its supervisor does not wait for the pack. Answers the
@@ -653,7 +753,7 @@ impl Client<'_> {
   /// on
   pub fn follow_run(&self, alias: &str, run: &str) -> Result<Followed, Refusal> {
     let mut host = self.host(alias)?;
-    match self.follow(&mut host, run, false, &Watch::new()) {
+    match self.follow(&mut host, run, false, &Watch::new(), None) {
       Ended::Exit(followed) => Ok(followed),
       Ended::Refused(refusal, _) | Ended::Unseen(refusal) => Err(refusal),
     }
@@ -720,11 +820,7 @@ impl Client<'_> {
   /// One request on a new connection, and its reply that `take` reads. A refusal of the agent keeps its code, and a
   /// reply that `take` gives back is out of turn
   fn ask<T>(&self, host: &mut Host, request: &Request, take: impl FnOnce(Reply) -> Taken<T>) -> Result<T, Refusal> {
-    match take(host.request(request, self.timing.read)?.1) {
-      Taken::Answer(answer) => Ok(answer),
-      Taken::Other(Reply::Refused { code, message }) => Err(host.agent_refusal(&code, &message)),
-      Taken::Other(reply) => Err(host.unexpected(&reply)),
-    }
+    ask_within(host, request, self.timing.read, take)
   }
 
   /// The hello of the agent: its version, its build and its platform, and the address that answered
@@ -774,21 +870,26 @@ impl Client<'_> {
     }
   }
 
-  fn forget_or_say(&self, host: &mut Host, run: &str) {
-    if let Err(refusal) = self.forget_on(host, run) {
-      (self.say)(&format!(
-        "brd-host: cannot forget the run {run} on {}: {}. `brd-host forget {} {run}` removes its files",
-        host.alias(),
-        refusal.message,
-        host.alias()
-      ));
+  /// Forgets the run on the host, or says why it cannot. Answers whether the host forgot it
+  pub(crate) fn forget_or_say(&self, host: &mut Host, run: &str) -> bool {
+    match self.forget_on(host, run) {
+      Ok(_) => true,
+      Err(refusal) => {
+        (self.say)(&format!(
+          "brd-host: cannot forget the run {run} on {}: {}. `brd-host forget {} {run}` removes its files",
+          host.alias(),
+          refusal.message,
+          host.alias()
+        ));
+        false
+      }
     }
   }
 
   /// Follows the output of a run up to its end. With `cancel_on_interrupt`, the first Ctrl+C sends `Cancel`, and the
   /// second one stops the follow; without it, the first Ctrl+C leaves the follow, and the run goes on.
-  /// `Watch::stop_follow` stops it from another thread
-  fn follow(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch) -> Ended {
+  /// `Watch::stop_follow` stops it from another thread. With `log`, the bytes of both streams go to that file instead
+  pub(crate) fn follow(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch, log: Option<&File>) -> Ended {
     let watched = host.clone();
     thread::scope(|scope| {
       if cancel_on_interrupt {
@@ -796,7 +897,7 @@ impl Client<'_> {
       } else {
         scope.spawn(in_current_span(|| self.leave_on_interrupt(watch)));
       }
-      let ended = self.follow_loop(host, run, cancel_on_interrupt, watch);
+      let ended = self.follow_loop(host, run, cancel_on_interrupt, watch, log);
       watch.finished.store(true, Ordering::Release);
       ended
     })
@@ -845,11 +946,12 @@ impl Client<'_> {
     }
   }
 
-  fn follow_loop(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch) -> Ended {
+  fn follow_loop(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch, log: Option<&File>) -> Ended {
     let mut state = FollowState {
       offset: 0,
       stdout: Vec::new(),
       stderr: Vec::new(),
+      log,
       last_reply: Instant::now(),
       backoff: self.timing.first_backoff,
       phases: Vec::new(),
@@ -904,7 +1006,7 @@ impl Client<'_> {
   }
 
   /// One connection of `Follow`. Answers the exit code at the end of the run
-  fn follow_once(&self, host: &mut Host, run: &str, watch: &Watch, state: &mut FollowState) -> Result<i32, Broken> {
+  fn follow_once(&self, host: &mut Host, run: &str, watch: &Watch, state: &mut FollowState<'_>) -> Result<i32, Broken> {
     let (mut channel, _) = host.connect().map_err(classify)?;
     *watch.current.lock().unwrap_or_else(PoisonError::into_inner) = channel.closer().ok();
     if watch.abandoned.load(Ordering::Acquire) {
@@ -930,7 +1032,7 @@ impl Client<'_> {
             let bytes = piece
               .into_stream_bytes()
               .map_err(|message| Broken::Refused(Refusal::new(Code::Link, format!("the agent on {} sent {message}", host.alias()))))?;
-            self.put_output(stream, &bytes, state);
+            self.put_output(stream, &bytes, state)?;
           }
         }
         // A new connection after a lost one can bring the steps again, and the last ones hold
@@ -945,9 +1047,14 @@ impl Client<'_> {
     }
   }
 
-  /// Gives the bytes of a piece of output to the output sink. Without one, the stdout collects, and each complete line
-  /// of the stderr goes to `say`
-  fn put_output(&self, stream: Stream, bytes: &[u8], state: &mut FollowState) {
+  /// Gives the bytes of a piece of output to the log of the follow, else to the output sink. Without either, the stdout
+  /// collects, and each complete line of the stderr goes to `say`. A write to the log that fails stops the follow
+  fn put_output(&self, stream: Stream, bytes: &[u8], state: &mut FollowState<'_>) -> Result<(), Broken> {
+    if let Some(mut log) = state.log {
+      return log
+        .write_all(bytes)
+        .map_err(|error| Broken::Refused(Refusal::new(Code::Config, format!("cannot write the output of the run to its log: {error}"))));
+    }
     match (stream, self.output) {
       (_, Some(output)) => output(stream, bytes),
       (Stream::Stdout, None) => state.stdout.extend_from_slice(bytes),
@@ -959,11 +1066,12 @@ impl Client<'_> {
         }
       }
     }
+    Ok(())
   }
 
   /// Gives `say` the stderr line without its line end that the follow holds, when the client has no output sink: the
   /// line of the client that comes next stays on a line of its own
-  fn say_open_stderr(&self, state: &mut FollowState) {
+  fn say_open_stderr(&self, state: &mut FollowState<'_>) {
     if !state.stderr.is_empty() {
       (self.say)(&String::from_utf8_lossy(&state.stderr));
       state.stderr.clear();
@@ -991,19 +1099,30 @@ fn check_clean(checkout: &Checkout) -> Result<(), Refusal> {
   ))
 }
 
+/// `Client::ask` with the read deadline `deadline`
+pub(crate) fn ask_within<T>(host: &mut Host, request: &Request, deadline: Duration, take: impl FnOnce(Reply) -> Taken<T>) -> Result<T, Refusal> {
+  match take(host.request(request, deadline)?.1) {
+    Taken::Answer(answer) => Ok(answer),
+    Taken::Other(Reply::Refused { code, message }) => Err(host.agent_refusal(&code, &message)),
+    Taken::Other(reply) => Err(host.unexpected(&reply)),
+  }
+}
+
 /// What `Client::ask` reads of a reply: its answer, or the reply that is no answer
-enum Taken<T> {
+pub(crate) enum Taken<T> {
   Answer(T),
   Other(Reply),
 }
 
 /// What a follow keeps across its connections
-struct FollowState {
+struct FollowState<'l> {
   offset: u64,
   /// The stdout of the command, without an output sink
   stdout: Vec<u8>,
   /// The bytes of the stderr after its last line end, without an output sink
   stderr: Vec<u8>,
+  /// The file that takes the bytes of both streams, in place of the output sink
+  log: Option<&'l File>,
   last_reply: Instant,
   backoff: Duration,
   /// The steps of the host from the last `Reply::Phases`
@@ -1064,7 +1183,7 @@ fn sleep_unless(time: Duration, poll: Duration, stop: &AtomicBool) {
 }
 
 /// Whether a refusal is a lost link, so that a new connection can do better
-const fn is_link(refusal: &Refusal) -> bool {
+pub(crate) const fn is_link(refusal: &Refusal) -> bool {
   matches!(refusal.code, Code::Unreachable | Code::TimedOut | Code::Link)
 }
 
@@ -1125,7 +1244,7 @@ pub(crate) struct Fetched {
 
 /// The refusal of a run that vanished on the host after it started: the command may have run, and there is nothing
 /// left to forget
-fn vanished(refusal: &Refusal, run: &str, alias: &str) -> Refusal {
+pub(crate) fn vanished(refusal: &Refusal, run: &str, alias: &str) -> Refusal {
   Refusal::new(
     refusal.code,
     format!(

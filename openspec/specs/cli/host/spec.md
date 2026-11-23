@@ -368,6 +368,7 @@ the content that the table names.
 | Agent | `~/.local/bin/brd-host`, on a local host `~/.local/share/brd-host/agent/brd-host` | The binary that the LaunchAgent runs, and `<binary>.previous` after an upgrade |
 | Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
+| Checkout | `<git dir>/branch-deck/host/runs/<run>.log`, `<run>.end.json`, `<run>.lock` | The output of the run from its first byte, which its end writes; how the run ended here (`{"exit", "command_exit", "refusal", "phases", "fetched", "applied_files", "forgotten"}`); the lock that one process of the checkout holds while it finishes the run |
 
 ### Requirement: The files: Each line of the log of the agent starts with its local time
 
@@ -396,11 +397,12 @@ through `sync_utils::fs_retry`.
 
 ### Requirement: The files: The records and patches of old runs go
 
-A record and a patch older than 7 days MUST go at the next run of the checkout.
+A record, a patch, a log, an end and a lock of a run older than 7 days MUST go at the next run, wait or fetch of the
+checkout.
 
 #### Scenario: A record older than 7 days
-- **GIVEN** a run record and a patch of the checkout older than 7 days
-- **WHEN** the next run of the checkout starts
+- **GIVEN** a run record, a patch, a log, an end and a lock of the checkout older than 7 days
+- **WHEN** the next run, wait or fetch of the checkout starts
 - **THEN** they go
   [@test] crates/host-client/src/record_test.rs (`a_run_record_names_what_a_fetch_takes_and_old_records_go`)
 
@@ -1220,6 +1222,130 @@ Each of these commands MUST exit 0, or 255 with a refusal, or 2 for a usage erro
 - **WHEN** one of these commands ends
 - **THEN** it exits 0, or 255 with a refusal, or 2 for a usage error
   [@test] crates/bd-host/tests/cli.rs (`follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
+
+### Requirement: wait: The command line of wait
+
+`brd-host wait <alias> <run> [--max <duration>]` MUST wait for the end of a run of the host for at most `--max`, 9 min
+by default, under the 10 min after which the tool of an agent ends a call. It MUST run in the checkout of the run, whose
+record says which files come back, and its stdout MUST stay empty.
+
+#### Scenario: The synopsis of wait
+- **WHEN** a caller runs `brd-host wait`
+- **THEN** it takes this command line, and `--max` takes seconds (`90`) or numbers with `h`, `m` and `s` in this order
+  (`90s`, `9m`, `1h30m`), from 1 s to 24 h
+- **AND** any other duration refuses with `usage` (2)
+  [@test] crates/bd-host/src/cli_test.rs (`max_takes_seconds_minutes_and_hours_and_refuses_the_rest`)
+
+```sh
+brd-host wait <alias> <run> [--max <duration>]
+```
+
+### Requirement: wait: wait says each state of the run as it changes
+
+A wait MUST ask the agent for its runs (`Request::Runs`) every 5 s, each time on a new connection, and MUST say one line
+`brd-host: <hh:mm:ss> run <run> <state>` for each state of the run that it sees, the first one at once, and nothing else
+while it waits. The state comes from the ended steps and the heavy turn that `Reply::Runs` of any agent carries, as
+the table below names it.
+
+#### Scenario: A wait from the heavy turn to the end
+- **WHEN** a heavy run goes from the heavy turn through its slot and its command to its end during one wait
+- **THEN** the wait says one line for each state it saw, with the local time
+- **AND** it says neither the output of the run nor the lines of the heavy turn
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_says_each_state_of_the_run_then_takes_its_log_fetches_and_forgets_it_by_its_record`)
+  [@test] crates/host-client/src/state_test.rs (`the_state_of_a_run_comes_from_its_ended_steps_and_the_heavy_queue`)
+
+| The run | State |
+|---|---|
+| in the queue of the heavy turn, behind `n` runs | `waits for the heavy turn of <alias>, <n> runs ahead: …` (`first in its queue`, `1 run ahead`) |
+| not heavy, no step ended, while an exclusive run holds the host | `waits for the end of a measurement that holds <alias>` |
+| else, before `slot` ended | `waits for a host slot of <alias>` |
+| `slot` ended | `checks out its commit and prepares on <alias>` |
+| `prepare` ended | `runs its command on <alias>` |
+| `command` ended | `ended its command; <alias> stages its files` |
+| the run ended | `ended on <alias>` |
+
+### Requirement: wait: wait finishes an ended run as run does
+
+At the end of the run a wait MUST take its output into `<run>.log` of the checkout by one `Follow` from its first byte,
+before the forget cuts the log on the host, and then finish the run by its record as `run` does: copy its files, apply
+its changes, write its end (`<run>.end.json`) and forget it. It MUST then say a summary and exit as `run` would: with
+the exit code of the command, or the exit of the refusal by how far the run came (`superseded` 75).
+
+#### Scenario: The end of a run with its record
+- **WHEN** the run of a wait ends and the checkout has its record
+- **THEN** the wait takes the log, copies the files of the record, forgets the run, writes its end and exits with the
+  exit code of the command
+- **AND** the summary says `brd-host: run <run> on <alias> exited with <code> after <time> on the host` (`ended with
+  <code>` for a refusal), the phases, the copied files, `brd-host: the output of the run: <log> (<n> lines)`, and the
+  last 30 lines of the output as they are
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_says_each_state_of_the_run_then_takes_its_log_fetches_and_forgets_it_by_its_record`)
+  [@test] crates/bd-host/tests/cli.rs (`wait_waits_for_a_run_past_its_max_and_the_next_one_ends_it`)
+
+#### Scenario: A fetch that fails
+- **WHEN** the fetch of the end of a wait fails
+- **THEN** the wait exits 255, writes no end and keeps the run on the host, and the next wait copies its files again
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_whose_fetch_failed_copies_the_files_again_on_the_next_wait`)
+
+#### Scenario: A run that the agent refused
+- **WHEN** the agent ended the run with a refusal, such as `superseded`
+- **THEN** the wait exits with the exit of that refusal, copies no file, and forgets the run
+  [@test] crates/host-client/src/wait_test.rs (`a_superseded_run_exits_75_with_the_refusal_of_the_agent`)
+
+#### Scenario: A checkout without the record
+- **WHEN** a wait runs in a checkout that has no record of the run
+- **THEN** it says so, takes the log, and neither copies a file nor forgets the run
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_in_another_checkout_says_so_and_fetches_nothing`)
+
+### Requirement: wait: One process of a checkout finishes a run
+
+The process that finishes a run in its checkout, a `wait` or the `run` of the run, MUST hold the lock `<run>.lock`
+from before its fetch to its end file, so the changes of a run never apply twice. A wait while another process holds
+it MUST finish nothing, and a wait or a `run` after the end file MUST answer from it.
+
+#### Scenario: A wait after the end
+- **WHEN** a wait runs after an earlier call wrote the end of the run
+- **THEN** it says the summary from the end file and exits with its exit, and asks the host only to forget a run that
+  is not forgotten
+  [@test] crates/host-client/src/wait_test.rs (`a_second_wait_after_the_end_answers_from_the_end_file_and_only_forgets`)
+
+#### Scenario: Another process finishes the run
+- **WHEN** a wait runs while another process of the checkout holds the lock of the run
+- **THEN** it asks the host nothing and exits 124 with `still_running` at its `--max`
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_while_another_process_finishes_the_run_exits_124_and_asks_nothing`)
+
+#### Scenario: A run that a wait finished first
+- **WHEN** a wait of the checkout finished the run while its `brd-host run` followed it
+- **THEN** the run reports the end of the wait and sends no fetch and no forget, and a run that finished itself writes
+  its end
+  [@test] crates/host-client/src/run_test.rs (`a_run_that_a_wait_finished_first_reports_its_end_and_fetches_nothing`)
+
+### Requirement: wait: Past --max the run goes on
+
+Past its `--max` a wait MUST leave the run going, send no cancel, and refuse with `still_running` (124), naming the
+state of the run and `brd-host wait <alias> <run>`, when the host answered in this call. A wait whose host answered no
+poll in the whole `--max` MUST refuse with `timed_out` (255): the run can go on there, and a host that is down does not
+keep an agent waiting call after call. `--max` bounds the wait for the end, not the fetch after it.
+
+#### Scenario: A run that goes on past --max
+- **WHEN** the run goes on past the `--max` of a wait
+- **THEN** the wait exits 124 with `still_running`, the run goes on, and the next wait says its state at once and ends it
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_past_its_max_leaves_the_run_going_and_exits_124_and_the_next_one_ends_it`)
+  [@test] crates/bd-host/tests/cli.rs (`wait_waits_for_a_run_past_its_max_and_the_next_one_ends_it`)
+
+#### Scenario: A host that never answers
+- **WHEN** no poll of a wait gets an answer before its `--max`
+- **THEN** the wait exits 255 with `timed_out`
+  [@test] crates/host-client/src/wait_test.rs (`a_wait_whose_host_never_answers_exits_255_with_timed_out`)
+
+### Requirement: wait: Ctrl+C leaves a wait
+
+The first Ctrl+C, SIGTERM or SIGHUP MUST leave a wait with 130 and `interrupted: Ctrl+C, SIGTERM or SIGHUP left the
+wait of the run <run>, which goes on on <alias>: `brd-host wait <alias> <run>` waits again`, and send no cancel.
+
+#### Scenario: Ctrl+C during a wait
+- **WHEN** the user presses Ctrl+C during a wait, or a tool sends it SIGTERM or SIGHUP
+- **THEN** the wait leaves with 130, sends no cancel, and the run goes on
+  [@test] crates/host-client/src/wait_test.rs (`ctrl_c_leaves_a_wait_and_the_run_goes_on`)
 
 ### Requirement: hello: hello prints the answer of the agent
 
@@ -2688,8 +2814,9 @@ on the message.
 ### Requirement: Refusal codes: The exit of a refusal says whether the host ran the command
 
 Exit 75 MUST mean that the host did not run the command, so the caller can run it locally. A refusal of `run` before
-`Start`, and a refusal of the agent whose phases have no `command`, MUST exit 75. Any other refusal MUST exit 255,
-except `usage` (2) and `interrupted` (130).
+`Start`, and a refusal of the agent whose phases have no `command`, MUST exit 75. Exit 124 MUST mean that the run goes
+on past the `--max` of a wait, and nothing was cancelled (`still_running`). Any other refusal MUST exit 255, except
+`usage` (2) and `interrupted` (130).
 
 #### Scenario: A refusal before the command
 - **WHEN** `run` refuses before `Start`, or the agent refuses a run whose phases have no `command`
@@ -2698,7 +2825,7 @@ except `usage` (2) and `interrupted` (130).
 
 #### Scenario: Any other refusal
 - **WHEN** any other refusal comes
-- **THEN** it exits 255, except `usage` (2) and `interrupted` (130)
+- **THEN** it exits 255, except `usage` (2), `still_running` (124) and `interrupted` (130)
   [@test] crates/host-link/src/refusal_test.rs (`the_exit_of_a_code_follows_how_far_the_run_came`)
 
 ### Requirement: Refusal codes: Each code has one name and one exit
@@ -2736,6 +2863,7 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
 | `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs. |
 | `superseded` | 75 | A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`. |
+| `still_running` | 124 | The run goes on past `--max` of `wait` or `run --max`, or another brd-host of the checkout finishes it; nothing was cancelled. The next `brd-host wait <alias> <run>` waits again. |
 | `lease_failed` | 75 | The lend failed. The message has the error of the pool. |
 | `old_git` | 75 | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. The message is the hint of Branch Deck. |
 | `checkout_failed` | 75 | The commit cannot be checked out in the slot. |

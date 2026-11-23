@@ -1,6 +1,6 @@
 ---
 name: brd-host
-description: Use to run a command, a build or a test on another machine of the user with `brd-host run <host>` or `bt --host <host>`, or to follow, cancel or fetch a run.
+description: Use to run a command, a build or a test on another machine of the user with `brd-host run <host>` or `bt --host <host>`, or to wait for, cancel or fetch a run.
 ---
 
 # brd-host
@@ -18,7 +18,7 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 
 | Command | Who |
 |---|---|
-| `brd-host run`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
+| `brd-host run`, `wait`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
 | `brd-host upgrade <host>`, `brd-host trim <host>` | An agent, only after the user agrees: the one deploys a new agent, the other deletes worktrees, on a machine that the user shares. |
 | `brd-host setup …`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
 
@@ -119,16 +119,17 @@ superseded run again, here or there: `brd-host follow <host> <later run>` follow
 holds the turn is never superseded. `brd-host: run <run> of this checkout also waits for the heavy turn, …: <command>`
 says that your checkout queued another command: cancel the one you no longer need.
 
-A heavy run can wait long, so start it in the background (`run_in_background` of a coding agent) and follow its
-output, rather than in a call that a tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C
-does; SIGKILL leaves it going: `brd-host cancel <host> <run>` then.
+A heavy run can wait long, so start it in the background (`run_in_background` of a coding agent), keep its run id from
+its first line, and wait for it with `brd-host wait <host> <run>` (see "Wait for a run"), rather than in a call that a
+tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C does; SIGKILL leaves it going:
+`brd-host cancel <host> <run>` then.
 
 `bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It ships the working tree,
 HEAD plus the local changes as one commit, as `brd-host run` does. The new run directories of `out/bt-runs` come back.
 
 ### The lines of a run
 
-- `brd-host: run <run> of <commit> on <host>` comes first. Keep the run id: `follow`, `cancel` and `fetch` need it.
+- `brd-host: run <run> of <commit> on <host>` comes first. Keep the run id: `wait`, `follow`, `cancel` and `fetch` need it.
 - `brd-host: running in <slot> (slot <n>): load …, nice …, … open files, git <version>, …` comes right before the
   command.
 - `brd-host: phases: …` comes at the end. Read it before you guess where the time went.
@@ -177,12 +178,31 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 | 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Never locally: `brd-host runs <host>`, then run it again later. |
 | 75 with `superseded` | A later run of your checkout and command took its place before it started: nothing ran. | Never run it again: `brd-host follow <host> <later run>`, which the message names. |
+| 124 with `still_running` | `brd-host wait` passed its `--max`; the run goes on, and nothing was cancelled. | `brd-host wait <host> <run>` again. A command that itself exits 124 has no `still_running` line. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
 | 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
 | 2 | A usage error. | Fix the command line. |
 
 `brd-host schema` prints every refusal code with its exit code. Act on the code, never on the message.
+
+## Wait for a run
+
+`brd-host wait <host> <run> [--max <duration>]` waits for the end of a run in one call of at most `--max` (9 min by
+default, `90s`, `9m`, `1h30m`), under the timeout of your tool. Run it in the checkout of the run.
+
+- While it waits it says only one line per change of the state of the run, with the time: `brd-host: 14:02:11 run <run>
+  waits for the heavy turn of studio, 1 run ahead: …`, `… checks out its commit and prepares on studio`, `… runs its
+  command on studio`. Never filter its output, and never poll `brd-host runs` or a marker file beside it.
+- At the end it copies the files of the run, applies its changes and forgets it, as `run` does, puts the whole output
+  into `<git dir>/branch-deck/host/runs/<run>.log`, and says a summary: the exit, the phases, the copied files, the
+  path of the log with its line count, and its last 30 lines. Read the log with your tools for more. It exits with the
+  exit code of the command.
+- Past `--max` it exits 124 with `still_running` and the state, and the run goes on: run the same `wait` again. Never
+  wrap it in `timeout`. A host that did not answer the whole time is `timed_out` (255): the run can go on there.
+- A `wait` after the end answers again at once from what the first one wrote. While the `run` of the run still goes on
+  in the background, that process finishes it, and a `wait` says `still_running` until it did.
+- Ctrl+C, SIGTERM or SIGHUP leaves a wait (130), and the run goes on.
 
 ## A lost link, follow and cancel
 

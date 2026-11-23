@@ -9,7 +9,9 @@
 //! - `git`: the git of the checkout of a run: the snapshot, the thin pack, `[host]` of the commit and the apply
 //! - `run`: a run, its follow, the requests of one reply, and the end of a run as `RunOutcome` or `RunFailure`
 //! - `pack`, `base`: the thin pack of a run, and the base of the later packs
-//! - `fetch`, `record`: the files that come back, and the record of a run that says which ones may come
+//! - `fetch`, `record`: the files that come back, and the record of a run that says which ones may come, its log and
+//!   its end
+//! - `wait`: the wait of a run in calls of at most `--max`, the state of the run as it changes, and its end
 //! - `phases`: the steps of a run for a person
 //! - `report`: the report of a run and the hello as JSON, for `--report-fd` and `hello --json`
 //! - `setup`: makes a host ready over ssh; `process` is the seam of its children
@@ -36,7 +38,9 @@ mod record;
 pub mod report;
 pub mod run;
 pub mod setup;
+mod state;
 pub mod upgrade;
+pub mod wait;
 
 #[cfg(test)]
 mod testkit;
@@ -54,11 +58,13 @@ use std::path::Path;
 use std::time::Duration;
 
 /// The exit of `brd-host` for a refusal of a request that is no run: `follow`, `cancel`, `fetch`, `forget`, `runs`,
-/// `hello`, `slots`, `setup` and `upgrade` exit 2 for `usage`, 130 for `interrupted`, else 255
+/// `hello`, `slots`, `setup` and `upgrade` exit 2 for `usage`, 130 for `interrupted`, 124 for `still_running` of a
+/// `wait`, else 255
 pub const fn request_exit(refusal: &Refusal) -> Exit {
   match refusal.code {
     Code::Usage => Exit::Usage,
     Code::Interrupted => Exit::Interrupted,
+    Code::StillRunning => Exit::StillRunning,
     _ => Exit::Refused,
   }
 }
@@ -107,6 +113,8 @@ pub(crate) struct Timing {
   pub(crate) cancel_for: Duration,
   /// How long the end of a run waits for the last lines of its cancel
   pub(crate) cancel_grace: Duration,
+  /// How often a wait asks the agent for the state of its run (`Request::Runs`)
+  pub(crate) state_poll: Duration,
 }
 
 impl Timing {
@@ -123,6 +131,7 @@ impl Timing {
     interrupt_poll: Duration::from_millis(100),
     cancel_for: Duration::from_secs(120),
     cancel_grace: Duration::from_millis(500),
+    state_poll: Duration::from_secs(5),
   };
 }
 
@@ -145,6 +154,9 @@ pub struct Client<'a> {
   /// How long the build of a pack waits before git starts, so a test can press Ctrl+C or count keepalives meanwhile;
   /// zero outside the tests
   hold_pack: Duration,
+  /// Whether the `--max` of a wait has passed, for a test that names the moment instead of a clock; `None` outside the
+  /// tests, where the clock decides
+  past_max: Option<&'a (dyn Fn() -> bool + Sync)>,
 }
 
 impl<'a> Client<'a> {
@@ -162,6 +174,7 @@ impl<'a> Client<'a> {
       presses,
       timing: Timing::DEFAULT,
       hold_pack: Duration::ZERO,
+      past_max: None,
     }
   }
 
@@ -204,6 +217,12 @@ impl<'a> Client<'a> {
   #[cfg(test)]
   pub(crate) const fn with_hold_pack(mut self, hold: Duration) -> Self {
     self.hold_pack = hold;
+    self
+  }
+
+  #[cfg(test)]
+  pub(crate) const fn with_past_max(mut self, past_max: &'a (dyn Fn() -> bool + Sync)) -> Self {
+    self.past_max = Some(past_max);
     self
   }
 }

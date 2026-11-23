@@ -46,6 +46,7 @@ fn the_exit_of_a_code_follows_how_far_the_run_came() {
   assert_eq!(exits(Code::TimedOut), [75, 255, 255]);
   assert_eq!(exits(Code::AgentError), [75, 75, 255]);
   assert_eq!(exits(Code::UnknownRun), [255, 255, 255]);
+  assert_eq!(exits(Code::StillRunning), [124, 124, 124], "the run goes on, whatever it reached");
   assert_eq!(Exit::NotRun.code(), 75);
 }
 

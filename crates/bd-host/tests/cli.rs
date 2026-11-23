@@ -280,6 +280,27 @@ impl Drop for Held {
   }
 }
 
+/// Starts `brd-host run <args> -- /bin/sh -c '<before>; …; <after>'`, whose command holds while the hold file of the home
+/// exists. A test that the runner kills leaves the command for at most 60 s
+fn start_a_held_run(world: &World, args: &[&str], before: &str, after: &str) -> Held {
+  let hold = world.home.path().join("hold");
+  fs::write(&hold, "").expect("the hold file");
+  let script = format!(
+    "{before}; i=0; while [ -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done; {after}",
+    hold.display()
+  );
+  let client = world
+    .command()
+    .args(["run", ALIAS])
+    .args(args)
+    .args(["--", "/bin/sh", "-c", &script])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .spawn()
+    .expect("a run");
+  Held { client, hold }
+}
+
 /// `brd-host follow` of a run that ended after its client went gives the bytes of its stdout. They are a carriage
 /// return, a character across the bound of an event, and a last line without a line end. That line came after the
 /// client went
@@ -291,22 +312,8 @@ fn follow_of_an_ended_run_gives_the_bytes_of_its_stdout() {
   printed.extend(std::iter::repeat_n(b'z', EVENT_BOUND - 2));
   printed.extend("😀\n".as_bytes());
   fs::write(world.repo.path().join("printed"), &printed).expect("the file to print");
-  let hold = world.home.path().join("hold");
-  fs::write(&hold, "").expect("the hold file");
-  // the last line has no line end, so it comes only at the end of the stream, after the hold. A test that the runner
-  // kills leaves the command for at most 60 s
-  let script = format!(
-    "cat printed; i=0; while [ -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done; printf last",
-    hold.display()
-  );
-  let client = world
-    .command()
-    .args(["run", ALIAS, "--", "/bin/sh", "-c", &script])
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null())
-    .spawn()
-    .expect("a run");
-  let mut held = Held { client, hold };
+  // the last line has no line end, so it comes only at the end of the stream, after the hold
+  let mut held = start_a_held_run(&world, &[], "cat printed", "printf last");
   let mut got = vec![0; printed.len()];
   let read = held.client.stdout.take().expect("the stdout").read_exact(&mut got);
   // the client goes, and the run goes on: nothing forgets it on the host
@@ -803,4 +810,53 @@ fn features_of_this_platform() -> Value {
   } else {
     json!(["disk", "trim", "heavy", "exclusive"])
   }
+}
+
+/// `brd-host wait` of a run whose client went: past its `--max` it exits 124 and the run goes on; the next wait ends it
+/// with the exit code of the command, says its summary and leaves its output in its log; a third answers from its end
+#[test]
+fn wait_waits_for_a_run_past_its_max_and_the_next_one_ends_it() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut held = start_a_held_run(&world, &["--head"], "echo started", "echo done; exit 3");
+  let hold = held.hold.clone();
+  let mut first = String::new();
+  BufReader::new(held.client.stdout.take().expect("the stdout"))
+    .read_line(&mut first)
+    .expect("the first line");
+  assert_eq!(first, "started\n", "serve: {}", world.serve_log());
+  // SIGKILL leaves the run going on the host, as a tool that kills its call
+  let _ = held.client.kill();
+  let _ = held.client.wait();
+  let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).expect("JSON");
+  let id = listed["runs"][0]["run"].as_str().expect("the run").to_owned();
+
+  let waited = world.bd_host(&["wait", ALIAS, &id, "--max", "1s"]);
+  let said = text(&waited.stderr);
+  assert_eq!(waited.status.code(), Some(124), "{said}\nserve: {}", world.serve_log());
+  assert!(said.contains(&format!(" run {id} runs its command on {ALIAS}\n")), "{said}");
+  assert!(
+    said.contains(&format!("brd-host: still_running: the run {id} goes on on {ALIAS} after a wait of ")),
+    "{said}"
+  );
+  assert_eq!(text(&waited.stdout), "");
+
+  fs::remove_file(&hold).expect("the hold goes");
+  let waited = world.bd_host(&["wait", ALIAS, &id]);
+  let said = text(&waited.stderr);
+  assert_eq!(waited.status.code(), Some(3), "{said}\nserve: {}", world.serve_log());
+  assert!(said.contains(&format!("brd-host: run {id} on {ALIAS} exited with 3 after ")), "{said}");
+  assert_eq!(text(&waited.stdout), "", "the output goes to the log");
+  let log = said
+    .lines()
+    .find_map(|line| line.strip_prefix("brd-host: the output of the run: "))
+    .and_then(|rest| rest.rsplit_once(" ("))
+    .map_or_else(|| panic!("the line of the log: {said}"), |(path, _)| PathBuf::from(path));
+  let output = fs::read_to_string(&log).expect("the log");
+  assert!(output.contains("started\n") && output.contains("done\n"), "{output}");
+  assert!(said.contains("\nstarted\ndone\n"), "the last lines of the output end the summary: {said}");
+
+  let again = world.bd_host(&["wait", ALIAS, &id]);
+  assert_eq!(again.status.code(), Some(3), "{}", text(&again.stderr));
+  assert!(text(&again.stderr).contains("exited with 3 after "), "{}", text(&again.stderr));
 }

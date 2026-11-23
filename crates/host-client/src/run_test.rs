@@ -1528,3 +1528,44 @@ fn a_failed_cancel_connects_again() {
   assert!(lines.iter().any(|line| line.starts_with("brd-host: cannot send the cancel of the run ")), "{lines:#?}");
   assert!(lines.contains(&"brd-host: the host has the cancel".to_owned()), "{lines:#?}");
 }
+
+/// A run whose end a `brd-host wait` of the checkout finished first, while this client followed it, reports that end: the
+/// files that the wait copied, and no second fetch, apply or forget. A run that finished itself writes its end, so a
+/// later wait answers from it
+#[test]
+fn a_run_that_a_wait_finished_first_reports_its_end_and_fetches_nothing() {
+  let Commits { repo, head, .. } = two_commits();
+  let runs_dir = repo.path().join(".git").join(STATE_DIR).join("host/runs");
+  let (setup, _) = agent(repo, known(vec![head]), move |request, channel| match request {
+    Request::Follow { run, .. } => {
+      let end = RunEnd {
+        exit: 0,
+        command_exit: Some(0),
+        phases: vec![step("command", 5)],
+        fetched: vec!["out/bt-runs/0000000002000/test.log".to_owned()],
+        forgotten: true,
+        ..RunEnd::default()
+      };
+      RunFiles::new(&runs_dir).unwrap().write_end(run, &end).unwrap();
+      let _ = channel.send(&Reply::Phases { phases: vec![step("command", 5)] });
+      let _ = channel.send(&Reply::Exit { code: 0 });
+      true
+    }
+    _ => false,
+  });
+  let outcome = run_in(&setup, &|_| {}, &calm, &fetch(), RunOptions::default()).unwrap();
+  assert_eq!(outcome.facts.fetched, ["out/bt-runs/0000000002000/test.log"]);
+  assert!(!kinds(&setup).contains(&"fetch") && !kinds(&setup).contains(&"forget"), "{:?}", kinds(&setup));
+
+  let Commits { repo, head, .. } = two_commits();
+  let (setup, _) = agent_following(repo, known(vec![head]), |_, channel| {
+    let _ = channel.send(&Reply::Phases { phases: vec![step("command", 5)] });
+    let _ = channel.send(&Reply::Exit { code: 4 });
+  });
+  let outcome = run_in(&setup, &|_| {}, &calm, &fetch(), RunOptions::default()).unwrap();
+  let run = outcome.facts.run.expect("the run");
+  let files = RunFiles::new(&setup.repo.path().join(".git").join(STATE_DIR).join("host/runs")).unwrap();
+  let end = files.read_end(&run).unwrap().expect("the end of the run");
+  assert_eq!((end.exit, end.command_exit, end.forgotten), (4, Some(4), true));
+  assert_eq!(end.fetched, outcome.facts.fetched);
+}

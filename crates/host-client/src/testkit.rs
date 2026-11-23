@@ -32,6 +32,7 @@ pub(crate) const UNHURRIED: Timing = Timing {
   interrupt_poll: Duration::from_millis(10),
   cancel_for: Duration::from_mins(1),
   cancel_grace: Duration::from_millis(500),
+  state_poll: Duration::from_millis(10),
 };
 
 pub(crate) const ALIAS: &str = "studio";

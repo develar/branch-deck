@@ -78,3 +78,22 @@ fn setup_takes_an_alias_or_local_or_agent() {
     assert!(setup_of(argv).is_err(), "{argv:?}");
   }
 }
+
+/// `--max` takes seconds, or numbers with `h`, `m` and `s` in this order, from 1 s to 24 h, and refuses the rest
+#[test]
+fn max_takes_seconds_minutes_and_hours_and_refuses_the_rest() {
+  for (text, seconds) in [("90", 90), ("90s", 90), ("9m", 540), ("1h", 3600), ("1h30m", 5400), ("2m5s", 125), ("24h", 86_400)] {
+    assert_eq!(parse_max(text), Ok(Duration::from_secs(seconds)), "{text}");
+  }
+  for text in ["", "0", "0s", "25h", "m", "9x", "5s2m", "1m1m", "9m30", "-1m", "1.5h"] {
+    assert!(parse_max(text).is_err(), "{text}");
+  }
+  let Cli {
+    command: Command::Wait { alias, run, max },
+  } = Cli::try_parse_from(["brd-host", "wait", "studio", "1-2", "--max", "5m"]).expect("a wait")
+  else {
+    panic!("not a wait");
+  };
+  assert_eq!((alias.as_str(), run.as_str(), max), ("studio", "1-2", Some(Duration::from_mins(5))));
+  Cli::try_parse_from(["brd-host", "wait", "studio", "1-2", "--max", "10x"]).expect_err("no duration");
+}

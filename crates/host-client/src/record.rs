@@ -1,6 +1,8 @@
 //! The local files of the runs of a checkout, in `branch-deck/host/runs/` of its git directory (openspec/specs/cli/host/spec.md,
-//! "The files"): `<run>.json`, the record of what the client asked of the run, and `<run>.patch`, the patch of its
-//! changes. The files older than `KEEP` go at the next run of the checkout.
+//! "The files"): `<run>.json`, the record of what the client asked of the run, `<run>.patch`, the patch of its
+//! changes, and for the end of a run `<run>.log`, its output, `<run>.end.json`, how it ended here, and `<run>.lock`,
+//! which one process of the checkout holds while it finishes the run (`RunFiles::lock`). The files older than `KEEP` go
+//! at the next run, wait or fetch of the checkout.
 //!
 //! The client writes the record before the start of the run. A fetch takes only what the record asked for: the staged
 //! files below its fetch directories, the files of its outputs, and the changes when it asked for them. So the host
@@ -9,11 +11,15 @@
 
 use crate::config::write_private;
 use host_link::identity::create_private_dir;
+use host_link::proto::Phase;
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// How long the records and the patches stay in the git directory of a checkout
 const KEEP: Duration = Duration::from_hours(7 * 24);
@@ -39,6 +45,32 @@ impl RunRecord {
   }
 }
 
+/// How a run ended for this checkout, once its end was finished here: its files came, its changes applied, and the
+/// run forgotten on the host. A later `wait` answers from it without the host
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RunEnd {
+  /// The exit of `brd-host` for the run
+  pub(crate) exit: u8,
+  /// The exit code of the command; `None` when the agent ended the run with a refusal
+  pub(crate) command_exit: Option<i32>,
+  /// The refusal that ended the run, of the agent or of its end here, such as `apply_failed`
+  pub(crate) refusal: Option<Refusal>,
+  /// The steps of the run on the host, then `fetch` of this client
+  pub(crate) phases: Vec<Phase>,
+  /// The files that came back, relative to the checkout root with `/` separators
+  pub(crate) fetched: Vec<String>,
+  /// The count of the files that the changes changed here; `None` when the record asked for no changes
+  pub(crate) applied_files: Option<u64>,
+  /// The host has forgotten the run
+  pub(crate) forgotten: bool,
+}
+
+/// The lock of the end of one run in its checkout: while a process holds it, no other one fetches, applies or forgets
+/// the run. It goes with the drop
+#[derive(Debug)]
+pub(crate) struct RunLock(#[expect(dead_code, reason = "the open file holds the lock until the drop")] File);
+
 /// The directory of the run files of a checkout
 pub(crate) struct RunFiles(PathBuf);
 
@@ -57,7 +89,7 @@ impl RunFiles {
           .ok()
           .and_then(|modified| modified.elapsed().ok())
           .is_some_and(|age| age >= KEEP);
-        if old && (name.ends_with(".patch") || name.ends_with(".json")) {
+        if old && [".patch", ".json", ".log", ".lock"].iter().any(|suffix| name.ends_with(suffix)) {
           let _ = sync_utils::fs_retry::remove_file(entry.path());
         }
       }
@@ -74,29 +106,81 @@ impl RunFiles {
     self.0.join(format!("{run}.json"))
   }
 
+  /// The file of the output of `run`, which its end writes
+  pub(crate) fn log(&self, run: &str) -> PathBuf {
+    self.0.join(format!("{run}.log"))
+  }
+
+  fn end(&self, run: &str) -> PathBuf {
+    self.0.join(format!("{run}.end.json"))
+  }
+
+  /// How `run` ended here, or `None` before its end was finished
+  pub(crate) fn read_end(&self, run: &str) -> Result<Option<RunEnd>, Refusal> {
+    read_json(&self.end(run), "an end of a run")
+  }
+
+  pub(crate) fn write_end(&self, run: &str, end: &RunEnd) -> Result<(), Refusal> {
+    write_json(&self.end(run), end)
+  }
+
+  /// Takes the lock of the end of `run`, and waits for it while another process holds it: up to `until`, and while
+  /// `stop` says no. Answers `None` when it did not come
+  pub(crate) fn lock(&self, run: &str, until: Option<Instant>, poll: Duration, stop: &dyn Fn() -> bool) -> Result<Option<RunLock>, Refusal> {
+    let path = self.0.join(format!("{run}.lock"));
+    let failed = |error: &io::Error| Refusal::new(Code::Config, format!("cannot lock {}: {error}", path.display()));
+    let file = OpenOptions::new()
+      .read(true)
+      .write(true)
+      .create(true)
+      .truncate(false)
+      .mode(0o600)
+      .open(&path)
+      .map_err(|error| failed(&error))?;
+    loop {
+      match file.try_lock() {
+        Ok(()) => return Ok(Some(RunLock(file))),
+        Err(TryLockError::WouldBlock) => {}
+        Err(TryLockError::Error(error)) => return Err(failed(&error)),
+      }
+      if stop() || until.is_some_and(|until| Instant::now() >= until) {
+        return Ok(None);
+      }
+      thread::sleep(poll);
+    }
+  }
+
   pub(crate) fn write(&self, run: &str, record: &RunRecord) -> Result<(), Refusal> {
-    let path = self.record(run);
-    let mut text = serde_json::to_string_pretty(record).map_err(|error| Refusal::new(Code::Config, format!("cannot write the run record {}: {error}", path.display())))?;
-    text.push('\n');
-    write_private(&path, &text)
+    write_json(&self.record(run), record)
   }
 
   /// The record of `run`, or `None` when this checkout has none
   pub(crate) fn read(&self, run: &str) -> Result<Option<RunRecord>, Refusal> {
-    let path = self.record(run);
-    let text = match std::fs::read_to_string(&path) {
-      Ok(text) => text,
-      Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-      Err(error) => return Err(Refusal::new(Code::Config, format!("cannot read the run record {}: {error}", path.display()))),
-    };
-    serde_json::from_str(&text)
-      .map(Some)
-      .map_err(|error| Refusal::new(Code::Config, format!("{} is not a run record: {error}", path.display())))
+    read_json(&self.record(run), "a run record")
   }
 
   pub(crate) fn dir(&self) -> &Path {
     &self.0
   }
+}
+
+/// Writes `value` as pretty JSON with a line end to the private file `path`, by a rename
+fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), Refusal> {
+  let mut text = serde_json::to_string_pretty(value).map_err(|error| Refusal::new(Code::Config, format!("cannot write {}: {error}", path.display())))?;
+  text.push('\n');
+  write_private(path, &text)
+}
+
+/// The JSON of `path`, or `None` when it is missing
+fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, what: &str) -> Result<Option<T>, Refusal> {
+  let text = match std::fs::read_to_string(path) {
+    Ok(text) => text,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+    Err(error) => return Err(Refusal::new(Code::Config, format!("cannot read {}: {error}", path.display()))),
+  };
+  serde_json::from_str(&text)
+    .map(Some)
+    .map_err(|error| Refusal::new(Code::Config, format!("{} is not {what}: {error}", path.display())))
 }
 
 #[cfg(test)]

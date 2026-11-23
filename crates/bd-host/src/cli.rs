@@ -1,6 +1,7 @@
 //! The command line of `brd-host` (openspec/specs/cli/host/spec.md). A run leaves by the exit code of its command. A refusal says
 //! `brd-host: <code>: <message>` on the stderr and leaves by its exit: 75 when the host did not run the command, so the
-//! caller can run it locally, 130 after Ctrl+C before the command, 2 for a usage error, and 255 for any other refusal.
+//! caller can run it locally, 130 after Ctrl+C before the command, 124 for a wait past its `--max`, 2 for a usage
+//! error, and 255 for any other refusal.
 //! A command line that clap refuses leaves by 2. stdout carries only the stdout of a command and the answers of the
 //! other commands; every line of brd-host goes to the stderr
 
@@ -17,6 +18,7 @@ use host_client::report::{HelloRefusal, HelloReport, REPORT_SCHEMA, RunReport, c
 use host_client::run::{RunOptions, RunRequest};
 use host_client::setup::{LOCAL_ALIAS, LOCAL_BIND, LocalAgent, LocalSetupRequest, Prepared, SetupRequest};
 use host_client::upgrade::{UpgradeRequest, UpgradeWay, Upgraded};
+use host_client::wait::{DEFAULT_MAX, WaitRequest};
 use host_client::{Build, Client, OutputSink, affinity, request_exit};
 use host_link::digest::sha256_file;
 use host_link::identity::Fingerprint;
@@ -60,6 +62,17 @@ enum Command {
   Run(RunArgs),
   /// Follows the output of a run from its first line. Ctrl+C leaves, and the run goes on
   Follow { alias: String, run: String },
+  /// Waits for the end of a run for at most `--max`, saying only each change of its state, then finishes it as `run`
+  /// does and says its summary. Exits with the exit code of the command, or 124 when the run goes on past `--max`: the
+  /// next `wait` waits again. Ctrl+C leaves, and the run goes on
+  Wait {
+    alias: String,
+    run: String,
+    /// How long to wait for the end of the run, such as `90s`, `9m` or `1h` (default 9m): under the limit of a call of
+    /// the tool of an agent. The fetch after the end is not part of it
+    #[arg(long, value_name = "DURATION", value_parser = parse_max)]
+    max: Option<Duration>,
+  },
   /// Asks the host to interrupt a run, and returns when the host has the request. `follow` shows its end
   Cancel { alias: String, run: String },
   /// Copies the files of a run whose fetch failed into this checkout, by the run record of the checkout
@@ -333,6 +346,7 @@ where
   };
   match cli.command {
     Command::Run(args) => run_command(&args, &out),
+    Command::Wait { alias, run, max } => wait_command(&alias, &run, max.unwrap_or(DEFAULT_MAX), &out),
     Command::Agent(command) => match host_agent::command::execute(command, VERSION, &mut std::io::stdout()) {
       Ok(()) => 0,
       Err(refusal) => {
@@ -468,10 +482,73 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
   write_report(&report)
 }
 
+/// `brd-host wait`: the summary and the refusal on the stderr, and the exit of the run or of the wait
+fn wait_command(alias: &str, run: &str, max: Duration, out: &Out) -> u8 {
+  let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
+  let client =
+    checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))).and_then(|checkout| Ok((checkout, client_with_git(&output, &say, unhashed_build())?)));
+  let (checkout, client) = match client {
+    Ok(found) => found,
+    Err(refusal) => {
+      refuse(&refusal);
+      return request_exit(&refusal).code();
+    }
+  };
+  install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
+  let waited = client.wait(&WaitRequest {
+    checkout: &checkout,
+    alias,
+    run,
+    max,
+  });
+  if let Some(refusal) = &waited.refusal {
+    refuse(refusal);
+  }
+  waited.exit
+}
+
+/// The longest `--max`: an ended run stays on the agent for a day
+const LONGEST_MAX: Duration = Duration::from_hours(24);
+
+/// A duration of `--max`: seconds (`90`), or numbers with `h`, `m` and `s` in this order (`90s`, `9m`, `1h30m`), from
+/// 1 s to 24 h
+fn parse_max(text: &str) -> Result<Duration, String> {
+  let refused = || format!("{text:?} is no duration: a duration such as 90s, 9m or 1h30m, from 1s to 24h");
+  let seconds = if !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()) {
+    text.parse::<u64>().ok().ok_or_else(refused)?
+  } else {
+    let mut seconds = 0u64;
+    let mut number = String::new();
+    // the units left in their order: a unit comes once, after the larger ones
+    let mut units = [('h', 3600u64), ('m', 60), ('s', 1)].as_slice();
+    for character in text.chars() {
+      if character.is_ascii_digit() {
+        number.push(character);
+        continue;
+      }
+      let at = units.iter().position(|(unit, _)| *unit == character).ok_or_else(refused)?;
+      let value: u64 = number.parse().ok().ok_or_else(refused)?;
+      seconds = value.checked_mul(units[at].1).and_then(|part| seconds.checked_add(part)).ok_or_else(refused)?;
+      units = &units[at + 1..];
+      number.clear();
+    }
+    if !number.is_empty() || text.is_empty() {
+      return Err(refused());
+    }
+    seconds
+  };
+  let max = Duration::from_secs(seconds);
+  if max < Duration::from_secs(1) || max > LONGEST_MAX {
+    return Err(refused());
+  }
+  Ok(max)
+}
+
 fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
   let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
   match command {
     Command::Run(_) => unreachable!("run_command takes a run"),
+    Command::Wait { .. } => unreachable!("wait_command takes a wait"),
     Command::Agent(_) => unreachable!("host_agent::command takes an agent command"),
     Command::Follow { alias, run } => {
       install_interrupt("Ctrl+C ends this process, and the run goes on on the host");

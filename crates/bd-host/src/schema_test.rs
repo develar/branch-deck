@@ -38,7 +38,7 @@ fn schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello() {
   }
   assert_eq!((output["protocol"]["schema"].as_u64(), output["protocol"]["port"].as_u64()), (Some(1), Some(7742)));
   let exits: Vec<u64> = output["exits"].as_array().expect("the exits").iter().filter_map(|exit| exit["exit"].as_u64()).collect();
-  assert_eq!(exits, [2, 75, 130, 255]);
+  assert_eq!(exits, [2, 75, 124, 130, 255]);
 
   let report = golden("run-report");
   assert_eq!(keys(properties(&output["report"], None)), keys(&report));

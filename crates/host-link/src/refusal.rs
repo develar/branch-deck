@@ -13,6 +13,8 @@ pub enum Exit {
   Usage,
   /// 75: the host did not run the command
   NotRun,
+  /// 124: the run goes on past `--max` of `wait` or `run --max`, and nothing was cancelled
+  StillRunning,
   /// 130: Ctrl+C
   Interrupted,
   /// 255: the command ran, or whether it ran is unknown, or the refusal is of no run
@@ -24,6 +26,7 @@ impl Exit {
     match self {
       Self::Usage => 2,
       Self::NotRun => 75,
+      Self::StillRunning => 124,
       Self::Interrupted => 130,
       Self::Refused => 255,
     }
@@ -57,6 +60,7 @@ impl ExitRule {
       Self::Always(exit) => match exit {
         Exit::Usage => "2",
         Exit::NotRun => "75",
+        Exit::StillRunning => "124",
         Exit::Interrupted => "130",
         Exit::Refused => "255",
       },
@@ -100,6 +104,7 @@ pub enum Code {
   SlotTimeout,
   HeavyTimeout,
   Superseded,
+  StillRunning,
   LeaseFailed,
   OldGit,
   CheckoutFailed,
@@ -122,7 +127,7 @@ pub enum Code {
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 41] = [
+  pub const ALL: [Self; 42] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -146,6 +151,7 @@ impl Code {
     Self::SlotTimeout,
     Self::HeavyTimeout,
     Self::Superseded,
+    Self::StillRunning,
     Self::LeaseFailed,
     Self::OldGit,
     Self::CheckoutFailed,
@@ -251,6 +257,11 @@ impl Code {
         "superseded",
         ExitRule::Always(Exit::NotRun),
         "A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`.",
+      ),
+      Self::StillRunning => (
+        "still_running",
+        ExitRule::Always(Exit::StillRunning),
+        "The run goes on past `--max` of `wait` or `run --max`, or another brd-host of the checkout finishes it; nothing was cancelled. The next `brd-host wait <alias> <run>` waits again.",
       ),
       Self::LeaseFailed => ("lease_failed", ExitRule::Always(Exit::NotRun), "The lend failed. The message has the error of the pool."),
       Self::OldGit => (

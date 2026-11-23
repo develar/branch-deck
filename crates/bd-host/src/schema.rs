@@ -49,9 +49,10 @@ pub(crate) struct CodeText {
 }
 
 /// The exit codes of `brd-host`. A run that exited has the exit code of its command instead
-const EXITS: [(u8, &str); 4] = [
+const EXITS: [(u8, &str); 5] = [
   (2, "a usage error: a command line that brd-host does not accept"),
   (75, "the host did not run the command, so the caller can run it locally"),
+  (124, "the run goes on past --max of wait, and nothing was cancelled: the next `brd-host wait` waits again"),
   (130, "Ctrl+C before the start, or a second Ctrl+C during the follow"),
   (255, "any other refusal: the command ran, or whether it ran is unknown, or the request is no run"),
 ];

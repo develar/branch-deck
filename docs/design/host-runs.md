@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-21
+**Updated:** 2026-11-23
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -244,6 +244,36 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
 - **The end of a lost run** is the time the agent saw the loss, not the end of the run, so its `RunInfo` has no
   `ended_ms` and its line no `took`.
 
+### Waiting in bounded calls
+
+The tool of a coding agent ends a call after 10 min, and a SIGTERM or SIGHUP of `brd-host run` cancels its run, as
+Ctrl+C does, so a run is never left to wait for its slot for nobody. An agent therefore started its heavy runs in the
+background and waited by hand: on 2026-11-23, 93 follows in `timeout 59x`, 59 polls of a marker file, 82 `brd-host runs
+| grep` and 92 `grep -v` of the lines of the heavy turn in one day (#258). `brd-host wait <alias> <run> [--max 9m]`
+waits in calls that end before the tool does (`host_client::wait`).
+
+- **Polls, not a follow**: a wait asks the agent for its runs (`Request::Runs`) every 5 s, each on a new connection,
+  so a lost link costs one poll and no reconnect logic. The agent writes the steps that have ended to `phases.json` at
+  the end of each step, and `Reply::Runs` carries them and the heavy turn, so the state of a run (`state::RunState`:
+  the heavy turn, a slot, the checkout and prepare, the command, the stage) comes from an agent of any build, and the
+  feature needs no upgrade of a host. A wait says a line only when that state changes, with the local time.
+- **The output once, at the end**: the offset of a follow counts the bytes of the event log of the agent, not of the
+  output, so a client cannot resume it from the size of a local file. A wait takes the output from its first byte into
+  `<run>.log` of the checkout by one `Follow` after the end and before the forget, which keeps only the last 1 MiB on
+  the host. Its summary names the log and shows its last 30 lines, so an agent reads the end of a suite without the
+  whole output in its context.
+- **One finisher**: the `run` of the run, alive in the background, and a `wait` of the same run would both fetch and
+  apply the changes. The process that finishes a run holds `<run>.lock` of the checkout from before its fetch to its
+  end file `<run>.end.json`. This lock is no repository lock: it serializes only the clients of one run in one
+  checkout, so it is held across the fetch, and a wait that finds it held finishes nothing. A wait after the end
+  answers from the end file without the host.
+- **Resumable**: `--max` bounds the wait for the end, not the fetch after it, so a large fetch can outlast a call. A
+  fetch that fails writes no end, and the next wait fetches again; the end file says what came, and a later wait
+  only forgets a run that the call before could not.
+- **124 only for a host that answered**: past `--max` a wait exits 124 (`still_running`) and the run goes on. A host
+  that answered no poll in the whole call is `timed_out` (255), so a host that is down never keeps an agent waiting
+  call after call, and nothing is kept between the calls.
+
 ### The process model
 
 - **`serve`** is the agent. launchd starts it (`com.jetbrains.brd-host`, `KeepAlive`, `AbandonProcessGroup`). It
@@ -409,6 +439,12 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 10. **Decision**: A local host is the agent of every host on the loopback address, not code in `brd` (2026-11-21).
     **Rationale**: `brd` links no crate of the remote runs (decision 1). The client, the protocol, the lend and the
     keeper work across one machine as across two, so the only new parts are the in-process setup and the bind.
+
+11. **Decision**: `brd-host wait` reads the state of a run from the steps that `Reply::Runs` carries, not from a new
+    field or reply of the agent (2026-11-23).
+    **Rationale**: The steps that have ended and the heavy turn name every state that an agent waits on, and a new
+    field would work only after `brd-host upgrade` of each host. A new reply in the stream of a follow would break the
+    clients of the schema.
 
 ## Alternatives Considered
 

@@ -237,11 +237,18 @@ heavy runs went first, a long `slot` that every slot was busy, a long `prepare` 
 | 75 | The host did not run the command: asleep, behind, all slots busy for an hour. | Run it here. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Not here: under the load of this Mac its tests fail on timeouts. `brd-host runs studio`, then run it again later. |
 | 75 with `superseded` | A later heavy run of the same checkout and command took its place while it waited: nothing ran. | Never again: `brd-host follow studio <later run>`, which the message names. |
+| 124 | `brd-host wait` passed its `--max`, and the run goes on (`still_running`). | `brd-host wait studio <run>` again. |
 | 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `brd-host follow` shows its end. |
 | 255 | The link broke after the start, or a fetch failed. | The run goes on: `brd-host follow studio <run>`. |
 
-The first Ctrl+C cancels the run on the host and shows the output to its end. `brd-host follow`, `cancel`, `fetch`
-and `forget` take the run id. The host keeps an ended run for 24 h.
+The first Ctrl+C cancels the run on the host and shows the output to its end. `brd-host follow`, `wait`, `cancel`,
+`fetch` and `forget` take the run id. The host keeps an ended run for 24 h.
+
+`brd-host wait studio <run> [--max 9m]`, in the checkout of the run, waits for its end in one call of at most `--max`
+(9 min by default): it says only each change of the state of the run, then copies its files as `run` does, puts its
+output into `<git dir>/branch-deck/host/runs/<run>.log`, and ends with a summary and the last 30 lines of the output.
+Past `--max` it exits 124 and the run goes on; the next `wait` goes on waiting. A `wait` after the end answers again
+from what the first one wrote.
 
 ## The slots
 
@@ -336,7 +343,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 |---|---|---|
 | This Mac | `~/.config/brd-host/identity.crt`, `identity.key` | The identity of this client |
 | This Mac | `~/.config/brd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
-| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run and the patch of `--apply`, for 7 days |
+| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run, the patch of `--apply`, and the output, the end and the lock of a run that a wait or a run finished, for 7 days |
 | Host | `~/.local/bin/brd-host`, on a local host `~/.local/share/brd-host/agent/brd-host` | The binary that launchd runs |
 | Host | `~/.config/brd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
 | Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |
