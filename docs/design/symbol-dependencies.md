@@ -576,7 +576,8 @@ flowchart TD
     owner type, as a static member is (`Type::new()`): a field of a struct expression or a struct pattern
     (`Manifest { stills }`, `let Manifest { stills, .. } = …`, the shorthand qualified by the struct too) and
     `Type::method(&x)`, the path of the type resolved through the imports and the crates. A member on a value
-    (`manifest.stills`, `self.stills`) and one through `Self` resolve nowhere.
+    (`manifest.stills`, `self.stills`) and one through `Self` resolve nowhere, but a method call on a value through the
+    step of its arity (decision 31).
     **Rationale**: the same commit of `avl-guest` builds `Manifest { …, stills: Stills { encoding }, … }`, and the
     summary had `Manifest.stills` since fields are declared, but `resolve_rust` resolved no instance member: the field
     another commit added to `Manifest` was no edge. A struct expression, a struct pattern and a path call name the type
@@ -934,6 +935,29 @@ flowchart TD
     name that shadows an import of a capitalized name is left out.
     [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_bare_use_of_a_name_a_plain_jvm_import_of_another_commit_binds_is_an_edge`, `a_use_that_a_plain_jvm_import_of_another_commit_does_not_decide_is_no_edge`)
     [@test] crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_plain_import_another_branch_adds_is_a_missing_declaration`)
+
+31. **Decision**: a Rust function has its parameters in the summary, without the `self` of a method, and a Rust call
+    has the shape of its arguments, a method call with `method` (psi-syntax's `code-symbols`). A call of a Rust
+    function is judged by the count of its arguments (`accepts_call`, `rust_arguments`): a method call fills `self` by
+    its receiver, a path call (`Type::f(x, a)`) by its first argument. A new count of parameters or a new vararg of a
+    Rust function is a step of its key (`new_step`). For a member of an `impl` it is a step only in the same reach, as
+    decision 29 says why. A method call on a value (`runner.world.apps.connect_page(APPS, "review:2")`) links to a
+    method of its own crate that it sees only through such a step: the form before rejects the call, and the form of
+    the step accepts it (`method_on_value`, `MethodArity`). A method that the range adds has no form before, so a call
+    on a value of it is no edge, and neither is a call that every form accepts. The review keeps the Rust header with
+    its parameters as the form (`form_signature`), so its view and its comparison stay as before.
+    **Rationale**: the Safe Push of `open-url-gate` (IJAI-7014, 2026-11-23) failed with E0061. A commit of another
+    branch gave `Apps::connect_page` of `air-apps` a second parameter, and a commit of `open-url-gate` called it with
+    two arguments on `runner.world.apps`, a field of a local. git merged cleanly, and `brd check` said `ok`: the Rust
+    summary had no signature, so no call was judged by its arguments, and a member on a value resolved nowhere
+    (decision 18). The summary knows no type of a value, so the name alone is weak evidence: another type of the crate
+    or a trait of a dependency may have a method of that name. The step narrows it: a call written against the old form
+    fits the old count, and only a call written against the new form fits the new one. Limits: a method of that name of
+    another type, which the range doesn't change and which takes the new count, makes a false edge; a change of a
+    parameter type or of the return type alone is no step, as the summary keeps no Rust type.
+    [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_method_call_on_a_value_that_only_a_new_arity_takes_is_an_edge`, `a_rust_method_call_on_a_value_that_both_forms_accept_is_no_edge`, `a_rust_path_call_that_only_a_new_arity_takes_is_an_edge`)
+    [@test] crates/bd-rewrite/src/check_test.rs (`a_rust_method_call_that_only_another_branchs_arity_takes_is_a_missing_declaration`)
+
 
 ### Implementation Notes
 

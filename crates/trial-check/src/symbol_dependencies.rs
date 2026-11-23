@@ -11,7 +11,8 @@
 //!   receiver of an extension's call, or a JVM name is on a receiver of a type the file doesn't show), the same Rust
 //!   module, a type of the same package in the same module, or an override in a subtype whose supertype resolves. A
 //!   call of a function of the same package without an import, or a member of an unknown receiver, is no evidence:
-//!   Kotlin's implicit receivers and extensions decide those, which only a compiler sees.
+//!   Kotlin's implicit receivers and extensions decide those, which only a compiler sees. A Rust method call on a
+//!   value is evidence only through a new arity of the method that it needs (`method_on_value`).
 //! - **An import is a name too.** The name a private import of the range binds (a Rust `use`, a TypeScript import, a
 //!   Kotlin alias) is needed beside the declaration it names, by a bare use (`Path`, also of `Path::new`), where the
 //!   import reaches: its file, and in Rust its module and the modules below (`use super::*`). It is no alternative to the
@@ -23,7 +24,8 @@
 //!   sides of a key aren't clean (a degraded side, a parse error in a declaration, twins, constructors that one side
 //!   knows and the other doesn't) leaves it only present or absent, without its constructors. A top-level function,
 //!   also one of the name of a type beside it (`KeyState`), and every key of Rust and TypeScript are only present or
-//!   absent, per file. The rules and their reasons are decisions 7 to 11 of docs/design/symbol-dependencies.md.
+//!   absent, per file, with a step of a new reach or a new Rust arity (`new_step`). The rules and their reasons are
+//!   decisions 7 to 11, 29 and 31 of docs/design/symbol-dependencies.md.
 //! - **Degraded files decide nothing**: a file with a twentieth of its bytes in parse errors makes no edge.
 //! - **Between files** (`file_links`): the same evidence links the files of one state of the code, every declaration
 //!   of each against the uses of the others, for the dependency order of a review.
@@ -75,6 +77,10 @@ pub enum Evidence {
   Receiver,
   /// The later commit removes a declaration whose uses the earlier one removed
   RemovesAfter,
+  /// A Rust method call on a value (`x.f(a)`) of a method of the use's crate that it sees, whose form before a commit
+  /// rejected the count of its arguments while that commit's form accepts it (`method_on_value`): the summary knows no
+  /// type of the value, so only the step of the form judges it
+  MethodArity,
 }
 
 impl Evidence {
@@ -91,6 +97,7 @@ impl Evidence {
       Self::Inherited => "inherited",
       Self::Receiver => "receiver",
       Self::RemovesAfter => "removes_after",
+      Self::MethodArity => "method_arity",
     }
   }
 }
@@ -235,8 +242,32 @@ struct KeyState<'a> {
 /// Name -> key -> its state
 type Index<'a> = HashMap<String, BTreeMap<String, KeyState<'a>>>;
 
-/// The arguments of a call that judge the entries it may mean, and whether one spreads an array
-type CallArguments<'s> = Option<(&'s [(Option<u32>, Argument)], bool)>;
+/// The arguments of a call that judge the entries it may mean (`Shape::Call`)
+#[derive(Clone, Copy)]
+pub(crate) struct Call<'s> {
+  pub(crate) arguments: &'s [(Option<u32>, Argument)],
+  /// One spreads an array
+  pub(crate) spread: bool,
+  /// A Rust method call, whose receiver fills the `self` of the callee
+  pub(crate) method: bool,
+}
+
+impl<'s> Call<'s> {
+  /// The call of the shape `shape` of a reference of `summary`; `None` of another shape or none
+  pub(crate) fn of(summary: &'s FileSummary, shape: Option<u32>) -> Option<Self> {
+    match shape.and_then(|shape| summary.shapes.get(shape as usize)) {
+      Some(Shape::Call { arguments, spread, method, .. }) => Some(Self {
+        arguments: arguments.as_slice(),
+        spread: *spread,
+        method: *method,
+      }),
+      _ => None,
+    }
+  }
+}
+
+/// The call that judges the entries a use may mean, `None` for a use of another kind or one no entry is judged by
+type CallArguments<'s> = Option<Call<'s>>;
 
 /// The declarations of a key of a type or a member (`has_entries`) on both sides of the files of a commit that change
 /// it, a type's constructors included
@@ -427,7 +458,7 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     let mut members: BTreeMap<String, Member<'_>> = BTreeMap::new();
     // the entries of keys only present or absent that move to a file of the commit (`follow_entries`)
     let mut follows: Vec<Follow<'_>> = Vec::new();
-    // the declarations of the baseline whose reach the commit changes, with their form before (`reach_changes`)
+    // the declarations of the baseline to which the commit gives a new step, with their form before (`reach_changes`)
     let mut reformed: Vec<(Site<'_>, Site<'_>)> = Vec::new();
     // every declaration whose reach the commit changes, with its form before: the uses the narrower form forbids need the
     // commits that removed them (`removed_uses`)
@@ -585,7 +616,8 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       }
     }
 
-    // a key of the baseline whose reach the commit changes: an entry of this file whose form before is of the baseline
+    // a key of the baseline to which the commit gives a new step: an entry of this file whose form before is of the
+    // baseline, a new reach into `reached`
     for (before, after) in reformed {
       let baseline = Rc::new(Origin {
         commit: None,
@@ -597,7 +629,9 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       });
       let state = index.entry(after.name().to_string()).or_default().entry(after.key.clone()).or_default();
       replace_by_file(&mut state.present, vec![Entry::new(after.clone(), origin)]);
-      reached.push((before, after));
+      if before.declaration.reach != after.declaration.reach {
+        reached.push((before, after));
+      }
     }
 
     // the plain imports of Kotlin and Java that the commit adds or removes, before its uses
@@ -731,10 +765,7 @@ fn resolve_use<'s>(
   // a call in a Kotlin lambda, an object expression, an anonymous class or a local declaration, whose receiver may be
   // what a bare name or `this` means
   let enclosed = matches!(shape, Some(Shape::Call { enclosed: true, .. }));
-  let arguments: CallArguments<'_> = match shape {
-    Some(Shape::Call { arguments, spread, .. }) => Some((arguments.as_slice(), *spread)),
-    _ => None,
-  };
+  let arguments: CallArguments<'_> = Call::of(use_site.summary, reference.shape);
   // an extension of the receiver's type that the use sees may take a call its member rejects: no receiver evidence
   let extension_may_take = std::cell::OnceCell::new();
   let extension_may_take = || {
@@ -768,7 +799,7 @@ fn resolve_use<'s>(
       let stand_ins: Vec<&Entry<'_>> = functions
         .iter()
         .filter(|function| sees_function(input, use_site, reference, qualifier.as_deref(), &function.site))
-        .filter(|function| constructor_call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, &function.site)))
+        .filter(|function| constructor_call.is_none_or(|call| accepts_call(use_site.summary, call, &function.site)))
         .collect();
       // in the file of a key of the baseline only a use that can mean only a member of its type (`means_its_type`)
       let same_file = use_site.path != head.ctx.path || !of_baseline(entries) || (unqualified && means_its_type(use_site.summary, reference, enclosed, head));
@@ -778,8 +809,9 @@ fn resolve_use<'s>(
         }
         // a receiver's member loses to an extension that may take the call; a C# extension is that extension itself
         let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)
+          .or_else(|| method_on_value(use_site, reference, call, site))
           .filter(|it| *it != Evidence::Receiver || dotnet_resolution::is_extension_site(site) || !extension_may_take())?;
-        let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
+        let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|call| accepts_call(use_site.summary, call, site));
         (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
       };
       // an older form (`older_form`) rejects only a use that nothing the range doesn't show may take instead; any other
@@ -799,8 +831,11 @@ fn resolve_use<'s>(
       let mut needs: Vec<BTreeSet<Option<usize>>> = Vec::new();
       let mut keyed: Vec<BTreeSet<Option<usize>>> = Vec::new();
       for entry in entries {
-        // a constructor, and a function of the name of a type, by the arguments that tell its constructors apart
-        let call = if entry.site.constructor.is_some() || !has_entries(&entry.site) {
+        // a Rust function by its arguments, as no overloads share its name; a constructor, and a function of the name of
+        // a type, by the arguments that tell its constructors apart
+        let call = if is_rust_function(&entry.site) {
+          arguments
+        } else if entry.site.constructor.is_some() || !has_entries(&entry.site) {
           constructor_call
         } else {
           member_call
@@ -817,6 +852,10 @@ fn resolve_use<'s>(
           continue;
         }
         let mut steps = steps_of(entry, &|older| before(&entry.site, call, judged, older));
+        // a method call on a value means only a new form that the form before it rejected
+        if evidence == Evidence::MethodArity {
+          steps.retain(|step| step.origin.commit.is_some() && !step.origin.predecessors.is_empty());
+        }
         // no origin: a bare name outside the type of a member its own commit adds means it only by an implicit
         // receiver, which the file doesn't show
         if evidence == Evidence::SameFile && reference.qualifier.is_none() && !contains(use_site.summary, reference, &entry.site.containers) {
@@ -964,10 +1003,10 @@ fn kept_entries<'a>(index: &Index<'a>, from: &'a str, after: &'a FileCtx<'a>) ->
 }
 
 /// The declarations of `after`, the new side of a file a commit changes within its namespace, of keys only present or
-/// absent of the baseline whose reach the commit changes, each with its form before: the key has one declaration on each
-/// side, its name binds it (`binds_one`), the index holds no entry of it in the file (`kept_entries` moves those), and
-/// every declaration of the file counts, not only those on the changed lines, as TypeScript's `export { name }` changes
-/// the reach of a declaration it doesn't touch
+/// absent of the baseline to which the commit gives a new step (`new_step`), each with its form before: the key has one
+/// declaration on each side, the index holds no entry of it in the file (`kept_entries` moves those), and every
+/// declaration of the file counts, not only those on the changed lines, as TypeScript's `export { name }` changes the
+/// reach of a declaration it doesn't touch
 fn reach_changes<'a>(index: &Index<'a>, before: &'a FileCtx<'a>, after: &'a FileCtx<'a>) -> Vec<(Site<'a>, Site<'a>)> {
   if before.summary.is_degraded() || after.summary.is_degraded() {
     return Vec::new();
@@ -980,20 +1019,40 @@ fn reach_changes<'a>(index: &Index<'a>, before: &'a FileCtx<'a>, after: &'a File
   };
   declared_sites(after)
     .into_iter()
-    .filter(|site| !has_entries(site) && binds_one(site) && !site.declaration.in_error && !held(site))
+    .filter(|site| !has_entries(site) && !site.declaration.in_error && !held(site))
     .filter_map(|site| {
       let olds = sites_of_key(before, &site);
       let ([old], [_]) = (olds.as_slice(), sites_of_key(after, &site).as_slice()) else {
         return None;
       };
-      (old.declaration.kind == site.declaration.kind && !old.declaration.in_error && old.declaration.reach != site.declaration.reach).then(|| (old.clone(), site))
+      (old.declaration.kind == site.declaration.kind && !old.declaration.in_error && new_step(old, &site)).then(|| (old.clone(), site))
     })
     .collect()
 }
 
+/// Whether `new`, the one declaration of a key only present or absent in a file a commit changes, is a new step of the
+/// one before it, `old`: a new reach where its name binds one declaration (`binds_one`), or a new count of the
+/// parameters or a new vararg of a Rust function (`same_arity`), of a member of an `impl` only in the same reach, as a
+/// trait the range doesn't show may give the type a method of its name that takes a call the one of the range can't
+/// see. Its other forms are none: a key only present or absent has no overloads to tell apart
+fn new_step(old: &Site<'_>, new: &Site<'_>) -> bool {
+  let reach = old.declaration.reach != new.declaration.reach;
+  let arity = is_rust_function(new) && !same_arity(old.signature(), new.signature());
+  (reach && binds_one(new)) || (arity && (binds_one(new) || !reach))
+}
+
+/// Whether two signatures of a Rust function take the same calls by their count: as many parameters, and a vararg in
+/// the same places
+fn same_arity(a: Option<&Signature>, b: Option<&Signature>) -> bool {
+  match (a, b) {
+    (Some(a), Some(b)) => a.parameters.len() == b.parameters.len() && a.parameters.iter().zip(&b.parameters).all(|(a, b)| a.vararg == b.vararg),
+    (a, b) => a.is_none() && b.is_none(),
+  }
+}
+
 /// Moves the entries of the files of `follow` to its declarations, each with its origin, as a key only present or
-/// absent has no forms but its reach where its name binds one declaration (`binds_one`): a new reach is a step of
-/// `commit` (both forms into `reached`). To a declaration of its identity (`same_entry`), else to one of an identity none of them has,
+/// absent has no forms but its step (`new_step`): a new reach or a new arity is a step of `commit` (both forms of a
+/// new reach into `reached`). To a declaration of its identity (`same_entry`), else to one of an identity none of them has,
 /// in order (a changed signature). A declaration left over is as old as the oldest of them, as the key there is; an
 /// entry left over keeps its form in each file of the declarations, as all do where the parser can't read those
 /// (`is_clean_addition`): one may be its own, and two origins stay two, also when a commit moves the overloads of two
@@ -1016,16 +1075,7 @@ fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>, commit: usize, 
     match moving.iter().position(|entry| same_entry(&entry.site, &site)) {
       Some(found) => {
         let entry = moving.remove(found);
-        // a new reach is a step of the commit, its old form the predecessor (`steps_of`)
-        let origin = if single && binds_one(&site) && entry.site.declaration.reach != site.declaration.reach {
-          reached.push((entry.site.clone(), site.clone()));
-          Rc::new(Origin {
-            commit: Some(commit),
-            predecessors: vec![entry],
-          })
-        } else {
-          entry.origin
-        };
+        let origin = step_origin(entry, &site, single, commit, reached);
         state.present.push(Entry::new(site, origin));
       }
       None => unmatched.push(site),
@@ -1033,12 +1083,28 @@ fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>, commit: usize, 
   }
   let mut left = moving.into_iter();
   for site in unmatched {
-    let origin = left.next().map_or_else(|| Rc::clone(&oldest), |entry| entry.origin);
+    let origin = left.next().map_or_else(|| Rc::clone(&oldest), |entry| step_origin(entry, &site, single, commit, reached));
     state.present.push(Entry::new(site, origin));
   }
   for entry in left {
     state.present.extend(files.iter().map(|&file| Entry { file, ..entry.clone() }));
   }
+}
+
+/// The origin of `site`, the declaration that `entry` moves to: a step of `commit` with the old form for its
+/// predecessor (`steps_of`) where it is the one declaration on each side (`single`) and a new step (`new_step`), both
+/// forms into `reached` for a new reach; else the origin of the entry
+fn step_origin<'a>(entry: Entry<'a>, site: &Site<'a>, single: bool, commit: usize, reached: &mut Vec<(Site<'a>, Site<'a>)>) -> Rc<Origin<'a>> {
+  if !single || !new_step(&entry.site, site) {
+    return entry.origin;
+  }
+  if entry.site.declaration.reach != site.declaration.reach {
+    reached.push((entry.site.clone(), site.clone()));
+  }
+  Rc::new(Origin {
+    commit: Some(commit),
+    predecessors: vec![entry],
+  })
 }
 
 /// The entries of a key of a type or a member after a commit that changes it, from its declarations before and after
@@ -1366,7 +1432,7 @@ fn invokes(use_summary: &FileSummary, call: CallArguments<'_>, site: &Site<'_>) 
           && declaration.kind == DeclKind::Function
           && (declaration.receiver.is_some_and(|receiver| summary.name(receiver) == "Companion")
             || container(declaration).and_then(container).is_some_and(|outer| summary.name(outer.name) == site.name()))
-          && call.is_none_or(|(arguments, spread)| accepts_call(use_summary, arguments, spread, &site_of(site.ctx, declaration)))
+          && call.is_none_or(|call| accepts_call(use_summary, call, &site_of(site.ctx, declaration)))
       })
     })
 }
@@ -1494,8 +1560,10 @@ fn inherits_unseen(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
 /// order, and a parameter left unfilled must have a default or be a vararg; a literal must fit its parameter
 /// (`fits_literal`). A spread, a named argument before a positional one, a vararg before the last parameter, and a
 /// declaration without a signature (a type, a property, a function the parser didn't read) accept any call
-fn accepts_call(use_summary: &FileSummary, arguments: &[(Option<u32>, Argument)], spread: bool, site: &Site<'_>) -> bool {
+fn accepts_call(use_summary: &FileSummary, call: Call<'_>, site: &Site<'_>) -> bool {
   let Some(signature) = site.signature() else { return true };
+  let Some(arguments) = rust_arguments(call, site) else { return false };
+  let spread = call.spread;
   let parameters = signature.parameters.as_slice();
   if spread || parameters.iter().rev().skip(1).any(|parameter| parameter.vararg) {
     return true;
@@ -1540,6 +1608,41 @@ fn accepts_call(use_summary: &FileSummary, arguments: &[(Option<u32>, Argument)]
     parameters.iter().zip(&filled).all(|(parameter, filled)| *filled || parameter.optional || parameter.vararg)
   };
   fills(positional, trailing) || (trailing && named.is_empty() && fills(arguments, false))
+}
+
+/// The arguments of `call` that fill the parameters of `site` (`Declaration::signature`, without the `self` of a Rust
+/// method): of a Rust path call of a method (`Type::f(x, a)`) those after the receiver, else all. `None` where the call
+/// can't mean `site`: a Rust method call of a function without `self`, a path call of a method without a receiver
+fn rust_arguments<'s>(call: Call<'s>, site: &Site<'_>) -> Option<&'s [(Option<u32>, Argument)]> {
+  if site.ctx.language != Language::Rust || site.constructor.is_some() {
+    return Some(call.arguments);
+  }
+  match (call.method, site.declaration.member == MemberKind::Instance) {
+    (true, true) | (false, false) => Some(call.arguments),
+    (false, true) => call.arguments.split_first().map(|(_, rest)| rest),
+    (true, false) => None,
+  }
+}
+
+/// Whether `site` is a Rust function, whose call is judged by its arguments: a name has no overloads in Rust
+fn is_rust_function(site: &Site<'_>) -> bool {
+  site.ctx.language == Language::Rust && site.declaration.kind == DeclKind::Function
+}
+
+/// `MethodArity` for a Rust method call on a value (`runner.world.apps.connect(a, b)`, `call` with `method`) of the
+/// method `site`, which the use sees from a file of its own crate: the only evidence of a Rust member on a value, as the
+/// summary knows no type of the value. It holds only for a step of the method whose form before rejected the call
+/// (`resolve_use`), so a method the range adds, or a call every form accepts, is no edge
+fn method_on_value(use_site: &UseSite<'_>, reference: &Reference, call: CallArguments<'_>, site: &Site<'_>) -> Option<Evidence> {
+  let method_call = reference.role == Role::Call && call.is_some_and(|call| call.method);
+  let same_crate = use_site.crate_root.is_some() && use_site.crate_root == site.ctx.crate_root;
+  (method_call
+    && use_site.language == Language::Rust
+    && is_rust_function(site)
+    && site.declaration.member == MemberKind::Instance
+    && same_crate
+    && rust_reaches(use_site, reference, site, same_crate))
+  .then_some(Evidence::MethodArity)
 }
 
 /// Whether an argument may be a value of the type of `parameter` as far as a literal tells: a text, a number or a
@@ -2292,10 +2395,7 @@ fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
   };
   // judged by its key, the call must still fit an entry of it: an overload of a supertype may take one none accepts
   let key_only = inherits_unseen(use_site, site);
-  let fits = || match reference.shape.and_then(|shape| summary.shapes.get(shape as usize)) {
-    Some(Shape::Call { arguments, spread, .. }) => accepts_call(summary, arguments, *spread, site),
-    _ => true,
-  };
+  let fits = || Call::of(summary, reference.shape).is_none_or(|call| accepts_call(summary, call, site));
   let name = summary.name(reference.name);
   if key_only && (summary.declares(name) || imports_of_function(summary, name) > 0 || !fits()) {
     return false;
@@ -2664,14 +2764,7 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
   // the module that holds the item, with the inline modules it is in
   let mut item_module = site.ctx.namespace.clone();
   let inline_modules: Vec<String> = site.containers.clone();
-  // psi-syntax's one rule of Rust's visibility, between the modules the item and the use are in, inline ones included
-  let visible = site.declaration.reach == Reach::Public
-    || (same_crate
-      && site
-        .declaration
-        .reach
-        .rust_visibility()
-        .reaches_path(&rust_module_of(site.ctx, site.declaration.container), &rust_module_of(use_site, reference.container)));
+  let visible = rust_reaches(use_site, reference, site, same_crate);
   let name = site.name();
   if !visible {
     // an older form is no stricter than the compiler: a bare name the item's module would bring through a glob may come
@@ -2732,6 +2825,19 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
         .then_some(Evidence::Qualified)
     }
   }
+}
+
+/// Whether the Rust use `reference` sees the item `site` by its reach, by psi-syntax's one rule of Rust's visibility
+/// between the modules the item and the use are in, inline ones included: a public one from anywhere, another from its
+/// own crate (`same_crate`) only
+fn rust_reaches(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, same_crate: bool) -> bool {
+  site.declaration.reach == Reach::Public
+    || (same_crate
+      && site
+        .declaration
+        .reach
+        .rust_visibility()
+        .reaches_path(&rust_module_of(site.ctx, site.declaration.container), &rust_module_of(use_site, reference.container)))
 }
 
 /// The Rust module of the declaration of index `container` in `ctx` or of a reference inside it: the module of its file

@@ -837,6 +837,58 @@ fn a_childs_commit_of_only_the_needed_file_moves_into_the_parent() {
   assert!(!fixes.as_array().unwrap().iter().any(|fix| fix["kind"] == json!("move_hunk")), "{output}");
 }
 
+/// The output of `brd check`, which fails (exit 1) and finds `branch` `missing_declaration`
+fn check_missing(repo: &TestRepo, branch_name: &str) -> Value {
+  let (exit_code, output) = run_in(repo, &["check"]);
+  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
+  assert_eq!(branch(&output, branch_name)["result"], json!("missing_declaration"));
+  output
+}
+
+/// `src/channel/open.rs` of the crate `air-apps` with `connect_page` of `parameters`, a method of `Apps`
+fn apps_open(parameters: &str) -> String {
+  format!("pub(crate) struct Apps;\n\nimpl Apps {{\n  pub(crate) fn connect_page(&self, {parameters}) -> u8 {{\n    1\n  }}\n}}\n")
+}
+
+/// `gate` calls a method on a value with the two arguments that only the form `arity` gives the method takes: rustc
+/// fails with E0061 on `gate` alone, so the call is a missing declaration of the commit that changes the method
+#[test_log::test]
+fn a_rust_method_call_that_only_another_branchs_arity_takes_is_a_missing_declaration() {
+  let crate_dir = "plugins/air/native/air-apps";
+  let open = format!("{crate_dir}/src/channel/open.rs");
+  let page_calls = format!("{crate_dir}/src/channel/tests/page_calls.rs");
+  let repo = repo_with_baseline(&[
+    (&format!("{crate_dir}/Cargo.toml"), "[package]\nname = \"air-apps\"\n"),
+    (&format!("{crate_dir}/src/lib.rs"), "mod channel;\n"),
+    (&format!("{crate_dir}/src/channel.rs"), "mod open;\n#[cfg(test)]\nmod tests;\n"),
+    (&open, &apps_open("ticket: &str")),
+  ]);
+  let declares = commit_file(&repo, "(arity) Open a page by its instance", &open, &apps_open("apps: &str, instance: &str"), 1_700_000_100);
+  let uses = commit_file(
+    &repo,
+    "(gate) Call the page of the review",
+    &page_calls,
+    "#[test]\nfn opens() {\n  let mut runner = Runner::new(World::new());\n  let _ = runner.world.apps.connect_page(APPS, \"review:2\");\n}\n",
+    1_700_000_200,
+  );
+
+  let output = check_missing(&repo, "gate");
+  assert_eq!(
+    output["missing_declarations"],
+    json!([{
+      "branch": "gate",
+      "identifier": "connect_page",
+      "file": page_calls,
+      "line": 4,
+      "used_by": short_id(&uses),
+      "declared_by": short_id(&declares),
+      "change_file": open,
+      "declared_in": "arity",
+      "evidence": "method_arity",
+    }])
+  );
+}
+
 /// `flow` imports a function that `util` adds: git builds both, and the check names the name `flow` misses, which fails
 /// `flow` and `ok` (`missing_declaration`, exit 1); `--allow-missing` keeps the result and exits 0. With the symbols on
 /// report only it says nothing
@@ -858,9 +910,7 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
     1_700_000_200,
   );
 
-  let (exit_code, output) = run_in(&repo, &["check"]);
-  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
-  assert_eq!(branch(&output, "flow")["result"], json!("missing_declaration"));
+  let output = check_missing(&repo, "flow");
   assert_eq!(branch(&output, "util")["result"], json!("ok"));
   assert_eq!(
     output["missing_declarations"],

@@ -29,12 +29,12 @@
 use crate::dangling_references::DanglingKind;
 use crate::diff_scan::CommitDiff;
 use crate::symbol_dependencies::{
-  Accessor, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, changed_sites_named, constructor_reaches, contains, has_entries, in_ranges,
-  names, outward, receiver_of, resolve, same_entry, same_names, site_of, with_constructors,
+  Accessor, Call, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, changed_sites_named, constructor_reaches, contains, has_entries,
+  in_ranges, names, outward, receiver_of, resolve, same_entry, same_names, site_of, with_constructors,
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
-use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature};
+use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Signature};
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -226,7 +226,7 @@ fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
   let (a, b) = (before.declaration, after.declaration);
   // the names, defaults and varargs of the parameters, and their types with `?`, by which a literal fits
   let parameters = |site: &Site<'_>| {
-    site.signature().map(|signature| {
+    form_signature(site).map(|signature| {
       signature
         .parameters
         .iter()
@@ -234,7 +234,7 @@ fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
         .collect::<Vec<_>>()
     })
   };
-  let same_types = match (before.signature(), after.signature()) {
+  let same_types = match (form_signature(before), form_signature(after)) {
     (Some(x), Some(y)) => {
       x.parameters.len() == y.parameters.len()
         && x.parameters.iter().zip(&y.parameters).all(|(x, y)| match (&x.type_ref, &y.type_ref) {
@@ -248,6 +248,15 @@ fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
     || !same_types
     || parameters(before) != parameters(after)
     || (a.reach, a.member, a.overridable, a.jvm_static, a.jvm_field, a.jvm_name) != (b.reach, b.member, b.overridable, b.jvm_static, b.jvm_field, b.jvm_name)
+}
+
+/// The parameters of the form of `site` apart from its header (`Form::parameters`): none of a Rust function, whose header
+/// holds them as written (`Declaration::header`)
+fn form_signature<'s>(site: &'s Site<'_>) -> Option<&'s Signature> {
+  if site.ctx.language == Language::Rust && site.constructor.is_none() {
+    return None;
+  }
+  site.signature()
 }
 
 /// The constructors of a type as a use of them sees them: the parameters and the reach of each, in the order of their
@@ -357,7 +366,7 @@ fn signatures_of(site: &Site<'_>) -> Vec<Vec<ParameterForm>> {
   let summary = site.ctx.summary;
   match &site.declaration.constructors {
     Some(constructors) if site.declaration.kind == DeclKind::Type => constructors.iter().map(|constructor| parameter_forms(summary, &constructor.signature)).collect(),
-    _ => site.signature().map(|signature| parameter_forms(summary, signature)).into_iter().collect(),
+    _ => form_signature(site).map(|signature| parameter_forms(summary, signature)).into_iter().collect(),
   }
 }
 
@@ -479,7 +488,7 @@ pub fn surface_of(summary: &FileSummary, declaration: &Declaration, public: bool
 fn form_of(site: &Site<'_>) -> Form {
   let declaration = site.declaration;
   let summary = site.ctx.summary;
-  let parameters = site.signature().map(|signature| parameter_forms(summary, signature));
+  let parameters = form_signature(site).map(|signature| parameter_forms(summary, signature));
   let constructors = if declaration.kind == DeclKind::Type { constructor_forms(site) } else { None };
   Form {
     header: declaration.header.clone(),
@@ -1009,16 +1018,16 @@ impl DeclarationSearch<'_> {
   /// Whether the call `reference` (any other use) fits `site`: its parameters accept the arguments, a constructor of
   /// the type for a change of the constructors
   fn calls(&self, use_site: &FileCtx<'_>, reference: &Reference, site: &Site<'_>) -> bool {
-    let Some(Shape::Call { arguments, spread, .. }) = reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize)) else {
+    let Some(call) = Call::of(use_site.summary, reference.shape) else {
       return !self.constructors;
     };
     if self.constructors {
       return with_constructors(site.clone())
         .iter()
         .filter(|site| site.constructor.is_some())
-        .any(|constructor| accepts_call(use_site.summary, arguments, *spread, constructor) && constructor_reaches(use_site, reference, constructor));
+        .any(|constructor| accepts_call(use_site.summary, call, constructor) && constructor_reaches(use_site, reference, constructor));
     }
-    accepts_call(use_site.summary, arguments, *spread, site)
+    accepts_call(use_site.summary, call, site)
   }
 
   /// How a use of the old declaration `old` fits the declarations of the key in the branch's tree, the best of them: one

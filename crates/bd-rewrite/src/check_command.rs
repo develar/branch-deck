@@ -125,7 +125,8 @@ pub struct MissingDeclaration {
   pub declared_in: Option<String>,
   /// `import`, `qualified`, `same_file`, `same_module`, `star_import`, `same_package_type`, `override` (an override of
   /// it in a subtype), `inherited` (a call of it in a subclass), `receiver` (a use on a receiver of its type), `facade`
-  /// (a Java use through the class of its Kotlin file) or `removes_after`
+  /// (a Java use through the class of its Kotlin file), `method_arity` (a Rust method call on a value that only the
+  /// new count of parameters of the method takes) or `removes_after`
   pub evidence: &'static str,
 }
 

@@ -772,6 +772,94 @@ fn a_rust_field_on_a_value_is_no_edge() {
   assert!(!links.iter().any(|(name, _)| name == "stills"), "{links:?}");
 }
 
+/// `src/channel/open.rs` of the crate `air-apps` with `connect_page` of `parameters`, a method of `Apps`
+fn open_with(parameters: &str) -> String {
+  format!("use std::sync::Arc;\n\npub(crate) struct Apps;\n\nimpl Apps {{\n  pub(crate) fn connect_page(&self, {parameters}) -> Arc<Connection> {{\n    todo!()\n  }}\n}}\n")
+}
+
+const PAGE_CALLS: &str = "use crate::channel::open::Apps;\n\n#[test]\nfn opens() {\n  let mut runner = Runner::new(World::new());\n  let page = Page {\n    connection: runner.world.apps.connect_page(APPS, \"review:2\"),\n  };\n}\n";
+
+/// The edges of a range over the crate `air-apps` whose `src/channel/open.rs` is `open_with(before)` before it: each
+/// commit writes its files in order
+fn over_the_apps(before: &str, commits: &[&[(&str, Option<&str>)]]) -> Vec<Edge> {
+  let mut range = Range::default();
+  range.baseline(&[
+    ("air-apps/src/lib.rs", "mod channel;\n"),
+    ("air-apps/src/channel.rs", "mod open;\n#[cfg(test)]\nmod tests;\n"),
+    ("air-apps/src/channel/open.rs", &open_with(before)),
+  ]);
+  for files in commits {
+    range.commit(files);
+  }
+  let cargo = [file("Cargo.toml")];
+  edges(&range.graph(&[("air-apps", &cargo)], &[("air-apps", "air_apps")], &[]))
+}
+
+const APPS_OPEN: &str = "air-apps/src/channel/open.rs";
+const TESTS: &str = "air-apps/src/channel/tests/page_calls.rs";
+
+/// A method call on a value (`runner.world.apps.connect_page(APPS, "review:2")`, `runner` a local) that only the form a
+/// commit gave the method takes by its count of arguments needs that commit: without it rustc fails with E0061. The
+/// summary knows no type of the value, so the step of the arity is the evidence (`Evidence::MethodArity`)
+#[test]
+fn a_rust_method_call_on_a_value_that_only_a_new_arity_takes_is_an_edge() {
+  let two = open_with("apps: &str, instance: &str");
+  assert_eq!(
+    over_the_apps("ticket: &str", &[&[(APPS_OPEN, Some(&two))], &[(TESTS, Some(PAGE_CALLS))]]),
+    [(1, 0, vec![link("connect_page", Evidence::MethodArity)])]
+  );
+}
+
+/// A method call on a value that every form accepts is no edge: a new name or type of a parameter keeps the count, a
+/// call of the old count is of the form before, a method the range adds has no form before, and a field stays none
+/// (`a_rust_field_on_a_value_is_no_edge`)
+#[test]
+fn a_rust_method_call_on_a_value_that_both_forms_accept_is_no_edge() {
+  let renamed = open_with("apps: String, instance: &str");
+  let two = open_with("apps: &str, instance: &str");
+  assert_eq!(
+    over_the_apps("apps: &str, instance: u8", &[&[(APPS_OPEN, Some(&renamed))], &[(TESTS, Some(PAGE_CALLS))]]),
+    []
+  );
+  let one = PAGE_CALLS.replace("connect_page(APPS, \"review:2\")", "connect_page(\"review:2\")");
+  assert_eq!(over_the_apps("ticket: &str", &[&[(APPS_OPEN, Some(&two))], &[(TESTS, Some(&one))]]), []);
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("air-apps/src/lib.rs", "mod channel;\n"),
+      ("air-apps/src/channel.rs", "mod open;\n#[cfg(test)]\nmod tests;\n"),
+    ])
+    .commit(&[(APPS_OPEN, Some(&two))])
+    .commit(&[(TESTS, Some(PAGE_CALLS))]);
+  let cargo = [file("Cargo.toml")];
+  let added = edges(&range.graph(&[("air-apps", &cargo)], &[("air-apps", "air_apps")], &[]));
+  assert!(!added.iter().flat_map(|(_, _, links)| links).any(|(name, _)| name == "connect_page"), "{added:?}");
+}
+
+/// A Rust call by a path is judged by its arguments too, the receiver of a method its first: `Apps::connect_page(&apps,
+/// APPS, "review:2")` needs the commit that gave the method its second parameter, and a top-level function called
+/// through its import needs the commit that gave it its parameter
+#[test]
+fn a_rust_path_call_that_only_a_new_arity_takes_is_an_edge() {
+  let two = open_with("apps: &str, instance: &str");
+  let by_path = "use crate::channel::open::Apps;\n\nfn opens(apps: &Apps) {\n  let _ = Apps::connect_page(apps, APPS, \"review:2\");\n}\n";
+  assert_eq!(
+    over_the_apps("ticket: &str", &[&[(APPS_OPEN, Some(&two))], &[(TESTS, Some(by_path))]]),
+    [(1, 0, vec![link("connect_page", Evidence::Qualified)])]
+  );
+  let helper = |parameters: &str| format!("pub fn helper({parameters}) -> u8 {{\n  1\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("app/src/lib.rs", "mod a;\nmod c;\n"), ("app/src/a.rs", &helper(""))])
+    .commit(&[("app/src/a.rs", Some(&helper("x: u8")))])
+    .commit(&[("app/src/c.rs", Some("use crate::a::helper;\n\nfn c() -> u8 {\n  helper(1)\n}\n"))]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(
+    edges(&range.graph(&[("app", &cargo)], &[("app", "app")], &[])),
+    [(1, 0, vec![link("helper", Evidence::Import)])]
+  );
+}
+
 /// `src/socket.rs` of the crate `air-page` of develar/branch-deck#251 before the range: `TOO_BIG` and `POLICY`
 /// private, `CLOSE_LINGER` public
 const SOCKET: &str = "pub const CLOSE_LINGER: u64 = 1;\n\nconst TOO_BIG: u16 = 1009;\n\nconst POLICY: u16 = 1008;\n";
