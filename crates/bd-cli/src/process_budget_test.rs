@@ -1939,10 +1939,10 @@ fn a_lease_pick() {
 }
 
 /// `brd lease pick --return`: the pick of `a_lease_pick` without the follow, so neither the check of the lease's paths
-/// nor its move (one `ls-files`, one `config`, one `read-tree`, one `update-index` and a `diff-tree` fewer), nor the reads
-/// of the lease's HEAD, guards and marks (nine `rev-parse` and three `symbolic-ref` fewer), nor the move of the lease and
-/// its mark (two `update-ref`); then, in the lease, the return of `a_lease_get_and_return`, whose commits the pick
-/// proved: no proof runs
+/// nor its move (one `ls-files`, one `config`, one `read-tree`, one `update-index` and a `diff-tree` fewer), nor the
+/// witness, guards and marks of the lease (one `for-each-ref`, two `rev-parse` and two `symbolic-ref` fewer), nor the
+/// move of the lease and its mark (two `update-ref`); then, in the lease, the return of `a_lease_get_and_return`, whose
+/// commits the pick proved: no proof runs
 #[test]
 fn a_lease_pick_that_returns() {
   let (repo, _home, environment, got) = lease_with_two_commits();
@@ -1952,8 +1952,9 @@ fn a_lease_pick_that_returns() {
     return_lease: true,
     ..bd_lease::lease_command::LeasePickArgs::default()
   };
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
   let steps = CommandSteps::new("brd lease pick", DEFAULT_LOCK_WAIT, context.lock_timeout);
-  let output = crate::lease_pick_in(&context, &got.path, "master".to_string(), None, &environment, &args, &steps).unwrap();
+  let output = crate::lease_pick_in(&context, &lease.dirs, "master".to_string(), None, &environment, &args, &steps).unwrap();
   assert_eq!((output.picked.len(), output.followed.is_none()), (2, true));
   assert_processes(
     &context,
@@ -1961,21 +1962,20 @@ fn a_lease_pick_that_returns() {
       ("cat-file", 1),
       ("config", 2),
       ("diff-tree", 1),
-      ("for-each-ref", 1),
+      ("for-each-ref", 2),
       ("log", 4),
       ("ls-files", 1),
-      ("merge-base", 4),
+      ("merge-base", 3),
       ("read-tree", 1),
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 8),
-      ("symbolic-ref", 4),
+      ("rev-parse", 4),
+      ("symbolic-ref", 2),
       ("update-index", 1),
       ("update-ref", 2),
     ],
   );
-  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
   let output = crate::lease_pick::returned_after(&lease, output, None, &args, &steps);
   let returned = output.returned.expect("the lease returned");
   assert_eq!(returned.landed.len(), 2, "{returned:?}");
