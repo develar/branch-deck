@@ -2177,7 +2177,12 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    check by the paths did not see, or one after it, `FilesRefused`) moves the branch back, and after the lock the exact
    dry run names the paths, the pick `Blocked` by them (`apply_pick_locked`). What stays under the lock on that copy:
    the two `read-tree -m -u` of step 7, about 6 s of CPU each, most of it the cache tree that `read-tree` builds again,
-   and some 3 s for the rest (a hold of 15 to 59 s at a load average of 50, against 115 s).
+   and some 3 s for the rest (a hold of 15 to 59 s at a load average of 50, against 115 s). `read-tree` frees the
+   cache tree of the index before it merges (`builtin/read-tree.c`), so every `read-tree -m` walks the whole index
+   and builds the cache tree again, even when no path changes: `read-tree -m -i HEAD HEAD` on a copy of the index of
+   the monorepo took 1.8 s for the walk and 4.1 s for the cache tree, `-m -u -n` 2.8 s and 3.5 s, while the cache
+   tree at rest was whole (0 of 309 831 trees invalid, 2026-11-23). A two-way merge that kept it would only walk the
+   trees the move changes (`traverse_by_cache_tree`) and repair their cache entries.
 7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
