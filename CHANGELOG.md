@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.22.0](https://github.com/develar/branch-deck/compare/v1.21.0...v1.22.0) (2026-11-23)
+
+
+### Features
+
+* **host:** brd-host run --max waits for its run as wait does and leaves it going past its time ([24398d1](https://github.com/develar/branch-deck/commit/24398d1db8728d6c15f15ab65f400d78be32bbbd))
+* **host:** brd-host wait waits for a run in calls of at most --max, says each change of its state, and finishes it as run does ([d17e034](https://github.com/develar/branch-deck/commit/d17e034c86940090d1b2f21ac8aaea247737b755))
+* **ide:** the tool window of the IDE is the main window in one frame, with its switcher and its Activity panel, and a root and the home directory read as in the desktop app ([0a02f4a](https://github.com/develar/branch-deck/commit/0a02f4a532981ae8f248260b849674629b385c8e))
+* **lease:** a green check record carries over a clean update onto the home branch ([ebaf726](https://github.com/develar/branch-deck/commit/ebaf726af9c02a2eea2ab80b49901850a948c627))
+* **lease:** brd lease pick --return lands the commits without the follow and returns the lease in the same call, the pick being the proof of its commits ([fd8ba3e](https://github.com/develar/branch-deck/commit/fd8ba3e169c556ef8af76a85892eac82bec39e79))
+* **lease:** brd lease return --holder returns the one lease of a holder, lease list is the status, a slot busy only with own commands names the --stop-own return, and a conflict of lease pick says no commit body and no unchecked reason ([d807d93](https://github.com/develar/branch-deck/commit/d807d93b2c6e7a8c8c3c686e86dfbb92567e2b49))
+* **pick:** a pick waits for the repository lock while its holder lives, naming it every 10 s, up to --lock-wait (540 s), and checks under the lock at once after a wait whose witness missed ([8a62a7d](https://github.com/develar/branch-deck/commit/8a62a7df2e5afe2f3051d908a387b5f9be0aa98b))
+* **pick:** each step of a pick names when it started, on stderr and in the steps of its answer, so a pick of minutes shows whether the checks, the lock or the moves took them ([2771e93](https://github.com/develar/branch-deck/commit/2771e935a2004996dd265a5b9caedb1ef8370f3c))
+
+
+### Bug Fixes
+
+* **ci:** the Windows build and tests again: imports of tests for every platform, the guard of an admitted run boxed, no const stop of the trees, and the tests of the racy margin and of the warning of a stuck deletion independent of the speed of the machine and of its paths ([483e80c](https://github.com/develar/branch-deck/commit/483e80ce2f63518981d596d4a86065f290d027a2))
+* **e2e:** the Safe Push of a copy with a generated file merged by words waits for the answer of its start and reads the start once, never polls the log of Patronus (e2e-remote-poll of lint:arch) ([daa27ad](https://github.com/develar/branch-deck/commit/daa27adcb75823e2c7e54d235cf1bac0520e6a9c))
+* **git-ops:** commit_count lives in revs, so carried_check builds on Windows, where host_client is not compiled ([c6b9a95](https://github.com/develar/branch-deck/commit/c6b9a959466f4368b0fb91536d1de080723eb27e))
+* **lease:** the process budget of brd lease pick --return passes the directories of the lease, as the pick reads them once now ([904546d](https://github.com/develar/branch-deck/commit/904546d492eb2523f4f95c54b4b007853a65abe5))
+* **operations:** a start pressed during Update Project waits for the sync of the update instead of a refusal of a plan that changed ([8b4c9a8](https://github.com/develar/branch-deck/commit/8b4c9a8bbd2e9e4729f03394721413ef8635753d))
+* **pick:** a pick tells its move again under the lock, before the compare-and-swap of the locked apply, which the merge with the check by paths left without it ([2d8bdff](https://github.com/develar/branch-deck/commit/2d8bdff0dc79c21c5aec4d7188fa7d1c00862b27))
+
+
+### Performance Improvements
+
+* **pick:** a pick reads the directories of both worktrees once (a lease's not at all), its witness by one for-each-ref per worktree, the upstream and HEAD's branch with its baseline, and keeps the base of the range between its checks ([e7f0175](https://github.com/develar/branch-deck/commit/e7f0175cdddcda4f7b5b3e23f4ee5627beb2f174))
+* **pick:** the check before the lock goes by the paths each move changes, never a dry run of the whole index, and a refusal of the files after the move blocks the pick with its paths ([1ad004d](https://github.com/develar/branch-deck/commit/1ad004d59e49319a2c2c989a96024efb4c0aca3e))
+
 ## [1.21.0](https://github.com/develar/branch-deck/compare/v1.20.0...v1.21.0) (2026-11-23)
 
 
