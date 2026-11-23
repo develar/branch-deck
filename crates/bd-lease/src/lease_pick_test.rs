@@ -370,11 +370,7 @@ fn a_lease_pick_lands_a_check_that_carries_over_a_clean_update() {
 #[test_log::test]
 fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
   let fixture = gated_fixture();
-  fixture.repo.create_commit("Add words", "w.txt", "alpha beta gamma delta\n");
-  let path = path_of(&fixture.get(&[]));
-  std::fs::write(Path::new(&path).join("w.txt"), "ALPHA beta gamma delta\n").unwrap();
-  slot_git(&path, &["commit", "-q", "-a", "-m", "(lane) Change alpha"]);
-  fixture.repo.create_commit("(peer) Change delta", "w.txt", "alpha beta gamma DELTA\n");
+  let path = landed_in_other_context(&fixture);
   record_check(&path, &tree_of(&path), 0);
 
   let (output, state) = checked_pick(&fixture, &path, &[], 1, "state");
@@ -385,11 +381,93 @@ fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
   );
   let next = output["conflict"]["next"].as_str().unwrap();
   assert!(next.contains("no build or test ran on") && next.contains("lease pick` again"), "{next}");
-  assert_eq!(std::fs::read_to_string(Path::new(&path).join("w.txt")).unwrap(), "ALPHA beta gamma DELTA\n");
 
   record_check(&path, &tree_of(&path), 0);
   let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
   assert_eq!((&output["state"], state), (&json!("picked"), json!("ok")), "{output}");
+  fixture.give_back(&path);
+}
+
+/// The author, the author time and the subject that `landed_in_other_context` gives both copies of the lane's commit
+const LANDED_AUTHOR: [(&str, &str); 3] = [
+  ("GIT_AUTHOR_NAME", "Lane"),
+  ("GIT_AUTHOR_EMAIL", "lane@example.com"),
+  ("GIT_AUTHOR_DATE", "1700000000 +0000"),
+];
+
+/// A lease whose first commit changes `e` in `e.txt` and whose second adds `lane-c.txt`, while master got a peer's
+/// change of the line above and then the first commit as it landed on top of it (the same author, author time, subject
+/// and changed lines, but another context, so another patch id): its pick conflicts on `e.txt`, and its update drops
+/// the commit by its changed lines and replays the second, with no conflict left and nothing resolved
+fn landed_in_other_context(fixture: &Fixture) -> String {
+  fixture.repo.create_commit("Add e", "e.txt", "c\nd\ne\nf\n");
+  let path = path_of(&fixture.get(&[]));
+  std::fs::write(Path::new(&path).join("e.txt"), "c\nd\nE\nf\n").unwrap();
+  let committed = test_utils::git_test_utils::git_command()
+    .args(["commit", "-q", "-a", "-m", "(lane) Change e"])
+    .envs(LANDED_AUTHOR)
+    .current_dir(&path)
+    .output()
+    .unwrap();
+  assert!(committed.status.success(), "{committed:?}");
+  commit_in(&path, "(lane) Add c", "lane-c.txt");
+  fixture.repo.create_commit("(peer) Change d", "e.txt", "c\nD\ne\nf\n");
+  std::fs::write(fixture.repo.path().join("e.txt"), "c\nD\nE\nf\n").unwrap();
+  fixture.repo.commit_with(&["-a", "-m", "(lane) Change e"], &LANDED_AUTHOR);
+  path
+}
+
+/// A conflict whose update applies only because the update dropped the conflicting commit as landed resolved no
+/// content: the same `brd lease pick` lands the rest at once
+#[test_log::test]
+fn a_lease_pick_whose_update_drops_the_conflicting_commit_lands_in_one_call() {
+  let fixture = Fixture::new();
+  let path = landed_in_other_context(&fixture);
+  let (exit_code, output) = lease_pick(&fixture, &path, &[]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["update"]["state"], &output["update"]["dropped"][0]["proof"]),
+    (0, &json!("picked"), &json!("rebase"), &json!("changed_lines")),
+    "{output}"
+  );
+  assert_eq!(output["update"].get("resolved"), None, "{output}");
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) Add c");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), fixture.repo.head(), "the lease follows");
+  fixture.give_back(&path);
+}
+
+/// A conflict whose update applies because its words resolved the conflict of git lands nothing, whether or not a check
+/// is required: the merge of words is a guess no build saw, `conflict.next` names the file and says to build and test
+/// first, and the next `brd lease pick` lands the merged tree
+#[test_log::test]
+fn a_lease_pick_whose_update_resolves_by_words_lands_nothing_and_names_the_files() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Add words", "w.txt", "alpha beta gamma delta\n");
+  let path = path_of(&fixture.get(&[]));
+  std::fs::write(Path::new(&path).join("w.txt"), "ALPHA beta gamma delta\n").unwrap();
+  slot_git(&path, &["commit", "-q", "-a", "-m", "(lane) Change alpha"]);
+  let home = fixture.repo.create_commit("(peer) Change delta", "w.txt", "alpha beta gamma DELTA\n");
+
+  let (exit_code, output) = lease_pick(&fixture, &path, &[]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["update"]["state"], &output["update"]["verify"]["paths"]),
+    (1, &json!("conflict"), &json!("rebase"), &json!(["w.txt"])),
+    "{output}"
+  );
+  assert_eq!(output["update"]["resolved"][0]["files"][0]["path"], json!("w.txt"), "{output}");
+  let next = output["conflict"]["next"].as_str().unwrap();
+  assert!(
+    next.starts_with("Nothing landed.") && next.contains("by words in w.txt") && next.contains(&format!("`brd -C {} lease pick` again", lease_word(&path))),
+    "{next}"
+  );
+  assert_eq!(fixture.repo.head(), home, "nothing landed");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
+  assert_eq!(std::fs::read_to_string(Path::new(&path).join("w.txt")).unwrap(), "ALPHA beta gamma DELTA\n");
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  assert_covered(&schema["outputs"]["lease_pick"], &schema["outputs"]["lease_pick"], &output, "lease_pick");
+
+  let (exit_code, output) = lease_pick(&fixture, &path, &[]);
+  assert_eq!((exit_code, &output["state"], output.get("update")), (0, &json!("picked"), None), "{output}");
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("w.txt")).unwrap(), "ALPHA beta gamma DELTA\n");
   fixture.give_back(&path);
 }
 

@@ -23,7 +23,8 @@ and links here; the commands are [brd lease](../../openspec/specs/cli/lease/spec
 5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
    then land it on `master` of the main checkout with `brd -C <path> lease pick` (a brd without it: `brd pick --from
    <path> --follow -C <main checkout>`): the commit goes onto `master` as it is then, the lease follows; a conflict
-   lands nothing and comes back to you (`conflict.next`). Never `git rebase` or `git merge` for it, never `brd update`
+   lands nothing and comes back to you (`conflict.next`), also when the update of the lease resolved it by words: build
+   and test the merged files, then pick again. Never `git rebase` or `git merge` for it, never `brd update`
    in the lease.
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
    `brd -C <path> lease pick --return`, which lands the last commit without moving the lease and returns it in the same

@@ -2923,8 +2923,14 @@ expect_branch`): `check_pick` refuses another branch checked out in the source a
 check, so the commits never land on a branch the user switched to. It replays onto the tip as it is then: a commit
 tested on an older tip lands without a test on the new one, and a conflict comes back to the lease: the lease is
 updated onto the tip of its home branch ("Update project", onto a local branch), a resolve session opens there, and
-its finish names `brd lease pick` again. An update that applies at once (the words resolved what the pick could not)
-is picked again at once. While that session is open (one `show-ref` of its ref) `brd lease pick` refuses
+its finish names `brd lease pick` again. An update that applies at once because its words resolved what the pick
+could not (`update.resolved`) lands nothing either, with or without `pick_requires_check`: on 2026-11-23 such an update
+merged a hunk of Rust by words, the same `brd lease pick` landed it, and the merge had dropped a call, so master did not
+build for 30 minutes. A merge of words of code is a guess that no build has seen, so `conflict.next` names the files
+(`update.verify.paths`) and says to build and test in the lease, then pick again. Only an update that resolved no
+content is picked again in the same call: the conflicting commits dropped as present (`dropped`), or no conflict left
+on the tip; a generated file that git merged without a conflict (`verify.regenerate`) is a merge of git as a pick
+makes it, not a resolution. While that session is open (one `show-ref` of its ref) `brd lease pick` refuses
 (`resolve_in_progress`): a pick that lands meanwhile would leave the session stale.
 
 An agent almost always ends a lease with `brd lease pick` and then `brd lease return`. The follow of that pick moves a

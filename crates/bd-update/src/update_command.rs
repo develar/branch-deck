@@ -765,7 +765,8 @@ fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Opt
 
 /// The update of the lease of `context` onto `branch`, its home, without a fetch: what `brd lease pick` runs after its
 /// pick conflicted. A conflict opens a resolve session in the lease (`brd update --continue` goes on there); a replay
-/// that applies (the words resolved the conflict) moves the lease onto the tip of the branch. It waits for the
+/// that applies (its commits dropped as present, or the words resolved the conflict) moves the lease onto the tip of
+/// the branch. It waits for the
 /// repository lock as the pick does: while its holder lives, up to what is left of the bound of `steps`
 pub fn update_lease_onto(context: &RepoContext, branch: &str, steps: &CommandSteps<'_>) -> Result<UpdateOutput, CliError> {
   let options = UpdateOptions {

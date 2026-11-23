@@ -323,9 +323,11 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      lease onto the tip of `home.branch` (`update`; the message of the commit of its round is in its `patch`), and the
      conflict opens a resolve session there (`brd help update`); the lease moves only when `brd update --continue` finishes it, `brd update --abort` closes it. Resolve it
      (regenerate a generated file, never keep one side of a code hunk), build and test, then `brd lease pick` again (the
-     `next` of the finish). An update that applies at once (the words resolved it) is picked again at once. From a
-     worktree that is no lease, do what `conflict.next` says: move the worktree onto the branch, make the commit again
-     there, pick again. Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks
+     `next` of the finish). An update that applies at once because its words resolved the conflict lands nothing
+     either: `conflict.next` names the merged files (`update.verify.paths`); read those hunks, build and test, then
+     `brd lease pick` again. Only an update that resolved no content (the conflicting commits dropped as present) is
+     picked again at once. From a worktree that is no lease, do what `conflict.next` says: move the worktree onto the
+     branch, make the commit again there, pick again. Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks
      every rewrite.
    - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
      `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`brd pick <first>^..<last>`), or ask the

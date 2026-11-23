@@ -21,8 +21,9 @@ pub struct LeasePickOutput {
   /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `brd update` prints it. A
   /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `brd update
   /// --continue`, build and test, then `brd lease pick` again; `brd update --abort` closes it, nothing moved. An update
-  /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`. The
-  /// commit of its round has no `body`: its `patch` file holds the message
+  /// that applies because its words resolved the conflict (`resolved`) moved the lease onto the tip and landed nothing:
+  /// build and test the files of `verify.paths`, then `next`. The commit of its round has no `body`: its `patch` file
+  /// holds the message
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateOutput>,
   /// With --return, once the pick landed the commits (or found every one on the branch): the HEAD of the lease the pick

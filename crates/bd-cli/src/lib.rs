@@ -55,7 +55,7 @@ use bd_update::drop_command::{DropArgs, drop_commits};
 use bd_update::pick_command::{HomePick, PickArgs, PickOutcome, PickOutput, branch_ref, pick, pick_check, pick_into, tree_check, tree_check_output};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
-use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, update, update_lease_onto};
+use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, UpdateOutput, update, update_lease_onto};
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
@@ -417,7 +417,9 @@ fn operation_name(matches: &ArgMatches) -> String {
 
 /// `brd lease pick`: `brd pick --from <this lease> --follow` in the checkout the lease was cut from, onto the branch it
 /// had checked out then. A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of
-/// that branch, a resolve session opened in it; an update that applies (the words resolved the conflict) is picked
+/// that branch, a resolve session opened in it. An update that applies after its words resolved a conflict of git lands
+/// nothing either (`words_next`): a merge of words is a guess that no build saw, so the lease is built and tested and
+/// picked again; only an update that resolved no content (its commits dropped as present, or no conflict left) is picked
 /// again at once. The gate of `pick_requires_check` is the pick's (`bd_update::pick_command`): a tree of the lease's
 /// HEAD that no green build or test recorded lands nothing (`unchecked_tree`) unless `--allow-unchecked` says why, and a
 /// lease with nothing to land follows without a record; the tree of an update that applies is new, so it is picked
@@ -463,6 +465,13 @@ fn lease_pick_reporting(
   if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
     return Ok(LeasePickOutput::of(pick, Some(update)));
   }
+  if !update.resolved.is_empty() {
+    let mut pick = pick;
+    if let Some(conflict) = pick.conflict.as_mut() {
+      conflict.next = words_next(&update, &branch, &lease.dirs.top_level);
+    }
+    return Ok(LeasePickOutput::of(pick, Some(update)));
+  }
   let settings = pick_check(&home.repository)?;
   let gated = args.allow_unchecked.is_none() && settings.required;
   let check = if gated {
@@ -484,6 +493,28 @@ fn lease_pick_reporting(
   }
   let pick = lease_pick_in(&home, &lease.dirs, branch, check, environment, args, steps)?;
   Ok(returned_after(lease, pick, Some(update), args, steps))
+}
+
+/// How many resolved files `next` names; `update.verify.paths` lists them all
+const WORDS_NEXT_FILES: usize = 5;
+
+/// `conflict.next` of a lease pick whose update applied after its words resolved a conflict of git (`update.resolved`):
+/// nothing landed, the files the words merged go to a build and the tests first
+fn words_next(update: &UpdateOutput, branch: &str, lease_dir: &str) -> String {
+  let paths = update.verify.as_ref().map_or(&[][..], |verify| verify.paths.as_slice());
+  let more = paths.len().saturating_sub(WORDS_NEXT_FILES) + update.verify.as_ref().map_or(0, |verify| verify.paths_omitted as usize);
+  let named = paths.iter().take(WORDS_NEXT_FILES).map(String::as_str).collect::<Vec<_>>().join(", ");
+  let files = match (named.is_empty(), more) {
+    (true, _) => "the files of `update.resolved`".to_string(),
+    (false, 0) => named,
+    (false, more) => format!("{named} and {more} more"),
+  };
+  format!(
+    "Nothing landed. The update moved the lease onto the tip of {branch} (`update`) and resolved the conflict by words in {files} \
+     (`update.verify.paths`): a merge that no build or test saw. Read the resolved hunks, build and run the tests in the lease, then \
+     `brd -C {lease} lease pick` again",
+    lease = bd_core::bd_command::shell_word(lease_dir),
+  )
 }
 
 /// `brd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`; with `check`
