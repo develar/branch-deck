@@ -27,7 +27,7 @@ use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
 use git_ops::update_branch::{UndoCheck, apply_update_undo, finish_pending_update, pending_mark, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
-use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepared, RewriteOptions, Witness, lock_prepared_move};
+use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepared, RepositoryLock, RewriteOptions, Witness, lock_prepared_move};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::stack_top;
 use object_cache::cache::ObjectCache;
@@ -656,18 +656,18 @@ fn land(
 ) -> Result<(PickPlan, Option<AppliedPick>)> {
   let target = worktrees[0];
   let Checks { messages, signing, land_nothing } = checks;
-  let apply = |plan: &PickPlan| {
-    if plan.check.state != PickState::Clean {
-      return Ok(None);
-    }
-    if plan.moves_anything() {
+  // a check that moves nothing: its apply runs no git
+  let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
+  // under the lock: the move is told before its compare-and-swap, nothing after it until the moves end
+  let apply_locked = |plan: &mut PickPlan, lock: Option<RepositoryLock>| {
+    if plan.check.state == PickState::Clean && plan.moves_anything() {
       progress(&PickStep::Move {
         branch: &plan.check.branch,
         target,
         follow: plan.check.follow.as_ref().map(|follow| follow.worktree.as_str()),
       });
     }
-    apply_pick(git_executor, target, plan).map(Some)
+    apply_pick_locked(git_executor, target, plan, lock)
   };
   let check = |round: usize, locked: bool| {
     progress(&PickStep::Check {
@@ -717,7 +717,7 @@ fn land(
       drop(lock);
       continue;
     }
-    let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
+    let applied = apply_locked(&mut plan, lock)?;
     return Ok((plan, applied));
   }
   let lock = match kept {
@@ -730,7 +730,7 @@ fn land(
   // a check under the lock: new picked commits are read here, the same ones not again
   refuse_unchecked(&plan, land_nothing)?;
   messages.verify(git_executor, target, &plan, true)?;
-  let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
+  let applied = apply_locked(&mut plan, lock)?;
   Ok((plan, applied))
 }
 
