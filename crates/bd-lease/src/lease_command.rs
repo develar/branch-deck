@@ -452,14 +452,21 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
   );
   match home.branch {
     Some(branch) if !home.checkout.is_empty() => Ok((home.checkout, branch)),
-    _ => Err(CliError::new(
-      ErrorCode::NoHomeBranch,
-      format!(
-        "The lease was cut from a detached HEAD of {}: there is no branch its commits land on. Check out the branch there and pick them with `brd pick --from {} --follow`",
-        if home.checkout.is_empty() { "its source" } else { &home.checkout },
-        shell_word(&context.dirs.top_level)
-      ),
-    )),
+    _ => {
+      // the pick runs in the source, which the lease may not know
+      let (source, bd) = if home.checkout.is_empty() {
+        ("its source", CLI_NAME.to_string())
+      } else {
+        (home.checkout.as_str(), in_worktree(CLI_NAME, &home.checkout))
+      };
+      Err(CliError::new(
+        ErrorCode::NoHomeBranch,
+        format!(
+          "The lease was cut from a detached HEAD of {source}: there is no branch its commits land on. Check out the branch there and pick them with `{bd} pick --from {} --follow`",
+          shell_word(&context.dirs.top_level)
+        ),
+      ))
+    }
   }
 }
 

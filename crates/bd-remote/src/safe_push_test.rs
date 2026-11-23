@@ -62,12 +62,20 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
 
   let (exit_code, output) = space.run(&["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
-  let message = output["error"]["message"].as_str().unwrap();
-  assert!(message.contains("Needs review by Air Plugin Release Team (suggested: Alice)"), "{message}");
-  // without a GitHub repository nothing can collect them
-  assert!(message.contains("git config branchdeck.githubRepository"), "{message}");
-  assert!(message.contains("brd safe-push auth --create-pull-request"), "{message}");
-  assert!(message.ends_with("--without-approvals starts anyway, only when the user says so"), "{message}");
+  // without a GitHub repository nothing can collect them; the command it names is the one of `next_steps` elsewhere,
+  // with the `-C` of the repository
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "The code owners haven't approved auth: a Safe Push fails without these approvals. Nothing was started. Needs review by \
+       Air Plugin Release Team (suggested: Alice). Patronus counts code-owner approvals in the GitHub pull request of the branch. \
+       The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run \
+       `git config branchdeck.githubRepository <owner>/<name>`, then `{} safe-push auth --create-pull-request`. `review` lists \
+       the groups and their files; show them to the user, then run again once the code owners approved; --without-approvals \
+       starts anyway, only when the user says so",
+      bd_in(&space.repo)
+    ))
+  );
   // a pull request can't be opened yet, and the config is the user's: no step
   assert_eq!(next_steps(&output["error"]), []);
   assert_eq!(output["error"]["review"]["groups"][0]["reviewers"][0]["username"], json!("alice"));
@@ -459,7 +467,7 @@ fn a_stacked_branch_lands_its_parents_with_it() {
   assert_eq!(
     output["alone"],
     json!({"result": "builds", "parent": "auth", "symbols": true,
-      "message": "login builds alone on the baseline and uses no name its stack adds: `brd unstack login` makes it a root that lands alone (not checked by a compiler)"})
+      "message": format!("login builds alone on the baseline and uses no name its stack adds: `{} unstack login` makes it a root that lands alone (not checked by a compiler)", bd_in(&space.repo))})
   );
   // the obsolete --land-stack is accepted and changes nothing
   let (exit_code, landed_stack) = space.run(&["login", "--land-stack", "--dry-run"]);
@@ -494,7 +502,7 @@ fn a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it() {
     json!({"result": "needs", "parent": "auth",
       "conflict": {"commit": uses, "subject": "Use auth", "files": ["f0.txt"]},
       "needs": [{"commit": auth, "subject": "Add auth", "branch": "auth"}], "movable": true,
-      "message": format!("login needs {auth} (auth): move it into the branch, then `brd unstack login`")})
+      "message": format!("login needs {auth} (auth): move it into the branch, then `{} unstack login`", bd_in(&space.repo))})
   );
 }
 
@@ -607,7 +615,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
-  assert_safe_push_error_mentions(&output, "brd safe-push auth --create-pull-request");
+  assert_safe_push_error_mentions(&output, &format!("`{create}` pushes the branch and opens it"));
   // it pushes the branch: the user's to approve
   assert_eq!(next_steps(&output["error"]), [(create, true)]);
 
@@ -731,7 +739,10 @@ fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
   assert_error(&output, exit_code, (4, "push_dismisses_approvals"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("pull request #7"), "{message}");
-  assert!(message.contains("`brd push auth`") && message.contains("`brd request-review auth`"), "{message}");
+  assert!(
+    message.contains(&format!("push first (`{brd} push auth`), then ask for the review again (`{brd} request-review auth`)")),
+    "{message}"
+  );
   assert_eq!(
     next_steps(&output["error"]),
     [(format!("{brd} push auth"), true), (format!("{brd} request-review auth"), true)]
@@ -1735,7 +1746,11 @@ fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the
     )),
     "{message}"
   );
-  assert!(message.contains("`brd update`") && message.contains("`brd safe-push auth` again"), "{message}");
+  let brd = bd_in(&space.repo);
+  assert!(
+    message.contains(&format!("`{brd} update`")) && message.contains(&format!("`{brd} safe-push auth` again")),
+    "{message}"
+  );
   assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)), (0, String::new()));
 }
 

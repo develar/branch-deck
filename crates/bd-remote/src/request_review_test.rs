@@ -106,7 +106,10 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
   let (exit_code, output) = request_review(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "no_pull_request"));
   assert!(
-    output["error"]["message"].as_str().unwrap().contains("`brd safe-push auth --create-pull-request`"),
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .contains(&format!("`{} safe-push auth --create-pull-request`", bd_in(&space.repo))),
     "{output}"
   );
 

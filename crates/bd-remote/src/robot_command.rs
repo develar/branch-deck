@@ -11,6 +11,7 @@ use crate::robot_list::keep_listed;
 use crate::safe_push_command::{RobotSummary, patronus_error, robot_summary};
 use crate::session_facts::{SessionFacts, listed_robots};
 use crate::status::grouping_table;
+use bd_core::bd_command::shell_word;
 use bd_core::branch_view::read_grouping;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
@@ -407,7 +408,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   let details = runtime
     .block_on(service.robot_details(&context.prefix, &robot_id, context.patronus_new_api))
     .map_err(patronus_error)?;
-  check_robot_of(&details.robot, name, &descendants, stack.map(|stack| stack.root.as_str()), whole.as_ref())?;
+  check_robot_of(&context.bd, &details.robot, name, &descendants, stack.map(|stack| stack.root.as_str()), whole.as_ref())?;
   if let Some(other) = details.robot.branch_name.as_deref().filter(|other| *other != name) {
     output.robot_branch = Some(other.to_string());
   }
@@ -506,8 +507,9 @@ fn closes(
 
 /// A robot of `--robot` must build the branch: its own, of a branch stacked on it, or of the whole stack it is a branch
 /// of (`stack_root`); with `--whole-stack`, the robot of the whole stack. What the robot tests is its subject
-/// (`Subject::of_robot`); a robot of a temporary ref was matched by its tip
-fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack_root: Option<&str>, whole: Option<&WholeStack<'_>>) -> Result<(), CliError> {
+/// (`Subject::of_robot`); a robot of a temporary ref was matched by its tip. `bd` names the repository (`RepoContext::bd`)
+/// in the command of the robot's own subject
+fn check_robot_of(bd: &str, robot: &PatronusRobot, name: &str, descendants: &[&str], stack_root: Option<&str>, whole: Option<&WholeStack<'_>>) -> Result<(), CliError> {
   let id = &robot.id;
   let Some(subject) = Subject::of_robot(robot) else {
     return Ok(());
@@ -523,8 +525,12 @@ fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack
     return Ok(());
   }
   let message = match &subject {
-    Subject::WholeStack { root } => format!("Robot {id} runs on {}, not on {name}: `brd robot {root} --whole-stack --robot {id}`", subject.words()),
-    Subject::Branch { name: other } => format!("Robot {id} runs on {other}, not on {name}: `brd robot {other} --robot {id}`"),
+    Subject::WholeStack { root } => format!(
+      "Robot {id} runs on {}, not on {name}: `{bd} robot {} --whole-stack --robot {id}`",
+      subject.words(),
+      shell_word(root)
+    ),
+    Subject::Branch { name: other } => format!("Robot {id} runs on {other}, not on {name}: `{bd} robot {} --robot {id}`", shell_word(other)),
   };
   Err(CliError::new(ErrorCode::InvalidArguments, message))
 }

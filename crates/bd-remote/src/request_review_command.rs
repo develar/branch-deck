@@ -171,7 +171,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     .get(name)
     .filter(|pull_request| pull_request.state == PullRequestState::Open)
     .cloned()
-    .ok_or_else(|| no_pull_request(name))?;
+    .ok_or_else(|| no_pull_request(context, name))?;
   let review = if reviewers.is_empty() {
     Some(review_of(session_facts.readiness.fact(&subject.key()))?)
   } else {
@@ -185,7 +185,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     gate: &[],
     target_conflict: None,
   };
-  let planned = one_shot_planned(&facts.session, &host, &intent).ok_or_else(|| no_pull_request(name))?;
+  let planned = one_shot_planned(&facts.session, &host, &intent).ok_or_else(|| no_pull_request(context, name))?;
 
   let full_name_of = |login: &str| review.as_ref().and_then(|(requirement, _)| review_full_name(requirement, login));
   let summary = |login: &str| PersonSummary {
@@ -314,10 +314,14 @@ fn logins_of(reviewers: &[String]) -> Result<Vec<String>, CliError> {
 }
 
 /// "auth has no open pull request: …"
-fn no_pull_request(name: &str) -> CliError {
+fn no_pull_request(context: &RepoContext, name: &str) -> CliError {
   CliError::new(
     ErrorCode::NoPullRequest,
-    format!("{name} has no open pull request: `brd safe-push {name} --create-pull-request` pushes the branch and opens it, with `--reviewer`"),
+    format!(
+      "{name} has no open pull request: `{} safe-push {} --create-pull-request` pushes the branch and opens it, with `--reviewer`",
+      context.bd,
+      shell_word(name)
+    ),
   )
 }
 

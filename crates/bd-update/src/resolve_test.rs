@@ -418,8 +418,14 @@ fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
   // the refusal names the commit
   assert!(output["error"]["message"].as_str().unwrap().contains("(auth) Change the binary"), "{output}");
   assert!(!output["error"]["message"].as_str().unwrap().contains("terminal"), "{output}");
-  assert!(output["error"]["message"].as_str().unwrap().contains("brd update --abort"), "{output}");
-  assert!(output["error"]["message"].as_str().unwrap().contains("brd unapply auth"), "{output}");
+  let brd = bd_in(&clone);
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .contains(&format!("Next: `{brd} update --abort`, then `{brd} unapply auth`")),
+    "{output}"
+  );
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
 
   git(&clone, &["reset", "-q", "--hard", "origin/master"]);
@@ -453,7 +459,7 @@ fn an_unsupported_mixed_rename_and_binary_conflict_names_the_pair() {
   assert!(message.contains("x.txt → y.txt / z.txt"), "{message}");
   assert!(message.contains("bin.dat (CONFLICT (binary))"), "{message}");
   assert!(!message.contains("terminal"), "{message}");
-  assert!(message.contains("brd unapply auth"), "{message}");
+  assert!(message.contains(&format!("{} unapply auth", bd_in(&clone))), "{message}");
 }
 
 #[test_log::test]
@@ -471,8 +477,8 @@ fn an_unsupported_conflict_asks_the_user_when_unapply_dry_run_refuses() {
   assert_error(&output, exit_code, (4, "unsupported_conflict"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(!message.contains("terminal"), "{message}");
-  assert!(message.contains("`brd update --abort` and ask the user"), "{message}");
-  assert!(!message.contains("brd unapply auth"), "{message}");
+  assert!(message.contains(&format!("`{} update --abort` and ask the user", bd_in(&clone))), "{message}");
+  assert!(!message.contains("unapply auth"), "{message}");
 }
 
 #[test_log::test]

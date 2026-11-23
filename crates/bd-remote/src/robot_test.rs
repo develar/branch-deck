@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::writable_state;
-use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, commit_all, git, run_json, write};
 use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, fake_github, forking_stack, minutes_ago, own_pull_request, reviewed_on_github, stack_robot};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -220,7 +220,13 @@ fn robot_takes_a_robot_by_id_of_the_branch_only() {
 
   let (exit_code, output) = space.robot(&["auth", "--robot", "finished-login"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("brd robot login --robot finished-login"), "{output}");
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "Robot finished-login runs on login, not on auth: `{} robot login --robot finished-login`",
+      bd_in(&space.repo)
+    ))
+  );
 }
 
 #[test_log::test]
@@ -299,7 +305,13 @@ fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
   // with --whole-stack, only the whole stack's
   let (exit_code, output) = space.robot(&["session", "--whole-stack", "--robot", "own"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("brd robot login --robot own"), "{output}");
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .contains(&format!("`{} robot login --robot own`", bd_in(&space.repo))),
+    "{output}"
+  );
 }
 
 /// The branch and the state of each commit of a robot's output, newest first

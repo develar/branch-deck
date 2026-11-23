@@ -641,7 +641,10 @@ in `message` with its condition.
 ### Requirement: Output contract: The next steps of each refusal
 
 The next steps of a refusal SHALL be the commands its code names below. The field MUST be named `next_steps`, never
-`next`, whose commands (`brd workspace`, `brd update`, `brd pick`) run at once.
+`next`, whose commands (`brd workspace`, `brd update`, `brd pick`) run at once. A command with its arguments that the
+message names MUST name the repository as a step does (`brd -C <repo> …`, `RepoContext::bd`; another worktree by
+`in_worktree`), and where the refusal has that step, be its very command; a command named only as a pointer
+(`brd sync` says what holds it) stays bare.
 
 #### Scenario: A leased push that the remote rejects
 - **WHEN** a push is `lease_rejected`
@@ -684,6 +687,17 @@ The next steps of a refusal SHALL be the commands its code names below. The fiel
 - **THEN** the step of `stack_conflict` is the `--dry-run` of the branch whose commit conflicts, of `stack_not_built`
   `brd sync`
   [@test] crates/bd-remote/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
+
+#### Scenario: The message names the command of its step
+- **WHEN** a refusal's message names a command with its arguments: the `--create-pull-request` of `approvals_missing`,
+  the push and the review request of `push_dismisses_approvals`, the `brd update` and the start again of
+  `target_conflict`, the robot of another branch, the `brd safe-push` of `no_pull_request`, the abort and the unapply
+  of `unsupported_conflict`
+- **THEN** it names `brd -C <repo>` and the arguments, the command of `next_steps` where the refusal has one
+  [@test] crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start`)
+  [@test] crates/bd-remote/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
+  [@test] crates/bd-remote/src/request_review_test.rs (`a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused`)
+  [@test] crates/bd-update/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `an_unsupported_conflict_asks_the_user_when_unapply_dry_run_refuses`)
 
 ### Requirement: Output contract: The exit code follows the code of the error
 

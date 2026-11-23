@@ -1279,7 +1279,7 @@ fn plan(
     facts.session.landing_needs(|_| Ok(needs));
   }
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
-  let rerun = format!("brd safe-push {name}{}", if landing.stack.is_some() { " --whole-stack" } else { "" });
+  let rerun = safe_push_again(context, name, landing.stack.is_some());
   let target_check = target_fetch.map(|fetch| {
     // the fetch ran before the lock, of the baseline HEAD's branch had then: a HEAD switched during it has another
     let fetch_error = fetch.error_for(synced.report.upstream.as_ref().map(|upstream| upstream.name.as_str()));
@@ -1776,13 +1776,12 @@ impl Told<'_> {
     let (name, what) = (self.landing.name.as_str(), self.landing.what.as_str());
     let forced = format!("{} --force", start_again(context, self.args, name, self.stack().is_some()));
     if let Some(update) = self.stack() {
+      let push = stack_force_push(context, name);
       let message = format!(
-        "Nothing was pushed or started: the remote branch {} has {behind} commits {what} doesn't; `brd push {name} --with-children --force` replaces them, or `--force` pushes them away with the start, after the user approves",
+        "Nothing was pushed or started: the remote branch {} has {behind} commits {what} doesn't; `{push}` replaces them, or `--force` pushes them away with the start, after the user approves",
         update.branch_name
       );
-      Refusal::new(ErrorCode::PushRefused, message)
-        .with_next_step(stack_force_push(context, name), true)
-        .with_next_step(forced, true)
+      Refusal::new(ErrorCode::PushRefused, message).with_next_step(push, true).with_next_step(forced, true)
     } else {
       let push = self
         .synced
@@ -1857,15 +1856,12 @@ impl Told<'_> {
   fn push_then_review(&self) -> (String, Vec<String>) {
     let (bd, name) = (&self.context.bd, self.landing.name.as_str());
     let number = self.start_pull_request.map_or(0, |pull_request| pull_request.number);
-    match self.stack() {
-      Some(_) => (
-        format!("push first (`brd push {name} --with-children`), then ask the code owners for the review of #{number} again"),
-        vec![format!("{bd} push {} --with-children", shell_word(name))],
-      ),
-      None => (
-        format!("push first (`brd push {name}`), then ask for the review again (`brd request-review {name}`)"),
-        vec![format!("{bd} push {}", shell_word(name)), format!("{bd} request-review {}", shell_word(name))],
-      ),
+    if self.stack().is_some() {
+      let push = format!("{bd} push {} --with-children", shell_word(name));
+      (format!("push first (`{push}`), then ask the code owners for the review of #{number} again"), vec![push])
+    } else {
+      let (push, review) = (format!("{bd} push {}", shell_word(name)), format!("{bd} request-review {}", shell_word(name)));
+      (format!("push first (`{push}`), then ask for the review again (`{review}`)"), vec![push, review])
     }
   }
 
@@ -2014,9 +2010,10 @@ fn target_conflict_message(context: &RepoContext, synced: &SyncOutput, what: &st
     .collect();
   let changed_by = if commits.is_empty() { String::new() } else { format!(": {}", commits.join(", ")) };
   format!(
-    "Nothing was pushed or started: Patronus can't rebase {what} onto {baseline}: {} ({}) conflicts in {files}, which {baseline} changed after the base of {what}{changed_by}. `brd update` (the app's Update Project) brings the checked out branch onto {baseline} and resolves the conflict locally; then run `{rerun}` again",
+    "Nothing was pushed or started: Patronus can't rebase {what} onto {baseline}: {} ({}) conflicts in {files}, which {baseline} changed after the base of {what}{changed_by}. `{} update` (the app's Update Project) brings the checked out branch onto {baseline} and resolves the conflict locally; then run `{rerun}` again",
     short.get(commit),
-    conflict.commit.subject
+    conflict.commit.subject,
+    context.bd
   )
 }
 
@@ -2040,14 +2037,15 @@ fn push_error(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent:
     LeasedPush::RemoteMoved { moved, remote_statuses } => {
       if let Some(stack) = &plan.stack {
         let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
+        let push = stack_force_push(context, &plan.name);
         let mut error = CliError::new(
         ErrorCode::LeaseRejected,
         format!(
-          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; brd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `brd push {} --with-children --force` replaces them, after the user approves",
-          stack.full_name, plan.name
+          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; brd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `{push}` replaces them, after the user approves",
+          stack.full_name
         ),
       )
-      .with_next_step(stack_force_push(context, &plan.name), true);
+      .with_next_step(push, true);
         error.branches = remote_statuses
           .iter()
           .map(|status| ErrorBranch {
@@ -2173,7 +2171,7 @@ pub(crate) const UNKNOWN_GITHUB_REPOSITORY: &str =
 /// "The code owners haven't approved auth: …", with the missing `groups`, the approvals Patronus doesn't count, and where
 /// the approvals count (`counts_in`, `domain_policy::review::review_state`): the GitHub pull request of the branch, or a
 /// Space merge request found open. `name` says what lands ("auth", "the whole auth stack"), `rerun` is the command that
-/// starts it ("brd safe-push auth")
+/// starts it ("brd -C <repo> safe-push auth", `safe_push_again`)
 fn approvals_missing_message(name: &str, rerun: &str, readiness: &ReviewReadiness, groups: &[MissingReviewGroup], counts_in: CountsIn) -> String {
   let (not_counted, reason) = match readiness {
     ReviewReadiness::Missing { not_counted, reason, .. } => (not_counted.as_slice(), Some(*reason)),
@@ -2429,6 +2427,7 @@ pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> Rob
 /// The trial build of the stacked branch `name` alone, as a root on the base the sync built on (not the newest target),
 /// in the trial session of the dangling references; `parent` is the branch it is built on, for a trial that failed
 fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent: &str) -> AloneBuild {
+  let unstack = format!("{} unstack {}", context.bd, shell_word(name));
   let independence = match session.stack_independence(name) {
     Ok(independence) => independence,
     Err(error) => {
@@ -2457,9 +2456,9 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
           first.declared_by.branch
         ),
         None if symbols => {
-          format!("{name} builds alone on the baseline and uses no name its stack adds: `brd unstack {name}` makes it a root that lands alone (not checked by a compiler)")
+          format!("{name} builds alone on the baseline and uses no name its stack adds: `{unstack}` makes it a root that lands alone (not checked by a compiler)")
         }
-        None => format!("{name} builds alone on the baseline: `brd unstack {name}` makes it a root that lands alone (lines only: compile dependencies are not checked)"),
+        None => format!("{name} builds alone on the baseline: `{unstack}` makes it a root that lands alone (lines only: compile dependencies are not checked)"),
       };
       AloneBuild {
         result: "builds".to_string(),
@@ -2497,7 +2496,7 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
           join_names(&files)
         )
       } else if movable {
-        format!("{name} needs {}: move {them} into the branch, then `brd unstack {name}`", join_names(&ids))
+        format!("{name} needs {}: move {them} into the branch, then `{unstack}`", join_names(&ids))
       } else {
         format!("{name} needs {}, and other branches need {them} too: a move would make those need {name}", join_names(&ids))
       };

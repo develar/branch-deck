@@ -1377,8 +1377,8 @@ fn update_core_error(context: &RepoContext, error: anyhow::Error) -> CliError {
       .as_deref()
       .and_then(|commit| unapply_branch_suggestion(&context.git, &context.repository, &context.prefix, commit, LockWait::Bounded(context.lock_timeout)))
       .map_or_else(
-        || "`brd update --abort` and ask the user".to_string(),
-        |branch| format!("`brd update --abort`, then `brd unapply {}`", shell_word(&branch)),
+        || format!("`{} update --abort` and ask the user", context.bd),
+        |branch| format!("`{bd} update --abort`, then `{bd} unapply {}`", shell_word(&branch), bd = context.bd),
       );
     let _ = write!(output.message, ". Next: {next}");
   }
