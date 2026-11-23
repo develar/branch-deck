@@ -599,7 +599,7 @@ impl Server {
     let title_bar = PageTitleBar {
       title_bar,
       check_for_updates: false,
-      folder_dialog: self.ctx.desktop.dialog.has_folder_dialog(),
+      folder_dialog: self.ctx.app_desktop.dialog.has_folder_dialog(),
       progress_text: true,
     };
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));

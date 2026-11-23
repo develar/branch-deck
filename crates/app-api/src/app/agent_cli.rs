@@ -11,7 +11,6 @@ use crate::transport::Call;
 use domain_types::error::ApiError;
 use lease_pool::agent_workspace::agent_defaults;
 use std::path::Path;
-use std::sync::Arc;
 use tracing::instrument;
 
 /// What the "Install Agent CLI…" menu item installed: `brd install` (docs/contributing/agent-cli.md)
@@ -106,9 +105,9 @@ pub struct IdeApp {
 
 /// `brd install`: the `brd` command, the skills, and the rules of `brd workspace` as the global git config has them where
 /// the install wrote none
-#[instrument(skip_all)]
-pub async fn install_agent_cli(ctx: &AppContext) -> Result<AgentCliInstall, ApiError> {
-  let (host, git) = (Arc::clone(&ctx.desktop.agent_cli), ctx.git.clone());
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn install_agent_cli(ctx: &AppContext, call: &Call) -> Result<AgentCliInstall, ApiError> {
+  let (host, git) = (ctx.desktop(&call.window).agent_cli, ctx.git.clone());
   run_blocking(move || {
     let installed = host.install()?;
     let agents = installed.agents.unwrap_or_else(|| {
@@ -131,29 +130,29 @@ pub async fn install_agent_cli(ctx: &AppContext) -> Result<AgentCliInstall, ApiE
 
 /// The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
 /// the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
-#[instrument(skip_all, fields(repository_path = %repository_path))]
-pub async fn agent_cli_command(ctx: &AppContext, repository_path: String) -> Result<AgentCliCommand, ApiError> {
-  operation(async move { ctx.desktop.agent_cli.command(&repository_path) }).await
+#[instrument(skip_all, fields(repository_path = %repository_path, window = %call.window))]
+pub async fn agent_cli_command(ctx: &AppContext, call: &Call, repository_path: String) -> Result<AgentCliCommand, ApiError> {
+  operation(async move { ctx.desktop(&call.window).agent_cli.command(&repository_path) }).await
 }
 
 /// The skill files of `brd install` that exist, without writing anything
 #[instrument(skip_all)]
-pub fn agent_cli_status(ctx: &AppContext, _call: &Call) -> AgentCliStatus {
-  ctx.desktop.agent_cli.status()
+pub fn agent_cli_status(ctx: &AppContext, call: &Call) -> AgentCliStatus {
+  ctx.desktop(&call.window).agent_cli.status()
 }
 
 /// Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml` for this app and its icons, which an IDE with
 /// Air shows at once; a file there is written anew
-#[instrument(skip_all)]
-pub async fn install_ide_app(ctx: &AppContext) -> Result<IdeApp, ApiError> {
-  let host = Arc::clone(&ctx.desktop.agent_cli);
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn install_ide_app(ctx: &AppContext, call: &Call) -> Result<IdeApp, ApiError> {
+  let host = ctx.desktop(&call.window).agent_cli;
   run_blocking(move || host.install_ide_app()).await
 }
 
 /// Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE and its icons; the IDE closes the views of
 /// Branch Deck
-#[instrument(skip_all)]
-pub async fn remove_ide_app(ctx: &AppContext) -> Result<(), ApiError> {
-  let host = Arc::clone(&ctx.desktop.agent_cli);
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn remove_ide_app(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
+  let host = ctx.desktop(&call.window).agent_cli;
   run_blocking(move || host.remove_ide_app()).await
 }

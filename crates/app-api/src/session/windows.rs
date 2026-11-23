@@ -10,7 +10,8 @@
 //! superseded by a newer plan of its window and by its close: a symbol search and a plan never cancel each other.
 //! The question of a window to the index about the names a subject renamed (`get_index_marks`) is one more kind:
 //! the window asks it of the subject it shows, so a newer one supersedes it, as does its close; so is the read of what
-//! the ranges it shows leave to read (`get_range_readings`).
+//! the ranges it shows leave to read (`get_range_readings`), and the request for branch names (`suggest_branch_names`).
+//! A window is of a connection (`WindowId`): two connections each have a `main`, which never supersede each other.
 
 use crate::transport::{Call, PageId, WindowId};
 use domain_types::operation::OperationId;
@@ -31,6 +32,8 @@ pub struct Windows {
   commit_plans: WindowRequests,
   /// The questions to the index about the names a subject renamed
   index_marks: WindowRequests,
+  /// The requests for branch names (`suggest_branch_names`)
+  branch_names: WindowRequests,
   /// The reads of what the ranges a window shows leave to read
   range_readings: WindowRequests,
 }
@@ -55,11 +58,10 @@ impl Windows {
     self.fetches.0.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
-  /// The call of a command of the window `label`, with the page it shows now
-  pub fn call(&self, label: &str) -> Call {
-    let window = WindowId::new(label);
-    let page = self.subscriptions().page(&window);
-    Call { window, page }
+  /// The call of a command of `window`, with the page it shows now
+  pub fn call(&self, window: &WindowId) -> Call {
+    let page = self.subscriptions().page(window);
+    Call { window: window.clone(), page }
   }
 
   /// Whether the page of `call` is the one its window shows still: false once the window closed or loads again, so
@@ -129,6 +131,12 @@ impl Windows {
     self.index_marks.begin(window)
   }
 
+  /// Starts a request of `window` for branch names, which supersedes the one before of the window: a window of
+  /// another connection names its commits apart
+  pub fn begin_branch_names(&self, window: &WindowId) -> WindowRequest {
+    self.branch_names.begin(window)
+  }
+
   /// Starts a read of what the ranges `window` shows leave to read, which supersedes the one before
   pub fn begin_range_readings(&self, window: &WindowId) -> WindowRequest {
     self.range_readings.begin(window)
@@ -142,6 +150,7 @@ impl Windows {
     self.commit_plans.forget(window);
     self.index_marks.forget(window);
     self.range_readings.forget(window);
+    self.branch_names.forget(window);
   }
 
   /// Every window with a page or a fetch

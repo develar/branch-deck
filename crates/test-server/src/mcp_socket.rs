@@ -6,7 +6,9 @@
 //! context (`mcp_corpus_test.rs`). The end of the socket ends the connection and forgets its windows.
 
 use crate::state::{AppState, TestHosts};
+use app_api::connections::Connections;
 use app_api::context::AppContext;
+use app_api::transport::AppEvents;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -30,8 +32,9 @@ pub fn context_of_connection(state: &Arc<AppState>, id: &str, connection: &Conne
     }
   };
   let mut ctx = state.context_of(id, &hosts);
-  ctx.events = connection.events();
-  ctx.desktop = connection.desktop();
+  ctx.connections = Arc::new(Connections::new(connection.events()));
+  ctx.events = Arc::clone(&ctx.connections) as Arc<dyn AppEvents>;
+  ctx.app_desktop = connection.desktop();
   Some(Arc::new(ctx))
 }
 

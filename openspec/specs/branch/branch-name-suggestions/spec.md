@@ -270,9 +270,9 @@ The names MUST come from the structured output, else from the result text as the
 
 ### Requirement: A newer request: A newer request kills the running claude
 
-When a request starts while an older one runs (the selection changed), the older `claude` MUST be killed within
-20 ms and answer `superseded`, which the frontend ignores; a superseded request it still waits for (another window)
-asks again next time.
+When a request of a window starts while an older one of the same window runs (the selection changed), the older
+`claude` MUST be killed within 20 ms and answer `superseded`, which the frontend ignores; the close of the window
+supersedes its request too, and a request of another window (the IDE beside the app) SHALL never supersede it.
 
 #### Scenario: The selection changes while claude runs
 - **GIVEN** a request runs `claude`
@@ -286,6 +286,11 @@ asks again next time.
 - **GIVEN** the frontend still waits for a request, as another window started the newer one
 - **WHEN** it answers `superseded`
 - **THEN** it asks again next time
+
+#### Scenario: A request of another window
+- **WHEN** the main view of the IDE asks branch names while a request of the main window of the app runs
+- **THEN** both run, and neither answers `superseded`
+  [@test] crates/app-api/src/session/windows_test.rs (`the_main_windows_of_two_connections_never_supersede_each_other`)
 
 ### Requirement: A newer request: Claude is killed after 60 s
 

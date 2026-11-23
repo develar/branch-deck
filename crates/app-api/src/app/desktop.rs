@@ -11,15 +11,14 @@ use crate::transport::Call;
 use domain_types::error::ApiError;
 use domain_types::settings::{APP_SETTINGS_KEY, SettingsPatch};
 use domain_types::update::UpdateInfo;
-use std::sync::Arc;
 use sync_core::repository_validation::{BrowseResult, validate_and_create_result};
 use tracing::instrument;
 
 /// Opens a native file dialog to browse for a git repository: the folder picked, checked as a repository, or no path
 /// when the user canceled
-#[instrument(skip_all)]
-pub async fn browse_repository(ctx: &AppContext) -> Result<BrowseResult, ApiError> {
-  let dialog = Arc::clone(&ctx.desktop.dialog);
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn browse_repository(ctx: &AppContext, call: &Call) -> Result<BrowseResult, ApiError> {
+  let dialog = ctx.desktop(&call.window).dialog;
   // both the modal dialog and the file system checks block, off the async runtime
   run_blocking(move || {
     let result = match dialog.pick_folder("Select Project Repository") {
@@ -40,8 +39,8 @@ pub async fn browse_repository(ctx: &AppContext) -> Result<BrowseResult, ApiErro
 /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 /// Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
 #[instrument(skip_all, fields(checked = checked))]
-pub fn set_auto_sync_menu_checked(ctx: &AppContext, _call: &Call, checked: bool) -> Result<(), ApiError> {
-  operation_now(|| ctx.desktop.menu.set_auto_sync_checked(checked))
+pub fn set_auto_sync_menu_checked(ctx: &AppContext, call: &Call, checked: bool) -> Result<(), ApiError> {
+  operation_now(|| ctx.desktop(&call.window).menu.set_auto_sync_checked(checked))
 }
 
 /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
@@ -61,24 +60,24 @@ pub fn restart_app(ctx: &AppContext, call: &Call, system_title_bar: bool) -> Res
       .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
     settings_changed(&*ctx.events, &change);
     ctx.settings.flush().map_err(|e| api_error(anyhow::Error::new(e).context("Cannot save the settings")))?;
-    Err(ctx.desktop.restart.restart())
+    Err(ctx.desktop(&call.window).restart.restart())
   })
 }
 
 /// Checks for an update of the app and downloads the one it finds
-#[instrument(skip_all)]
-pub async fn check_for_updates(ctx: &AppContext) -> Result<UpdateInfo, ApiError> {
-  operation(async move { ctx.desktop.updater.check().await }).await
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn check_for_updates(ctx: &AppContext, call: &Call) -> Result<UpdateInfo, ApiError> {
+  operation(async move { ctx.desktop(&call.window).updater.check().await }).await
 }
 
 /// The state of the update since the last check
-#[instrument(skip_all)]
-pub async fn get_update_status(ctx: &AppContext) -> Result<UpdateInfo, ApiError> {
-  operation(async move { ctx.desktop.updater.status() }).await
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn get_update_status(ctx: &AppContext, call: &Call) -> Result<UpdateInfo, ApiError> {
+  operation(async move { ctx.desktop(&call.window).updater.status() }).await
 }
 
 /// Installs the downloaded update and restarts the app
-#[instrument(skip_all)]
-pub async fn install_update(ctx: &AppContext) -> Result<(), ApiError> {
-  operation(async move { ctx.desktop.updater.install().await }).await
+#[instrument(skip_all, fields(window = %call.window))]
+pub async fn install_update(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
+  operation(async move { ctx.desktop(&call.window).updater.install().await }).await
 }

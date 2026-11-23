@@ -9,6 +9,7 @@ use crate::app::air_launch::AirWatches;
 use crate::app::cli_tools::CliToolsState;
 use crate::app::config_writer::ConfigWriters;
 use crate::app::windows::SubWindowState;
+use crate::connections::{Connections, without};
 use crate::operation::run_blocking;
 use crate::reads::conflict_fix::ConflictFixSearch;
 use crate::reads::review_plan::ReviewPlans;
@@ -16,7 +17,7 @@ use crate::reads::symbols::SymbolIndexes;
 use crate::remote::RemoteMemory;
 use crate::repository_state::RepositoryStateCache;
 use crate::session::windows::Windows;
-use crate::transport::{AppEvents, AppHost, Call, Desktop, WindowId};
+use crate::transport::{AppEvents, AppHost, Call, ConnectionId, Desktop, WindowId};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
@@ -50,7 +51,7 @@ pub struct AppContext {
   /// The index a symbol search asks outside the review: accio of this machine (`Accio`), the fixture of a test
   /// repository
   pub symbol_indexes: Arc<dyn SymbolIndexes>,
-  /// The search of the fix of the conflicts, one at a time
+  /// The search of the fix of the conflicts, one per window at a time
   pub conflict_fix: ConflictFixSearch,
   /// The review plans whose every query answered, by what each is of, the readings in flight and the branches the
   /// windows asked, which a commit of a table reads ahead (`review_prefetch`)
@@ -67,17 +68,21 @@ pub struct AppContext {
   pub services: Arc<dyn ServiceHost>,
   /// What the rewrites of the engine answer a failure with and read the diffs of
   pub rewrites: Arc<dyn RewriteHost>,
-  /// What the app tells its windows
+  /// What the app tells its windows: of every connection (`Connections` as the `AppEvents`, `Connections::new` over
+  /// the events of the app's own)
   pub events: Arc<dyn AppEvents>,
+  /// The clients of `backend-host` beside the app's own connection: the desktop and the events of each
+  pub connections: Arc<Connections>,
   /// What the app gives a command beside the services of the sessions: its accounts, the `teamcity` CLI, Claude Code,
   /// the wall clock
   pub host: Arc<dyn AppHost>,
   /// What the commands of the remote family keep between their calls: the reviews of branches, the latest request for
   /// branch names, the reads of the Safe Push statistics
   pub remote: RemoteMemory,
-  /// What the app does on the desktop: its windows, the folder dialog, the native menu, its restart, its updater, its
-  /// agent CLI
-  pub desktop: Desktop,
+  /// What the app does on the desktop for its own connection (`ConnectionId::APP`): its windows, the folder dialog,
+  /// the native menu, its restart, its updater, its agent CLI. A command takes the desktop of the connection of its
+  /// window (`desktop`)
+  pub app_desktop: Desktop,
   /// The windows built hidden, the main window too, until each shows (`app::windows`)
   pub sub_windows: Arc<SubWindowState>,
   /// The CLIs of Settings → Tools: the actions that run, the statuses read last
@@ -118,9 +123,24 @@ impl AppContext {
     key_of(self.prefix_inputs(), repository_path, PrefixInputs::branch_prefix_now).await
   }
 
-  /// The call of a command of the window `label`, before the command awaits anything (`Windows::call`)
+  /// The call of a command of the window `label` of the app's own connection, before the command awaits anything
+  /// (`Windows::call`)
   pub fn call(&self, label: &str) -> Call {
-    self.windows.call(label)
+    self.windows.call(&WindowId::new(label))
+  }
+
+  /// The call of a command of `window`, of any connection, before the command awaits anything
+  pub fn call_of(&self, window: &WindowId) -> Call {
+    self.windows.call(window)
+  }
+
+  /// The desktop of the connection of `window`: the app's own, the one a client of `backend-host` opened its
+  /// connection with, none of a connection that ended
+  pub fn desktop(&self, window: &WindowId) -> Desktop {
+    if window.connection() == ConnectionId::APP {
+      return self.app_desktop.clone();
+    }
+    self.connections.hosts(window.connection()).map_or_else(without::desktop, |hosts| hosts.desktop)
   }
 
   /// The page of `window` went away (it loads again): its subscriptions and its watches of Air sessions end
@@ -139,14 +159,24 @@ impl AppContext {
       self.registry.cancel(&op);
     }
     self.windows.forget_reads(window);
+    self.conflict_fix.forget(window);
     self.review_plans.forget_window(window);
-    self.sub_windows.forget(window.as_str());
+    self.sub_windows.forget(window);
     self.forget_page(window);
   }
 
   /// Every window closed: the app of a test repository of the e2e server went away
   pub fn forget_windows(&self) {
     for window in self.windows.open() {
+      self.forget_window(&window);
+    }
+  }
+
+  /// The connection `connection` ended: each of its windows closes as `forget_window` closes it, and no window of
+  /// another connection; nothing of the app reaches it any more
+  pub fn close_connection(&self, connection: ConnectionId) {
+    self.connections.close(connection);
+    for window in self.windows.open().into_iter().filter(|window| window.connection() == connection) {
       self.forget_window(&window);
     }
   }

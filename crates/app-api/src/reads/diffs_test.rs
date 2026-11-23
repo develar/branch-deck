@@ -5,7 +5,7 @@
 use crate::reads::diffs::IndexAsker;
 use crate::reads::review_prefetch_test::{Index, Indexes};
 use crate::session::windows::Windows;
-use crate::transport::Call;
+use crate::transport::{Call, WindowId};
 use file_diffs::model::{FileMarks, GetFileDiffsParams, GetIndexMarksParams};
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -74,7 +74,7 @@ fn the_question_of_a_window_to_the_index_ends_once_the_window_asks_another_close
   };
   let killed = || held.killed.load(Ordering::SeqCst);
   let asked = || held.asked.lock().unwrap_or_else(PoisonError::into_inner).len();
-  let (review, main) = (windows.call("review-7"), windows.call("main"));
+  let (review, main) = (windows.call(&WindowId::new("review-7")), windows.call(&WindowId::new("main")));
 
   // the window asks of another subject: the query of this one is killed, and it answers nothing
   assert_eq!(ask(&review, &|| drop(windows.begin_index_marks(&review.window))), None);
@@ -94,7 +94,7 @@ fn the_question_of_a_window_to_the_index_ends_once_the_window_asks_another_close
   assert_eq!(answer_of(&gone), None);
   assert_eq!(asked(), before);
   // the window closes
-  let review = windows.call("review-7");
+  let review = windows.call(&WindowId::new("review-7"));
   assert_eq!(ask(&review, &|| windows.forget_reads(&review.window)), None);
   assert_eq!(killed(), 3);
 

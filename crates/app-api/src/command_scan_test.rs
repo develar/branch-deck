@@ -470,16 +470,17 @@ fn the_body_of_a_session_command_opens_no_span_and_no_operation_of_its_own() {
   assert!(report.is_empty(), "docs/design/async-patterns.md#operation-spans:\n{}", report.join("\n"));
 }
 
-/// What a read asks of the desktop of the app: the status of its updater, the update it downloaded and the error of its
-/// last check, the command and the status of its agent CLI. Any other use of `ctx.desktop` (a window, the dialog, the
-/// menu, the restart, a check or an install of an update, an install of the CLI) or of `ctx.sub_windows` (the opens and
-/// the stages of the windows) acts on the app
+/// What a read asks of the desktop of the window that calls it (`ctx.desktop(&call.window)`, the desktop of its
+/// connection): the status of its updater, the update it downloaded and the error of its last check, the command and
+/// the status of its agent CLI. Any other use of `ctx.desktop` (a window, the dialog, the menu, the restart, a check or
+/// an install of an update, an install of the CLI) or of `ctx.sub_windows` (the opens and the stages of the windows)
+/// acts on the app
 const DESKTOP_READS: &[&str] = &[
-  "ctx.desktop.updater.status()",
-  "ctx.desktop.updater.downloaded()",
-  "ctx.desktop.updater.check_failure()",
-  "ctx.desktop.agent_cli.command(",
-  "ctx.desktop.agent_cli.status()",
+  "ctx.desktop(&call.window).updater.status()",
+  "ctx.desktop(&call.window).updater.downloaded()",
+  "ctx.desktop(&call.window).updater.check_failure()",
+  "ctx.desktop(&call.window).agent_cli.command(",
+  "ctx.desktop(&call.window).agent_cli.status()",
 ];
 
 /// Whether `body` acts on the windows or the desktop of the app: it uses `ctx.desktop` or `ctx.sub_windows` beside the
@@ -492,13 +493,13 @@ fn acts_on_the_app(body: &str) -> bool {
 
 #[test]
 fn a_body_acts_on_the_app_by_any_use_of_its_windows_or_desktop_but_their_reads() {
-  assert!(acts_on_the_app("  let (state, host) = (&ctx.sub_windows, &ctx.desktop.windows);"));
-  assert!(acts_on_the_app("  operation(async move { ctx.desktop.updater.check().await }).await"));
-  assert!(acts_on_the_app("  let (host, git) = (Arc::clone(&ctx.desktop.agent_cli), ctx.git.clone());"));
-  assert!(acts_on_the_app("  let loaded = ctx.sub_windows.loaded(label, &ctx.settings);"));
-  assert!(!acts_on_the_app("  operation(async move { ctx.desktop.updater.status() }).await"));
-  assert!(!acts_on_the_app("  let app_update = ctx.desktop.updater.downloaded();"));
-  assert!(!acts_on_the_app("  let app_update_check_failure = ctx.desktop.updater.check_failure();"));
+  assert!(acts_on_the_app("  let (state, host) = (&ctx.sub_windows, ctx.desktop(&call.window).windows);"));
+  assert!(acts_on_the_app("  operation(async move { ctx.desktop(&call.window).updater.check().await }).await"));
+  assert!(acts_on_the_app("  let (host, git) = (ctx.desktop(&call.window).agent_cli, ctx.git.clone());"));
+  assert!(acts_on_the_app("  let loaded = ctx.sub_windows.loaded(&call.window, &ctx.settings);"));
+  assert!(!acts_on_the_app("  operation(async move { ctx.desktop(&call.window).updater.status() }).await"));
+  assert!(!acts_on_the_app("  let app_update = ctx.desktop(&call.window).updater.downloaded();"));
+  assert!(!acts_on_the_app("  let app_update_check_failure = ctx.desktop(&call.window).updater.check_failure();"));
   assert!(!acts_on_the_app("  run_blocking(move || core(&git)).await"));
 }
 

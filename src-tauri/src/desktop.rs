@@ -8,7 +8,7 @@ use crate::presentation::{Presentation, next_presentation};
 use crate::title_bar::{prepare_title_bar, title_bar_script, with_title_bar};
 use crate::zoom::{apply_zoom, sub_window_min_size};
 use app_api::app::windows::{Awaited, Deadline, OpenSubWindowParams, Shown};
-use app_api::transport::{DialogHost, Later, RestartHost, WindowHost, WindowId};
+use app_api::transport::{DialogHost, Later, RestartHost, WindowHost, WindowId, at_once};
 use domain_types::error::ApiError;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -33,7 +33,23 @@ impl WindowHost for TauriDesktop {
     self.0.get_webview_window(label).is_some()
   }
 
-  fn reopen(&self, _opener: &WindowId, params: &OpenSubWindowParams, update: Option<&str>, front: bool) -> Result<(), ApiError> {
+  fn reopen(&self, _opener: &WindowId, params: &OpenSubWindowParams, update: Option<&str>, front: bool) -> Later<'_, Result<(), ApiError>> {
+    at_once(self.reopen_now(params, update, front))
+  }
+
+  /// Its page draws the title bar, as the main window's does
+  fn build(&self, _opener: &WindowId, params: &OpenSubWindowParams, page_script: &str, zoom: f64) -> Later<'_, Result<(), ApiError>> {
+    at_once(self.build_now(params, page_script, zoom))
+  }
+
+  fn show(&self, label: &str, shown: Shown) -> Later<'_, ()> {
+    Box::pin(show_window(self.0.clone(), label.to_owned(), shown))
+  }
+}
+
+impl TauriDesktop {
+  /// `WindowHost::reopen`, which Tauri does at once
+  fn reopen_now(&self, params: &OpenSubWindowParams, update: Option<&str>, front: bool) -> Result<(), ApiError> {
     let Some(window) = self.0.get_webview_window(&params.window_id) else {
       return Ok(());
     };
@@ -50,8 +66,8 @@ impl WindowHost for TauriDesktop {
     Ok(())
   }
 
-  /// Its page draws the title bar, as the main window's does
-  fn build(&self, _opener: &WindowId, params: &OpenSubWindowParams, page_script: &str, zoom: f64) -> Result<(), ApiError> {
+  /// `WindowHost::build`, which Tauri does at once
+  fn build_now(&self, params: &OpenSubWindowParams, page_script: &str, zoom: f64) -> Result<(), ApiError> {
     // how the page draws the title bar, before the page's own scripts
     let init_script = format!("{page_script} {}", title_bar_script());
     let (min_width, min_height) = sub_window_min_size(&params.window_id, zoom);
@@ -75,10 +91,6 @@ impl WindowHost for TauriDesktop {
     // the empty GTK titlebar of a custom title bar on Linux, before the page paints and the window shows
     prepare_title_bar(&window);
     Ok(())
-  }
-
-  fn show(&self, label: &str, shown: Shown) -> Later<'_, ()> {
-    Box::pin(show_window(self.0.clone(), label.to_owned(), shown))
   }
 }
 

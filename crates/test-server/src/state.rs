@@ -84,6 +84,9 @@ impl AppState {
   /// registry of the server
   pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, hosts: &TestHosts) -> app_api::context::AppContext {
     let services = crate::session_routes::test_services(self);
+    let connections = std::sync::Arc::new(app_api::connections::Connections::new(
+      std::sync::Arc::clone(&hosts.events) as std::sync::Arc<dyn app_api::transport::AppEvents>
+    ));
     app_api::context::AppContext {
       git: self.git_of(repository_id),
       settings: std::sync::Arc::clone(&hosts.settings),
@@ -102,7 +105,8 @@ impl AppState {
       windows: std::sync::Arc::default(),
       services: std::sync::Arc::clone(&services) as std::sync::Arc<dyn remote_facts::service_sources::ServiceHost>,
       rewrites: services,
-      events: std::sync::Arc::clone(&hosts.events) as std::sync::Arc<dyn app_api::transport::AppEvents>,
+      events: std::sync::Arc::clone(&connections) as std::sync::Arc<dyn app_api::transport::AppEvents>,
+      connections,
       host: std::sync::Arc::new(crate::host::TestHost {
         state: std::sync::Arc::downgrade(self),
         repository: repository_id.to_owned(),
@@ -110,7 +114,7 @@ impl AppState {
         runtime: tokio::runtime::Handle::current(),
       }),
       remote: app_api::remote::RemoteMemory::default(),
-      desktop: app_api::transport::Desktop {
+      app_desktop: app_api::transport::Desktop {
         windows: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::WindowHost>,
         dialog: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::DialogHost>,
         menu: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::MenuHost>,

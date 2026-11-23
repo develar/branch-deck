@@ -15,7 +15,7 @@ use crate::state::AppState;
 use crate::updater::NO_UPDATER_MESSAGE;
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
-use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId};
+use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId, at_once};
 use app_settings::service::SettingsService;
 use app_settings::windows::window_snapshot;
 use axum::Json;
@@ -378,15 +378,15 @@ impl WindowHost for TestDesktop {
     self.windows().open.contains(label)
   }
 
-  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, _update: Option<&str>, _front: bool) -> Result<(), ApiError> {
+  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, _update: Option<&str>, _front: bool) -> Later<'_, Result<(), ApiError>> {
     self.record_open(opener, params);
-    Ok(())
+    at_once(Ok(()))
   }
 
-  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, _page_script: &str, _zoom: f64) -> Result<(), ApiError> {
+  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, _page_script: &str, _zoom: f64) -> Later<'_, Result<(), ApiError>> {
     self.record_open(opener, params);
     self.windows().open.insert(params.window_id.clone());
-    Ok(())
+    at_once(Ok(()))
   }
 
   /// No window to show
@@ -538,9 +538,10 @@ pub async fn built_window(Path(id): Path<String>, State(state): State<Arc<AppSta
     id: built.open_id,
     opened_at: 0.0,
   };
-  let deadline = repository.context.sub_windows.built(&built.label, open, page);
-  repository.desktop.windows().open.insert(built.label.clone());
-  show_when_settled(&repository.context, built.label, deadline);
+  let window = WindowId::new(built.label);
+  let deadline = repository.context.sub_windows.built(&window, open, page);
+  repository.desktop.windows().open.insert(window.as_str().to_owned());
+  show_when_settled(&repository.context, window, deadline);
   StatusCode::OK
 }
 

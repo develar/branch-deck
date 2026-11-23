@@ -215,15 +215,15 @@ pub async fn cli_tools_status(ctx: &AppContext) -> Result<Vec<CliToolStatus>, Ap
 /// What waits for the user (the Setup dot): the downloaded update or failed update check of the app, the tools' updates
 /// and expiring sign-ins from their last statuses (read now when none is known), the app's YouTrack sign-in; without
 /// what `skips` hides
-#[instrument(skip_all, fields(skips = skips.len()))]
-pub async fn get_setup_items(ctx: &AppContext, skips: Vec<SetupSkip>) -> Result<Vec<SetupEntry>, ApiError> {
+#[instrument(skip_all, fields(skips = skips.len(), window = %call.window))]
+pub async fn get_setup_items(ctx: &AppContext, call: &Call, skips: Vec<SetupSkip>) -> Result<Vec<SetupEntry>, ApiError> {
   operation(async {
     let statuses = match ctx.cli_tools.statuses.get() {
       Some(statuses) => statuses,
       None => read(ctx).await?,
     };
-    let app_update = ctx.desktop.updater.downloaded();
-    let app_update_check_failure = ctx.desktop.updater.check_failure();
+    let app_update = ctx.desktop(&call.window).updater.downloaded();
+    let app_update_check_failure = ctx.desktop(&call.window).updater.check_failure();
     let youtrack_broken = ctx.host.youtrack_status().is_some_and(|status| status.problem.is_some());
     Ok(setup_entries(&SetupFacts {
       app_update: app_update.as_deref(),

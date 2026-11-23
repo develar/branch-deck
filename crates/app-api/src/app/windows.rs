@@ -8,7 +8,7 @@
 
 use crate::context::AppContext;
 use crate::operation::{operation, operation_now};
-use crate::transport::Call;
+use crate::transport::{Call, WindowId};
 use app_settings::service::SettingsService;
 use app_settings::windows::{window_changes_since, window_snapshot};
 use domain_types::error::ApiError;
@@ -178,7 +178,7 @@ impl SubWindowEntry {
   }
 }
 
-/// The windows built hidden, by label: every sub-window and the main window. A window shows once its page settled the
+/// The windows built hidden, by window (its connection and its label): every sub-window and the main window. A window shows once its page settled the
 /// content of the latest open (no blank frame, never the subject of an earlier open), else once the deadline of the
 /// stage its page reached passed: `SHOW_FALLBACK` after the build for a page that never loads, `DRAW_FALLBACK` after the
 /// load for one that never draws its shell, the content budget of the page after its shell; and then only once its
@@ -189,12 +189,12 @@ pub struct SubWindowState {
   /// one open at a time: two opens of a label never both build it (`open_sub_window` is async, opens run in parallel).
   /// Held across the build alone, which awaits nothing
   open_lock: Mutex<()>,
-  windows: Mutex<HashMap<String, SubWindowEntry>>,
+  windows: Mutex<HashMap<WindowId, SubWindowEntry>>,
   opens: AtomicU32,
 }
 
 impl SubWindowState {
-  fn windows(&self) -> std::sync::MutexGuard<'_, HashMap<String, SubWindowEntry>> {
+  fn windows(&self) -> std::sync::MutexGuard<'_, HashMap<WindowId, SubWindowEntry>> {
     self.windows.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
@@ -206,9 +206,9 @@ impl SubWindowState {
     }
   }
 
-  /// A window of `label` is built for `open`, its page starting as `page` says: it loads with the data of the build. The
-  /// deadline of its load
-  pub fn built(&self, label: &str, open: SubWindowOpen, page: BuiltPage) -> Deadline {
+  /// `window` is built for `open`, its page starting as `page` says: it loads with the data of the build. The deadline
+  /// of its load
+  pub fn built(&self, window: &WindowId, open: SubWindowOpen, page: BuiltPage) -> Deadline {
     let mut entry = SubWindowEntry {
       build: open.id,
       page,
@@ -219,15 +219,15 @@ impl SubWindowState {
       shown: false,
     };
     let deadline = entry.reach(Stage::Built);
-    self.windows().insert(label.to_string(), entry);
+    self.windows().insert(window.clone(), entry);
     deadline
   }
 
-  /// An open of the existing window of `label`
-  pub fn reopened(&self, label: &str, update: SubWindowUpdate) -> Reopen {
+  /// An open of the existing `window`
+  pub fn reopened(&self, window: &WindowId, update: SubWindowUpdate) -> Reopen {
     let mut windows = self.windows();
     // a window this state never built (none today): its page is long loaded and on screen
-    let Some(entry) = windows.get_mut(label) else {
+    let Some(entry) = windows.get_mut(window) else {
       return Reopen::Shown;
     };
     if entry.shown {
@@ -242,13 +242,13 @@ impl SubWindowState {
     }
   }
 
-  /// The page of `label` loaded: the open that came while it loaded, if any, and the changes of `settings` after the
+  /// The page of `window` loaded: the open that came while it loaded, if any, and the changes of `settings` after the
   /// snapshot of the build that its window gets (none for the main window, which asks for them itself); with the
   /// deadline of its shell. A page loaded again (a reload) takes them again from the same snapshot, which its init script
   /// sets again
-  pub fn loaded(&self, label: &str, settings: &SettingsService) -> (SubWindowLoaded, Option<Deadline>) {
+  pub fn loaded(&self, window: &WindowId, settings: &SettingsService) -> (SubWindowLoaded, Option<Deadline>) {
     let mut windows = self.windows();
-    let Some(entry) = windows.get_mut(label) else {
+    let Some(entry) = windows.get_mut(window) else {
       return (
         SubWindowLoaded {
           update: None,
@@ -262,25 +262,25 @@ impl SubWindowState {
     let page = entry.page;
     drop(windows);
     let settings = match page {
-      BuiltPage::Sub { settings_version } => window_changes_since(settings, label, settings_version),
+      BuiltPage::Sub { settings_version } => window_changes_since(settings, window.as_str(), settings_version),
       BuiltPage::Main => Vec::new(),
     };
     (SubWindowLoaded { update, settings }, Some(deadline))
   }
 
-  /// The loaded page of `label` committed its shell, its title row: the deadline of its content, the content budget of
+  /// The loaded page of `window` committed its shell, its title row: the deadline of its content, the content budget of
   /// the page from now. None for a page that drew it before (a second title bar, a remount) or did not say its load
-  pub fn drawn(&self, label: &str) -> Option<Deadline> {
-    match self.windows().get_mut(label) {
+  pub fn drawn(&self, window: &WindowId) -> Option<Deadline> {
+    match self.windows().get_mut(window) {
       Some(entry) if entry.stage == Stage::Loaded => Some(entry.reach(Stage::Drawn)),
       _ => None,
     }
   }
 
-  /// The page of `label` settled the content of the open `open_id`: true when the window shows now (the latest open,
+  /// The page of `window` settled the content of the open `open_id`: true when the window shows now (the latest open,
   /// not shown yet)
-  pub fn ready(&self, label: &str, open_id: u32) -> bool {
-    match self.windows().get_mut(label) {
+  pub fn ready(&self, window: &WindowId, open_id: u32) -> bool {
+    match self.windows().get_mut(window) {
       Some(entry) if !entry.shown && entry.showing_for == open_id => {
         entry.shown = true;
         true
@@ -289,10 +289,10 @@ impl SubWindowState {
     }
   }
 
-  /// The deadline `deadline` of the window of `label` passed: true when it shows now as it is (still hidden, the same
+  /// The deadline `deadline` of `window` passed: true when it shows now as it is (still hidden, the same
   /// window, its page no stage further)
-  pub fn deadline_passed(&self, label: &str, deadline: &Deadline) -> bool {
-    match self.windows().get_mut(label) {
+  pub fn deadline_passed(&self, window: &WindowId, deadline: &Deadline) -> bool {
+    match self.windows().get_mut(window) {
       Some(entry) if entry.build == deadline.build && entry.step == deadline.step && !entry.shown => {
         entry.shown = true;
         true
@@ -302,8 +302,8 @@ impl SubWindowState {
   }
 
   /// The window went
-  pub fn forget(&self, label: &str) {
-    self.windows().remove(label);
+  pub fn forget(&self, window: &WindowId) {
+    self.windows().remove(window);
   }
 }
 
@@ -327,33 +327,39 @@ pub struct OpenSubWindowParams {
 #[instrument(skip_all, fields(window_id = %params.window_id, url = %params.url))]
 pub async fn open_sub_window(ctx: &AppContext, call: &Call, params: OpenSubWindowParams) -> Result<(), ApiError> {
   operation(async move {
-    let (state, host) = (&ctx.sub_windows, &ctx.desktop.windows);
-    let _open = state.open_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let open = state.next_open(params.opened_at);
-    if host.is_open(&params.window_id) {
-      let update = SubWindowUpdate { data: params.data.clone(), open };
-      return match state.reopened(&params.window_id, update.clone()) {
-        Reopen::Pending => host.reopen(&call.window, &params, None, false),
-        Reopen::Hidden => host.reopen(&call.window, &params, Some(&update.script()?), false),
-        Reopen::Shown => host.reopen(&call.window, &params, Some(&update.script()?), true),
-      };
-    }
-    // the settings, the window data and the open, before the page's own scripts
-    let (settings_script, settings_version) = settings_script(&ctx.settings, &params.window_id);
-    let page_script = format!(
-      "
+    let (state, host) = (&ctx.sub_windows, ctx.desktop(&call.window).windows);
+    let window = WindowId::of(call.connection(), params.window_id.clone());
+    // the host acts within the lock, its answer is awaited after it
+    let answer = {
+      let _open = state.open_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+      let open = state.next_open(params.opened_at);
+      if host.is_open(&params.window_id) {
+        let update = SubWindowUpdate { data: params.data.clone(), open };
+        match state.reopened(&window, update.clone()) {
+          Reopen::Pending => host.reopen(&call.window, &params, None, false),
+          Reopen::Hidden => host.reopen(&call.window, &params, Some(&update.script()?), false),
+          Reopen::Shown => host.reopen(&call.window, &params, Some(&update.script()?), true),
+        }
+      } else {
+        // the settings, the window data and the open, before the page's own scripts
+        let (settings_script, settings_version) = settings_script(&ctx.settings, &params.window_id);
+        let page_script = format!(
+          "
       {settings_script}
       window.__INIT_DATA__ = {};
       window.__SUB_WINDOW_OPEN__ = {};
       ",
-      params.data,
-      to_json(&open)?
-    );
-    // known before the page can load and ask for the changes after its snapshot
-    let deadline = state.built(&params.window_id, open, BuiltPage::Sub { settings_version });
-    host.build(&call.window, &params, &page_script, ctx.settings.app().zoom)?;
-    show_when_settled(ctx, params.window_id, deadline);
-    Ok(())
+          params.data,
+          to_json(&open)?
+        );
+        // known before the page can load and ask for the changes after its snapshot
+        let deadline = state.built(&window, open, BuiltPage::Sub { settings_version });
+        let built = host.build(&call.window, &params, &page_script, ctx.settings.app().zoom);
+        show_when_settled(ctx, window, deadline);
+        built
+      }
+    };
+    answer.await
   })
   .await
 }
@@ -364,10 +370,9 @@ pub async fn open_sub_window(ctx: &AppContext, call: &Call, params: OpenSubWindo
 #[instrument(skip_all, fields(window = %call.window))]
 pub async fn sub_window_loaded(ctx: &AppContext, call: &Call) -> Result<SubWindowLoaded, ApiError> {
   operation(async move {
-    let label = call.window.as_str();
-    let (loaded, deadline) = ctx.sub_windows.loaded(label, &ctx.settings);
+    let (loaded, deadline) = ctx.sub_windows.loaded(&call.window, &ctx.settings);
     if let Some(deadline) = deadline {
-      show_when_settled(ctx, label.to_owned(), deadline);
+      show_when_settled(ctx, call.window.clone(), deadline);
     }
     Ok(loaded)
   })
@@ -380,8 +385,8 @@ pub async fn sub_window_loaded(ctx: &AppContext, call: &Call) -> Result<SubWindo
 #[instrument(skip_all, fields(window = %call.window))]
 pub async fn sub_window_drawn(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
   operation(async move {
-    if let Some(deadline) = ctx.sub_windows.drawn(call.window.as_str()) {
-      show_when_settled(ctx, call.window.as_str().to_owned(), deadline);
+    if let Some(deadline) = ctx.sub_windows.drawn(&call.window) {
+      show_when_settled(ctx, call.window.clone(), deadline);
     }
     Ok(())
   })
@@ -394,8 +399,8 @@ pub async fn sub_window_drawn(ctx: &AppContext, call: &Call) -> Result<(), ApiEr
 #[instrument(skip_all, fields(window = %call.window, open_id = open_id))]
 pub async fn sub_window_ready(ctx: &AppContext, call: &Call, open_id: u32) -> Result<(), ApiError> {
   operation(async move {
-    if ctx.sub_windows.ready(call.window.as_str(), open_id) {
-      let (host, label) = (Arc::clone(&ctx.desktop.windows), call.window.as_str().to_owned());
+    if ctx.sub_windows.ready(&call.window, open_id) {
+      let (host, label) = (ctx.desktop(&call.window).windows, call.window.as_str().to_owned());
       ctx.runtime.spawn(async move { host.show(&label, Shown::Settled { open_id }).await }.in_current_span());
     }
     Ok(())
@@ -408,30 +413,31 @@ pub async fn sub_window_ready(ctx: &AppContext, call: &Call, open_id: u32) -> Re
 /// so it runs on the main thread, where GDK and Win32 menus live.
 #[instrument(skip_all, fields(window = %call.window))]
 pub fn show_window_menu(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
-  operation_now(|| ctx.desktop.menu.show_window_menu(&call.window))
+  operation_now(|| ctx.desktop(&call.window).menu.show_window_menu(&call.window))
 }
 
-/// Shows the window of `label`, built hidden, once its page settled its content (`sub_window_ready`), else once
-/// `deadline` passed without the stage after the one it was set for: each stage of the page (the build, the load, the
-/// shell) sets the deadline of the next. The main window as a sub-window: the app builds it and calls this
-pub fn show_when_settled(ctx: &AppContext, label: String, deadline: Deadline) {
-  let (state, host) = (Arc::clone(&ctx.sub_windows), Arc::clone(&ctx.desktop.windows));
+/// Shows `window`, built hidden, once its page settled its content (`sub_window_ready`), else once `deadline` passed
+/// without the stage after the one it was set for: each stage of the page (the build, the load, the shell) sets the
+/// deadline of the next. The main window as a sub-window: the app builds it and calls this. The host that shows it is
+/// the one of the connection of the window
+pub fn show_when_settled(ctx: &AppContext, window: WindowId, deadline: Deadline) {
+  let (state, host) = (Arc::clone(&ctx.sub_windows), ctx.desktop(&window).windows);
   ctx.runtime.spawn(
     async move {
-      if wait_for_deadline(&state, &label, deadline).await {
-        host.show(&label, Shown::Deadline(deadline)).await;
+      if wait_for_deadline(&state, &window, deadline).await {
+        host.show(window.as_str(), Shown::Deadline(deadline)).await;
       }
     }
     .in_current_span(),
   );
 }
 
-/// Waits for `deadline` on the backend's clock: true when the window of `label` is due to show then, as it is (it did
-/// not show by then, its page got no stage further). Never a timer of the page, which `WebKit` throttles while the
-/// window is hidden: a page that says nothing after its load still shows
-pub async fn wait_for_deadline(state: &SubWindowState, label: &str, deadline: Deadline) -> bool {
+/// Waits for `deadline` on the backend's clock: true when `window` is due to show then, as it is (it did not show by
+/// then, its page got no stage further). Never a timer of the page, which `WebKit` throttles while the window is
+/// hidden: a page that says nothing after its load still shows
+pub async fn wait_for_deadline(state: &SubWindowState, window: &WindowId, deadline: Deadline) -> bool {
   tokio::time::sleep(deadline.after).await;
-  state.deadline_passed(label, &deadline)
+  state.deadline_passed(window, &deadline)
 }
 
 /// What shows a window built hidden

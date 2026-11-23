@@ -458,6 +458,7 @@ impl<S: ContextSource> AppServices<S> {
   /// the symbol index, no window yet
   pub fn into_context(self, parts: ProcessParts) -> AppContext {
     let services = Arc::new(self);
+    let connections = Arc::new(crate::connections::Connections::new(parts.events));
     AppContext {
       git: parts.git,
       settings: parts.settings,
@@ -472,10 +473,11 @@ impl<S: ContextSource> AppServices<S> {
       windows: Arc::default(),
       services: Arc::clone(&services) as Arc<dyn ServiceHost>,
       rewrites: Arc::clone(&services) as Arc<dyn RewriteHost>,
-      events: parts.events,
+      events: Arc::clone(&connections) as Arc<dyn AppEvents>,
+      connections,
       host: services,
       remote: crate::remote::RemoteMemory::default(),
-      desktop: parts.desktop,
+      app_desktop: parts.desktop,
       sub_windows: Arc::default(),
       cli_tools: crate::app::cli_tools::CliToolsState::default(),
       air_watches: Arc::default(),

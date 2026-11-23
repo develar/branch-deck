@@ -1,4 +1,5 @@
 use crate::app::windows::{Awaited, BuiltPage, Deadline, Reopen, SubWindowLoaded, SubWindowOpen, SubWindowState, SubWindowUpdate, wait_for_deadline};
+use crate::transport::WindowId;
 use app_settings::service::SettingsService;
 use domain_types::settings::SettingsPatch;
 use serde_json::json;
@@ -22,7 +23,7 @@ fn set_app_field(settings: &SettingsService, field: &str, value: serde_json::Val
 /// The page of `label` loaded: the open that came while it loaded, and the deadline of its shell
 fn load(state: &SubWindowState, label: &str) -> (Option<SubWindowUpdate>, Deadline) {
   let dir = tempfile::tempdir().unwrap();
-  let (loaded, deadline) = state.loaded(label, &settings(&dir));
+  let (loaded, deadline) = state.loaded(&WindowId::new(label), &settings(&dir));
   (loaded.update, deadline.expect("a window this state built"))
 }
 
@@ -44,7 +45,7 @@ fn build(state: &SubWindowState, label: &str) -> SubWindowOpen {
 
 fn build_with_deadline(state: &SubWindowState, label: &str) -> (SubWindowOpen, Deadline) {
   let open = state.next_open(0.0);
-  let deadline = state.built(label, open, BuiltPage::Sub { settings_version: 0 });
+  let deadline = state.built(&WindowId::new(label), open, BuiltPage::Sub { settings_version: 0 });
   (open, deadline)
 }
 
@@ -61,11 +62,11 @@ fn an_open_while_the_page_loads_waits_for_the_page() {
   assert_eq!(awaits(&built), (Awaited::Load, Duration::from_secs(3)));
   // two quick opens: the page still loads, the later one wins
   let second = update(&state, "second");
-  assert_eq!(state.reopened("review", second.clone()), Reopen::Pending);
+  assert_eq!(state.reopened(&WindowId::new("review"), second.clone()), Reopen::Pending);
   let third = update(&state, "third");
-  assert_eq!(state.reopened("review", third.clone()), Reopen::Pending);
+  assert_eq!(state.reopened(&WindowId::new("review"), third.clone()), Reopen::Pending);
   let dir = tempfile::tempdir().unwrap();
-  let (loaded, shell) = state.loaded("review", &settings(&dir));
+  let (loaded, shell) = state.loaded(&WindowId::new("review"), &settings(&dir));
   assert_eq!(
     loaded,
     SubWindowLoaded {
@@ -78,10 +79,10 @@ fn an_open_while_the_page_loads_waits_for_the_page() {
   // taken once
   assert_eq!(loaded_update(&state, "review"), None);
   // the content of the build or of an earlier open does not show the window, the latest one does, once
-  assert!(!state.ready("review", first.id));
-  assert!(!state.ready("review", second.open.id));
-  assert!(state.ready("review", third.open.id));
-  assert!(!state.ready("review", third.open.id));
+  assert!(!state.ready(&WindowId::new("review"), first.id));
+  assert!(!state.ready(&WindowId::new("review"), second.open.id));
+  assert!(state.ready(&WindowId::new("review"), third.open.id));
+  assert!(!state.ready(&WindowId::new("review"), third.open.id));
 }
 
 #[test]
@@ -90,25 +91,25 @@ fn a_loaded_hidden_page_takes_an_open_and_shows_for_it() {
   let first = build(&state, "review");
   load(&state, "review");
   let next = update(&state, "next");
-  assert_eq!(state.reopened("review", next.clone()), Reopen::Hidden);
-  assert!(!state.ready("review", first.id));
-  assert!(state.ready("review", next.open.id));
+  assert_eq!(state.reopened(&WindowId::new("review"), next.clone()), Reopen::Hidden);
+  assert!(!state.ready(&WindowId::new("review"), first.id));
+  assert!(state.ready(&WindowId::new("review"), next.open.id));
   // on screen: a later open comes to the front at once
-  assert_eq!(state.reopened("review", update(&state, "later")), Reopen::Shown);
+  assert_eq!(state.reopened(&WindowId::new("review"), update(&state, "later")), Reopen::Shown);
 }
 
 #[test]
 fn a_deadline_shows_the_window_once_and_only_its_own_build() {
   let state = SubWindowState::default();
   let (_, closed) = build_with_deadline(&state, "review");
-  state.forget("review");
+  state.forget(&WindowId::new("review"));
   let (second, built) = build_with_deadline(&state, "review");
   // the fallback timer of the closed window leaves the new one hidden
-  assert!(!state.deadline_passed("review", &closed));
-  assert!(state.deadline_passed("review", &built));
-  assert!(!state.deadline_passed("review", &built));
+  assert!(!state.deadline_passed(&WindowId::new("review"), &closed));
+  assert!(state.deadline_passed(&WindowId::new("review"), &built));
+  assert!(!state.deadline_passed(&WindowId::new("review"), &built));
   // shown by the deadline: the page's later ready does nothing
-  assert!(!state.ready("review", second.id));
+  assert!(!state.ready(&WindowId::new("review"), second.id));
 }
 
 #[test]
@@ -116,10 +117,10 @@ fn a_window_built_again_after_its_close_waits_for_its_page_again() {
   let state = SubWindowState::default();
   build(&state, "review");
   loaded_update(&state, "review");
-  state.forget("review");
+  state.forget(&WindowId::new("review"));
   build(&state, "review");
   let again = update(&state, "again");
-  assert_eq!(state.reopened("review", again.clone()), Reopen::Pending);
+  assert_eq!(state.reopened(&WindowId::new("review"), again.clone()), Reopen::Pending);
   assert_eq!(loaded_update(&state, "review"), Some(again));
 }
 
@@ -128,14 +129,14 @@ fn a_shell_counts_once_per_load_and_only_after_it() {
   let state = SubWindowState::default();
   build(&state, "settings");
   // the page says its shell after its load (`markWindowShellDrawn`): a shell said before it is not its window's
-  assert_eq!(state.drawn("settings"), None);
+  assert_eq!(state.drawn(&WindowId::new("settings")), None);
   load(&state, "settings");
-  let shell = state.drawn("settings").expect("the shell of the loaded page");
+  let shell = state.drawn(&WindowId::new("settings")).expect("the shell of the loaded page");
   assert_eq!(awaits(&shell), (Awaited::Content, Duration::from_millis(300)));
   // a second title bar or a remount sets no second budget
-  assert_eq!(state.drawn("settings"), None);
+  assert_eq!(state.drawn(&WindowId::new("settings")), None);
   // a window this state never built
-  assert_eq!(state.drawn("activity"), None);
+  assert_eq!(state.drawn(&WindowId::new("activity")), None);
 }
 
 #[test]
@@ -146,7 +147,7 @@ fn a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build() {
   let before = set_app_field(&settings, "zoom", json!(1.1));
   // built with the snapshot at `before`; Actual Size and the Activity panel of the main window while its page loads
   state.built(
-    "review",
+    &WindowId::new("review"),
     state.next_open(0.0),
     BuiltPage::Sub {
       settings_version: settings.snapshot().0,
@@ -156,7 +157,7 @@ fn a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build() {
   let last = set_app_field(&settings, "activityPanel", json!(true));
   assert!(last > before);
 
-  let (loaded, _) = state.loaded("review", &settings);
+  let (loaded, _) = state.loaded(&WindowId::new("review"), &settings);
   assert_eq!(loaded.update, None);
   // the last change of the key, with its value now: the page applies it by its version
   assert_eq!(loaded.settings.len(), 1);
@@ -164,7 +165,7 @@ fn a_page_that_loads_takes_the_changes_after_the_snapshot_of_its_build() {
   assert_eq!(loaded.settings[0].value["zoom"], json!(1));
   assert_eq!(loaded.settings[0].value["activityPanel"], json!(true));
   // a reload of the page starts from the same snapshot, so it takes them again
-  assert_eq!(state.loaded("review", &settings).0.settings, loaded.settings);
+  assert_eq!(state.loaded(&WindowId::new("review"), &settings).0.settings, loaded.settings);
 }
 
 #[test]
@@ -174,7 +175,7 @@ fn a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_
   let state = SubWindowState::default();
   set_app_field(&settings, "zoom", json!(1.25));
   state.built(
-    "review",
+    &WindowId::new("review"),
     state.next_open(0.0),
     BuiltPage::Sub {
       settings_version: settings.snapshot().0,
@@ -185,7 +186,7 @@ fn a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_
     value: json!([{ "id": "1" }]),
   };
   settings.set(history, "main").unwrap();
-  assert_eq!(state.loaded("review", &settings).0.settings, Vec::new());
+  assert_eq!(state.loaded(&WindowId::new("review"), &settings).0.settings, Vec::new());
 }
 
 #[test]
@@ -194,10 +195,10 @@ fn the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_it
   let settings = settings(&dir);
   let state = SubWindowState::default();
   let open = state.next_open(0.0);
-  state.built("main", open, BuiltPage::Main);
+  state.built(&WindowId::new("main"), open, BuiltPage::Main);
   // a change while the page loads: the main window's page asks for it itself (`get_settings_changes`)
   set_app_field(&settings, "zoom", json!(1.1));
-  let (loaded, shell) = state.loaded("main", &settings);
+  let (loaded, shell) = state.loaded(&WindowId::new("main"), &settings);
   assert_eq!(
     loaded,
     SubWindowLoaded {
@@ -207,28 +208,28 @@ fn the_main_window_waits_for_its_first_rows_longer_and_takes_no_settings_with_it
   );
   assert_eq!(shell.map(|it| awaits(&it)), Some((Awaited::Shell, Duration::from_secs(3))));
   // the title row and the loading table: the first rows may take 1 s from them
-  let content = state.drawn("main").unwrap();
+  let content = state.drawn(&WindowId::new("main")).unwrap();
   assert_eq!(awaits(&content), (Awaited::Content, Duration::from_secs(1)));
   // its first rows show it, once
-  assert!(state.ready("main", open.id));
-  assert!(!state.ready("main", open.id));
+  assert!(state.ready(&WindowId::new("main"), open.id));
+  assert!(!state.ready(&WindowId::new("main"), open.id));
   // a reload of its page: on screen, its deadlines and its ready do nothing
-  let (_, reloaded) = state.loaded("main", &settings);
-  assert!(!state.deadline_passed("main", &reloaded.unwrap()));
-  assert!(!state.deadline_passed("main", &state.drawn("main").unwrap()));
-  assert!(!state.ready("main", open.id));
+  let (_, reloaded) = state.loaded(&WindowId::new("main"), &settings);
+  assert!(!state.deadline_passed(&WindowId::new("main"), &reloaded.unwrap()));
+  assert!(!state.deadline_passed(&WindowId::new("main"), &state.drawn(&WindowId::new("main")).unwrap()));
+  assert!(!state.ready(&WindowId::new("main"), open.id));
 }
 
 /// A main window built hidden: its open and the deadline of its load
 fn built_main(state: &SubWindowState) -> (SubWindowOpen, Deadline) {
   let open = state.next_open(0.0);
-  let deadline = state.built("main", open, BuiltPage::Main);
+  let deadline = state.built(&WindowId::new("main"), open, BuiltPage::Main);
   (open, deadline)
 }
 
 /// Waits for `deadline` of the main window: when it showed the window, from `start`, if it did
 async fn shown_by(state: &SubWindowState, deadline: Deadline, start: Instant) -> Option<Duration> {
-  wait_for_deadline(state, "main", deadline).await.then(|| start.elapsed())
+  wait_for_deadline(state, &WindowId::new("main"), deadline).await.then(|| start.elapsed())
 }
 
 #[tokio::test(start_paused = true)]
@@ -247,12 +248,12 @@ async fn a_page_that_loaded_is_never_shown_by_the_fallback_of_its_load() {
     },
     async {
       sleep(Duration::from_millis(2500)).await;
-      let content = state.drawn("main").unwrap();
+      let content = state.drawn(&WindowId::new("main")).unwrap();
       shown_by(&state, content, start).await
     },
     async {
       sleep(Duration::from_millis(4000)).await;
-      state.ready("main", open.id)
+      state.ready(&WindowId::new("main"), open.id)
     }
   );
   assert_eq!(by_load, None);
@@ -272,7 +273,7 @@ async fn the_budget_of_the_content_counts_from_the_shell_not_from_the_load() {
   let (_, shell) = load(&state, "main");
   let (by_shell, by_content) = tokio::join!(shown_by(&state, shell, start), async {
     sleep(Duration::from_millis(800)).await;
-    let content = state.drawn("main").unwrap();
+    let content = state.drawn(&WindowId::new("main")).unwrap();
     shown_by(&state, content, start).await
   });
   assert_eq!(by_shell, None);
@@ -294,7 +295,7 @@ async fn a_page_that_never_loads_shows_once_the_fallback_of_its_build_passed() {
   let start = Instant::now();
   let (open, built) = built_main(&state);
   assert_eq!(shown_by(&state, built, start).await, Some(Duration::from_secs(3)));
-  assert!(!state.ready("main", open.id));
+  assert!(!state.ready(&WindowId::new("main"), open.id));
 }
 
 #[tokio::test(start_paused = true)]
@@ -305,10 +306,10 @@ async fn the_backend_shows_a_main_window_whose_page_says_nothing_after_its_shell
   // the first sync is slow and the page says nothing after its shell: the timers of a hidden page are throttled, the
   // backend's clock is not, and the budget shows the title row and the loading table 1 s after the shell
   let start = Instant::now();
-  let content = state.drawn("main").unwrap();
+  let content = state.drawn(&WindowId::new("main")).unwrap();
   assert_eq!(shown_by(&state, content, start).await, Some(Duration::from_secs(1)));
   // the rows that come later show nothing again
-  assert!(!state.ready("main", open.id));
+  assert!(!state.ready(&WindowId::new("main"), open.id));
 }
 
 #[tokio::test(start_paused = true)]
@@ -316,11 +317,11 @@ async fn the_first_rows_within_the_budget_show_the_main_window_and_the_budget_th
   let state = SubWindowState::default();
   let (open, _) = built_main(&state);
   load(&state, "main");
-  let content = state.drawn("main").unwrap();
+  let content = state.drawn(&WindowId::new("main")).unwrap();
   let start = Instant::now();
   let (by_budget, by_page) = tokio::join!(shown_by(&state, content, start), async {
     sleep(Duration::from_millis(600)).await;
-    state.ready("main", open.id)
+    state.ready(&WindowId::new("main"), open.id)
   });
   assert!(by_page);
   assert_eq!(by_budget, None);
@@ -332,23 +333,24 @@ async fn a_reopen_while_the_page_loads_shows_the_window_on_the_content_of_the_re
   let start = Instant::now();
   let (first, built) = build_with_deadline(&state, "review");
   let reopen = update(&state, "the branch the user picked next");
+  let review = WindowId::new("review");
   let (by_load, by_content, shown_for) = tokio::join!(
-    wait_for_deadline(&state, "review", built),
+    wait_for_deadline(&state, &review, built),
     async {
       sleep(Duration::from_millis(100)).await;
-      assert_eq!(state.reopened("review", reopen.clone()), Reopen::Pending);
+      assert_eq!(state.reopened(&WindowId::new("review"), reopen.clone()), Reopen::Pending);
       sleep(Duration::from_millis(400)).await;
       // the load hands the reopen over; the shell then starts the budget of its content
       assert_eq!(load(&state, "review").0, Some(reopen.clone()));
-      let content = state.drawn("review").unwrap();
-      wait_for_deadline(&state, "review", content).await
+      let content = state.drawn(&WindowId::new("review")).unwrap();
+      wait_for_deadline(&state, &WindowId::new("review"), content).await
     },
     async {
       sleep(Duration::from_millis(600)).await;
       // the content of the build settles first: the window waits for the reopen's
-      let by_build = state.ready("review", first.id);
+      let by_build = state.ready(&WindowId::new("review"), first.id);
       sleep(Duration::from_millis(100)).await;
-      (by_build, state.ready("review", reopen.open.id), start.elapsed())
+      (by_build, state.ready(&WindowId::new("review"), reopen.open.id), start.elapsed())
     }
   );
   assert!(!by_load);

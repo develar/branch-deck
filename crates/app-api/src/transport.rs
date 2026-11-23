@@ -33,29 +33,77 @@ use youtrack::service::YouTrackService;
 /// What a host does later: the show of a window, the check and the install of an update
 pub type Later<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// A window of the app by its label (`main`, `review-…`): the app names it by its `Webview`, the page mock of the e2e
-/// server by the header `X-Window-Label` of every request
+/// `value` as an answer that comes later: a host that answers at once
+pub fn at_once<'a, T: Send + 'a>(value: T) -> Later<'a, T> {
+  Box::pin(std::future::ready(value))
+}
+
+/// A connection of the backend (docs/design/backend-protocol.md, "The windows of a connection"): the app's own
+/// ([`ConnectionId::APP`]: the windows of the Tauri shell, of a test repository of the e2e server, the views of `brd
+/// mcp`), with the desktop and the events its host built the context with, or a client of `backend-host`, with those
+/// it opened in `Connections`
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConnectionId(pub u64);
+
+impl ConnectionId {
+  /// The app's own connection: the host that built the context
+  pub const APP: Self = Self(0);
+}
+
+impl fmt::Display for ConnectionId {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+/// A window of the backend: its connection and its label in it (`main`, `review-…`; the instance of a view in the IDE,
+/// `review:3`). The app names it by its `Webview`, the page mock of the e2e server by the header `X-Window-Label` of
+/// every request; two connections each have a `main`
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct WindowId(String);
+pub struct WindowId {
+  connection: ConnectionId,
+  label: String,
+}
 
 impl WindowId {
+  /// The window `label` of the app's own connection
   pub fn new(label: impl Into<String>) -> Self {
-    Self(label.into())
+    Self::of(ConnectionId::APP, label)
   }
 
-  /// The main window (`app_settings::windows::MAIN_WINDOW`)
+  /// The window `label` of `connection`
+  pub fn of(connection: ConnectionId, label: impl Into<String>) -> Self {
+    Self { connection, label: label.into() }
+  }
+
+  /// The main window of the app's own connection (`app_settings::windows::MAIN_WINDOW`)
   pub fn main() -> Self {
     Self::new(app_settings::windows::MAIN_WINDOW)
   }
 
+  /// The main window of `connection`
+  pub fn main_of(connection: ConnectionId) -> Self {
+    Self::of(connection, app_settings::windows::MAIN_WINDOW)
+  }
+
+  pub const fn connection(&self) -> ConnectionId {
+    self.connection
+  }
+
+  /// The label of the window in its connection
   pub fn as_str(&self) -> &str {
-    &self.0
+    &self.label
   }
 }
 
+/// The label for a window of the app's own connection, `<label>@<connection>` for another
 impl fmt::Display for WindowId {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.write_str(&self.0)
+    if self.connection == ConnectionId::APP {
+      f.write_str(&self.label)
+    } else {
+      write!(f, "{}@{}", self.label, self.connection)
+    }
   }
 }
 
@@ -70,6 +118,21 @@ pub struct PageId(pub(crate) u64);
 pub struct Call {
   pub window: WindowId,
   pub page: PageId,
+}
+
+impl Call {
+  /// The call of a command that names no window, of `connection` itself (a command of no window kind, over the
+  /// socket): its window has no label and no page, so no window holds what it asks
+  pub fn of_connection(connection: ConnectionId) -> Self {
+    Self {
+      window: WindowId::of(connection, ""),
+      page: PageId(0),
+    }
+  }
+
+  pub const fn connection(&self) -> ConnectionId {
+    self.window.connection
+  }
 }
 
 /// The page of a channel went away: nothing sent to it is heard
@@ -98,6 +161,11 @@ pub trait AppEvents: Send + Sync {
 
   /// Sends `event` to the window `window` alone
   fn emit_to(&self, window: &WindowId, event: &str, payload: serde_json::Value);
+
+  /// Sends `event` to the main window: of each connection (`Connections`), of the app alone for a host of one
+  fn emit_to_main(&self, event: &str, payload: serde_json::Value) {
+    self.emit_to(&WindowId::main(), event, payload);
+  }
 }
 
 /// What the app gives a command beside the services of the sessions (`ServiceHost`, by the key of a session): its own
@@ -172,7 +240,9 @@ pub trait AppHost: Send + Sync {
 }
 
 /// What the app does on the desktop, beside its windows' pages: each a host of its own, the app's with Tauri, the e2e
-/// server's recorded or answered from the fixtures of the test repository
+/// server's recorded or answered from the fixtures of the test repository; a client of `backend-host` has its own, of
+/// its host requests and capabilities (`AppContext::desktop` takes the one of the connection of a window)
+#[derive(Clone)]
 pub struct Desktop {
   pub windows: Arc<dyn WindowHost>,
   pub dialog: Arc<dyn DialogHost>,
@@ -192,18 +262,20 @@ pub trait WindowHost: Send + Sync {
 
   /// An open of the window of `params.window_id` that `opener` asked for, which is open: titled for what it shows now,
   /// `update` handed to its loaded page (none while the page loads, which takes it with its load), and on screen in
-  /// front with `front`
+  /// front with `front`. The host acts at the call (the opens of a label keep their order); the answer may come later:
+  /// the client of a socket answers its `openWindow`
   ///
   /// # Errors
   /// The window cannot take it
-  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, update: Option<&str>, front: bool) -> Result<(), ApiError>;
+  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, update: Option<&str>, front: bool) -> Later<'_, Result<(), ApiError>>;
 
   /// Builds the window of `params` that `opener` asked for, hidden, `page_script` before the page's own scripts (its
-  /// settings, its data and its open), its webview zoomed to `zoom`, on the monitor of the main window
+  /// settings, its data and its open), its webview zoomed to `zoom`, on the monitor of the main window. As `reopen`, at
+  /// the call, its answer maybe later
   ///
   /// # Errors
   /// The window cannot be built
-  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, page_script: &str, zoom: f64) -> Result<(), ApiError>;
+  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, page_script: &str, zoom: f64) -> Later<'_, Result<(), ApiError>>;
 
   /// Shows and focuses the window of `label`, due to show for `shown`, once its webview presented the page as it is
   fn show(&self, label: &str, shown: Shown) -> Later<'_, ()>;

@@ -13,6 +13,8 @@
 //!   hosts that get a command as a message (the e2e server, `brd mcp`).
 //! - `context`: `AppContext`, what every command runs with, the key of a session, and `PrefixInputs`, the prefix of a
 //!   repository's branches.
+//! - `connections`: the connections of the backend, the app's own and the clients of `backend-host`: the desktop and
+//!   the events of each, an event of the app to every one (docs/design/backend-protocol.md).
 //! - `transport`: what a host hands a command besides its arguments (the call of a window, the channel to its page),
 //!   what the app tells its windows (`AppEvents`), what it gives a command beside the services of the sessions
 //!   (`AppHost`) and what it does on the desktop (`Desktop`: the windows, the dialog, the menu, the restart, the
@@ -24,6 +26,7 @@
 pub mod api_error;
 pub mod app;
 pub mod commands;
+pub mod connections;
 pub mod context;
 pub mod dispatch;
 pub mod events;
@@ -39,6 +42,8 @@ pub mod transport;
 mod command_scan_test;
 #[cfg(test)]
 mod commands_json_test;
+#[cfg(test)]
+mod connections_test;
 #[cfg(test)]
 mod events_test;
 #[cfg(test)]

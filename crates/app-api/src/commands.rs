@@ -138,7 +138,7 @@ macro_rules! for_each_command {
       /// The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
       /// cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
       /// (`PrefixInputs`). One search at a time: a new one cancels the one before.
-      read json find_conflict_fix(params: trial_check::conflict_fix::FindConflictFixParams) -> trial_check::conflict_fix::ConflictFix = $crate::reads::conflict_fix::find_conflict_fix;
+      read window find_conflict_fix(params: trial_check::conflict_fix::FindConflictFixParams) -> trial_check::conflict_fix::ConflictFix = $crate::reads::conflict_fix::find_conflict_fix;
 
       /// Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts.
       app(CanceledRead) now cancel_conflict_fix() = $crate::reads::conflict_fix::cancel_conflict_fix;
@@ -258,7 +258,7 @@ macro_rules! for_each_command {
 
       /// Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
       /// logged-out `claude` and its failures are outcomes
-      read json suggest_branch_names(params: domain_types::branch_name_suggestion::SuggestBranchNamesParams) -> domain_types::branch_name_suggestion::BranchNameSuggestionOutcome = $crate::remote::suggest::suggest_branch_names;
+      read window suggest_branch_names(params: domain_types::branch_name_suggestion::SuggestBranchNamesParams) -> domain_types::branch_name_suggestion::BranchNameSuggestionOutcome = $crate::remote::suggest::suggest_branch_names;
 
       /// The sign-ins of both accounts and where their tokens come from: for a window without a session (Settings); a window
       /// of a repository has them as the fact `auth` of its session
@@ -317,7 +317,7 @@ macro_rules! for_each_command {
 
       /// Settings → Landing → Add Companion…: the folder dialog picks the companion, named by its directory, then the write
       /// of `set_companion`; `null` when the user canceled the dialog
-      app(SettingsWriter) json add_companion(params: $crate::app::repository_config::AddCompanionParams) -> Option<sync_core::repository_config::RepositoryConfig> = $crate::app::repository_config::add_companion;
+      app(SettingsWriter) window add_companion(params: $crate::app::repository_config::AddCompanionParams) -> Option<sync_core::repository_config::RepositoryConfig> = $crate::app::repository_config::add_companion;
 
       /// Settings → Landing of a companion: Unlink takes back its side of a half link (its `branchdeck.primary`), as
       /// `brd companion unlink`; answers the settings read again
@@ -349,7 +349,7 @@ macro_rules! for_each_command {
       app(TheApp) main show_window_menu() -> () = $crate::app::windows::show_window_menu;
 
       /// Opens a native file dialog to browse for a git repository
-      app(TheApp) json browse_repository() -> sync_core::repository_validation::BrowseResult = $crate::app::desktop::browse_repository;
+      app(TheApp) window browse_repository() -> sync_core::repository_validation::BrowseResult = $crate::app::desktop::browse_repository;
 
       /// Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
       /// for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
@@ -361,23 +361,23 @@ macro_rules! for_each_command {
       /// new process reads the file.
       app(TheApp) main restart_app(system_title_bar: bool) -> () = $crate::app::desktop::restart_app;
 
-      app(TheApp) json check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
+      app(TheApp) window check_for_updates() -> domain_types::update::UpdateInfo = $crate::app::desktop::check_for_updates;
 
-      read json get_update_status() -> domain_types::update::UpdateInfo = $crate::app::desktop::get_update_status;
+      read window get_update_status() -> domain_types::update::UpdateInfo = $crate::app::desktop::get_update_status;
 
-      app(TheApp) json install_update() -> () = $crate::app::desktop::install_update;
+      app(TheApp) window install_update() -> () = $crate::app::desktop::install_update;
 
-      app(TheApp) json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
+      app(TheApp) window install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
 
       /// Settings → Tools → IntelliJ IDEA: writes `~/.air/apps/branch-deck.yaml`, with which an IDE with Air runs this app
-      app(TheApp) json install_ide_app() -> $crate::app::agent_cli::IdeApp = $crate::app::agent_cli::install_ide_app;
+      app(TheApp) window install_ide_app() -> $crate::app::agent_cli::IdeApp = $crate::app::agent_cli::install_ide_app;
 
       /// Settings → Tools → IntelliJ IDEA, Remove: deletes the app file of the IDE
-      app(TheApp) json remove_ide_app() -> () = $crate::app::agent_cli::remove_ide_app;
+      app(TheApp) window remove_ide_app() -> () = $crate::app::agent_cli::remove_ide_app;
 
       /// The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
       /// the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
-      read json agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
+      read window agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
 
       /// The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
       /// and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
@@ -415,7 +415,7 @@ macro_rules! for_each_command {
 
       /// What waits for the user (the Setup dot): the downloaded update of the app, the tools' updates and expiring sign-ins
       /// from their last statuses (read now when none is known), the app's YouTrack sign-in; without what `skips` hides
-      read json get_setup_items(skips: Vec<domain_types::setup::SetupSkip>) -> Vec<domain_types::setup::SetupEntry> = $crate::app::cli_tools::get_setup_items;
+      read window get_setup_items(skips: Vec<domain_types::setup::SetupSkip>) -> Vec<domain_types::setup::SetupEntry> = $crate::app::cli_tools::get_setup_items;
     }
   };
 }

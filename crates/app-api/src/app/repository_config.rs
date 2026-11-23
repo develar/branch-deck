@@ -139,10 +139,10 @@ pub struct AddCompanionParams {
 
 /// Settings → Landing → Add Companion…: the folder dialog picks the repository, named by its directory, then the write
 /// of `set_companion`; `None` when the user canceled the dialog
-#[instrument(skip_all, fields(repository_path = %params.repository_path))]
-pub async fn add_companion(ctx: &AppContext, params: AddCompanionParams) -> Result<Option<RepositoryConfig>, ApiError> {
+#[instrument(skip_all, fields(repository_path = %params.repository_path, window = %call.window))]
+pub async fn add_companion(ctx: &AppContext, call: &Call, params: AddCompanionParams) -> Result<Option<RepositoryConfig>, ApiError> {
   operation(async move {
-    let dialog = std::sync::Arc::clone(&ctx.desktop.dialog);
+    let dialog = ctx.desktop(&call.window).dialog;
     // the modal dialog blocks, off the async runtime and before the writer of the config, which it would hold
     let picked = run_blocking(move || Ok::<_, ApiError>(dialog.pick_folder("Select Companion Repository"))).await?;
     let Some(path) = picked else {

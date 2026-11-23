@@ -38,7 +38,7 @@ fn a_subscription_that_answers_after_its_page_went_away_is_not_kept() {
 #[test]
 fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches() {
   let windows = Windows::default();
-  let call = windows.call("main");
+  let call = windows.call(&WindowId::new("main"));
   assert_eq!(call.window.as_str(), "main");
   assert!(windows.keep(&call, SubscriptionId(1)));
   assert_eq!(windows.forget_page(&call.window), [SubscriptionId(1)]);
@@ -61,11 +61,11 @@ fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches()
 #[test]
 fn a_window_shows_the_page_of_a_call_until_it_closes_or_loads_again() {
   let windows = Windows::default();
-  let (call, other) = (windows.call("main"), windows.call("review-7"));
+  let (call, other) = (windows.call(&WindowId::new("main")), windows.call(&WindowId::new("review-7")));
   assert!(windows.shows(&call) && windows.shows(&other));
   windows.forget_page(&call.window);
   assert!(!windows.shows(&call), "the window shows no page");
-  let reloaded = windows.call("main");
+  let reloaded = windows.call(&WindowId::new("main"));
   assert!(windows.shows(&reloaded) && !windows.shows(&call), "another page of the window");
   assert!(windows.shows(&other), "the page of another window");
 }
@@ -134,4 +134,22 @@ fn the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other() {
   assert_eq!((commit.is_superseded(), scope.is_superseded()), (true, false));
   windows.forget_reads(&review);
   assert!(next.is_superseded() && scope.is_superseded());
+}
+
+/// The main windows of two connections are two windows: the request of one never supersedes the request of the other,
+/// and the close of one forgets only its own (openspec/specs/repository/backend-protocol/spec.md, "Windows: A read that
+/// is one at a time is one per window")
+#[test]
+fn the_main_windows_of_two_connections_never_supersede_each_other() {
+  let windows = Windows::default();
+  let (app, ide) = (WindowId::main(), WindowId::main_of(crate::transport::ConnectionId(1)));
+  let of_app = windows.begin_branch_names(&app);
+  let of_ide = windows.begin_branch_names(&ide);
+  assert!(!of_app.is_superseded(), "the request of the IDE leaves the app's alone");
+  let (app_call, ide_call) = (windows.call(&app), windows.call(&ide));
+  assert_ne!(app_call.page, ide_call.page);
+  windows.forget_reads(&ide);
+  assert!(of_ide.is_superseded());
+  assert!(!of_app.is_superseded());
+  assert!(windows.shows(&app_call));
 }

@@ -2,15 +2,15 @@
 //! window of the desktop app is an instance of a view of the IDE (`Instances`): the main window the instance of `main`,
 //! a sub-window the instance its `x-air-app/openView` answered, its label the instance itself (`review:3`), so two
 //! review tabs are two windows. An event of the app is `x-air-app/event` (`McpEvents`), an open of a sub-window
-//! `x-air-app/openView` (`McpWindows`). The menu, the updater, the restart and the agent CLI do nothing, and no folder
-//! dialog is offered: the roots of the project name the repositories.
+//! `x-air-app/openView` (`McpWindows`). The menu, the restart and the agent CLI do nothing, the updater is always up to
+//! date, and no folder dialog is offered: the roots of the project name the repositories.
 
 use crate::link::Link;
 use crate::projects::Projects;
-use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{OpenSubWindowParams, Shown};
+use app_api::connections::without::Without;
 use app_api::events::SETTINGS_CHANGED_EVENT;
-use app_api::transport::{AgentCliHost, AppEvents, Desktop, DialogHost, Later, MenuHost, RestartHost, Updater, WindowHost, WindowId};
+use app_api::transport::{AppEvents, Desktop, DialogHost, Later, MenuHost, RestartHost, Updater, WindowHost, WindowId, at_once};
 use app_settings::windows::MAIN_WINDOW;
 use domain_types::error::ApiError;
 use domain_types::update::{UpdateInfo, UpdateStatus};
@@ -22,7 +22,7 @@ use tracing::Instrument;
 /// The view of the main window
 pub const MAIN_VIEW: &str = "main";
 
-/// Why a host of the desktop does nothing in the IDE
+/// Why the install of an update does nothing in the IDE
 const IN_THE_IDE: &str = "Branch Deck in the IDE updates, restarts and installs with the desktop app";
 
 /// The instances of the views the IDE shows, as windows of the app
@@ -191,14 +191,14 @@ impl WindowHost for McpWindows {
     self.instances.instance_of(label).is_some()
   }
 
-  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, _update: Option<&str>, _front: bool) -> Result<(), ApiError> {
+  fn reopen(&self, opener: &WindowId, params: &OpenSubWindowParams, _update: Option<&str>, _front: bool) -> Later<'_, Result<(), ApiError>> {
     self.open(opener, params);
-    Ok(())
+    at_once(Ok(()))
   }
 
-  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, _page_script: &str, _zoom: f64) -> Result<(), ApiError> {
+  fn build(&self, opener: &WindowId, params: &OpenSubWindowParams, _page_script: &str, _zoom: f64) -> Later<'_, Result<(), ApiError>> {
     self.open(opener, params);
-    Ok(())
+    at_once(Ok(()))
   }
 
   /// The IDE shows the place of a view itself
@@ -228,58 +228,29 @@ pub fn key_of(view: &str, window_id: &str, data: &Value) -> String {
   target.map_or_else(|| window_id.to_owned(), |target| format!("{kind}:{target}"))
 }
 
-/// The desktop of the app in the IDE: its windows are views; the dialog, the menu, the restart, the updater and the
-/// agent CLI do nothing
+/// The desktop of the app in the IDE: its windows are views; no dialog, no menu, no restart and no agent CLI
+/// (`app_api::connections::without`), and an updater that is always up to date: the app updates with the desktop app
 pub fn desktop(link: &Arc<Link>, instances: &Arc<Instances>) -> Desktop {
-  let nothing = Arc::new(Nothing);
+  let without = Arc::new(Without);
   Desktop {
     windows: Arc::new(McpWindows {
       link: Arc::clone(link),
       instances: Arc::clone(instances),
     }),
-    dialog: Arc::clone(&nothing) as Arc<dyn DialogHost>,
-    menu: Arc::clone(&nothing) as Arc<dyn MenuHost>,
-    restart: Arc::clone(&nothing) as Arc<dyn RestartHost>,
-    updater: Arc::clone(&nothing) as Arc<dyn Updater>,
-    agent_cli: nothing,
-  }
-}
-
-/// A host of the desktop that has no place in the IDE
-struct Nothing;
-
-impl DialogHost for Nothing {
-  /// No folder dialog: the roots of the project name the repositories
-  fn pick_folder(&self, _title: &str) -> Option<String> {
-    None
-  }
-
-  /// The page offers no Open Repository… and no Add Companion…
-  fn has_folder_dialog(&self) -> bool {
-    false
-  }
-}
-
-impl MenuHost for Nothing {
-  fn set_auto_sync_checked(&self, _checked: bool) -> Result<(), ApiError> {
-    Ok(())
-  }
-
-  fn show_window_menu(&self, _window: &WindowId) -> Result<(), ApiError> {
-    Ok(())
-  }
-}
-
-impl RestartHost for Nothing {
-  fn restart(&self) -> ApiError {
-    ApiError::internal(IN_THE_IDE)
+    dialog: Arc::clone(&without) as Arc<dyn DialogHost>,
+    menu: Arc::clone(&without) as Arc<dyn MenuHost>,
+    restart: Arc::clone(&without) as Arc<dyn RestartHost>,
+    updater: Arc::new(UpToDate),
+    agent_cli: without,
   }
 }
 
 /// No update: the app updates with the desktop app
-impl Updater for Nothing {
+struct UpToDate;
+
+impl Updater for UpToDate {
   fn check(&self) -> Later<'_, Result<UpdateInfo, ApiError>> {
-    Box::pin(async { Ok(up_to_date()) })
+    at_once(Ok(up_to_date()))
   }
 
   fn check_failure(&self) -> Option<String> {
@@ -291,7 +262,7 @@ impl Updater for Nothing {
   }
 
   fn install(&self) -> Later<'_, Result<(), ApiError>> {
-    Box::pin(async { Err(ApiError::internal(IN_THE_IDE)) })
+    at_once(Err(ApiError::internal(IN_THE_IDE)))
   }
 
   fn downloaded(&self) -> Option<String> {
@@ -305,30 +276,6 @@ fn up_to_date() -> UpdateInfo {
     available_version: String::new(),
     is_update_available: false,
     status: UpdateStatus::Idle,
-  }
-}
-
-/// The agent CLI and the app file of the IDE are installed from the desktop app
-impl AgentCliHost for Nothing {
-  fn install(&self) -> Result<AgentCliInstalled, ApiError> {
-    Err(ApiError::internal(IN_THE_IDE))
-  }
-
-  fn command(&self, _repository_path: &str) -> Result<AgentCliCommand, ApiError> {
-    Err(ApiError::internal(IN_THE_IDE))
-  }
-
-  /// Nothing to install here: the page offers no install of `brd` or of the app file of the IDE
-  fn status(&self) -> AgentCliStatus {
-    AgentCliStatus::new(None, Vec::new(), None, false)
-  }
-
-  fn install_ide_app(&self) -> Result<IdeApp, ApiError> {
-    Err(ApiError::internal(IN_THE_IDE))
-  }
-
-  fn remove_ide_app(&self) -> Result<(), ApiError> {
-    Err(ApiError::internal(IN_THE_IDE))
   }
 }
 

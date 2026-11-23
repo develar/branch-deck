@@ -260,13 +260,13 @@ pub fn run() {
           .disable_drag_drop_handler(),
       );
       // known before the page can load and say it drew its first rows
-      let deadline = ctx.sub_windows.built(app_settings::windows::MAIN_WINDOW, open, BuiltPage::Main);
+      let deadline = ctx.sub_windows.built(&WindowId::main(), open, BuiltPage::Main);
       let window = builder.build()?;
       apply_zoom(&window, zoom);
       // built hidden (`with_title_bar`), it shows on its first frame with content, as a sub-window does: never a grey
       // canvas, nor a title row over an empty body
       prepare_title_bar(&window);
-      show_when_settled(&ctx, app_settings::windows::MAIN_WINDOW.to_owned(), deadline);
+      show_when_settled(&ctx, WindowId::main(), deadline);
 
       Ok(())
     })

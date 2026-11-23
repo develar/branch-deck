@@ -14,18 +14,15 @@ pub mod pull_requests;
 pub mod review;
 pub mod suggest;
 
-use crate::remote::suggest::BranchNameRequests;
 use remote_facts::robot_stats::RobotStatsReads;
 use sync_core::review_target::ReviewMemo;
 
 /// What the commands of the remote family keep between their calls, one of each per app (per test repository in the
-/// e2e server)
+/// e2e server); a request of a window is the window's (`Windows::begin_branch_names`)
 #[derive(Default)]
 pub struct RemoteMemory {
   /// The reviews the windows read, by the tips of their targets (`get_review`, `prefetch_review`)
   pub reviews: ReviewMemo,
-  /// The latest request for branch names (`suggest_branch_names`)
-  pub branch_names: BranchNameRequests,
   /// The reads of the Safe Push statistics that ask Patronus, one per repository and target (`get_robot_stats`)
   pub robot_stats: RobotStatsReads,
 }
