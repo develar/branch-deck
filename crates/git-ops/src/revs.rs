@@ -351,6 +351,15 @@ pub fn is_ancestor(git_executor: &GitCommandExecutor, repo_path: &str, ancestor:
   Ok(merge_base_query(git_executor, repo_path, &["--is-ancestor"], &[ancestor, descendant])?.is_some())
 }
 
+/// The commits of `commit` that the commits of `have` lack: one `rev-list --count`
+pub fn commit_count(git: &GitCommandExecutor, repo: &str, commit: &str, have: &[String]) -> Result<u64> {
+  let excluded: Vec<String> = have.iter().map(|known| format!("^{known}")).collect();
+  let mut args = vec!["rev-list", "--count", commit];
+  args.extend(excluded.iter().map(String::as_str));
+  let count = git.cmd(&args, repo).text()?;
+  count.trim().parse().map_err(|error| anyhow!("git rev-list --count answered {count:?}: {error}"))
+}
+
 /// The merge base of `a` and `b`, `None` when they have no common history: `merge-base` exits with 1 only then, and
 /// any other failure is an error with git's message
 pub fn merge_base(git_executor: &GitCommandExecutor, repo_path: &str, a: &str, b: &str) -> Result<Option<String>> {

@@ -4,9 +4,8 @@
 //! from the checked tree only by the commits of the target branch that came in between, so the check counts for HEAD.
 //! The test is the tree, exact for binaries and whitespace; an update that needed a resolution writes another tree.
 
-use crate::host_client::commit_count;
 use crate::replay::merge_trees;
-use crate::revs::merge_base;
+use crate::revs::{commit_count, merge_base};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use tracing::{debug, instrument};

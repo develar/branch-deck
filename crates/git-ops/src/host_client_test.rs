@@ -1,6 +1,7 @@
-use crate::host_client::{FARTHEST, Scan, apply_patch, candidates, commit_count, pack_commit_until, repository_name, snapshot as snapshot_of, working_tree_commit};
+use crate::host_client::{FARTHEST, Scan, apply_patch, candidates, pack_commit_until, repository_name, snapshot as snapshot_of, working_tree_commit};
 use crate::host_objects::ingest_pack;
 use crate::lease_slot::LeaseConfig;
+use crate::revs::commit_count;
 use crate::worktree_snapshot::{WorktreeCommit, local_changes, read_head_commit, write_tree_patch};
 use pretty_assertions::assert_eq;
 use std::path::Path;

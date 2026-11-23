@@ -5,10 +5,10 @@
 //! and a patch that does not apply with `apply_failed`
 
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
-use git_ops::host_client::{Scan, apply_patch, commit_count, pack_commit_until, repository_name, snapshot};
+use git_ops::host_client::{Scan, apply_patch, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
 use git_ops::lease_slot::state_dir;
-use git_ops::revs::{repository_dirs, with_repository_dirs};
+use git_ops::revs::{commit_count, repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};

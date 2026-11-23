@@ -238,15 +238,6 @@ fn remove_old_packs(dir: &Path) {
   }
 }
 
-/// The commits of `commit` that the commits of `have` lack: one `rev-list --count`
-pub fn commit_count(git: &GitCommandExecutor, repo: &str, commit: &str, have: &[String]) -> Result<u64> {
-  let excluded: Vec<String> = have.iter().map(|known| format!("^{known}")).collect();
-  let mut args = vec!["rev-list", "--count", commit];
-  args.extend(excluded.iter().map(String::as_str));
-  let count = git.cmd(&args, repo).text()?;
-  count.trim().parse().map_err(|error| anyhow!("git rev-list --count answered {count:?}: {error}"))
-}
-
 /// Apply the patch `patch` (an absolute path) to the files of the worktree `repo`, not its index: `apply --numstat`
 /// counts its files, then `apply --whitespace=nowarn` applies it, all or nothing. The count of its files
 pub fn apply_patch(git: &GitCommandExecutor, repo: &str, patch: &Path) -> Result<usize> {
