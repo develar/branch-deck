@@ -698,7 +698,7 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    from the directories of the executor, no process), and a pick (`PickPlan::wait_for_index_locks`, both worktrees).
    Under the repository lock it looks once (`update_branch::index_held`, `PickPlan::index_held`, a stat of the file):
    a lock that appeared meanwhile releases the repository lock, waits outside it, and the lock and the witness run
-   once more (`INDEX_TURNS`, 3, for the cores; a pick checks again in its loop). Then, before the CAS move, a move whose
+   once more (`INDEX_TURNS`, 3, for the cores; a pick checks again in its loop, and a check of it under the lock looks too). Then, before the CAS move, a move whose
    git dir is known (`move_branch_and_files_carrying`: `current_worktree` reads it anyway; a pick's check reads both
    worktrees' dirs) waits while a lock is there, which after the look is a fallback for a lock that came in the
    microseconds since, and the refresh of the stat data runs (`prepare_worktree_update`). A move whose files follow by
@@ -2280,7 +2280,12 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    the source) sends the pick back to step 2 without the lock; after two such checks the third runs under the lock,
    where nothing moves the branch, so a busy branch never starves a pick. A witness that missed after a wait for
    another holder of the lock checks under that lock at once: the holder was most likely another pick, which moved the
-   target, and a round without the lock would most likely miss behind the next one. `brd pick` and `brd lease pick`
+   target, and a round without the lock would most likely miss behind the next one. Such a check under the lock (and
+   the one after the rounds ran out) came after no wait for the index lock, and the move of the holder starts the
+   `git status` of an IDE: where its moves meet the index lock of another process (`PickPlan::index_held`), it releases
+   the repository lock, waits for git's outside it (the step `waiting for the index lock of another process, outside
+   the repository lock`) and checks under the lock again, so no move waits for an index lock under it but after
+   `CHECKS_WITHOUT_THE_LOCK` such waits; a lock of the caller (`held_lock`) is not released. `brd pick` and `brd lease pick`
    wait while the holder lives (`LockWait::WhileHeld`, the waiter `bd_core::progress::CommandSteps`, which names the
    holder on stderr at once and every 10 s), up to `--lock-wait` in all (540 s, below the 600 s of a Bash call of an
    agent), then `locked`; the update of a lease after its conflict waits within the same bound. Before, a wait of 10 s
@@ -2319,7 +2324,7 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    and undo. A failure of this report after a move is logged, and the pick stands with its undo token.
 
 **Steps.** The core tells each step to its caller as it starts (`PickStep`): each check with its round and whether it
-runs under the lock, the wait for the lock, the moves (before the compare-and-swap of step 7, so nothing is told
+runs under the lock, the wait for the lock, a wait for the index lock outside it, the moves (before the compare-and-swap of step 7, so nothing is told
 between the move of the branch and the end of the moves of the files), and the read of step 8. `brd pick` and
 `brd lease pick` print each one on stderr with the time since they began (`bd_core::progress::CommandSteps`, as
 `brd lease get` does), a failed write ignored (an agent pipes stderr into `head -c`), and list them in `steps` with

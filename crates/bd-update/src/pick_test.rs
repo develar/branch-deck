@@ -6,6 +6,8 @@ use bd_cli::fixture_test::{PREFIX, assert_error, environment, git, hold_the_lock
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::progress::{CommandSteps, DEFAULT_LOCK_WAIT, progress_line};
+#[cfg(unix)]
+use history_rewrite::repository_lock::RepositoryLock;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -669,6 +671,19 @@ fn a_pick_waits_for_a_live_holder_of_the_lock_and_lands_after_it() {
   assert_eq!(lines.len(), told.len(), "{lines:?}");
 }
 
+/// The step `line` of a pick whose repository lock `held` holds: once the pick names the holder, the holder lands a
+/// commit on the target of `repo`, runs `before_release` and releases the lock
+#[cfg(unix)]
+fn holder_moves_the_target(repo: &TestRepo, held: &Mutex<Option<RepositoryLock>>, line: &str, before_release: impl FnOnce()) {
+  if line.contains("the repository lock is held by")
+    && let Some(lock) = held.lock().unwrap().take()
+  {
+    repo.create_commit("(own) Landed by the holder", "holder.txt", "holder\n");
+    before_release();
+    drop(lock);
+  }
+}
+
 /// A wait for another holder of the lock whose witness misses (the holder was another pick, which moved the target)
 /// checks again under that lock at once: a check without it would most likely miss again behind the next pick
 #[cfg(unix)]
@@ -678,14 +693,7 @@ fn a_pick_whose_target_moved_while_it_waited_for_the_lock_checks_under_it_at_onc
   let lane = lane_onto_a_moved_target(&repo);
   let wrapped = LockSpanGit::new(&repo, "");
   let held = Mutex::new(Some(hold_the_lock(&repo)));
-  let sink = |line: &str| {
-    if line.contains("the repository lock is held by")
-      && let Some(lock) = held.lock().unwrap().take()
-    {
-      repo.create_commit("(own) Landed by the holder", "holder.txt", "holder\n");
-      drop(lock);
-    }
-  };
+  let sink = |line: &str| holder_moves_the_target(&repo, &held, line, || {});
 
   let output = pick_telling(&wrapped.environment, &lane, &sink);
   assert_eq!((&output["state"], &output["followed"]["state"]), (&json!("picked"), &json!("moved")), "{output}");
@@ -705,6 +713,55 @@ fn a_pick_whose_target_moved_while_it_waited_for_the_lock_checks_under_it_at_onc
     git(&repo, &["log", "--format=%s", "origin/master..HEAD"]),
     "(lane) Add b\n(lane) Change a\n(own) Landed by the holder\n(own) Other"
   );
+}
+
+/// The check under the lock after a wait for another holder, whose moves meet the index lock of another process (the
+/// `git status` of an IDE, which the move of the holder started), releases the repository lock and waits for git's
+/// outside it: another writer takes the repository lock meanwhile, and the pick lands once the index lock is gone
+#[cfg(unix)]
+#[test_log::test]
+fn a_pick_that_meets_an_index_lock_under_the_lock_after_a_wait_waits_for_it_outside_the_lock() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let held = Mutex::new(Some(hold_the_lock(&repo)));
+  let index_lock = repo.path().join(".git/index.lock");
+  // open while the IDE's `git status` runs: the wait of the pick names this process as its owner, never removes it
+  let git_status: Mutex<Option<std::fs::File>> = Mutex::new(None);
+  let taken_meanwhile = Mutex::new(false);
+  let sink = |line: &str| {
+    holder_moves_the_target(&repo, &held, line, || {
+      *git_status.lock().unwrap() = Some(std::fs::File::create(&index_lock).unwrap());
+    });
+    if line.contains("waiting for the index lock") {
+      // a held repository lock refuses it at once
+      drop(hold_the_lock(&repo));
+      *taken_meanwhile.lock().unwrap() = true;
+      drop(git_status.lock().unwrap().take());
+      sync_utils::fs_retry::remove_file(&index_lock).unwrap();
+    }
+  };
+
+  let output = pick_telling(&environment(repo.path()), &lane, &sink);
+  assert_eq!((&output["state"], &output["followed"]["state"]), (&json!("picked"), &json!("moved")), "{output}");
+  assert!(
+    *taken_meanwhile.lock().unwrap(),
+    "another writer took the repository lock while the pick waited for git's: {output}"
+  );
+  let told = steps(&output);
+  assert_eq!(
+    told[3..6],
+    [
+      "checking the commits against the checked out branch (round 2, under the repository lock)",
+      "waiting for the index lock of another process, outside the repository lock",
+      "checking the commits against the checked out branch (round 3, under the repository lock)",
+    ],
+    "{output}"
+  );
+  assert_eq!(
+    git(&repo, &["log", "--format=%s", "origin/master..HEAD"]),
+    "(lane) Add b\n(lane) Change a\n(own) Landed by the holder\n(own) Other"
+  );
+  assert_eq!(read(&repo, "b.txt"), "b\n");
 }
 
 /// A holder that keeps the lock past `--lock-wait` makes the pick answer `locked` (retryable, exit 3) with the bound,

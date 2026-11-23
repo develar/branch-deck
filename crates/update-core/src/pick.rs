@@ -352,6 +352,9 @@ pub enum PickStep<'a> {
   Check { onto: Option<&'a str>, round: usize, locked: bool },
   /// Another process holds the repository lock: the wait for it starts
   WaitForLock,
+  /// Another process holds the index lock of a worktree the pick moves, seen under the repository lock: the pick
+  /// released that lock and waits for git's outside it
+  WaitForIndex,
   /// Under the lock, the witness held: the branch moves and the files of the target follow, then those of the source
   Move { branch: &'a str, target: &'a str, follow: Option<&'a str> },
   /// After the lock: how the picked commits group on the target (`landing`)
@@ -370,6 +373,7 @@ impl fmt::Display for PickStep<'_> {
         }
       }
       Self::WaitForLock => f.write_str("waiting for the repository lock"),
+      Self::WaitForIndex => f.write_str("waiting for the index lock of another process, outside the repository lock"),
       Self::Move { branch, target, follow } => {
         write!(f, "moving {branch} and the files of {target}")?;
         match follow {
@@ -666,7 +670,10 @@ struct Checks<'a, 'b> {
 /// moved in between (another session's pick, a regroup, a fetch), or an index lock that appeared since the wait
 /// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. A
 /// witness that missed after a wait for another holder of the lock checks under that lock at once: the holder was most
-/// likely another pick, which moved the target, and a check without the lock would wait for the next one. An
+/// likely another pick, which moved the target, and a check without the lock would wait for the next one. A check
+/// under the lock whose moves meet the index lock of another process (an IDE's `git status` that the move of the holder
+/// started) releases the repository lock, waits for git's outside it (`PickStep::WaitForIndex`) and checks under the
+/// lock again, so the moves never wait for an index lock under it but after `CHECKS_WITHOUT_THE_LOCK` such waits. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
 /// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock. Each step is told to
 /// `progress` as it starts, the move before the witness's compare-and-swap, none during the moves
@@ -750,18 +757,40 @@ fn land(
     let applied = apply_locked(&mut plan, lock)?;
     return Ok((plan, applied));
   }
-  let lock = match kept {
+  let mut lock = match kept {
     Some(lock) => lock,
     None => options.lock_with(git_executor, target, &on_wait)?,
   };
-  finish_pending(git_executor, worktrees)?;
-  let mut plan = check(round, true)?;
-  options.ensure_head(git_executor, target, &plan.check.head)?;
-  // a check under the lock: new picked commits are read here, the same ones not again
-  refuse_unchecked(&plan, land_nothing)?;
-  messages.verify(git_executor, target, &plan, true)?;
-  let applied = apply_locked(&mut plan, lock)?;
-  Ok((plan, applied))
+  let mut index_waits = 0;
+  loop {
+    finish_pending(git_executor, worktrees)?;
+    let mut plan = check(round, true)?;
+    round += 1;
+    options.ensure_head(git_executor, target, &plan.check.head)?;
+    // a check under the lock: new picked commits are read here, the same ones not again
+    refuse_unchecked(&plan, land_nothing)?;
+    messages.verify(git_executor, target, &plan, true)?;
+    // no wait for git's index lock under the repository lock: the moves of this check came after no wait for it (a
+    // witness that missed after a wait for the lock, the rounds that ran out), so one that is there now is waited for
+    // outside the lock, and the check runs under it again; after `CHECKS_WITHOUT_THE_LOCK` such waits the moves wait.
+    // A lock of the caller (`held_lock`) is not this pick's to release: its moves wait
+    if options.held_lock.is_none()
+      && index_waits < CHECKS_WITHOUT_THE_LOCK
+      && plan.check.state == PickState::Clean
+      && plan.moves_anything()
+      && plan.index_held(git_executor, target)
+    {
+      info!("the index lock of another process is there under the repository lock: the pick waits for it outside the lock");
+      index_waits += 1;
+      drop(lock);
+      progress(&PickStep::WaitForIndex);
+      plan.wait_for_index_locks(git_executor, target)?;
+      lock = options.lock_with(git_executor, target, &on_wait)?;
+      continue;
+    }
+    let applied = apply_locked(&mut plan, lock)?;
+    return Ok((plan, applied));
+  }
 }
 
 /// Whether a move of one of `worktrees` was interrupted before its files followed: reads only

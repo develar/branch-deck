@@ -1576,10 +1576,12 @@ const LONG_CALLS: [&str; 5] = ["sync", "sync_branches", "wait_while_locked", "wa
 /// The one wait for the index that a lock may seem to live across; an exemption names its file, reason and count
 const EXEMPT_LONG_LOCKS: [Exemption; 1] = [Exemption {
   path: "crates/update-core/src/pick.rs",
-  hits: 1,
+  hits: 3,
   reason: "`land` takes `&RewriteOptions`, which borrows the lock of a caller that holds it (`held_lock`): with one it \
            breaks out of its checks without the lock at once and checks under that lock, and only without one it waits for \
-           the index locks of other processes (`wait_for_index_locks`), before it takes its own",
+           the index locks of other processes (`wait_for_index_locks`), before it takes its own; the lock it keeps after a \
+           wait whose witness missed (`kept`) and the one of its checks under the lock (`lock`) are released (`drop`) before \
+           such a wait, and taken again after it",
 }];
 
 /// Whether `scope` calls a sync or waits for the index lock
