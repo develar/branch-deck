@@ -1,11 +1,15 @@
+use crate::pick_command::{PickArgs, pick_reporting};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
-use bd_cli::fixture_test::{assert_error, environment, git, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
+use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, subcommand};
+use bd_cli::fixture_test::{PREFIX, assert_error, environment, git, hold_the_lock, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
-use bd_core::progress::progress_line;
+use bd_core::context::{Environment, RepoContext, RepoOptions};
+use bd_core::progress::{CommandSteps, DEFAULT_LOCK_WAIT, progress_line};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::history::HistoryCommit;
@@ -559,14 +563,20 @@ fn a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last() {
   );
 }
 
-/// Each step of a pick goes to stderr as it starts and into the answer with when it started: the check, the moves of
-/// both worktrees, the read of the landing
-#[test_log::test]
-fn a_pick_tells_each_step_with_when_it_started() {
+/// A target with a commit of its own and a worktree with one commit, `(lane) Add b`, cut before it
+fn repo_and_lane_with_one_commit() -> (TestRepo, TestWorktree) {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
   let lane = TestWorktree::detached(&repo);
   lane.commit("(lane) Add b", "b.txt", "b\n");
   repo.create_commit("(own) Other", "own.txt", "own\n");
+  (repo, lane)
+}
+
+/// Each step of a pick goes to stderr as it starts and into the answer with when it started: the check, the moves of
+/// both worktrees, the read of the landing
+#[test_log::test]
+fn a_pick_tells_each_step_with_when_it_started() {
+  let (repo, lane) = repo_and_lane_with_one_commit();
 
   let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
   assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
@@ -601,6 +611,114 @@ fn a_step_on_stderr_names_when_it_started() {
 
 fn steps(output: &Value) -> Vec<&str> {
   output["steps"].as_array().unwrap().iter().map(|step| step["step"].as_str().unwrap()).collect()
+}
+
+/// `brd --full-ids pick --from <lane> --follow` in `environment`, each line of its steps told to `sink` instead of
+/// stderr; the answer or the error as JSON
+fn pick_telling(environment: &Environment, lane: &TestWorktree, sink: &(dyn Fn(&str) + Sync)) -> Value {
+  let options = RepoOptions {
+    repo: None,
+    prefix: Some(PREFIX),
+    full_ids: true,
+    no_cache: false,
+  };
+  let context = RepoContext::resolve(environment, &options).unwrap();
+  let args = PickArgs {
+    from: Some(PathBuf::from(&lane.path)),
+    follow: true,
+    ..PickArgs::default()
+  };
+  let steps = CommandSteps::new("brd pick", DEFAULT_LOCK_WAIT, context.lock_timeout).with_sink(sink);
+  match pick_reporting(&context, &args, environment, &steps) {
+    Ok(output) => serde_json::to_value(output).unwrap(),
+    Err(error) => json!({ "error": error.message }),
+  }
+}
+
+/// A pick whose lock another process holds waits while that holder lives, names it on stderr at once, and lands once
+/// the holder is done: no `locked` after 10 s, no retry loop of the agent
+#[test_log::test]
+fn a_pick_waits_for_a_live_holder_of_the_lock_and_lands_after_it() {
+  let (repo, lane) = repo_and_lane_with_one_commit();
+  let held = Mutex::new(Some(hold_the_lock(&repo)));
+  let lines = Mutex::new(Vec::new());
+  let sink = |line: &str| {
+    lines.lock().unwrap().push(line.to_string());
+    // the holder is done once the pick named it
+    if line.contains("the repository lock is held by") {
+      held.lock().unwrap().take();
+    }
+  };
+
+  let output = pick_telling(&environment(repo.path()), &lane, &sink);
+  assert_eq!(output["state"], json!("picked"), "{output}");
+  assert_eq!(read(&repo, "b.txt"), "b\n");
+  let told = steps(&output);
+  assert_eq!(
+    told[..2],
+    ["checking the commits against the checked out branch", "waiting for the repository lock"],
+    "{output}"
+  );
+  assert!(told[2].starts_with("the repository lock is held by `brd pick --follow` (pid "), "{output}");
+  assert!(told[3].starts_with("moving master and the files of "), "{output}");
+  let lines = lines.into_inner().unwrap();
+  assert!(lines.iter().all(|line| line.starts_with("brd pick: [")), "{lines:?}");
+  assert_eq!(lines.len(), told.len(), "{lines:?}");
+}
+
+/// A wait for another holder of the lock whose witness misses (the holder was another pick, which moved the target)
+/// checks again under that lock at once: a check without it would most likely miss again behind the next pick
+#[cfg(unix)]
+#[test_log::test]
+fn a_pick_whose_target_moved_while_it_waited_for_the_lock_checks_under_it_at_once() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = lane_onto_a_moved_target(&repo);
+  let wrapped = LockSpanGit::new(&repo, "");
+  let held = Mutex::new(Some(hold_the_lock(&repo)));
+  let sink = |line: &str| {
+    if line.contains("the repository lock is held by")
+      && let Some(lock) = held.lock().unwrap().take()
+    {
+      repo.create_commit("(own) Landed by the holder", "holder.txt", "holder\n");
+      drop(lock);
+    }
+  };
+
+  let output = pick_telling(&wrapped.environment, &lane, &sink);
+  assert_eq!((&output["state"], &output["followed"]["state"]), (&json!("picked"), &json!("moved")), "{output}");
+  let told = steps(&output);
+  assert_eq!(
+    [told[0], told[1], told[3]],
+    [
+      "checking the commits against the checked out branch",
+      "waiting for the repository lock",
+      "checking the commits against the checked out branch (round 2, under the repository lock)"
+    ],
+    "{output}"
+  );
+  // the first replay ran while the other process held the lock, the second under the pick's own
+  assert_eq!(wrapped.locked_runs("replay"), [true, true], "{:#?}", wrapped.commands());
+  assert_eq!(
+    git(&repo, &["log", "--format=%s", "origin/master..HEAD"]),
+    "(lane) Add b\n(lane) Change a\n(own) Landed by the holder\n(own) Other"
+  );
+}
+
+/// A holder that keeps the lock past `--lock-wait` makes the pick answer `locked` (retryable, exit 3) with the bound,
+/// nothing moved
+#[test_log::test]
+fn a_pick_whose_lock_stays_held_past_its_lock_wait_is_locked_and_retryable() {
+  let (repo, lane) = repo_and_lane_with_one_commit();
+  let head = repo.head();
+  let _held = hold_the_lock(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--lock-wait", "0"]);
+  assert_error(&output, exit_code, (3, "locked"));
+  assert_eq!(output["error"]["retryable"], json!(true), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("for the whole wait of 0 s (--lock-wait)"), "{message}");
+  assert_eq!(repo.head(), head);
+  assert!(!repo.path().join("b.txt").exists());
 }
 
 /// A file the pick writes, edited while the pick replays: the local changes are read again under the lock, so the pick

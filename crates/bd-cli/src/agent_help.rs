@@ -362,6 +362,10 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `brd undo <undo_token>` moves the branch and your worktree back.
+   - Each step goes to stderr with its time (`steps` of the answer). While another process holds the repository lock,
+     the pick waits as long as that holder lives, naming it every 10 s, up to 540 s (`brd lease pick --lock-wait
+     <secs>`, `brd pick --lock-wait <secs>`): no retry loop, no `timeout` wrapper, give the call 10 minutes. `locked`
+     (exit 3) only past that bound: run it again.
 3. Check that the branch still holds your work after the owner rewrote it: `brd lease pick --dry-run` in your lease
    (elsewhere `brd pick --from <your worktree> --dry-run`)
    (`up_to_date`, every commit `already_present`). Never compare by date (a `git log` limited by time): a rewrite can

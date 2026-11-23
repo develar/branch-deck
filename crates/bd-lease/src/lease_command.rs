@@ -121,6 +121,11 @@ pub struct LeasePickArgs {
   /// the output repeats it (`message_format_allowed`). Only once the user agreed, or when brd and the rules disagree
   #[arg(long, value_name = "REASON", value_parser = message_reason_text)]
   pub allow_message_format: Option<String>,
+  /// How long the pick (and the update of the lease after its conflict) waits in all for the repository lock while
+  /// another process holds it (540 by default, below the 600 s of a Bash call): stderr names the holder at once and
+  /// every 10 s; past it the answer is `locked`
+  #[arg(long, value_name = "SECS")]
+  pub lock_wait: Option<u64>,
 }
 
 #[derive(Debug, Default, clap::Args)]

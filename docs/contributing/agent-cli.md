@@ -621,7 +621,7 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
   commits on top are regrouped with the rest and listed in `appended` (`{commit, subject}`, new ids). `rename`, `restack`
   and `unstack` work by name, so they rename the prefix of an appended commit too.
 - The repository lock serializes rewrites with the app and other `brd` calls; after 10 s of waiting it is `locked`
-  (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
+  (exit 3). `brd pick` and `brd lease pick` wait while the holder lives, up to `--lock-wait` (below). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
   `detached_head`, commits ahead that reach a root the baseline lacks `unrelated_history` (exit 4, the root in
   `commits`, `ask_user`).
 
@@ -1082,14 +1082,20 @@ pool, `brd lease pick` is this pick, run in the checkout the lease was cut from 
   writes at most git objects: it answers "does the branch hold my commits?" by content, never by date.
 - `picked[].group` is the branch Branch Deck groups the copy into, `grouped_by` `prefix`, `issue_group`, `issue` or
   `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.
-- Each step goes to stderr as it starts, with the time since the pick began; `steps` lists them with `at_ms`:
+- Each step goes to stderr as it starts, with the time since the pick began; `steps` lists them with `at_ms`. While
+  another process holds the repository lock, the pick waits as long as that holder lives, naming it at once and every
+  10 s, up to `--lock-wait <secs>` in all (540 by default, below the 600 s of a Bash call), then `locked` (exit 3,
+  retryable, nothing changed): no retry loop, no `timeout` wrapper. A target that moved during the wait (the holder was
+  another pick) is checked again under the lock at once:
 
   ```
   brd lease pick: [0 s] checking the commits against master
   brd lease pick: [14 s] waiting for the repository lock
-  brd lease pick: [14 s] checking the commits against master (round 2)
-  brd lease pick: [27 s] moving master and the files of /Users/me/idea-1, then the files of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/3/idea-1
-  brd lease pick: [41 s] reading how the commits land
+  brd lease pick: [14 s] the repository lock is held by `brd lease pick` (pid 4242, for 35 s)
+  brd lease pick: [24 s] the repository lock is held by `brd lease pick` (pid 4242, for 45 s)
+  brd lease pick: [31 s] checking the commits against master (round 2, under the repository lock)
+  brd lease pick: [44 s] moving master and the files of /Users/me/idea-1, then the files of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/3/idea-1
+  brd lease pick: [58 s] reading how the commits land
   ```
 - `dependencies` (also with `--dry-run`, so the prefix can be fixed in the worktree before the pick): a picked commit
   whose prefix names a branch the branch has already (`prefix_branch`), which is not built on every branch whose

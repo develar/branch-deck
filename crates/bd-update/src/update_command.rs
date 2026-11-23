@@ -12,6 +12,7 @@ use bd_core::context::RepoContext;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ErrorRenamePair, ProcessKind, ProcessOutput};
 use bd_core::operation_record::recorded_unless;
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
+use bd_core::progress::CommandSteps;
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use domain_types::conflict::GeneratedFile;
 use domain_types::error::ErrorCode;
@@ -29,7 +30,7 @@ use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, LandedInput, LostBindingFinding, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
-use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
+use history_rewrite::repository_lock::{LockWait, LockWaitCanceled, RepositoryLocked};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
@@ -764,16 +765,17 @@ fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Opt
 
 /// The update of the lease of `context` onto `branch`, its home, without a fetch: what `brd lease pick` runs after its
 /// pick conflicted. A conflict opens a resolve session in the lease (`brd update --continue` goes on there); a replay
-/// that applies (the words resolved the conflict) moves the lease onto the tip of the branch
-pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOutput, CliError> {
+/// that applies (the words resolved the conflict) moves the lease onto the tip of the branch. It waits for the
+/// repository lock as the pick does: while its holder lives, up to what is left of the bound of `steps`
+pub fn update_lease_onto(context: &RepoContext, branch: &str, steps: &CommandSteps<'_>) -> Result<UpdateOutput, CliError> {
   let options = UpdateOptions {
     fetch: false,
-    lock_wait: LockWait::Bounded(context.lock_timeout),
+    lock_wait: LockWait::WhileHeld(steps),
     onto: Some(branch),
     lease: &context.lease,
     keep: &[],
   };
-  let mut output = update_or_resolve(context, options, None)?;
+  let mut output = update_or_resolve(context, options, None).map_err(|error| steps.bounded(error))?;
   if matches!(output.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
     output.next = vec![lease_pick_command(context)];
   }
@@ -1390,7 +1392,8 @@ pub(crate) fn undo_core_error(error: anyhow::Error) -> CliError {
 }
 
 fn classified(error: anyhow::Error, undo: bool) -> CliError {
-  let code = if error.downcast_ref::<RepositoryLocked>().is_some() {
+  // a wait canceled in `brd` ran past its `--lock-wait` (`CommandSteps::bounded` names it)
+  let code = if error.downcast_ref::<RepositoryLocked>().is_some() || error.downcast_ref::<LockWaitCanceled>().is_some() {
     ErrorCode::Locked
   } else if error.downcast_ref::<FetchFailed>().is_some() {
     ErrorCode::NetworkError

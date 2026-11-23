@@ -31,6 +31,7 @@ use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepar
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::stack_top;
 use object_cache::cache::ObjectCache;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
@@ -639,7 +640,9 @@ struct Checks<'a, 'b> {
 /// without the lock, then the wait for the index locks of other processes (`PickPlan::wait_for_index_locks`, so nobody
 /// waits for the repository lock while this pick waits for git's), and under it the witness: a target or a source that
 /// moved in between (another session's pick, a regroup, a fetch), or an index lock that appeared since the wait
-/// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
+/// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. A
+/// witness that missed after a wait for another holder of the lock checks under that lock at once: the holder was most
+/// likely another pick, which moved the target, and a check without the lock would wait for the next one. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
 /// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock. Each step is told to
 /// `progress` as it starts, the move before the witness's compare-and-swap, none during the moves
@@ -674,7 +677,12 @@ fn land(
     });
     check_pick_with_signing(git_executor, target, request, signing)
   };
-  let on_wait = || progress(&PickStep::WaitForLock);
+  let waited = Cell::new(false);
+  let on_wait = || {
+    waited.set(true);
+    progress(&PickStep::WaitForLock);
+  };
+  let mut kept = None;
   let mut round = 1;
   while round <= CHECKS_WITHOUT_THE_LOCK {
     if options.held_lock.is_some() || any_pending(git_executor, worktrees)? {
@@ -692,8 +700,14 @@ fn land(
     // the objects of Git LFS of the moves before the lock: the smudge filter under it reads the store only
     prefetch_lfs_objects(git_executor, &plan.worktree_moves(target), &|| options.lock_wait.canceled())?;
     plan.wait_for_index_locks(git_executor, target)?;
+    waited.set(false);
     let lock = options.lock_with(git_executor, target, &on_wait)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
+      if waited.get() {
+        info!("the target or the source moved while the pick waited for the repository lock: it checks again under it");
+        kept = Some(lock);
+        break;
+      }
       info!("the target or the source moved during the check of the pick: it checks again");
       drop(lock);
       continue;
@@ -706,7 +720,10 @@ fn land(
     let applied = apply_pick_locked(git_executor, target, &mut plan, lock)?;
     return Ok((plan, applied));
   }
-  let lock = options.lock_with(git_executor, target, &on_wait)?;
+  let lock = match kept {
+    Some(lock) => lock,
+    None => options.lock_with(git_executor, target, &on_wait)?,
+  };
   finish_pending(git_executor, worktrees)?;
   let mut plan = check(round, true)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;

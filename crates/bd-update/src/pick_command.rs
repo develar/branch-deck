@@ -5,7 +5,8 @@
 //! recorded in the operations registry of the repository first (`Intent::Pick`, of `--remote` the rewrite `PickRemote`,
 //! `bd_core::operation_record`). With `[commit] check` of `.branchdeck.toml` of the target, the core checks the
 //! message of each picked commit by the commit rules (`commit_rules`) and refuses a STRICT one (`message_format`). Each
-//! step goes to stderr as it starts, with the time since the pick began (`bd_core::progress`)
+//! step goes to stderr as it starts, with the time since the pick began (`bd_core::progress`), and the pick waits for
+//! the repository lock while its holder lives, up to `--lock-wait`
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::bd_command::{CLI_NAME, shell_word};
@@ -13,7 +14,7 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput, NextStep};
 use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
-use bd_core::progress::{CommandSteps, StepOutput};
+use bd_core::progress::{CommandSteps, StepOutput, lock_wait_of};
 use bd_core::suggest_plan::SuggestPlan;
 use bd_core::sync_command::sync;
 use bd_core::text_input::{message_reason_text, reason_text};
@@ -73,6 +74,10 @@ pub struct PickArgs {
   /// the output repeats it (`message_format_allowed`). Only once the user agreed, or when brd and the rules disagree
   #[arg(long, value_name = "REASON", value_parser = message_reason_text, conflicts_with = "remote")]
   pub allow_message_format: Option<String>,
+  /// How long the pick waits in all for the repository lock while another process holds it (540 by default, below
+  /// the 600 s of a Bash call): stderr names the holder at once and every 10 s; past it the answer is `locked`
+  #[arg(long, value_name = "SECS")]
+  pub lock_wait: Option<u64>,
 }
 
 /// `brd pick`
@@ -140,7 +145,7 @@ pub struct PickOutput {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
   /// Each step as stderr printed it, with when it started (`at_ms`, since the pick began): the checks, the wait for
-  /// the repository lock, the moves, the read of the landing; of `brd lease pick` also the update of
+  /// the repository lock with its holder, the moves, the read of the landing; of `brd lease pick` also the update of
   /// the lease after a conflict and the pick after it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub steps: Vec<StepOutput>,
@@ -351,12 +356,12 @@ pub struct PickConflictOutput {
 
 /// `brd pick`, each step on stderr as it starts
 pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -> Result<PickOutput, CliError> {
-  let steps = CommandSteps::new("brd pick");
+  let steps = CommandSteps::new("brd pick", lock_wait_of(args.lock_wait), context.lock_timeout);
   pick_reporting(context, args, environment, &steps)
 }
 
-/// `brd pick` whose steps go to `steps`; the answer lists them
-pub fn pick_reporting(context: &RepoContext, args: &PickArgs, environment: &Environment, steps: &CommandSteps) -> Result<PickOutput, CliError> {
+/// `brd pick` whose steps go to `steps`, which also bounds its wait for the repository lock; the answer lists them
+pub fn pick_reporting(context: &RepoContext, args: &PickArgs, environment: &Environment, steps: &CommandSteps<'_>) -> Result<PickOutput, CliError> {
   let mut output = pick_into(context, args, environment, None, steps)?;
   output.steps = steps.take();
   Ok(output)
@@ -512,8 +517,9 @@ pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
 }
 
 /// `brd pick`, or with `home` the pick of `brd lease pick` (`args.from` the lease, `args.follow` set): its steps told
-/// to `steps`; the caller takes them for the answer
-pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps) -> Result<PickOutput, CliError> {
+/// to `steps`, which waits for the repository lock while its holder lives, up to its bound; the caller takes them for
+/// the answer
+pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps<'_>) -> Result<PickOutput, CliError> {
   let intent = match (&args.from, &args.revisions, &args.remote) {
     _ if args.dry_run => None,
     (Some(dir), _, _) => Some(Intent::Pick {
@@ -536,7 +542,7 @@ pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environme
 }
 
 /// `pick_into`, recorded unless a dry run
-fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps) -> Result<PickOutput, CliError> {
+fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>, steps: &CommandSteps<'_>) -> Result<PickOutput, CliError> {
   let from = match (&args.from, &args.revisions, &args.remote) {
     (Some(dir), _, _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
     (None, Some(revisions), _) => PickFrom::Revisions(revisions.clone()),
@@ -568,7 +574,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
-    lock_wait: LockWait::Bounded(context.lock_timeout),
+    lock_wait: LockWait::WhileHeld(steps),
     held_lock: None,
   };
   let progress = |step: &PickStep<'_>| steps.tell(step);
@@ -582,7 +588,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     } else if let Some(refused) = error.downcast_ref::<BaselineParentRefused>() {
       baseline_parent(context, &params.from, refused)
     } else {
-      pick_error(error)
+      steps.bounded(pick_error(error))
     }
   })?;
   let mut output = output(context, &result, args.dry_run, home)?;

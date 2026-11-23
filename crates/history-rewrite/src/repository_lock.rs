@@ -242,7 +242,9 @@ pub fn lock_repository_as_another_process(git_common_dir: &Path, command: &str) 
 /// line too (the record of the one before it, which names this process or the other one it waits for), and refuses only
 /// when the user canceled (`canceled`, polled in the line too, `LockWaitCanceled`) or when no record names a live holder
 /// of the file lock for `unknown_timeout` (`RepositoryLocked`): a holder that writes none, or one whose record is not
-/// written yet. A killed holder frees the lock with its process. `bd` keeps the bounded wait (`lock_repository_in`)
+/// written yet. A killed holder frees the lock with its process. `brd pick`, `brd lease pick` and the update of a lease
+/// after its conflict wait so too, their bound (`--lock-wait`) a `canceled` of their waiter (`bd_core::progress`); the
+/// other commands of `bd` keep the bounded wait (`lock_repository_in`)
 #[instrument(skip(on_holder, canceled))]
 pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   lock_file_while_held(git_common_dir.join(LOCK_FILE_NAME), unknown_timeout, on_holder, canceled)
@@ -337,9 +339,10 @@ impl Teller {
   }
 }
 
-/// The app's side of a wait for a live holder of the lock (`LockWait::WhileHeld`): it hears whom the wait is for and
-/// ends it when the user stops waiting (`operations::rewrite::StepWaiter`, the step `WaitingForLock` of an operation of
-/// the engine, whose Stop Waiting is `cancel_operation`)
+/// The side of a wait for a live holder of the lock (`LockWait::WhileHeld`) that hears whom the wait is for and ends it:
+/// the app's, when the user stops waiting (`operations::rewrite::StepWaiter`, the step `WaitingForLock` of an operation
+/// of the engine, whose Stop Waiting is `cancel_operation`), and `brd pick`'s, past its `--lock-wait`
+/// (`bd_core::progress::CommandSteps`)
 pub trait LockWaiter: Sync {
   /// The holder the wait is for, when it changes and about once a second: another process, or this one while an
   /// operation of it before this one in its line holds the lock; `None` once the wait ended, with the lock or without
@@ -359,8 +362,9 @@ pub trait LockWaiter: Sync {
 pub enum LockWait<'a> {
   /// At most this long, then `RepositoryLocked`: `bd` (`locked`, exit 3), and a rewrite nobody waits on
   Bounded(Duration),
-  /// The app (`lock_repository_while_held`): as long as the record of the holder names a live process; only a holder no
-  /// record names refuses, after `LockWaiter::unknown_timeout`
+  /// The app and `brd pick` (`lock_repository_while_held`): as long as the record of the holder names a live process
+  /// and the waiter goes on (`LockWaiter::canceled`); a holder no record names refuses, after
+  /// `LockWaiter::unknown_timeout`
   WhileHeld(&'a dyn LockWaiter),
 }
 
@@ -703,7 +707,8 @@ impl<'a> RewriteOptions<'a> {
     self.lock_with(git_executor, repository_path, &|| {})
   }
 
-  /// `lock`; `on_wait` is called once, when another holds the lock and the wait starts (`brd pick` tells it as a step)
+  /// `lock`; `on_wait` is called once, when another holds the lock and the wait starts (`brd pick` tells it as a step,
+  /// and after such a wait checks under the lock at once)
   pub fn lock_with(&self, git_executor: &GitCommandExecutor, repository_path: &str, on_wait: &dyn Fn()) -> Result<Option<RepositoryLock>> {
     match self.held_lock {
       Some(_) => Ok(None),

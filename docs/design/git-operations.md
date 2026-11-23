@@ -338,6 +338,11 @@ The `read-tree` of these rows is the move of the files (`read-tree -m -u`), and 
 smudge filter, which downloads what the store lacks: every core whose move writes files fetches those objects before
 its lock ("Git LFS" below), so its smudge under the lock reads the store only.
 
+**The wait.** A core waits for another process that holds the lock as its caller says (`RewriteOptions::lock_wait`):
+the app while the holder lives (its Stop Waiting cancels), `brd pick`, `brd lease pick` and the update of a lease after
+its conflict while the holder lives up to `--lock-wait` (above, "Pick" step 6), every other `brd` command 10 s
+(`DEFAULT_LOCK_TIMEOUT`), then `locked`. A short span is what keeps these waits short.
+
 **One exception remains**, pinned as it is, and no change adds a computation under it: `brd update --continue`, which
 holds the lock from its read of the session to the end of its finish (the commit of the round, the replay of the rest,
   the exact check of the finish and the move); it is in "Follow-ups".
@@ -2151,7 +2156,13 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    the guards and HEAD of the target, the upstream's tip, the guards, HEAD and what HEAD is on of the source, one
    `rev-parse` or `symbolic-ref` each. A witness that moved (another session's pick, a regroup, a fetch, a commit in
    the source) sends the pick back to step 2 without the lock; after two such checks the third runs under the lock,
-   where nothing moves the branch, so a busy branch never starves a pick. Then the local changes on the paths each move
+   where nothing moves the branch, so a busy branch never starves a pick. A witness that missed after a wait for
+   another holder of the lock checks under that lock at once: the holder was most likely another pick, which moved the
+   target, and a round without the lock would most likely miss behind the next one. `brd pick` and `brd lease pick`
+   wait while the holder lives (`LockWait::WhileHeld`, the waiter `bd_core::progress::CommandSteps`, which names the
+   holder on stderr at once and every 10 s), up to `--lock-wait` in all (540 s, below the 600 s of a Bash call of an
+   agent), then `locked`; the update of a lease after its conflict waits within the same bound. Before, a wait of 10 s
+   answered `locked` after minutes of checks, behind holders of 1 to 3.5 minutes, and agents looped. Then the local changes on the paths each move
    writes, read again now that nobody else moves a HEAD: the check of step 5 with the probe it kept (`LocalProbe`), so
    only what changed since is read again, the index entries and the unmerged ones when the index file changed, a file
    when its stat data changed or it was written within the racy margin of its hash; only when that finds a path, the

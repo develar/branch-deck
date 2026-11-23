@@ -17,7 +17,7 @@ use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{WithOperation, write_json};
-use bd_core::progress::CommandSteps;
+use bd_core::progress::{CommandSteps, lock_wait_of};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
@@ -420,9 +420,10 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// lease with nothing to land follows without a record; the tree of an update that applies is new, so it is picked
 /// again only when a record names it too or carries over onto it (a clean merge of the checked tree onto the new base),
 /// else the conflict says to build first. Each step goes to stderr as it starts,
-/// the update's too, and the answer lists them (`steps`)
+/// the update's too, and the answer lists them (`steps`); the waits for the repository lock of the picks and the update
+/// go on while the holder lives, up to `--lock-wait` in all
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
-  let steps = CommandSteps::new("brd lease pick");
+  let steps = CommandSteps::new("brd lease pick", lock_wait_of(args.lock_wait), lease.lock_timeout);
   let mut output = lease_pick_reporting(lease, environment, options, args, &steps)?;
   output.pick.steps = steps.take();
   Ok(output)
@@ -434,7 +435,7 @@ fn lease_pick_reporting(
   environment: &Environment,
   options: &RepoOptions<'_>,
   args: &LeasePickArgs,
-  steps: &CommandSteps,
+  steps: &CommandSteps<'_>,
 ) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
   let in_dir = |dir: &str| {
@@ -454,7 +455,7 @@ fn lease_pick_reporting(
     return Ok(LeasePickOutput { pick, update: None });
   }
   steps.tell(&format_args!("updating the lease onto {branch} ({})", pick.previous_head));
-  let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch)?;
+  let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch, steps)?;
   if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
     return Ok(LeasePickOutput { pick, update: Some(update) });
   }
@@ -490,7 +491,7 @@ fn lease_pick_in(
   check: Option<TreeCheck>,
   environment: &Environment,
   args: &LeasePickArgs,
-  steps: &CommandSteps,
+  steps: &CommandSteps<'_>,
 ) -> Result<PickOutput, CliError> {
   let pick_args = PickArgs {
     from: Some(PathBuf::from(lease_dir)),
