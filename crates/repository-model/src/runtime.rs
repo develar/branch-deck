@@ -60,6 +60,7 @@ use crate::state::{Joined, View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use crate::warm_start::{CachedSession, frame_of};
+use domain_policy::landed_island::{Seen, hidden_by_sync, seen, stays_seen};
 use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing_route::LocalGitHub;
@@ -128,6 +129,13 @@ pub(crate) enum Message {
   Demand {
     id: SubscriptionId,
     demand: Demand,
+  },
+  /// The window of the subscriptions `windows` shows the Landed island up to `landed_at` with the focus, on the view of
+  /// the epoch `epoch` (`Sessions::landed_seen`)
+  LandedSeen {
+    windows: Vec<SubscriptionId>,
+    landed_at: u64,
+    epoch: Option<u32>,
   },
   /// The demand of all the windows of the session
   #[cfg(test)]
@@ -464,6 +472,9 @@ struct Actor {
   subscribers: Vec<(SubscriptionId, Box<dyn Subscriber>)>,
   /// What the window of each subscription shows and needs (`Demand`); the facts are asked for all of them
   demands: HashMap<SubscriptionId, Demand>,
+  /// When the window of each subscription saw the Landed island, and up to what (`domain_policy::landed_island`): a
+  /// successful sync hides what a window with the focus saw long enough (`hide_seen`)
+  landed_seen: HashMap<SubscriptionId, Seen>,
   /// Where the events of the session go (the scheduler of the facts)
   events: Arc<EventSink>,
   /// The union of the demands the scheduler was told last
@@ -525,6 +536,7 @@ impl Actor {
       scheduler: SyncScheduler::new(),
       subscribers: Vec::new(),
       demands: HashMap::new(),
+      landed_seen: HashMap::new(),
       events,
       told_demand: Demand::default(),
       told_digest: None,
@@ -556,7 +568,10 @@ impl Actor {
   /// subscription). Then the stamp of `waiter` is decided as by any session. The scheduler of the facts hears the session
   /// close here, also when it heard it at the stamp that found the new lease while a run was in flight
   /// (`reopen_for_lease`): a window that left and came back during the run watched the session again, and the task the
-  /// scheduler made for it is of the lease before, which ends here; a close of a session it holds no task of does nothing
+  /// scheduler made for it is of the lease before, which ends here; a close of a session it holds no task of does nothing.
+  /// What the windows saw of the Landed island stays only for a session that knew no lease of its slot, which reads one
+  /// now: its island was of no lease it knew, so the next sync hides what was seen under the lease read; the sightings of
+  /// the island of a lease before are of another report
   async fn reopened(mut self, waiter: Waiter) -> Self {
     tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
     let held = self.view.version();
@@ -574,9 +589,11 @@ impl Actor {
       mut frames,
       subscribers,
       demands,
+      landed_seen,
       review_prunes,
       ..
     } = self;
+    let landed_seen = if life.opened_epoch().recorded().is_none() { landed_seen } else { HashMap::new() };
     frames.reopen();
     events.emit(&key, SessionEventKind::Closed);
     let mut actor = Self::new(key, host, life, mailbox, events, frames);
@@ -590,6 +607,7 @@ impl Actor {
     };
     actor.subscribers = subscribers.into_iter().filter(|(_, subscriber)| subscriber.send(&hand_over).is_ok()).collect();
     actor.demands = demands;
+    actor.landed_seen = landed_seen;
     if actor.is_watched() {
       actor.events.emit(&actor.key, SessionEventKind::Watched(true));
       actor.tell_digest();
@@ -760,6 +778,7 @@ impl Actor {
         let before = self.subscribers.len();
         self.subscribers.retain(|(subscription, _)| *subscription != id);
         self.demands.remove(&id);
+        self.landed_seen.remove(&id);
         if self.subscribers.len() < before {
           self.life.subscriber_left();
           self.windows_changed();
@@ -790,11 +809,21 @@ impl Actor {
           self.life.subscriber_left();
         }
         self.demands.clear();
+        self.landed_seen.clear();
         // what changed since the last save is the frame of the next start
         if self.frames.dirty {
           self.save_frame();
         }
         self.end_held();
+      }
+      Message::LandedSeen { windows, landed_at, epoch } => {
+        if epoch.is_none_or(|epoch| epoch == self.view.version().epoch) {
+          let now = self.life.now();
+          for id in windows.into_iter().filter(|id| self.subscribers.iter().any(|(subscription, _)| subscription == id)) {
+            let before = self.landed_seen.get(&id).copied();
+            self.landed_seen.insert(id, seen(before, landed_at, now));
+          }
+        }
       }
       Message::Demand { id, demand } => {
         if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
@@ -1386,6 +1415,7 @@ impl Actor {
       }
       (_, Ok(synced)) => {
         self.state.finish_sync(Ok(()));
+        self.hide_seen();
         let table = Arc::new(synced.table);
         let baseline = table.baseline.clone();
         let _ = self.facts.table.answer(observation, Ok(Arc::clone(&table)));
@@ -1420,6 +1450,18 @@ impl Actor {
     }
     self.flush();
     self.follow(decision);
+  }
+
+  /// A successful sync ended: the Landed island hides what a window with the focus saw long enough
+  /// (`domain_policy::landed_island::hidden_by_sync`), written by the host under the lease the session opened under
+  /// (`SessionHost::hide_landed`), and those sightings are spent
+  fn hide_seen(&mut self) {
+    let focused = |id: &SubscriptionId| self.demands.get(id).is_some_and(|demand| demand.focused);
+    let Some(hidden) = hidden_by_sync(self.landed_seen.iter().map(|(id, seen)| (*seen, focused(id))), self.life.now()) else {
+      return;
+    };
+    self.landed_seen.retain(|_, seen| stays_seen(*seen, hidden));
+    self.host.hide_landed(&self.key, &self.life.opened_epoch(), hidden);
   }
 
   /// Derives the Patronus view again (`facts::derive_patronus`, in the blocking pool) when what it is of changed: the
@@ -1782,6 +1824,11 @@ pub trait SessionEnvironment: Send + Sync + 'static {
     unix_now()
   }
 
+  /// A successful sync of `key` hid the Landed island up to `landed_at`, the session opened under `epoch`
+  /// (`SessionHost::hide_landed`): the app records it in its settings (`app_settings::projects::hide_landed`) only while
+  /// the worktree holds `epoch`; nothing by default. Blocking
+  fn hide_landed(&self, _key: &SessionKey, _epoch: &WorktreeEpoch, _landed_at: u64) {}
+
   /// The git the session of `key` runs its syncs, its inputs and its Patronus view with: the host's `git` in the app;
   /// the E2E server's carries the global config of the test repository (`GIT_CONFIG_GLOBAL`), as its commands do
   fn git(&self, _key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {
@@ -1915,6 +1962,12 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn unix_now(&self, key: &SessionKey) -> u32 {
     self.environment.unix_now(key)
+  }
+
+  /// The record of the environment, on the blocking pool
+  fn hide_landed(&self, key: &SessionKey, epoch: &WorktreeEpoch, landed_at: u64) {
+    let (environment, key, epoch) = (Arc::clone(&self.environment), key.clone(), epoch.clone());
+    tokio::task::spawn_blocking(in_current_span(move || environment.hide_landed(&key, &epoch, landed_at)));
   }
 }
 

@@ -2787,9 +2787,11 @@ or, while a run is in flight, once it ended, as a run is never cancelled (`Actor
 on the view the window gets then, without a sync before it, a rewrite's neither
 (`an_update_of_a_session_that_knew_no_lease_is_asked_again_on_the_view_of_the_lease_read`,
 `an_intent_of_a_session_that_knew_no_lease_opens_it_anew_under_the_lease_read`,
-`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_once_the_run_in_flight_ended`); so does the hide of the Landed
-island, which hides nothing on the view before and asks again at the next sync of the view of that lease
-(`hide_landed`, `hideAfterSync`). `brd` writes under the lease
+`an_intent_of_a_session_that_knew_no_lease_opens_it_anew_once_the_run_in_flight_ended`). The hide of the Landed
+island is the session's own, after its successful sync under the lease it opened under (`SessionHost::hide_landed`,
+`domain_policy::landed_island`); the sightings of the windows stay across the reopen of a session that knew no lease, so
+the next sync hides what was seen under the lease read, and go with the report of another known lease
+(`the_island_seen_before_a_reopen_hides_under_the_lease_read_only_for_a_session_that_knew_none`). `brd` writes under the lease
 of the slot as the command started (`RepoContext::lease`; `a_command_in_a_slot_writes_nothing_of_the_lease_once_the_slot_holds_another`).
 The check of the guard and the write hold the lock of the lease (`lease.lock`), which the forget of the return and of
 the get that reuses the slot takes before it removes: a write that passed its check lands before the forget, which

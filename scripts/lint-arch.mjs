@@ -275,7 +275,6 @@ export const APP_COMMAND_CALLERS = {
   set_companion: "src/hooks/useConfigWrite.ts",
   add_companion: "src/hooks/useConfigWrite.ts",
   unlink_primary: "src/hooks/useConfigWrite.ts",
-  hide_landed: "src/stores/landed.ts",
   open_sub_window: "src/lib/window-management.ts",
   sub_window_loaded: "src/lib/sub-window.ts",
   sub_window_drawn: "src/lib/sub-window.ts",

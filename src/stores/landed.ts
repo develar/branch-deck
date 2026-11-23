@@ -3,13 +3,11 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { LandedBranch, LandedCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { logError } from "@/lib/errors"
 import { mergeLandedReport } from "@/lib/landed"
 import { recordLanded } from "@/stores/activity"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
-
-/** The island stays at least this long after the user saw it: the sync that follows an update keeps it */
-export const ISLAND_MIN_SEEN_MS = 10_000
 
 export interface LandedState {
   /** The repository of the last check */
@@ -20,11 +18,6 @@ export interface LandedState {
   landed: readonly LandedBranch[]
   /** The upstream of the baseline they landed in ("origin/master"); null before the first check */
   upstream: string | null
-  /**
-   * When the user saw the island (it showed while the window had focus), ms, with the newest `landedAt` it showed then;
-   * null until they have. A sync hides what they saw (`hideAfterSync`).
-   */
-  seenAt: { readonly time: number; readonly landedAt: number } | null
 }
 
 const empty: readonly LandedBranch[] = []
@@ -34,7 +27,6 @@ export const landedStore = createStore<LandedState>(() => ({
   landing: empty,
   landed: empty,
   upstream: null,
-  seenAt: null,
 }))
 
 /**
@@ -42,7 +34,7 @@ export const landedStore = createStore<LandedState>(() => ({
  * toast of a merge it lands says so in place (`src/lib/landing-toast.ts`)
  */
 export function setLandedStatus(repositoryPath: string, landing: readonly LandedBranch[], landed: readonly LandedBranch[], upstream: string): void {
-  landedStore.setState(state => ({ repositoryPath, landing, landed, upstream, seenAt: state.repositoryPath === repositoryPath ? state.seenAt : null }))
+  landedStore.setState({ repositoryPath, landing, landed, upstream })
   recordLanded(repositoryPath, landed, upstream)
 }
 
@@ -51,7 +43,7 @@ export function addLandedUpdate(repositoryPath: string, found: readonly LandedBr
   landedStore.setState(state => {
     const own = state.repositoryPath === repositoryPath
     const report = own ? state.landed : empty
-    return { repositoryPath, landing: empty, landed: found.length === 0 ? report : mergeLandedReport(report, found), upstream, seenAt: own ? state.seenAt : null }
+    return { repositoryPath, landing: empty, landed: found.length === 0 ? report : mergeLandedReport(report, found), upstream }
   })
 }
 
@@ -60,7 +52,7 @@ export function addLandedUpdate(repositoryPath: string, found: readonly LandedBr
  * `src/lib/landed-run.ts` clears it for the other windows and `bd`)
  */
 export function clearLandedReport(repositoryPath: string): void {
-  landedStore.setState(state => (state.repositoryPath === repositoryPath ? { landed: empty, seenAt: null } : state))
+  landedStore.setState(state => (state.repositoryPath === repositoryPath ? { landed: empty } : state))
 }
 
 function isWindowFocused(): boolean {
@@ -68,37 +60,20 @@ function isWindowFocused(): boolean {
 }
 
 /**
- * The island shows what landed up to `landedAt`: if the window has focus, the user sees it from now (a newer `landedAt`
- * starts again). Called when the island shows and when the window gains focus.
+ * The island shows what landed up to `landedAt` on the view of the epoch `viewEpoch`: if the window has focus, the
+ * session hears that this window sees it (`landed_seen`), and its first successful sync at least 10 s later, with the
+ * window focused, hides what was seen for the repository (`landedHiddenUntil`, `domain_policy::landed_island`). Called
+ * when the island shows and when the window gains focus; the session keeps the time of the first sighting of the same
+ * `landedAt`.
  */
-export function markLandedSeen(repositoryPath: string, landedAt: number): void {
-  const { repositoryPath: own, seenAt } = landedStore.getState()
-  if (own === repositoryPath && seenAt?.landedAt !== landedAt && isWindowFocused()) {
-    landedStore.setState({ seenAt: { time: Date.now(), landedAt } })
+export function markLandedSeen(repositoryPath: string, landedAt: number, viewEpoch: number | null): void {
+  if (isWindowFocused()) {
+    void commands.landedSeen({ repositoryPath, landedAt, epoch: viewEpoch }).then(result => {
+      if (result.status === "error") {
+        logError("Cannot tell the session that the window sees the Landed island", result.error)
+      }
+    })
   }
-}
-
-/**
- * After a successful sync of the repository: the island hides what the user saw, if they saw it at least
- * `ISLAND_MIN_SEEN_MS` ago and the window has focus. Remembered for the repository (`hide_landed`, under the lease of the
- * view of the epoch `viewEpoch`, as each lease has its own report), so it stays hidden after a restart; what lands later
- * shows again. The report, the chips and the "New" marks stay until Dismiss. A session that knew no lease of its slot,
- * which reads one now, hides nothing and opens anew under that lease (`lease_read_again`): the island stays seen as it
- * was, so the next sync asks again on the view of that lease, unless the island of that view shows something else
- * (`markLandedSeen` as it mounts anew)
- */
-export function hideAfterSync(repositoryPath: string, viewEpoch: number | null): void {
-  const { repositoryPath: own, seenAt } = landedStore.getState()
-  if (own !== repositoryPath || seenAt === null || Date.now() - seenAt.time < ISLAND_MIN_SEEN_MS || !isWindowFocused()) {
-    return
-  }
-  landedStore.setState({ seenAt: null })
-  // another failure leaves the island as it is: the next sync hides it once the island is seen again
-  void commands.hideLanded({ repositoryPath, landedAt: seenAt.landedAt, epoch: viewEpoch }).then(result => {
-    if (result.status === "error" && result.error.code === "lease_read_again") {
-      landedStore.setState(state => (state.repositoryPath === repositoryPath && state.seenAt === null ? { seenAt } : state))
-    }
-  })
 }
 
 function useOwnState<T>(select: (state: LandedState) => T, fallback: T): T {

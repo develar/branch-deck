@@ -194,7 +194,7 @@ sequenceDiagram
     that belong to a lease (`LEASE_FIELDS`: the time of a sync, which a session syncs of itself by, the count of its
     branches, the room of the loading table, and the hide of the Landed island, as each lease has its own report) only
     Rust writes, each under its lease (`set_repository_fields`: `app_settings::projects::record_sync` of the session under
-    the lease it opened under, `hide_landed` under the lease of the view it was asked on; refused while the worktree
+    the lease it opened under, `hide_landed` of the session after its sync under that lease too; refused while the worktree
     holds another lease); a write of a window keeps what the writer has for the epoch the entry is stamped with, whatever
     the entry carries (`set_of_window`), so a window of an earlier lease that writes after the slot was leased again
     gives the new lease none of them. An entry that a build before the epochs wrote names none: on a path that is a slot

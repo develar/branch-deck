@@ -75,6 +75,14 @@ impl Windows {
     self.subscriptions().keep(&call.window, call.page, subscription)
   }
 
+  /// The subscriptions of the page of `call`, while its window shows it: none once it went away
+  pub fn subscriptions_of(&self, call: &Call) -> Vec<SubscriptionId> {
+    match self.subscriptions().pages.get(&call.window) {
+      Some((shown, subscriptions)) if *shown == call.page => subscriptions.clone(),
+      _ => Vec::new(),
+    }
+  }
+
   /// Drops `subscription` of the window of `call` (its page ended it)
   pub fn drop_subscription(&self, call: &Call, subscription: SubscriptionId) {
     self.subscriptions().drop_subscription(&call.window, subscription);

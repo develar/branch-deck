@@ -160,13 +160,6 @@ pub async fn under_its_lease(sessions: &Sessions, key: &SessionKey, intent: &Int
 #[must_use]
 pub fn lease_read_again(intent: &Intent) -> ApiError {
   let (asked, again) = asked(intent);
-  lease_read_again_of(&asked, again)
-}
-
-/// `lease_read_again` of what the window asked (`asked`) and how to ask it again (`again`), also of an ask that is no
-/// intent of the engine (the hide of the Landed island, `app_api::session::landed::hide_landed`)
-#[must_use]
-pub fn lease_read_again_of(asked: &str, again: &str) -> ApiError {
   ApiError::new(
     ErrorCode::LeaseReadAgain,
     format!("Branch Deck could not tell the lease of this worktree as it opened it and reads it again now: nothing of {asked} was done; {again}"),

@@ -239,8 +239,8 @@
     "transport": "json"
   },
   {
-    "name": "hide_landed",
-    "class": "app",
+    "name": "landed_seen",
+    "class": "read",
     "transport": "json"
   },
   {

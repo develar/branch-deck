@@ -229,10 +229,12 @@ export const commands = {
 	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
 	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>("unlink_pull_request", __TAURI_INVOKE("unlink_pull_request", { params })),
 	/**
-	 *  The Landed island hides what landed up to a time, which the user saw before a sync: kept for the repository under
-	 *  the lease of the view it was asked on (`landedHiddenUntil`, a field of the lease the windows never write)
+	 *  The calling window, with the focus, shows the Landed island up to a time (`landedAt`) on the view of an epoch: the
+	 *  session keeps the sighting, and its first successful sync at least 10 s after it, with the window focused, hides
+	 *  what was seen for the repository (`landedHiddenUntil` of the lease the session opened under, which the windows
+	 *  never write; `domain_policy::landed_island`)
 	 */
-	hideLanded: (params: HideLandedParams) => typedError<null, ApiError>("hide_landed", __TAURI_INVOKE("hide_landed", { params })),
+	landedSeen: (params: LandedSeenParams) => typedError<null, ApiError>("landed_seen", __TAURI_INVOKE("landed_seen", { params })),
 	/**
 	 *  The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
@@ -4186,14 +4188,6 @@ export type GroupOrigin =
 /**  The issue key of the subject */
 "issue";
 
-export type HideLandedParams = {
-	repositoryPath: string,
-	/**  The island hides what landed up to here (`landedAt`, Unix seconds) */
-	landedAt: number,
-	/**  The epoch of the view the island showed (`Version.epoch`): a view of another lease hides nothing */
-	epoch?: number | null,
-};
-
 /**  Why a push of a branch won't land */
 export type HoldKind = 
 /**  A merged Safe Push landed all of it: nothing a push sends lands */
@@ -4716,6 +4710,17 @@ export type LandedSection = {
 	landing: LandedBranch[],
 	/**  Commits that landed with an update and that the user has not dismissed yet */
 	landed: LandedBranch[],
+};
+
+export type LandedSeenParams = {
+	repositoryPath: string,
+	/**  The island shows what landed up to here (the newest `landedAt` of its branches, Unix seconds) */
+	landedAt: number,
+	/**
+	 *  The epoch of the view the island shows (`Version.epoch`): a sighting on a view of another epoch is of no report the
+	 *  session shows
+	 */
+	epoch?: number | null,
 };
 
 /**

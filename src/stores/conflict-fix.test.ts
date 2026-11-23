@@ -34,7 +34,7 @@ vi.mock("@/stores/repository", () => ({
 }))
 vi.mock("@/stores/settings/repositorySettings", () => ({ updateProject: () => {} }))
 vi.mock("@/stores/settings/repositoryState", () => ({ updateRepositoryState: () => {} }))
-vi.mock("@/stores/landed", () => ({ hideAfterSync: () => {}, setLandedStatus: () => {} }))
+vi.mock("@/stores/landed", () => ({ setLandedStatus: () => {} }))
 vi.mock("@/stores/unapplied-branches", () => ({ setUnappliedBranches: () => {}, resetUnappliedBranches: () => {} }))
 vi.mock("@/stores/archived-branches", () => ({
   updateFromArchivedNames: () => {},

@@ -443,7 +443,7 @@ test.describe("Activity of updates", () => {
     { page, setupRepo, syncAndWaitForBranches, testStore }: Pick<Parameters<Parameters<typeof test>[2]>[0], "page" | "setupRepo" | "syncAndWaitForBranches" | "testStore">,
     surface: "window" | "panel",
   ) => {
-    await setupRepo("landed_upstream")
+    const repo = await setupRepo("landed_upstream")
     await syncAndWaitForBranches()
     await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
     const card = page.getByTestId("landed-card")
@@ -452,8 +452,9 @@ test.describe("Activity of updates", () => {
     // the user saw the island for less than 10 s: a sync keeps it
     await syncAndWaitForBranches()
     await expect(card).toBeVisible()
-    // seen long enough: the next sync hides it, for good (remembered for the repository); the chips stay until Dismiss
-    await page.clock.fastForward("00:11")
+    // seen long enough on the clock of the session, which decides it: the next sync hides it, for good (remembered for
+    // the repository); the chips stay until Dismiss
+    await repo.advanceBackendClock(11_000)
     await syncAndWaitForBranches()
     await expect(card).toHaveCount(0)
     // in what the syncs record of the repository (repository-state.json), not in the user's settings

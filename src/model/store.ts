@@ -75,7 +75,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import { applyAuthFacts } from "@/stores/auth"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit, SyncFailure } from "@/stores/branch-sync"
 import { branchSyncStore, NO_SUBJECT_PARTS, useBranchSyncEntry } from "@/stores/branch-sync"
-import { hideAfterSync, setLandedStatus } from "@/stores/landed"
+import { setLandedStatus } from "@/stores/landed"
 import { getSelectedRepositoryPath, setSessionAnswer } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
 import { updateRepositoryState } from "@/stores/settings/repositoryState"
@@ -610,12 +610,9 @@ function projectView(
     rememberRunEnd(repositoryPath, seed)
   }
   if (ended) {
+    // a request records its own run with its time (`recordSync`); the session records every run and hides the Landed
+    // island the user saw (`record_synced`, `domain_policy::landed_island`)
     update.syncCount = state.syncCount + 1
-    // a run no request of this window waits for (the session's own on open, the follow-up of a rewrite, `bd`, another
-    // window): the repository is synced now; a request records its own run with its time (`recordSync`)
-    if (next.sync.kind === "idle" && isMainWindow && (session?.pending.count ?? 0) === 0) {
-      recordSynced(repositoryPath)
-    }
   }
   const isSyncing = running || (session?.pending.count ?? 0) > 0
   const syncError = syncErrorOf(next)
@@ -1353,18 +1350,14 @@ function recordSync(repositoryPath: string, answer: SyncAnswer, startedAt: numbe
 }
 
 /**
- * The repository is synced now; the sync took `took` ms when the window knows when it was asked (the durations of the
- * steps, `updateTimings`), and the Landed island hides what the user saw (`hideAfterSync`, under the lease of the view).
- * In `repositoryState`, a file of its own, so a sync never rewrites the user's settings. The time of the sync and the
- * count of its branches (`lastSyncTime`, `lastBranchCount`) are the session's own record, of the lease it opened under
- * (`record_synced` of Rust): the writer keeps them whatever this write carries, so a window of the lease before never
- * makes a slot leased again synced, nor gives it the room of rows it never had
+ * The repository is synced now by a sync the window asked, which took `took` ms (the durations of the steps,
+ * `updateTimings`). In `repositoryState`, a file of its own, so a sync never rewrites the user's settings. The time of
+ * the sync and the count of its branches (`lastSyncTime`, `lastBranchCount`) are the session's own record, of the lease
+ * it opened under (`record_synced` of Rust): the writer keeps them whatever this write carries, so a window of the lease
+ * before never makes a slot leased again synced, nor gives it the room of rows it never had
  */
-function recordSynced(repositoryPath: string, took?: number): void {
-  if (took !== undefined) {
-    updateRepositoryState(repositoryPath, state => ({ ...state, updateTimings: addTiming(state.updateTimings, "sync", took) }))
-  }
-  hideAfterSync(repositoryPath, getViewEpoch(repositoryPath))
+function recordSynced(repositoryPath: string, took: number): void {
+  updateRepositoryState(repositoryPath, state => ({ ...state, updateTimings: addTiming(state.updateTimings, "sync", took) }))
 }
 
 /** The run a request made now is served by: the next one to start (a run in flight serves it with its follow-up) */

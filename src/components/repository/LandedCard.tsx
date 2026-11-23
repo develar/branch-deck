@@ -18,13 +18,15 @@ import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } 
 import { dismissLanded } from "@/lib/landed-run"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openCommitIdsReview } from "@/lib/review-window"
+import { getViewEpoch } from "@/model/store"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { markLandedSeen, useLandedIsland } from "@/stores/landed"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 /**
  * The island of what landed in the baseline with an update (here or elsewhere), above the branches: a toast passes, the
- * news stays until the user has seen it, through the next sync at least 10 s later, or dismissed it; Activity keeps it.
+ * news stays until the user has seen it, through the next sync at least 10 s later (the session decides it), or dismissed
+ * it; Activity keeps it.
  * A row per branch with the count, the robot or pull request that merged it and the committer (once in the header when
  * every branch has the same one); it expands to the commits, each with the baseline commit that carries it.
  */
@@ -33,15 +35,15 @@ export function LandedCard() {
   const repositoryPath = useSelectedProjectPath()
   const status = useBaselineStatus()
   const landedAt = report.length === 0 ? 0 : Math.max(...report.map(branch => branch.landedAt))
-  // the user sees the island while the window has focus: a sync after that hides it
+  // the user sees the island while the window has focus: the session hides it at a sync after that
   useEffect(() => {
     if (repositoryPath !== undefined && landedAt !== 0) {
-      markLandedSeen(repositoryPath, landedAt)
+      markLandedSeen(repositoryPath, landedAt, getViewEpoch(repositoryPath))
     }
   }, [repositoryPath, landedAt])
   useWindowFocus(() => {
     if (repositoryPath !== undefined && landedAt !== 0) {
-      markLandedSeen(repositoryPath, landedAt)
+      markLandedSeen(repositoryPath, landedAt, getViewEpoch(repositoryPath))
     }
   })
   if (report.length === 0 || repositoryPath === undefined) {

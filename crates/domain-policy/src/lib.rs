@@ -40,6 +40,8 @@
 //! - `landed`: what landed a subject (`landed_state`: the fetched baseline, merged Safe Pushes, its pull request merged
 //!   with its commits, D13), what a start says of it (`landed_reason`), and the open pull requests of the branches a
 //!   merged Safe Push landed whole besides its own (`pull_requests_to_close`, D7)
+//! - `landed_island`: when the Landed island hides what the user saw: the sighting of a window with the focus (`seen`),
+//!   and the first successful sync at least 10 s after it, with that window focused, hides it (`hidden_by_sync`)
 //! - `landing_route`: the route of a repository into master (`route`: a robot of Patronus, a push into the target, a
 //!   merge of the pull request), named by `branchdeck.landing` or by the host, each with its gate of the write access
 //!   and the rules of the target; the branch whose rules the session reads for it (`rules_target`)
@@ -112,6 +114,7 @@ pub mod kept;
 pub mod land;
 pub mod land_direct;
 pub mod landed;
+pub mod landed_island;
 pub mod landing_needs;
 pub mod landing_node;
 pub mod landing_route;
@@ -162,6 +165,8 @@ mod kept_test;
 mod land_direct_test;
 #[cfg(test)]
 mod land_test;
+#[cfg(test)]
+mod landed_island_test;
 #[cfg(test)]
 mod landed_test;
 #[cfg(test)]

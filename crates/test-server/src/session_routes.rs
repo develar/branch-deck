@@ -207,6 +207,16 @@ impl SessionEnvironment for TestSessionEnvironment {
     page_ms.map_or_else(unix_now, |ms| u32::try_from(ms / 1000).unwrap_or(u32::MAX))
   }
 
+  /// The hide of the Landed island a sync decided, in the store of the test, as the app records it
+  /// (`app_api::session::landed::record_hide`)
+  fn hide_landed(&self, key: &SessionKey, epoch: &domain_types::worktree_epoch::WorktreeEpoch, landed_at: u64) {
+    if let Some(state) = self.state.upgrade()
+      && let Ok(repository) = state.repository(&key.worktree)
+    {
+      app_api::session::landed::record_hide(&repository.context, key, epoch, landed_at);
+    }
+  }
+
   /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as
   /// Settings does, never the config of the machine that runs the tests
   fn git(&self, key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {

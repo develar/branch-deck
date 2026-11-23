@@ -14,6 +14,7 @@ use crate::events::{activity_changed, settings_changed};
 use crate::operation::run_blocking;
 use crate::reads::review_prefetch::{prefetch_after_commit, read_ahead_requests};
 use crate::repository_state::RepositoryStateCache;
+use crate::session::landed::record_hide;
 use crate::transport::{AppEvents, AppHost, Desktop};
 use app_settings::linked_pull_requests::{forget, linked};
 use app_settings::projects::{record_sync, synced_before};
@@ -239,6 +240,11 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
       .duration_since(std::time::UNIX_EPOCH)
       .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
     record_synced(self.source.context(), key, epoch, at_ms, branch_count);
+  }
+
+  /// The hide of the Landed island a sync decided, in the settings (`landedHiddenUntil`, `record_hide`)
+  fn hide_landed(&self, key: &SessionKey, epoch: &WorktreeEpoch, landed_at: u64) {
+    record_hide(self.source.context(), key, epoch, landed_at);
   }
 }
 

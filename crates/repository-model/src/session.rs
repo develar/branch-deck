@@ -265,6 +265,13 @@ pub trait SessionHost: Send + Sync + 'static {
   fn unix_now(&self, _key: &SessionKey) -> u32 {
     unix_now()
   }
+
+  /// A successful sync of `key` hid the Landed island up to `landed_at` (Unix seconds,
+  /// `domain_policy::landed_island::hidden_by_sync`), the session opened under `epoch`: the app records it for the
+  /// worktree (`landedHiddenUntil`, `app_settings::projects::hide_landed`) only while the worktree holds `epoch`, as
+  /// each lease has its own report, and its windows hear it. Called on the actor of the session, so it must not block:
+  /// `runtime::GitSessionHost` writes it on the blocking pool. Nothing by default
+  fn hide_landed(&self, _key: &SessionKey, _epoch: &WorktreeEpoch, _landed_at: u64) {}
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that
@@ -603,6 +610,17 @@ impl Sessions {
     self.ask(key, |reply| Message::ReviewFetching { number, reply }).await;
   }
 
+  /// The windows of the subscriptions `windows` (those of one window, `app_api::session::windows::Windows`) show the
+  /// Landed island of the open session of `key` up to `landed_at` with the focus, on the view of the epoch `epoch`
+  /// (`Version.epoch`; a sighting on the view of another epoch is of no report the session shows): the session keeps the
+  /// sighting of each, and a successful sync after it hides what was seen (`domain_policy::landed_island`). Sent without
+  /// waiting
+  pub fn landed_seen(&self, key: &SessionKey, windows: Vec<SubscriptionId>, landed_at: u64, epoch: Option<u32>) {
+    if let Some(entry) = self.lock().get(key) {
+      let _ = entry.mailbox.send(Message::LandedSeen { windows, landed_at, epoch });
+    }
+  }
+
   /// The review fetch of the pull request `number` (of a stack its top) of the open session of `key` ended without a
   /// head: it failed, was stopped, or its operation went (`ReviewRequestsFact::fetch_ended`). The session drops it when
   /// no window shows the pull request, and the refs it wrote go with the next prune. Sent without waiting, so a drop can
@@ -740,18 +758,6 @@ impl Sessions {
     let (host, of) = (Arc::clone(&self.host), key.clone());
     Ok(LeaseGuard::while_held(move || lease_writes(&began, &host.epoch(&of))))
   }
-  /// The lease a write of the session of `key` asked on its view of the epoch `asked` is of (a hide of the Landed
-  /// island, `app_settings::projects::hide_landed`): the lease the session opened under (`lease_began`). `AnotherLease`
-  /// for a view of another epoch (the session opened anew since) and for a worktree that holds another known lease now
-  pub async fn lease_of_view(&self, key: &SessionKey, asked: Option<u32>) -> Result<WorktreeEpoch, AnotherLease> {
-    if let Some(asked) = asked
-      && self.view_version(key).await.is_some_and(|now| now.epoch != asked)
-    {
-      return Err(AnotherLease::Held);
-    }
-    self.lease_now(key).await
-  }
-
   /// The lease the operations of the session of `key` act under (`lease_began`): the one it opened under, the worktree
   /// holding the lease the host reads now
   async fn lease_now(&self, key: &SessionKey) -> Result<WorktreeEpoch, AnotherLease> {

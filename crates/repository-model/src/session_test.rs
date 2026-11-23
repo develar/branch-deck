@@ -6,7 +6,9 @@ use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
 use crate::runtime::{FRAME_INTERVAL, GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
-use crate::session::{IDLE_LIMIT, OneClock, Ran, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
+use crate::session::{
+  IDLE_LIMIT, OneClock, Ran, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId, SyncRun, SyncedTable,
+};
 use crate::state::{Joined, View};
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, run_sync, synced, unapplied};
 use crate::table::{RemoteSubject, TableState};
@@ -113,6 +115,8 @@ struct ScriptedHost {
   commits: Mutex<Vec<(String, String)>>,
   /// The numbers of the waiting requests each listing asked to read ahead (`SessionHost::review_requests_listed`)
   read_ahead: Mutex<Vec<Vec<u32>>>,
+  /// The lease and the time of each hide of the Landed island (`SessionHost::hide_landed`), in order
+  hidden: Mutex<Vec<(WorktreeEpoch, u64)>>,
 }
 
 /// What holds the derivations of the Patronus view of a `ScriptedHost` (`ScriptedHost::hold_views`)
@@ -313,6 +317,10 @@ impl SessionHost for ScriptedHost {
 
   fn unix_now(&self, _key: &SessionKey) -> u32 {
     CHECKED_AT
+  }
+
+  fn hide_landed(&self, _key: &SessionKey, epoch: &WorktreeEpoch, landed_at: u64) {
+    self.hidden.lock().unwrap().push((epoch.clone(), landed_at));
   }
 }
 
@@ -813,6 +821,10 @@ struct TestLeases {
   leased_again_in_run: Mutex<Option<WorktreeEpoch>>,
   /// The lease and the count of branches each record of a sync named (`SessionEnvironment::record_synced`), in order
   recorded: Mutex<Vec<(WorktreeEpoch, usize)>>,
+  /// The lease and the time each hide of the Landed island named (`SessionEnvironment::hide_landed`), in order, and a
+  /// notice of each
+  hidden: Mutex<Vec<(WorktreeEpoch, u64)>>,
+  hid: Notify,
   /// Where the next run waits in its setup until the test lets it go (`Gate`)
   run_gate: Mutex<Option<GateSide>>,
   /// Where the next read of whether the worktree was synced before (the read of a stamp) waits until the test lets it go
@@ -918,6 +930,11 @@ impl SessionEnvironment for TestEnvironment {
     self.leases.epoch.lock().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
+  fn hide_landed(&self, _key: &SessionKey, epoch: &WorktreeEpoch, landed_at: u64) {
+    self.leases.hidden.lock().unwrap_or_else(PoisonError::into_inner).push((epoch.clone(), landed_at));
+    self.leases.hid.notify_one();
+  }
+
   fn synced_before(&self, _key: &SessionKey) -> bool {
     let gate = self.leases.read_gate.lock().unwrap_or_else(PoisonError::into_inner).take();
     if let Some(gate) = gate {
@@ -1015,6 +1032,12 @@ async fn opened_under_lease_a() -> (TestRepo, SessionKey, Arc<TestLeases>, Sessi
 
 /// `opened_under_lease_a`, the slot under the epoch `epoch` as the session opens
 async fn opened_under(epoch: WorktreeEpoch) -> (TestRepo, SessionKey, Arc<TestLeases>, Sessions) {
+  let (repo, key, leases, sessions, _clock, _window) = opened_with_clock(epoch).await;
+  (repo, key, leases, sessions)
+}
+
+/// `opened_under`, with the clock of the sessions and the subscription of the window
+async fn opened_with_clock(epoch: WorktreeEpoch) -> (TestRepo, SessionKey, Arc<TestLeases>, Sessions, TestClock, SubscriptionId) {
   let repo = ahead_of_origin(&["(auth) Add auth"]);
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
@@ -1026,9 +1049,9 @@ async fn opened_under(epoch: WorktreeEpoch) -> (TestRepo, SessionKey, Arc<TestLe
     leases: Arc::clone(&leases),
     ..TestEnvironment::default()
   };
-  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
-  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
-  (repo, key, leases, sessions)
+  let (sessions, clock) = with_environment(GitCommandExecutor::new(), environment);
+  let (window, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  (repo, key, leases, sessions, clock, window)
 }
 
 /// A run writes the files of the lease of its worktree (the mark of a sync, the landed state) only under the lease its
@@ -1284,48 +1307,129 @@ async fn an_intent_of_a_session_that_knew_no_lease_opens_it_anew_once_the_run_in
   assert!(sessions.lease_guard(&key).await.is_ok(), "the next intent is of lease-a");
 }
 
-/// A hide of the Landed island asked on a view of the session before it opened anew for another lease of its slot (the
-/// island of the view of lease-a hides what it showed once the slot was leased again) is of no lease the session acts
-/// under: `lease_of_view` refuses it, so `hide_landed` writes nothing into the report of the new lease, while the same
-/// hide asked on the view of the new lease is of that lease
+/// The Landed island a window with the focus saw hides at the first successful sync of its session at least 10 s after
+/// (`domain_policy::landed_island::MIN_SEEN`) while that window has the focus: one hide for the repository under the
+/// lease the session opened under, which every window of it hears (`SessionHost::hide_landed`, `landedHiddenUntil`),
+/// also the window that never saw it. A sighting while the window has no focus as the sync ends hides nothing until a
+/// sync with the focus; one on the view of another epoch is of no report the session shows; a hide spends what it hid
 #[tokio::test]
-async fn a_hide_asked_on_the_view_before_a_reopen_is_of_no_lease() {
-  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
-  let before = sessions.view_version(&key).await.unwrap().epoch;
-  assert_eq!(sessions.lease_of_view(&key, Some(before)).await, Ok(lease("lease-a")));
-  *leases.epoch.lock().unwrap() = lease("lease-b");
-  assert_eq!(
-    outcome(sessions.sync(&key, SyncReason::Manual)).await,
-    Ok(SyncOutcome::Skipped),
-    "the run of the session of lease-a opens it anew"
-  );
-  let after = sessions.view_version(&key).await.unwrap().epoch;
-  assert_ne!(after, before, "the view of lease-b");
-  assert_eq!(
-    sessions.lease_of_view(&key, Some(before)).await,
-    Err(crate::session::AnotherLease::Held),
-    "the view of lease-a hides nothing of lease-b"
-  );
-  assert_eq!(sessions.lease_of_view(&key, Some(after)).await, Ok(lease("lease-b")));
+async fn the_island_a_focused_window_saw_hides_at_the_first_sync_ten_seconds_after_for_the_repository() {
+  let host = Arc::new(ScriptedHost::default());
+  *host.epoch.lock().unwrap() = lease("lease-a");
+  let (sessions, clock) = scripted(&host);
+  let key = key("/repo");
+  let (seer, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let (other, _) = sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let focus = |id, focused| sessions.set_demand(id, &Demand { focused, ..Demand::default() });
+  focus(seer, true);
+  focus(other, false);
+  let sync = || {
+    host.push(auth_built(), Ok(report(false, &[])));
+    outcome(sessions.sync(&key, SyncReason::Manual))
+  };
+  let hidden = || host.hidden.lock().unwrap().clone();
+
+  sessions.landed_seen(&key, vec![seer], 100, None);
+  // the sighting is at the time the session hears it: the clock moves after it
+  sessions.view_version(&key).await;
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden(), [], "the sync right after the sighting keeps the island");
+  clock.advance(Duration::from_secs(9));
+  sessions.landed_seen(&key, vec![seer], 100, None);
+  sessions.view_version(&key).await;
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden(), [], "9 s after it, though seen again");
+  clock.advance(Duration::from_secs(1));
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden(), [(lease("lease-a"), 100)], "10 s after it: one hide for the repository");
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden().len(), 1, "the hide spent the sighting");
+
+  sessions.landed_seen(&key, vec![seer], 200, None);
+  sessions.view_version(&key).await;
+  focus(seer, false);
+  clock.advance(Duration::from_secs(10));
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden().len(), 1, "the window that saw it has no focus as the sync ends");
+  focus(seer, true);
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden(), [(lease("lease-a"), 100), (lease("lease-a"), 200)], "a sync with the focus hides it");
+
+  let epoch = sessions.view_version(&key).await.unwrap().epoch;
+  sessions.landed_seen(&key, vec![seer, other], 300, Some(epoch + 1));
+  sessions.view_version(&key).await;
+  clock.advance(Duration::from_secs(10));
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden().len(), 2, "a sighting on the view of another epoch");
+  sessions.landed_seen(&key, vec![seer], 300, Some(epoch));
+  sessions.view_version(&key).await;
+  clock.advance(Duration::from_secs(10));
+  assert_eq!(sync().await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden().last(), Some(&(lease("lease-a"), 300)), "a sighting on the view the session shows");
 }
 
-/// A hide of the Landed island asked on the view of a session that knew no lease of its slot, once the slot reads one,
-/// is refused as of a lease the session did not know (`ReadAgain`: `hide_landed` hides nothing), and the session opens
-/// anew under that lease at once: the same hide asked on the view of the new session is of that lease, the one on the
-/// view before of none
+/// The hides the sessions wrote so far once one of them is `last`
+async fn hidden_until(leases: &TestLeases, last: (WorktreeEpoch, u64)) -> Vec<(WorktreeEpoch, u64)> {
+  tokio::time::timeout(UNHURRIED, async {
+    loop {
+      let notified = leases.hid.notified();
+      let hidden = leases.hidden.lock().unwrap().clone();
+      if hidden.contains(&last) {
+        return hidden;
+      }
+      notified.await;
+    }
+  })
+  .await
+  .expect("the hide is written")
+}
+
+/// The Landed island seen in the view of a session that knew no lease of its slot, which reads one by the next run: the
+/// run syncs nothing and the session opens anew under the lease read, and the island stays seen as it was, so the next
+/// sync hides what was seen under that lease (as the refused hide of the page asked again, `lease_read_again`). Of a
+/// session of another known lease, the sighting goes with its report: the session of the next lease hides only what its
+/// windows saw
 #[tokio::test]
-async fn a_hide_asked_on_the_view_of_a_session_that_knew_no_lease_is_of_the_lease_read_on_the_view_after() {
-  let (_repo, key, leases, sessions) = opened_under(WorktreeEpoch::Unknown).await;
-  let before = sessions.view_version(&key).await.unwrap().epoch;
+async fn the_island_seen_before_a_reopen_hides_under_the_lease_read_only_for_a_session_that_knew_none() {
+  let (_repo, key, leases, sessions, clock, window) = opened_with_clock(WorktreeEpoch::Unknown).await;
+  sessions.set_demand(
+    window,
+    &Demand {
+      focused: true,
+      ..Demand::default()
+    },
+  );
+  sessions.landed_seen(&key, vec![window], 100, None);
+  // the sighting is at the time the session hears it: the clock moves after it
+  sessions.view_version(&key).await;
+  clock.advance(Duration::from_secs(10));
   *leases.epoch.lock().unwrap() = lease("lease-a");
-  assert_eq!(sessions.lease_of_view(&key, Some(before)).await, Err(crate::session::AnotherLease::ReadAgain));
-  let after = sessions.view_version(&key).await.unwrap().epoch;
-  assert_ne!(after, before, "the session opened anew under lease-a");
-  assert_eq!(sessions.lease_of_view(&key, Some(after)).await, Ok(lease("lease-a")));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped), "the session opens anew");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(hidden_until(&leases, (lease("lease-a"), 100)).await, [(lease("lease-a"), 100)]);
+
+  let (_repo, key, leases, sessions, clock, window) = opened_with_clock(lease("lease-a")).await;
+  sessions.set_demand(
+    window,
+    &Demand {
+      focused: true,
+      ..Demand::default()
+    },
+  );
+  sessions.landed_seen(&key, vec![window], 100, None);
+  sessions.view_version(&key).await;
+  clock.advance(Duration::from_secs(10));
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped), "the session opens anew");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  sessions.landed_seen(&key, vec![window], 200, None);
+  sessions.view_version(&key).await;
+  clock.advance(Duration::from_secs(10));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
   assert_eq!(
-    sessions.lease_of_view(&key, Some(before)).await,
-    Err(crate::session::AnotherLease::Held),
-    "the view before hides nothing"
+    hidden_until(&leases, (lease("lease-b"), 200)).await,
+    [(lease("lease-b"), 200)],
+    "nothing of what was seen of lease-a"
   );
 }
 
@@ -1867,13 +1971,7 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
 }
 
 /// A window of the session of `/repo` whose host sends the `keep` of each prune of the review refs
-async fn pruned_window() -> (
-  Arc<ScriptedHost>,
-  tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>,
-  Sessions,
-  SessionKey,
-  crate::session::SubscriptionId,
-) {
+async fn pruned_window() -> (Arc<ScriptedHost>, tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>, Sessions, SessionKey, SubscriptionId) {
   let host = Arc::new(ScriptedHost::default());
   let (sent, prunes) = tokio::sync::mpsc::unbounded_channel();
   *host.prunes.lock().unwrap() = Some(sent);
@@ -2012,7 +2110,7 @@ async fn a_fetch_before_the_demand_of_its_window_keeps_its_refs_at_a_listing_tha
 }
 
 /// The session of `/repo` with the review request #8 listed, and a window of its own, whose review windows it shows
-async fn listed_eight(sessions: &Sessions, repo: &SessionKey, prunes: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>) -> crate::session::SubscriptionId {
+async fn listed_eight(sessions: &Sessions, repo: &SessionKey, prunes: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<u32>>) -> SubscriptionId {
   use crate::review_request_facts::review_request_facts_test::available;
   use domain_types::fixtures::review_request;
   let ticket = sessions.begin(repo).await.unwrap();
@@ -3166,7 +3264,7 @@ async fn a_stamp_under_another_lease_opens_the_session_anew_for_that_lease() {
 
 /// A window subscribes to the session of `key` and asks a manual sync, whose run started when this answers: the window's
 /// subscription, the view it got and the ticket of the sync
-async fn a_run_in_flight(sessions: &Sessions, host: &ScriptedHost, key: &SessionKey) -> (crate::session::SubscriptionId, RepositoryView, SyncTicket) {
+async fn a_run_in_flight(sessions: &Sessions, host: &ScriptedHost, key: &SessionKey) -> (SubscriptionId, RepositoryView, SyncTicket) {
   let (id, view) = sessions.subscribe(key, Box::new(Window::default())).await.unwrap();
   let manual = sessions.sync(key, SyncReason::Manual);
   while host.runs() == 0 {
