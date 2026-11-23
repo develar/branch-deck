@@ -1,4 +1,4 @@
-//! The adapters' crate: what the app (`src-tauri`), the e2e server (`test-server`) and `brd mcp` of an IDE (`mcp-host`)
+//! The adapters' crate: what the app (`src-tauri`), the e2e server (`test-server`) and `brd mcp` of an IDE (`ide-host`)
 //! share between a command and the cores, so all answer the same. Only those three depend on it, and it reaches no
 //! Tauri (`architecture_test.rs` of `bd-cli`) (docs/design/rust-domain-authority.md, s12-app-api).
 //!

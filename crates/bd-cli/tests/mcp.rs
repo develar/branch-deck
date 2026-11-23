@@ -1,5 +1,5 @@
 //! The process test of `brd mcp` (openspec/specs/repository/ide-embedding/spec.md): the binary on its real stdin and
-//! stdout, as the IDE runs it, in a temporary home. `process_test.rs` of mcp-host serves on pipes in memory, so it does
+//! stdout, as the IDE runs it, in a temporary home. `process_test.rs` of ide-host serves on pipes in memory, so it does
 //! not see what only the stdout of the process does
 #![cfg(unix)]
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]

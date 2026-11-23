@@ -3,7 +3,7 @@
  * plays the host page and `air-ide` of the contract (docs/design/ide-embedding/protocol/README.md). Each view is a frame
  * of the Air build (`dist-air/`) at the origin of the app, served by the routes of the test; the frame link is the
  * `AppBridge` of MCP Apps with the extension `x-air-app`, and the app link is the WebSocket of the test server, where
- * `brd mcp` of the fixture repository answers (`mcp-host`). What a test checks is in `window.__airHost`.
+ * `brd mcp` of the fixture repository answers (`ide-host`). What a test checks is in `window.__airHost`.
  *
  * It keeps the rules of the page connection of Air (docs/design/ide-embedding/protocol/, `air-apps-host`): each frame is
  * one connection, which holds one view, and a subscribe with the params of that view is its subscription, `held`; each

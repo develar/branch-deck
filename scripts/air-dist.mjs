@@ -1,8 +1,8 @@
 // The builds of the Air page (`vite build --mode air`, docs/design/ide-embedding.md), which the build script of
-// crates/mcp-host copies into `brd mcp` (`crates/mcp-host/build/air_build.rs`). Each build goes into a directory of
+// crates/ide-host copies into `brd mcp` (`crates/ide-host/build/air_build.rs`). Each build goes into a directory of
 // its own under `target/dist-air.builds/`, written once; `dist-air` is a link to the newest, replaced by one rename of a
 // new link (on Windows a junction, removed first), so a cargo build beside a build of the page never reads half a
-// build; every publish touches `crates/mcp-host/air-build.stamp`, on which that build script reruns.
+// build; every publish touches `crates/ide-host/air-build.stamp`, on which that build script reruns.
 import { existsSync, lstatSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync } from "node:fs"
 import { join, relative } from "node:path"
 
@@ -12,14 +12,14 @@ export const AIR_BUILDS = join("target", "dist-air.builds")
 const LINK_PREFIX = "link-"
 /**
  * How old a link of a publish may be: one older is of a publish that stopped between its two steps, which the next
- * publish removes, and which the build script of mcp-host waits for no more (`STALE_PUBLISH_LINK` of
- * `crates/mcp-host/build/air_build.rs`, the same)
+ * publish removes, and which the build script of ide-host waits for no more (`STALE_PUBLISH_LINK` of
+ * `crates/ide-host/build/air_build.rs`, the same)
  */
 const STALE_LINK_MS = 60_000
 /** A directory `dist-air` of a build in place, moved aside by the first publish */
 const LEGACY_PREFIX = "legacy-"
-/** The stamp the build script of mcp-host reruns on, below the root of the repository */
-const STAMP = join("crates", "mcp-host", "air-build.stamp")
+/** The stamp the build script of ide-host reruns on, below the root of the repository */
+const STAMP = join("crates", "ide-host", "air-build.stamp")
 
 /** The directory a new build of the page goes into: named by its time and process, so the names sort as they came */
 export function nextAirBuild(root) {

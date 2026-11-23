@@ -1,4 +1,4 @@
-//! `brd mcp` on a WebSocket of the e2e server (`GET /repositories/{id}/mcp`): the connection of `mcp-host`, one JSON-RPC
+//! `brd mcp` on a WebSocket of the e2e server (`GET /repositories/{id}/mcp`): the connection of `ide-host`, one JSON-RPC
 //! message per text frame, served in an `AppContext` of the test repository (its fakes, its settings, the sessions of
 //! the server) with the events and the desktop of the connection, as `brd mcp` serves it on its stdio. The fake host of
 //! the E2E tests of the page in Air (a Playwright page that plays the host page and air-ide) talks to it; the tests of
@@ -11,7 +11,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use mcp_host::server::Connection;
+use ide_host::server::Connection;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::Instrument;

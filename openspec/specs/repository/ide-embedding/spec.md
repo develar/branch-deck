@@ -18,13 +18,13 @@ targets:
   - crates/domain-types/src/title_bar.rs
   - src/platform/air/title-bar.ts
   - crates/app-api/src/dispatch.rs
-  - crates/mcp-host/src/server.rs
-  - crates/mcp-host/src/mirror.rs
-  - crates/mcp-host/src/hosts.rs
-  - crates/mcp-host/src/resources.rs
-  - crates/mcp-host/src/notices.rs
-  - crates/mcp-host/src/process.rs
-  - crates/mcp-host/src/projects.rs
+  - crates/ide-host/src/server.rs
+  - crates/ide-host/src/mirror.rs
+  - crates/ide-host/src/hosts.rs
+  - crates/ide-host/src/resources.rs
+  - crates/ide-host/src/notices.rs
+  - crates/ide-host/src/process.rs
+  - crates/ide-host/src/projects.rs
   - crates/app-settings/src/ide_roots.rs
   - crates/test-server/src/mcp_socket.rs
   - crates/bd-cli/src/install.rs
@@ -109,7 +109,7 @@ same as the desktop app and `brd`.
 #### Scenario: A setting of the desktop app
 - **WHEN** the desktop app saved a setting, and `brd mcp` starts
 - **THEN** `bd_bootstrap` gives that setting
-  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: `brd mcp`: The page of each view is a resource built into the binary
 
@@ -119,7 +119,7 @@ file of the Air build is `ui://branch-deck/<path>`, and another URI gets `-32602
 #### Scenario: The main page and a missing file
 - **WHEN** air-ide reads `ui://branch-deck/main` and then `ui://branch-deck/nothing.js`
 - **THEN** it gets the HTML of the page, and then `-32602 {reason: "badParams"}`
-  [@test] crates/mcp-host/src/resources_test.rs (`a_view_is_the_page_and_a_missing_file_is_none`)
+  [@test] crates/ide-host/src/resources_test.rs (`a_view_is_the_page_and_a_missing_file_is_none`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: `brd mcp`: The end of stdin ends brd mcp
@@ -129,7 +129,7 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: The IDE closes the project
 - **WHEN** the stdin of `brd mcp` ends
 - **THEN** the process exits with 0
-  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
   [@test] crates/bd-cli/tests/mcp.rs (`brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin`)
 
 ### Requirement: Tools: Every tool of brd mcp is only for the app
@@ -141,7 +141,7 @@ At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
 #### Scenario: The list
 - **WHEN** air-ide sends `tools/list`
 - **THEN** it gets the five tools, each only for the app
-  [@test] crates/mcp-host/src/server_test.rs (`every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool`)
+  [@test] crates/ide-host/src/server_test.rs (`every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: bd_invoke runs one command of app-api by its name
@@ -209,7 +209,7 @@ gives no code the code of JSON-RPC (`badParams` and `unknownAction` `-32602`, `p
 - **THEN** brd answers `-32601 {reason: "unknownTool"}` and runs no command
 - **AND** an unknown method, a call of an agent, an intent of the mirror, a missing resource, a subscription without a
   repository and a line that is no JSON get the code of their reason by the contract
-  [@test] crates/mcp-host/src/server_test.rs (`every_refusal_of_brd_has_the_code_the_contract_gives_its_reason`)
+  [@test] crates/ide-host/src/server_test.rs (`every_refusal_of_brd_has_the_code_the_contract_gives_its_reason`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: A cancel stops a read and lets a write end
@@ -265,14 +265,14 @@ dialog (`folderDialog: false`) and with a text of the progress in the title of t
 #### Scenario: The settings of the desktop app
 - **WHEN** the settings window bootstraps after the desktop app saved a setting
 - **THEN** `settings.values` holds the setting
-  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 #### Scenario: A window whose row is in the title bar of the IDE
 - **GIVEN** the host context of the Settings window names `{kind: "overlay", height: 40, insetStart: 80}`
 - **WHEN** its page calls `bd_bootstrap` with that title bar
 - **THEN** the title bar is `{kind: "overlay", doubleClick: "host", height: 40}` with the same flags
 - **AND** a place whose host context names no title bar gets `native`
-  [@test] crates/mcp-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: View: subscribe_view is the mirror of the repository
 
@@ -284,7 +284,7 @@ mirror.
 - **WHEN** air-ide subscribes `main:1` to a repository
 - **THEN** the answer names the path of the repository and holds the view
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] crates/mcp-host/src/mirror_test.rs (`the_state_is_the_view_with_its_version`)
+  [@test] crates/ide-host/src/mirror_test.rs (`the_state_is_the_view_with_its_version`)
 
 ### Requirement: View: Each patch of the session is one change of the mirror
 
@@ -294,7 +294,7 @@ key, every other part is replaced whole, and the part `version` is set last to t
 #### Scenario: A renamed branch
 - **WHEN** a sync renames the branch `a` to `b`
 - **THEN** one change sets `branches/b`, removes `branches/a`, replaces `order` and sets `version`
-  [@test] crates/mcp-host/src/mirror_test.rs (`a_renamed_branch_sets_the_new_key_removes_the_old_and_replaces_the_order`)
+  [@test] crates/ide-host/src/mirror_test.rs (`a_renamed_branch_sets_the_new_key_removes_the_old_and_replaces_the_order`)
 
 #### Scenario: The news
 - **WHEN** a patch carries news
@@ -343,7 +343,7 @@ only its own demand with it.
 #### Scenario: The main view and a review
 - **WHEN** a review sets its demand and the main view then sends its demand of the branches
 - **THEN** the session reads what both ask; once the review leaves, only what the main view asks
-  [@test] crates/mcp-host/src/server_test.rs (`the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views`)
+  [@test] crates/ide-host/src/server_test.rs (`the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views`)
 
 ### Requirement: View: A change of the prefix moves the mirror to the session of the new prefix
 
@@ -357,7 +357,7 @@ its `version` of another epoch, before the answer, and no patch of the old sessi
 - **THEN** one change of every part moves the mirror to the session of the new prefix before the answer, and the main
   view shows its branches without an end of the mirror
   [@test] crates/test-server/src/mcp_corpus_test.rs (`a_change_of_the_prefix_moves_the_mirror_to_the_session_of_the_new_prefix`)
-  [@test] crates/mcp-host/src/mirror_test.rs (`every_part_replaces_the_state_with_the_view_and_its_version_last`)
+  [@test] crates/ide-host/src/mirror_test.rs (`every_part_replaces_the_state_with_the_view_and_its_version_last`)
   [@test] tests/e2e/air/air-page.spec.ts (`a prefix set in a terminal that a sync finds moves the main view to the session of the new prefix: the frame keeps its one view, which brd moves before it answers the subscription again`)
 
 ### Requirement: View: A patch into another epoch moves the mirror to the session of now
@@ -373,7 +373,7 @@ no view MUST end the mirror with `sessionClosed`.
 - **THEN** one change of every part moves the mirror to the view of the new lease, none of the rows of the lease before,
   the main view shows the new lease with no row of the lease before selected, and the mirror holds the view of the
   session, without an end of the mirror
-  [@test] crates/mcp-host/src/server_test.rs (`a_patch_into_another_epoch_asks_the_server_to_read_the_view_anew`)
+  [@test] crates/ide-host/src/server_test.rs (`a_patch_into_another_epoch_asks_the_server_to_read_the_view_anew`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`a_slot_leased_again_moves_the_mirror_to_the_view_of_the_new_lease`)
   [@test] tests/e2e/air/air-page.spec.ts (`a slot of a lease pool the main view shows that an agent leased again moves the mirror to the view of the new lease: none of its rows is selected as the row of the same name of the lease before was, and the view subscribed once`)
 
@@ -431,8 +431,8 @@ the branch the robot tested (the root of a whole stack). While the main view sho
 - **WHEN** a Safe Push fails while the tool window is hidden
 - **THEN** the IDE shows a notification whose action opens the branch
   [@test] tests/e2e/air/air-page.spec.ts (`a Safe Push that fails while the tool window is hidden is a notification of the IDE, whose action shows the branch in the tool window`)
-  [@test] crates/mcp-host/src/server_test.rs (`a_failed_robot_of_a_patch_is_a_notification_of_the_ide_after_the_change_of_the_mirror`)
-  [@test] crates/mcp-host/src/notices_test.rs (`a_failed_robot_is_a_notification_whose_action_reveals_its_branch`)
+  [@test] crates/ide-host/src/server_test.rs (`a_failed_robot_of_a_patch_is_a_notification_of_the_ide_after_the_change_of_the_mirror`)
+  [@test] crates/ide-host/src/notices_test.rs (`a_failed_robot_is_a_notification_whose_action_reveals_its_branch`)
 
 ### Requirement: Windows: The notification of the page names its news
 
@@ -444,7 +444,7 @@ and it opens the branch.
 - **WHEN** the page notifies the failure as its frame loses the focus
 - **THEN** the IDE shows no second notification of a failure brd told, and the notification of one brd did not tell
   opens the branch too; with "Safe Push failures" off brd tells none
-  [@test] crates/mcp-host/src/notices_test.rs (`brd_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown`)
+  [@test] crates/ide-host/src/notices_test.rs (`brd_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown`)
   [@test] src/platform/air/shim.test.ts (`The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing`)
 
 ### Requirement: Windows: Show in Branch Deck reveals the branch in the main view
@@ -488,14 +488,14 @@ follows, Update or Fetch of a running Update Project. A progress without an esti
 - **THEN** brd asks `setProgress {view: "main", fraction: 0.37, text: "Safe Push"}`, and the title of the tool window
   reads "Branch Deck: Safe Push 37%"
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] crates/mcp-host/src/server_test.rs (`the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs`)
+  [@test] crates/ide-host/src/server_test.rs (`the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs`)
   [@test] src/lib/dock-text.test.ts (`names what runs before the percent, a progress without an estimate by its text alone, and clears without a text`)
 
 #### Scenario: A Dry Run without an estimate
 - **WHEN** the Dock follows a Dry Run that has no estimate left
 - **THEN** brd asks `setProgress {view: "main", text: "Dry Run"}` without `fraction`
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] crates/mcp-host/src/server_test.rs (`the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs`)
+  [@test] crates/ide-host/src/server_test.rs (`the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs`)
   [@test] src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing with its kind, indeterminate without an estimate, nothing while none runs`)
 
 ### Requirement: Windows: A plugin call of the page is the desktop of the IDE
@@ -543,12 +543,12 @@ path of a root MUST have no trailing separator but the root of a file system, as
 - **THEN** the main view shows the first one until the user picks the other, and its selector lists both
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_main_view_shows_the_root_picked_last_for_the_roots_of_its_project`)
   [@test] tests/e2e/air/air-page.spec.ts (`the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project`)
-  [@test] crates/mcp-host/src/projects_test.rs (`the_main_view_shows_the_root_picked_last_else_the_one_it_shows_else_the_first`)
+  [@test] crates/ide-host/src/projects_test.rs (`the_main_view_shows_the_root_picked_last_else_the_one_it_shows_else_the_first`)
 
 #### Scenario: The URI of a directory
 - **WHEN** `roots/list` names `file:///x/repo/`, as the IDE writes the URI of a directory
 - **THEN** the repository is `/x/repo`, the path whose session the desktop app opens; `file:///` stays `/`
-  [@test] crates/mcp-host/src/server_test.rs (`the_path_of_a_root_has_no_trailing_separator`)
+  [@test] crates/ide-host/src/server_test.rs (`the_path_of_a_root_has_no_trailing_separator`)
 
 #### Scenario: A project with one root
 - **WHEN** the project has one Git root
@@ -579,7 +579,7 @@ stays.
 - **WHEN** the user picks another root in the IDE while the desktop app shows a repository
 - **THEN** the desktop app keeps the repository it shows
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_main_view_shows_the_root_picked_last_for_the_roots_of_its_project`)
-  [@test] crates/mcp-host/src/projects_test.rs (`the_views_see_the_roots_as_the_recent_projects_and_a_write_keeps_the_order_of_the_desktop_app`)
+  [@test] crates/ide-host/src/projects_test.rs (`the_views_see_the_roots_as_the_recent_projects_and_a_write_keeps_the_order_of_the_desktop_app`)
 
 ### Requirement: Repositories: A change of the roots tells the main view
 
@@ -599,7 +599,7 @@ not offered, because the roots name the repositories.
 #### Scenario: A check for updates
 - **WHEN** the page asks for an update in the IDE
 - **THEN** brd does nothing, because the app updates with the desktop app
-  [@test] crates/mcp-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
 
 ### Requirement: Hosts: The page in the IDE offers no folder dialog
 
@@ -611,7 +611,7 @@ repositories or in the command palette, and no Add Companion… on Settings → 
 - **WHEN** the IDE shows the main view
 - **THEN** its repository shows without the folder button beside it, and the command palette offers no Open
   Repository…
-  [@test] crates/mcp-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
   [@test] tests/e2e/air/air-page.spec.ts (`the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the one root of the project is the text of the repository, without the menu of a selector`)
   [@test] src/lib/command-palette.test.ts (`offers no Open Repository… where the host has no folder dialog`)
 
@@ -624,7 +624,7 @@ on Agents or in the hint of the agents; it only words the status.
 #### Scenario: Settings → Tools in the IDE
 - **WHEN** the user opens Settings → Tools in the IDE
 - **THEN** it shows the command-line tools without `brd` and IntelliJ IDEA
-  [@test] crates/mcp-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
   [@test] tests/e2e/air/air-page.spec.ts (`Settings → Tools in the IDE shows the command-line tools but no install of brd or of IntelliJ IDEA, which the desktop app installs`)
 
 ### Requirement: Page: The page in the IDE is the page of the desktop app

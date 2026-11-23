@@ -37,7 +37,7 @@ export function themeFor(theme: HostContextTheme, styles: AppStyles): HostContex
 }
 
 /**
- * The WebSocket of the app link on the test server: `brd mcp` (`mcp-host`) on the fixture repository `repoId`, as the
+ * The WebSocket of the app link on the test server: `brd mcp` (`ide-host`) on the fixture repository `repoId`, as the
  * IDE starts it for a project
  */
 export function appLinkUrl(repoId: string): string {

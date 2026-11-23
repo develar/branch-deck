@@ -74,7 +74,7 @@ function preloadInterFont(): Plugin {
  * with the entry `src/air-main.ts`. Its files stay separate (the lazy chunks, the highlight worker): `brd mcp` serves
  * each as the resource `ui://branch-deck/<path>`, `index.html` the page of every view. Each build goes into a directory
  * of its own, which `dist-air` names once it is finished (`scripts/air-dist.mjs`), so a cargo build beside it copies
- * one whole build into `brd mcp` (`crates/mcp-host/build/air_build.rs`); a failed build is never published
+ * one whole build into `brd mcp` (`crates/ide-host/build/air_build.rs`); a failed build is never published
  */
 function airBuild(): Plugin {
   let air = false

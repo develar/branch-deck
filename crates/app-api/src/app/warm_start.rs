@@ -4,7 +4,7 @@
 //! resolves (`AppContext::session_key_now`: the prefix the git config names now, one `git config`), the session of that
 //! key is opened seeded from the frame (`Sessions::open_seeded`), and its seed, the view of the frame, is what the page
 //! shows on its first frame (`CachedModel`): the app hands it in the init script of its main window
-//! (`src-tauri/src/warm_start.rs`), `brd mcp` in the answer of `bd_bootstrap` (`crates/mcp-host`). No frame, a frame of
+//! (`src-tauri/src/warm_start.rs`), `brd mcp` in the answer of `bd_bootstrap` (`crates/ide-host`). No frame, a frame of
 //! another prefix (saved before the prefix changed) or schema, a repository whose git directory the files don't name,
 //! no prefix or no git: no model, the page starts as without a cache.
 

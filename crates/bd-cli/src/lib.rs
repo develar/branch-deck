@@ -310,13 +310,13 @@ pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
     Ok(invocation) => invocation,
     Err(exit_code) => return exit_code,
   };
-  // the process of an IDE: no JSON object on stdout, its log on stderr (`mcp_host::process`)
+  // the process of an IDE: no JSON object on stdout, its log on stderr (`ide_host::process`)
   if matches!(invocation.cli.command, Command::Mcp) {
     init_logging(invocation.cli.verbose, "warn");
     // tokio writes the stdout on a thread of its blocking pool, and the lock of the stdout lets in only the thread that
     // holds it: held here, the first answer waits for it forever
     drop(stdout);
-    return mcp_host::process::run();
+    return ide_host::process::run();
   }
   init_logging(invocation.cli.verbose, "off");
   execute_operation(&invocation, &environment, out)

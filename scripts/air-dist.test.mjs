@@ -5,11 +5,11 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { AIR_BUILDS, nextAirBuild, publishAirBuild } from "./air-dist.mjs"
 
-/** A checkout with the stamp of mcp-host, its time an hour ago */
+/** A checkout with the stamp of ide-host, its time an hour ago */
 function checkout() {
   const root = mkdtempSync(join(tmpdir(), "air-dist-"))
-  mkdirSync(join(root, "crates", "mcp-host"), { recursive: true })
-  const stamp = join(root, "crates", "mcp-host", "air-build.stamp")
+  mkdirSync(join(root, "crates", "ide-host"), { recursive: true })
+  const stamp = join(root, "crates", "ide-host", "air-build.stamp")
   writeFileSync(stamp, "")
   const hourAgo = new Date(Date.now() - 3_600_000)
   utimesSync(stamp, hourAgo, hourAgo)
@@ -24,7 +24,7 @@ function build(root, name) {
   return dir
 }
 
-test("a publish makes dist-air the link to the build and touches the stamp the build script of mcp-host reruns on", () => {
+test("a publish makes dist-air the link to the build and touches the stamp the build script of ide-host reruns on", () => {
   const { root, stamp } = checkout()
   const first = build(root, "000000000000001-1")
   const before = statSync(stamp).mtimeMs

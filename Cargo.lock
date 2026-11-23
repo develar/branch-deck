@@ -603,9 +603,9 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "ide-host",
  "lease-pool",
  "line-diff",
- "mcp-host",
  "object-cache",
  "operations",
  "patronus",
@@ -3526,6 +3526,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "913a7d294ad056474749152107309fdee3ec17d2482d1ab70fdc61a81c64b9a3"
 
 [[package]]
+name = "ide-host"
+version = "0.1.0"
+dependencies = [
+ "app-api",
+ "app-settings",
+ "base64 0.23.1",
+ "dirs",
+ "domain-types",
+ "file-diffs",
+ "git-executor",
+ "operations",
+ "pretty_assertions",
+ "remote-facts",
+ "repository-model",
+ "serde",
+ "serde_json",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4228,30 +4252,6 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
-
-[[package]]
-name = "mcp-host"
-version = "0.1.0"
-dependencies = [
- "app-api",
- "app-settings",
- "base64 0.23.1",
- "dirs",
- "domain-types",
- "file-diffs",
- "git-executor",
- "operations",
- "pretty_assertions",
- "remote-facts",
- "repository-model",
- "serde",
- "serde_json",
- "sync-core",
- "sync-utils",
- "tempfile",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "memchr"
@@ -7972,8 +7972,8 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "ide-host",
  "lease-pool",
- "mcp-host",
  "object-cache",
  "operations",
  "patronus",

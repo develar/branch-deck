@@ -1,5 +1,5 @@
 //! The services of a process of the app that runs on the user's machine: the Tauri app (`src-tauri/src/services.rs`)
-//! and `brd mcp` of an IDE (`crates/mcp-host`), the same for both, so the two answer alike on the same data. The
+//! and `brd mcp` of an IDE (`crates/ide-host`), the same for both, so the two answer alike on the same data. The
 //! sessions and what they run with: the syncs of a session take git, the issue links and the object cache of the
 //! repository, the git config read for the sync and the settings (`AppEnvironment`); the reads of their facts, the
 //! effects of the engine, its rewrites and the commands of app-api go to the services of the process (`AppServices`),

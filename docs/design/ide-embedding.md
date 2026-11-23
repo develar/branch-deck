@@ -135,7 +135,7 @@ sequenceDiagram
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
    schemas and the golden corpus of idea-1 byte for byte (the formatter of the page leaves the directory alone) plus
-   `branch-deck-app.ndjson`, the app link as `brd mcp` writes it, which the tests of `mcp-host` run.
+   `branch-deck-app.ndjson`, the app link as `brd mcp` writes it, which the tests of `ide-host` run.
 
 ### Implementation notes
 
@@ -147,7 +147,7 @@ sequenceDiagram
   `AppContext`; the Tauri shell gives them the state it manages (`src-tauri/src/services.rs`), `brd mcp` the context it
   built. The seed of the main view from the frame of its session is `app_api::app::warm_start::seed`, which the init
   script of the app and `bd_bootstrap` both take.
-- `crates/mcp-host` (`brd mcp`, `branch-deck cli mcp`; on Windows `brd.exe mcp`): `server.rs` the connection and its
+- `crates/ide-host` (`brd mcp`, `branch-deck cli mcp`; on Windows `brd.exe mcp`): `server.rs` the connection and its
   methods, `mirror.rs` the patch as one change, `hosts.rs` the hosts of app-api, `notices.rs` the notifications of the
   IDE, `link.rs` the one ordered queue of
   what brd writes, `resources.rs` the files of `dist-air/` built into the binary by `build.rs` (a stub page without
@@ -251,10 +251,10 @@ sequenceDiagram
   (no blob worker: the CSP of SEP-1865 refuses it). Each build goes into a directory of its own,
   `target/dist-air.builds/<time>-<pid>/`, and `dist-air` becomes a link to it once it is finished, by one rename of a
   new link (on Windows a junction, removed first; `scripts/air-dist.mjs`, called by the plugin `airBuild` of
-  vite.config.ts); the last two builds before it stay. The build script of `mcp-host` resolves the link once and copies
-  that build into `OUT_DIR`, whose copies rustc reads (`crates/mcp-host/build/air_build.rs`): a cargo build beside a
+  vite.config.ts); the last two builds before it stay. The build script of `ide-host` resolves the link once and copies
+  that build into `OUT_DIR`, whose copies rustc reads (`crates/ide-host/build/air_build.rs`): a cargo build beside a
   build of the page (the global setup of the e2e tests beside nextest or clippy) never reads half a build ("couldn't
-  read dist-air/assets/…"). Each publish touches `crates/mcp-host/air-build.stamp`, on which the build script reruns,
+  read dist-air/assets/…"). Each publish touches `crates/ide-host/air-build.stamp`, on which the build script reruns,
   so a build that came after a cargo build found none is copied by the next one. The link of a publish that stopped
   between its two steps (`target/dist-air.builds/link-<pid>-<time>`) counts as a publish for a minute, which the build
   script waits for, then as none; the next publish removes it, and a copy that fails names `pnpm build:air`.

@@ -14,7 +14,7 @@ import { expectClosed } from "../helpers/wait-helpers"
 
 /*
  * The Air build in a fake IDE (`tests/e2e/air-host/`): the frame of each view loads `dist-air/`, the host page relays the
- * frame link of MCP Apps with `x-air-app` to `brd mcp` of the test server (`mcp-host`) over its WebSocket. No mock of
+ * frame link of MCP Apps with `x-air-app` to `brd mcp` of the test server (`ide-host`) over its WebSocket. No mock of
  * Tauri: the page runs on its shim (`src/platform/air/`). The fake IDE keeps the rules of the page connection of Air (one
  * view for each frame, the calls that wait), and every test ends with none of its calls refused
  */

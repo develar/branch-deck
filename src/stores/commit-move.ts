@@ -7,7 +7,7 @@ import { onRowsForgotten } from "@/stores/view-rows"
 
 /**
  * The event that reveals a branch in the main view of the IDE (`useRevealBranchEvent`): `brd mcp` tells it for Show in
- * Branch Deck of a notification (`REVEAL_BRANCH_EVENT` of `crates/mcp-host/src/notices.rs`)
+ * Branch Deck of a notification (`REVEAL_BRANCH_EVENT` of `crates/ide-host/src/notices.rs`)
  */
 export const REVEAL_BRANCH_EVENT = "reveal-branch"
 

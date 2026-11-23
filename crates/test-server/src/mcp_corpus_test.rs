@@ -1,5 +1,5 @@
 //! The app link of `brd mcp` (openspec/specs/repository/ide-embedding/spec.md): the corpus of the app side,
-//! `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson`, against `mcp-host` on the fixtures of the e2e
+//! `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson`, against `ide-host` on the fixtures of the e2e
 //! server, and the requirements of the spec the corpus does not pin. The runner plays air-ide: it sends each line of
 //! `air-ide` (its `${any}` arguments of a command filled from the fixture) and checks each line of `app` in order:
 //! `${any}` matches any value, `${repo}` is the path of the test repository. A line of the app that is a notification
@@ -10,7 +10,7 @@
 use crate::mcp_socket::context_of_connection;
 use crate::test_support::{create_repository, head, start_test_server_with_state};
 use domain_types::session::{SyncOutcome, SyncReason};
-use mcp_host::server::Connection;
+use ide_host::server::Connection;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::time::Duration;

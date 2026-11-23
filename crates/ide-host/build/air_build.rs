@@ -1,4 +1,4 @@
-//! The Air build of the page as the build script of mcp-host reads it (`build.rs`), a module of its own so that its
+//! The Air build of the page as the build script of ide-host reads it (`build.rs`), a module of its own so that its
 //! test (`src/air_build_test.rs`) runs it against builds replaced while it reads them.
 //!
 //! Each build of the page (`vite build --mode air`, the plugin `airBuild` of vite.config.ts) goes into a directory of

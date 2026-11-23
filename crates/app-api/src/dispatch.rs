@@ -1,5 +1,5 @@
 //! A command of the registry by its name, with its arguments and its channel as JSON: what a host that gets a command
-//! as a message runs (the e2e server, `crates/test-server/src/invoke.rs`; `brd mcp`, `crates/mcp-host`), over
+//! as a message runs (the e2e server, `crates/test-server/src/invoke.rs`; `brd mcp`, `crates/ide-host`), over
 //! `for_each_command!`, so no host keeps a list of its own. The app does not use it: Tauri calls the typed wrapper of
 //! each command (`src-tauri/src/api.rs`).
 //!
