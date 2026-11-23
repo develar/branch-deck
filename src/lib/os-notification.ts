@@ -1,5 +1,7 @@
 import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window"
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
+import type { NewsClaim } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
@@ -22,12 +24,14 @@ const kindSwitches: Readonly<Record<NotificationKind, AppSettingsSwitch>> = {
 /**
  * What an OS notification says; `news` names the news of a session it tells, which the host of the page in the IDE
  * (`brd mcp`) knows: it gives the notification the action that opens its object, or leaves it out when it told the
- * news itself (openspec/specs/repository/ide-embedding/spec.md)
+ * news itself (openspec/specs/repository/ide-embedding/spec.md). `claim` is what the news tells, which the window claims
+ * of the backend before it tells it, so the app and the IDE on one repository tell it once
+ * (openspec/specs/repository/backend-protocol/spec.md)
  */
 export interface OsNotification {
   readonly title: string
   readonly body: string
-  readonly news?: { readonly repositoryPath: string; readonly id: number }
+  readonly news?: { readonly repositoryPath: string; readonly id: number; readonly claim: NewsClaim }
 }
 
 /** The permission of the app to show OS notifications: never asked, refused in the system settings, or granted */
@@ -123,12 +127,21 @@ async function notifyOs(kind: NotificationKind, { title, body, news }: OsNotific
         permissionGranted = (await requestPermission()) === "granted"
       }
     }
-    if (permissionGranted) {
+    if (permissionGranted && (news === undefined || (await claimNews(news.repositoryPath, news.claim)))) {
       sendNotification({ title, body, ...(news !== undefined && { extra: { repositoryPath: news.repositoryPath, news: news.id } }) })
     }
   } catch {
     // no notification plugin (the E2E mock), or the OS refused
   }
+}
+
+/**
+ * Whether this window tells the news `claim` of `repositoryPath`: the first claim of the backend, of the app or of the
+ * IDE; a claim that failed tells it, as before the backend was one
+ */
+async function claimNews(repositoryPath: string, claim: NewsClaim): Promise<boolean> {
+  const result = await commands.claimNews({ repositoryPath, news: claim })
+  return result.status === "error" || result.data
 }
 
 /** Asks the OS whether the app may notify, for Settings and after a refusal; "notAsked" when the OS can't say */

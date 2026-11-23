@@ -1,7 +1,8 @@
 //! What a host hands a command besides its arguments, and what a command tells the host: the call of a window
 //! ([`Call`], the window and the page it shows when the command came), the channel the page hears the events of a
-//! command on ([`EventSink`]: a Tauri channel in the app, `ChannelSink` of `src-tauri/src/api.rs`; the SSE stream of the
-//! request in the e2e server, `crates/test-server/src/invoke.rs`), the events of the app to its windows
+//! command on ([`EventSink`]: the call events of `backend-host`, which reach a Tauri channel of the page in the app
+//! (`src-tauri/src/api.rs`) and the SSE stream of the request in the e2e server, `crates/test-server/src/invoke.rs`),
+//! the events of the app to its windows
 //! ([`AppEvents`], named in `events.rs`), what the app gives a command beside the services of the sessions
 //! ([`AppHost`]), and what it does on the desktop ([`Desktop`]: its windows, the folder dialog, the native menu, its
 //! restart, its updater and its agent CLI), which the app does with Tauri (`src-tauri/src/desktop.rs`, `menu.rs`,

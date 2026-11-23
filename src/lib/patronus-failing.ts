@@ -122,7 +122,7 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
     return
   }
   recordRobotNews(repositoryPath, title, description, robot)
-  announce("patronusFailures", { title, body: description, news: { repositoryPath, id: newsId } }, () =>
+  announce("patronusFailures", { title, body: description, news: { repositoryPath, id: newsId, claim: { kind: "robotFailed", robotId: robot.id } } }, () =>
     showFailedToast(repositoryPath, robot, needsReview, kind, title, description, false),
   )
 }

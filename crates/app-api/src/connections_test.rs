@@ -76,3 +76,16 @@ fn an_event_of_the_app_goes_to_every_connection_and_one_to_a_window_to_its_conne
   assert_eq!(ide.taken(), Vec::new(), "a connection that ended hears nothing");
   assert_eq!(other.taken().len(), 1);
 }
+
+/// A news is claimed once, of any client, by what it tells: the failure of another robot is first though the session
+/// opened anew counts its news from 1 again, and a path with a trailing separator is the same repository
+#[test]
+fn a_news_is_claimed_once_by_what_it_tells() {
+  use domain_types::session::NewsClaim;
+  let connections = Connections::new(Arc::new(Told::default()));
+  let failed = |robot: &str| NewsClaim::RobotFailed { robot_id: robot.to_owned() };
+  assert!(connections.claim_news("/repo", failed("r1")), "the first claim");
+  assert!(!connections.claim_news("/repo/", failed("r1")), "a later claim, of the same repository");
+  assert!(connections.claim_news("/repo", failed("r2")), "another failure");
+  assert!(connections.claim_news("/other", failed("r1")), "another repository");
+}

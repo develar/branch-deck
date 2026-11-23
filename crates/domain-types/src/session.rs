@@ -829,6 +829,20 @@ pub struct RobotsView {
   pub problems_failed: BTreeMap<String, String>,
 }
 
+/// What a news tells, as a client of the backend claims it before it tells it (`claim_news`,
+/// `x-branch-deck/claimNews`; openspec/specs/repository/backend-protocol/spec.md, "Events: A news is told once by the
+/// backend"): the same in every session of a repository, unlike the id of the news, which each session counts from 1
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum NewsClaim {
+  /// The failure of the robot `robotId` (`NewsEvent::RobotFailed`)
+  RobotFailed {
+    #[serde(rename = "robotId")]
+    robot_id: String,
+  },
+}
+
 /// A transition the session saw in the answers of a remote service, which a window tells once (a toast, an OS
 /// notification); `id` grows by one per news of a session
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

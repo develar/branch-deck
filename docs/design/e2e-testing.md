@@ -179,8 +179,8 @@ sequenceDiagram
 10. **Decision**: One registry of the commands for both hosts. The grammar is `api_commands!` of
    `crates/app-api/src/registry.rs`, the entries are `for_each_command!` of `commands.rs` (the docs of the bindings,
    the class, the kind, the arguments, the channel, the output, the body), and every host is a callback of it: the
-   app's `#[tauri::command]` wrappers, `collect_commands!` of the typed ones and `generate_handler!` of the raw ones
-   (`src-tauri/src/api.rs`), the server's routes (`invoke.rs`), the table of the page mock (`commands.json`)
+   app's `#[tauri::command]` declarations, which the bindings are exported from (`collect_commands!` of the typed ones,
+   `src-tauri/src/api.rs`), the server's routes (`invoke.rs`), the table of the page mock (`commands.json`)
    **Rationale**: Before, three lists named the commands (`collect_commands!` of the app, about 60 handwritten routes
    of the server's `lib.rs`, the handlers of the mock), and the server answered many commands with code of its own
    (a bridge of 1059 lines): a command missing from one list answered 405, and a body of the server
@@ -243,9 +243,10 @@ Mock implementation:
   [@test] ../../crates/app-api/src/commands_json_test.rs (`the_commands_json_of_the_page_mock_is_the_registry`, `a_channel_of_the_table_names_the_argument_of_the_page_and_whether_it_stays_open`)
 - **Command registry**: one list names the commands, the registry of app-api (`app_api::commands::COMMANDS`, 76: 75
   typed and the raw `get_blob_syntax`, pinned in `crates/app-api/src/registry_test.rs`), and every host is made of it:
-  the app registers its generated wrappers (`typed_commands`, which the bindings `src/lib/bindings.ts` are exported
-  from in the order of the registry, and `raw_handler`), the server routes `/invoke/<name>` of each entry
-  (`invoke::command_routes`; no other source of the server routes a command), and the page answers only what is no
+  the app declares each typed one for its bindings (`typed_commands`, which `src/lib/bindings.ts` is exported from in the
+  order of the registry) and answers every one through the host (`backend_host::page`), the server routes
+  `/invoke/<name>` of each entry (`invoke::command_routes`; no other source of the server routes a command) to the
+  host of the test repository the same way, and the page answers only what is no
   command, `PAGE_PLUGINS` of `tauri-mocks.ts`: the plugins of Tauri (`plugin:event`, `plugin:window`, the clipboard,
   the opener…). The mock proxies every command to the server, and one without a route answers 405, which fails the
   test. `command_registry_test.rs` (test-server) holds the three to one set: the functions of `export const commands`
@@ -1167,7 +1168,8 @@ Optimizations:
 
 - Implementation: `crates/test-server/`, `tests/e2e/`
 - The commands: their registry `crates/app-api/src/commands.rs` (the grammar `registry.rs`), the routes of the server
-  `crates/test-server/src/invoke.rs`, the wrappers of the app `src-tauri/src/api.rs`, the table of the page mock
+  `crates/test-server/src/invoke.rs`, the declarations and the handler of the app `src-tauri/src/api.rs`, the
+  connection of the pages of both `crates/backend-host/src/page.rs`, the table of the page mock
   `crates/app-api/commands.json`; the routes of the server for the tests: [The routes of the server](#the-routes-of-the-server)
 - Test helpers: `tests/e2e/helpers/`
 - Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (bundled by `tauri-mock-script.ts` with

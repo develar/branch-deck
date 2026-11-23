@@ -11,6 +11,8 @@
 //! - `unattended`: Unattended Mode, its switch through the writer of the settings and the requests its hook denied
 //!   (openspec/specs/repository/unattended-mode/spec.md).
 //! - `mark_reviewed`: Mark Reviewed of the review window of a branch, its reviewed refs (openspec/specs/branch/review-plan/spec.md).
+//! - `news`: the claim of a news before a window tells it, one teller per news of the backend
+//!   (openspec/specs/repository/backend-protocol/spec.md).
 //!
 //! The services of a process on the user's machine, the app's and those of `brd mcp` alike (`services`: the sessions,
 //! the remote services, the sign-ins), and the seed of the main view from the frame of its session (`warm_start`).
@@ -32,6 +34,7 @@ pub mod desktop;
 pub mod disk;
 pub mod life;
 pub mod mark_reviewed;
+pub mod news;
 pub mod repository_config;
 pub mod services;
 pub mod settings;

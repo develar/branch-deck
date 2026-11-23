@@ -1,6 +1,6 @@
 //! The rules of a command's span and operation (docs/design/async-patterns.md#operation-spans), checked on the sources:
 //! the bodies of the commands of the registry (`commands.rs` names the body of each entry), which are every command of
-//! the app: `src-tauri` has no `#[tauri::command]` beside the wrappers of the entries (its `api.rs`). Every command has
+//! the app: `src-tauri` has no `#[tauri::command]` beside the declarations of the entries (its `api.rs`). Every command has
 //! an `#[instrument]` span; a command that can fail (`Result<_, ApiError>`) runs its body as an operation
 //! (`operation`, `operation_now`, or the one blocking step `run_blocking`); a command of a session has both from the
 //! frame of its kind (`registry.rs`), so its body opens neither; the span records no argument that holds a
@@ -246,7 +246,7 @@ fn registry_bodies() -> Vec<Command> {
     .collect()
 }
 
-/// The `#[tauri::command]`s of the app beside the wrappers of the entries (`api.rs`)
+/// The `#[tauri::command]`s of the app beside the declarations of the entries (`api.rs`)
 fn tauri_commands() -> Vec<Command> {
   let mut files = Vec::new();
   rust_files(&workspace().join("src-tauri/src"), &mut files);
@@ -271,11 +271,11 @@ fn the_app_has_no_command_beside_the_registry() {
     "these commands of src-tauri are no entry of app_api::for_each_command!: declare each in crates/app-api/src/commands.rs, its body in a family of app-api\n{}",
     handwritten.join("\n")
   );
-  // the scan finds a command where there is one: the wrappers of the entries have the attribute it looks for
+  // the scan finds a command where there is one: the declarations of the entries have the attribute it looks for
   let generated = workspace().join("src-tauri/src/api.rs");
   assert!(
     fs::read_to_string(&generated).expect("api.rs").lines().any(|line| line.trim() == "#[tauri::command]"),
-    "the wrappers of api.rs have no #[tauri::command] line: the scan needs an update"
+    "the declarations of api.rs have no #[tauri::command] line: the scan needs an update"
   );
 }
 

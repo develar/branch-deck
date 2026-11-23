@@ -219,13 +219,52 @@ The class of each command (the kind of `registry.rs`) says where it runs:
 - **app-api's** (`events.rs`) go to every connection: `x-branch-deck/event {event, payload, window?}`, a host
   notification; without `window` to every window of the connection, with it to that window. `emit_to` of the main
   window (`settings_save_failed`, `repository_config_changed`, a main-only key of `settings_changed`) goes to the main
-  window of each connection. The in-process connection emits them through Tauri's `Emitter`, as now.
+  window of each connection. The in-process connection emits them through Tauri's `Emitter`, as now. What the app
+  tells beside a command (the sessions and the journals, `start_sessions`; a change of the settings another process
+  saved, a failed save) goes through the same `Connections` once the context exists (`ContextEvents` of
+  `src-tauri/src/api.rs`), so it reaches a bridge connected to the app too.
 - **A page's** (`emit`, `emit_to` of the event plugin) stay inside their connection: the Tauri shell's are Tauri's
   events, the bridge's `x-air-app/event`s of its views. None crosses the socket.
 - **A news** of a repository is told once by the backend: the bridge's notification of a failed robot and the page's
-  announce of a news claim it first (`x-branch-deck/claimNews {repositoryPath, news}` → `{first}`), so two clients on
-  one repository tell it once. The announce of the desktop page claims nothing until the page goes through the host
-  (lane 2.6): until then the app and the IDE may both tell a news.
+  OS notification of one claim it first (`x-branch-deck/claimNews {repositoryPath, news}` → `{first}`; the page's
+  command `claim_news`, `src/lib/os-notification.ts`), so two clients on one repository tell it once. The claim names
+  what the news tells (`NewsClaim`, `{kind: "robotFailed", robotId}`), never the id of the news, which each session of
+  the repository counts from 1: a claim by id would stay taken after the session opened anew. The claimed news are
+  of app-api (`Connections::claim_news`), one set for the method and the command. The toast of a window with the focus
+  claims nothing: it is that window's.
+
+### The pages of the app
+
+The pages of the app's own windows (the Tauri shell; the page mock of the e2e server, the same way) speak no protocol:
+they keep `invoke` of their bindings, and `backend_host::page::Pages` answers each over the one in-process connection
+of the app (`InProcess::app`, `ConnectionId::APP`), so every window of the app and every client of the socket share one
+host, one session per repository and one set of events.
+
+- **A command** is the root command of its window: `x-branch-deck/<name> {window: <label of the webview>, args: <the
+  payload of the invoke>}`, its call events to the channel the page gave (the argument the registry names), its
+  `{value}` the answer of the invoke as the text of its JSON (`InvokeResponseBody::Json`), its `{error}` the rejection
+  with the `ApiError`, its bytes as they are (`InvokeResponseBody::Raw`). A channel of a page that can read no more
+  (the SSE stream of the e2e server gone) cancels the call (`x-branch-deck/cancel`).
+- **A subscription**: `subscribe_view` is `subscribe` of the window on the channel of its path with `have`, its
+  answer the `ViewSubscription` of an id the pages keep (`{id, view: state or null, catchUp: null}`), the catch-up the
+  first patch on its channel, which the page applies as a patch that came before or after the answer; each
+  `viewPatched` of the window goes to that channel as the JSON of the `ViewPatch`. `unsubscribe_view` and `set_demand`
+  of the id are `unsubscribe` and `x-branch-deck/setDemand` of its window; of an id that ended they do nothing.
+- **One subscription per window and channel**: the page subscribes again before it ends the subscription it replaces
+  (a resubscribe, the warm start of a reload), so a subscribe of a window that holds one ends that one first, in the
+  order of the lines, and the later unsubscribe of the replaced id ends nothing. The session stays: a session without
+  subscribers waits `IDLE_LIMIT` before it goes. The host takes a subscribe of a window whose earlier subscribe still
+  joins as a reservation of its own: the earlier one, once joined, leaves the session.
+- **A resync** reaches the page as a patch from and to the version of its snapshot (`{base: V, next: V, changes:
+  {}}`), which no view applies: the page reads the snapshot (`get_snapshot`) as after a gap and takes the view of the
+  other epoch (`installAnother`); the page has no resync of its own to learn. `subscriptionEnded` ends the
+  subscription of the pages, and the page hears nothing more of it, as a channel of a session that went.
+- **The life of a window**: a page that loads again is `x-branch-deck/pageLoaded`, a destroyed webview
+  `x-branch-deck/windowClosed`; the host forgets every window of the app's connection that closes, as it does not track
+  them (`windowShown` is a client's).
+- **The cost**: the pages cut the parts they hand on out of the frame (`serde_json::value::RawValue`) and never build a
+  tree of a view, a patch or an answer again; the payload of an invoke is the `Value` Tauri parsed, encoded once into
+  the line of the request.
 
 ### The Desktop of a connection
 
@@ -369,8 +408,12 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
   `x-air-app/viewChanged`, `notices.rs` claims a news first ([IDE Embedding](ide-embedding.md)). Its `initialize` names
   `clientInfo.name: "branch-deck-ide"`; the host counts its clients that initialized, the app's own connection left out
   (`Host::clients`), which the life of an app without a window reads.
-- `src-tauri`: the in-process connection (`Host::connect_app`, `ConnectionId::APP`), built before the first window, so
-  the first message of the main page is still its subscription (`startup-read`).
+- `src-tauri`: the host and the pages of the app (`Pages::new`, the in-process connection `Host::connect_app`,
+  `ConnectionId::APP`), built in the setup before the first window, so the first message of the main page is still its
+  subscription (`startup-read`); one invoke handler for every command (`api::invoke`), the declarations of the
+  registry only for the bindings (`typed_commands`).
+- `crates/test-server`: one host per test repository over its context (`TestRepository::host`, made with its pages at
+  the first command), which the page mock's routes (`invoke.rs`) and every connection of the IDE attach to.
 - **The contract**: `docs/design/backend-protocol/backend.schema.json` (draft 2020-12) and the golden corpus
   `docs/design/backend-protocol/corpus/*.ndjson`: `connection`, `repository-channel`, `command-stream`,
   `host-requests`, `errors`. A line is `{"comment"}`, `{"client": <frame>}`, `{"clientRaw": <text>}`, `{"host":
@@ -425,13 +468,15 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 - **Solution**: the host encodes each action once, before the publish lock, for every subscribed window, and the
   frame of a window adds only its `window` and `serverSeq` (Air's `ActionFrame`); a diff streams one file per
   `callEvent`; a window past 8 MiB of waiting actions gets one resync;
-  the in-process connection passes the JSON text of a frame as it is to the page (`InvokeResponseBody::Json`).
-- **Measurement**: `tests/perf/branch-table.perf.ts` gates the Tauri page through the host (lane 2.6).
+  the pages of the app cut the JSON text of an answer, a patch and a call event out of its frame and pass it as it is
+  to the page (`InvokeResponseBody::Json`, [The pages of the app](#the-pages-of-the-app)).
+- **Measurement**: `tests/perf/branch-table.perf.ts` and the startup timings gate the page through the host; the
+  numbers of the change are in its commit.
 
 ## References
 
 - Specs: [Backend Protocol](../../openspec/specs/repository/backend-protocol/spec.md) (the changes `260-backend-wire`,
-  `260-backend-repository-channel` and `260-backend-commands`, archived),
+  `260-backend-repository-channel`, `260-backend-commands` and `260-page-through-host`, archived),
   [Branch Deck in the IDE](../../openspec/specs/repository/ide-embedding/spec.md)
 - The contract: `docs/design/backend-protocol/`
 - Air (idea-1, read-only): `plugins/air/native/air-host/src/{host.rs,jsonrpc.rs,table.rs}`, the decision records

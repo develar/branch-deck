@@ -1,7 +1,7 @@
 //! The host (docs/design/backend-protocol.md, "Architecture"): one per backend, over the `AppContext` of the process.
-//! It keeps the connections, one global `serverSeq` with its publish lock, a channel for each repository path, the news
-//! claimed so far, and the build of the process with the hooks the app gives it ([`HostHooks`]: the main window, the
-//! rule of another build).
+//! It keeps the connections, one global `serverSeq` with its publish lock, a channel for each repository path, and the
+//! build of the process with the hooks the app gives it ([`HostHooks`]: the main window, the rule of another build);
+//! the news claimed so far are of app-api (`Connections::claim_news`), which a page claims too.
 //!
 //! Every frame that carries a `serverSeq` (an action of a channel, an echo, a resync) is queued under the publish lock
 //! (`publish`), so the frames of a connection are in the order of their `serverSeq`; a frame is encoded before it.
@@ -10,8 +10,8 @@ use crate::channel::Channel;
 use crate::connection::{Connection, Kind};
 use crate::identity::build_id;
 use app_api::context::AppContext;
-use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use domain_types::session::NewsClaim;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use tokio::sync::{Notify, watch};
@@ -59,8 +59,6 @@ pub struct Host {
   /// The clients connected now that initialized, the app's own connection left out: what keeps a backend without a
   /// window alive (`app_api::app::life`)
   clients: watch::Sender<usize>,
-  /// The news of each repository claimed so far
-  news: Mutex<HashSet<(String, String)>>,
   me: Weak<Self>,
 }
 
@@ -94,7 +92,6 @@ impl Host {
       connections: Mutex::default(),
       last_connection: AtomicU64::new(0),
       clients: watch::Sender::new(0),
-      news: Mutex::default(),
       me: Weak::clone(me),
     })
   }
@@ -201,9 +198,10 @@ impl Host {
     *lock(&self.publish)
   }
 
-  /// The first claim of `news` of the repository `path`: true once, false for every later claim
-  pub fn claim_news(&self, path: &str, news: &Value) -> bool {
-    lock(&self.news).insert((repository_path(path).to_owned(), news.to_string()))
+  /// The first claim of `news` of the repository `path`: true once, false for every later claim, of this connection or
+  /// another, also of a page's `claim_news` (`Connections::claim_news`)
+  pub fn claim_news(&self, path: &str, news: NewsClaim) -> bool {
+    self.ctx.connections.claim_news(path, news)
   }
 }
 

@@ -17,11 +17,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
-/// The backend of the test repository `id` for a bridge: a host on the context of the repository; none for a
-/// repository the server lacks
+/// The backend of the test repository `id` for a bridge: the one host of the repository (`TestRepository::host`), which
+/// the page mock goes through too; none for a repository the server lacks
 pub fn backend_of(state: &Arc<AppState>, id: &str) -> Option<Fallback> {
-  let ctx = Arc::clone(&state.repositories.get(id)?.context);
-  Some(Fallback::of_context(ctx))
+  Some(Fallback::of_host(state.repositories.get(id)?.host()))
 }
 
 /// Serves the bridge `connection` with `backend` on the lines of `incoming` until they end, the backend kept while it

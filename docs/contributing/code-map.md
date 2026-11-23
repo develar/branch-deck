@@ -168,7 +168,7 @@ src/
 ├── index.css        # Tailwind and the theme tokens
 └── main.tsx         # App entry (store handlers, the page of the window)
 src-tauri/src/
-├── api.rs           # The Tauri wrappers of the commands of app-api and their registration (`typed_commands`, `raw_handler`), generated from its registry (`for_each_command!`): the app has no command or list of its own
+├── api.rs           # Every command of the pages through the in-process connection of backend-host (`invoke`), and the declarations of the typed bindings (`typed_commands`), generated from the registry of app-api (`for_each_command!`): the app has no command or list of its own
 ├── desktop.rs       # The windows, the folder dialog and the restart of the app (`WindowHost`, `DialogHost`, `RestartHost` of app-api)
 ├── lib.rs           # The app's setup; `specta_builder` (the commands of `api.rs`, exported to bindings.ts by bindings_test.rs)
 ├── services.rs      # The `AppContext` Tauri manages as the context of the services of app-api (`app_api::app::services`: the sessions, `AppEnvironment`, `AppServices`)

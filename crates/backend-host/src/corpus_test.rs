@@ -141,7 +141,7 @@ impl repository_model::session::Subscriber for Probe {
 }
 
 /// The head of `repo`
-fn head(repo: &str) -> String {
+pub(crate) fn head(repo: &str) -> String {
   git(repo, &["rev-parse", "HEAD"])
 }
 

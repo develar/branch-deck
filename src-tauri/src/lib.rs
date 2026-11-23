@@ -164,24 +164,14 @@ pub fn run() {
   #[cfg(feature = "auto-update")]
   let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
-  // the commands of the typed bindings, and those whose answer is raw bytes (`get_blob_syntax`), which they cannot say
-  let typed_handler = ts_builder.invoke_handler();
-  let raw_handler = api::raw_handler();
   let app = builder
-    .invoke_handler(move |invoke| {
-      if api::RAW_COMMANDS.contains(&invoke.message.command()) {
-        raw_handler(invoke)
-      } else {
-        typed_handler(invoke)
-      }
-    })
+    // every command of the pages, through the in-process connection of the host (`api::invoke`)
+    .invoke_handler(api::invoke)
     .on_menu_event(handle_menu_event)
     // a page that loads again (a reload) starts without the subscriptions of the one before
     .on_page_load(|webview, payload| {
-      if payload.event() == tauri::webview::PageLoadEvent::Started
-        && let Some(ctx) = webview.try_state::<Arc<AppContext>>()
-      {
-        ctx.forget_page(&WindowId::new(webview.label()));
+      if payload.event() == tauri::webview::PageLoadEvent::Started {
+        api::page_loaded(webview.app_handle(), webview.label());
       }
     })
     .setup(move |app| {
@@ -210,8 +200,12 @@ pub fn run() {
       let remote = Arc::new(RemoteServices::new(&current_version, git.clone(), app.path().app_data_dir().ok()));
       let services = AppServices::new(Arc::new(TauriContext(app.handle().clone())), remote);
       let runtime = tauri::async_runtime::handle().inner().clone();
+      // what the sessions, the journals and the writer of the settings tell goes to every connection of the backend once
+      // the context exists (`ContextEvents`); the events of the app's own connection are Tauri's
+      let context_events = Arc::new(api::ContextEvents::new(app.handle().clone()));
+      let told: Arc<dyn app_api::transport::AppEvents> = Arc::clone(&context_events) as Arc<dyn app_api::transport::AppEvents>;
       let events: Arc<dyn app_api::transport::AppEvents> = Arc::new(api::TauriEvents(app.handle().clone()));
-      let (sessions, registry) = start_sessions(&services, &runtime, Arc::clone(&events), &git, &repository_state);
+      let (sessions, registry) = start_sessions(&services, &runtime, Arc::clone(&told), &git, &repository_state);
       if let Ok(app_cache_dir) = app.path().app_cache_dir() {
         tauri::async_runtime::spawn_blocking(in_current_span(move || legacy_model_cache::remove_legacy_model_cache(&app_cache_dir)));
       }
@@ -222,8 +216,8 @@ pub fn run() {
       // through `set_setting`
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
       let settings_service = Arc::new(settings::open_settings(&app_data_dir)?);
-      settings::report_save_errors(&settings_service, app.handle().clone());
-      settings::report_external_changes(&settings_service, app.handle().clone());
+      settings::report_save_errors(&settings_service, Arc::clone(&told));
+      settings::report_external_changes(&settings_service, told);
       let app_settings = settings_service.app();
 
       // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux
@@ -254,6 +248,7 @@ pub fn run() {
         desktop,
         runtime,
       }));
+      context_events.bind(&ctx);
       app.manage(Arc::clone(&ctx));
       app.manage(settings_service);
       // the life of the process beside its windows; the count of the bridges of an IDE comes from the host of the
@@ -261,7 +256,10 @@ pub fn run() {
       let (bridges, connections) = BridgeConnections::channel();
       let life = AppLife::new(app.handle().clone(), background, connections);
       app.manage(Arc::clone(&life));
-      backend::serve(app.handle(), ctx, &life, listener, bridges);
+      let host = backend::serve(app.handle(), ctx, &life, listener, bridges);
+      // the connection of the app's own windows to the host, before the first window: the first message of the main
+      // page is its subscription (`startup-read` of `pnpm lint:arch`)
+      app.manage(backend_host::page::Pages::new(&host));
       life.watch();
       // without a window the app checks for its updates itself, as the page of the main window does
       auto_update::check_while_windowless(app.handle());
@@ -300,7 +298,7 @@ pub fn run() {
       event: tauri::WindowEvent::Destroyed,
       ..
     } => {
-      app_handle.state::<Arc<AppContext>>().forget_window(&WindowId::new(label.as_str()));
+      api::window_closed(app_handle, &label);
       title_bar::forget_window(&label);
       if label == app_settings::windows::MAIN_WINDOW {
         close_sub_windows(app_handle);

@@ -155,12 +155,13 @@ impl Connection {
       "x-branch-deck/repositoryChannel" => host.repository_channel(self, &id, params),
       "x-branch-deck/setDemand" => host.set_demand(self, &id, params),
       "x-branch-deck/followPrefix" => host.follow_prefix(&self.me(), id, params),
-      "x-branch-deck/claimNews" => match params["repositoryPath"].as_str() {
-        Some(path) => {
-          let first = host.claim_news(path, &params["news"]);
+      "x-branch-deck/claimNews" => match (params["repositoryPath"].as_str(), serde_json::from_value(params["news"].clone())) {
+        (Some(path), Ok(news)) => {
+          let first = host.claim_news(path, news);
           self.answer(&id, json!({ "first": first }));
         }
-        None => self.fail(&id, &Failure::bad_params("claimNews names its repositoryPath")),
+        (None, _) => self.fail(&id, &Failure::bad_params("claimNews names its repositoryPath")),
+        (_, Err(error)) => self.fail(&id, &Failure::bad_params(format!("news is a NewsClaim: {error}"))),
       },
       "x-branch-deck/showMain" => {
         (host.hooks.show_main)();
@@ -187,8 +188,9 @@ impl Connection {
         }
       }
       ("x-branch-deck/windowShown", Some(label)) => self.windows.shown(label),
+      // the app's own windows are the app's, which the host does not track: each close of one forgets it
       ("x-branch-deck/windowClosed", Some(label)) => {
-        if self.windows.closed(label) {
+        if self.windows.closed(label) || self.kind == Kind::App {
           self.host.end_windows(of, Some(label));
           self.host.ctx.forget_window(&WindowId::of(of, label));
         }

@@ -16,9 +16,9 @@
 {"host":{"jsonrpc":"2.0","method":"x-branch-deck/event","params":{"channel":"ahp-root://","event":"activity-changed","payload":null}}}
 {"host":{"jsonrpc":"2.0","id":4,"result":{"value":"${any}"}}}
 {"comment":"A news is claimed once: the first claim of a news of a repository is first, a later one is not."}
-{"client":{"jsonrpc":"2.0","id":5,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":7}}}
+{"client":{"jsonrpc":"2.0","id":5,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":{"kind":"robotFailed","robotId":"robot-7"}}}}
 {"host":{"jsonrpc":"2.0","id":5,"result":{"first":true}}}
-{"client":{"jsonrpc":"2.0","id":6,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":7}}}
+{"client":{"jsonrpc":"2.0","id":6,"method":"x-branch-deck/claimNews","params":{"channel":"ahp-root://","repositoryPath":"${repo}","news":{"kind":"robotFailed","robotId":"robot-7"}}}}
 {"host":{"jsonrpc":"2.0","id":6,"result":{"first":false}}}
 {"comment":"The close of a window forgets it alone; a close of a window the connection does not hold changes nothing. The end of the connection closes its windows."}
 {"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowClosed","params":{"channel":"ahp-root://","window":"review:1"}}}

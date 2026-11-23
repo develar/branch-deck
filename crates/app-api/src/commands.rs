@@ -2,8 +2,9 @@
 //! entry is the one of its function in `src/lib/bindings.ts`; its body lives in a family module (`reads::…`,
 //! `session::…`, `remote::…`, `app::…`). Every command of the app is an entry here: the app has no command of its own
 //! (`command_scan_test.rs`). Every host is a callback of `for_each_command!`: `api_commands!` gives each command its
-//! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` wrappers and their registration, which the
-//! bindings are exported from in the order of this list (`src-tauri/src/api.rs`), the e2e server its routes
+//! `Command` and the list [`COMMANDS`], the app its `#[tauri::command]` declarations, which the bindings are exported
+//! from in the order of this list (`src-tauri/src/api.rs`; the app answers every command through the host,
+//! `backend_host::page`), the e2e server its routes
 //! (`crates/test-server/src/invoke.rs`), and the page mock of the e2e server its table, `crates/app-api/commands.json`
 //! (written from `COMMANDS` by `commands_json_test.rs`). A type of an entry is named by its full path, which resolves
 //! in each host.
@@ -68,7 +69,7 @@ macro_rules! for_each_command {
       read json get_blob_texts(params: file_diffs::model::GetBlobTextsParams) -> Vec<file_diffs::model::BlobText> = $crate::reads::blobs::get_blob_texts;
 
       /// The backend highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
-      /// typed bindings cannot say, so it has its own handler (`raw_handler` of `src-tauri/src/api.rs`) and its own call in
+      /// typed bindings cannot say, so it has no declaration in the bindings (`src-tauri/src/api.rs`) and its own call in
       /// the view (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
       read raw get_blob_syntax(params: file_diffs::model::GetBlobSyntaxParams) -> Vec<u8> = $crate::reads::blobs::get_blob_syntax;
 
@@ -324,6 +325,11 @@ macro_rules! for_each_command {
       /// Settings → Landing of a companion: Unlink takes back its side of a half link (its `branchdeck.primary`), as
       /// `brd companion unlink`; answers the settings read again
       app(SettingsWriter) json unlink_primary(params: $crate::app::repository_config::UnlinkPrimaryParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::unlink_primary;
+
+      /// Claims a news of a repository before the window tells it (an OS notification of a failed robot): true for the
+      /// first claim of that news by any client of the backend, the app or the IDE, false for every later one, so one of
+      /// them tells it
+      app(TheApp) json claim_news(params: $crate::app::news::ClaimNewsParams) -> bool = $crate::app::news::claim_news;
 
       /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
       /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page

@@ -153,7 +153,9 @@ impl Connection {
     let (connection, host) = (self.me(), Arc::clone(&self.host));
     self.host.ctx.runtime.spawn(
       async move {
-        let answered = prepared.run(Arc::clone(&ctx), call, sink);
+        // a task of its own, as Tauri runs a command: a command that panics fails its call (`-32603 panic`) instead of
+        // leaving it without an answer
+        let answered = ctx.runtime.spawn(prepared.run(Arc::clone(&ctx), call, sink).in_current_span());
         tokio::pin!(answered);
         let forwarded = |event: Value| {
           let (connection, host, command, args, id, canceled, waiting) = (&connection, &host, &command, &args, &id, &canceled, &waiting);
@@ -179,14 +181,18 @@ impl Connection {
         }
         lock(&connection.calls).remove(&call_key);
         let frame = match answer {
-          Ok(Answer::Json(value)) => {
+          Ok(Ok(Answer::Json(value))) => {
             if let Some((path, version)) = version_of_answer(&command, &args, &value) {
               host.fence(of, &path, version).await;
             }
             Frame::of(&result(&id, json!({ "value": value })))
           }
-          Ok(Answer::Bytes(bytes)) => Frame::Bytes { id, bytes },
-          Err(error) => Frame::of(&result(&id, json!({ "error": error }))),
+          Ok(Ok(Answer::Bytes(bytes))) => Frame::Bytes { id, bytes },
+          Ok(Err(error)) => Frame::of(&result(&id, json!({ "error": error }))),
+          Err(failure) => {
+            tracing::error!(%failure, command, "a command panicked");
+            Frame::of(&Failure::new(-32603, "panic", format!("{command} panicked")).answer(&id))
+          }
         };
         connection.outbox().push(frame);
       }

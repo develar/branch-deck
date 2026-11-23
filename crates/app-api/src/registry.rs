@@ -1,7 +1,7 @@
 //! The grammar of the commands of the app, declared once in `commands.rs` (`for_each_command!`), and what that one
 //! declaration gives each host: [`Command`], one type per command in `app_api::commands::<name>`, the e2e server's
 //! route of it (`crates/test-server/src/invoke.rs`), and [`COMMANDS`](crate::commands::COMMANDS); the app's
-//! `#[tauri::command]` wrapper with the docs and the argument names of the bindings (`src-tauri/src/api.rs`).
+//! `#[tauri::command]` declaration with the docs and the argument names of the bindings (`src-tauri/src/api.rs`).
 //!
 //! An entry is the doc comment of the bindings, then
 //! `<class> <kind>[(<span fields>)] <name>(<argument>: <type>, …) [channel <name>: <event>, open] -> <output> = <body>;`,
@@ -89,8 +89,7 @@ pub enum CommandKind {
   Json,
   /// A synchronous rule that cannot fail, answers its output as JSON; the bindings answer it as `Ok`
   Plain,
-  /// Async, answers raw bytes: the app registers it beside the typed bindings (`generate_handler!`), and the page calls
-  /// it with `invoke` of its own
+  /// Async, answers raw bytes, which the typed bindings cannot say: the page calls it with `invoke` of its own
   Raw,
   /// Async, answers `Result<output, ApiError>` as JSON for the window that calls it
   Window,

@@ -15,11 +15,11 @@
 //! - a change the writer of another process (`brd mcp` of an IDE) saved in the same files reaches the windows as a
 //!   `settings_changed` of its own (`SettingsService::on_external_change`), as a change of a window does.
 
-use crate::api::TauriEvents;
 use app_api::events::{settings_changed, settings_save_failed};
+use app_api::transport::AppEvents;
 use app_settings::service::SettingsService;
 use std::path::Path;
-use tauri::AppHandle;
+use std::sync::Arc;
 
 /// The writer of the settings files in `app_data_dir`, loaded now (a missing or broken file is the defaults), with the
 /// epochs of the worktrees (`give_worktree_epochs`)
@@ -29,14 +29,13 @@ pub fn open_settings(app_data_dir: &Path) -> std::io::Result<SettingsService> {
   Ok(settings)
 }
 
-/// Tell the main window of a failed save, once per streak of failures (`SettingsService::on_save_error`)
-pub fn report_save_errors(service: &SettingsService, app: AppHandle) {
-  let events = TauriEvents(app);
-  service.on_save_error(move |error| settings_save_failed(&events, error.to_string()));
+/// Tell the main window of each connection of a failed save, once per streak of failures (`SettingsService::on_save_error`)
+pub fn report_save_errors(service: &SettingsService, events: Arc<dyn AppEvents>) {
+  service.on_save_error(move |error| settings_save_failed(&*events, error.to_string()));
 }
 
-/// Send every window that gets its key each change the writer of another process saved (`SettingsService::on_external_change`)
-pub fn report_external_changes(service: &SettingsService, app: AppHandle) {
-  let events = TauriEvents(app);
-  service.on_external_change(move |change| settings_changed(&events, change));
+/// Send every window of every connection that gets its key each change the writer of another process saved
+/// (`SettingsService::on_external_change`)
+pub fn report_external_changes(service: &SettingsService, events: Arc<dyn AppEvents>) {
+  service.on_external_change(move |change| settings_changed(&*events, change));
 }

@@ -340,6 +340,9 @@ pub struct TestRepository {
   pub store: std::sync::Arc<app_settings::service::SettingsService>,
   /// What the commands of app-api run with for this repository (`AppState::context_of`)
   pub context: std::sync::Arc<app_api::context::AppContext>,
+  /// The pages of the repository, the connection of its app's own windows to the host of its context, which the page
+  /// mock's commands go through (`invoke.rs`) as the Tauri shell's do: made at the first command (`pages`)
+  pub pages: std::sync::OnceLock<std::sync::Arc<backend_host::page::Pages>>,
   /// The event streams of the pages of the repository, which the app's events and the pages' own go to; closed with the
   /// repository
   pub events: std::sync::Arc<crate::host::TestEvents>,
@@ -405,6 +408,20 @@ pub struct TestRepository {
 }
 
 impl TestRepository {
+  /// The pages of the repository on the one host of its context, made now if not yet: the backend of the test
+  /// repository for the page mock and for the connections of the IDE (`host`)
+  pub fn pages(&self) -> std::sync::Arc<backend_host::page::Pages> {
+    std::sync::Arc::clone(self.pages.get_or_init(|| {
+      let host = backend_host::host::Host::new(std::sync::Arc::clone(&self.context), backend_host::host::HostHooks::default());
+      backend_host::page::Pages::new(&host)
+    }))
+  }
+
+  /// The one host of the repository's context, which the page mock and every connection of the IDE attach to
+  pub fn host(&self) -> std::sync::Arc<backend_host::host::Host> {
+    std::sync::Arc::clone(self.pages().host())
+  }
+
   /// The fake services of the repository, started now if not yet
   pub fn remote(&self, git: &GitCommandExecutor) -> std::sync::Arc<crate::remote_host::RemoteHost> {
     std::sync::Arc::clone(self.remote.get_or_init(|| {

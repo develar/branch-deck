@@ -352,6 +352,12 @@ export const commands = {
 	 */
 	unlinkPrimary: (params: UnlinkPrimaryParams) => typedError<RepositoryConfig, ApiError>("unlink_primary", __TAURI_INVOKE("unlink_primary", { params })),
 	/**
+	 *  Claims a news of a repository before the window tells it (an OS notification of a failed robot): true for the
+	 *  first claim of that news by any client of the backend, the app or the IDE, false for every later one, so one of
+	 *  them tells it
+	 */
+	claimNews: (params: ClaimNewsParams) => typedError<boolean, ApiError>("claim_news", __TAURI_INVOKE("claim_news", { params })),
+	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 	 *  settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
@@ -1558,6 +1564,11 @@ export type ClaimConflict = {
 
 /**  What the author says a pull request is, by a label or the conventional type of its title */
 export type ClaimKind = "refactor" | "tests" | "docs";
+
+export type ClaimNewsParams = {
+	repositoryPath: string,
+	news: NewsClaim,
+};
 
 /**  Where the author said it */
 export type ClaimSource = 
@@ -5608,6 +5619,15 @@ export type News = {
 	id: number,
 	event: NewsEvent,
 };
+
+/**
+ *  What a news tells, as a client of the backend claims it before it tells it (`claim_news`,
+ *  `x-branch-deck/claimNews`; openspec/specs/repository/backend-protocol/spec.md, "Events: A news is told once by the
+ *  backend"): the same in every session of a repository, unlike the id of the news, which each session counts from 1
+ */
+export type NewsClaim = 
+/**  The failure of the robot `robotId` (`NewsEvent::RobotFailed`) */
+{ kind: "robotFailed"; robotId: string };
 
 export type NewsEvent = 
 /**

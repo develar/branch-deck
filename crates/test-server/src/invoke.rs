@@ -1,21 +1,21 @@
 //! The commands of app-api over HTTP, as the page mock sends them (`tests/e2e/setup/tauri-mocks.ts`): one route
-//! `/invoke/<name>` per entry of `app_api::for_each_command!`, which runs the body of the app by its name
-//! (`app_api::dispatch`, as `brd mcp` runs it) in the `AppContext` of the test repository the request names
-//! (`X-Repository-Id`), for the window the request names (`X-Window-Label`, `main` without one). A JSON command answers its value, as Tauri resolves the `invoke` of the page with it, or
-//! `{ "status": "error", "error": <ApiError> }` (`Rejection`); a raw one its bytes (`application/octet-stream`) or the
-//! error.
+//! `/invoke/<name>` per entry of `app_api::for_each_command!`, which hands the command to the host of the test
+//! repository the request names (`X-Repository-Id`) as the Tauri shell hands it (`backend_host::page::Pages`, the
+//! connection of the app's own windows: `TestRepository::pages`), for the window the request names (`X-Window-Label`,
+//! `main` without one). So the page mock and the IDE's connection of a test repository share one host, one session and
+//! one set of events, as the app and the bridge do. A JSON command answers its value, as Tauri resolves the `invoke` of
+//! the page with it, or `{ "status": "error", "error": <ApiError> }` (`Rejection`); a raw one its bytes
+//! (`application/octet-stream`) or the error; a command that panicked fails the request (500).
 //!
 //! A command with a channel of the page runs as the app runs it: the page mock names the channel of the command
 //! (`X-Progress-Channel`, its key in `window.__progressChannels`) and reads the answer as SSE events, each message of
-//! the channel `{"progress": …}` while the command runs, then its answer `{"result": …}` (`{ status, data }` or
-//! `{ status, error }`); the stream ends once nothing can send to the channel any more, so the patches of a
-//! subscription come on it until the subscription ends. Without the header (a direct call of a test), the answer alone,
-//! and a message to the channel fails (`SinkGone`): a subscription ends with its first patch.
+//! the channel `{"progress": …}` while the command runs, then its answer `{"result": …}` (`{ status, data }`,
+//! `{ status, error }`, or `{ panicked }`); the stream ends once nothing can send to the channel any more, so the
+//! patches of a subscription come on it until the subscription ends. Without the header (a direct call of a test), the
+//! answer alone, and a message to the channel fails: a subscription ends with its first patch.
 
 use crate::state::AppState;
-use app_api::context::AppContext;
-use app_api::dispatch::{Answer, Dispatched};
-use app_api::registry::{CommandKind, CommandSpec};
+use app_api::registry::CommandSpec;
 use app_api::transport::{EventSink, SinkGone};
 use axum::Router;
 use axum::body::Bytes;
@@ -24,8 +24,10 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::post;
+use backend_host::page::{Answer, Failed, PageChannel, Pages, Reply};
 use domain_types::error::ApiError;
 use serde::Serialize;
+use serde_json::json;
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
@@ -45,7 +47,7 @@ pub const PAGE_NOW_HEADER: &str = "X-Page-Now";
 
 /// How a command fails: with its `ApiError`, answered the way Tauri rejects a command (`{ status: "error", error:
 /// <ApiError> }` with status 200, which the page mock hands to the bindings: the same JSON as the app,
-/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500, `caught`). A type of
+/// `api_error_contract_test.rs`), or with a failure of the server itself, a panicked command (500). A type of
 /// the server only because axum's `IntoResponse` can't be implemented for `ApiError` outside `domain-types`.
 pub enum Rejection {
   Error(ApiError),
@@ -155,55 +157,94 @@ macro_rules! invoke_routes {
 
 app_api::for_each_command!(invoke_routes);
 
-/// The handler of the command `name`: JSON, on the SSE stream of its channel when it has one and the page named it, or
-/// the bytes of a raw command
+/// The handler of the command `name`: run through the host of the repository as the app runs it (`Pages`), JSON, on
+/// the SSE stream of its channel when it has one and the page named it, or the bytes of a raw command
 async fn invoke(name: &'static str, State(state): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
   let spec = app_api::dispatch::spec(name).expect("a route is a command of the registry");
-  if spec.kind == CommandKind::Raw {
-    return match run(name, &state, &headers, &body, Progress { sender: None }).await {
-      Ok(Answer::Bytes(bytes)) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
-      Ok(Answer::Json(value)) => Json(value).into_response(),
+  if spec.channel.is_none() || progress_channel(&headers).is_none() {
+    return match run(name, &state, &headers, &body, Arc::new(NoPage)).await {
+      Ok(reply) => reply_response(reply),
       Err(rejection) => rejection.into_response(),
     };
   }
-  let channel = progress_channel(&headers).filter(|_| spec.channel.is_some());
-  answer_with_progress(channel, move |progress| async move {
-    match run(name, &state, &headers, &body, progress).await? {
-      Answer::Json(value) => Ok(Json(value)),
-      Answer::Bytes(_) => Err(failed(name, "a JSON command answered bytes")),
+  let (sender, receiver) = mpsc::unbounded_channel();
+  let page = Arc::new(PageStream(sender.clone()));
+  tokio::spawn(
+    async move {
+      let result = match run(name, &state, &headers, &body, page).await {
+        Ok(reply) => reply_result(reply),
+        Err(Rejection::Error(error)) => json!({ "status": "error", "error": error }).to_string(),
+        Err(Rejection::Panicked) => r#"{"panicked":true}"#.to_owned(),
+      };
+      let _ = sender.send(format!(r#"{{"result":{result}}}"#));
     }
-  })
-  .await
+    .in_current_span(),
+  );
+  text_stream(receiver)
 }
 
-/// Runs the command `name` with the arguments of `body` in the context of the repository the request names, for the
-/// call of the window it names, its channel on `progress`
-async fn run(name: &'static str, state: &AppState, headers: &HeaderMap, body: &[u8], progress: Progress) -> Result<Answer, Rejection> {
-  let context = requesting_context(state, headers)?;
+/// The answer of a command without a channel: its JSON, as Tauri resolves the `invoke`, the bytes of a raw command, or
+/// its error as the app rejects it (`Rejection`)
+pub(crate) fn reply_response(reply: Reply) -> Response {
+  match reply {
+    Ok(Answer::Json(json)) => ([(header::CONTENT_TYPE, "application/json")], json).into_response(),
+    Ok(Answer::Bytes(bytes)) => ([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response(),
+    Err(Failed::Error(error)) => ([(header::CONTENT_TYPE, "application/json")], format!(r#"{{"status":"error","error":{error}}}"#)).into_response(),
+    Err(Failed::Panicked) => Rejection::Panicked.into_response(),
+  }
+}
+
+/// The answer of a command on the stream of its channel: `{ status, data }`, `{ status, error }`, or `{ panicked }` of a
+/// command that panicked
+pub(crate) fn reply_result(reply: Reply) -> String {
+  match reply {
+    Ok(Answer::Json(json)) => format!(r#"{{"status":"ok","data":{json}}}"#),
+    Ok(Answer::Bytes(_)) => json!({ "status": "error", "error": ApiError::internal("A command with a channel answered bytes") }).to_string(),
+    Err(Failed::Error(error)) => format!(r#"{{"status":"error","error":{error}}}"#),
+    Err(Failed::Panicked) => r#"{"panicked":true}"#.to_owned(),
+  }
+}
+
+/// The channel of a command whose page named none (a direct call of a test): a message to it fails, so a subscription
+/// ends with its first patch
+struct NoPage;
+
+impl PageChannel for NoPage {
+  fn send(&self, _json: String) -> bool {
+    false
+  }
+}
+
+/// The SSE stream of a request as the channel of a command: each message `{"progress": …}`
+struct PageStream(mpsc::UnboundedSender<String>);
+
+impl PageChannel for PageStream {
+  fn send(&self, json: String) -> bool {
+    self.0.send(format!(r#"{{"progress":{json}}}"#)).is_ok()
+  }
+}
+
+/// The texts of `receiver` as an SSE answer, each the JSON of one event, with a keep-alive every second; it ends once
+/// nothing can send to `receiver` any more
+fn text_stream(receiver: mpsc::UnboundedReceiver<String>) -> Response {
+  let stream = UnboundedReceiverStream::new(receiver).map(|message| Ok::<_, Infallible>(Event::default().data(message)));
+  Sse::new(stream)
+    .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
+    .into_response()
+}
+
+/// Runs the command `name` with the arguments of `body` through the host of the repository the request names, for the
+/// window it names, its channel `channel`
+async fn run(name: &'static str, state: &AppState, headers: &HeaderMap, body: &[u8], channel: Arc<dyn PageChannel>) -> Result<Reply, Rejection> {
+  let pages = requesting_pages(state, headers)?;
   note_page_clock(state, headers);
-  let call = context.call(requesting_window(headers));
   let spec = app_api::dispatch::spec(name).expect("a route is a command of the registry");
   let args = arguments(spec, body).map_err(|e| failed(name, format!("Invalid arguments of {name}: {e}")))?;
-  let prepared = app_api::dispatch::prepare(name, args).map_err(Rejection::Error)?;
-  caught(prepared.run(context, call, Arc::new(progress))).await.inspect_err(|rejection| {
-    if let Rejection::Error(error) = rejection {
-      tracing::debug!("Cannot {name}: {}", error.message);
-    }
-  })
-}
-
-/// The answer of a command, run as a task of its own, as Tauri runs a command: its error, or `Panicked` for a command
-/// that panicked, which fails the request. One task type for every command (`app_api::dispatch::Dispatched`) keeps the
-/// server small (a task type per command took its test binary past the 16 MB of unwind tables the linker encodes
-/// compactly)
-pub(crate) async fn caught(answer: Dispatched) -> Result<Answer, Rejection> {
-  match tokio::spawn(answer.in_current_span()).await {
-    Ok(answer) => answer.map_err(Rejection::Error),
-    Err(failure) => {
-      tracing::error!("A command panicked: {failure}");
-      Err(Rejection::Panicked)
-    }
+  let reply = pages.invoke(requesting_window(headers), name, &args, spec.channel.as_ref().map(|_| channel)).await;
+  if let Err(Failed::Error(error)) = &reply {
+    tracing::debug!("Cannot {name}: {error}");
   }
+  Ok(reply)
 }
 
 /// The window of the page that sends a command (`X-Window-Label`): the main window for a request that names none (a
@@ -245,12 +286,12 @@ fn note_page_clock(state: &AppState, headers: &HeaderMap) {
   }
 }
 
-fn requesting_context(state: &AppState, headers: &HeaderMap) -> Result<Arc<AppContext>, Rejection> {
+fn requesting_pages(state: &AppState, headers: &HeaderMap) -> Result<Arc<Pages>, Rejection> {
   headers
     .get(crate::REPOSITORY_ID_HEADER)
     .and_then(|value| value.to_str().ok())
     .and_then(|id| state.repositories.get(id))
-    .map(|repository| Arc::clone(&repository.context))
+    .map(|repository| repository.pages())
     .ok_or_else(|| failed("find the test repository", "no test repository named by the request"))
 }
 

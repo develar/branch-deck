@@ -111,6 +111,15 @@ impl Channel {
       .all(|(_, window)| window.joining.is_none() && window.delivered.is_some_and(|delivered| delivered.epoch == version.epoch && delivered.seq >= version.seq))
   }
 
+  /// The reservation of `window` whose flag is `ended` goes: not a later one of the same window (an unsubscribe and a
+  /// subscribe again while it joined)
+  fn forget_reservation(&self, window: &WindowKey, ended: &Arc<AtomicBool>) {
+    let mut state = self.state();
+    if state.windows.get(window).is_some_and(|subscription| Arc::ptr_eq(&subscription.ended, ended)) {
+      state.windows.remove(window);
+    }
+  }
+
   /// The windows of `connection` subscribed now
   fn windows_of(&self, connection: ConnectionId) -> Vec<String> {
     self.state().windows.keys().filter(|(of, _)| *of == connection).map(|(_, label)| label.clone()).collect()
@@ -173,6 +182,8 @@ fn snapshot(channel: &Channel, view: Option<&RepositoryView>, held: Option<Versi
 /// What a window subscribed to: the answer of the session, and what the window said it holds
 struct Joined {
   window: WindowKey,
+  /// The flag of the reservation it joined for
+  ended: Arc<AtomicBool>,
   connection: Arc<Connection>,
   answer: ViewSubscription,
   have: Option<Version>,
@@ -242,6 +253,10 @@ impl Host {
         },
       );
     }
+    // the span of the command it stands for, as the frame of a session command opens it (`session(window)`): a line of
+    // the log says which window subscribed, the refusal before the key too
+    let span = tracing::info_span!("subscribe_view", repository_path = %channel.path, window = %WindowId::of(window.0, window.1.clone()));
+    let _span = span.enter();
     let (host, connection) = (self.me(), Arc::clone(connection));
     self.ctx.runtime.spawn(
       async move {
@@ -257,7 +272,7 @@ impl Host {
     let key = match self.ctx.session_key_now(&channel.path).await {
       Ok(key) => key,
       Err(error) => {
-        channel.state().windows.remove(&window);
+        channel.forget_reservation(&window, &ended);
         return connection.fail(id, &Failure::api_error(&error));
       }
     };
@@ -266,7 +281,7 @@ impl Host {
       Ok(joined) => Ok(joined),
       Err(error) => {
         ended.store(true, Ordering::SeqCst);
-        channel.state().windows.remove(&window);
+        channel.forget_reservation(&window, &ended);
         Err(Failure::api_error(&error))
       }
     };
@@ -339,7 +354,7 @@ impl Host {
         Err(error) => {
           tracing::warn!(window = %other.1, channel = %channel.uri, %error, "a window of a channel that moved cannot subscribe again");
           other_ended.store(true, Ordering::SeqCst);
-          channel.state().windows.remove(&other);
+          channel.forget_reservation(&other, &other_ended);
           other_connection.notify("x-branch-deck/subscriptionEnded", json!({ "channel": channel.uri, "window": other.1, "reason": "closed" }));
         }
       }
@@ -413,11 +428,22 @@ impl Host {
       have,
     };
     let answer = subscribe_view(&self.ctx, &call, key.clone(), params, sink).await?;
-    if let Some(subscription) = channel.state().windows.get_mut(window) {
-      subscription.subscription = Some((SubscriptionId(answer.id), call));
+    let kept = match channel.state().windows.get_mut(window) {
+      // the reservation this join is for: an unsubscribe while it joined ended it, and a later subscribe of the window
+      // holds a reservation of its own
+      Some(subscription) if Arc::ptr_eq(&subscription.ended, ended) => {
+        subscription.subscription = Some((SubscriptionId(answer.id), call.clone()));
+        true
+      }
+      _ => false,
+    };
+    if !kept {
+      self.ctx.windows.drop_subscription(&call, SubscriptionId(answer.id));
+      self.ctx.sessions.unsubscribe(SubscriptionId(answer.id));
     }
     Ok(Joined {
       window: window.clone(),
+      ended: Arc::clone(ended),
       connection: Arc::clone(connection),
       answer,
       have,
@@ -428,7 +454,7 @@ impl Host {
   /// the version it holds; it is live from now on. Within the publish lock
   fn joined(channel: &Channel, joined: &Joined, held: Option<Version>, sequence: &mut Sequence<'_>) {
     let mut state = channel.state();
-    let Some(subscription) = state.windows.get_mut(&joined.window) else {
+    let Some(subscription) = state.windows.get_mut(&joined.window).filter(|subscription| Arc::ptr_eq(&subscription.ended, &joined.ended)) else {
       return;
     };
     subscription.delivered = held;

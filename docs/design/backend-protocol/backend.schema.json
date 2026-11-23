@@ -1044,8 +1044,17 @@
           "type": "string"
         },
         "news": {
-          "description": "The id of the news.",
-          "type": ["string", "integer"]
+          "description": "What the news tells (NewsClaim), the same in every session of the repository, unlike the id of the news.",
+          "type": "object",
+          "required": ["kind", "robotId"],
+          "properties": {
+            "kind": {
+              "const": "robotFailed"
+            },
+            "robotId": {
+              "type": "string"
+            }
+          }
         }
       }
     },

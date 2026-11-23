@@ -19,7 +19,7 @@ sync-utils = { path = "../sync-utils" }
 # the bytes of a raw command in base64
 base64 = "0.23.1"
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tracing.workspace = true
 

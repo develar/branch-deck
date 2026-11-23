@@ -3,13 +3,16 @@
 //! with, and each client `backend-host` opened, with the desktop of its host requests and capabilities and the events
 //! it sends on its connection. An event of app-api goes to every connection ([`Connections`] is the `AppEvents` of the
 //! context), an event to a window to the connection of that window, an event to the main window to the main window of
-//! each; a desktop is the one of the connection of the window that asks (`AppContext::desktop`).
+//! each; a desktop is the one of the connection of the window that asks (`AppContext::desktop`). A news of a
+//! repository is told once by the backend: every client claims it before it tells it (`claim_news`), the first claim
+//! wins.
 //!
 //! [`without`] is the desktop of a connection that lacks a part (a capability its client did not declare, a connection
 //! that ended): each part answers as a desktop without it.
 
 use crate::transport::{AppEvents, ConnectionId, Desktop, WindowId};
-use std::collections::BTreeMap;
+use domain_types::session::NewsClaim;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -25,6 +28,8 @@ pub struct Connections {
   app: Arc<dyn AppEvents>,
   last: AtomicU64,
   open: Mutex<BTreeMap<ConnectionId, ConnectionHosts>>,
+  /// The news of each repository claimed so far, by the path of the repository without a trailing separator
+  claimed: Mutex<HashSet<(String, NewsClaim)>>,
 }
 
 impl Connections {
@@ -34,7 +39,16 @@ impl Connections {
       app,
       last: AtomicU64::new(ConnectionId::APP.0),
       open: Mutex::default(),
+      claimed: Mutex::default(),
     }
+  }
+
+  /// The first claim of `news` of the repository `repository_path` (as a window names it): true once, false for every
+  /// later claim of any connection, so the app and the IDE tell one news once
+  pub fn claim_news(&self, repository_path: &str, news: NewsClaim) -> bool {
+    let trimmed = repository_path.trim_end_matches(['/', '\\']);
+    let path = if trimmed.is_empty() { repository_path } else { trimmed };
+    self.claimed.lock().unwrap_or_else(PoisonError::into_inner).insert((path.to_owned(), news))
   }
 
   fn open_now(&self) -> MutexGuard<'_, BTreeMap<ConnectionId, ConnectionHosts>> {

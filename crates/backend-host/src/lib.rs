@@ -25,6 +25,7 @@ pub mod host;
 pub mod identity;
 pub mod in_process;
 pub mod outbox;
+pub mod page;
 pub mod socket;
 pub mod stream;
 pub mod wire;

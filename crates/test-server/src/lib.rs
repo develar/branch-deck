@@ -859,6 +859,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     app_data,
     in_flight: Arc::default(),
     context: Arc::new(state.context_of(id, &hosts)),
+    pages: std::sync::OnceLock::new(),
     events: hosts.events,
     store: hosts.settings,
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),

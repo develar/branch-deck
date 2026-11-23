@@ -370,6 +370,11 @@
     "transport": "json"
   },
   {
+    "name": "claim_news",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "open_sub_window",
     "class": "app",
     "transport": "json"
