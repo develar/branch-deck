@@ -68,8 +68,8 @@ pub struct OperationRequest {
 
 /// What the registry answers a request
 pub enum Admitted {
-  /// It runs: the guard ends it with its answer
-  Run(RunningGuard),
+  /// It runs: the guard ends it with its answer. Boxed: on Windows the guard is over 200 bytes, `large_enum_variant`
+  Run(Box<RunningGuard>),
   /// The same intent runs: its answer is this request's too
   Joined(Joined),
 }
@@ -511,11 +511,11 @@ impl Registry {
       .apply_with(key, move |state| decide(state, &channels, decided_key, id, request, (wake, queue_events)))
       .await;
     match decision.unwrap_or(Decision::Closed) {
-      Decision::Run => Ok(Admitted::Run(guard)),
+      Decision::Run => Ok(Admitted::Run(Box::new(guard))),
       Decision::Queued => {
         woken.await.map_err(|_closed| closed())?;
         guard.queued = true;
-        Ok(Admitted::Run(guard))
+        Ok(Admitted::Run(Box::new(guard)))
       }
       // nothing of it entered the session: it did not run
       Decision::Join { op, answer } => {

@@ -1073,14 +1073,16 @@ fn the_attributes_of_the_directory_of_a_file_are_a_source_of_its_probe() {
 }
 
 /// Like git's racy check, attributes rewritten within the racy margin of the hash keep their stamp (the same length,
-/// inode and time): the probe does not answer for the file under them, and the next preview sees `text` as git does
+/// inode and time): the probe does not answer for the file under them, and the next preview sees `text` as git does.
+/// Their time is ahead of the clock, so the hash is within its racy margin however long the preview takes
 #[test]
 fn attributes_changed_within_the_racy_margin_of_the_hash_are_read_again() {
   let Setup { upstream: _upstream, clone } = crlf_clone("");
   write_trusted(&clone, "win.txt", "one\r\ntwo\r\n");
   write(&clone, ".gitattributes", "*.txt -text\n");
   let attributes = clone.path().join(".gitattributes");
-  let written = fs::metadata(&attributes).unwrap().modified().unwrap();
+  let written = std::time::SystemTime::now() + Duration::from_secs(60);
+  fs::File::options().write(true).open(&attributes).unwrap().set_modified(written).unwrap();
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::FastForward });
   write(&clone, ".gitattributes", "*.txt  text\n");
   fs::File::options().write(true).open(&attributes).unwrap().set_modified(written).unwrap();

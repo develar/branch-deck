@@ -525,8 +525,9 @@ async fn waits_on_the_clock_through_the_deletion(after_delete: bool) {
 /// A deletion that waited longer than it may (`AppState::delete_wait`, here 300 ms) warns of what holds the repository:
 /// the test that made it, the commands still running, the worktrees whose closed sessions still ran at the end of
 /// either wait, and a session of its worktree open again since the deletion closed it, with what keeps it; then it
-/// deletes the files and closes that session. Here a command of the page holds the repository, the sync of its closed
-/// session runs a slow git, and a request of a sync opens the session again after the close
+/// deletes the files (on Windows a git whose current directory is in them refuses that, a warning too) and closes that
+/// session. Here a command of the page holds the repository, the sync of its closed session runs a slow git, and a
+/// request of a sync opens the session again after the close
 #[tokio::test]
 async fn a_deletion_that_waited_too_long_warns_of_the_test_the_commands_and_the_sessions_that_hold_it() {
   let wrapped = slow_git("3");
@@ -552,19 +553,36 @@ async fn a_deletion_that_waited_too_long_warns_of_the_test_the_commands_and_the_
     tokio::time::sleep(Duration::from_millis(20)).await;
   }
   let warning = warning();
+  // the paths as the warning writes them, in their `Debug` form: a backslash of Windows doubled
+  let reopened = format!("{:?}", format!("{path} under user-name (0 windows, "));
   for named in [
     "still run after 300ms; deleting it anyway".to_owned(),
     format!("test=\"{TEST}\""),
     "commands=[\"/invoke/execute\"]".to_owned(),
-    format!("closing=[\"{path}\"]"),
-    format!("reopened=[\"{path} under user-name (0 windows, "),
+    format!("closing=[{path:?}]"),
+    format!("reopened=[{}", reopened.trim_end_matches('"')),
   ] {
     assert!(warning.contains(&named), "{named} in {warning}");
   }
 
-  // the deletion goes on: the files go, the session opened again closes, the closed one ends with its git
+  // the deletion goes on: the files go (on Windows the slow git, while its current directory is in them, refuses their
+  // removal, which warns), the session opened again closes, the closed one ends with its git
   drop(command);
-  wait_until_removed(&path).await;
+  if cfg!(windows) {
+    let refused = format!("Failed to remove repository directory {path}");
+    let deadline = Instant::now() + Duration::from_mins(1);
+    // the git may have ended before the removal, which then removed the files
+    while std::path::Path::new(&path).exists() && !String::from_utf8_lossy(&logged.lock().unwrap()).contains(&refused) {
+      assert!(
+        Instant::now() < deadline,
+        "neither removed nor a warning of the refused removal: {}",
+        String::from_utf8_lossy(&logged.lock().unwrap())
+      );
+      tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+  } else {
+    wait_until_removed(&path).await;
+  }
   let counts = counts_when(&client, addr, |counts| counts["sessions"] == json!(0) && counts["deleting"] == json!([])).await;
   assert_eq!(counts["orphanSessions"], json!([]), "{counts}");
 }

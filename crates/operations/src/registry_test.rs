@@ -216,7 +216,7 @@ fn joined(admitted: Admitted) -> Joined {
 
 fn running(admitted: Admitted) -> RunningGuard {
   match admitted {
-    Admitted::Run(guard) => guard,
+    Admitted::Run(guard) => *guard,
     Admitted::Joined(joined) => panic!("joined {}", joined.op()),
   }
 }

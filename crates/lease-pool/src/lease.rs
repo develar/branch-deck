@@ -3409,7 +3409,7 @@ fn stop_trees(roots: &[(u32, u64)]) {
   }
   // no process scan, so no command of the holder is known in the slot
   #[cfg(not(unix))]
-  let _ = roots;
+  debug!(roots = roots.len(), "no process scan, so no command of the holder to end in the slot");
 }
 
 /// The processes of a slot but its Bazel servers, by whose they are: the commands of the session that holds the lease,

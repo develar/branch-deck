@@ -7,7 +7,8 @@ use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 #[cfg(unix)]
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
+use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::disable_background_maintenance;
 use test_utils::history::HistoryCommit;
 
 #[test_log::test]

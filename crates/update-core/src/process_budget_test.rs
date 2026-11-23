@@ -346,11 +346,14 @@ fn the_check_of_a_sync_whose_upstream_changes_no_local_file_asks_no_rule() {
 /// The check of a sync of the incident: the replay of the preview, then the rule (one `log` of the copies and the local
 /// commits, one `cat-file` of the summaries of the file both change) and the conflict it describes (`log --no-walk` of
 /// the commit, `log` of the upstream commits of its file); a second check of the same state takes the replay and the
-/// lost bindings from the preview cache: only the reads of the state and the description again
+/// lost bindings from the preview cache: only the reads of the state and the description again. The local file is older
+/// than the racy margin, so the hash of the first check answers for it in the second however long the first takes
 #[test]
 fn the_check_of_a_sync_reads_the_lost_bindings_once_per_state() {
   let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
   clone.git(&["fetch", "--quiet", "origin"]);
+  let local_file = std::fs::File::options().write(true).open(clone.path().join("src/Launch.kt")).unwrap();
+  local_file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5)).unwrap();
   let git = counting();
   crate::update_project::preview_update(&git, path(&clone), "origin/master").unwrap().unwrap();
   assert_processes(
@@ -380,7 +383,6 @@ fn the_check_of_a_sync_reads_the_lost_bindings_once_per_state() {
       ("cat-file", 1),
       ("config", 1),
       ("for-each-ref", 1),
-      ("hash-object", 1),
       ("log", 2),
       ("merge-base", 2),
       ("remote", 1),

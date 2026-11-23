@@ -14,9 +14,7 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, append_config};
-#[cfg(unix)]
-use test_utils::history::HistoryStream;
-use test_utils::history::{HistoryCommit, one_file_each};
+use test_utils::history::{HistoryCommit, HistoryStream, one_file_each};
 use test_utils::sync_fixtures::TestReporter;
 
 /// Runs a sync with the `test` branch prefix and returns the events it reported
