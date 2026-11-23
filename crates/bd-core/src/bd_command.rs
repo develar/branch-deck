@@ -46,10 +46,17 @@ impl BdCommand {
     }
   }
 
-  /// `for_shell` with `-C <repository>`, the repository quoted the same way
+  /// `for_shell` with `-C <repository>`, the repository quoted the same way (`in_worktree`)
   pub fn for_shell_in(&self, repository: &str) -> String {
-    format!("{} -C {}", self.for_shell(), shell_word(repository))
+    in_worktree(&self.for_shell(), repository)
   }
+}
+
+/// `<program> -C <dir>`, the dir quoted for the shell: the one place a command that brd names for a worktree gets its
+/// `-C`. `RepoContext::bd` is this for the context's repository, so a command there is `context.bd` and its arguments,
+/// never a second `-C`; a command of another worktree (a lease, the home checkout) is `in_worktree(CLI_NAME, dir)`
+pub fn in_worktree(program: &str, dir: &str) -> String {
+  format!("{program} -C {}", shell_word(dir))
 }
 
 /// A word for the user's shell: as it is when plain, else single-quoted, where nothing expands: for a POSIX shell a

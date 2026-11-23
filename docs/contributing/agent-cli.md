@@ -2328,7 +2328,7 @@ symlink it names the app binary with `cli` (`'/Applications/Branch Deck.app/…/
 and to be run as written: the bare app binary starts the app.
 
 The app's prompts name brd the same way without an install: the Tauri command `agent_cli_command(repository)`
-(`bd_command` and `for_shell_in` in `install.rs`) returns `<brd> -C <repository>`, with the `brd` symlink when it points
+(`bd_command` and `for_shell_in` in `bd_command.rs`, whose `in_worktree` writes the one `-C` of every command brd names for a worktree) returns `<brd> -C <repository>`, with the `brd` symlink when it points
 at the running app, else the app binary with `cli` (on Windows `brd.exe` next to the app; a binary named `brd`, such as
 a cargo build, needs no `cli`). It is quoted for a POSIX
 shell, or for PowerShell on Windows (`& '<brd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the

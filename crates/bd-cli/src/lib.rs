@@ -484,8 +484,8 @@ fn lease_pick_reporting(
     if let Some(conflict) = pick.conflict.as_mut() {
       conflict.next = format!(
         "Nothing landed. The update moved the lease onto the tip of {branch} (`update`), a tree that no build or test ran on: run the build and the \
-         tests in the lease, then `brd -C {lease} lease pick` again",
-        lease = bd_core::bd_command::shell_word(&lease.dirs.top_level),
+         tests in the lease, then `{lease} lease pick` again",
+        lease = bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, &lease.dirs.top_level),
       );
     }
     pick.check = Some(tree_check_output(check));
@@ -512,8 +512,8 @@ fn words_next(update: &UpdateOutput, branch: &str, lease_dir: &str) -> String {
   format!(
     "Nothing landed. The update moved the lease onto the tip of {branch} (`update`) and resolved the conflict by words in {files} \
      (`update.verify.paths`): a merge that no build or test saw. Read the resolved hunks, build and run the tests in the lease, then \
-     `brd -C {lease} lease pick` again",
-    lease = bd_core::bd_command::shell_word(lease_dir),
+     `{lease} lease pick` again",
+    lease = bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, lease_dir),
   )
 }
 
@@ -540,7 +540,7 @@ fn lease_pick_in(
   };
   let home = HomePick {
     branch,
-    lease_bd: format!("{} -C {}", bd_core::bd_command::CLI_NAME, bd_core::bd_command::shell_word(lease_dir)),
+    lease_bd: bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, lease_dir),
     check,
     dirs: Some(lease_dirs.clone()),
   };

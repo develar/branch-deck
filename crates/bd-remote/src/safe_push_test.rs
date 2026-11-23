@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{
-  ACP_HOST, PREFIX, SESSION, assert_error, commit_all, commit_dangling_reference, commit_lost_import, environment, git, next_steps, run_in, run_json, write,
+  ACP_HOST, PREFIX, SESSION, assert_error, bd_in, commit_all, commit_dangling_reference, commit_lost_import, environment, git, next_steps, run_in, run_json, write,
 };
 use bd_cli::remote_fixture_test::{
   AUTH, LANDED_SUBJECTS, MASTER_RULES, STACK, Space, dismissing_rules, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago,
@@ -170,12 +170,13 @@ fn assert_refused_for_a_robot_on(space: &Space, revision: &str) {
   let (exit_code, output) = space.run(&["auth"]);
   assert_error(&output, exit_code, (4, "robot_running"));
   assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
-  assert_eq!(next_steps(&output["error"]), [("brd robot auth".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{} robot auth", bd_in(&space.repo)), false)]);
 }
 
 #[test_log::test]
 fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told() {
   let space = Space::new(&["(auth) Add auth"]);
+  let brd = bd_in(&space.repo);
   let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let tip = space.local_tip(AUTH);
@@ -195,7 +196,7 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
   );
   assert_eq!(
     next_steps(&output["error"]),
-    [("brd robot auth".to_string(), false), ("brd safe-push auth --cancel-running".to_string(), true)]
+    [(format!("{brd} robot auth"), false), (format!("{brd} safe-push auth --cancel-running"), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "");
   // a Dry Run replaces no Safe Push: its push into the branch is refused, --cancel-running or not
@@ -338,6 +339,7 @@ fn a_branch_reworded_by_bd_reword_needs_a_push() {
 #[test_log::test]
 fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   let space = Space::new(&LANDED_SUBJECTS);
+  let brd = bd_in(&space.repo);
   let (exit_code, output) = bd_push(&space.environment(), &["auth"]);
   assert_eq!(exit_code, 0, "{output}");
   land_auth_by_content(&space.repo);
@@ -352,7 +354,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   assert_eq!(output["refusals"][0]["code"], json!("push_refused"), "{output}");
   let message = output["refusals"][0]["message"].as_str().unwrap();
   assert!(
-    message.contains(&format!("`brd push auth --force --expect-remote {}`", git_ops::revs::short_id(&theirs))),
+    message.contains(&format!("`{brd} push auth --force --expect-remote {}`", git_ops::revs::short_id(&theirs))),
     "{message}"
   );
   assert_eq!(
@@ -367,8 +369,8 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   assert_eq!(
     next_steps(&output["error"]),
     [
-      (format!("brd push auth --force --expect-remote {}", git_ops::revs::short_id(&theirs)), true),
-      ("brd safe-push auth --force".to_string(), true)
+      (format!("{brd} push auth --force --expect-remote {}", git_ops::revs::short_id(&theirs)), true),
+      (format!("{brd} safe-push auth --force"), true)
     ]
   );
   assert_eq!(
@@ -601,12 +603,13 @@ fn the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request() {
 #[test_log::test]
 fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it() {
   let (space, github, environment) = needs_review_on_github();
+  let create = format!("{} safe-push auth --create-pull-request", bd_in(&space.repo));
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
   assert_safe_push_error_mentions(&output, "brd safe-push auth --create-pull-request");
   // it pushes the branch: the user's to approve
-  assert_eq!(next_steps(&output["error"]), [("brd safe-push auth --create-pull-request".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [(create, true)]);
 
   let output = create_pull_request(&environment);
   assert_eq!(
@@ -716,6 +719,7 @@ fn started_from_the_pull_request(environment: &Environment, args: &[&str]) -> Va
 #[test_log::test]
 fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
   let (space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::ok(dismissing_rules()));
+  let brd = bd_in(&space.repo);
 
   let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -730,7 +734,7 @@ fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
   assert!(message.contains("`brd push auth`") && message.contains("`brd request-review auth`"), "{message}");
   assert_eq!(
     next_steps(&output["error"]),
-    [("brd push auth".to_string(), true), ("brd request-review auth".to_string(), true)]
+    [(format!("{brd} push auth"), true), (format!("{brd} request-review auth"), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "", "nothing is pushed");
   assert_eq!(comments_on_seven(&github), 0, "nothing is started");
@@ -927,6 +931,7 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
 #[test_log::test]
 fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
   let space = Space::new(&[]);
+  let brd = bd_in(&space.repo);
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100);
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
@@ -937,12 +942,12 @@ fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
   assert_eq!(
     output["error"]["message"],
     json!(format!(
-      "Nothing was pushed or started: {used} (Start with controlUrl) of flow uses controlUrl (src/b/Use.kt:3), which {declared} (Add controlUrl) of util adds; git merges it, but the build fails. `brd restack flow util` lands util with it, after the user approves, or move one of the two; --allow-missing starts anyway, only when the user says it is a false alarm",
+      "Nothing was pushed or started: {used} (Start with controlUrl) of flow uses controlUrl (src/b/Use.kt:3), which {declared} (Add controlUrl) of util adds; git merges it, but the build fails. `{brd} restack flow util` lands util with it, after the user approves, or move one of the two; --allow-missing starts anyway, only when the user says it is a false alarm",
       used = &uses[..8],
       declared = &declares[..8],
     ))
   );
-  assert_eq!(next_steps(&output["error"]), [("brd restack flow util".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{brd} restack flow util"), true)]);
   assert_eq!(space.remote_tip("test-user/virtual/flow"), "", "nothing was pushed");
 
   let (_, output) = space.run(&["flow", "--dry-run"]);
@@ -989,6 +994,7 @@ fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
 #[test_log::test]
 fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   let space = login_on_auth();
+  let brd = bd_in(&space.repo);
   let push = |args: &[&str]| bd_push(&space.environment(), args);
 
   space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
@@ -1003,7 +1009,7 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   assert!(message.contains("once the user approved, --restart-running cancels it, pushes and restarts it"), "{output}");
   assert_eq!(
     next_steps(&output["error"]),
-    [("brd robot auth".to_string(), false), ("brd push auth --restart-running".to_string(), true)]
+    [(format!("{brd} robot auth"), false), (format!("{brd} push auth --restart-running"), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "");
 
@@ -1558,6 +1564,7 @@ fn the_whole_stack_of_a_straight_chain_lands_from_its_last_branch() {
 #[test_log::test]
 fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
   let space = forking_stack();
+  let brd = bd_in(&space.repo);
   // session changes a file that only an unassigned commit creates
   write(&space.repo, "config.txt", "a");
   commit_all(&space.repo, "Add config", 1_700_000_500);
@@ -1572,7 +1579,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
     "a stack branch that is not built has no commits to review"
   );
   // the branch of the commit that conflicts lands with what it is built on: its check reads only
-  let piece = [("brd safe-push session --dry-run".to_string(), false)];
+  let piece = [(format!("{brd} safe-push session --dry-run"), false)];
   assert_eq!(next_steps(&output["refusals"][0]), piece);
   let (exit_code, output) = space.run(&["login", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "stack_conflict"));
@@ -1605,7 +1612,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
       "Nothing was pushed or started: the stack branch of auth is not the build of its commits: auth conflicts, so the stack branch was not rebuilt. `brd sync` says what to fix"
     )
   );
-  assert_eq!(next_steps(&output["error"]), [("brd sync".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{} sync", bd_in(&space.repo)), false)]);
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
 }
 

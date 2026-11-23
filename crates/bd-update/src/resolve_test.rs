@@ -1,4 +1,4 @@
-use bd_cli::fixture_test::{assert_error, canonical, git, hold_the_lock, run_in, write};
+use bd_cli::fixture_test::{assert_error, bd_in, canonical, git, hold_the_lock, run_in, write};
 use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -68,6 +68,8 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
     (&json!("conflict"), &json!(1), &json!(0), &json!(1))
   );
   assert_eq!(round["session"]["commit"]["subject"], json!("(auth) Change line 2"));
+  // this brd in this repository, its `-C` once
+  assert_eq!(round["session"]["next"], json!(format!("{} update --continue --round 1", bd_in(&clone))), "{round}");
   let file = file_of(&round, "shared.txt");
   assert_eq!((&file["kind"], &file["markers"]), (&json!("content"), &json!(1)), "{round}");
   assert_eq!(read(file["onto"].as_str().unwrap()), "one\ntheirs\nthree\n");
@@ -752,7 +754,7 @@ fn local_changes_on_the_finish_keep_the_session_ready() {
   let (exit_code, pending) = run_in(&clone, &["update"]);
   assert_eq!(
     (exit_code, &pending["state"], &pending["session"]["next"]),
-    (1, &json!("pending"), &json!("brd update --continue")),
+    (1, &json!("pending"), &json!(format!("{} update --continue", bd_in(&clone)))),
     "{pending}"
   );
 
@@ -1975,7 +1977,8 @@ fn a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_fi
   assert_eq!(resolution["lost_bindings"].as_array().map(Vec::len), Some(2));
   assert_eq!(resolution["files"], json!([{ "path": "src/Launch.kt", "how": "edited" }]));
   assert_eq!(done["verify"], json!({ "paths": ["src/Launch.kt"] }));
-  assert!(done["next"][0].as_str().unwrap().ends_with(" fold"), "{done}");
+  // the fold runs where the update ran: `-C` once
+  assert_eq!(done["next"][0], json!(format!("{} fold", bd_in(&clone))), "{done}");
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("lost-binding\tsrc/Launch.kt\tbackend"));
 }
 

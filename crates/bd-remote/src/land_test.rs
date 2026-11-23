@@ -1,4 +1,4 @@
-use bd_cli::fixture_test::{assert_error, git, next_steps, run_in};
+use bd_cli::fixture_test::{assert_error, bd_in, git, next_steps, run_in};
 use bd_cli::remote_fixture_test::{push_from_elsewhere_to, remote_tip, repo_with_remote};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -22,6 +22,7 @@ fn landing_by_push() -> (TestRepo, TempDir) {
 #[test_log::test]
 fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check() {
   let (repo, remote) = landing_by_push();
+  let brd = bd_in(&repo);
   let base = remote_tip(&remote, "master");
   let (exit_code, check) = run_in(&repo, &["land", "auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{check}");
@@ -39,7 +40,7 @@ fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not
 
   let (exit_code, landed) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_eq!(exit_code, 0, "{landed}");
-  assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!("brd update")));
+  assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!(format!("{brd} update"))));
   let copy = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(remote_tip(&remote, "master"), copy);
   assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), copy, "the successful push moves it by CAS");
@@ -58,7 +59,7 @@ fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused
   let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
   let (exit_code, moved) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&moved, exit_code, (3, "baseline_moved"));
-  assert_eq!(next_steps(&moved["error"]), [("brd update".to_string(), true)]);
+  assert_eq!(next_steps(&moved["error"]), [(format!("{} update", bd_in(&repo)), true)]);
   assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), theirs, "the push fetched it");
 
   let (repo, remote) = landing_by_push();
@@ -74,6 +75,7 @@ fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused
 #[test_log::test]
 fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   let (repo, remote) = landing_by_push();
+  let brd = bd_in(&repo);
   let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);
   let (exit_code, check) = run_in(&repo, &["land", "auth", "--dry-run"]);
@@ -86,7 +88,7 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   assert_eq!(check["refusals"][0]["code"], json!("baseline_moved"), "{check}");
   let (exit_code, refused) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&refused, exit_code, (3, "baseline_moved"));
-  assert_eq!(next_steps(&refused["error"]), [("brd update".to_string(), true)]);
+  assert_eq!(next_steps(&refused["error"]), [(format!("{brd} update"), true)]);
   assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
 }
 

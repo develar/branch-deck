@@ -193,7 +193,8 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   // the update names the lease by its top level, which has forward slashes on Windows
   let repository = done["repository"].as_str().unwrap();
   assert_eq!(display(Path::new(repository)), display(Path::new(&path)));
-  assert_eq!(done["next"], json!([format!("brd -C {} lease pick", shell_word(repository))]), "{done}");
+  // the brd of the update names the lease already, so its `next` has the one `-C` of `RepoContext::bd`, never a second
+  assert_eq!(done["next"], json!([format!("{CLI_NAME} -C {} lease pick", shell_word(repository))]), "{done}");
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
 
   let (exit_code, output) = lease_pick(&fixture, &path, &[]);

@@ -783,9 +783,9 @@ pub fn update_lease_onto(context: &RepoContext, branch: &str, steps: &CommandSte
   Ok(output)
 }
 
-/// `brd -C <lease> lease pick`
+/// `brd -C <lease> lease pick`: `context.bd` names the lease already (`in_worktree`)
 fn lease_pick_command(context: &RepoContext) -> String {
-  format!("{} -C {} lease pick", context.bd, shell_word(&context.repository))
+  format!("{} lease pick", context.bd)
 }
 
 /// `onto:<path>` or `commit:<path>`
@@ -1340,7 +1340,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.verify = verify_paths(&state.resolutions, &[], &regenerate);
       // the `fixup!` commits of the lost-bindings rounds fold into their copies
       if state.resolutions.iter().any(|resolution| resolution.fixup.is_some() && resolution.resolved.is_some()) {
-        output.next.push(format!("{bd} -C {} fold", shell_word(&context.repository)));
+        output.next.push(format!("{bd} fold"));
       }
       if state.local_upstream {
         output.next.push(lease_pick_command(context));

@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, next_steps, run_json};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, next_steps, run_json};
 use bd_cli::remote_fixture_test::{Space, evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -137,11 +137,12 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
 #[test_log::test]
 fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() {
   let (space, github, environment) = needs_code_owner("NOT_ADDED");
+  let brd = bd_in(&space.repo);
   github.answer("POST", REVIEWERS, requested_answer(&["ikorennoy"]));
   let (exit_code, output) = request_review(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "needs_push"));
   // the push is the user's to approve
-  assert_eq!(next_steps(&output["error"]), [("brd request-review auth --push".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{brd} request-review auth --push"), true)]);
 
   let (exit_code, output) = request_review(&environment, &["auth", "--push", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");

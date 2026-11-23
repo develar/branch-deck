@@ -9,7 +9,7 @@
 //! the repository lock while its holder lives, up to `--lock-wait`
 
 use crate::update_command::{core_error, uncommitted_overlap, undo_core_error};
-use bd_core::bd_command::{CLI_NAME, shell_word};
+use bd_core::bd_command::{CLI_NAME, in_worktree, shell_word};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput, NextStep};
 use bd_core::operation_record::{asked_on, recorded};
@@ -450,7 +450,7 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
 /// message names the command of the path the agent took, `brd lease pick` in a lease, else `brd pick --from`
 fn unchecked_tree(context: &RepoContext, dir: &str, check: &TreeCheck, args: &PickArgs, lease: bool) -> CliError {
   let (command, again) = if lease {
-    ("brd lease pick", format!("{CLI_NAME} -C {} lease pick", shell_word(dir)))
+    ("brd lease pick", format!("{} lease pick", in_worktree(CLI_NAME, dir)))
   } else {
     let follow = if args.follow { " --follow" } else { "" };
     ("brd pick", format!("{} pick --from {}{follow}", context.bd, shell_word(dir)))
@@ -648,7 +648,7 @@ fn message_format(context: &RepoContext, from: &PickFrom, refused: &MessageForma
     .join(", ");
   // the commands of a worktree name it with `-C`, as `unchecked_tree` does: `context.bd` names the target already
   let (command, reword_in, again) = match (from, home) {
-    (PickFrom::Worktree(dir), Some(_)) => ("brd lease pick", Some(dir.as_str()), format!("{CLI_NAME} -C {} lease pick", shell_word(dir))),
+    (PickFrom::Worktree(dir), Some(_)) => ("brd lease pick", Some(dir.as_str()), format!("{} lease pick", in_worktree(CLI_NAME, dir))),
     (PickFrom::Worktree(dir), None) => ("brd pick", Some(dir.as_str()), format!("{} pick --from {} --follow", context.bd, shell_word(dir))),
     (PickFrom::Revisions(revisions), _) => ("brd pick", None, format!("{} pick {}", context.bd, shell_word(revisions))),
     // a remote pick has no gate of messages
@@ -659,7 +659,7 @@ fn message_format(context: &RepoContext, from: &PickFrom, refused: &MessageForma
     .map(|verdict| {
       let id = short.get(&verdict.commit);
       match reword_in {
-        Some(dir) => format!("`{CLI_NAME} -C {} reword {id} --subject '<subject>'`", shell_word(dir)),
+        Some(dir) => format!("`{} reword {id} --subject '<subject>'`", in_worktree(CLI_NAME, dir)),
         None => format!("`{CLI_NAME} reword {id} --subject '<subject>'` in the worktree that has it"),
       }
     })
@@ -709,8 +709,8 @@ fn baseline_parent(context: &RepoContext, from: &PickFrom, refused: &BaselinePar
     for commit in &refused.commits {
       error.push_next_step(NextStep::new(
         format!(
-          "{CLI_NAME} -C {} reword {} --subject {}",
-          shell_word(dir),
+          "{} reword {} --subject {}",
+          in_worktree(CLI_NAME, dir),
           short.get(&commit.commit),
           shell_word(&commit.fixed_subject)
         ),

@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, next_steps, run_in, run_json, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, branch, commit_all, git, next_steps, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, Space, auth_remote_moved_back, land_auth_by_content, push_from_elsewhere_to, rebuild_on_a_newer_baseline, remote_tip, repo_with_remote, their_change,
 };
@@ -261,6 +261,7 @@ fn with_children_refuses_a_blocked_child() {
 #[test_log::test]
 fn all_needs_yes_and_unsynced_branches_are_refused() {
   let (repo, _remote) = repo_with_remote(&["(a) Add shared", "(b) Unrelated"]);
+  let brd = bd_in(&repo);
   let (exit_code, output) = run_in(&repo, &["push", "--all"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   let (exit_code, output) = run_in(&repo, &["push"]);
@@ -281,7 +282,7 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
       .contains("c is not synced (conflict in f0.txt): fix it first, `brd sync` says what holds it"),
     "{output}"
   );
-  assert_eq!(next_steps(&output["error"]), [("brd sync".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{brd} sync"), false)]);
 }
 
 /// A parked branch stays local: `--all` and `--with-children` leave it out (`skipped`), and the branches built on it, which
@@ -370,6 +371,7 @@ fn dropped_subjects(remote: &Value) -> Vec<&str> {
 #[test_log::test]
 fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let brd = bd_in(&repo);
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
 
@@ -390,7 +392,7 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   assert_eq!(dropped_subjects(&rejected["remote"]), ["Someone else"]);
   assert_eq!(rejected["remote"]["dropped_commits"][0]["author"], json!("Other"));
   // the push that replaces it, leased on what brd fetched: the user's to approve
-  let replace = format!("brd push auth --force --expect-remote {}", short_id(&other));
+  let replace = format!("{brd} push auth --force --expect-remote {}", short_id(&other));
   assert_eq!(next_steps(&output["error"]), [(replace.clone(), true)]);
   assert!(
     output["error"]["message"].as_str().unwrap().contains("once the user approved, push again with --force"),
@@ -695,6 +697,7 @@ fn the_app_and_bd_share_the_lease() {
 fn amended_and_restacked_commits_push_without_force() {
   let subjects = ["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth"];
   let (repo, remote) = repo_with_remote(&subjects);
+  let brd = bd_in(&repo);
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
   assert_eq!(exit_code, 0, "{output}");
 
@@ -723,7 +726,7 @@ fn amended_and_restacked_commits_push_without_force() {
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
   // their next step: a push without --force, also for the restacked branches with no commit of their own
   for name in ["auth", "login", "oauth"] {
-    assert_eq!(branch(&output, name)["push"], json!(format!("brd push {name}")));
+    assert_eq!(branch(&output, name)["push"], json!(format!("{brd} push {name}")));
   }
 
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
@@ -746,6 +749,7 @@ fn amended_and_restacked_commits_push_without_force() {
 #[test_log::test]
 fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
   let (repo, remote) = repo_with_remote(&LANDED_SUBJECTS);
+  let brd = bd_in(&repo);
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   let pushed = remote_tip(&remote, AUTH);
@@ -765,7 +769,7 @@ fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
       {"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)},
     ])
   );
-  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!(format!("{brd} push auth")));
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
 
@@ -856,8 +860,9 @@ fn run_push_line(repo: &TestRepo, line: &str) -> (i32, Value) {
 #[test_log::test]
 fn sync_names_the_push_of_each_branch() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let brd = bd_in(&repo);
   let (_, output) = run_in(&repo, &["sync"]);
-  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!(format!("{brd} push auth")));
   run_in(&repo, &["push", "auth"]);
   let (_, output) = run_in(&repo, &["sync"]);
   assert_eq!(branch(&output, "auth").get("push"), None, "up to date: {output}");
@@ -865,7 +870,7 @@ fn sync_names_the_push_of_each_branch() {
   let theirs = push_from_elsewhere(&remote, "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);
   let (_, output) = run_in(&repo, &["sync"]);
-  let line = format!("brd push auth --force --expect-remote {}", short_id(&theirs));
+  let line = format!("{brd} push auth --force --expect-remote {}", short_id(&theirs));
   assert_eq!(branch(&output, "auth")["push"], json!(line));
   let (exit_code, output) = run_push_line(&repo, &line);
   assert_eq!(exit_code, 0, "{output}");
@@ -875,6 +880,7 @@ fn sync_names_the_push_of_each_branch() {
 #[test_log::test]
 fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
+  let brd = bd_in(&repo);
   run_in(&repo, &["push", "login"]);
   push_from_elsewhere_to(&remote, "test-user/virtual/login", "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);
@@ -882,9 +888,9 @@ fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote(
   commit_all(&repo, "(auth) More auth", 1_700_000_900);
 
   let (_, output) = run_in(&repo, &["sync"]);
-  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!(format!("{brd} push auth")));
   let line = branch(&output, "login")["push"].as_str().unwrap().to_string();
-  assert_eq!(line, "brd push login --force");
+  assert_eq!(line, format!("{brd} push login --force"));
   let (exit_code, output) = run_push_line(&repo, &line);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
@@ -917,6 +923,7 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_is_not_pushed_again() {
 #[test_log::test]
 fn an_unapplied_branch_whose_remote_has_commits_it_lacks_is_pushed_only_with_force() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login", "(docs) Add docs"]);
+  let brd = bd_in(&repo);
   let unapplied = "test-user/unapplied/docs";
   for args in [&["sync"][..], &["unapply", "docs"], &["push", "--unapplied", "docs"]] {
     let (exit_code, output) = run_in(&repo, args);
@@ -928,7 +935,7 @@ fn an_unapplied_branch_whose_remote_has_commits_it_lacks_is_pushed_only_with_for
   let (exit_code, output) = run_in(&repo, &["push", "--unapplied", "docs"]);
   assert_error(&output, exit_code, (4, "push_refused"));
   assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
-  assert_eq!(next_steps(&output["error"]), [("brd push docs --force --unapplied".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [(format!("{brd} push docs --force --unapplied"), true)]);
   assert_eq!(remote_tip(&remote, unapplied), theirs, "nothing was pushed");
 
   let (exit_code, output) = run_in(&repo, &["push", "--unapplied", "docs", "--force"]);

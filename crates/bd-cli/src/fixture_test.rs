@@ -266,6 +266,12 @@ pub fn repository(repo: &TestRepo) -> String {
   git(repo, &["rev-parse", "--show-toplevel"])
 }
 
+/// `brd -C <repository>`, the brd that the `next` commands of a command in `repo` name (`RepoContext::bd`): a test has no
+/// binary of brd, so it is `brd`, and its `-C` is there once
+pub fn bd_in(repo: &TestRepo) -> String {
+  bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, &repository(repo))
+}
+
 /// `path` resolved like `std::fs::canonicalize`, without the `\\?\` prefix that it gives on Windows
 pub fn canonical(path: &Path) -> std::path::PathBuf {
   std::path::PathBuf::from(sync_utils::paths::display_path(&std::fs::canonicalize(path).unwrap()))

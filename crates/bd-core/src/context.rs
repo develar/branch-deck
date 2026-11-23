@@ -1,4 +1,4 @@
-use crate::bd_command::{CLI_NAME, bd_command};
+use crate::bd_command::{CLI_NAME, bd_command, in_worktree};
 use crate::error::CliError;
 use crate::output::ShortIds;
 use app_settings::file::{SETTINGS_FILE_NAME, SettingsFile};
@@ -261,7 +261,7 @@ impl RepoContext {
       lock_timeout: environment.lock_timeout,
       patronus_new_api: environment.settings.patronus_new_api,
       operation_id: OperationId::new(),
-      bd: bd_command(environment).map_or_else(|_| CLI_NAME.to_string(), |command| command.for_shell_in(&repository)),
+      bd: bd_command(environment).map_or_else(|_| in_worktree(CLI_NAME, &repository), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
       file_diffs: OnceLock::new(),

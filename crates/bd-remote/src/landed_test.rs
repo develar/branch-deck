@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, next_steps, run_json, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, commit_all, git, next_steps, run_json, write};
 use bd_cli::remote_fixture_test::{STACK, Space, forking_stack, minutes_ago, robot};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -91,6 +91,7 @@ fn status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them(
 #[test_log::test]
 fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
   let space = merged_login();
+  let brd = bd_in(&space.repo);
   let (_, status) = bd(&space, &["status"]);
   let url = landed_by(&status, "login")["robot"]["url"].as_str().unwrap().to_string();
   for (args, message) in [
@@ -111,11 +112,11 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
     assert_error(&output, exit_code, (4, "landed"));
     assert_eq!(output["error"]["message"], json!(message), "{args:?}");
     // the update moves the checked out branch: the user's to approve
-    assert_eq!(next_steps(&output["error"]), [("brd update".to_string(), true)], "{args:?}");
+    assert_eq!(next_steps(&output["error"]), [(format!("{brd} update"), true)], "{args:?}");
   }
   let (exit_code, check) = bd(&space, &["safe-push", "login", "--dry-run"]);
   assert_eq!((exit_code, check["refusals"][0]["code"].clone()), (0, json!("landed")), "{check}");
-  assert_eq!(next_steps(&check["refusals"][0]), [("brd update".to_string(), true)]);
+  assert_eq!(next_steps(&check["refusals"][0]), [(format!("{brd} update"), true)]);
 
   // a new commit of auth is work left: auth pushes and lands it, login stays landed
   write(&space.repo, "token.txt", "token\n");
@@ -269,6 +270,7 @@ fn status_branch<'a>(status: &'a Value, name: &str) -> &'a Value {
 #[test_log::test]
 fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
   let space = Space::new(&[]);
+  let brd = bd_in(&space.repo);
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100)[..8].to_string();
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
@@ -285,7 +287,7 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
     "needs": declares,
     "needs_branch": "util",
     "reason": "\"Start with controlUrl\" of flow uses controlUrl in src/b/Use.kt, which \"Add controlUrl\" of util adds",
-    "fix": "brd restack flow util",
+    "fix": format!("{brd} restack flow util"),
   }]);
   assert_eq!(status_branch(&status, "flow")["landing_needs"], need);
   assert_eq!(status_branch(&status, "ui")["landing_needs"], need);
@@ -297,6 +299,7 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
 #[test_log::test]
 fn a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_until_it_lands() {
   let space = Space::new(&["(docs) Write the guide", "(auth) Add auth", "(auth/ui) Show the form"]);
+  let brd = bd_in(&space.repo);
   sync(&space);
   let (exit_code, output) = bd(&space, &["need", "auth", "docs"]);
   assert_eq!((exit_code, &output["needs"]), (0, &json!(["docs"])), "{output}");
@@ -318,7 +321,7 @@ fn a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_un
       "state": "active",
       "inherited_from": "auth",
       "reason": "you declared that docs lands before auth; ui is built on auth, so they land in one robot",
-      "fix": "brd unstack ui",
+      "fix": format!("{brd} unstack ui"),
     }])
   );
   assert_eq!(status_branch(&status, "docs")["landing_needs"], json!([]));
@@ -330,18 +333,18 @@ fn a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_un
   assert_error(&output, exit_code, (4, "unlanded_need"));
   assert_eq!(
     output["error"]["message"],
-    json!(
-      "you declared that docs lands before auth; land docs first, remove the need (`brd need auth --remove docs`), or \
+    json!(format!(
+      "you declared that docs lands before auth; land docs first, remove the need (`{brd} need auth --remove docs`), or \
        --allow-unlanded starts anyway, only when the user says the order no longer holds"
-    )
+    ))
   );
   assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip("test-user/virtual/auth")), (0, String::new()));
   // the branch built on it: the unstack lands it alone, after the user approves
   let (_, output) = bd(&space, &["safe-push", "ui", "--dry-run"]);
   let refusal = &output["refusals"][0];
   assert_eq!(refusal["code"], json!("unlanded_need"), "{output}");
-  assert!(refusal["message"].as_str().unwrap().contains("`brd need auth --remove docs`"), "{output}");
-  assert_eq!(next_steps(refusal), [("brd unstack ui".to_string(), true)]);
+  assert!(refusal["message"].as_str().unwrap().contains(&format!("`{brd} need auth --remove docs`")), "{output}");
+  assert_eq!(next_steps(refusal), [(format!("{brd} unstack ui"), true)]);
 
   // the user says the order no longer holds
   let (exit_code, output) = bd(&space, &["safe-push", "auth", "--dry-run", "--allow-unlanded"]);

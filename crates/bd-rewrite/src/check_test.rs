@@ -1,6 +1,7 @@
 use bd_cli::fixture_test::{
-  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, assert_covered, branch, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference,
-  commit_override_of_overload, environment, file_commits, git, repo_on_baseline, repo_with_baseline, repo_with_commits, run_in, run_json, with_header, write,
+  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, assert_covered, bd_in, branch, commit_all, commit_changed_declaration, commit_changed_member,
+  commit_dangling_reference, commit_override_of_overload, environment, file_commits, git, repo_on_baseline, repo_with_baseline, repo_with_commits, run_in, run_json, with_header,
+  write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -376,12 +377,13 @@ fn a_changed_return_type_is_a_possible_changed_declaration() {
 #[test_log::test]
 fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let brd = bd_in(&repo);
   let (removed_by, fixed_by) = dangling_reference_in_two_files(&repo);
 
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
   let fake_agent = branch(&output, "fake-agent");
-  let command = format!("brd move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
+  let command = format!("{brd} move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
   assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
 
   run_as_printed_and_check(&repo, &command);
@@ -757,6 +759,7 @@ fn commit_visibility_cycle(repo: &TestRepo) -> (String, String) {
 #[test_log::test]
 fn a_parent_that_needs_its_childs_visibility_is_an_inverted_stack_with_a_hunk_to_move() {
   let repo = repo_with_baseline(&AIR_PAGE);
+  let brd = bd_in(&repo);
   let (widens, uses) = commit_visibility_cycle(&repo);
 
   let (exit_code, output) = run_in(&repo, &["check"]);
@@ -777,7 +780,7 @@ fn a_parent_that_needs_its_childs_visibility_is_an_inverted_stack_with_a_hunk_to
       "evidence": "import",
     }])
   );
-  let command = format!("brd move-hunk {} {} page/src/socket.rs", short_id(&widens), short_id(&uses));
+  let command = format!("{brd} move-hunk {} {} page/src/socket.rs", short_id(&widens), short_id(&uses));
   assert_eq!(
     a["inverted_stack"],
     json!({

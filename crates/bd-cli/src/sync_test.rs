@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::fixture_test::{PREFIX, beside_a_held_sync};
+use crate::fixture_test::{PREFIX, bd_in, beside_a_held_sync};
 use crate::fixture_test::{commit_all, git, hold_the_lock, repo_on_baseline, repo_with_commits, repo_with_login, run_in, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
@@ -35,7 +35,7 @@ fn syncs_and_reports_each_branch() {
       "commit_count": 1,
       "tip": short_id(&tip),
       "remote": { "exists": false, "unpushed": 1, "behind": 0, "head": null },
-      "push": "brd push auth",
+      "push": format!("{} push auth", bd_in(&repo)),
     }])
   );
 
@@ -421,6 +421,7 @@ fn brd_sync_names_the_generated_files_a_branch_must_regenerate_and_brd_push_refu
     "{status}"
   );
 
+  let restack = format!("{} restack b a", bd_in(&repo));
   for args in [&["push", "b"][..], &["push", "b", "--force"]] {
     let (exit_code, refused) = run_in(&repo, args);
     assert_eq!(exit_code, 4, "{refused}");
@@ -430,7 +431,7 @@ fn brd_sync_names_the_generated_files_a_branch_must_regenerate_and_brd_push_refu
       message.contains("Cargo.lock") && message.contains("lock file") && message.contains("--allow-generated-merged-by-words"),
       "{message}"
     );
-    assert_eq!(refused["error"]["next_steps"][0]["command"], json!("brd restack b a"), "{refused}");
+    assert_eq!(refused["error"]["next_steps"][0]["command"], json!(restack), "{refused}");
   }
   assert_eq!(git(&repo, &["--git-dir", remote.path().to_str().unwrap(), "for-each-ref"]), "", "nothing was pushed");
   let (exit_code, pushed) = run_in(&repo, &["push", "b", "--allow-generated-merged-by-words"]);

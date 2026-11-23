@@ -1,5 +1,32 @@
-use crate::fixture_test::{PREFIX, context_with_the_config_prefix, repo_with_baseline};
+use crate::fixture_test::{PREFIX, context_with_the_config_prefix, environment, repo_with_baseline, repository};
+use bd_core::bd_command::{CLI_EXE, CLI_NAME, bd_command, shell_word};
+use bd_core::context::{RepoContext, RepoOptions};
 use pretty_assertions::assert_eq;
+
+/// The brd of a context (`RepoContext::bd`) names its repository with one `-C`, whether the binary of brd is known (the
+/// app) or not (a test): a `next` command of the repository appends only its arguments to it, as `brd update --continue`
+/// in a lease does with its `brd -C <lease> lease pick`
+#[test_log::test]
+fn the_brd_of_a_context_names_its_repository_once() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let bin = tempfile::tempdir().unwrap();
+  let binary = bin.path().join(if cfg!(windows) { CLI_EXE } else { CLI_NAME });
+  std::fs::write(&binary, "brd").unwrap();
+  let options = RepoOptions {
+    repo: None,
+    prefix: Some(PREFIX),
+    full_ids: false,
+    no_cache: false,
+  };
+  let mut known = environment(repo.path());
+  known.executable = Some(binary);
+  let program = bd_command(&known).unwrap().for_shell();
+  let in_repository = format!(" -C {}", shell_word(&repository(&repo)));
+
+  let unknown = RepoContext::resolve(&environment(repo.path()), &options).unwrap();
+  let known = RepoContext::resolve(&known, &options).unwrap();
+  assert_eq!((unknown.bd, known.bd), (format!("{CLI_NAME}{in_repository}"), format!("{program}{in_repository}")));
+}
 
 /// The config the context read for the branch prefix is the one of the whole command (the sync takes it); after a wait
 /// for the repository lock it is read again: another process may have changed it meanwhile
