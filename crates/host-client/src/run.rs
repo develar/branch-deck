@@ -437,7 +437,7 @@ impl Client<'_> {
       facts.phases.extend(done.phases.iter().cloned());
       facts.fetched = done.fetched;
       facts.applied_files = done.applied_files;
-      facts.phases.push(phase("total", started.elapsed()));
+      facts.phases.push(phase("total", self.took(started)));
       let reached = reached_of(&done.phases);
       return match done.refusal {
         Some(refusal) => Err(RunFailure {
@@ -504,7 +504,7 @@ impl Client<'_> {
     }
     write_end(&facts, None);
     drop(lock);
-    facts.phases.push(phase("total", started.elapsed()));
+    facts.phases.push(phase("total", self.took(started)));
     Ok(RunOutcome {
       code,
       stdout: finished.followed.stdout,
@@ -721,7 +721,7 @@ impl Client<'_> {
     }
     let fetching = Instant::now();
     let fetched = self.fetch_run(host, run, local, record, &files.patch(run));
-    let fetch = Some(phase("fetch", fetching.elapsed()));
+    let fetch = Some(phase("fetch", self.took(fetching)));
     let mut forgotten = false;
     let fetched = match fetched {
       Ok(fetched) => {

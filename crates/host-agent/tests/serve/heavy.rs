@@ -304,11 +304,10 @@ fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_w
   // a command without a measure waits for the whole host
   agent.start(heavy(&world, "13-4", &marks, &gate));
   eventually("the run without a measure waits", || heavy_turn(&agent).1 == ["13-4"]);
-  assert!(
-    events(&world, "13-4").contains("brd-host: run 13-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, "),
-    "{}",
-    agent.dump("13-4")
-  );
+  // the ticket goes into the queue before the line of the wait goes into the events of the run
+  eventually("the run without a measure says its wait", || {
+    events(&world, "13-4").contains("brd-host: run 13-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, ")
+  });
   fs::write(&gate, "").expect("the gate opens");
   for run in ["13-2", "13-3", "13-4"] {
     assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));

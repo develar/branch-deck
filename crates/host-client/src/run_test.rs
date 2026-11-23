@@ -1312,22 +1312,27 @@ fn the_steps_of_a_run_outside_a_follow_are_out_of_turn() {
   assert_eq!(setup.client(&processes, &|_| {}, &calm).runs(ALIAS).unwrap_err().code, Code::Link);
 }
 
-/// A request that waits gets heartbeats before its reply, and each heartbeat starts the read deadline again. The wait
-/// here is twice the read deadline, and a heartbeat comes every third of it
+/// A request that waits gets heartbeats before its reply, and each heartbeat starts the read deadline again: the agent
+/// answers once its own clock is past the deadline, which started before it got the request, and meanwhile sends
+/// heartbeats back to back, with no sleep between them, so the reads of the client never wait for one; only a thread
+/// that stood still for the whole deadline would end the wait. A deadline of the whole request would end it
 #[test]
 fn heartbeats_keep_a_waiting_request_alive() {
+  const READ: Duration = Duration::from_secs(1);
   let setup = Setup::new(|request, channel| {
     if matches!(request, Request::Runs) {
-      for _ in 0..6 {
-        thread::sleep(Duration::from_millis(100));
-        let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 100 });
+      let started = Instant::now();
+      while started.elapsed() < READ + READ / 5 {
+        if channel.send(&Reply::Heartbeat { elapsed_ms: 0 }).is_err() {
+          return;
+        }
       }
       let _ = channel.send(&Reply::Runs { runs: Vec::new(), heavy: None });
     }
   });
   let processes = FakeProcesses::default();
   let timing = Timing {
-    read: Duration::from_millis(300),
+    read: READ,
     ..crate::testkit::UNHURRIED
   };
   assert_eq!(setup.client(&processes, &|_| {}, &calm).with_timing(timing).runs(ALIAS).unwrap().runs.len(), 0);
@@ -1440,22 +1445,20 @@ fn two_commits_with_a_large_file() -> Commits {
   Commits { repo, first, head }
 }
 
-/// An agent that reads the pack late: each write of the pack waits up to the read deadline, not up to the short
-/// connect deadline. The stall of 800 ms is four times the connect deadline, so a write with that deadline fails
+/// After the hello each write of a connection waits up to the read deadline, not up to the short connect deadline,
+/// which is for a dead address, so a large pack to an agent that reads it slowly does not fail at the connect deadline.
+/// The test reads the deadline that the socket holds, so no stall of the agent races a deadline; the pack, larger than
+/// the buffers of the sockets, then waits for the reads of the agent and comes whole
 #[test]
-fn a_slow_agent_reader_takes_a_large_pack() {
+fn after_its_hello_a_connection_writes_with_the_read_deadline_and_a_large_pack_comes_whole() {
   let Commits { repo, first, .. } = two_commits_with_a_large_file();
   let packed = Arc::new(Mutex::new(Vec::new()));
   let (setup, _) = agent(repo, known(vec![first]), {
     let packed = Arc::clone(&packed);
     move |request, channel| match request {
-      // The first chunk of the pack comes after the build, so the wait holds the upload and not the build
       Request::Pack { .. } => {
         let mut bytes = Vec::new();
         while let Ok(Frame::Bytes(chunk)) = channel.recv_frame() {
-          if bytes.is_empty() && !chunk.is_empty() {
-            thread::sleep(Duration::from_millis(800));
-          }
           bytes.extend_from_slice(&chunk);
         }
         *packed.lock().unwrap_or_else(PoisonError::into_inner) = bytes;
@@ -1470,9 +1473,15 @@ fn a_slow_agent_reader_takes_a_large_pack() {
     }
   });
   let timing = Timing {
-    connect: Duration::from_millis(200),
+    connect: Duration::from_secs(50),
+    read: Duration::from_secs(70),
     ..crate::testkit::UNHURRIED
   };
+  let processes = FakeProcesses::default();
+  let (channel, _) = setup.client(&processes, &|_| {}, &calm).with_timing(timing).host(ALIAS).unwrap().connect().unwrap();
+  assert_eq!(channel.write_deadline().unwrap(), Some(timing.read), "the write deadline of a connection after its hello");
+  drop(channel);
+
   let outcome = run_timed(&setup, &|_| {}, timing).unwrap();
   assert_eq!(outcome.code, 0);
   let bytes = packed.lock().unwrap_or_else(PoisonError::into_inner);

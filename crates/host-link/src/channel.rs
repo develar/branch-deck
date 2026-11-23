@@ -272,6 +272,11 @@ impl Channel {
     self.socket.set_write_timeout(Some(deadline)).map_err(LinkError::Io)
   }
 
+  /// The deadline of each write, as the socket holds it
+  pub fn write_deadline(&self) -> Result<Option<Duration>, LinkError> {
+    self.socket.write_timeout().map_err(LinkError::Io)
+  }
+
   /// Sends one message and flushes.
   pub fn send<T: Serialize>(&mut self, message: &T) -> Result<(), LinkError> {
     self.send_all(std::slice::from_ref(message))

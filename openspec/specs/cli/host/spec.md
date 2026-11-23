@@ -278,9 +278,9 @@ After the hello, each write of the client MUST have the read deadline, so a larg
 at the short connect deadline.
 
 #### Scenario: A large pack to a slow reader
-- **WHEN** the client writes a large pack to an agent that reads it slowly
-- **THEN** the pack does not fail at the connect deadline
-  [@test] crates/host-client/src/run_test.rs (`a_slow_agent_reader_takes_a_large_pack`)
+- **WHEN** the client connects to an agent and writes a large pack, which waits for the reads of the agent
+- **THEN** each write after the hello has the read deadline, not the connect deadline, and the pack comes whole
+  [@test] crates/host-client/src/run_test.rs (`after_its_hello_a_connection_writes_with_the_read_deadline_and_a_large_pack_comes_whole`)
 
 ### Requirement: The link: A connection that Local Network privacy refuses goes through nc
 

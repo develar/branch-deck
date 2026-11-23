@@ -67,14 +67,14 @@ impl Client<'_> {
         return Err(refusal);
       }
     };
-    let (build, size) = (building.elapsed(), file.bytes);
+    let (build, size) = (self.took(building), file.bytes);
     steps(&format!("> {alias}: pack of {} commits, {} ready", file.commits, format_size(size)));
     let uploading = Instant::now();
     self.stream_pack(host, &mut channel, &file, steps)?;
     steps(&format!("> {alias}: sent {}", format_size(size)));
     Ok(PackSteps {
       build,
-      upload: uploading.elapsed(),
+      upload: self.took(uploading),
     })
   }
 

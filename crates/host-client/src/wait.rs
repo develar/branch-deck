@@ -269,7 +269,7 @@ impl Client<'_> {
             ),
           )
         })?;
-        end.phases.push(phase("fetch", fetching.elapsed()));
+        end.phases.push(phase("fetch", self.took(fetching)));
         end.fetched.clone_from(&fetched.files);
         if record.changes {
           match self.apply_changes(checkout, run, &fetched, code) {

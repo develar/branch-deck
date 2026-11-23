@@ -55,7 +55,7 @@ use host_link::proto::{HEARTBEAT_SECONDS, Stream, UPGRADE_DRAIN_SECONDS, UPGRADE
 use host_link::refusal::{Code, Exit, Refusal};
 use process::Processes;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The exit of `brd-host` for a refusal of a request that is no run: `follow`, `cancel`, `fetch`, `forget`, `runs`,
 /// `hello`, `slots`, `setup` and `upgrade` exit 2 for `usage`, 130 for `interrupted`, 124 for `still_running` of a
@@ -157,6 +157,10 @@ pub struct Client<'a> {
   /// Whether the `--max` of a wait has passed, for a test that names the moment instead of a clock; `None` outside the
   /// tests, where the clock decides
   past_max: Option<&'a (dyn Fn() -> bool + Sync)>,
+  /// How long each step that the client measures took (`pack`, `upload`, `fetch`, `total`), for a test that names the
+  /// time instead of a clock, so its words do not change with the load of the machine; `None` outside the tests, where
+  /// the clock measures them
+  step_time: Option<Duration>,
 }
 
 impl<'a> Client<'a> {
@@ -175,6 +179,7 @@ impl<'a> Client<'a> {
       timing: Timing::DEFAULT,
       hold_pack: Duration::ZERO,
       past_max: None,
+      step_time: None,
     }
   }
 
@@ -196,6 +201,11 @@ impl<'a> Client<'a> {
 
   pub const fn config(&self) -> &Config {
     &self.config
+  }
+
+  /// How long a step of the client took since `started`: the clock's time, or the time that a test named
+  fn took(&self, started: Instant) -> Duration {
+    self.step_time.unwrap_or_else(|| started.elapsed())
   }
 
   /// Whether the person pressed Ctrl+C
@@ -223,6 +233,12 @@ impl<'a> Client<'a> {
   #[cfg(test)]
   pub(crate) const fn with_past_max(mut self, past_max: &'a (dyn Fn() -> bool + Sync)) -> Self {
     self.past_max = Some(past_max);
+    self
+  }
+
+  #[cfg(test)]
+  pub(crate) const fn with_step_time(mut self, time: Duration) -> Self {
+    self.step_time = Some(time);
     self
   }
 }

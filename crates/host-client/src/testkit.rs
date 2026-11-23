@@ -35,6 +35,10 @@ pub(crate) const UNHURRIED: Timing = Timing {
   state_poll: Duration::from_millis(10),
 };
 
+/// How long each step that the client of the tests measures takes (`Client::with_step_time`): the words of a step and of
+/// the end of a run are the same on a loaded machine
+pub(crate) const STEP_TIME: Duration = Duration::from_millis(400);
+
 pub(crate) const ALIAS: &str = "studio";
 
 /// The build of the client of the tests
@@ -263,7 +267,9 @@ impl Setup {
 
   /// A client of the setup with the short deadlines
   pub(crate) fn client<'a>(&self, processes: &'a dyn Processes, say: &'a (dyn Fn(&str) + Sync), presses: &'a (dyn Fn() -> u32 + Sync)) -> Client<'a> {
-    Client::new(self.config.clone(), build(), processes, say, presses).with_timing(UNHURRIED)
+    Client::new(self.config.clone(), build(), processes, say, presses)
+      .with_timing(UNHURRIED)
+      .with_step_time(STEP_TIME)
   }
 }
 
