@@ -302,33 +302,33 @@ const UPDATE_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_hou
 /// The silent check of an app without a main window, whose page checks while it is open: at the times of the page's,
 /// skipped while the main window is open; never in a development build, as the page's. An update it finds is downloaded,
 /// and the Setup dot of the next main window offers it (`Updater::downloaded`)
+#[cfg(feature = "auto-update")]
 pub fn check_while_windowless(app: &tauri::AppHandle) {
-  #[cfg(feature = "auto-update")]
-  {
-    use app_api::context::AppContext;
-    use tracing::Instrument;
-    if cfg!(debug_assertions) {
-      return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(
-      async move {
-        tokio::time::sleep(STARTUP_CHECK_DELAY).await;
-        loop {
-          if app.get_webview_window(app_settings::windows::MAIN_WINDOW).is_none()
-            && let Err(e) = app.state::<AppContext>().desktop.updater.check().await
-          {
-            error!(error = %e.message, "the update check of the app without a window failed");
-          }
-          tokio::time::sleep(UPDATE_CHECK_INTERVAL).await;
-        }
-      }
-      .in_current_span(),
-    );
+  use app_api::context::AppContext;
+  use tracing::Instrument;
+  if cfg!(debug_assertions) {
+    return;
   }
-  #[cfg(not(feature = "auto-update"))]
-  let _ = app;
+  let app = app.clone();
+  tauri::async_runtime::spawn(
+    async move {
+      tokio::time::sleep(STARTUP_CHECK_DELAY).await;
+      loop {
+        if app.get_webview_window(app_settings::windows::MAIN_WINDOW).is_none()
+          && let Err(e) = app.state::<AppContext>().desktop(&app_api::transport::WindowId::main()).updater.check().await
+        {
+          error!(error = %e.message, "the update check of the app without a window failed");
+        }
+        tokio::time::sleep(UPDATE_CHECK_INTERVAL).await;
+      }
+    }
+    .in_current_span(),
+  );
 }
+
+/// A build without the updater checks nothing
+#[cfg(not(feature = "auto-update"))]
+pub const fn check_while_windowless(_app: &tauri::AppHandle) {}
 
 #[cfg(all(test, feature = "auto-update"))]
 mod tests {
