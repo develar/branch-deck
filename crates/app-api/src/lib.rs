@@ -1,6 +1,7 @@
-//! The adapters' crate: what the app (`src-tauri`), the e2e server (`test-server`) and `brd mcp` of an IDE (`ide-host`)
-//! share between a command and the cores, so all answer the same. Only those three depend on it, and it reaches no
-//! Tauri (`architecture_test.rs` of `bd-cli`) (docs/design/rust-domain-authority.md, s12-app-api).
+//! The adapters' crate: what the app (`src-tauri`), the e2e server (`test-server`), `brd mcp` of an IDE (`ide-host`) and
+//! the one backend of every client (`backend-host`) share between a command and the cores, so all answer the same. Only
+//! those four depend on it, and it reaches no Tauri (`architecture_test.rs` of `bd-cli`)
+//! (docs/design/rust-domain-authority.md, s12-app-api).
 //!
 //! - `commands`: the one list of the commands (`for_each_command!`), in the grammar of `registry` (`api_commands!`,
 //!   `Command`, `COMMANDS`), and its table for the page mock of the e2e server (`commands.json`); the bodies by family:

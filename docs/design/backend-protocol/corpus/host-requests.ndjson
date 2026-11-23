@@ -3,8 +3,8 @@
 {"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}}}
 {"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowShown","params":{"channel":"ahp-root://","window":"main","view":"main","params":{}}}}
 {"comment":"open_sub_window of a review is the host request openWindow to the connection of its call; the client answers the label of the window in it (the instance of its view in the IDE), and the command answers once the client answered."}
-{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/open_sub_window","params":{"channel":"ahp-root://","window":"main","args":{"params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":null}}}}}
-{"host":{"jsonrpc":"2.0","id":1,"method":"x-branch-deck/openWindow","params":{"channel":"ahp-root://","opener":"main","params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":null},"update":null,"front":true}}}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-branch-deck/open_sub_window","params":{"channel":"ahp-root://","window":"main","args":{"params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":0}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"method":"x-branch-deck/openWindow","params":{"channel":"ahp-root://","opener":"main","params":{"windowId":"review-branch:feature","url":"/review","title":"feature","width":null,"height":null,"data":"{}","openedAt":0},"update":null,"front":true}}}
 {"client":{"jsonrpc":"2.0","id":1,"result":{"window":"review:1"}}}
 {"host":{"jsonrpc":"2.0","id":2,"result":{"value":null}}}
 {"client":{"jsonrpc":"2.0","method":"x-branch-deck/windowShown","params":{"channel":"ahp-root://","window":"review:1","view":"review","params":{}}}}

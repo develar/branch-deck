@@ -307,7 +307,8 @@ impl SubWindowState {
   }
 }
 
-#[derive(Debug, Deserialize, Type)]
+/// The params of an open, as the page sends them and as a client of the backend gets them in its `openWindow`
+#[derive(Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSubWindowParams {
   pub window_id: String,

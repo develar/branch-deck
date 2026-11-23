@@ -5727,6 +5727,7 @@ export type OmittedFailures = {
 	truncated: boolean,
 };
 
+/**  The params of an open, as the page sends them and as a client of the backend gets them in its `openWindow` */
 export type OpenSubWindowParams = {
 	windowId: string,
 	url: string,

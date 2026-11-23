@@ -34,3 +34,16 @@ fn the_writes_of_the_engine_are_its_intents_and_their_cancel() {
     .collect();
   assert_eq!(engine, ["execute", "cancel_operation"], "a write of a repository is an intent of `execute`");
 }
+
+/// A command of a window (`window`, `now`, `main`, `session(window)`) says so in its spec, which a host that gets a
+/// command as a message refuses without its window (docs/design/backend-protocol.md, "Root commands")
+#[test]
+fn a_command_of_a_window_says_so() {
+  let of_window = |name: &str| COMMANDS.iter().find(|command| command.name == name).map(|command| command.window);
+  assert_eq!(of_window("open_sub_window"), Some(true), "window");
+  assert_eq!(of_window("agent_cli_status"), Some(true), "now");
+  assert_eq!(of_window("show_window_menu"), Some(true), "main");
+  assert_eq!(of_window("check_for_updates"), Some(true), "the desktop of the window");
+  assert_eq!(of_window("get_commit_files"), Some(false), "json");
+  assert_eq!(of_window("get_blob_syntax"), Some(false), "raw");
+}

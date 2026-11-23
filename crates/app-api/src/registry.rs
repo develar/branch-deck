@@ -120,6 +120,9 @@ pub struct CommandSpec {
   /// The names of the arguments the page sends, in their order
   pub args: &'static [&'static str],
   pub channel: Option<ChannelSpec>,
+  /// It is a command of the window that calls it (`window`, `now`, `main` and `session(window)` kinds): a host that
+  /// gets a command as a message refuses it without its window (docs/design/backend-protocol.md, "Root commands")
+  pub window: bool,
 }
 
 /// A command of the registry: its arguments as the page sends them, its channel, and its body in the frame of its kind
@@ -179,6 +182,24 @@ macro_rules! api_command {
   };
   (@kind main) => {
     $crate::registry::CommandKind::Main
+  };
+  (@window window [$($field:tt)*]) => {
+    true
+  };
+  (@window now [$($field:tt)*]) => {
+    true
+  };
+  (@window main [$($field:tt)*]) => {
+    true
+  };
+  (@window session [window $($field:tt)*]) => {
+    true
+  };
+  (@window session [now, window $($field:tt)*]) => {
+    true
+  };
+  (@window $kind:ident [$($field:tt)*]) => {
+    false
   };
   (@channel_type []) => {
     ()
@@ -288,6 +309,7 @@ macro_rules! api_command {
           kind: $crate::api_command!(@kind $kind),
           args: &[$(stringify!($arg)),*],
           channel: $crate::api_command!(@channel_spec [$($channel)*]),
+          window: $crate::api_command!(@window $kind [$($field)*]),
         };
         type Args = Args;
         type Channel = $crate::api_command!(@channel_type [$($channel)*]);

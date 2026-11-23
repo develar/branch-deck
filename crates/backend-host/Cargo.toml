@@ -1,0 +1,46 @@
+[package]
+name = "backend-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The one backend of a user (docs/design/backend-protocol.md): an AHP-shaped host of app-api for the Tauri shell in the process, the bridge of the IDE over a local socket and later brd"
+publish = false
+
+[dependencies]
+# the commands, the sessions, the windows and the desktop of the app, run by name (`app_api::dispatch`)
+app-api = { path = "../app-api" }
+# the settings snapshot of a window (`x-branch-deck/bootstrap`)
+app-settings = { path = "../app-settings" }
+domain-types = { path = "../domain-types" }
+# the subscription of a window to a session (`Subscriber`, `SessionKey`)
+repository-model = { path = "../repository-model" }
+# the removal of a stale socket (`fs_retry`)
+sync-utils = { path = "../sync-utils" }
+# the bytes of a raw command in base64
+base64 = "0.23.1"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tracing.workspace = true
+
+# the uid of this process, checked against the peer of the socket (`socket`)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
+
+# the DACL of the pipe and the SID of the process of its server (`socket`)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Threading"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }
+# the fixtures of the corpus: the test repositories, the sessions and the fakes of the e2e server
+test-server = { path = "../test-server" }
+test-utils = { path = "../test-utils" }
+reqwest.workspace = true
+# the handler that makes a test repository of the e2e server, called as it is (`socket_test.rs`)
+axum.workspace = true
+
+[lints]
+workspace = true

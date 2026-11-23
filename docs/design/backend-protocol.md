@@ -86,7 +86,8 @@ over the in-process transport: the behaviour of P1, one backend per project.
   `_meta["x-branch-deck"].version`. A request before it is `-32600 notInitialized`, a second one
   `alreadyInitialized`. `ping` answers `{}` at any time.
 - **`build`** is the build id of the binary: its version and the commit it was built from (`-dirty` for a tree with
-  changes), compared byte for byte.
+  changes), compared byte for byte: `<version>+<commit>`, the commit `BRANCH_DECK_COMMIT` of the build and `dev`
+  without one (`backend_host::identity::build_id`).
 - **Capabilities** say what the Desktop of the connection's windows has ([The Desktop](#the-desktop-of-a-connection)):
   `folderDialog`, `updater`, `restart`, `agentCli`, `nativeMenu` (each a boolean, absent is false) and `hostRequests`,
   the host requests the client answers (`openWindow`, `showWindow`, `notify`). The Tauri shell declares every one; the
@@ -263,7 +264,8 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
   build and `exits`. The stale side yields: the side whose executable on disk is no longer its build (the app updated in
   place), told by the identity of the file (device, inode, size, modification time) against the one at its start. A stale backend without a window exits after the answer (`exits: true`), and the bridge starts the app of its
   build; a stale backend with a window stays, tells "Restart to Update", and the bridge runs its fallback. A stale
-  bridge exits with 1, and the IDE starts it again from the new binary.
+  bridge exits with 1, and the IDE starts it again from the new binary. Windows has no inode in `std`: there the
+  identity is the size and the modification and creation times (`backend_host::identity::Executable`).
 
 ### Today's API in the protocol
 
@@ -321,27 +323,50 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 
 ### Implementation Notes
 
-- `crates/backend-host` (lane 2.3): the connections and their queues, the global `serverSeq` and the publish lock, the
-  repository channels over `repository_model::session::Sessions`, the root commands over `app_api::dispatch`, the
-  version fence, the in-process transport and the socket; `crates/bd-cli/src/architecture_test.rs` admits it to
-  app-api and keeps Tauri out of it.
-- `crates/app-api`: a `Call` and a `WindowId` carry the connection; `AppContext` picks the `Desktop` and the
-  `AppEvents` of the connection of a call; `forget_window` and `forget_page` take the `WindowId`.
+- `crates/backend-host`: `host.rs` (the connections, the global `serverSeq` and its publish lock, the channels, the
+  news claimed, the hooks of the app: `showMain`, the rule of another build), `connection.rs` (the lines, `initialize`,
+  the life of the windows, the host requests, the end), `channel.rs` (the subscriptions of the windows over
+  `app_api::session::view::subscribe_view`, the frames of the actions, the move to another session, the end of a
+  session, the demand, the fence), `call.rs` (the root commands over `app_api::dispatch`), `client.rs` (the Desktop and
+  the events of a client), `outbox.rs` (the ordered queue of a connection and the cap of a slow window), `in_process.rs`
+  and `stream.rs` (the transports), `socket.rs` (the key, the directory, `backend.lock`, the Unix socket and the named
+  pipe with their checks, `show_main` of a second start); `crates/bd-cli/src/architecture_test.rs` admits it to app-api
+  and keeps Tauri out of it.
+- **A subscription before its answer**: the subscribe of a window is reserved in the order of the lines of its
+  connection (a second one is `alreadySubscribed` at once), and a patch the session sends it before the host queued
+  its snapshot waits for it; a patch the window holds already (the session sends one to every window after the snapshot
+  of a new one) is not sent. A move to another session subscribes every window of the channel again and gives each one
+  view, the session's once all joined.
+- **Call events** go into the queue as the command sends them; one that names a version (the `done` of `execute`) and
+  every event after it wait in the forwarder of the call for the fence. A rewrite's `done` names the version of the
+  rewrite and its answer the version after the sync that follows it, each fenced to its own.
+- `crates/app-api`: a `Call` and a `WindowId` carry the connection (`ConnectionId::APP` for the app's own windows:
+  the Tauri shell, a test repository of the e2e server, the views of `brd mcp`); `Connections` keeps the desktop and the
+  events of each client and is the `AppEvents` of the context; `AppContext::desktop(&window)` picks the desktop of a
+  window's connection (`app_desktop` is the app's own), `close_connection` forgets the windows of a connection alone.
+  The commands that use the desktop are of the `window` kind; `CommandSpec::window` says which commands need a window.
 - `crates/ide-host` (lane 2.5): the bridge, an AHP client; `mirror.rs` turns `viewPatched` into `x-air-app/viewChanged`
   as now, `notices.rs` claims a news first.
-- `src-tauri`: the in-process connection, built before the first window, so the first message of the main page is
-  still its subscription (`startup-read`).
+- `src-tauri`: the in-process connection (`Host::connect_app`, `ConnectionId::APP`), built before the first window, so
+  the first message of the main page is still its subscription (`startup-read`).
 - **The contract**: `docs/design/backend-protocol/backend.schema.json` (draft 2020-12) and the golden corpus
   `docs/design/backend-protocol/corpus/*.ndjson`: `connection`, `repository-channel`, `command-stream`,
   `host-requests`, `errors`. A line is `{"comment"}`, `{"client": <frame>}`, `{"clientRaw": <text>}`, `{"host":
   <frame>}` or `{"step": <name>}`, an action of the runner on its fixture (`setPrefix`, `deleteRepository`), with
   `"conn": <n>` for another connection, as Air's corpus. A runner sends each client line and expects the host lines
   that follow before the next client line, in order within a connection; a host request of a host line is answered by
-  the client line after it. A token is a whole string: `${any}` matches any value; `${repo}`, `${build}` and the
-  arguments a fixture prepares (`${renameIntent}`, `${fingerprint}`) are values of the runner; any other `${name}`
+  the client line after it. A token is a whole string: `${any}` matches any value; `${repo}`, `${build}`, `${seed}` and
+  the arguments a fixture prepares (`${renameIntent}`, `${fingerprint}`) are values of the runner; any other `${name}`
   binds at its first appearance in a host line, and each later appearance is that value (`${view0.version}` a field of
-  it). Every host line and every client line not marked `"invalid": true` passes the schema after the replacement,
-  each result also the def of its method.
+  it). A session sends several patches for one sync or operation and may send one of its own between two lines (a fact
+  read again): the runner passes over an action, an event of app-api or a call event no line expects, so a line names
+  the first patch of a sync and an answer the version it brought; a call event after the answer of its call fails the
+  run. The fixture of a channel is a session synced and quiet (its facts read, the demand of the corpus asked by a
+  subscriber of the runner, the clocks of the sessions standing still). The runner is
+  `crates/backend-host/src/corpus_test.rs`; every host line and every client line not marked `"invalid": true` passes
+  the schema after the replacement, each result also the def of its method (`src/platform/backend/contract.test.ts`).
+- **Not yet**: the host request `notify` has no sender (the bridge tells its news from its mirror), and the windows of
+  a client that shows them itself still get the deadlines of the windows built hidden as `showWindow`.
 
 ## Alternatives Considered
 
@@ -382,8 +407,8 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 
 ## References
 
-- Specs: the change `260-backend-wire`, `260-backend-repository-channel` and `260-backend-commands` of
-  `openspec/changes/` (the capability `repository/backend-protocol`),
+- Specs: [Backend Protocol](../../openspec/specs/repository/backend-protocol/spec.md) (the changes `260-backend-wire`,
+  `260-backend-repository-channel` and `260-backend-commands`, archived),
   [Branch Deck in the IDE](../../openspec/specs/repository/ide-embedding/spec.md)
 - The contract: `docs/design/backend-protocol/`
 - Air (idea-1, read-only): `plugins/air/native/air-host/src/{host.rs,jsonrpc.rs,table.rs}`, the decision records

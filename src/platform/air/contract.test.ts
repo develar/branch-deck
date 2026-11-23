@@ -4,9 +4,10 @@
 // README of the copy), and each app file, the example and those the corpus writes, against air-app.schema.json.
 // Ajv validates JSON Schema 2020-12, the draft of both schemas
 import { Ajv2020 } from "ajv/dist/2020.js"
-import type { ErrorObject, ValidateFunction } from "ajv/dist/2020.js"
+import type { ValidateFunction } from "ajv/dist/2020.js"
 import { describe, expect, it } from "vite-plus/test"
 import { parse } from "yaml"
+import { schemaProblems } from "@/test-support/schema-problems"
 
 const PROTOCOL = "/docs/design/ide-embedding/protocol"
 const raw = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([path, text]) => [path.slice(PROTOCOL.length + 1), text]))
@@ -38,34 +39,6 @@ const RESULTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   page: { initialize: "PageInitializeResult", "x-air-app/viewOpen": "ViewOpenResult" },
   app: { initialize: "AppInitializeResult", "x-air-app/subscribe": "AppSubscribeResult", "x-air-app/openView": "AppOpenViewResult" },
   frame: { "ui/initialize": "FrameInitializeResult", "x-air-app/subscribe": "FrameSubscribeResult" },
-}
-
-/** The value at the JSON pointer `pointer` of `data` */
-function at(data: unknown, pointer: string): unknown {
-  return pointer
-    .split("/")
-    .slice(1)
-    .reduce<unknown>(
-      (value, key) => (value === null || typeof value !== "object" ? undefined : (value as Record<string, unknown>)[key.replaceAll("~1", "/").replaceAll("~0", "~")]),
-      data,
-    )
-}
-
-/**
- * The errors of `validate` on `data` that are no placeholder: `${any}` and `${name}` of a line stand for any value, so
- * an error at one, and the errors of a branch that did not apply (`oneOf`, `if`, `anyOf`), are none
- */
-function problems(validate: ValidateFunction, data: unknown): string[] {
-  if (validate(data)) {
-    return []
-  }
-  const placeholder = (error: ErrorObject) => {
-    const value = at(data, error.instancePath)
-    return typeof value === "string" && /^\$\{[^}]+\}$/.test(value)
-  }
-  return (validate.errors ?? [])
-    .filter(error => !placeholder(error) && !["oneOf", "if", "anyOf"].includes(error.keyword))
-    .map(error => `${error.instancePath} ${error.message} ${JSON.stringify(error.params)}`)
 }
 
 interface Line {
@@ -128,7 +101,7 @@ function corpusProblems(name: string, text: string): string[] {
     if (JSON.stringify(line) !== texts[index]) {
       found.push(`${where} is not compact JSON`)
     }
-    found.push(...problems(validLine, line).map(problem => `${where} ${problem}`))
+    found.push(...schemaProblems(validLine, line).map(problem => `${where} ${problem}`))
     const message = line.message
     if (message !== undefined && line.link !== undefined) {
       if (message.method !== undefined && message.id !== undefined) {
@@ -137,20 +110,20 @@ function corpusProblems(name: string, text: string): string[] {
       const method = message.result === undefined ? undefined : requests.get(`${line.link}:${JSON.stringify(message.id)}`)
       const result = method === undefined ? undefined : RESULTS[line.link]?.[method]
       if (result !== undefined) {
-        found.push(...problems(def(result), message.result).map(problem => `${where} the result of ${method} (${result}): ${problem}`))
+        found.push(...schemaProblems(def(result), message.result).map(problem => `${where} the result of ${method} (${result}): ${problem}`))
       }
       const action = message.params?.action
       if (line.link === "ide" && message.method === "action" && action !== undefined) {
         const shape = STATE_ACTIONS.has(action.type ?? "") ? "AppsAction" : "AppsIntent"
-        found.push(...problems(def(shape), action).map(problem => `${where} the action (${shape}): ${problem}`))
+        found.push(...schemaProblems(def(shape), action).map(problem => `${where} the action (${shape}): ${problem}`))
       }
       const snapshot = (message.result as { snapshot?: { state?: { apps?: unknown } } } | undefined)?.snapshot
       if (line.link === "ide" && snapshot?.state?.apps !== undefined) {
-        found.push(...problems(def("AppsState"), snapshot.state).map(problem => `${where} the snapshot (AppsState): ${problem}`))
+        found.push(...schemaProblems(def("AppsState"), snapshot.state).map(problem => `${where} the snapshot (AppsState): ${problem}`))
       }
     }
     if (line.state?.link === "ide") {
-      found.push(...problems(def("AppsState"), line.state.state).map(problem => `${where} the state (AppsState): ${problem}`))
+      found.push(...schemaProblems(def("AppsState"), line.state.state).map(problem => `${where} the state (AppsState): ${problem}`))
     }
     if (line.step === "file" && line.path?.endsWith(".yaml") === true && line.text !== undefined) {
       const id = line.path.slice(line.path.lastIndexOf("/") + 1, -".yaml".length)
@@ -164,7 +137,7 @@ function corpusProblems(name: string, text: string): string[] {
         }
         return
       }
-      const fileProblems = problems(validApp, file)
+      const fileProblems = schemaProblems(validApp, file)
       if (expectedInvalid && fileProblems.length === 0) {
         found.push(`${where} the app file ${id}.yaml is valid, while its entry names a problem of the file`)
       } else if (!expectedInvalid) {
@@ -184,7 +157,7 @@ describe("The copy of the contract", () => {
 
   it("the example app file is valid against air-app.schema.json", () => {
     const example = parse(FILES["examples/branch-deck.yaml"]!) as unknown
-    expect(problems(validApp, example)).toEqual([])
+    expect(schemaProblems(validApp, example)).toEqual([])
     // the schema has teeth: a file of another major is refused
     expect(validApp({ ...(example as object), format: 2 })).toBe(false)
   })

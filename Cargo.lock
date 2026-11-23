@@ -558,6 +558,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "backend-host"
+version = "0.1.0"
+dependencies = [
+ "app-api",
+ "app-settings",
+ "axum",
+ "base64 0.23.1",
+ "domain-types",
+ "libc",
+ "pretty_assertions",
+ "repository-model",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tempfile",
+ "test-server",
+ "test-utils",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

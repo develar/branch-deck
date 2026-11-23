@@ -9,10 +9,13 @@ window names, without a trailing separator.
 #### Scenario: Two clients on one repository
 - **WHEN** the Tauri shell and the bridge ask the channel of `/x/repo`
 - **THEN** both get the same URI, and their windows subscribe to one session
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
+  [@test] crates/backend-host/src/channel_test.rs (`two_connections_on_one_repository_get_the_same_actions_and_the_end_of_one_leaves_the_other`)
 
 #### Scenario: An open after the last unsubscribe
 - **WHEN** the last subscriber of a channel unsubscribed and a client asks the channel of its path again
 - **THEN** the answer is the same URI, and a subscribe to it opens the session again
+  [@test] crates/backend-host/src/channel_test.rs (`an_open_after_the_last_unsubscribe_is_the_same_channel_and_opens_the_session_again`)
 
 ### Requirement: Channel: A subscription is a window's
 
@@ -24,10 +27,12 @@ window of the connection SHALL be `-32011 alreadySubscribed`, and `unsubscribe` 
 - **WHEN** the main window and a review window of the Tauri shell subscribe to one channel
 - **THEN** both are subscribed, each with its own snapshot, and a second subscribe of the main window is
   `alreadySubscribed`
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 #### Scenario: A subscribe without a window
 - **WHEN** a client subscribes to a repository channel without `window`
 - **THEN** the answer is `-32602 badParams`
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 ### Requirement: Channel: A subscribe answers the view with its Version
 
@@ -39,10 +44,12 @@ is `-32603 apiError` with its `ApiError`.
 - **WHEN** a window subscribes to a channel without `have`
 - **THEN** the snapshot holds the view of the session at its `version`, and the next `viewPatched` of the window has
   `serverSeq` above `fromSeq` and `base` equal to that version
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 #### Scenario: A repository without a prefix
 - **WHEN** a window subscribes to the channel of a repository with no branch prefix
 - **THEN** the answer is `-32603 apiError` with `data.apiError.code` `no_branch_prefix`
+  [@test] crates/backend-host/src/corpus_test.rs (`the_errors_corpus_runs`)
 
 ### Requirement: Channel: A subscribe with have answers held and the catch-up first
 
@@ -53,14 +60,17 @@ builds from `have`, when it moved since; a `have` the session cannot patch from 
 #### Scenario: The seed of the warm start
 - **WHEN** a window subscribes with the version of the seed and the session synced once since
 - **THEN** the snapshot is `held`, and the first action is one `viewPatched` from the seed to the version after the sync
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 #### Scenario: The view the client holds
 - **WHEN** a window subscribes with the version the session holds now
 - **THEN** the snapshot is `held`, and no catch-up action follows
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 #### Scenario: A seed of another epoch
 - **WHEN** a window subscribes with a version of another epoch
 - **THEN** the snapshot holds the whole view
+  [@test] crates/backend-host/src/channel_test.rs (`a_seed_of_another_epoch_gets_the_whole_view`)
 
 ### Requirement: Channel: Each ViewPatch is one viewPatched action to each window
 
@@ -71,10 +81,13 @@ client SHALL apply it with `repository_model::patch::apply_patch` only to the vi
 #### Scenario: Two connections
 - **WHEN** a sync of a repository that a window of each of two connections subscribes to ends
 - **THEN** both get the same `viewPatched` with the same `serverSeq`, and their views have one version
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
+  [@test] crates/backend-host/src/channel_test.rs (`two_connections_on_one_repository_get_the_same_actions_and_the_end_of_one_leaves_the_other`)
 
 #### Scenario: Two windows of one connection
 - **WHEN** a sync of a repository that two windows of one connection subscribe to ends
 - **THEN** the connection gets two frames of the action, one naming each window
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 ### Requirement: Channel: Another epoch is a resync on the same channel
 
@@ -86,6 +99,7 @@ epoch; no patch of the old session SHALL follow it.
 - **WHEN** the prefix of the repository changes and a window subscribes again
 - **THEN** every other subscribed window of the channel gets one resync with the view of the new prefix, of another
   epoch, and the window that subscribed gets it as its snapshot
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 ### Requirement: Channel: A slow subscriber is resynced
 
@@ -95,6 +109,7 @@ snapshot once the queue of its connection drains, never a backlog past the cap a
 #### Scenario: A connection that reads nothing for a while
 - **WHEN** a connection holds 9 MiB of patches of a channel unread
 - **THEN** it gets one resync whose `fromSeq` is above the last action it got, and the patches between are not sent
+  [@test] crates/backend-host/src/outbox_test.rs (`a_window_past_the_cap_is_resynced_once_the_queue_drains`)
 
 ### Requirement: Channel: The end of a session ends the subscription
 
@@ -105,6 +120,7 @@ subscribe again.
 #### Scenario: The repository is deleted
 - **WHEN** the session of a subscribed repository closes because its repository is gone
 - **THEN** each subscribed window gets `subscriptionEnded` with `sessionClosed`, and no action of the channel after it
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 ### Requirement: Channel: The channel takes no intent
 
@@ -114,6 +130,7 @@ nothing: an intent of the page is the root command `execute`.
 #### Scenario: An intent on the channel
 - **WHEN** a client dispatches an action on a repository channel
 - **THEN** it gets one echo with `rejectionReason` `unknownAction`, and the view keeps its version
+  [@test] crates/backend-host/src/corpus_test.rs (`the_repository_channel_corpus_runs`)
 
 ### Requirement: Channel: The demand is set by window
 
@@ -124,3 +141,5 @@ demand end with it.
 #### Scenario: A review window and the main window of one connection
 - **WHEN** the main window demands the branch `a` and a review window of the same connection the branch `b`
 - **THEN** the session reads the facts of both, and after the review window closes only those of `a`
+  [@test] crates/backend-host/src/channel_test.rs (`the_demand_of_a_window_ends_with_the_window`)
+  [@test] crates/repository-model/src/session_test.rs (`the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each`)
