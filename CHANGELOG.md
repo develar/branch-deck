@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.21.0](https://github.com/develar/branch-deck/compare/v1.20.0...v1.21.0) (2026-11-23)
+
+
+### Features
+
+* **air:** the field styles of the app file selects the theme tokens of the IDE, and merged stays violet ([8724121](https://github.com/develar/branch-deck/commit/8724121ff425579580326f00a14c5d79cd192ebe))
+* **ide:** the row of the Settings window is in the title bar of the IDE, and the IDE moves the window ([1544cc0](https://github.com/develar/branch-deck/commit/1544cc092ddf3599b3ae0f3f79c792c94f57321a))
+
+
+### Bug Fixes
+
+* **lease:** a slot whose add never finished is removed by the next get that adds a slot, and the state keeps 100 local changes of a slot ([2513753](https://github.com/develar/branch-deck/commit/251375343316e65c6e9c4633eca8ca1655e3fc8a)), closes [#256](https://github.com/develar/branch-deck/issues/256)
+* **lease:** the review of the removal of unfinished slots: the step names only the slots it removes, the rollback says the slot goes back unfinished, and tests of the idle cut and of the first record of an adopt ([a8565e3](https://github.com/develar/branch-deck/commit/a8565e383b86cb1f9f32942193cb434bea158cd5))
+* **symbols:** a bare use of a name that a plain Kotlin or Java import of another commit binds is an edge ([e60a1b9](https://github.com/develar/branch-deck/commit/e60a1b90f70e96ec2997ea554383793f9daaff32))
+* **symbols:** a name on a receiver of an unknown type is no use of a declaration of its file ([a0f356f](https://github.com/develar/branch-deck/commit/a0f356fc81bd9a7f3104a751fc620d448aabbd28))
+
 ## [1.20.0](https://github.com/develar/branch-deck/compare/v1.19.0...v1.20.0) (2026-11-22)
 
 
