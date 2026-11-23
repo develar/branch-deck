@@ -3,6 +3,7 @@ use lease_pool::host_slots::watches_started;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
+use test_utils::time_shape::{is_shape, starts_with_shape};
 
 /// The lines of `brd-host runs` of an agent of the build before, which names one holder and no cores, say who holds the
 /// turn and for how long, then each run that waits; a free turn says so
@@ -180,8 +181,12 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   assert_eq!(waited, None, "the stop ended the wait");
   assert_eq!(watches_started() - before, 1, "one watch of the table for the whole wait");
   assert_eq!(said.len(), 1, "{said:?}");
+  // the first line has waited nothing; how long run-1 holds is measured
   assert!(
-    said[0].starts_with("run run-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 60 s left: run run-1 of branch-deck holds the whole host for 0 s (pnpm e2e, no measure), no run ahead; a wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn"),
+    starts_with_shape(
+      &said[0],
+      "run run-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 60 s left: run run-1 of branch-deck holds the whole host for <time> (pnpm e2e, no measure), no run ahead; a wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn"
+    ),
     "{said:?}"
   );
   let table = live(&home).unwrap();
@@ -226,13 +231,20 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
     None
   );
   assert_eq!(said.len(), 3, "{said:?}");
-  assert_eq!(
-    said[0],
-    "replaces run old, which waited 0 s for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and this run takes its place in the queue"
+  // how long old and other waited is measured
+  assert!(
+    is_shape(
+      &said[0],
+      "replaces run old, which waited <time> for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and this run takes its place in the queue"
+    ),
+    "{said:?}"
   );
-  assert_eq!(
-    said[1],
-    "run other of this checkout also waits for the heavy turn, 0 s: pnpm lint. Both run, one after the other; if this run replaces it, cancel it: `brd-host cancel <host> other`"
+  assert!(
+    is_shape(
+      &said[1],
+      "run other of this checkout also waits for the heavy turn, <time>: pnpm lint. Both run, one after the other; if this run replaces it, cancel it: `brd-host cancel <host> other`"
+    ),
+    "{said:?}"
   );
   assert!(
     said[2].starts_with(
@@ -293,7 +305,7 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
   );
   assert_eq!(said.len(), 1, "{said:?}");
   assert!(
-    said[0].starts_with("run light waits 0 s for a measurement: run ab of idea-1 holds the host for ")
+    starts_with_shape(&said[0], "run light waits <time> for a measurement: run ab of idea-1 holds the host for ")
       && said[0].ends_with(" (zsh ./measure-ab.sh); a measurement holds the host; this run starts when it ends"),
     "{said:?}"
   );
@@ -333,7 +345,7 @@ fn a_held_lock_of_the_table_retries_and_the_run_keeps_its_place_in_the_queue() {
     });
     let held = lines.recv().unwrap();
     assert!(
-      held.starts_with("the heavy turn of the host is locked by another process of the host for 0 s (")
+      starts_with_shape(&held, "the heavy turn of the host is locked by another process of the host for <time> (")
         && held.ends_with("turn.lock); this run asks again for its place in the queue"),
       "{held}"
     );

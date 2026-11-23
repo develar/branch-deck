@@ -24,11 +24,14 @@ pub mod review_modules;
 #[expect(unsafe_code, reason = "setsid, openpty and the ioctl of a controlling terminal, which std has no safe form of")]
 pub mod session;
 pub mod sync_fixtures;
+pub mod time_shape;
 pub mod wrapped_git;
 
 #[cfg(test)]
 mod fake_executable_test;
 #[cfg(test)]
 mod git_command_test;
+#[cfg(test)]
+mod time_shape_test;
 
 // No re-exports - import modules directly

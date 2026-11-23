@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+use test_utils::time_shape::is_shape;
 
 const RUN: &str = "1-2";
 
@@ -220,12 +221,16 @@ fn a_wait_says_each_state_of_the_run_then_takes_its_log_fetches_and_forgets_it_b
   let root = setup.repo.path().canonicalize().unwrap();
   let output_line = format!("brd-host: the output of the run: {} (2 lines)", root.join(".git/branch-deck/host/runs/1-2.log").display());
   let copied_line = format!("brd-host: copied 1 files of the run 1-2 into {}", root.display());
-  assert!(summary[1].starts_with("brd-host: phases: heavy 1.0s, slot 0.1s, command 2.0s, fetch "), "{}", summary[1]);
+  // the fetch is a step of this client, measured: its time and the total are any duration
+  assert!(is_shape(summary[0], "brd-host: run 1-2 on studio exited with 3 after <time> on the host"), "{}", summary[0]);
+  assert!(
+    is_shape(summary[1], "brd-host: phases: heavy 1.0s, slot 0.1s, command 2.0s, fetch <time>"),
+    "{}",
+    summary[1]
+  );
   assert_eq!(
-    summary,
+    summary[2..],
     [
-      "brd-host: run 1-2 on studio exited with 3 after 3.1s on the host",
-      summary[1],
       copied_line.as_str(),
       output_line.as_str(),
       "brd-host: its last 2 lines:",

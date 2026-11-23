@@ -64,6 +64,11 @@ machine.
   the old timing turned a fake's reply that the load held back into a lost link), `DEADLINE` of
   `crates/host-link/src/channel_test.rs`, the handshake of `PROCESS_TEST_ENV`; a test whose subject is a deadline sets
   its own (a silent agent, the end of an upgrade, the cut of a slow handshake).
+- **No assertion reads a measured time.** A line that says how long something took or waited ("exited with 3 after
+  3.1s on the host", "waited 0 s for the heavy turn") says another number on a loaded machine; the test compares its
+  shape, `<time>` standing for any duration (`is_shape`, `starts_with_shape`, `contains_shape` of
+  `test_utils::time_shape`), and asserts an exact time only where the test gives it (a fake's steps, an injected `now`,
+  the zero wait of the first line).
 - **A shell under SIGINT**: bash 3.2 of macOS can exit 130 without its `INT` trap when the SIGINT comes at the start
   of a foreground command (1 run in 300 under load, a plain `sh -c` too), and a command that the shell starts as the
   SIGINT comes never sees it (the agent of `brd-host` sends it SIGINT again a second later). A test that needs the trap

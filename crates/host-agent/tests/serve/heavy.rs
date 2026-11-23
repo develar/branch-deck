@@ -9,6 +9,7 @@ use pretty_assertions::assert_eq;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use test_utils::time_shape::contains_shape;
 
 /// The heavy turn of the host as `Request::Runs` answers it: the holder and the runs of the queue
 fn heavy_turn(agent: &super::Agent<'_>) -> (Option<String>, Vec<String>) {
@@ -352,7 +353,7 @@ fn a_run_that_is_not_heavy_waits_for_an_exclusive_run_and_starts_after_it() {
     ..heavy(&world, "14-2", &marks, &open)
   });
   eventually("the run that is not heavy says its wait", || {
-    events(&world, "14-2").contains("brd-host: run 14-2 waits 0 s for a measurement: run 14-1 of ")
+    contains_shape(&events(&world, "14-2"), "brd-host: run 14-2 waits <time> for a measurement: run 14-1 of ")
   });
   assert_eq!(started(&marks), ["14-1"], "the run that is not heavy waits for the measurement");
   fs::write(&gate, "").expect("the gate opens");
@@ -383,7 +384,7 @@ fn a_run_of_another_repository_waits_for_an_exclusive_run() {
     ..heavy(&world, "15-2", &marks, &open)
   });
   eventually("the run of the other repository says its wait", || {
-    events(&world, "15-2").contains("brd-host: run 15-2 waits 0 s for a measurement: run 15-1 of ")
+    contains_shape(&events(&world, "15-2"), "brd-host: run 15-2 waits <time> for a measurement: run 15-1 of ")
   });
   assert_eq!(started(&marks), ["15-1"], "the run of the other repository waits for the measurement");
   fs::write(&gate, "").expect("the gate opens");
@@ -443,7 +444,7 @@ fn a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound(
     ..heavy(&world, "17-3", &marks, &second)
   });
   eventually("the new run says it waits for the drain", || {
-    events(&world, "17-3").contains("brd-host: run 17-3 waits 0 s for a measurement: run 17-2 of ") && events(&world, "17-3").contains(" waits for the host to drain (")
+    contains_shape(&events(&world, "17-3"), "brd-host: run 17-3 waits <time> for a measurement: run 17-2 of ") && events(&world, "17-3").contains(" waits for the host to drain (")
   });
   eventually("the bar lifts after the bound, and the new run starts", || started(&marks) == ["17-1", "17-3"]);
   fs::write(&first, "").expect("the first run ends");
