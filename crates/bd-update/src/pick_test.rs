@@ -730,6 +730,32 @@ fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
   );
 }
 
+/// With `pick_requires_check` a green record of the worktree's tree before a clean update onto the branch carries
+/// over: the pick lands the updated tree with `check.state` `carried_over` and the commits of the branch that no check
+/// saw; `check_carries_over = false` of the checkout turns it off, and the same tree is `unchecked_tree`
+#[test_log::test]
+fn a_pick_from_a_worktree_lands_a_check_that_carries_over_a_clean_update() {
+  let (repo, lane, lane_head) = gated_repo();
+  record_check(&lane, 0);
+  let update = |lane_head: &str| {
+    lane.git(&["checkout", "-q", "--detach", "master"]);
+    lane.git(&["cherry-pick", lane_head]);
+  };
+  repo.create_commit("Carry no check", ".branchdeck.toml", "[lease]\npick_requires_check = true\ncheck_carries_over = false\n");
+  update(&lane_head);
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+
+  repo.create_commit("Carry the check", ".branchdeck.toml", "[lease]\npick_requires_check = true\ncheck_carries_over = true\n");
+  update(&lane_head);
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["check"]["state"], &output["check"]["untested_master_commits"]),
+    (0, &json!("picked"), &json!("carried_over"), &json!(2)),
+    "{output}"
+  );
+}
+
 /// With `pick_requires_check` a pick that lands nothing needs no green check: a worktree whose commits are all on the
 /// branch follows it onto the tip without a record, and the check names the missing record; once the worktree has a
 /// commit the branch lacks, the pick is `unchecked_tree` again and lands nothing

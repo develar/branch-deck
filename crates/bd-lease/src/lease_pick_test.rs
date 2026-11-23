@@ -325,6 +325,28 @@ fn allow_unchecked_lands_without_a_check_and_says_why() {
   assert_eq!((exit_code, &output["state"], output.get("check")), (0, &json!("picked"), None), "{output}");
 }
 
+/// A green record of the tree before a clean update of the lease onto its home branch carries over: the pick lands
+/// the updated tree, and `check` says `carried_over` with the commits of the home branch that no check saw
+#[test_log::test]
+fn a_lease_pick_lands_a_check_that_carries_over_a_clean_update() {
+  let fixture = gated_fixture();
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  let lane = slot_git(&path, &["rev-parse", "HEAD"]);
+  record_check(&path, &tree_of(&path), 0);
+  fixture.repo.create_commit("Peer", "peer.txt", "peer\n");
+  slot_git(&path, &["checkout", "-q", "--detach", "master"]);
+  slot_git(&path, &["cherry-pick", &lane]);
+
+  let (dry, state) = checked_pick(&fixture, &path, &["--dry-run"], 0, "state");
+  assert_eq!((state, &dry["check"]["untested_master_commits"]), (json!("carried_over"), &json!(1)), "{dry}");
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  assert_covered(&schema["outputs"]["lease_pick"], &schema["outputs"]["lease_pick"], &dry, "lease_pick");
+  let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
+  assert_eq!((&output["state"], state), (&json!("picked"), json!("carried_over")), "{output}");
+  fixture.give_back(&path);
+}
+
 /// A conflict whose update applies at once moves the lease onto a new tree: with `pick_requires_check` the pick does
 /// not land it before a build, the conflict says so, and once a green record names the new tree the pick lands it
 #[test_log::test]

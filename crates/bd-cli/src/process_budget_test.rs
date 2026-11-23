@@ -1835,24 +1835,44 @@ fn a_lease_pick_that_conflicts() {
 
 /// The check of `brd lease pick` and `brd pick --from` with `pick_requires_check` (beside the resolve of the lease, one
 /// `rev-parse`): one `rev-parse` of the git dir, HEAD and its tree, and for a tree that only an older record names one
-/// `diff-tree` that counts the files changed since
+/// `diff-tree` that counts the files changed since; a record without its HEAD carries nothing. A record of the tree
+/// before a clean update onto the home branch carries over: two `merge-base`, one `merge-tree` and one
+/// `rev-list --count` of the commits it did not see, and no `diff-tree`
 #[test]
 fn the_tree_check_of_a_lease_pick() {
-  let (_repo, _home, environment, got) = leased_repo();
+  let (repo, _home, environment, got) = leased_repo();
   let lane = std::path::Path::new(&got.path);
   let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
+  let home = || Ok(Some(bd_update::pick_command::branch_ref("master")));
   // the empty tree, which git knows without an object
   std::fs::write(
     std::path::Path::new(&lease.dirs.git_dir).join(lease_pool::check_record::CHECKS_FILE),
     "{\"schema\":1,\"tree\":\"4b825dc642cb6eb9a060e54bf8d69288fbee4904\",\"exit\":0}\n",
   )
   .unwrap();
-  let check = bd_update::pick_command::tree_check(&lease.git, &lease.dirs.top_level).unwrap();
+  let check = bd_update::pick_command::tree_check(&lease.git, &lease.dirs.top_level, home).unwrap();
   assert_eq!(
     (check.state, check.changed_paths),
     (lease_pool::check_record::CheckState::Stale, Some(vec!["README.md".to_string()]))
   );
   assert_git_processes(&lease.git, &[("diff-tree", 1), ("rev-parse", 2)]);
+
+  let slot_git = |args: &[&str]| GitCommandExecutor::new().execute_command(args, &got.path).unwrap();
+  std::fs::write(lane.join("lane.txt"), "lane\n").unwrap();
+  slot_git(&["add", "lane.txt"]);
+  slot_git(&["commit", "-q", "-m", "(lane) Add lane"]);
+  let lane_commit = slot_git(&["rev-parse", "HEAD"]);
+  crate::fixture_test::record_check(&got.path, &slot_git(&["rev-parse", "HEAD^{tree}"]), 0);
+  repo.create_commit("Peer", "peer.txt", "peer\n");
+  slot_git(&["checkout", "-q", "--detach", "master"]);
+  slot_git(&["cherry-pick", &lane_commit]);
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
+  let check = bd_update::pick_command::tree_check(&lease.git, &lease.dirs.top_level, home).unwrap();
+  assert_eq!(
+    (check.state, check.untested_commits, check.changed_paths),
+    (lease_pool::check_record::CheckState::CarriedOver, Some(1), None)
+  );
+  assert_git_processes(&lease.git, &[("merge-base", 2), ("merge-tree", 1), ("rev-list", 1), ("rev-parse", 2)]);
 }
 
 /// `brd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `brd pick --from <lease>

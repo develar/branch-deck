@@ -119,6 +119,9 @@ pub(crate) fn read_parsed<T>(path: &Path, parse: impl FnOnce(&str) -> Result<T>)
 
 /// The key of `[lease]` by which `brd lease pick` refuses a tree that no green build or test recorded (`check_record`)
 const PICK_REQUIRES_CHECK: &str = "pick_requires_check";
+/// The key of `[lease]` by which a record of an older tree carries over a clean update onto the target branch
+/// (`check_record::check_tree`); true without it
+const CHECK_CARRIES_OVER: &str = "check_carries_over";
 
 /// The `[lease]` table of the text of a `.branchdeck.toml`, `None` without one. An unknown key of `[lease]` is an error;
 /// another top-level table stays unread: its reader checks it (`[host]` of `host_link::config`), and a table of a
@@ -127,24 +130,48 @@ fn lease_table(text: &str) -> Result<Option<toml::Table>> {
   let mut table: toml::Table = text.parse()?;
   let Some(lease) = table.remove("lease") else { return Ok(None) };
   let toml::Value::Table(lease) = lease else { bail!("`lease` is not a table") };
-  if let Some(key) = lease.keys().find(|key| *key != "clean" && *key != PICK_REQUIRES_CHECK) {
-    bail!("unknown key lease.{key}; [lease] has only `clean` and `{PICK_REQUIRES_CHECK}`");
+  if let Some(key) = lease.keys().find(|key| *key != "clean" && *key != PICK_REQUIRES_CHECK && *key != CHECK_CARRIES_OVER) {
+    bail!("unknown key lease.{key}; [lease] has only `clean`, `{PICK_REQUIRES_CHECK}` and `{CHECK_CARRIES_OVER}`");
   }
   Ok(Some(lease))
 }
 
-/// `pick_requires_check` of `.branchdeck.toml` in `checkout`: false without the file or the key. A file that does not
-/// parse, an unknown key or a value that is no boolean is an error
-pub fn read_pick_requires_check(checkout: &Path) -> Result<bool> {
-  read_parsed(&checkout.join(BRANCH_DECK_FILE), parse_pick_requires_check).map(Option::unwrap_or_default)
+/// The gate of the check of the tree of a pick, as `[lease]` of `.branchdeck.toml` sets it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PickCheck {
+  /// `pick_requires_check`, false by default: a pick lands only a tree that a green build or test recorded
+  pub required: bool,
+  /// `check_carries_over`, true by default: a record of an older tree counts for a clean update of it onto the target
+  pub carries_over: bool,
 }
 
-/// `pick_requires_check` of the text of a `.branchdeck.toml`
-pub fn parse_pick_requires_check(text: &str) -> Result<bool> {
-  match lease_table(text)?.as_ref().and_then(|lease| lease.get(PICK_REQUIRES_CHECK)) {
-    None => Ok(false),
-    Some(value) => value.as_bool().ok_or_else(|| anyhow!("`lease.{PICK_REQUIRES_CHECK}` is not a boolean")),
+impl Default for PickCheck {
+  fn default() -> Self {
+    Self {
+      required: false,
+      carries_over: true,
+    }
   }
+}
+
+/// The gate of the check of `.branchdeck.toml` in `checkout`: the defaults without the file or the keys. A file that
+/// does not parse, an unknown key or a value that is no boolean is an error
+pub fn read_pick_check(checkout: &Path) -> Result<PickCheck> {
+  read_parsed(&checkout.join(BRANCH_DECK_FILE), parse_pick_check).map(Option::unwrap_or_default)
+}
+
+/// The gate of the check of the text of a `.branchdeck.toml`
+pub fn parse_pick_check(text: &str) -> Result<PickCheck> {
+  let lease = lease_table(text)?;
+  let flag = |key: &str, default: bool| match lease.as_ref().and_then(|lease| lease.get(key)) {
+    None => Ok(default),
+    Some(value) => value.as_bool().ok_or_else(|| anyhow!("`lease.{key}` is not a boolean")),
+  };
+  let defaults = PickCheck::default();
+  Ok(PickCheck {
+    required: flag(PICK_REQUIRES_CHECK, defaults.required)?,
+    carries_over: flag(CHECK_CARRIES_OVER, defaults.carries_over)?,
+  })
 }
 
 /// The rules of the text of a `.branchdeck.toml`

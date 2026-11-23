@@ -49,14 +49,14 @@ use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
 use bd_update::drop_command::{DropArgs, drop_commits};
-use bd_update::pick_command::{HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, pick, pick_into, pick_requires_check, tree_check, tree_check_output};
+use bd_update::pick_command::{HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, branch_ref, pick, pick_check, pick_into, tree_check, tree_check_output};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, update, update_lease_onto};
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
-use lease_pool::check_record::{CheckState, TreeCheck};
+use lease_pool::check_record::TreeCheck;
 use operations::registry_watch::touch_stamp;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -417,7 +417,8 @@ fn operation_name(matches: &ArgMatches) -> String {
 /// again at once. The gate of `pick_requires_check` is the pick's (`bd_update::pick_command`): a tree of the lease's
 /// HEAD that no green build or test recorded lands nothing (`unchecked_tree`) unless `--allow-unchecked` says why, and a
 /// lease with nothing to land follows without a record; the tree of an update that applies is new, so it is picked
-/// again only when a record names it too, else the conflict says to build first
+/// again only when a record names it too or carries over onto it (a clean merge of the checked tree onto the new base),
+/// else the conflict says to build first
 fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
   let in_dir = |dir: &str| {
@@ -440,9 +441,14 @@ fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOpt
   if !matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
     return Ok(LeasePickOutput { pick, update: Some(update) });
   }
-  let gated = args.allow_unchecked.is_none() && pick_requires_check(&home.repository)?;
-  let check = if gated { Some(tree_check(&lease.git, &lease.dirs.top_level)?) } else { None };
-  if let Some(check) = check.as_ref().filter(|check| check.state != CheckState::Ok) {
+  let settings = pick_check(&home.repository)?;
+  let gated = args.allow_unchecked.is_none() && settings.required;
+  let check = if gated {
+    Some(tree_check(&lease.git, &lease.dirs.top_level, || Ok(settings.carries_over.then(|| branch_ref(&branch))))?)
+  } else {
+    None
+  };
+  if let Some(check) = check.as_ref().filter(|check| !check.state.passes()) {
     let mut pick = pick;
     if let Some(conflict) = pick.conflict.as_mut() {
       conflict.next = format!(

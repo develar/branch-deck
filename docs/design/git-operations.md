@@ -2803,6 +2803,20 @@ the commit it checked (`PickRequest::expect_source_head`, which `recheck_pick` h
 between the check and the lock is `head_moved`, not an unchecked landing. An update that applies after a conflict
 makes a new tree, so the pick waits for a record of it. Without the setting the pick reads nothing.
 
+A record of an older tree carries over a clean update onto the branch the commits land on (`check.state:
+carried_over`, `git_ops::carried_check`). The record names the exact tree, so an update of the lease onto a newer home
+branch threw it away, and 21% of the picks of the IntelliJ monorepo (36 of 168 on 2026-11-23) passed `--allow-unchecked`
+with "green on its own base, then a clean replay onto master". For a stale record that names its HEAD, two `merge-base`
+find B, the base of the record's HEAD on the target branch, and the base of HEAD on it; when they differ, `git
+merge-tree --write-tree --merge-base=<B> <record tree> <base>` merges the checked change onto the new base, and when
+that is `HEAD^{tree}` the check counts, and one `rev-list --count` names the commits of the target in between that no
+check saw (`untested_master_commits`). The record's tree, not its HEAD: `bt` records a worktree with local changes.
+The test is the tree, not a patch-id: exact for binaries and whitespace, and an update that needed a resolution (by
+words too) writes a tree that the merge of git does not, so it still waits for a check of the new tree. It is the
+merge break the gate never stopped (below): the commits of the target come in as the pick onto a moved tip would bring
+them. `check_carries_over = false` in `[lease]` turns it off. The target is the home branch of a lease, else the branch
+checked out where `brd pick` runs; it is read only for a stale record.
+
 A pick that lands nothing passes the gate without a record. A lease with no unlanded commit must follow its home
 branch at once when the branch changed the build config, and a build on the old config first is the result that the
 hint of `brd workspace` exists to stop. So a tree without a green record does not stop the pick before its check.

@@ -343,10 +343,12 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      `.branchdeck.toml`, and no green build or test recorded the tree of your HEAD (the check tool writes
      `bd-checks.jsonl`; a raw build writes nothing); run the build and the tests on this tree, then pick again. A pick
      that lands nothing only follows, and needs no record. A pick of revisions (`brd pick <rev>`) names no worktree
-     whose records brd could read: pick from the worktree that built them. `--dry-run` shows `check` (`ok`, `stale`,
-     `missing`). `brd lease pick --allow-unchecked '<reason>'` (`brd pick --from <worktree> --allow-unchecked
-     '<reason>'`) lands without a check: only when the user agreed or the change cannot break a build (docs only), and
-     the reason says which.
+     whose records brd could read: pick from the worktree that built them. `--dry-run` shows `check` (`ok`,
+     `carried_over`, `stale`, `missing`). After an update of the lease that applied without a conflict the check need
+     not run again: a green record of the tree before it carries over (`carried_over`, with `untested_master_commits`);
+     an update that needed a resolution needs the build and the tests again. `brd lease pick --allow-unchecked
+     '<reason>'` (`brd pick --from <worktree> --allow-unchecked '<reason>'`) lands without a check: only when the user
+     agreed or the change cannot break a build (docs only), and the reason says which.
    - `message_format` (exit 4), of `brd lease pick` and `brd pick` alike: the repository sets `[commit] check` in
      `.branchdeck.toml`, and its commit rules reject the message of a picked commit after its `(branch)` prefix;
      nothing landed. `error.message_format` names the `commits`, the `hint` and the `documentation`. Reword each one

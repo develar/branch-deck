@@ -14,6 +14,7 @@
 //! - `object_texts`: the bytes, texts and tree entries of many names, through `cat_file_batch`
 //! - `paths`: the paths two trees differ in, as bytes, also since the merge base of two commits; the commits that change
 //!   some paths
+//! - `carried_check`: the tree a green check saw, merged onto the base of a worktree now, against `HEAD^{tree}`
 //! - `notes`: the mapping notes of the sync (original commit -> its virtual copy) and the notes of many commits, with
 //!   their committer times and subjects; the source and the resolve a note records are `domain_types::commit`'s
 //! - `attributes`: the git attributes of paths at a tree-ish, one `check-attr --stdin -z`
@@ -98,6 +99,7 @@ pub mod amend_operations;
 pub mod attributes;
 pub mod autosquash_targets;
 pub mod branch_description;
+pub mod carried_check;
 pub mod carried_review;
 pub mod cat_file_batch;
 pub mod cherry_pick;

@@ -22,10 +22,10 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
-use git_ops::revs::short_id;
+use git_ops::revs::{current_branch, short_id};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use lease_pool::check_record::{CheckState, NAMED_PATHS, TreeCheck, check_tree};
-use lease_pool::lease_clean::read_pick_requires_check;
+use lease_pool::lease_clean::{PickCheck, read_pick_check};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -163,11 +163,17 @@ pub struct LeasePickOutput {
 /// The check of the tree of HEAD of the worktree the commits come from: a lease, or the worktree of `brd pick --from`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct TreeCheckOutput {
-  /// `ok`: a green build or test recorded this tree; `stale`: records exist, none of this tree; `missing`: no record
+  /// `ok`: a green build or test recorded this tree; `carried_over`: no record names this tree, but the newest one, its
+  /// tree merged onto the base of HEAD on the branch the commits land on, is this tree, a clean update of what it
+  /// checked; `stale`: records exist, none of this tree, and the newest does not carry over; `missing`: no record
   pub state: TreeCheckState,
   pub tree: String,
   pub head: String,
-  /// `ok`: the newest record of the tree; `stale`: the newest record
+  /// `carried_over`: the commits of the branch the commits land on between the base the record was built on and the
+  /// base of HEAD, which no check saw
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub untested_master_commits: Option<u64>,
+  /// `ok`: the newest record of the tree; `carried_over`, `stale`: the newest record
   #[serde(skip_serializing_if = "Option::is_none")]
   pub record: Option<CheckRecordOutput>,
 }
@@ -176,6 +182,7 @@ pub struct TreeCheckOutput {
 #[serde(rename_all = "snake_case")]
 pub enum TreeCheckState {
   Ok,
+  CarriedOver,
   Stale,
   Missing,
 }
@@ -361,26 +368,34 @@ struct Gate {
   land_nothing: bool,
 }
 
-/// `pick_requires_check` of `.branchdeck.toml` in `checkout`, the checkout the commits land in: the file of the branch
-/// they land on. A file that does not parse is `invalid_arguments`
+/// `pick_requires_check` and `check_carries_over` of `.branchdeck.toml` in `checkout`, the checkout the commits land
+/// in: the file of the branch they land on. A file that does not parse is `invalid_arguments`
 ///
 /// # Errors
 /// `invalid_arguments` when the file does not parse
-pub fn pick_requires_check(checkout: &str) -> Result<bool, CliError> {
-  read_pick_requires_check(Path::new(checkout)).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
+pub fn pick_check(checkout: &str) -> Result<PickCheck, CliError> {
+  read_pick_check(Path::new(checkout)).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
 }
 
-/// Whether a green build or test recorded the tree of HEAD of the worktree of `dir`: one `rev-parse`, for a stale tree
-/// one `diff-tree`
+/// Whether a green build or test recorded the tree of HEAD of the worktree of `dir`: one `rev-parse`; for a stale tree
+/// whether the newest record carries over a clean update onto the branch `carry_onto` names (asked only then, `None`
+/// to carry nothing), else one `diff-tree` (`lease_pool::check_record::check_tree`)
 ///
 /// # Errors
 /// When git cannot read HEAD of the worktree
-pub fn tree_check(git: &GitCommandExecutor, dir: &str) -> Result<TreeCheck, CliError> {
-  check_tree(git, dir).map_err(CliError::from)
+pub fn tree_check(git: &GitCommandExecutor, dir: &str, carry_onto: impl FnOnce() -> anyhow::Result<Option<String>>) -> Result<TreeCheck, CliError> {
+  check_tree(git, dir, carry_onto).map_err(CliError::from)
+}
+
+/// The ref of `branch`, a local branch, as a worktree of the repository reads it
+#[must_use]
+pub fn branch_ref(branch: &str) -> String {
+  format!("refs/heads/{branch}")
 }
 
 /// The gate of `pick_requires_check` (openspec/specs/cli/pick/spec.md): a pick from a worktree lands only a tree that a green
-/// build or test recorded, unless `--allow-unchecked` says why; a pick of revisions names no worktree whose records bd
+/// build or test recorded, or that a record carries over by a clean update onto the branch the commits land on (unless
+/// `check_carries_over = false`), unless `--allow-unchecked` says why; a pick of revisions names no worktree whose records bd
 /// could read, so it needs the reason too. `--remote` passes: the commits someone else pushed, which the user saw. A
 /// worktree tree without a green record goes on with `land_nothing`: a pick that lands nothing only follows, and the
 /// check of the core refuses one that lands a commit, which `picked` words as `unchecked_tree`
@@ -388,16 +403,22 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
   if matches!(from, PickFrom::Remote(_)) {
     return Ok(Gate::default());
   }
-  let gated = args.allow_unchecked.is_none() && pick_requires_check(&context.repository)?;
+  let settings = pick_check(&context.repository)?;
+  let gated = args.allow_unchecked.is_none() && settings.required;
   match from {
     PickFrom::Worktree(dir) if gated || args.dry_run => {
       let check = match home.and_then(|home| home.check.clone()) {
         Some(check) => check,
-        None => tree_check(&context.git, dir)?,
+        // the branch the commits land on: the home branch of a lease, else the branch checked out in the target
+        None => tree_check(&context.git, dir, || match home {
+          _ if !settings.carries_over => Ok(None),
+          Some(home) => Ok(Some(branch_ref(&home.branch))),
+          None => Ok(current_branch(&context.git, &context.repository)?.as_deref().map(branch_ref)),
+        })?,
       };
       Ok(Gate {
         expect_source_head: gated.then(|| check.head.clone()),
-        land_nothing: gated && !args.dry_run && check.state != CheckState::Ok,
+        land_nothing: gated && !args.dry_run && !check.state.passes(),
         check: Some(check),
       })
     }
@@ -457,11 +478,13 @@ pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
   TreeCheckOutput {
     state: match check.state {
       CheckState::Ok => TreeCheckState::Ok,
+      CheckState::CarriedOver => TreeCheckState::CarriedOver,
       CheckState::Stale => TreeCheckState::Stale,
       CheckState::Missing => TreeCheckState::Missing,
     },
     tree: check.tree.clone(),
     head: check.head.clone(),
+    untested_master_commits: check.untested_commits,
     record: check.record.as_ref().map(|record| CheckRecordOutput {
       tree: record.tree.clone(),
       command: record.describe(),
