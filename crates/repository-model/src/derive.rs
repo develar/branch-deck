@@ -47,6 +47,10 @@
 //! `attention_of` is the robot of each subject that needs the user (`domain_policy::attention`: it failed on the subject
 //! as its row shows it, and nothing else holds the subject), which the view derives with every patch over the rows as
 //! they are, so the landing overview, Attention and the Dock badge list what the view says.
+//!
+//! `robot_estimates_of` is how long each running robot usually runs (`domain_policy::robot_estimate`), over the robots
+//! the session lists and the history of the repository's finished robots, so every window of the session counts the
+//! same time left.
 
 use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, need_states, remote_fact};
@@ -75,6 +79,7 @@ use domain_policy::push::{
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
+use domain_policy::robot_estimate::estimates;
 use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
@@ -83,7 +88,7 @@ use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, Lan
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, PushSlot, RowStatus, StackPullRequest};
 use domain_types::operation::{Intent, Resource, RunningOperation};
-use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
+use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness, RobotEstimate};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{
@@ -2027,6 +2032,13 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     declared: &declared_needs_of(&table.table, |need| is_unapplied(&parts.sections.unapplied, need), &part.view),
   };
   next_steps(&sources)
+}
+
+/// How long each running robot of the session usually runs, by robot id (`domain_policy::robot_estimate::estimates`):
+/// over the finished robots it lists and the history of the repository's finished robots (`RobotsFact::history`)
+#[must_use]
+pub fn robot_estimates_of(facts: &FactStore) -> BTreeMap<String, RobotEstimate> {
+  estimates(&facts.robots.view().robots, facts.robots.history())
 }
 
 /// The subjects of `state` whose robot needs the user (`domain_policy::attention`), by subject key: each branch of the

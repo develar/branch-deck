@@ -18,7 +18,9 @@ use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{BaselinePush, FactWait, LandFact, LandedBy, LandingFix, LandingRefusal, StackCommit};
 use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, LocalGitHub, RouteGate};
 use domain_types::next_step::{NextStep, StepBlocker, StepRow};
-use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
+use domain_types::patronus::{
+  BranchReviewReadiness, EstimateBasis, FinishedRobot, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness, RobotEstimate,
+};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{LandingNeeds, PatronusView};
@@ -93,6 +95,9 @@ struct ScriptedHost {
   prune_gates: Mutex<VecDeque<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
   /// The frame a session that opens reads, and whether its worktree was synced before
   frame: Mutex<Option<CachedSession>>,
+  /// The history of the finished robots a session that opens reads, and each history a session had the host keep
+  robot_history: Mutex<Vec<FinishedRobot>>,
+  recorded_histories: Mutex<Vec<Vec<FinishedRobot>>>,
   synced_before: Mutex<bool>,
   /// The epoch of every worktree (`SessionHost::epoch`): the lease of a slot of a pool; `NotASlot` by default
   epoch: Mutex<WorktreeEpoch>,
@@ -284,6 +289,14 @@ impl SessionHost for ScriptedHost {
 
   fn synced_before(&self, _key: &SessionKey) -> bool {
     *self.synced_before.lock().unwrap()
+  }
+
+  fn robot_history(&self, _key: &SessionKey) -> Vec<FinishedRobot> {
+    self.robot_history.lock().unwrap().clone()
+  }
+
+  fn record_robot_history(&self, _key: &SessionKey, history: &[FinishedRobot]) {
+    self.recorded_histories.lock().unwrap().push(history.to_vec());
   }
 
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
@@ -2461,6 +2474,53 @@ async fn counted(done: impl Fn() -> bool) {
     assert!(started.elapsed() < UNHURRIED, "the host never counted it");
     tokio::time::sleep(Duration::from_millis(5)).await;
   }
+}
+
+/// Every window of a session counts the same time left: the view says the estimate of each running robot, over the
+/// robots it lists and the history of finished robots the host had as the session opened; a robot that finishes goes
+/// into the history the host keeps, and the estimate of the next robot learns from it, while the finished one has none
+#[tokio::test]
+async fn the_view_estimates_the_running_robots_over_the_history_it_opened_with_and_keeps_the_robots_that_finish() {
+  const STARTED: u32 = 1_704_189_600;
+  let host = Arc::new(ScriptedHost::default());
+  let earlier = PatronusRobot {
+    finish_time: Some(STARTED - 3600 + 40 * 60),
+    ..robot("earlier", Some("ui"), PatronusRobotStatus::Success, STARTED - 3600)
+  };
+  *host.robot_history.lock().unwrap() = vec![FinishedRobot::of(&earlier).unwrap()];
+  let (sessions, _clock) = scripted(&host);
+  let key = key("/repo");
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  let running = robot("r1", Some("auth"), PatronusRobotStatus::Running, STARTED);
+  list_robots(&sessions, &key, vec![running.clone()]).await;
+  let view = view_when(&sessions, &key, |view| view.robot_estimates.contains_key("r1")).await;
+  let rough = |seconds| RobotEstimate {
+    seconds,
+    basis: EstimateBasis::Mode,
+  };
+  assert_eq!(view.robot_estimates["r1"], rough(40 * 60));
+
+  let merged = PatronusRobot {
+    status: PatronusRobotStatus::Success,
+    finish_time: Some(STARTED + 60 * 60),
+    ..running
+  };
+  let next = robot("r2", Some("auth"), PatronusRobotStatus::Running, STARTED + 2 * 3600);
+  list_robots(&sessions, &key, vec![merged, next]).await;
+  let view = view_when(&sessions, &key, |view| view.robot_estimates.contains_key("r2")).await;
+  assert_eq!(view.robot_estimates.get("r1"), None, "a finished robot has none");
+  assert_eq!(view.robot_estimates["r2"], rough(50 * 60), "the median of 40 and 60 minutes");
+  counted(|| {
+    host
+      .recorded_histories
+      .lock()
+      .unwrap()
+      .last()
+      .is_some_and(|history| history.iter().any(|robot| robot.id == "r1"))
+  })
+  .await;
+  let kept: Vec<String> = host.recorded_histories.lock().unwrap().last().unwrap().iter().map(|robot| robot.id.clone()).collect();
+  assert_eq!(kept, ["r1", "earlier"], "the newest finish first");
 }
 
 /// Patronus answered the session of `key` with `robots`, a full list

@@ -12,6 +12,7 @@ use domain_types::landing::{LandDecisions, Landed};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::operation::{OperationId, RunningOperation};
+use domain_types::patronus::RobotEstimate;
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
   ApprovalLanding, ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer,
@@ -121,6 +122,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     removed_actions,
     attention,
     removed_attention,
+    robot_estimates,
+    removed_robot_estimates,
     github_layers,
     removed_github_layers,
     operations,
@@ -172,6 +175,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.next_steps, next_steps, &removed_next_steps);
   apply_keyed(&mut view.actions, actions, &removed_actions);
   apply_keyed(&mut view.attention, attention, &removed_attention);
+  apply_keyed(&mut view.robot_estimates, robot_estimates, &removed_robot_estimates);
   apply_keyed(&mut view.github_layers, github_layers, &removed_github_layers);
   apply_keyed(&mut view.review_groups, review_groups, &removed_review_groups);
   apply_keyed(&mut view.approval_landing, approval_landing, &removed_approval_landing);
@@ -269,6 +273,8 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_actions: _,
     attention: _,
     removed_attention: _,
+    robot_estimates: _,
+    removed_robot_estimates: _,
     github_layers: _,
     removed_github_layers: _,
     review_groups: _,
@@ -447,6 +453,7 @@ pub(crate) struct Now<'a> {
   pub(crate) next_steps: &'a BTreeMap<String, NextStepView>,
   pub(crate) actions: &'a BTreeMap<String, Vec<ActionState>>,
   pub(crate) attention: &'a BTreeMap<String, RobotAttention>,
+  pub(crate) robot_estimates: &'a BTreeMap<String, RobotEstimate>,
   pub(crate) github_layers: &'a BTreeMap<String, GitHubLayer>,
   pub(crate) review_groups: &'a BTreeMap<String, Vec<ReviewerGroupView>>,
   pub(crate) approval_landing: &'a BTreeMap<String, ApprovalLanding>,
@@ -481,6 +488,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (next_steps, removed_next_steps) = diff_keyed(&last.next_steps, now.next_steps);
   let (actions, removed_actions) = diff_keyed(&last.actions, now.actions);
   let (attention, removed_attention) = diff_keyed(&last.attention, now.attention);
+  let (robot_estimates, removed_robot_estimates) = diff_keyed(&last.robot_estimates, now.robot_estimates);
   let (github_layers, removed_github_layers) = diff_keyed(&last.github_layers, now.github_layers);
   let (review_groups, removed_review_groups) = diff_keyed(&last.review_groups, now.review_groups);
   let (approval_landing, removed_approval_landing) = diff_keyed(&last.approval_landing, now.approval_landing);
@@ -518,6 +526,8 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_actions,
     attention,
     removed_attention,
+    robot_estimates,
+    removed_robot_estimates,
     github_layers,
     removed_github_layers,
     review_groups,
@@ -562,6 +572,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     next_steps: &to.next_steps,
     actions: &to.actions,
     attention: &to.attention,
+    robot_estimates: &to.robot_estimates,
     github_layers: &to.github_layers,
     review_groups: &to.review_groups,
     approval_landing: &to.approval_landing,

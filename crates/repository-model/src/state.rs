@@ -15,7 +15,7 @@
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
 use crate::action_view::{ActionSources, actions_of, actions_without_operations, push_slots_of};
-use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view};
+use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view, robot_estimates_of};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
 use crate::review_view::{approval_landing_of, review_actions_of, review_groups_of, review_stacks_of, reviews_view};
@@ -25,6 +25,7 @@ use domain_types::actions::ActionState;
 use domain_types::landing::{LandDecisions, Landed};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
+use domain_types::patronus::RobotEstimate;
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
   ApprovalLanding, BranchPush, FactsChanges, FactsView, GitHubLayer, RepositoryView, ReviewStackApproval, ReviewerGroupView, ReviewsView, RobotAttention, SyncState, TableChanges,
@@ -176,6 +177,7 @@ struct Derived {
   steps: BTreeMap<String, NextStepView>,
   actions: BTreeMap<String, Vec<ActionState>>,
   attention: BTreeMap<String, RobotAttention>,
+  robot_estimates: BTreeMap<String, RobotEstimate>,
   github_layers: BTreeMap<String, GitHubLayer>,
   review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
   approval_landing: BTreeMap<String, ApprovalLanding>,
@@ -287,6 +289,8 @@ impl Derived {
     // the robots that need the user, over the rows as they are and the robots, a sync included (a row it builds has no
     // tip, so its robot asks nothing until it is built)
     let attention = attention_of(state, facts);
+    // how long each running robot usually runs, over the robots listed and the history of finished ones
+    let robot_estimates = robot_estimates_of(facts);
     // the reviewer groups of the pull requests the review windows show, of their readiness
     let review_groups = review_groups_of(facts);
     // what an approval of each of them counts for where Patronus merges
@@ -304,6 +308,7 @@ impl Derived {
       steps,
       actions,
       attention,
+      robot_estimates,
       github_layers,
       review_groups,
       approval_landing,
@@ -333,6 +338,7 @@ impl Derived {
       next_steps: &self.steps,
       actions: &self.actions,
       attention: &self.attention,
+      robot_estimates: &self.robot_estimates,
       github_layers: &self.github_layers,
       review_groups: &self.review_groups,
       approval_landing: &self.approval_landing,
@@ -364,6 +370,7 @@ impl Derived {
     view.next_steps = self.steps;
     view.actions = self.actions;
     view.attention = self.attention;
+    view.robot_estimates = self.robot_estimates;
     view.github_layers = self.github_layers;
     view.review_groups = self.review_groups;
     view.approval_landing = self.approval_landing;

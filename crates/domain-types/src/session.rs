@@ -28,6 +28,7 @@ use crate::next_step::NextStepView;
 use crate::operation::{OperationId, ReviewedLayer, RunningOperation};
 use crate::patronus::{
   PatronusAvailability, PatronusProblem, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
+  RobotEstimate,
 };
 use crate::pull_request::{BranchRules, MergeMethods, PullRequest, PullRequestAvailability, PullRequestView, ViewerPermission};
 use crate::range_reading::{RequestReading, StackRowReading};
@@ -473,6 +474,11 @@ pub struct RepositoryView {
   /// decides it over the rows as they are and the robots: it failed on the subject as it is and nothing else holds the
   /// subject. The landing overview, Attention and the Dock badge count them; none before the first sync
   pub attention: BTreeMap<String, RobotAttention>,
+  /// How long each running robot of the user usually runs, by robot id, as `domain_policy::robot_estimate` decides it
+  /// over the robots the session lists and the history of the repository's finished robots: the time left of its row,
+  /// its line and the Dock count down from it; a robot without one (no robot like it finished) is not listed
+  #[serde(default)]
+  pub robot_estimates: BTreeMap<String, RobotEstimate>,
   /// The branches that are layers of a stack of GitHub on a route without Patronus, by name, as
   /// `domain_policy::github_stack::chain_of` decides them over the table, what landed and the listing: the pull request
   /// of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
@@ -1449,6 +1455,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_attention: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub robot_estimates: BTreeMap<String, RobotEstimate>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_robot_estimates: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub github_layers: BTreeMap<String, GitHubLayer>,

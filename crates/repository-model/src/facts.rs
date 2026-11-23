@@ -78,12 +78,13 @@ use domain_policy::holds::is_active;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
+use domain_policy::robot_estimate::{learn, prune};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  REVIEW_APPROVAL_SUBSYSTEM,
+  FinishedRobot, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult,
+  PatronusStartOptions, REVIEW_APPROVAL_SUBSYSTEM,
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::repository_view::{PatronusView, RobotLandedBranch};
@@ -921,6 +922,12 @@ pub struct RobotsFact {
   github_seq: u32,
   /// Patronus answered with robots once: a failure after it is `Stale`, before it `Unavailable`
   listed: bool,
+  /// The finished robots of the repository the estimates learn from beside the listed ones, the newest finish first: as
+  /// the host kept them when the session opened (`SessionHost::robot_history`), with those it lists since
+  /// (`learn_history`); no frame keeps them
+  history: Vec<FinishedRobot>,
+  /// A robot was written since the history learnt the listed ones
+  unlearnt: bool,
 }
 
 impl RobotsFact {
@@ -928,6 +935,31 @@ impl RobotsFact {
   #[must_use]
   pub const fn view(&self) -> &RobotsView {
     &self.view
+  }
+
+  /// The finished robots of the repository the estimates learn from beside the listed ones, the newest finish first
+  #[must_use]
+  pub fn history(&self) -> &[FinishedRobot] {
+    &self.history
+  }
+
+  /// The history of the repository as the host kept it, when the session opens: in place of the one it had, with the
+  /// finished robots it lists learnt
+  pub fn seed_history(&mut self, mut history: Vec<FinishedRobot>) {
+    prune(&mut history);
+    self.history = history;
+    self.unlearnt = true;
+    self.learn_history();
+  }
+
+  /// The finished robots listed now learnt by the history (`domain_policy::robot_estimate::learn`); whether it changed,
+  /// so the host keeps it
+  pub fn learn_history(&mut self) -> bool {
+    if !std::mem::take(&mut self.unlearnt) {
+      return false;
+    }
+    let finished: Vec<FinishedRobot> = self.view.robots.values().filter_map(FinishedRobot::of).collect();
+    learn(&mut self.history, &finished)
   }
 
   /// The answer of a list or a poll; whether it changed the robots or the head. An answer whose observation is not
@@ -1041,6 +1073,7 @@ impl RobotsFact {
     let named = robot.profile.is_none() && details.robot.profile.is_some();
     if named {
       robot.profile.clone_from(&details.robot.profile);
+      self.unlearnt = true;
     }
     let failing = details.failing && robot.status == PatronusRobotStatus::Running && !self.view.failing.contains(&robot.id);
     if failing {
@@ -1092,12 +1125,21 @@ impl RobotsFact {
     }
     self.written.insert(robot.id.clone(), seq);
     self.view.robots.insert(robot.id.clone(), robot);
+    self.unlearnt = true;
   }
 
   /// The robots of the frame of an earlier run (`warm_start`): `Cached` until Patronus answers; none when the frame
   /// had no answer of Patronus
   fn cached(mut view: RobotsView) -> Self {
-    if seed_head(&mut view.head) { Self { view, ..Self::default() } } else { Self::default() }
+    if seed_head(&mut view.head) {
+      Self {
+        view,
+        unlearnt: true,
+        ..Self::default()
+      }
+    } else {
+      Self::default()
+    }
   }
 }
 

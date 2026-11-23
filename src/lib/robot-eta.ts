@@ -1,106 +1,14 @@
-import type { PatronusRobot, PatronusRobotProgress } from "@/lib/bindings"
+import type { EstimateBasis, PatronusRobot, PatronusRobotProgress, RobotEstimate } from "@/lib/bindings"
 import { formatPushMode } from "@/lib/patronus"
-
-/** An estimate learns from the robots started this long before now: as long as the history of finished robots keeps them */
-export const ROBOT_HISTORY_MS = 30 * 24 * 60 * 60_000
-/** With this many finished robots into the same target branch, only they count: another target runs other checks */
-export const SAME_TARGET_MIN_ROBOTS = 3
-/** With this many finished robots of the same merge profile, only they count: the profile decides the checks */
-export const SAME_PROFILE_MIN_ROBOTS = 3
 
 const MINUTE = 60
 const HOUR = 60 * MINUTE
-
-/** A robot an estimate learns from: one the app listed, or one of the history of finished robots (`robot-history.ts`) */
-export interface RobotSample {
-  readonly id: string
-  readonly status: string
-  readonly pushMode: string
-  readonly targetBranch: string
-  /** Unix seconds */
-  readonly startTime: number
-  readonly finishTime: number | null
-  /** The merge profile id; null: no profile; undefined: not known (a list doesn't name it) */
-  readonly profileId?: string | null
-}
-
-/** A listed robot as a sample */
-export function robotSample(robot: PatronusRobot): RobotSample {
-  return {
-    id: robot.id,
-    status: robot.status,
-    pushMode: robot.pushMode,
-    targetBranch: robot.targetBranch,
-    startTime: robot.startTime,
-    finishTime: robot.finishTime,
-    ...(robot.profile != null && { profileId: robot.profile.id }),
-  }
-}
-
-/**
- * What an estimate is the usual time of: the robots of the same merge profile (`id` null: those without one), or, as
- * the rough fallback, of the same push mode
- */
-export type EstimateBasis = { readonly kind: "profile"; readonly id: string | null; readonly name: string | null } | { readonly kind: "mode" }
-
-/** How long a robot usually runs */
-export interface RobotEstimate {
-  readonly seconds: number
-  readonly basis: EstimateBasis
-}
-
-/**
- * How long a robot usually runs, in seconds: the median duration of the successful robots of its merge profile and push
- * mode started in the last 30 days, when 3 or more of them are known (only those into its target branch when there are
- * 3 or more); else, roughly, of its push mode: the profile of the robot is not known yet (a list doesn't name it), or
- * too few robots of the profile finished. The samples are the robots the app already listed and the history of
- * finished ones: an estimate asks Patronus nothing. A failed robot stops early and says nothing about a full run. null
- * without one: the run is indeterminate.
- */
-export function estimateRobotDuration(robot: Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">, samples: Iterable<RobotSample>, now: number): RobotEstimate | null {
-  const since = (now - ROBOT_HISTORY_MS) / 1000
-  // one sample per robot, the one that knows the profile
-  const byId = new Map<string, RobotSample>()
-  for (const it of samples) {
-    if (it.status !== "success" || it.pushMode !== robot.pushMode || it.finishTime === null || it.startTime < since || it.finishTime <= it.startTime) {
-      continue
-    }
-    const known = byId.get(it.id)
-    if (known === undefined || (known.profileId === undefined && it.profileId !== undefined)) {
-      byId.set(it.id, it)
-    }
-  }
-  const profile = robot.profile
-  if (profile != null) {
-    const sameProfile = [...byId.values()].filter(it => it.profileId !== undefined && it.profileId === profile.id)
-    if (sameProfile.length >= SAME_PROFILE_MIN_ROBOTS) {
-      return { seconds: medianDuration(sameProfile, robot.targetBranch)!, basis: { kind: "profile", id: profile.id, name: profile.name } }
-    }
-  }
-  const seconds = medianDuration([...byId.values()], robot.targetBranch)
-  return seconds === null ? null : { seconds, basis: { kind: "mode" } }
-}
-
-/** The median duration of `samples`, of those into `targetBranch` when there are enough */
-function medianDuration(samples: readonly RobotSample[], targetBranch: string): number | null {
-  const sameTarget = samples.filter(it => it.targetBranch === targetBranch)
-  return median((sameTarget.length >= SAME_TARGET_MIN_ROBOTS ? sameTarget : samples).map(it => it.finishTime! - it.startTime))
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) {
-    return null
-  }
-  values.sort((a, b) => a - b)
-  const middle = Math.floor(values.length / 2)
-  return values.length % 2 === 1 ? values[middle]! : Math.round((values[middle - 1]! + values[middle]!) / 2)
-}
 
 /** Where a running robot is, in seconds */
 export interface RobotTiming {
   /** Since the start */
   readonly elapsed: number
-  /** The usual duration (`estimateRobotDuration`); null without history */
+  /** The usual duration (`RepositoryView.robotEstimates`, `domain_policy::robot_estimate`); null without history */
   readonly expected: number | null
   /** What the usual duration is of; null without history */
   readonly basis: EstimateBasis | null

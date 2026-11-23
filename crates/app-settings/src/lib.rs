@@ -17,6 +17,8 @@
 //! - `projects`: the selected project and whether a project was synced before, as the start of the app and the session
 //!   of a project read them
 //! - `resolve`: the order of the branch prefixes, with where the prefix came from (`resolve_branch_prefix`)
+//! - `robot_history`: the finished robots an older main window kept in `robotHistory`, which the first session moves
+//!   into the object cache of each repository (`legacy_robot_history`) and removes (`forget_robot_history`)
 //! - `service`: the one writer of both files (`SettingsService`): each key in its file, patches in the order they
 //!   arrive, one version counter, a debounced save of the changed files on one thread, merged into the file under the
 //!   lock of the directory, `flush`; the changes of the writer of another process taken from the file
@@ -35,6 +37,7 @@ pub mod linked_pull_requests;
 pub mod merge;
 pub mod projects;
 pub mod resolve;
+pub mod robot_history;
 pub mod service;
 pub mod watch;
 pub mod windows;
@@ -55,6 +58,8 @@ mod merge_test;
 mod projects_test;
 #[cfg(test)]
 mod resolve_test;
+#[cfg(test)]
+mod robot_history_test;
 #[cfg(test)]
 mod service_test;
 #[cfg(test)]

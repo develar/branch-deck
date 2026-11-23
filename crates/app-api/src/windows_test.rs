@@ -181,11 +181,11 @@ fn a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_
       settings_version: settings.snapshot().0,
     },
   );
-  let history = SettingsPatch::Value {
-    key: "robotHistory".to_owned(),
-    value: json!([{ "id": "1" }]),
+  let picks = SettingsPatch::Value {
+    key: "ideRootPicks".to_owned(),
+    value: json!({ "/repo": "/repo" }),
   };
-  settings.set(history, "main").unwrap();
+  settings.set(picks, "main").unwrap();
   assert_eq!(state.loaded(&WindowId::new("review"), &settings).0.settings, Vec::new());
 }
 

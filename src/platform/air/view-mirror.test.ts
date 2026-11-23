@@ -18,6 +18,7 @@ const KEYED = new Set([
   "nextSteps",
   "actions",
   "attention",
+  "robotEstimates",
   "githubLayers",
   "reviewGroups",
   "approvalLanding",

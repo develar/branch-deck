@@ -143,6 +143,93 @@ pub enum PatronusAvailability {
   },
 }
 
+/// How long a robot usually runs (`domain_policy::robot_estimate`): the median duration of the robots like it that
+/// finished, and what they are
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotEstimate {
+  pub seconds: u32,
+  pub basis: EstimateBasis,
+}
+
+/// What an estimate is the usual time of: the robots of the same merge profile (`id` null: those without one), or, as
+/// the rough fallback, of the same push mode
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum EstimateBasis {
+  Profile { id: Option<String>, name: Option<String> },
+  Mode,
+}
+
+/// A finished robot an estimate learns from: one the session lists, or one of the history of the repository's finished
+/// robots (`repository_model::robot_history`), which keeps it beyond the 7 days a list reaches and after a restart.
+/// Only Rust's: never on the wire, kept in the object cache
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinishedRobot {
+  pub id: String,
+  pub status: PatronusRobotStatus,
+  pub push_mode: PatronusPushMode,
+  pub target_branch: String,
+  /// Unix seconds
+  pub start_time: u32,
+  /// Unix seconds
+  pub finish_time: u32,
+  pub profile: SampleProfile,
+}
+
+/// The merge profile of a finished robot as the answers named it
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SampleProfile {
+  /// No answer named it yet: a list doesn't
+  #[default]
+  Unknown,
+  /// None: the default checks of the target branch
+  None,
+  /// The profile of this id
+  Id(String),
+}
+
+impl SampleProfile {
+  /// The profile of `robot` as it names it
+  #[must_use]
+  pub fn of(robot: &PatronusRobot) -> Self {
+    match robot.profile.as_ref().map(|profile| profile.id.as_ref()) {
+      None => Self::Unknown,
+      Some(None) => Self::None,
+      Some(Some(id)) => Self::Id(id.clone()),
+    }
+  }
+
+  /// It is the profile of id `id` (`None`: no profile)
+  #[must_use]
+  pub fn is(&self, id: Option<&str>) -> bool {
+    match (self, id) {
+      (Self::None, None) => true,
+      (Self::Id(known), Some(id)) => known == id,
+      _ => false,
+    }
+  }
+}
+
+impl FinishedRobot {
+  /// `robot` once it finished, with the profile it names; `None` while it runs or without its times
+  #[must_use]
+  pub fn of(robot: &PatronusRobot) -> Option<Self> {
+    let finish_time = robot.finish_time.filter(|_| robot.status.is_finished() && robot.start_time > 0)?;
+    Some(Self {
+      id: robot.id.clone(),
+      status: robot.status,
+      push_mode: robot.push_mode,
+      target_branch: robot.target_branch.clone(),
+      start_time: robot.start_time,
+      finish_time,
+      profile: SampleProfile::of(robot),
+    })
+  }
+}
+
 /// A running robot whose status the app knows
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

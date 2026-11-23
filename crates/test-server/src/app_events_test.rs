@@ -51,8 +51,8 @@ async fn the_events_of_the_app_reach_the_pages_of_their_windows_and_end_with_the
   assert_eq!(main.next().await, of_app("settings_changed", change.clone(), None));
   assert_eq!(settings.next().await, of_app("settings_changed", change, None));
 
-  let history = json!({ "patch": { "kind": "value", "key": "robotHistory", "value": [] } });
-  let change = invoke(&client, addr, &id, "main", "set_setting", &history).await;
+  let picks = json!({ "patch": { "kind": "value", "key": "ideRootPicks", "value": {} } });
+  let change = invoke(&client, addr, &id, "main", "set_setting", &picks).await;
   assert_eq!(main.next().await, of_app("settings_changed", change, Some("main")));
 
   let write = json!({ "repositoryPath": path, "change": { "key": "resolveByWords", "value": false } });

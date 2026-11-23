@@ -10,12 +10,11 @@ use serde_json::Value;
 /// The label of the main window
 pub const MAIN_WINDOW: &str = "main";
 
-/// The keys only the main window reads and writes: the history of the robots (`src/stores/robot-history.ts`) and what
-/// the syncs record of each repository (`repositoryState`, `src/stores/settings/repositoryState.ts`), which changes with
-/// every sync; and the links of Reviews, the journals of the projects (`journalPaths`) and the roots the main view of
+/// The keys only the main window reads and writes: what the syncs record of each repository (`repositoryState`,
+/// `src/stores/settings/repositoryState.ts`), which changes with every sync; and the links of Reviews, the journals of the projects (`journalPaths`) and the roots the main view of
 /// an IDE showed last (`ideRootPicks`), which only Rust reads and writes (Activity reads the journals through
 /// `read_activity`)
-pub const MAIN_ONLY_KEYS: &[&str] = &["robotHistory", REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY, JOURNAL_PATHS_KEY, IDE_ROOT_PICKS_KEY];
+pub const MAIN_ONLY_KEYS: &[&str] = &[REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY, JOURNAL_PATHS_KEY, IDE_ROOT_PICKS_KEY];
 
 /// Whether only the main window gets the key `key`
 #[must_use]

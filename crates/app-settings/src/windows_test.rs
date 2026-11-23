@@ -25,10 +25,10 @@ fn a_sub_window_gets_no_key_only_the_main_window_keeps() {
   assert_eq!((review.get("journalPaths"), review.get("repositoryState")), (None, None));
   assert_eq!(review["diffView"], json!({ "mode": "unified" }));
 
-  set(&service, "robotHistory", json!([1]));
+  set(&service, "ideRootPicks", json!({ "/repo": "/repo" }));
   set(&service, "repositoryState", json!({ "/repo": { "lastSyncTime": 2 } }));
   set(&service, "diffView", json!({ "mode": "split" }));
   let keys = |label: &str| window_changes_since(&service, label, version).into_iter().map(|change| change.key).collect::<Vec<_>>();
-  assert_eq!(keys("main"), ["robotHistory", "repositoryState", "diffView"]);
+  assert_eq!(keys("main"), ["ideRootPicks", "repositoryState", "diffView"]);
   assert_eq!(keys("review"), ["diffView"]);
 }

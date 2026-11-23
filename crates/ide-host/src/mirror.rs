@@ -92,6 +92,7 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   ops.keyed("nextSteps", &view.next_steps, changes.next_steps.keys(), &changes.removed_next_steps);
   ops.keyed("actions", &view.actions, changes.actions.keys(), &changes.removed_actions);
   ops.keyed("attention", &view.attention, changes.attention.keys(), &changes.removed_attention);
+  ops.keyed("robotEstimates", &view.robot_estimates, changes.robot_estimates.keys(), &changes.removed_robot_estimates);
   ops.keyed("githubLayers", &view.github_layers, changes.github_layers.keys(), &changes.removed_github_layers);
   ops.keyed("reviewGroups", &view.review_groups, changes.review_groups.keys(), &changes.removed_review_groups);
   ops.keyed(

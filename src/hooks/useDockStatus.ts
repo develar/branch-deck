@@ -5,8 +5,8 @@ import { setBadgeSource, setDockProgress } from "@/lib/dock"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { countConflicts, dockRobotKind, getDockProgress, isFailingEntry } from "@/lib/robot-overview"
 import { isMainWindow } from "@/lib/window-label"
-import { useBranchSync } from "@/stores/branch-sync"
-import { getRobotEstimate, useRepositoryViewCurrent } from "@/stores/patronus"
+import { getRobotEstimate, useBranchSync } from "@/stores/branch-sync"
+import { useRepositoryViewCurrent } from "@/stores/patronus"
 import { useReviewRequestCount } from "@/stores/review-requests"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -26,7 +26,7 @@ export function useDockStatus(updateRunning: boolean): void {
   const conflicts = useBranchSync(state => countConflicts(state.branches))
   const now = useNow(RELATIVE_TIME_TICK_MS)
   const progress = getDockProgress(
-    overview.running.filter(it => !isFailingEntry(it)).map(it => ({ timing: getRobotTiming(it.robot, getRobotEstimate(it.robot), now), kind: dockRobotKind(it.robot) })),
+    overview.running.filter(it => !isFailingEntry(it)).map(it => ({ timing: getRobotTiming(it.robot, getRobotEstimate(it.robot.id), now), kind: dockRobotKind(it.robot) })),
   )
   const attentionBadge = useAppSettings(state => state.attentionBadge)
   const reviewBadge = useAppSettings(state => state.reviewBadge)

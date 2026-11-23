@@ -28,8 +28,6 @@ import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import { formatMergedRobotTitle, formatPushMode, isRobotActive } from "@/lib/patronus"
 import { sameJson, withoutKeys } from "@/lib/record"
-import type { RobotEstimate } from "@/lib/robot-eta"
-import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
 import { formatOrphanedStackPullRequest, stackReadinessKey } from "@/lib/whole-stack"
@@ -40,8 +38,6 @@ import { recordRobotNews } from "@/stores/activity"
 import { branchSyncStore, getStackAncestors, useLandedState, whenSynced } from "@/stores/branch-sync"
 import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
-import type { RobotHistoryEntry } from "@/stores/robot-history"
-import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
 
 /**
  * The robots of one repository and branch prefix, as the session of the repository listed and polled them
@@ -486,66 +482,6 @@ function currentRepository(): RepositoryPatronus | undefined {
   return key === null ? undefined : patronusStore.getState().repositories[key]
 }
 
-/** What an estimate depends on of a robot */
-type EstimatedRobot = Pick<PatronusRobot, "pushMode" | "targetBranch" | "profile">
-
-/**
- * How long a robot like this one usually runs (`estimateRobotDuration`), from the robots listed for the repository and
- * the history of finished ones; null without history. Renders again only when the estimate changes. No request.
- */
-export function useRobotEstimate(robot: EstimatedRobot | undefined): RobotEstimate | null {
-  const key = useRepositoryKey()
-  const repositoryPath = useSelectedProjectPath() ?? ""
-  const history = useStore(robotHistoryStore, state => state.items)
-  const pushMode = robot?.pushMode
-  const targetBranch = robot?.targetBranch
-  const profileId = robot?.profile == null ? undefined : robot.profile.id
-  const profileName = robot?.profile?.name ?? null
-  return useStore(patronusStore, state => {
-    const robots = state.repositories[key]?.robots
-    if (robots === undefined || pushMode === undefined || targetBranch === undefined) {
-      return null
-    }
-    const profile = profileId === undefined ? null : { id: profileId, name: profileName, skipsReview: null }
-    return estimateIn(robots, history, repositoryPath, { pushMode, targetBranch, profile })
-  })
-}
-
-/** Non-hook variant of `useRobotEstimate`, for the Dock */
-export function getRobotEstimate(robot: EstimatedRobot): RobotEstimate | null {
-  const key = currentKey()
-  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
-  return robots === undefined ? null : estimateIn(robots, robotHistoryStore.getState().items, getSelectedProject()?.path ?? "", robot)
-}
-
-interface Estimates {
-  readonly robots: Readonly<Record<string, PatronusRobot>>
-  readonly history: readonly RobotHistoryEntry[]
-  readonly repositoryPath: string
-  /** By push mode, target and profile */
-  readonly values: Map<string, RobotEstimate | null>
-}
-
-/** The estimates of the last robots and history: every slot asks for its own, they are computed once per change */
-let lastEstimates: Estimates | null = null
-
-function estimateIn(robots: Readonly<Record<string, PatronusRobot>>, history: readonly RobotHistoryEntry[], repositoryPath: string, robot: EstimatedRobot): RobotEstimate | null {
-  let estimates = lastEstimates
-  if (estimates === null || estimates.robots !== robots || estimates.history !== history || estimates.repositoryPath !== repositoryPath) {
-    estimates = { robots, history, repositoryPath, values: new Map() }
-    lastEstimates = estimates
-  }
-  const profile = robot.profile
-  const cacheKey = `${robot.pushMode}\n${robot.targetBranch}\n${profile == null ? "?" : `${profile.id ?? ""}\n${profile.name ?? ""}`}`
-  let estimate = estimates.values.get(cacheKey)
-  if (estimate === undefined) {
-    const samples = [...Object.values(robots).map(robotSample), ...historySamples(history, repositoryPath)]
-    estimate = estimateRobotDuration(robot, samples, Date.now())
-    estimates.values.set(cacheKey, estimate)
-  }
-  return estimate
-}
-
 /** The robot failed for missing code-owner approvals (its problems are read once, see `loadReviewProblems`) */
 export function useRobotNeedsReview(robotId: string | undefined): boolean {
   const key = useRepositoryKey()
@@ -660,7 +596,6 @@ function storeRobot(key: string, robot: PatronusRobot): void {
     return
   }
   update(key, () => ({ robots }))
-  recordFinishedRobots(key.slice(0, key.lastIndexOf("\n")), Object.values(robots))
 }
 
 // ---- merges ----
@@ -806,10 +741,6 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
     problems: change === null ? view.problems : (change.problems ?? previous.problems),
     problemsFailed: change === null ? view.problemsFailed : (change.problemsFailed ?? previous.problemsFailed),
   }))
-  if (robots !== entry.robots) {
-    // what the estimates learn from, also after a restart
-    recordFinishedRobots(repositoryPath, Object.values(robots))
-  }
 }
 
 /** The failing robots of the session by id, the object kept while they are the same */

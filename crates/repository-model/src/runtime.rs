@@ -63,7 +63,7 @@ use crate::warm_start::{CachedSession, frame_of};
 use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing_route::LocalGitHub;
-use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult};
+use domain_types::patronus::{FinishedRobot, PatronusAvailability, PatronusRobot, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, PullRequestsResult};
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequest;
@@ -640,10 +640,15 @@ impl Actor {
   async fn open(&mut self, preloaded: Option<CachedSession>) {
     let (host, key, read) = (Arc::clone(&self.host), self.key.clone(), preloaded.is_none());
     let opened = tokio::task::spawn_blocking(in_current_span(move || {
-      (host.epoch(&key), read.then(|| host.frame(&key)).flatten(), host.synced_before(&key))
+      (
+        host.epoch(&key),
+        read.then(|| host.frame(&key)).flatten(),
+        host.synced_before(&key),
+        host.robot_history(&key),
+      )
     }))
     .await;
-    let Ok((worktree_epoch, frame, synced_before)) = opened else {
+    let Ok((worktree_epoch, frame, synced_before, history)) = opened else {
       return;
     };
     self.synced_before = synced_before;
@@ -658,10 +663,12 @@ impl Actor {
     self.life.opened_under(worktree_epoch);
     if let Some(frame) = seeds {
       (self.state, self.facts) = frame.seed();
+      self.facts.robots.seed_history(history);
       self.state.synced = self.synced();
       self.view = View::seeded(epoch, &self.state, &self.facts);
       self.frames.keeps = true;
     } else {
+      self.facts.robots.seed_history(history);
       self.state.synced = self.synced();
       self.view = View::opened(epoch, &self.state, &self.facts);
     }
@@ -669,6 +676,16 @@ impl Actor {
       let waiter = Waiter::unheard(&self.life);
       self.handle(Message::Sync { reason: SyncReason::Open, waiter });
     }
+  }
+
+  /// The history of the finished robots learns those listed now; when that changed it, the host keeps it, on the
+  /// blocking pool and never waited for (each keep merges with what the host has, so their order doesn't matter)
+  fn record_robot_history(&mut self) {
+    if !self.facts.robots.learn_history() {
+      return;
+    }
+    let (host, key, history) = (Arc::clone(&self.host), self.key.clone(), self.facts.robots.history().to_vec());
+    drop(tokio::task::spawn_blocking(in_current_span(move || host.record_robot_history(&key, &history))));
   }
 
   /// Sends the frame of the session as it is now to the task that saves it
@@ -1566,6 +1583,8 @@ impl Actor {
     self.facts.tell_landings(&self.state);
     // whether the session syncs of itself, which the page asks for its Ready to Sync card
     self.state.synced = self.synced();
+    // the finished robots listed now, which the estimates of the patch learn from, kept for the next sessions too
+    self.record_robot_history();
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       self.tell_digest();
       return;
@@ -1712,6 +1731,16 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// Keeps `frame` as the frame of its worktree (`SessionHost::save_frame`); nothing by default. Blocking
   fn save_frame(&self, _frame: &CachedSession) {}
 
+  /// The finished robots of the repository of `key` (`SessionHost::robot_history`): the app's in the object cache of the
+  /// repository (`robot_history::read_history`); none by default. Blocking
+  fn robot_history(&self, _key: &SessionKey) -> Vec<FinishedRobot> {
+    Vec::new()
+  }
+
+  /// Keeps `history` in the history of the repository of `key` (`SessionHost::record_robot_history`); nothing by
+  /// default. Blocking
+  fn record_robot_history(&self, _key: &SessionKey, _history: &[FinishedRobot]) {}
+
   /// The epoch of the worktree of `key` (`SessionHost::epoch`): `lease_pool::epoch::worktree_epoch` in the app and the
   /// E2E server; `NotASlot` by default. Blocking
   fn epoch(&self, _key: &SessionKey) -> WorktreeEpoch {
@@ -1844,6 +1873,14 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn save_frame(&self, frame: &CachedSession) {
     self.environment.save_frame(frame);
+  }
+
+  fn robot_history(&self, key: &SessionKey) -> Vec<FinishedRobot> {
+    self.environment.robot_history(key)
+  }
+
+  fn record_robot_history(&self, key: &SessionKey, history: &[FinishedRobot]) {
+    self.environment.record_robot_history(key, history);
   }
 
   fn epoch(&self, key: &SessionKey) -> WorktreeEpoch {

@@ -23,9 +23,9 @@ import { orderLandingRobots } from "@/lib/robot-overview"
 import { useShowReviewReadiness } from "@/model/demand"
 import type { LandingNode } from "@/presenters/landing-node"
 import type { BranchNextStep } from "@/presenters/next-step"
+import { getRobotEstimate } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { showMainView } from "@/stores/main-view"
-import { getRobotEstimate } from "@/stores/patronus"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface LandingPopoverProps {
@@ -121,7 +121,7 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
 function useLandingQueue(running: readonly RobotOverviewEntry[]): readonly RobotOverviewEntry[] {
   const [order] = useState(() => {
     const now = Date.now()
-    return orderLandingRobots(running, entry => getRobotTiming(entry.robot, getRobotEstimate(entry.robot), now)).map(entry => entry.robot.id)
+    return orderLandingRobots(running, entry => getRobotTiming(entry.robot, getRobotEstimate(entry.robot.id), now)).map(entry => entry.robot.id)
   })
   const rank = new Map(order.map((id, index) => [id, index]))
   return running.toSorted((a, b) => (rank.get(a.robot.id) ?? rank.size) - (rank.get(b.robot.id) ?? rank.size))

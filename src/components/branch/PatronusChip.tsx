@@ -33,18 +33,8 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import type { RobotAction } from "@/presenters/actions"
 import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
-import { useBranch, useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
-import {
-  patronusStore,
-  useBranchRobot,
-  usePatronusAvailable,
-  usePatronusPending,
-  useRobotEstimate,
-  useRobotFailing,
-  useRobotNeedsReview,
-  useRobotProblems,
-  useRobotRestart,
-} from "@/stores/patronus"
+import { useBranch, useBranchRemoteStatus, useBranchTip, useRobotEstimate, useStackBranch } from "@/stores/branch-sync"
+import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotProblems, useRobotRestart } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -175,7 +165,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
   const [openedProfile] = useState<PatronusRobotProfile | null>(() => robot.profile ?? null)
   const openedProfileName = openedProfile?.name ?? null
   // so is the estimate from history the usual time is of: a robot that finished meanwhile changes it on the next open
-  const estimate = useRobotEstimate(robot)
+  const estimate = useRobotEstimate(robot.id)
   const [openedEstimate] = useState(() => estimate)
   // the details name it; one they name late comes past the actions
   const lateProfileName = openedProfileName === null ? (details?.profileName ?? robot.profile?.name ?? null) : null

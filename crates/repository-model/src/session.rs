@@ -36,7 +36,7 @@ use domain_types::RemoteStatusUpdate;
 use domain_types::commit::CommitGroup;
 use domain_types::error::ApiError;
 use domain_types::landing::BaselinePush;
-use domain_types::patronus::PatronusRobot;
+use domain_types::patronus::{FinishedRobot, PatronusRobot};
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::{ReviewEntry, ReviewRequest};
@@ -219,6 +219,18 @@ pub trait SessionHost: Send + Sync + 'static {
   /// Keeps `frame` as the frame of its worktree, in place of the one before (`warm_start::write_frame`). Blocking: the
   /// runtime calls it on the blocking pool, one save of a session at a time. Nothing by default
   fn save_frame(&self, _frame: &CachedSession) {}
+
+  /// The finished robots of the repository of `key` its sessions saw, the newest finish first, which the estimates learn
+  /// from beside the robots the session lists (`robot_history::read_history`), read as the session opens. Blocking:
+  /// the runtime calls it on the blocking pool, with `frame`. None by default (a host that keeps no history)
+  fn robot_history(&self, _key: &SessionKey) -> Vec<FinishedRobot> {
+    Vec::new()
+  }
+
+  /// Keeps the finished robots of `history`, the session's, in the history of the repository of `key`, with those it has
+  /// (`robot_history::record_history`: another process of the user writes it too). Blocking: the runtime calls it on the
+  /// blocking pool, never waited for. Nothing by default
+  fn record_robot_history(&self, _key: &SessionKey, _history: &[FinishedRobot]) {}
 
   /// The epoch of the worktree of `key` (`lease_pool::epoch::worktree_epoch`: the lease a slot of a lease pool holds
   /// now): a frame of another epoch seeds nothing, and a session kept under another one is of an earlier lease of the

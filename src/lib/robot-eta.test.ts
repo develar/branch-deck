@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PatronusRobot, PatronusRobotProfile } from "@/lib/bindings"
-import type { RobotEstimate, RobotSample, RobotTiming } from "@/lib/robot-eta"
+import type { RobotEstimate } from "@/lib/bindings"
+import type { RobotTiming } from "@/lib/robot-eta"
 import {
-  estimateRobotDuration,
   formatCheckProgress,
   formatDuration,
   formatRobotProgress,
@@ -12,37 +11,12 @@ import {
   formatSpokenRobotProgress,
   getRobotTiming,
   isRobotOverdue,
-  robotSample,
   withCheckProgress,
 } from "@/lib/robot-eta"
 
 /** 2024-01-02 10:00Z, the clock of the E2E tests */
 const NOW = 1704189600_000
 const NOW_SECONDS = NOW / 1000
-
-function finished(id: string, minutes: number, patch: Partial<PatronusRobot> = {}): PatronusRobot {
-  const startTime = NOW_SECONDS - 24 * 3600
-  return {
-    id,
-    name: id,
-    status: "success",
-    pushMode: "rebaseAutosquash",
-    branchName: id,
-    sourceRevision: "tip",
-    targetBranch: "master",
-    startTime,
-    finishTime: startTime + minutes * 60,
-    cancellationReason: null,
-    url: `https://patronus/robot/${id}`,
-    ...patch,
-  }
-}
-
-const LSC: PatronusRobotProfile = { id: "lsc", name: "Large Scale Change", skipsReview: null }
-
-function samples(...robots: PatronusRobot[]): RobotSample[] {
-  return robots.map(robotSample)
-}
 
 const running = { pushMode: "rebaseAutosquash", targetBranch: "master", profile: null } as const
 
@@ -56,70 +30,6 @@ function progressText(timing: RobotTiming): string {
   const { elapsed, eta } = formatRobotProgress(timing)
   return eta === null ? elapsed : `${elapsed} · ${eta}`
 }
-
-describe("estimateRobotDuration", () => {
-  it("takes the median of the successful robots of the push mode started in the last 30 days", () => {
-    const robots = samples(
-      finished("a", 30),
-      finished("b", 40),
-      finished("c", 90),
-      // a failure stops early, a dry run runs other checks, an old robot ran another month
-      finished("failed", 5, { status: "failure" }),
-      finished("dry", 10, { pushMode: "dryRun" }),
-      finished("old", 200, { startTime: NOW_SECONDS - 31 * 24 * 3600, finishTime: NOW_SECONDS - 31 * 24 * 3600 + 200 * 60 }),
-      finished("running", 0, { status: "running", finishTime: null }),
-    )
-    expect(estimateRobotDuration(running, robots, NOW)).toEqual(rough(40))
-    // an even count: the mean of the middle two
-    expect(estimateRobotDuration(running, samples(finished("a", 30), finished("b", 40)), NOW)).toEqual(rough(35))
-    expect(estimateRobotDuration({ ...running, pushMode: "dryRun" }, robots, NOW)).toEqual(rough(10))
-  })
-
-  it("is indeterminate without a finished robot to learn from", () => {
-    expect(estimateRobotDuration(running, [], NOW)).toBeNull()
-    expect(estimateRobotDuration(running, samples(finished("failed", 5, { status: "failure" })), NOW)).toBeNull()
-  })
-
-  it("counts only the robots into the same target once there are enough of them", () => {
-    const releases = [finished("r1", 120, { targetBranch: "release" }), finished("r2", 130, { targetBranch: "release" })]
-    const masters = [finished("m1", 30), finished("m2", 40), finished("m3", 50)]
-    expect(estimateRobotDuration(running, samples(...releases, ...masters), NOW)).toEqual(rough(40))
-    // two robots into the release branch are too few: every target counts
-    expect(estimateRobotDuration({ ...running, targetBranch: "release" }, samples(...releases, ...masters), NOW)).toEqual(rough(50))
-  })
-
-  it("takes the robots of the same merge profile once three of them finished, and those without one for a robot without one", () => {
-    const robots = samples(
-      finished("d1", 30, { profile: { id: null, name: null, skipsReview: null } }),
-      finished("d2", 40, { profile: { id: null, name: null, skipsReview: null } }),
-      finished("d3", 45, { profile: { id: null, name: null, skipsReview: null } }),
-      finished("l1", 100, { profile: LSC }),
-      finished("l2", 110, { profile: LSC }),
-      finished("l3", 120, { profile: LSC }),
-      // a listed robot whose profile no answer named yet
-      finished("u1", 60),
-    )
-    expect(estimateRobotDuration({ ...running, profile: LSC }, robots, NOW)).toEqual({ seconds: 110 * 60, basis: { kind: "profile", id: "lsc", name: "Large Scale Change" } })
-    expect(estimateRobotDuration({ ...running, profile: { id: null, name: null, skipsReview: null } }, robots, NOW)).toEqual({
-      seconds: 40 * 60,
-      basis: { kind: "profile", id: null, name: null },
-    })
-  })
-
-  it("falls back to the push mode, roughly, while the profile is not known or too few of its robots finished", () => {
-    const robots = samples(finished("l1", 100, { profile: LSC }), finished("l2", 110, { profile: LSC }), finished("m1", 30), finished("m2", 40))
-    // not known: a list doesn't name it
-    expect(estimateRobotDuration(running, robots, NOW)).toEqual(rough(70))
-    // two robots of the profile are too few
-    expect(estimateRobotDuration({ ...running, profile: LSC }, robots, NOW)).toEqual(rough(70))
-  })
-
-  it("takes the sample that knows the profile, of a robot both listed and in the history", () => {
-    const listed = samples(finished("l1", 100), finished("l2", 110), finished("l3", 120))
-    const history = listed.map(it => ({ ...it, profileId: "lsc" }))
-    expect(estimateRobotDuration({ ...running, profile: LSC }, [...listed, ...history], NOW)?.basis).toEqual({ kind: "profile", id: "lsc", name: "Large Scale Change" })
-  })
-})
 
 describe("getRobotTiming", () => {
   it("counts the time left until the usual duration, indeterminate past it and without history", () => {

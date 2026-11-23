@@ -15,6 +15,8 @@
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
 //!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open,
 //!   and a retired store (`RETIRED_STORES`) from every environment.
+//! - **`robot_history` holds one value**, the finished robots of the user the sessions of the repository saw, which its
+//!   reader merges with what it learnt before it writes it back (`repository_model::robot_history`).
 //! - **The exceptions are `review_answer`, `patronus_robots`, `patronus_history` and `build_result`**, keyed by a hash of
 //!   what they decide on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's
 //!   robots of a repository; a week of everyone's robots and the runs of the user's finished ones), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
@@ -120,10 +122,11 @@ pub(crate) enum Store {
   SessionFrame,
   FileLeftovers,
   RangeReading,
+  RobotHistory,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 20;
+const STORE_COUNT: usize = 21;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -152,6 +155,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::SessionFrame,
   Store::FileLeftovers,
   Store::RangeReading,
+  Store::RobotHistory,
 ];
 
 impl Store {
@@ -190,7 +194,8 @@ impl Store {
       | Self::WordResolution
       | Self::SessionFrame
       | Self::FileLeftovers
-      | Self::RangeReading => 1,
+      | Self::RangeReading
+      | Self::RobotHistory => 1,
     }
   }
 
@@ -210,7 +215,8 @@ impl Store {
       | Self::PatronusRobots
       | Self::PatronusHistory
       | Self::SessionFrame
-      | Self::RangeReading => Environment::Main,
+      | Self::RangeReading
+      | Self::RobotHistory => Environment::Main,
     }
   }
 
@@ -241,6 +247,7 @@ impl Store {
       Self::SessionFrame => "session_frame",
       Self::FileLeftovers => "file_leftovers",
       Self::RangeReading => "range_reading",
+      Self::RobotHistory => "robot_history",
     }
   }
 }

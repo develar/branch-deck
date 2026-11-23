@@ -59,6 +59,8 @@
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
 //!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
 //!   `write_pull_request`
+//! - `robot_history`: the finished robots of the repository in its object cache, which the estimates learn from beside
+//!   the listed ones (`read_history`), merged with what the cache has by every write of every process (`record_history`)
 //! - `state`: what a session sent its windows of the table (`View`): the patch of the parts that changed since
 //!   (`diff`), the snapshot at the version of the last patch
 //! - `sync_scheduler`: when a session syncs: one run at a time, one quiet follow-up, one check of the inputs after the
@@ -88,6 +90,7 @@ pub mod refusal_words;
 pub mod review_readings;
 pub mod review_request_facts;
 pub mod review_view;
+pub mod robot_history;
 pub mod runtime;
 pub mod session;
 pub mod state;

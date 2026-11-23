@@ -85,6 +85,9 @@
 //!   (`sections`), and the links that go (`gone_links`)
 //! - `row_status`: the Status cell of a branch row (`row_status`): the main fact, work in flight first, and the
 //!   exceptional facts it covers beside it, so none drops from the row
+//! - `robot_estimate`: how long a robot usually runs (`estimate`, `estimates` of the running robots of a view): the
+//!   median of the successful robots of its merge profile, else roughly of its push mode, of the listed robots and the
+//!   history of finished ones, which an answer teaches (`learn`) within its limits (`prune`)
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
@@ -125,6 +128,7 @@ pub mod review;
 pub mod review_request_chains;
 pub mod reviewer_groups;
 pub mod reviews;
+pub mod robot_estimate;
 pub mod robot_match;
 pub mod row_status;
 pub mod stack;
@@ -192,6 +196,8 @@ mod review_test;
 mod reviewer_groups_test;
 #[cfg(test)]
 mod reviews_test;
+#[cfg(test)]
+mod robot_estimate_test;
 #[cfg(test)]
 mod robot_match_test;
 #[cfg(test)]

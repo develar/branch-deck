@@ -3204,6 +3204,12 @@ export type ErrorDetails =
  */
 ({ type: "prefixSuggestion"; prefix: string }) & { blocks?: never; branches?: never; commits?: never; holder?: never; paths?: never; refusals?: never };
 
+/**
+ *  What an estimate is the usual time of: the robots of the same merge profile (`id` null: those without one), or, as
+ *  the rough fallback, of the same push mode
+ */
+export type EstimateBasis = { kind: "profile"; id: string | null; name: string | null } | { kind: "mode" };
+
 /**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
 export type EveryoneDelivery = {
 	people: number,
@@ -7804,6 +7810,12 @@ export type RepositoryView = {
 	 */
 	attention: { [key in string]: RobotAttention },
 	/**
+	 *  How long each running robot of the user usually runs, by robot id, as `domain_policy::robot_estimate` decides it
+	 *  over the robots the session lists and the history of the repository's finished robots: the time left of its row,
+	 *  its line and the Dock count down from it; a robot without one (no robot like it finished) is not listed
+	 */
+	robotEstimates?: { [key in string]: RobotEstimate },
+	/**
 	 *  The branches that are layers of a stack of GitHub on a route without Patronus, by name, as
 	 *  `domain_policy::github_stack::chain_of` decides them over the table, what landed and the listing: the pull request
 	 *  of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
@@ -8879,6 +8891,15 @@ export type RobotCommitState =
 "landed" | 
 /**  The robot's commits are unknown (`source_missing`) */
 "unknown";
+
+/**
+ *  How long a robot usually runs (`domain_policy::robot_estimate`): the median duration of the robots like it that
+ *  finished, and what they are
+ */
+export type RobotEstimate = {
+	seconds: number,
+	basis: EstimateBasis,
+};
 
 /**  A failed or failing robot as an agent needs it to fix the branch */
 export type RobotFailure = {
@@ -10486,6 +10507,8 @@ export type TableChanges = {
 	removedActions?: string[],
 	attention?: { [key in string]: RobotAttention },
 	removedAttention?: string[],
+	robotEstimates?: { [key in string]: RobotEstimate },
+	removedRobotEstimates?: string[],
 	githubLayers?: { [key in string]: GitHubLayer },
 	removedGithubLayers?: string[],
 	reviewGroups?: { [key in string]: ReviewerGroupView[] },

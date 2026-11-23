@@ -64,6 +64,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     actions = { ...withoutKeys(actions, changes.removedActions ?? []), ...changes.actions }
   }
   const attention = keyed(view.attention, changes.attention, changes.removedAttention)
+  const robotEstimates = keyed(view.robotEstimates ?? {}, changes.robotEstimates, changes.removedRobotEstimates)
   const githubLayers = keyed(view.githubLayers ?? {}, changes.githubLayers, changes.removedGithubLayers)
   const reviewGroups = keyed(view.reviewGroups ?? {}, changes.reviewGroups, changes.removedReviewGroups)
   const approvalLanding = keyed(view.approvalLanding ?? {}, changes.approvalLanding, changes.removedApprovalLanding)
@@ -87,6 +88,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     nextSteps,
     actions,
     attention,
+    robotEstimates,
     githubLayers,
     reviewGroups,
     approvalLanding,

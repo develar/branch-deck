@@ -258,9 +258,11 @@ sequenceDiagram
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of
   `sub_window_loaded`). Stores: `appSettings.ts`, `aiSettings.ts`,
-  `diff-view-settings.ts`, `repositorySettings.ts`, `repositoryState.ts` in `src/stores/settings/` and the robot history
-  `src/stores/robot-history.ts`. They are module-level singletons; components read them with
-  `useStore` selectors, non-React code with `getState()`.
+  `diff-view-settings.ts`, `repositorySettings.ts`, `repositoryState.ts` in `src/stores/settings/`. They are module-level singletons;
+  components read them with `useStore` selectors, non-React code with `getState()`. The history of the finished robots
+  an older main window kept in `robotHistory` is the sessions' now, in the object cache of each repository
+  (`repository_model::robot_history`): the first session that opens moves the key there and removes it
+  (`app_settings::robot_history`).
 - E2E: the test server gives each test repository a `SettingsService` of its own on its app data directory
   (`TestRepository::store`), whose `/store` routes set any key, `repositoryState` too (`syncedAgoMs` of `setupRepo`);
   `set_setting` and `get_settings_changes` are the commands of app-api, for the window the page mock names, and the

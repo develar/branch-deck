@@ -17,12 +17,14 @@ use crate::repository_state::RepositoryStateCache;
 use crate::transport::{AppEvents, AppHost, Desktop};
 use app_settings::linked_pull_requests::{forget, linked};
 use app_settings::projects::{record_sync, synced_before};
+use app_settings::robot_history::{forget_robot_history, legacy_robot_history};
 use app_settings::service::SettingsService;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
 use domain_types::error::{ApiError, HolderTool};
+use domain_types::patronus::FinishedRobot;
 use domain_types::review_request::{LinkedPullRequest, ReviewRequest};
 use domain_types::sign_in::Account;
 use domain_types::worktree_epoch::WorktreeEpoch;
@@ -51,6 +53,7 @@ use remote_facts::youtrack_cli::handed_token_file;
 use repository_model::branch_table::BranchTable;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
+use repository_model::robot_history::{read_history, record_history};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions};
 use repository_model::warm_start::{CachedSession, read_frame, write_frame};
@@ -195,6 +198,19 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
     write_frame(&ctx.repository_state.object_cache(&ctx.git, &frame.key.worktree), frame);
   }
 
+  /// In the object cache of the repository, which every process of the user writes; the history an older main window
+  /// kept in the settings moves there first, once
+  fn robot_history(&self, key: &SessionKey) -> Vec<FinishedRobot> {
+    let ctx = self.source.context();
+    move_settings_robot_history(ctx);
+    read_history(&ctx.repository_state.object_cache(&ctx.git, &key.worktree))
+  }
+
+  fn record_robot_history(&self, key: &SessionKey, history: &[FinishedRobot]) {
+    let ctx = self.source.context();
+    record_history(&ctx.repository_state.object_cache(&ctx.git, &key.worktree), history);
+  }
+
   /// The lease the slot of the worktree holds now, read without git
   fn epoch(&self, key: &SessionKey) -> WorktreeEpoch {
     lease_pool::epoch::worktree_epoch(Path::new(&key.worktree))
@@ -223,6 +239,24 @@ impl<S: ContextSource> SessionEnvironment for AppEnvironment<S> {
       .duration_since(std::time::UNIX_EPOCH)
       .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
     record_synced(self.source.context(), key, epoch, at_ms, branch_count);
+  }
+}
+
+/// Moves the finished robots an older main window kept in the settings (`robotHistory`) into the object cache of each
+/// of their repositories, then removes the key; the windows hear the change. A move adds by robot id, so the moves of two
+/// sessions that open at once add each robot once; nothing without the key. A failure to remove it is only logged: the
+/// next session moves the same robots again, which adds nothing
+fn move_settings_robot_history(ctx: &AppContext) {
+  let Some(by_repository) = legacy_robot_history(&ctx.settings) else {
+    return;
+  };
+  for (repository, robots) in &by_repository {
+    record_history(&ctx.repository_state.object_cache(&ctx.git, repository), robots);
+  }
+  match forget_robot_history(&ctx.settings) {
+    Ok(Some(change)) => settings_changed(&*ctx.events, &change),
+    Ok(None) => {}
+    Err(error) => warn!(%error, "cannot remove the robot history of the settings"),
   }
 }
 

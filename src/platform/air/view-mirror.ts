@@ -47,6 +47,7 @@ const KEYED_PARTS = {
   nextSteps: "removedNextSteps",
   actions: "removedActions",
   attention: "removedAttention",
+  robotEstimates: "removedRobotEstimates",
   githubLayers: "removedGithubLayers",
   reviewGroups: "removedReviewGroups",
   approvalLanding: "removedApprovalLanding",

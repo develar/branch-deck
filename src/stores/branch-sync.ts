@@ -31,6 +31,7 @@ import type {
   ReviewerGroupView,
   ReviewStackApproval,
   RobotAttention,
+  RobotEstimate,
   RunningOperation,
   StackBranchAlong,
   StackBranchConflict,
@@ -351,6 +352,12 @@ export interface BranchSyncState {
    */
   attention: Readonly<Record<string, RobotAttention>>
   /**
+   * How long each running robot usually runs, by robot id, as Rust decides it (`RepositoryView.robotEstimates`,
+   * `domain_policy::robot_estimate`): the time of its row, its line and the Dock count down from it (`getRobotTiming`); a
+   * robot without one is not listed
+   */
+  robotEstimates: Readonly<Record<string, RobotEstimate>>
+  /**
    * The branches that are layers of a stack of GitHub, by name, as Rust decides them (`RepositoryView.githubLayers`,
    * `domain_policy::github_stack`): the pull request of each goes into the branch of the one below it
    * ([Stacks of GitHub](docs/design/github-stacks.md)); none on a route of Patronus
@@ -391,7 +398,7 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`, `approvalLanding`, `reviewStacks`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `robotEstimates`, `githubLayers`, `reviewGroups`, `approvalLanding`, `reviewStacks`), its operations and its route
  */
 export const NO_SUBJECT_PARTS: Pick<
   BranchSyncState,
@@ -402,6 +409,7 @@ export const NO_SUBJECT_PARTS: Pick<
   | "nextSteps"
   | "actions"
   | "attention"
+  | "robotEstimates"
   | "githubLayers"
   | "reviewGroups"
   | "approvalLanding"
@@ -416,6 +424,7 @@ export const NO_SUBJECT_PARTS: Pick<
   nextSteps: {},
   actions: {},
   attention: {},
+  robotEstimates: {},
   githubLayers: {},
   reviewGroups: {},
   approvalLanding: {},
@@ -1032,6 +1041,19 @@ export function getLandedState(subject: string): Landed | undefined {
 /** `getLandedState`, re-rendering when it changes */
 export function useLandedState(subject: string): Landed | undefined {
   return useBranchSyncEntry("landedStates", subject, landed => landed)
+}
+
+/**
+ * How long the robot `robotId` usually runs, as Rust decides it (`RepositoryView.robotEstimates`); null without history,
+ * for a finished robot and before the session lists it
+ */
+export function useRobotEstimate(robotId: string | undefined): RobotEstimate | null {
+  return useStore(branchSyncStore, state => (robotId === undefined ? null : (state.robotEstimates[robotId] ?? null)))
+}
+
+/** Non-hook variant of `useRobotEstimate`, for the Dock and the order of a list */
+export function getRobotEstimate(robotId: string): RobotEstimate | null {
+  return branchSyncStore.getState().robotEstimates[robotId] ?? null
 }
 
 /**
