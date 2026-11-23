@@ -698,12 +698,12 @@ for about a second): its build of `dist/` would empty it under the pages of the 
   (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`, the output of
   `ideStyleVariables` of Air; `themeFor(theme, "neutral")` filters them by the field `styles` of the app file as Air
   does), closes a view
-  (`ide.closeView`, `x-air-app/viewClosed`) and runs an action of the app file as a click in the title of the tool
-  window (`ide.runAction("sync", "sync")`: its tool with the origin `action` and the instance of the tool window).
+  (`ide.closeView`, `x-air-app/viewClosed`) and runs an action of the app file as its menu item or its shortcut
+  in the IDE (`ide.runAction("sync", "sync")`: its tool with the origin `action` and the instance of the tool window).
 - **The focus of a frame**: the page refuses to focus a frame of another origin without the user
   (`focus-without-user-activation`), so a key for a view that has not had the focus goes after a click into its frame
   (Escape in a review tab); a key pressed without it reaches the frame that had the focus last.
-  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`, `Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`, `the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`, `a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view`, `a mirror that Air ends while brd keeps the session of its repository is subscribed to again, so the main view shows what a sync after the end changes`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`, `Escape in a review tab closes its place: brd asks the IDE to close the view of its instance`, `the actions of the app file: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`, `a pick of another root before the first subscription of the main view answered subscribes to it once that subscription answered and ended: the frame holds one view`, `a mirror that Air ends while brd keeps the session of its repository is subscribed to again, so the main view shows what a sync after the end changes`)
 
 ### The routes of the server
 

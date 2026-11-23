@@ -124,12 +124,14 @@ sequenceDiagram
    restart of the IDE), Settings a frame of 880 × 640, the conflicting files and the missing commits non-modal
    dialogs; OS notifications and the Dock badge become IDE notifications and the badge of the tool window, both asked
    by brd. The close of a window of the page (`plugin:window|close`, Escape in the review and the dialogs) is
-   `x-air-app/closeView` of its instance. The menu of the desktop app is the title of the tool window: the actions
-   Sync Virtual Branches, Branch Deck Command Palette and Branch Deck Settings of the app file (`titleActions`). The
-   tool window has four tabs: Branches, the main view (`tabTitle`), Reviews, Landing and Activity. The three views of
-   the main window are a page each, and no page has the switch of the desktop app.
-   **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one. A
-   switch inside the main tab would repeat the name of the tab (Branches) beside the tabs of the IDE.
+   `x-air-app/closeView` of its instance. The tool window has one frame, the main view, as the main window of the
+   desktop app: its switcher of Branches, Reviews and Landing, its Activity button and side panel, its Sync and its
+   Settings. Activity opens as a window of 560 × 640 where the frame has no room for the side panel. The menu of the
+   desktop app is the actions of the app file, Sync Virtual Branches (the VCS menu), Branch Deck Command Palette and
+   Branch Deck Settings; the title of the tool window has no action of its own, and names the progress
+   ("Branch Deck: Safe Push 38%").
+   **Rationale**: the IDE gives detaching, persistence and focus for free; the desktop semantics map one to one, the
+   main window to one frame with the one page, stores and subscription of the desktop app.
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
    schemas and the golden corpus of idea-1 byte for byte (the formatter of the page leaves the directory alone) plus
@@ -160,7 +162,7 @@ sequenceDiagram
   (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
   subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a
   view names the subscription of its mirror (brd puts it in), and its demand is the union of the demands of the views
-  of the mirror (`Demand::union`), which brd keeps by instance: the main view and the tab of Reviews share one
+  of the mirror (`Demand::union`), which brd keeps by instance: the main view and a review share one
   subscription, so the demand of one never takes back what the other asks. The session dropping the subscription of a shown mirror
   is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
   is gone from a session that closed. Air ends the channel of the mirror for each view of it with that reason, and
@@ -178,11 +180,14 @@ sequenceDiagram
   that answers no view ends the mirror with `sessionClosed`.
 - **`bd_bootstrap {view, titleBar}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
-  params}` of the main view, `{data, params}` of another) and `titleBar: {kind: "native", checkForUpdates: false,
-  folderDialog: false, viewTabs: true, progressText: true}`: the dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
+  params}` of the main view, `{data, params}` of another), `titleBar: {kind: "native", checkForUpdates: false,
+  folderDialog: false, progressText: true}` and `homeDir`, the home directory of `brd mcp` (`dirs::home_dir`, which
+  `homeDir` of Tauri reads in the desktop app). The dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
   so the page offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots
-  of the project are its repositories. `viewTabs` says that Branches, Reviews and Landing are tabs of the tool window,
-  and `progressText` that the tab of the main view names its progress. The page passes the title bar of its host
+  of the project are its repositories, and one root shows as the text of its path. `progressText` says that the title
+  of the tool window names the progress. The shim answers `homeDir` of Tauri with `homeDir`, so the page shows `~`.
+  The path of a root has no trailing separator (`path_of_uri`): the IDE ends the URI of a directory with `/`, and the
+  path keys the session of the repository, as the desktop app spells it. The page passes the title bar of its host
   context (`hostContext["x-air-app"].titleBar`). When it is `{kind: "overlay", height, insetStart}`, the answer is
   `{kind: "overlay", doubleClick: "host", height, …}`: the IDE merges the row of the page into the title bar of the
   window. The app file asks it for the Settings window only (`window: {titleBar: overlay}`). A tool window, an editor
@@ -197,16 +202,13 @@ sequenceDiagram
   Push, Dry Run, Update, Fetch; `setDockProgress`), which the Tauri call of the desktop app has not: a normal one is
   `{fraction, text}`, an indeterminate one `{text}` without `fraction`, a progress without a percent, and
   `fraction: null` the clear. An IDE before that form reads a progress without a fraction as the clear, so a robot
-  without an estimate shows no progress there, as before. A switch to the view of another tab (`showMainView` of `src/stores/main-view.ts`)
-  is `bd_invoke` of `plugin:air|show_view {view, event?, payload?}`: brd asks `openView {view}` and tells the instance
-  the IDE answers the event, such as `reveal-branch` for a branch of Reviews, the same show of a view as Show in Branch
-  Deck (`Server::show_view`). brd tells an event at once: the IDE holds an event for a view until its page sent
-  `ui/notifications/initialized`, and the page sends it only once the first render of its page ran its effects
-  (`markPageStarted`), after the listens they asked for, so a tab that the IDE builds for the open gets its event too.
-  `plugin:window|set_focus` of the main view (the main window comes to the front: a reveal that Activity or a review
-  asks, the palette) is `openView {view: "main"}`, so the IDE shows the tab of the branches. The page of the tab of Reviews or Landing (`src/pages/MainViewTabPage.tsx`, `/reviews`
-  and `/landing`) holds the session of the repository of the main view and the stores of its facts, as the review
-  window does; the Dock, the sync of the start and the update stay with the main view. The actions of the app file are tools only for the app, which `tools/list`
+  without an estimate shows no progress there, as before. Show in Branch Deck asks `openView {view: "main"}` and
+  tells the instance the IDE answers `reveal-branch` (`Server::show_view`). brd tells an event at once: the IDE holds
+  an event for a view until its page sent `ui/notifications/initialized`, and the page sends it only once the first
+  render of its page ran its effects (`markPageStarted`), after the listens they asked for, so a page that the IDE
+  builds for the open gets its event too. `plugin:window|set_focus` of the main view (the main window comes to the
+  front: a reveal that Activity or a review asks, the palette) is `openView {view: "main"}`, so the IDE shows the tool
+  window. The actions of the app file are tools only for the app, which `tools/list`
   names: Sync Virtual Branches is `sync`, Branch Deck Command Palette is `open_command_palette`, which sends the main
   view the event `open_command_palette` as the menu of the desktop app does, and Branch Deck Settings opens the view
   `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of
@@ -243,7 +245,7 @@ sequenceDiagram
   other process ([Distributed Settings](distributed-settings.md)).
 - The page: `src/air-main.ts` sends `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits
   `bd_bootstrap {view}` (the globals of the init script of a window: `__TAURI_STORE__`, `__BD_MODEL__`,
-  `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`), installs the shim and runs `src/main.tsx` on the page of
+  `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`, and `__BD_HOME_DIR__` for `homeDir`), installs the shim and runs `src/main.tsx` on the page of
   its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `brd mcp` embeds and serves as
   `ui://branch-deck/<path>`, `index.html` for every view; the chunks and the highlight worker stay files of their own
   (no blob worker: the CSP of SEP-1865 refuses it). Each build goes into a directory of its own,

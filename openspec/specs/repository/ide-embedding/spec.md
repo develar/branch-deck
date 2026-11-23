@@ -32,7 +32,7 @@ targets:
   - src/components/settings/AgentsPage.tsx
   - src/components/repository/AgentsHint.tsx
   - src/hooks/useRevealBranchEvent.ts
-  - src/pages/MainViewTabPage.tsx
+  - src/components/repository/RepositorySelector.tsx
   - src/lib/page-start.ts
   - src/lib/dock.ts
 ---
@@ -224,12 +224,12 @@ end, and its events go to the view and the journal.
 
 ### Requirement: Tools: bd_bootstrap gives what the page needs before its main
 
-`bd_bootstrap {view}` MUST answer the settings, the warm frame, the init data of the view and the view of the title
-bar. The page takes them where the desktop app takes its init script.
+`bd_bootstrap {view}` MUST answer the settings, the warm frame, the init data of the view, the view of the title bar
+and the home directory of `brd mcp` (`homeDir`). The page takes them where the desktop app takes its init script.
 
 #### Scenario: The main view
 - **WHEN** the page of `main` calls `bd_bootstrap`
-- **THEN** the result has `settings`, `warmFrame`, `initData` and `titleBar`
+- **THEN** the result has `settings`, `warmFrame`, `initData`, `titleBar` and `homeDir`
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: The action Sync Virtual Branches is the tool sync
@@ -238,9 +238,9 @@ A `tools/call` of `sync` with the origin `action` or `click` MUST sync the repos
 the desktop app. A call of an agent is refused, as for every tool.
 
 #### Scenario: The shortcut of Sync
-- **WHEN** the user presses Sync Virtual Branches in the IDE, or its button in the title of the tool window
+- **WHEN** the user presses Sync Virtual Branches in the IDE, or picks it in the VCS menu
 - **THEN** brd syncs the repository that the main view shows
-  [@test] tests/e2e/air/air-page.spec.ts (`the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the actions of the app file: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: The action Command Palette opens the palette of the main view
@@ -248,18 +248,18 @@ the desktop app. A call of an agent is refused, as for every tool.
 A `tools/call` of `open_command_palette` MUST send the main view the event `open_command_palette`, as the menu of the
 desktop app sends it to the main window.
 
-#### Scenario: The button in the title
-- **WHEN** the user clicks Branch Deck Command Palette in the title of the tool window
+#### Scenario: The action of the IDE
+- **WHEN** the user runs the action Branch Deck Command Palette of the IDE
 - **THEN** brd sends `x-air-app/event` of `open_command_palette` with the instance of the main view, and the palette
   opens
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] tests/e2e/air/air-page.spec.ts (`the actions in the title of the tool window: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the actions of the app file: Branch Deck Command Palette opens the palette of the main view, Sync Virtual Branches syncs its repository`)
 
 ### Requirement: Tools: bd_bootstrap gives the settings, the init data and a title bar of the IDE
 
 `bd_bootstrap` MUST give the settings of the window of the instance as `{values, version}`, the warm frame and the
 roots of the main view, the data of the open of any other view, and the title bar without updates, without a folder
-dialog (`folderDialog: false`), with the views as tabs (`viewTabs: true`) and with a text of the progress
+dialog (`folderDialog: false`) and with a text of the progress in the title of the tool window
 (`progressText: true`). It is `overlay` when the page passes an overlay title bar of its host context, else `native`.
 
 #### Scenario: The settings of the desktop app
@@ -340,9 +340,9 @@ only its own demand with it.
 - **WHEN** a review tab sets its demand
 - **THEN** the session of its repository reads what the demand asks
 
-#### Scenario: The main view and the tab of Reviews
-- **WHEN** the tab of Reviews demands Reviews and the main view then sends its demand of the branches
-- **THEN** the session reads Reviews and the branches; once the tab leaves, only the branches
+#### Scenario: The main view and a review
+- **WHEN** a review sets its demand and the main view then sends its demand of the branches
+- **THEN** the session reads what both ask; once the review leaves, only what the main view asks
   [@test] crates/mcp-host/src/server_test.rs (`the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views`)
 
 ### Requirement: View: A change of the prefix moves the mirror to the session of the new prefix
@@ -428,9 +428,9 @@ Settings is on, with the action Show in Branch Deck: `run` of the tool `reveal_b
 the branch the robot tested (the root of a whole stack). While the main view shows, its toast tells it.
 
 #### Scenario: A failed Safe Push
-- **WHEN** a Safe Push fails while the IDE shows another tab
+- **WHEN** a Safe Push fails while the tool window is hidden
 - **THEN** the IDE shows a notification whose action opens the branch
-  [@test] tests/e2e/air/air-page.spec.ts (`a Safe Push that fails while the IDE shows another tab is a notification of the IDE, whose action shows the branch in the tool window`)
+  [@test] tests/e2e/air/air-page.spec.ts (`a Safe Push that fails while the tool window is hidden is a notification of the IDE, whose action shows the branch in the tool window`)
   [@test] crates/mcp-host/src/server_test.rs (`a_failed_robot_of_a_patch_is_a_notification_of_the_ide_after_the_change_of_the_mirror`)
   [@test] crates/mcp-host/src/notices_test.rs (`a_failed_robot_is_a_notification_whose_action_reveals_its_branch`)
 
@@ -457,31 +457,19 @@ with the repository and the branch, which the main view reveals in the repositor
 - **THEN** brd asks `openView` of `main`, and tells the instance the IDE answered `reveal-branch`: the main view reveals
   the branch as Go to of the command palette does, in the repository it shows
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] tests/e2e/air/air-page.spec.ts (`a Safe Push that fails while the IDE shows another tab is a notification of the IDE, whose action shows the branch in the tool window`)
+  [@test] tests/e2e/air/air-page.spec.ts (`a Safe Push that fails while the tool window is hidden is a notification of the IDE, whose action shows the branch in the tool window`)
 
-### Requirement: Windows: A page shows the tab of another view with an event for its page
-
-`bd_invoke` of `plugin:air|show_view {view, event?, payload?}` MUST ask `openView {view}` of the IDE and answer at
-once. Once the IDE answers the instance, brd MUST tell that instance `event` with `payload`, when the call names one.
-Show in Branch Deck is the same show of `main` with `reveal-branch`.
-
-#### Scenario: A branch of Reviews
-- **WHEN** the tab of Reviews asks `plugin:air|show_view {view: "main", event: "reveal-branch", payload}`
-- **THEN** brd asks `openView {view: "main"}`, answers the call, and tells the instance the IDE answered
-  `reveal-branch` with the payload
-  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-
-### Requirement: Windows: The focus of the main window shows the tab of the main view
+### Requirement: Windows: The focus of the main window shows the tool window
 
 `bd_invoke` of `plugin:window|set_focus` of the instance of the main view MUST ask `openView {view: "main"}`, as the
-focus brings the main window of the desktop app to the front. A focus of another view does nothing: the IDE shows its
-place.
+focus brings the main window of the desktop app to the front: the IDE shows the tool window. A focus of another view
+does nothing: the IDE shows its place.
 
 #### Scenario: A reveal that Activity asks
-- **WHEN** the tab of Activity asks the main view to reveal a branch
+- **WHEN** the Activity window or a review asks the main view to reveal a branch
 - **THEN** the main view takes the focus of its window, and brd asks `openView {view: "main"}`
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
-  [@test] tests/e2e/air/air-page.spec.ts (`a branch that the tab of Activity reveals shows in the tab of the branches: the main view comes to the front, and the IDE shows its tab with the row open`)
+  [@test] tests/e2e/air/air-page.spec.ts (`a branch that the Activity window reveals shows in the main view: the IDE shows the tool window with the row open`)
 
 ### Requirement: Windows: The badge and the progress of the Dock mark the tool window
 
@@ -497,8 +485,8 @@ follows, Update or Fetch of a running Update Project. A progress without an esti
 
 #### Scenario: A running Safe Push
 - **WHEN** the Safe Push the Dock follows is at 37 %
-- **THEN** brd asks `setProgress {view: "main", fraction: 0.37, text: "Safe Push"}`, and the tab of the main view reads
-  "Branches Safe Push 37%"
+- **THEN** brd asks `setProgress {view: "main", fraction: 0.37, text: "Safe Push"}`, and the title of the tool window
+  reads "Branch Deck: Safe Push 37%"
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
   [@test] crates/mcp-host/src/server_test.rs (`the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_what_runs`)
   [@test] src/lib/dock-text.test.ts (`names what runs before the percent, a progress without an estimate by its text alone, and clears without a text`)
@@ -547,7 +535,8 @@ call. So Escape closes a review tab and a dialog, as their hint says.
 
 `brd mcp` MUST read the repositories from `roots/list`, at its start and on `notifications/roots/list_changed`. The
 views see the Git roots as their recent projects (`recentProjects`), the root the main view shows first, and
-`bd_bootstrap` names that root as `initData.repositoryPath`: the page selects it and its selector lists the roots.
+`bd_bootstrap` names that root as `initData.repositoryPath`: the page selects it and its selector lists the roots. The
+path of a root MUST have no trailing separator but the root of a file system, as the desktop app spells it.
 
 #### Scenario: A project with two roots
 - **WHEN** the project has two Git roots
@@ -555,6 +544,16 @@ views see the Git roots as their recent projects (`recentProjects`), the root th
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_main_view_shows_the_root_picked_last_for_the_roots_of_its_project`)
   [@test] tests/e2e/air/air-page.spec.ts (`the selector of the main view lists the Git roots of the project, and the root picked shows again at the next start of the project`)
   [@test] crates/mcp-host/src/projects_test.rs (`the_main_view_shows_the_root_picked_last_else_the_one_it_shows_else_the_first`)
+
+#### Scenario: The URI of a directory
+- **WHEN** `roots/list` names `file:///x/repo/`, as the IDE writes the URI of a directory
+- **THEN** the repository is `/x/repo`, the path whose session the desktop app opens; `file:///` stays `/`
+  [@test] crates/mcp-host/src/server_test.rs (`the_path_of_a_root_has_no_trailing_separator`)
+
+#### Scenario: A project with one root
+- **WHEN** the project has one Git root
+- **THEN** the main view shows its path as text, without the menu of a selector and without Open Repository
+  [@test] tests/e2e/air/air-page.spec.ts (`the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the one root of the project is the text of the repository, without the menu of a selector`)
 
 ### Requirement: Repositories: brd remembers the root picked last for the roots of a project
 
@@ -610,10 +609,10 @@ repositories or in the command palette, and no Add Companion… on Settings → 
 
 #### Scenario: The main view in the IDE
 - **WHEN** the IDE shows the main view
-- **THEN** its selector lists the roots without the folder button beside it, and the command palette offers no Open
+- **THEN** its repository shows without the folder button beside it, and the command palette offers no Open
   Repository…
   [@test] crates/mcp-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
-  [@test] tests/e2e/air/air-page.spec.ts (`the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the roots of the project are the repositories of its selector`)
+  [@test] tests/e2e/air/air-page.spec.ts (`the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the one root of the project is the text of the repository, without the menu of a selector`)
   [@test] src/lib/command-palette.test.ts (`offers no Open Repository… where the host has no folder dialog`)
 
 ### Requirement: Hosts: The page in the IDE offers no install
@@ -644,12 +643,11 @@ of every view.
 
 The page MUST send `ui/notifications/initialized` only once the first render of its page ran its effects, after the
 listens of its events. The host delivers an event to a view only after its page sent `initialized`, and holds it
-until then, so brd tells an event at once, also to the page of a tab that the IDE builds for it.
+until then, so brd tells an event at once, also to the page of a view that the IDE builds for it.
 
-#### Scenario: A Reviews tab never shown
-- **WHEN** "Add Pull Request by Link…" of the palette asks the tab of Reviews, which the IDE builds for it
-- **THEN** the event `focus-review-link` reaches the page once it listens, and the field of a link takes the focus
-  [@test] tests/e2e/air/air-page.spec.ts (`Add Pull Request by Link… focuses the field of a Reviews tab never shown`)
+#### Scenario: A main view never shown
+- **WHEN** Show in Branch Deck asks the main view before the IDE built its page
+- **THEN** the event `reveal-branch` reaches the page once it listens, and the main view reveals the branch
   [@test] src/lib/page-start.test.ts (`runs each waiter once the page started, and a later one at once`)
 
 ### Requirement: Page: The shim maps the Tauri calls onto x-air-app
@@ -702,6 +700,17 @@ page mock of the E2E tests installs the same internals of Tauri (`src/platform/t
 - **THEN** the host gets `ui/open-link`, the tool `air_copy` and `notifications/message`; the badge, the progress and
   the notification are `bd_invoke` of their plugin calls; the size does nothing
   [@test] src/platform/air/shim.test.ts (`The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing`)
+
+### Requirement: Page: The home directory of brd mcp is the home directory of the page
+
+The shim MUST answer `homeDir` of Tauri (`plugin:path|resolve_directory` of the home) with `homeDir` of `bd_bootstrap`,
+so the page shows a path under it with `~`, as the desktop app does. Another directory, or a process without a home,
+is an error, and the page shows the whole path.
+
+#### Scenario: The repository under the home directory
+- **WHEN** `bd_bootstrap` names the home `/Users/ann`, and the main view shows `/Users/ann/projects/idea-1`
+- **THEN** the page shows `~/projects/idea-1`
+  [@test] src/platform/air/shim.test.ts (`homeDir of Tauri is the home directory of brd mcp that bd_bootstrap gave, so the page shows a path under it with ~; the IDE resolves no other directory`)
 
 ### Requirement: Page: The subscriptions of the page share the one view of its frame
 
@@ -867,10 +876,13 @@ the install of the agent CLI refuses it. The file MUST have `styles: neutral`, b
 
 ## User Experience
 
-- The tool window **Branch Deck** at the bottom, with the tabs **Branches** (the main view), **Reviews**, **Landing** and
-  **Activity**; the action **Sync Virtual Branches** in the VCS menu (⌥⌘Y, Ctrl+Alt+Y).
-- The title of the tool window: **Sync Virtual Branches**, **Branch Deck Command Palette** and **Branch Deck Settings**,
-  the actions of the app file, in place of the menu of the desktop app.
+- The tool window **Branch Deck** at the bottom, one frame: the main window as in the desktop app, with its switcher
+  of **Branches**, **Reviews** and **Landing**, its **Activity** button and side panel, its Sync and its Settings.
+- **Activity** in a window of the IDE where the tool window has no room for the side panel.
+- **Sync Virtual Branches** (the VCS menu, ⌥⌘Y, Ctrl+Alt+Y), **Branch Deck Command Palette** and **Branch Deck
+  Settings**, the actions of the app file, in place of the menu of the desktop app; the title of the tool window has no
+  action of its own.
+- With one root, the repository is its path as text, `~` for the home directory, without the menu of a selector.
 - Before the first start, the empty tool window shows the consent banner of the IDE: **Allow Once**, **Always Allow**,
   **Deny**.
 

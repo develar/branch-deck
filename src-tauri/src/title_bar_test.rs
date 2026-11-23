@@ -165,7 +165,6 @@ mod decision {
         title_bar,
         check_for_updates,
         folder_dialog: true,
-        view_tabs: false,
         progress_text: false,
       })
       .unwrap()

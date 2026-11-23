@@ -22,7 +22,7 @@ fn each_file_of_the_build_is_a_resource() {
   }
 }
 
-/// The views are those of the app file of the contract, each with its page: the tabs Reviews and Landing too
+/// The views are those of the app file of the contract, each with its page
 #[test]
 fn the_views_are_the_views_of_the_app_file() {
   let example = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design/ide-embedding/protocol/examples/branch-deck.yaml")).unwrap();

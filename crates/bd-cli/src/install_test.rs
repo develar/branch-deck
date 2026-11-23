@@ -342,12 +342,12 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
   expected["server"]["args"] = json!(["cli", "mcp"]);
   let text = ide_app_text(Path::new(command), &["cli", "mcp"], IdeAppStyles::DEFAULT);
   assert_eq!(read_yaml(&text), expected);
-  // the order of the views is the order of the tabs of the tool window: Branches (the main view), Reviews, Landing, Activity
-  let tabs: Vec<usize> = ["\n  main:", "\n  reviews:", "\n  landing:", "\n  activity:"]
-    .iter()
-    .map(|view| text.find(view).unwrap())
-    .collect();
-  assert!(tabs.is_sorted(), "{text}");
+  // the tool window has one frame, the main view, which switches Branches, Reviews and Landing itself: no tab of its
+  // own, no title action; Activity opens as a window where the side panel has no room
+  let views = &read_yaml(&text)["views"];
+  assert_eq!(views["main"]["toolWindow"], json!({ "anchor": "bottom", "title": "Branch Deck" }));
+  assert!(!text.contains("toolWindowTab"), "{text}");
+  assert_eq!(views["activity"]["place"], "window");
   // the Settings window merges its row into the title bar of the IDE, as the desktop app draws it beside the traffic lights
   assert_eq!(
     read_yaml(&text)["views"]["settings"]["window"],

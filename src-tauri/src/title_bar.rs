@@ -249,7 +249,6 @@ pub fn title_bar_script() -> String {
     title_bar: title_bar(),
     check_for_updates: cfg!(feature = "auto-update"),
     folder_dialog: true,
-    view_tabs: false,
     progress_text: false,
   };
   let json = serde_json::to_string(&page).unwrap_or_else(|_| r#"{"kind":"native","checkForUpdates":false,"folderDialog":true}"#.to_owned());

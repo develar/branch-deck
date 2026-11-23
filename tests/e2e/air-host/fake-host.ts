@@ -177,7 +177,7 @@ export class FakeIde {
     return this.page.evaluate(it => (window as unknown as { __airHost: { started(instance: string): Promise<void> } }).__airHost.started(it), instance)
   }
 
-  /** The IDE hides the place of `instance` (another tab shows): `x-air-app/viewHidden`, its frame stays */
+  /** The IDE hides the place of `instance` (a hidden tool window): `x-air-app/viewHidden`, its frame stays */
   hideView(instance: string): Promise<void> {
     return this.page.evaluate(it => (window as unknown as { __airHost: { hide(instance: string): Promise<void> } }).__airHost.hide(it), instance)
   }
@@ -187,7 +187,7 @@ export class FakeIde {
     return this.page.evaluate(it => (window as unknown as { __airHost: { runNotificationAction(index: number): Promise<unknown> } }).__airHost.runNotificationAction(it), index)
   }
 
-  /** A click on an action of the app file in the title of the tool window: the IDE calls its tool with the origin action */
+  /** A run of an action of the app file (its menu item, its shortcut): the IDE calls its tool with the origin action */
   runAction(action: string, tool: string): Promise<unknown> {
     return this.page.evaluate(([it, name]) => (window as unknown as { __airHost: { runAction(action: string, tool: string): Promise<unknown> } }).__airHost.runAction(it, name), [
       action,

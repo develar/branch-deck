@@ -3,7 +3,7 @@
 //! `x-air-app/notify` with the action Show in Branch Deck, the tool `reveal_branch` of the branch the robot tested (the
 //! root of a whole stack), which shows the main view and reveals the branch in it.
 //!
-//! brd tells the failure itself while the main view is not shown (the IDE shows another tab), as the desktop app tells
+//! brd tells the failure itself while the main view is not shown (the tool window is hidden), as the desktop app tells
 //! it by the OS while no window has the focus, if the switch "Safe Push failures" of Settings is on; while the main
 //! view is shown its toast tells it. The page's own notification of a news (`plugin:notification|notify` with
 //! `extra: {repositoryPath, news}`, sent while its frame has no focus) is left out once brd told that news, and takes

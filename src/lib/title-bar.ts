@@ -10,9 +10,8 @@
  *   manager, an unknown desktop) and where the user asked for it (`reason`); in E2E without one.
  *
  * With every kind the backend says whether the build updates itself (`checkForUpdates`, `PageTitleBar`), whether
- * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`), whether the host shows each view of
- * the main window in a tab of its own (`viewTabs`, `brd mcp`) and whether it shows a text beside the progress of the
- * Dock (`progressText`, `brd mcp`)
+ * the host has a folder dialog (`folderDialog`, `DialogHost::has_folder_dialog`) and whether it shows a text beside the
+ * progress of the Dock (`progressText`, `brd mcp`)
  */
 export type TitleBar = (
   | {
@@ -41,13 +40,7 @@ export type TitleBar = (
    */
   readonly folderDialog?: boolean
   /**
-   * The host shows Branches, Reviews and Landing each in a tab of its own, a page each (the tool window of the IDE): no
-   * page has the switch of the views, and a switch to the view of another tab asks the host for that tab
-   * (`showMainView`); absent in the desktop app, whose main window switches its views
-   */
-  readonly viewTabs?: boolean
-  /**
-   * The host shows the progress of the Dock with a text before its percent (the tab of the main view in the IDE):
+   * The host shows the progress of the Dock with a text before its percent (the title of the tool window in the IDE):
    * `setDockProgress` names what runs; absent in the desktop app, whose Dock shows no text
    */
   readonly progressText?: boolean
@@ -90,9 +83,6 @@ export const updatesItself = titleBar.checkForUpdates
 
 /** The host has a folder dialog, as the backend says: Open Repository… and Add Companion… pick a folder in it */
 export const hasFolderDialog = titleBar.folderDialog !== false
-
-/** The host shows each view of the main window in a tab of its own, as the backend says (`TitleBar.viewTabs`) */
-export const hasViewTabs = titleBar.viewTabs === true
 
 /** The host shows a text beside the progress of the Dock, as the backend says (`TitleBar.progressText`) */
 export const hasProgressText = titleBar.progressText === true

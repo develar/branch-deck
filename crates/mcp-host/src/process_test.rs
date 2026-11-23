@@ -64,10 +64,10 @@ async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
 
   let answer = brd.ask(&settings_bootstrap(2, &json!({ "view": "settings" }))).await;
   assert_eq!(answer["result"]["structuredContent"]["settings"]["values"]["theme"], "dark", "{answer:#}");
-  // the title bar of the IDE: no updates, no folder dialog, the views of the main window as tabs, a text of the progress
+  // the title bar of the IDE: no updates, no folder dialog, a text of the progress
   assert_eq!(
     answer["result"]["structuredContent"]["titleBar"],
-    json!({ "kind": "native", "checkForUpdates": false, "folderDialog": false, "viewTabs": true, "progressText": true })
+    json!({ "kind": "native", "checkForUpdates": false, "folderDialog": false, "progressText": true })
   );
 
   // a window of the IDE that merges the row of the page into its title bar: the row starts after the traffic lights at
@@ -76,7 +76,7 @@ async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
   let answer = brd.ask(&settings_bootstrap(3, &json!({ "view": "settings", "titleBar": overlay }))).await;
   assert_eq!(
     answer["result"]["structuredContent"]["titleBar"],
-    json!({ "kind": "overlay", "doubleClick": "host", "height": 40, "checkForUpdates": false, "folderDialog": false, "viewTabs": true, "progressText": true })
+    json!({ "kind": "overlay", "doubleClick": "host", "height": 40, "checkForUpdates": false, "folderDialog": false, "progressText": true })
   );
 
   // a height of the IDE with a fraction is the row in whole px, and one outside 1 to 200 leaves the row at its own

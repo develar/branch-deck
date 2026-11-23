@@ -84,6 +84,19 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
   // the path the trigger shows is cut to its room: then its tooltip says it whole
   const [isPathCut, setPathCut] = useState(false)
   const shownPath = value === null ? null : tildePath(value, homeDir)
+  // the IDE with one root: there is nothing to pick and no folder to add, so the path is text, without the menu
+  if (!hasFolderDialog && !hasError && shownPath !== null && items.length === 1 && items[0]!.value === value) {
+    return (
+      <Tooltip disabled={!isPathCut}>
+        <TooltipTrigger render={<span className="flex h-7 w-3xs min-w-0 items-center px-3 text-sm" data-testid="repository-text" />}>
+          <FittedPath path={shownPath} onCut={setPathCut} />
+        </TooltipTrigger>
+        <TooltipContent description={shownPath}>
+          <WrappedPath path={shownPath} />
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
   return (
     // the selected path explains itself: the tooltip only invites to choose one or says why it fails
     <Tooltip disabled={value !== null && !hasError}>

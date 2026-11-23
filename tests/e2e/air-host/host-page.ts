@@ -488,10 +488,10 @@ function bridgeOf(info: HostView): AppBridge {
 }
 
 /**
- * The views of one instance: the tool window of the app file (`main`, `place: toolWindow`) and its tabs (`place:
- * toolWindowTab`), as the contract has a tool window and a tab always one
+ * The views of one instance: the tool window of the app file (`main`, `place: toolWindow`), as the contract has a tool
+ * window always one, and the Activity window (`instances: one`)
  */
-const SINGLE_VIEWS = new Set(["main", "reviews", "landing", "activity"])
+const SINGLE_VIEWS = new Set(["main", "activity"])
 
 /** The instances whose place the IDE hides (another tab, a hidden tool window) */
 const hidden = new Set<string>()
@@ -653,8 +653,8 @@ async function closeView(instance: string): Promise<void> {
 }
 
 /**
- * An action of the app file in the title of the tool window (`toolWindow.titleActions`): the IDE calls its tool with
- * the origin action and the instance of the tool window; the answer of the call
+ * An action of the app file (its menu item or its shortcut in the IDE): the IDE calls its tool with the origin action
+ * and the instance of the tool window; the answer of the call
  */
 async function runAction(action: string, tool: string): Promise<unknown> {
   const main = [...views.values()].find(open => open.info.view === "main")
@@ -666,7 +666,7 @@ async function runAction(action: string, tool: string): Promise<unknown> {
   })
 }
 
-/** The IDE hides the place of `instance`: another tab shows, its frame stays */
+/** The IDE hides the place of `instance` (a hidden tool window, another editor tab): its frame stays */
 async function hideView(instance: string): Promise<void> {
   hidden.add(instance)
   await app.notify("x-air-app/viewHidden", { instance })

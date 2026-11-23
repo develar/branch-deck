@@ -11,6 +11,7 @@
  * of the row and its double click are `x-air-app/windowDrag`, and its full screen is what the IDE says. No rule of the
  * domain is here: every command goes to `brd mcp` as the page sends it.
  */
+import { BaseDirectory } from "@tauri-apps/api/path"
 import type { Version, ViewPatch, ViewSubscription } from "@/lib/bindings"
 import { FrameLinkError } from "@/platform/air/frame-link"
 import type { FrameLink } from "@/platform/air/frame-link"
@@ -527,8 +528,13 @@ export class AirPage {
         }
       },
       "plugin:webview": () => null,
-      "plugin:path": () => {
-        throw new Error("The IDE names no home directory")
+      // the home directory of `brd mcp` (`bd_bootstrap`), which the page shows as `~`; the IDE resolves no other path
+      "plugin:path": (cmd, payload) => {
+        const home = this.target?.__BD_HOME_DIR__
+        if (action(cmd) === "resolve_directory" && payload?.directory === BaseDirectory.Home && home !== undefined) {
+          return home
+        }
+        throw new Error(`The IDE resolves no path for ${cmd}`)
       },
       "plugin:log": (_cmd, payload) => {
         this.link.notify("notifications/message", { level: LOG_LEVELS[payload?.level as number] ?? "info", logger: this.context.app, data: logLine(payload) })

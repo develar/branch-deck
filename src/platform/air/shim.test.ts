@@ -1,7 +1,10 @@
 // The shim of the page in the IDE (openspec/specs/repository/ide-embedding/spec.md, "Page: The shim maps the Tauri calls
 // onto x-air-app"): the calls of the page as they reach the host on the frame link, and what the host tells the page
+import { BaseDirectory } from "@tauri-apps/api/path"
 import { describe, expect, it } from "vite-plus/test"
 import type { RepositoryView, ViewPatch, ViewSubscription } from "@/lib/bindings"
+import { tildePath } from "@/lib/home-path"
+import { applyBootstrap } from "@/platform/air/bootstrap"
 import { FrameLink } from "@/platform/air/frame-link"
 import type { FrameEndpoint } from "@/platform/air/frame-link"
 import { AirPage, HOST_TOOLS } from "@/platform/air/shim"
@@ -411,6 +414,22 @@ describe("The shim of the page in the IDE", () => {
     const posted = host.posted.length
     expect(await tauri("plugin:window|set_min_size", { value: { width: 1, height: 1 } })).toBeNull()
     expect(host.posted).toHaveLength(posted)
+  })
+  it("homeDir of Tauri is the home directory of brd mcp that bd_bootstrap gave, so the page shows a path under it with ~; the IDE resolves no other directory", async () => {
+    const host = new FakeHost()
+    const page = new AirPage(new FrameLink(host), { app: "branch-deck", view: "main", instance: "main:1", params: {} }, COMMANDS)
+    const target = { addEventListener: () => {} } as unknown as Window
+    applyBootstrap(target, { homeDir: "/Users/ann" })
+    page.install(target)
+    const internals = (target as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, payload?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__
+    const home = (await internals.invoke("plugin:path|resolve_directory", { directory: BaseDirectory.Home })) as string
+    expect(tildePath("/Users/ann/projects/idea-1", home)).toBe("~/projects/idea-1")
+    await expect(internals.invoke("plugin:path|resolve_directory", { directory: BaseDirectory.Desktop })).rejects.toThrow("The IDE resolves no path")
+    expect(host.posted.filter(message => message.method === "tools/call")).toEqual([])
+
+    // a process without a home directory: the page shows the whole path
+    const { tauri } = pageOn(new FakeHost())
+    await expect(tauri("plugin:path|resolve_directory", { directory: BaseDirectory.Home })).rejects.toThrow("The IDE resolves no path")
   })
   it("A window whose row is in the title bar of the IDE: a drag and a double click of the row are windowDrag, its full screen is what the IDE says, and a change of the title bar resizes the window for the page", async () => {
     const host = new FakeHost()

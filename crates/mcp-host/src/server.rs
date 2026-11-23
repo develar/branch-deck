@@ -418,10 +418,9 @@ impl Server {
   }
 
   /// Asks the IDE to show `view`, then tells the instance it answered `event` with its payload, when there is one: Show
-  /// in Branch Deck of a notification shows the main view, which reveals the branch (`reveal-branch`), and a page shows
-  /// the tab of another view of the main window (`SHOW_VIEW_CALL`), such as the main view that reveals a branch of
-  /// Reviews. brd tells the event at once: the IDE holds an event for an instance until its page sent
-  /// `ui/notifications/initialized`, which the page sends once it listens
+  /// in Branch Deck of a notification shows the main view, which reveals the branch (`reveal-branch`), and the focus of
+  /// the main window shows the tool window. brd tells the event at once: the IDE holds an event for an instance until
+  /// its page sent `ui/notifications/initialized`, which the page sends once it listens
   fn show_view(&self, view: &str, event: Option<(String, Value)>) {
     let answer = self.link.request("x-air-app/openView", Some(json!({ "view": view })));
     let link = Arc::clone(&self.link);
@@ -510,21 +509,15 @@ impl Server {
   /// makes in the desktop app: an event the page emits goes to the views of the app (to one window with a target), the
   /// badge and the progress of the Dock mark the tool window, a notification of the OS is one of the IDE (none of a news
   /// brd told itself, `Notices::page_notification`), and the close
-  /// of the window of `instance` (Escape in a review or a dialog) closes its place. The page in the IDE alone asks for
-  /// the tab of another view of the main window (`SHOW_VIEW_CALL {view, event?, payload?}`). None for a command of app-api
+  /// of the window of `instance` (Escape in a review or a dialog) closes its place. None for a command of app-api
   fn host_command(&self, command: &str, args: &Value, instance: Option<&str>) -> Option<Value> {
     match command {
       // the window of the page comes to the front (a reveal that Activity or a review asked, the palette): the IDE shows
-      // the tool window with the tab of the main view; the place of another view is the IDE's to show
+      // the tool window of the main view; the place of another view is the IDE's to show
       "plugin:window|set_focus" => {
         if instance.is_some_and(|instance| view_of(instance) == MAIN_VIEW) {
           self.show_view(MAIN_VIEW, None);
         }
-      }
-      SHOW_VIEW_CALL => {
-        let view = args["view"].as_str().unwrap_or(MAIN_VIEW);
-        let event = args["event"].as_str().map(|event| (event.to_owned(), args.get("payload").cloned().unwrap_or(Value::Null)));
-        self.show_view(view, event);
       }
       "plugin:event|emit" => {
         let (event, payload) = (args["event"].as_str().unwrap_or_default(), args.get("payload").cloned().unwrap_or(Value::Null));
@@ -554,8 +547,8 @@ impl Server {
   }
 
   /// `set_demand` of a view names the subscription of its mirror, which the page does not know: the mirror of the
-  /// instance gives it. The views of a mirror share its subscription (the main view and the tabs of Reviews and
-  /// Landing, a review), so the mirror keeps the demand of each view and the session gets the union of them
+  /// instance gives it. The views of a mirror share its subscription (the main view, a review, Activity), so the
+  /// mirror keeps the demand of each view and the session gets the union of them
   fn with_subscription(&self, command: &str, mut args: Value, instance: Option<&str>) -> Value {
     if command != "set_demand" {
       return args;
@@ -589,8 +582,9 @@ impl Server {
   }
 
   /// What the page takes before its main (`bd_bootstrap {view, titleBar}`): the settings of its window as the desktop
-  /// app hands them in its init script, the warm frame of the repository of the main view, the init data of the view
-  /// and the title bar (`title_bar_of`)
+  /// app hands them in its init script, the warm frame of the repository of the main view, the init data of the view,
+  /// the title bar (`title_bar_of`) and the home directory of this process, which the page shows as `~` (`homeDir` of
+  /// `@tauri-apps/api/path` in the desktop app, which reads the same `dirs::home_dir`)
   async fn bootstrap(&self, view: &str, instance: Option<&str>, title_bar: &TitleBar) -> Value {
     let label = instance.map_or_else(|| MAIN_WINDOW.to_owned(), label_of);
     self.bootstrapped.store(true, Ordering::SeqCst);
@@ -601,13 +595,11 @@ impl Server {
       values.insert(RECENT_PROJECTS_KEY.to_owned(), self.projects.seen(&Value::Null));
     }
     // the app updates with the desktop app, the roots of the project name the repositories where the host has no
-    // folder dialog, the views of the main window are tabs of the tool window, each its own page (`viewTabs`), and the
-    // tab of the main view names its progress by a text (`progressText`)
+    // folder dialog, and the title of the tool window names the progress by a text (`progressText`)
     let title_bar = PageTitleBar {
       title_bar,
       check_for_updates: false,
       folder_dialog: self.ctx.desktop.dialog.has_folder_dialog(),
-      view_tabs: true,
       progress_text: true,
     };
     let shown = instance.and_then(|instance| self.instances.params(instance)).unwrap_or_else(|| json!({}));
@@ -627,6 +619,7 @@ impl Server {
       "warmFrame": warm_frame,
       "initData": init_data,
       "titleBar": title_bar,
+      "homeDir": dirs::home_dir().map(|home| home.to_string_lossy().into_owned()),
     })
   }
 
@@ -876,9 +869,6 @@ const SETTINGS_COMMANDS: [&str; 3] = ["set_setting", "get_settings_changes", "su
 
 /// The tool of the action Sync Virtual Branches of the app file
 const SYNC_TOOL: &str = "sync";
-/// The call of a page in the IDE that shows the tab of another view of the main window, with an event for its page
-/// (`showMainView` of `src/stores/main-view.ts`); the desktop app has one window, which switches its views itself
-const SHOW_VIEW_CALL: &str = "plugin:air|show_view";
 /// The tool of the action Branch Deck Command Palette of the app file, and the event it sends the main view
 const COMMAND_PALETTE_TOOL: &str = "open_command_palette";
 
@@ -969,12 +959,17 @@ fn tool_error(error: &ApiError) -> Value {
   json!({ "content": [{ "type": "text", "text": error.message }], "isError": true, "structuredContent": { "error": error } })
 }
 
-/// The path of a `file://` URI of a root
+/// The path of a `file://` URI of a root, without a trailing separator (`file:///x/repo/` is `/x/repo`, the spelling of
+/// the desktop app, which keys the session of the repository), but the root of a file system (`/`, `C:/`)
 fn path_of_uri(uri: &str) -> Option<String> {
   let path = uri.strip_prefix("file://")?;
   // a Windows root is `file:///C:/…`
   let path = if path.len() > 2 && path.as_bytes()[2] == b':' { &path[1..] } else { path };
-  Some(percent_decoded(path))
+  let mut path = percent_decoded(path);
+  let kept = path.trim_end_matches('/').len();
+  let is_root = kept == 0 || (kept == 2 && path.as_bytes()[1] == b':');
+  path.truncate(if is_root { (kept + 1).min(path.len()) } else { kept });
+  Some(path)
 }
 
 fn percent_decoded(text: &str) -> String {

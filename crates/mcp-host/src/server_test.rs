@@ -21,6 +21,16 @@ fn the_path_of_a_root_is_its_file_uri_decoded() {
   assert_eq!(path_of_uri("https://example.com"), None);
 }
 
+/// The URI of an existing directory ends with a separator (`Path.toUri` of the IDE): the path of the root has none, as
+/// the desktop app spells the repository whose session it keys, but the root of a file system keeps its own
+#[test]
+fn the_path_of_a_root_has_no_trailing_separator() {
+  assert_eq!(path_of_uri("file:///x/repo/").as_deref(), Some("/x/repo"));
+  assert_eq!(path_of_uri("file:///C:/work/repo/").as_deref(), Some("C:/work/repo"));
+  assert_eq!(path_of_uri("file:///").as_deref(), Some("/"));
+  assert_eq!(path_of_uri("file:///C:/").as_deref(), Some("C:/"));
+}
+
 /// The code of each reason of x-air-app that the contract gives one (`ErrorObject` of `x-air-app.schema.json`, the copy
 /// of the contract): "-32601 unknownMethod and unknownTool, …"; the other codes "are those of JSON-RPC and of air-ide"
 fn codes_of_the_contract() -> Vec<(String, i64)> {
@@ -210,15 +220,15 @@ impl Mirrored {
   }
 }
 
-/// The views of a mirror share its subscription: the main view and the tab of Reviews each set a demand, and the
-/// session gets the union of them, so the demand of the main view never takes back Reviews of the tab; the view that
-/// leaves takes only its own demand with it
+/// The views of a mirror share its subscription: the main view and a review each set a demand, and the session gets
+/// the union of them, so the demand of the main view never takes back what the review asked; the view that leaves
+/// takes only its own demand with it
 #[test]
 fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
   let mut mirror = Mirror {
     window: mirror_window(REPO),
     subscription: 1,
-    instances: HashSet::from(["main:1".to_owned(), "reviews:1".to_owned()]),
+    instances: HashSet::from(["main:1".to_owned(), "review:1".to_owned()]),
     slot: Arc::new(Mutex::new(Slot::Ended)),
     demands: HashMap::new(),
   };
@@ -228,18 +238,18 @@ fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
     visible_branches: vec!["auth".to_owned()],
     ..Demand::default()
   };
-  let reviews = Demand {
+  let review = Demand {
     online: true,
     reviews: true,
     ..Demand::default()
   };
   assert_eq!(mirror.set_demand("main:1", main.clone()), main);
-  let both = mirror.set_demand("reviews:1", reviews);
+  let both = mirror.set_demand("review:1", review);
   assert_eq!((both.reviews, both.focused, both.visible_branches.as_slice()), (true, true, ["auth".to_owned()].as_slice()));
-  // the main view sends its demand again: Reviews stays asked while its tab shows
+  // the main view sends its demand again: what the review asked stays asked while the review shows
   assert!(mirror.set_demand("main:1", main.clone()).reviews);
 
-  assert_eq!(mirror.leave("reviews:1"), Some(main.clone()), "the session gets the demand of the main view alone");
+  assert_eq!(mirror.leave("review:1"), Some(main.clone()), "the session gets the demand of the main view alone");
   assert_eq!(mirror.demand(), Some(main));
   // the last view leaves: the subscription ends with the mirror, no demand is sent
   assert_eq!(mirror.leave("main:1"), None);

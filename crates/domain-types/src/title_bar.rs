@@ -88,14 +88,9 @@ pub enum DoubleClick {
 
 /// What the page reads before it loads: how it draws the title bar, and with every kind whether the build updates
 /// itself (the `auto-update` feature: ☰ and the command palette offer Check for Updates… as the native menu does),
-/// whether the host has a folder dialog, whether the host shows each view of the main window in a tab of its own and
-/// whether it shows a text beside the progress of the Dock
+/// whether the host has a folder dialog and whether it shows a text beside the progress of the Dock
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[expect(
-  clippy::struct_excessive_bools,
-  reason = "the flags of the page, each a key of `window.__BD_TITLE_BAR__` that the page reads alone"
-)]
 pub struct PageTitleBar<'a> {
   #[serde(flatten)]
   pub title_bar: &'a TitleBar,
@@ -103,12 +98,8 @@ pub struct PageTitleBar<'a> {
   /// The host has a folder dialog (`DialogHost::has_folder_dialog`): the page offers Open Repository… and Add
   /// Companion…; the desktop app always has it
   pub folder_dialog: bool,
-  /// The host shows Branches, Reviews and Landing each in a tab of its own (the tool window of the IDE); absent in the
-  /// desktop app
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
-  pub view_tabs: bool,
-  /// The host shows the progress of the Dock with a text before its percent (the tab of the main view in the IDE);
-  /// absent in the desktop app
+  /// The host shows the progress of the Dock with a text before its percent (the title of the tool window in the
+  /// IDE); absent in the desktop app
   #[serde(skip_serializing_if = "std::ops::Not::not")]
   pub progress_text: bool,
 }

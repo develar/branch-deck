@@ -15,9 +15,9 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"${any}","data":{"reason":"badParams"}}}}
 {"comment":"The life of the place of the tool window."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewShown","params":{"instance":"main:1","view":"main","params":{}}}}
-{"comment":"bd_bootstrap gives what the page needs before its main: the settings, the warm frame, the init data of the view and the title bar."}
+{"comment":"bd_bootstrap gives what the page needs before its main: the settings, the warm frame, the init data of the view, the title bar and the home directory of brd."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"bd_bootstrap","arguments":{"view":"main"},"_meta":{"progressToken":5,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":5,"result":{"content":[],"structuredContent":{"settings":"${any}","warmFrame":"${any}","initData":"${any}","titleBar":"${any}"}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":5,"result":{"content":[],"structuredContent":{"settings":"${any}","warmFrame":"${any}","initData":"${any}","titleBar":"${any}","homeDir":"${any}"}}}}
 {"comment":"subscribe_view of the page is the mirror of its repository: the state is the view with its version, which the page compares with the versions that commands answer; each change sets the part version last."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":6,"method":"x-air-app/subscribe","params":{"instance":"main:1","params":{"repositoryPath":"${repo}"}}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":6,"result":{"mirror":"${repo}","state":"${any}"}}}
@@ -82,21 +82,11 @@
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":19,"result":{"content":[],"structuredContent":{"value":null}}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":8,"result":{"instance":"main:1"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
-{"comment":"The views of the main window are tabs of the tool window, each its own page: Reviews and Landing are views of the app file, each the page. A page asks for the tab of another view with bd_invoke of plugin:air|show_view: brd asks openView of that view and answers, and it tells the instance the IDE answers the event of the call, here the reveal of a branch of Reviews in the main view."}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"ui://branch-deck/reviews"}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":20,"result":{"contents":[{"uri":"ui://branch-deck/reviews","mimeType":"text/html;profile=mcp-app","text":"${any}"}]}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewShown","params":{"instance":"reviews:1","view":"reviews","params":{}}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"plugin:air|show_view","args":{"view":"main","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}},"_meta":{"progressToken":30,"x-air-app":{"origin":"click","app":"branch-deck","view":"reviews","instance":"reviews:1"}}}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":9,"method":"x-air-app/openView","params":{"view":"main"}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":30,"result":{"content":[],"structuredContent":{"value":null}}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":9,"result":{"instance":"main:1"}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"instance":"main:1","event":"reveal-branch","payload":{"repositoryPath":"${repo}","branchName":"feature"}}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"reviews:1"}}}
-{"comment":"The focus of the window of the main view (a reveal that Activity asked, the palette) shows the tool window with the tab of the main view."}
+{"comment":"The focus of the window of the main view (a reveal that Activity or a review asked, the palette) shows the tool window of the main view."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"plugin:window|set_focus","args":{"label":"main"}},"_meta":{"progressToken":33,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
-{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":10,"method":"x-air-app/openView","params":{"view":"main"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":9,"method":"x-air-app/openView","params":{"view":"main"}}}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","id":33,"result":{"content":[],"structuredContent":{"value":null}}}}
-{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":10,"result":{"instance":"main:1"}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":9,"result":{"instance":"main:1"}}}
 {"comment":"The life of the place reaches the window registry: viewClosed forgets the page and the window of the instance."}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewHidden","params":{"instance":"main:1"}}}
 {"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":21,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
