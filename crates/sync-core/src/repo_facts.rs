@@ -336,6 +336,8 @@ pub struct Baseline {
   pub upstream: Option<BaselineUpstream>,
   /// The branch HEAD is on, as the read found it; `None` for a detached HEAD
   pub branch: Option<String>,
+  /// The commit of the upstream's remote-tracking ref, as the listing found it; `None` without an upstream
+  pub upstream_tip: Option<String>,
 }
 
 /// The baseline of the checked out branch and its upstream from one read: `symbolic-ref`, `remote` and one
@@ -360,10 +362,16 @@ pub fn read_baseline(git_executor: &GitCommandExecutor, repo_path: &str) -> Resu
 #[instrument(skip(git_executor, facts))]
 pub fn read_baseline_of(git_executor: &GitCommandExecutor, repo_path: &str, facts: &CommandFacts) -> Result<Baseline> {
   let listing = read_baseline_listing(git_executor, repo_path, facts.branch.as_deref(), None, false, Some(facts.remotes.clone()))?;
+  let upstream_tip = listing
+    .upstream
+    .as_ref()
+    .filter(|upstream| upstream.tracking_ref == listing.baseline_ref)
+    .and(listing.baseline_tip);
   Ok(Baseline {
     name: listing.baseline,
     upstream: listing.upstream,
     branch: facts.branch.clone(),
+    upstream_tip,
   })
 }
 

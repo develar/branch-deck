@@ -204,7 +204,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   let upstream = if let Some(branch) = options.onto {
     local_upstream(git_executor, repo_path, branch)?
   } else {
-    let Baseline { name, upstream, branch } = read_baseline(git_executor, repo_path)?;
+    let Baseline { name, upstream, branch, .. } = read_baseline(git_executor, repo_path)?;
     let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
     // refuse before the network: the check would refuse after it anyway; the branch is the one the baseline read found
     let branch = check_update_guards_on(git_executor, repo_path, branch.as_deref())?;

@@ -22,6 +22,8 @@ fn from(worktree: &TestWorktree, follow: bool) -> PickRequest<'_> {
     expect_branch: None,
     expect_source_head: None,
     prefix: None,
+    target: None,
+    bases: None,
   }
 }
 
@@ -365,6 +367,8 @@ fn without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_
       expect_branch: None,
       expect_source_head: None,
       prefix: None,
+      target: None,
+      bases: None,
     };
     let plan = check_pick(repo.git_executor(), repo.path_str(), &request).unwrap();
     assert_eq!(
@@ -936,6 +940,8 @@ fn the_source_is_another_worktree_of_this_repository() {
     expect_branch: None,
     expect_source_head: None,
     prefix: None,
+    target: None,
+    bases: None,
   };
   let error = check_pick(repo.git_executor(), repo.path_str(), &request(PickSource::Worktree(repo.path_str()))).unwrap_err();
   assert!(matches!(error.downcast_ref::<PickRefusal>(), Some(PickRefusal::InvalidSource(_))), "{error:#}");
@@ -967,6 +973,8 @@ fn listed<'a>(ids: &'a [String], prefix: Option<SubjectPrefix<'a>>) -> PickReque
     expect_branch: None,
     expect_source_head: None,
     prefix,
+    target: None,
+    bases: None,
   }
 }
 

@@ -325,8 +325,8 @@ taken and deletes it before the release), then runs the real git.
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
 | `brd update --continue` (`continue_resolve`; a `--dry-run` takes no lock) | `cat-file`, `config`, `diff-tree`, `fast-import`, `read-tree`, `replay`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`: the whole round and the finish, an exception (below) | `a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish`, `the_landed_report_of_a_finished_session_runs_after_the_lock` (`crates/bd-update/src/resolve_test.rs`) |
 | `brd update --abort` (`abort_resolve`; the removal of its copies after the lock) | `cat-file`, `for-each-ref`, `update-ref` (the session, its CAS delete, the sweep of stale temporary refs) | `an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete` (`resolve_test.rs`) |
-| `brd pick --from --follow` (`pick_core`; the `log` of the messages of the commit rules before the lock) | `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write with the probe of the check: a file again only when written within its racy margin, the index entries only when the index file changed; the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
-| `brd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
+| `brd pick --from --follow` (`pick_core`; the `log` of the messages of the commit rules before the lock) | `for-each-ref` 2, `read-tree` 2, `rev-parse` 2, `symbolic-ref` 2, `update-index` 2, `update-ref` 4 (the marks, the witness of both worktrees, the local changes on the paths the moves write with the probe of the check: a file again only when its stat data changed or it was written within the racy margin of its hash, the index entries only when the index file changed; the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
+| `brd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `for-each-ref`, `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `brd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
 | `brd push` (its sync before the lock, `bd-core` `sync_command::sync`, then the run of the app's push) | `for-each-ref` (the full witness and the freeze) | `a_push_of_bd_locks_only_the_witness_and_the_freeze`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock` (`crates/bd-remote/src/push_test.rs`) |
@@ -2102,7 +2102,11 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    HEAD.
 2. Guards: `check_update_guards` in the target; with `--follow`, no rebase, merge, cherry-pick or revert in progress
    in the source (the state files are per worktree). The source must be another worktree of the same repository
-   (`repository_dirs`: the same common dir, another git dir).
+   (`repository_dirs`: the same common dir, another git dir). `pick_core` reads the directories of both worktrees once
+   at its entry, those of a lease not at all (`PickParams::source_dirs`: `brd lease pick` read them), and the executor
+   carries both (`with_repository_dirs`), so the guards, the marks, the index paths and the moves of either worktree
+   start no `rev-parse` for them. The baseline, its upstream with its tip and HEAD's branch come from one read
+   (`read_baseline`), which the first check takes (`PickRequest::target`); a check again reads them.
 3. The range: `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`, read as `log --cherry-mark --right-only <target
    HEAD>...<source HEAD> ^<base> ^<upstream>` with `%m`: one process gives the range and, by `=`, the commits that a
    target commit above the base and the upstream has the patch id of. The base is `merge-base --fork-point
@@ -2153,8 +2157,10 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    rest is whole (2026-11-23, `GIT_TRACE2_PERF` on a copy of its index). A check that moves nothing (a conflict, a
    blocked one, every commit present and the source at the tip) is the answer, the lock never taken.
 6. The lock (one hold for both worktrees, `recheck_pick`): the marks again (`finish_pending_update`), then the witness,
-   the guards and HEAD of the target, the upstream's tip, the guards, HEAD and what HEAD is on of the source, one
-   `rev-parse` or `symbolic-ref` each. A witness that moved (another session's pick, a regroup, a fetch, a commit in
+   the guards of both worktrees (their files), and HEAD with what it is on, of the target with the upstream's tip, one
+   `for-each-ref` per worktree (`head_and_tips`). A check again keeps the base of the range where the branch, both
+   HEADs and the upstream are as before (`WorktreeBases`), and the verdicts of the commit rules on the same picked
+   commits. A witness that moved (another session's pick, a regroup, a fetch, a commit in
    the source) sends the pick back to step 2 without the lock; after two such checks the third runs under the lock,
    where nothing moves the branch, so a busy branch never starves a pick. A witness that missed after a wait for
    another holder of the lock checks under that lock at once: the holder was most likely another pick, which moved the

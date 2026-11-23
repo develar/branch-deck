@@ -57,6 +57,7 @@ use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, 
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
+use git_ops::revs::RepositoryDirs;
 use lease_pool::check_record::TreeCheck;
 use operations::registry_watch::touch_stamp;
 use serde::Serialize;
@@ -450,7 +451,7 @@ fn lease_pick_reporting(
     )
   };
   let home = in_dir(&checkout)?;
-  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), None, environment, args, steps)?;
+  let pick = lease_pick_in(&home, &lease.dirs, branch.clone(), None, environment, args, steps)?;
   if pick.state != PickOutcome::Conflict || args.dry_run {
     return Ok(LeasePickOutput { pick, update: None });
   }
@@ -478,7 +479,7 @@ fn lease_pick_reporting(
     pick.check = Some(tree_check_output(check));
     return Ok(LeasePickOutput { pick, update: Some(update) });
   }
-  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch, check, environment, args, steps)?;
+  let pick = lease_pick_in(&home, &lease.dirs, branch, check, environment, args, steps)?;
   Ok(LeasePickOutput { pick, update: Some(update) })
 }
 
@@ -486,13 +487,14 @@ fn lease_pick_reporting(
 /// the check of the lease's tree that the gate reads instead of asking git again; its steps go to `steps`
 fn lease_pick_in(
   context: &RepoContext,
-  lease_dir: &str,
+  lease_dirs: &RepositoryDirs,
   branch: String,
   check: Option<TreeCheck>,
   environment: &Environment,
   args: &LeasePickArgs,
   steps: &CommandSteps<'_>,
 ) -> Result<PickOutput, CliError> {
+  let lease_dir = lease_dirs.top_level.as_str();
   let pick_args = PickArgs {
     from: Some(PathBuf::from(lease_dir)),
     follow: true,
@@ -505,6 +507,7 @@ fn lease_pick_in(
     branch,
     lease_bd: format!("{} -C {}", bd_core::bd_command::CLI_NAME, bd_core::bd_command::shell_word(lease_dir)),
     check,
+    dirs: Some(lease_dirs.clone()),
   };
   pick_into(context, &pick_args, environment, Some(&home), steps)
 }

@@ -72,22 +72,24 @@ impl RepositoryDirs {
   }
 }
 
-/// The directories of one repository path, as its operation read them at its entry (`with_repository_dirs`)
-struct KnownDirs {
-  /// The repository path the operation passes to its steps
-  path: String,
-  dirs: RepositoryDirs,
-}
+/// The directories of the repository paths of an operation, as it read them at its entry (`with_repository_dirs`):
+/// `(path, dirs)`, a path the operation passes to its steps or the top level of its directories
+#[derive(Clone, Default)]
+struct KnownDirs(Vec<(String, RepositoryDirs)>);
 
 /// `git_executor` for an operation on `repo_path` whose directories it read once (`repository_dirs`): its steps take
 /// them from the executor (`current_worktree`, the guards, the lock, the index of a dry run), where they would start a
-/// `rev-parse` each. A step on another path reads that path's own
+/// `rev-parse` each, by `repo_path` and by the top level. The directories of the other paths the executor knows stay
+/// (a pick knows the target's and the source's); a step on a path it does not know reads that path's own
 #[must_use]
 pub fn with_repository_dirs(git_executor: &GitCommandExecutor, repo_path: &str, dirs: RepositoryDirs) -> GitCommandExecutor {
-  git_executor.with_fact(KnownDirs {
-    path: repo_path.to_string(),
-    dirs,
-  })
+  let mut known = git_executor.fact::<KnownDirs>().cloned().unwrap_or_default();
+  known.0.retain(|(path, _)| path != repo_path && *path != dirs.top_level);
+  if dirs.top_level != repo_path {
+    known.0.push((dirs.top_level.clone(), dirs.clone()));
+  }
+  known.0.push((repo_path.to_string(), dirs));
+  git_executor.with_fact(known)
 }
 
 /// `git_executor` for an operation on `repo_path` that reads its directories in several steps: with the directories
@@ -105,7 +107,10 @@ pub fn with_dirs_of(git_executor: &GitCommandExecutor, repo_path: &str) -> Resul
 /// The directories of `repo_path` that its operation read at its entry (`with_repository_dirs`), `None` for another
 /// path or an operation that read none
 pub fn known_dirs<'a>(git_executor: &'a GitCommandExecutor, repo_path: &str) -> Option<&'a RepositoryDirs> {
-  git_executor.fact::<KnownDirs>().filter(|known| known.path == repo_path).map(|known| &known.dirs)
+  git_executor
+    .fact::<KnownDirs>()
+    .and_then(|known| known.0.iter().find(|(path, _)| path == repo_path))
+    .map(|(_, dirs)| dirs)
 }
 
 /// `$GIT_COMMON_DIR` of `repo_path`, absolute: the repository lock and the object cache live there; no process when

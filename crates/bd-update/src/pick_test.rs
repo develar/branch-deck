@@ -457,6 +457,9 @@ fn pick_held_in_its_replays(repo: &TestRepo, lane: &TestWorktree, rounds: usize,
 fn the_check_of_a_pick_runs_before_the_lock() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
   let lane = lane_onto_a_moved_target(&repo);
+  // older than the racy margin of a hash, however long the check takes: the hash of the check answers under the lock
+  let file = std::fs::File::options().write(true).open(repo.path().join("a.txt")).unwrap();
+  file.set_modified(std::time::SystemTime::now() - Duration::from_secs(5)).unwrap();
   let wrapped = LockSpanGit::new(&repo, "");
   let (exit_code, output) = wrapped.run(&["pick", "--from", &lane.path, "--follow"]);
   assert_eq!(
@@ -470,19 +473,19 @@ fn the_check_of_a_pick_runs_before_the_lock() {
   // the check by the paths: no dry run on a copy of the index, one look for unmerged entries per worktree
   let before = |what: &str| commands.iter().filter(|(locked, args)| !locked && args.contains(what)).count();
   assert_eq!((before(" read-tree "), before(" ls-files -u -z")), (0, 2), "{commands:#?}");
-  // the marks of interrupted moves, the witness (the target's guards from the directories brd read, HEAD and upstream;
-  // the source's guards and HEAD),
+  // the marks of interrupted moves (one `rev-parse` each), the witness (the guards of each worktree from the directories
+  // the pick read at its entry, its HEAD with its branch, and the target's upstream: one `for-each-ref` per worktree),
   // the local changes on `a.txt`, the one path a move changes that the old tree has, with the probe of the check: its
-  // index entry not again (the index file is the same), its content once more (written within the racy margin), and
+  // index entry and its content not again (the index file and the stat data of the file are the same), and
   // each move: the refresh of the stat data, the transaction with its mark and the symref read under its locks, the
   // files (no refresh after them), the mark deleted
   assert_eq!(
     counted(&wrapped.under_lock()),
     [
-      ("hash-object".to_string(), 1),
+      ("for-each-ref".to_string(), 2),
       ("read-tree".to_string(), 2),
-      ("rev-parse".to_string(), 8),
-      ("symbolic-ref".to_string(), 4),
+      ("rev-parse".to_string(), 2),
+      ("symbolic-ref".to_string(), 2),
       ("update-index".to_string(), 2),
       ("update-ref".to_string(), 4),
     ],
@@ -806,7 +809,7 @@ fn a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move() {
   wrapped.assert_before_the_lock("replay");
   assert_eq!(
     locked(&wrapped),
-    ["read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
+    ["for-each-ref", "read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
     "{:#?}",
     wrapped.commands()
   );

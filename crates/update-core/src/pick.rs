@@ -20,12 +20,13 @@ use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::copy_commit::virtual_message_of;
 use git_ops::lfs::{WorktreeMove, prefetch_lfs_objects};
 use git_ops::pick::{
-  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, apply_pick_locked, check_pick_undo,
-  check_pick_with_signing, recheck_pick,
+  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, TargetFacts, WorktreeBases, apply_pick, apply_pick_locked,
+  check_pick_undo, check_pick_with_signing, recheck_pick,
 };
-use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
+use git_ops::revs::{RepositoryDirs, git_common_dir, is_object_id, short_id, with_dirs_of, with_repository_dirs};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
 use git_ops::update_branch::{UndoCheck, apply_update_undo, finish_pending_update, pending_mark, pending_update};
+use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
 use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepared, RepositoryLock, RewriteOptions, Witness, lock_prepared_move};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
@@ -36,9 +37,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
-use sync_core::baseline::baseline_tracking_ref;
 use sync_core::push_lease::fetch_remote_branches;
 use sync_core::remote_status::{AncestorCommits, StackParent, StatusBranch, dropped_commits};
+use sync_core::repo_facts::read_baseline;
 use sync_utils::commit_subject::{parse_subject, stripped_subject};
 use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
@@ -92,6 +93,9 @@ pub struct PickParams {
   /// that would land one or that conflicts refuses the pick (`UncheckedTreeRefused`), before the lock and again under
   /// it. A pick that lands nothing still moves the source onto the tip with `follow`
   pub land_nothing: bool,
+  /// The directories of the worktree of `PickFrom::Worktree` as the caller read them (`brd lease pick`: the lease's);
+  /// `None` reads them once at the entry. Every step on the source takes them from the executor (`with_repository_dirs`)
+  pub source_dirs: Option<RepositoryDirs>,
 }
 
 /// The commit rules of a pick (`[commit] check` of `.branchdeck.toml`, `commit_rules`): the message each picked commit
@@ -343,7 +347,7 @@ impl PickResult {
 /// must not be able to stop the pick halfway
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickStep<'a> {
-  /// The check: the range, the replay, the dry runs of both worktrees. `onto`: the branch the pick expects
+  /// The check: the range, the replay, the check of the files of both worktrees. `onto`: the branch the pick expects
   /// (`PickParams::expect_branch`); `round` from 1; `locked` under the repository lock
   Check { onto: Option<&'a str>, round: usize, locked: bool },
   /// Another process holds the repository lock: the wait for it starts
@@ -382,7 +386,7 @@ impl fmt::Display for PickStep<'_> {
 const REMOTE: &str = "origin";
 
 /// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. The check (the range, the
-/// replay, the dry runs of both worktrees on copies of their index) runs before the repository lock, which every
+/// replay, the check of the paths both moves change) runs before the repository lock, which every
 /// worktree shares, and a check that moves nothing (a conflict, local changes in the way, every commit present) is the
 /// answer without it. Under the lock only the witness (`recheck_pick`: the branch, both HEADs, the upstream, the local
 /// changes on the paths the moves write), then the move of the target and of the source (`land`). After the lock, how
@@ -399,10 +403,24 @@ pub fn pick_core(
   progress: &dyn Fn(&PickStep<'_>),
 ) -> Result<PickResult> {
   let target = params.repository_path.as_str();
-  // the steps on the target take its directories from here; those on the source worktree read its own
-  let git_executor = &with_dirs_of(git_executor, target)?;
+  // the steps on the target and on the source worktree take their directories from here, read once
+  let git_executor = with_dirs_of(git_executor, target)?;
+  let git_executor = &match (&params.from, &params.source_dirs) {
+    (PickFrom::Worktree(dir), Some(dirs)) => with_repository_dirs(&git_executor, dir, dirs.clone()),
+    (PickFrom::Worktree(dir), None) => with_dirs_of(&git_executor, dir)?,
+    (PickFrom::Revisions(_) | PickFrom::Remote(_), _) => git_executor,
+  };
   let signing = if params.dry_run { Signing::Off } else { commit_signing(git_executor, target)? };
-  let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
+  // the baseline, its upstream with its tip and HEAD's branch from one read, which the first check takes too
+  let (baseline, upstream, facts) = match read_baseline(git_executor, target) {
+    Ok(read) => {
+      let upstream = read.upstream.map(|upstream| upstream.tracking_ref);
+      let known = upstream.is_none() || read.upstream_tip.is_some();
+      (Some(read.name), upstream, known.then_some((read.branch, read.upstream_tip)))
+    }
+    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => (None, None, None),
+    Err(e) => return Err(e),
+  };
   let remote = match &params.from {
     PickFrom::Remote(remote) => Some(remote_commits(git_executor, target, baseline.as_deref(), remote)?),
     PickFrom::Worktree(_) | PickFrom::Revisions(_) => None,
@@ -426,6 +444,11 @@ pub fn pick_core(
       }),
       _ => None,
     },
+    target: facts.as_ref().map(|(branch, upstream_head)| TargetFacts {
+      branch: branch.as_deref(),
+      upstream_head: upstream_head.as_deref(),
+    }),
+    bases: None,
   };
   // the branch of the baseline, without its remote
   let baseline_branch = baseline.as_deref().map(|name| match &upstream {
@@ -538,6 +561,7 @@ pub fn pick_remote_commits_core(
     dry_run: false,
     expect_branch: None,
     expect_source_head: None,
+    source_dirs: None,
     messages: None,
     land_nothing: false,
   };
@@ -669,12 +693,18 @@ fn land(
     }
     apply_pick_locked(git_executor, target, plan, lock)
   };
+  // the first check takes what the entry read of the target; a check again reads it, and keeps the base of the range
+  // where nothing it was found on moved (`WorktreeBases`)
+  let bases = WorktreeBases::default();
+  let first = PickRequest { bases: Some(&bases), ..*request };
+  let again = PickRequest { target: None, ..first };
   let check = |round: usize, locked: bool| {
     progress(&PickStep::Check {
       onto: request.expect_branch,
       round,
       locked,
     });
+    let request = if round == 1 && !locked { &first } else { &again };
     check_pick_with_signing(git_executor, target, request, signing)
   };
   let waited = Cell::new(false);

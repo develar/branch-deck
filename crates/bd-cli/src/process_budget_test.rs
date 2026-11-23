@@ -1125,15 +1125,16 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
   (context, output)
 }
 
-/// Two commits picked onto a branch one commit ahead and the worktree followed, with the processes of `a_pick`
+/// Two commits picked onto a branch one commit ahead and the worktree followed, with the processes of `a_pick`; `lease`:
+/// the pick of `brd lease pick`, its copies signed, and the directories of the lease known, so none of them is read
 #[track_caller]
-fn assert_followed_pick(context: &RepoContext, output: &PickOutput, signed: bool) {
-  assert_followed_pick_with(context, output, 0, signed);
+fn assert_followed_pick(context: &RepoContext, output: &PickOutput, lease: bool) {
+  assert_followed_pick_with(context, output, 0, lease);
 }
 
 /// `assert_followed_pick` with `more_logs` more `log` processes
 #[track_caller]
-fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_logs: u32, signed: bool) {
+fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_logs: u32, lease: bool) {
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
     (2, Some(bd_update::pick_command::FollowedState::Moved))
@@ -1142,23 +1143,24 @@ fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_lo
     ("cat-file", 1),
     ("config", 3),
     ("diff-tree", 2),
-    ("for-each-ref", 1),
+    ("for-each-ref", 3),
     ("log", 4 + more_logs),
     ("ls-files", 2),
-    ("merge-base", 4),
+    ("merge-base", 3),
     ("read-tree", 2),
     ("remote", 1),
     ("replay", 1),
     ("rev-list", 1),
-    ("rev-parse", 17),
-    ("symbolic-ref", 7),
+    ("rev-parse", 6),
+    ("symbolic-ref", 4),
     ("update-index", 2),
     ("update-ref", 4),
   ];
-  let expected = if signed {
+  let expected = if lease {
     with_added_processes(&expected, &[("cat-file", 1), ("update-ref", 1), ("fast-import", 1)])
   } else {
-    expected
+    // the directories of the source, read once at the entry
+    with_added_processes(&expected, &[("rev-parse", 1)])
   };
   assert_processes(context, &expected);
 }
@@ -1167,8 +1169,8 @@ fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_lo
 /// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`,
 /// the copies, and per worktree the check of the paths its move changes: one `config` of its sparse checkout and
 /// global attributes, one `ls-files -u` for an unmerged entry, no dry run on a copy of the index); under it the marks
-/// again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need no
-/// git) and the two moves with their marks (`update-ref`, the refresh and `read-tree`); after it the grouping of the picked commits
+/// again, the witness (the guards of both worktrees, HEAD with its branch of each and the upstream by one `for-each-ref`
+/// per worktree; the local changes of added paths need no git) and the two moves with their marks (`update-ref`, the refresh and `read-tree`); after it the grouping of the picked commits
 /// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
 /// pins which of them run under the lock
 #[test]
@@ -1220,7 +1222,7 @@ fn a_remote_pick() {
       ("diff-tree", 1),
       ("fast-import", 1),
       ("fetch", 1),
-      ("for-each-ref", 4),
+      ("for-each-ref", 5),
       ("log", 9),
       ("ls-files", 1),
       ("merge-base", 1),
@@ -1229,8 +1231,8 @@ fn a_remote_pick() {
       ("remote", 2),
       ("replay", 1),
       ("rev-list", 3),
-      ("rev-parse", 6),
-      ("symbolic-ref", 5),
+      ("rev-parse", 3),
+      ("symbolic-ref", 3),
       ("update-index", 1),
       ("update-ref", 4),
     ],
@@ -1776,10 +1778,11 @@ fn a_lease_pick_that_conflicts() {
     .output()
     .unwrap();
   repo.create_commit("(own) Rewrite readme", "README.md", "own\n");
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
   let context = context(&repo);
   let output = crate::lease_pick_in(
     &context,
-    &got.path,
+    &lease.dirs,
     "master".to_string(),
     None,
     &environment,
@@ -1794,13 +1797,13 @@ fn a_lease_pick_that_conflicts() {
       ("config", 1),
       ("for-each-ref", 1),
       ("log", 2),
-      ("merge-base", 4),
+      ("merge-base", 3),
       ("merge-tree", 1),
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 1),
-      ("rev-parse", 8),
-      ("symbolic-ref", 3),
+      ("rev-parse", 4),
+      ("symbolic-ref", 2),
     ],
   );
   let lease = RepoContext::resolve(
@@ -1913,7 +1916,16 @@ fn a_lease_pick() {
   // the checkout as the pool keeps it, the repository as git names its top level (forward slashes on Windows)
   assert_eq!(canonical(std::path::Path::new(&checkout)), canonical(std::path::Path::new(&context.repository)));
   let steps = CommandSteps::new("brd lease pick", DEFAULT_LOCK_WAIT, context.lock_timeout);
-  let output = crate::lease_pick_in(&context, &got.path, branch, None, &environment, &bd_lease::lease_command::LeasePickArgs::default(), &steps).unwrap();
+  let output = crate::lease_pick_in(
+    &context,
+    &lease.dirs,
+    branch,
+    None,
+    &environment,
+    &bd_lease::lease_command::LeasePickArgs::default(),
+    &steps,
+  )
+  .unwrap();
   assert_followed_pick(&context, &output, true);
   let tip = repo.head();
   assert_signed_commits(&repo, &base, &tip);
@@ -2063,8 +2075,8 @@ fn a_pick_into_a_branch_the_target_has() {
       ("merge-base", 4),
       ("remote", 1),
       ("rev-list", 1),
-      ("rev-parse", 5),
-      ("symbolic-ref", 2),
+      ("rev-parse", 4),
+      ("symbolic-ref", 1),
     ],
   );
 }

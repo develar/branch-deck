@@ -1579,14 +1579,15 @@ const MOVE_OPERATIONS: [MoveOperation; 5] = [UPDATE, PICK, UNAPPLY, REAPPLY, DRO
 /// into the reflog and that its rollback or its undo took back (`undone_move_base`): a fast-forward pick that rolled
 /// back left the source's own tip there, and `merge-base --fork-point` would answer that tip, so the range of the source
 /// would be empty and a follow would drop its commits. Such a value gives way to the value before the move, when the
-/// move only added commits to it. A fork point on the tip's history is no undone move: one `merge-base --is-ancestor`;
-/// only another one costs a read of the reflog
-pub(crate) fn branch_fork_point(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, tip: &str, commit: &str) -> Result<Option<String>> {
+/// move only added commits to it. A fork point on the tip's history is no undone move: one `merge-base --is-ancestor`,
+/// none when it is `on_tip`, a commit the caller found on that history; only another one costs a read of the reflog
+pub(crate) fn branch_fork_point(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, tip: &str, commit: &str, on_tip: Option<&str>) -> Result<Option<String>> {
   let reflog_ref = format!("refs/heads/{branch}");
   let Some(found) = fork_point(git_executor, repo_path, &reflog_ref, commit)? else {
     return Ok(None);
   };
-  if is_ancestor(git_executor, repo_path, &found, tip)? {
+  // `on_tip`: a commit the caller found on the history of `tip` already
+  if on_tip == Some(found.as_str()) || is_ancestor(git_executor, repo_path, &found, tip)? {
     return Ok(Some(found));
   }
   // `<selector>\0<new value>\0<message>` per entry, newest first; a reflog message is one line
@@ -2502,7 +2503,7 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
     tips.push(previous.to_string());
   }
   let fork_point = match upstream.tracking_ref.strip_prefix("refs/heads/") {
-    Some(branch) if upstream.local => branch_fork_point(git_executor, repo_path, branch, upstream_head, head)?,
+    Some(branch) if upstream.local => branch_fork_point(git_executor, repo_path, branch, upstream_head, head, None)?,
     _ => fork_point(git_executor, repo_path, upstream.tracking_ref, head)?,
   };
   if let Some(fork_point) = fork_point

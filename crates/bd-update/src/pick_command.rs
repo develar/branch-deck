@@ -25,7 +25,7 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
-use git_ops::revs::{current_branch, short_id};
+use git_ops::revs::{RepositoryDirs, current_branch, short_id};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use lease_pool::check_record::{CheckState, NAMED_PATHS, TreeCheck, check_tree};
 use lease_pool::lease_clean::{PickCheck, read_pick_check};
@@ -378,6 +378,8 @@ pub struct HomePick {
   /// The check of the lease's tree that `brd lease pick` made already, after the update of a conflict: the gate reads
   /// it instead of asking git again
   pub check: Option<TreeCheck>,
+  /// The directories of the lease as `brd lease` read them: no step of the pick on the lease reads them again
+  pub dirs: Option<RepositoryDirs>,
 }
 
 /// What the gate of `pick_requires_check` let through: the check it made, the HEAD the source must still have under
@@ -571,6 +573,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     expect_source_head: gate.expect_source_head,
     messages,
     land_nothing: gate.land_nothing,
+    source_dirs: home.and_then(|home| home.dirs.clone()),
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),

@@ -16,11 +16,11 @@ use crate::lfs::WorktreeMove;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
-use crate::revs::{RepositoryDirs, is_ancestor, merge_base, repository_dirs, resolve_commit, short_id};
-use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
+use crate::revs::{DetachedHead, RepositoryDirs, head_and_tips, is_ancestor, merge_base, repository_dirs, resolve_commit, short_id};
+use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::update_branch::{
-  BranchSwitched, FileMove, FilesRefused, HeadAttached, HeadRef, LocalProbe, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, blocking_paths_by_preview, branch_fork_point,
-  check_move_undo, check_update_guards, move_branch_and_files, move_branch_and_files_carrying,
+  BranchSwitched, FileMove, FilesRefused, GuardRefusal, HeadAttached, HeadRef, LocalProbe, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, blocking_paths_by_preview,
+  branch_fork_point, check_move_undo, check_update_guards, check_update_guards_on, move_branch_and_files, move_branch_and_files_carrying,
 };
 use anyhow::{Result, anyhow, bail};
 use domain_types::rewrite::CopiedCommit;
@@ -67,6 +67,41 @@ pub struct PickRequest<'a> {
   pub expect_source_head: Option<&'a str>,
   /// The prefix some copies take in their subject; their messages are rewritten after the replay, before the move
   pub prefix: Option<SubjectPrefix<'a>>,
+  /// What the caller read of the target a moment ago, which the check takes instead of reading it again; `None` reads
+  /// it. The check again of a witness that missed takes `None`
+  pub target: Option<TargetFacts<'a>>,
+  /// Where the checks of one pick keep the base of a worktree's range (`land`: its rounds); `None` keeps none
+  pub bases: Option<&'a WorktreeBases>,
+}
+
+/// The base of the range of a worktree that the last check of a pick found, with what it found it on: a check again on
+/// the same branch, HEAD, source HEAD and upstream (a round whose index lock appeared, a check under the lock after a
+/// wait) has the same base, with no `merge-base`
+#[derive(Debug, Default)]
+pub struct WorktreeBases(std::sync::Mutex<Option<(BaseInputs, String)>>);
+
+/// `(branch, HEAD, source HEAD, upstream HEAD)`
+type BaseInputs = (String, String, String, Option<String>);
+
+impl WorktreeBases {
+  fn get(&self, inputs: &BaseInputs) -> Option<String> {
+    let known = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    known.as_ref().filter(|(known, _)| known == inputs).map(|(_, base)| base.clone())
+  }
+
+  fn put(&self, inputs: BaseInputs, base: &str) {
+    *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((inputs, base.to_string()));
+  }
+}
+
+/// The branch the target has checked out and the tip of `PickRequest::upstream`, as the caller read them (`brd pick`:
+/// with the baseline, one `for-each-ref`)
+#[derive(Debug, Clone, Copy)]
+pub struct TargetFacts<'a> {
+  /// `None` for a detached HEAD, which the guards refuse
+  pub branch: Option<&'a str>,
+  /// The commit of the upstream; `None` without one
+  pub upstream_head: Option<&'a str>,
 }
 
 /// A commit of the range, oldest first
@@ -322,7 +357,10 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
 
 #[instrument(skip(git_executor))]
 pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, request: &PickRequest<'_>, signing: Signing) -> Result<PickPlan> {
-  let branch = check_update_guards(git_executor, target)?;
+  let branch = match request.target {
+    Some(facts) => check_update_guards_on(git_executor, target, facts.branch)?,
+    None => check_update_guards(git_executor, target)?,
+  };
   if let Some(expected) = request.expect_branch
     && expected != branch
   {
@@ -333,9 +371,10 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
   let head_line = git_executor.execute_command(&["log", "-1", "--date=raw", "--format=%H%x00%cd", "HEAD", "--"], target)?;
   let (head, head_date) = head_line.split_once('\0').ok_or_else(|| anyhow!("Unexpected HEAD {head_line:?}"))?;
   let head = head.to_string();
-  let upstream_head = match request.upstream {
-    Some(upstream) => resolve_commit(git_executor, target, upstream)?,
-    None => None,
+  let upstream_head = match (request.upstream, request.target) {
+    (Some(_), Some(facts)) => facts.upstream_head.map(str::to_string),
+    (Some(upstream), None) => resolve_commit(git_executor, target, upstream)?,
+    (None, _) => None,
   };
   let mut git_dirs = None;
   let (source_head, base, follow) = match request.source {
@@ -354,7 +393,16 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
           short_id(expected)
         ))));
       }
-      let base = worktree_base(git_executor, target, &branch, &head, &source_head, upstream_head.as_deref(), dir)?;
+      let inputs = (branch.clone(), head.clone(), source_head.clone(), upstream_head.clone());
+      let base = if let Some(base) = request.bases.and_then(|bases| bases.get(&inputs)) {
+        base
+      } else {
+        let base = worktree_base(git_executor, target, &branch, &head, &source_head, upstream_head.as_deref(), dir)?;
+        if let Some(bases) = request.bases {
+          bases.put(inputs, &base);
+        }
+        base
+      };
       let follow = head_ref.map(|head_ref| {
         (
           FollowCheck {
@@ -513,21 +561,28 @@ pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, 
 /// change
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
 pub fn recheck_pick(git_executor: &GitCommandExecutor, target: &str, plan: &mut PickPlan) -> Result<bool> {
-  let branch = check_update_guards(git_executor, target)?;
-  let head = resolve_commit(git_executor, target, "HEAD")?;
-  let upstream_head = match &plan.upstream {
-    Some(upstream) => resolve_commit(git_executor, target, upstream)?,
-    None => None,
+  let guard = |worktree: &str| ensure_no_operation_in_progress(git_executor, worktree).map_err(|e| anyhow::Error::new(GuardRefusal::OperationInProgress(format!("{e:#}"))));
+  guard(target)?;
+  // HEAD, its branch and the upstream from one `for-each-ref`
+  let upstream: Vec<&str> = plan.upstream.iter().map(String::as_str).collect();
+  let now = head_and_tips(git_executor, target, &upstream)?;
+  let Some(branch) = now.head_ref.as_deref().map(|name| name.strip_prefix("refs/heads/").unwrap_or(name)) else {
+    return Err(anyhow::Error::new(GuardRefusal::DetachedHead(DetachedHead.to_string())));
   };
-  if branch != plan.check.branch || head.as_deref() != Some(plan.check.head.as_str()) || upstream_head != plan.upstream_head {
-    debug!(%branch, ?head, ?upstream_head, "the target moved during the check");
+  let upstream_head = upstream.first().and_then(|name| now.tips.get(*name)).cloned();
+  if branch != plan.check.branch || now.head.as_deref() != Some(plan.check.head.as_str()) || upstream_head != plan.upstream_head {
+    debug!(%branch, head = ?now.head, ?upstream_head, "the target moved during the check");
     return Ok(false);
   }
   if let (Some(follow), Some(follow_check)) = (&plan.follow, &plan.check.follow) {
-    let head_ref = HeadRef::read(git_executor, &follow_check.worktree)?;
-    let head = resolve_commit(git_executor, &follow_check.worktree, "HEAD")?;
-    if head_ref != follow.head_ref || head.as_deref() != Some(follow_check.head.as_str()) {
-      debug!(worktree = %follow_check.worktree, ?head, "the source moved during the check");
+    guard(&follow_check.worktree)?;
+    let now = head_and_tips(git_executor, &follow_check.worktree, &[])?;
+    let head_ref = now
+      .head_ref
+      .as_deref()
+      .map_or(HeadRef::Detached, |name| HeadRef::Branch(name.strip_prefix("refs/heads/").unwrap_or(name).to_string()));
+    if head_ref != follow.head_ref || now.head.as_deref() != Some(follow_check.head.as_str()) {
+      debug!(worktree = %follow_check.worktree, head = ?now.head, "the source moved during the check");
       return Ok(false);
     }
   }
@@ -573,16 +628,20 @@ fn source_worktree(git_executor: &GitCommandExecutor, target: &str, dir: &str) -
 /// target branch, a move that was rolled back or undone being none (`branch_fork_point`), else the merge base when the
 /// shared history is the upstream's
 fn worktree_base(git_executor: &GitCommandExecutor, target: &str, branch: &str, head: &str, source_head: &str, upstream_head: Option<&str>, dir: &str) -> Result<String> {
-  if let Some(upstream_head) = upstream_head
-    && let Some(source_base) = merge_base(git_executor, target, source_head, upstream_head)?
-    && !is_ancestor(git_executor, target, &source_base, head)?
+  // the merge base of the source with the upstream, on the history of HEAD: the fork point is mostly that commit
+  let on_head = match upstream_head {
+    Some(upstream_head) => merge_base(git_executor, target, source_head, upstream_head)?,
+    None => None,
+  };
+  if let Some(source_base) = &on_head
+    && !is_ancestor(git_executor, target, source_base, head)?
   {
     return Err(anyhow::Error::new(PickRefusal::SourceOnNewerBaseline(format!(
       "The worktree {dir} stands on a newer baseline than {branch}: its commits may need what {branch} lacks. Update {branch} first \
        (`brd update`, by the session that owns it), then pick again"
     ))));
   }
-  if let Some(fork_point) = branch_fork_point(git_executor, target, branch, head, source_head)? {
+  if let Some(fork_point) = branch_fork_point(git_executor, target, branch, head, source_head, on_head.as_deref())? {
     return Ok(fork_point);
   }
   let Some(base) = merge_base(git_executor, target, source_head, head)? else {

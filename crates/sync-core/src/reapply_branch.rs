@@ -192,6 +192,8 @@ fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, fu
       expect_branch: None,
       expect_source_head: None,
       prefix: None,
+      target: None,
+      bases: None,
     },
     signing,
   )
