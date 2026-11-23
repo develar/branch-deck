@@ -96,9 +96,9 @@ pass only on a retry is FLAKY and fails the run: a race to fix. `cargo nextest r
 a wall-clock limit an assertion depends on.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, `pnpm e2e` and `pnpm lint:backend` run
-as `brd-host run studio -- <command>` from the lease, in the background; exit 75 but `heavy_timeout` or `superseded`:
-run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait, `--apply`). **One heavy run, one check**: an A/B
-loop or `zsh -c 'a && b'` holds the turn an hour.
+as `brd-host run studio --max 9m -- <command>` from the lease, `brd-host wait` on 124; exit 75 but `heavy_timeout` or
+`superseded`: run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait, `--apply`). **One heavy run,
+one check**: an A/B loop or `zsh -c 'a && b'` holds the turn an hour.
 
 Homebrew `cargo` before rustup in `PATH`: prefix `PATH=$HOME/.cargo/bin:$PATH`.
 

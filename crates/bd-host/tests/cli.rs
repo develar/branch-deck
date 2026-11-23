@@ -860,3 +860,25 @@ fn wait_waits_for_a_run_past_its_max_and_the_next_one_ends_it() {
   assert_eq!(again.status.code(), Some(3), "{}", text(&again.stderr));
   assert!(text(&again.stderr).contains("exited with 3 after "), "{}", text(&again.stderr));
 }
+
+/// `brd-host run --max` of a run that goes on past it exits 124 by itself with an empty stdout, and the run goes on: a
+/// `wait` ends it with the exit code of the command
+#[test]
+fn run_max_leaves_a_run_going_and_a_wait_ends_it() {
+  let world = World::new();
+  let _agent = world.serve();
+  let mut held = start_a_held_run(&world, &["--head", "--max", "1s"], "echo started", "exit 4");
+  let status = held.client.wait().expect("the run of the client");
+  assert_eq!(status.code(), Some(124), "serve: {}", world.serve_log());
+  let mut stdout = String::new();
+  held.client.stdout.take().expect("the stdout").read_to_string(&mut stdout).expect("the stdout");
+  assert_eq!(stdout, "", "the output goes to the log");
+  let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).expect("JSON");
+  let id = listed["runs"][0]["run"].as_str().expect("the run").to_owned();
+  assert_eq!(listed["runs"][0]["exit"], Value::Null, "the run goes on: {listed}");
+
+  fs::remove_file(&held.hold).expect("the hold goes");
+  let waited = world.bd_host(&["wait", ALIAS, &id]);
+  assert_eq!(waited.status.code(), Some(4), "{}\nserve: {}", text(&waited.stderr), world.serve_log());
+  assert!(text(&waited.stderr).contains("\nstarted\n"), "{}", text(&waited.stderr));
+}

@@ -24,7 +24,7 @@ use crate::host::Host;
 use crate::phases::{duration_text, phase, phases_line};
 use crate::record::{RunEnd, RunFiles, RunRecord};
 use crate::report::command_exit_code;
-use crate::run::{Ended, HostRuns, Taken, Watch, ask_within, is_link, vanished};
+use crate::run::{Ended, HostRuns, Taken, Watch, ask_within, is_link, reached_of, vanished};
 use crate::state::RunState;
 use crate::{Client, request_exit};
 use host_link::proto::{Reply, Request, RunInfo, is_run_id};
@@ -116,7 +116,7 @@ impl Client<'_> {
         files.dir().display()
       ));
     }
-    let info = self.wait_for_end(&mut host, run, max, started, &past_max, &left)?;
+    let info = self.wait_for_end(&mut host, run, max, started, &past_max, &|| self.interrupted(), &left)?;
     let end = self.finish(&mut host, run, &checkout, &files, record.as_ref(), &info, &left)?;
     self.say_summary(alias, run, &end, &files, checkout.root(), false);
     Ok(Waited {
@@ -125,9 +125,19 @@ impl Client<'_> {
     })
   }
 
-  /// Asks the agent for the run until it ends, until `past_max`, or until Ctrl+C. Says each change of its state, the
-  /// first one at once
-  fn wait_for_end(&self, host: &mut Host, run: &str, max: Duration, started: Instant, past_max: &dyn Fn() -> bool, left: &dyn Fn() -> Refusal) -> Result<RunInfo, Refusal> {
+  /// Asks the agent for the run until it ends, until `past_max`, or until `stop`, which ends it with `left`. Says each
+  /// change of its state, the first one at once
+  #[expect(clippy::too_many_arguments, reason = "the bounds of one wait: its run, its max from its start, its stop and its words")]
+  pub(crate) fn wait_for_end(
+    &self,
+    host: &mut Host,
+    run: &str,
+    max: Duration,
+    started: Instant,
+    past_max: &dyn Fn() -> bool,
+    stop: &dyn Fn() -> bool,
+    left: &dyn Fn() -> Refusal,
+  ) -> Result<RunInfo, Refusal> {
     let alias = host.alias().to_owned();
     let mut said: Option<RunState> = None;
     // why the last poll got no answer; every poll sets it
@@ -158,10 +168,10 @@ impl Client<'_> {
         Err(refusal) => return Err(refusal),
       }
       let until = Instant::now() + self.timing.state_poll;
-      while Instant::now() < until && !self.interrupted() && !past_max() {
+      while Instant::now() < until && !stop() && !past_max() {
         thread::sleep(self.timing.interrupt_poll.min(until.saturating_duration_since(Instant::now())));
       }
-      if self.interrupted() {
+      if stop() {
         return Err(left());
       }
       if past_max() {
@@ -189,7 +199,7 @@ impl Client<'_> {
   /// Finishes an ended run as `run` does: its output into its log, the files that `record` asks for, its changes, the end
   /// file and the forget. A fetch that fails leaves no end file, so the next wait copies the files again
   #[expect(clippy::too_many_arguments, reason = "the end of one run: its host, its checkout, its files, its record and its end")]
-  fn finish(
+  pub(crate) fn finish(
     &self,
     host: &mut Host,
     run: &str,
@@ -220,11 +230,7 @@ impl Client<'_> {
         ));
       }
     };
-    let reached = if phases.iter().any(|phase| phase.name == "command") {
-      Reached::CommandStarted
-    } else {
-      Reached::Started
-    };
+    let reached = reached_of(&phases);
     let mut end = RunEnd {
       exit: refusal
         .as_ref()
@@ -287,7 +293,7 @@ impl Client<'_> {
 
   /// The summary of an ended run: its end, its steps, its files, its log and the last lines of its output. `again`: the
   /// end of an earlier call, whose changes this call did not apply
-  fn say_summary(&self, alias: &str, run: &str, end: &RunEnd, files: &RunFiles, root: &Path, again: bool) {
+  pub(crate) fn say_summary(&self, alias: &str, run: &str, end: &RunEnd, files: &RunFiles, root: &Path, again: bool) {
     let took = duration_text(end.phases.iter().map(|phase| phase.ms).sum());
     let how = match (&end.refusal, end.command_exit) {
       (Some(refusal), None) => format!("ended with {} after {took} on the host", refusal.code),

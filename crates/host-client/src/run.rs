@@ -39,6 +39,11 @@
 //! A refusal carries the exit of `brd-host` by how far the run came (`host_link::refusal::Reached`): a refusal before the
 //! command exits 75, so the caller can run it locally instead.
 //!
+//! With `RunOptions::max` a run follows no output: after its pack it waits for the end as `brd-host wait` does
+//! (`crate::wait`), at most up to `max` from the start of the call, and leaves past it with `still_running` while the
+//! run goes on, without a cancel, dropping the base sync. At the end it finishes the run as a wait does: the output into
+//! `<run>.log`, the files, the changes, the end and the forget, then the summary.
+//!
 //! Ctrl+C after the start, the build of the pack included, cancels the run on the host. The first press sends `Cancel`
 //! on a thread of its own and stops the pack, and the output follows up to its end. The second press stops the follow
 //! at once. A press after the end of the run closes the connection of the base sync
@@ -117,6 +122,9 @@ pub struct RunOptions {
   /// A measurement that needs a quiet host (`--exclusive`), heavy too: it waits for a quiet host without another heavy
   /// run, and while it runs the other runs of the host wait
   pub exclusive: bool,
+  /// Wait for the end of the run at most this long from the start of the call, as `brd-host wait` does, and leave the
+  /// run going past it (`--max`). The output goes to the log of the run, not to the output sink
+  pub max: Option<Duration>,
 }
 
 /// The runs that an agent keeps, and the heavy turn of its host
@@ -325,6 +333,13 @@ impl Client<'_> {
     // A start whose reply did not come is cancelled, and the checkout of the run waits for a pack that never comes
     self.start(&mut host, spec, &needs).map_err(|refusal| before(refusal, &facts))?;
     (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
+    if let Some(max) = options.max {
+      (self.say)(&format!(
+        "brd-host: this call waits for the end of the run {run} up to {} and then leaves it going; its output goes to {}",
+        crate::phases::duration_text(u64::try_from(max.as_millis()).unwrap_or(u64::MAX)),
+        files.log(&run).display()
+      ));
+    }
     if options.exclusive {
       (self.say)(&format!(
         "brd-host: an exclusive run by --exclusive: on {alias} it waits for a quiet host without another heavy run, and while it runs no heavy run is admitted and each new run that is not heavy waits for its end"
@@ -359,7 +374,10 @@ impl Client<'_> {
         root: &root,
         git_common_dir: &git_common_dir,
       };
-      let following = scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, local, record, files, watch)));
+      let following = options
+        .max
+        .is_none()
+        .then(|| scope.spawn(in_current_span(move || self.follow_and_fetch(&mut followed, run, local, record, files, watch))));
       if let Some(plan) = &plan {
         match self.send_pack(&mut host, &pack, plan, self.say) {
           Ok(steps) => {
@@ -371,7 +389,9 @@ impl Client<'_> {
           Err(refusal) => {
             let refusal = self.abandon(&mut host, run, &format!("the pack did not reach {alias}"), &refusal);
             watch.stop_follow();
-            let _ = following.join();
+            if let Some(following) = following {
+              let _ = following.join();
+            }
             // The checkout waits for the pack, so the command never started
             return Err((refusal, Reached::Nothing, Vec::new()));
           }
@@ -380,14 +400,19 @@ impl Client<'_> {
       let latest = Arc::new(Latest::default());
       let mut synced = host.watched(Arc::clone(&latest));
       let syncing = scope.spawn(in_current_span(move || self.sync_base(&mut synced, &sync)));
-      let finished = following
-        .join()
-        .unwrap_or_else(|_| Err((Refusal::new(Code::Link, "the follow of the run failed"), Reached::Started, Vec::new())));
-      if !syncing.is_finished() {
+      let finished = match (following, options.max) {
+        (Some(following), _) => following
+          .join()
+          .unwrap_or_else(|_| Err((Refusal::new(Code::Link, "the follow of the run failed"), Reached::Started, Vec::new()))),
+        (None, max) => self.wait_bounded(&mut host, run, max.unwrap_or_default(), started, &checkout, files, record),
+      };
+      // a call that leaves the run going leaves the sync too
+      let leaves = matches!(&finished, Err((refusal, ..)) if refusal.code == Code::StillRunning);
+      if !syncing.is_finished() && !leaves {
         (self.say)(&format!("> {alias}: the sync of the base of the next packs goes on; Ctrl+C stops it"));
       }
       while !syncing.is_finished() {
-        if self.interrupted() {
+        if leaves || self.interrupted() {
           latest.close();
         }
         thread::sleep(self.timing.interrupt_poll);
@@ -408,15 +433,16 @@ impl Client<'_> {
     };
     let code = finished.followed.code;
     if let Some(done) = finished.done {
-      // a wait of this checkout finished the run while this process followed it
-      facts.phases.extend(done.phases);
+      // a wait of this checkout finished the run while this process followed it, or this process waited as a wait does
+      facts.phases.extend(done.phases.iter().cloned());
       facts.fetched = done.fetched;
       facts.applied_files = done.applied_files;
       facts.phases.push(phase("total", started.elapsed()));
+      let reached = reached_of(&done.phases);
       return match done.refusal {
         Some(refusal) => Err(RunFailure {
           command_exit: done.command_exit,
-          exit: refusal.code.exit(Reached::CommandStarted),
+          exit: refusal.code.exit(reached),
           refusal,
           facts,
         }),
@@ -723,6 +749,71 @@ impl Client<'_> {
       lock,
       forgotten,
       done: None,
+    })
+  }
+
+  /// Waits for the end of a started run as `brd-host wait` does, up to `max` from `started`, then finishes it by `record`
+  /// and says its summary. The first Ctrl+C cancels the run and the wait goes on; the second one leaves. The end is the
+  /// `done` of the answer
+  #[expect(clippy::too_many_arguments, reason = "the run, its bound and its checkout")]
+  fn wait_bounded(
+    &self,
+    host: &mut Host,
+    run: &str,
+    max: Duration,
+    started: Instant,
+    checkout: &Checkout,
+    files: &RunFiles,
+    record: &RunRecord,
+  ) -> Result<Finished, (Refusal, Reached, Vec<Phase>)> {
+    let alias = host.alias().to_owned();
+    let past_max = || self.past_max.map_or_else(|| started.elapsed() >= max, |past| past());
+    let ended = Arc::new(AtomicBool::new(false));
+    let canceller = host.clone();
+    let cancel: Mutex<Option<mpsc::Receiver<String>>> = Mutex::new(None);
+    let stop = || {
+      let presses = (self.presses)();
+      let mut cancel = cancel.lock().unwrap_or_else(PoisonError::into_inner);
+      if presses >= 1 && cancel.is_none() {
+        (self.say)(&format!(
+          "brd-host: Ctrl+C, SIGTERM or SIGHUP: cancelling the run {run} on {alias}; this call waits for its end. A second one leaves"
+        ));
+        *cancel = Some(start_cancel(canceller.clone(), run.to_owned(), self.timing, Arc::clone(&ended)));
+      }
+      if let Some(lines) = cancel.as_ref() {
+        while let Ok(line) = lines.try_recv() {
+          (self.say)(&line);
+        }
+      }
+      presses >= 2
+    };
+    let left = || {
+      Refusal::new(
+        Code::Interrupted,
+        format!("a second Ctrl+C left the wait of the run {run}; {alias} has its cancel: `brd-host wait {alias} {run}` shows its end"),
+      )
+    };
+    let unseen = |refusal: Refusal| (refusal, Reached::Started, Vec::new());
+    let info = self.wait_for_end(host, run, max, started, &past_max, &stop, &left).map_err(unseen)?;
+    ended.store(true, Ordering::Release);
+    // a `brd-host wait` of this checkout can finish the run at the same time
+    let _lock = files.lock(run, None, self.timing.interrupt_poll, &|| false).map_err(unseen)?;
+    let (end, again) = match files.read_end(run).map_err(unseen)? {
+      Some(end) => (end, true),
+      None => (self.finish(host, run, checkout, files, Some(record), &info, &left).map_err(unseen)?, false),
+    };
+    self.say_summary(&alias, run, &end, files, checkout.root(), again);
+    Ok(Finished {
+      followed: Followed {
+        code: end.command_exit.unwrap_or_default(),
+        stdout: Vec::new(),
+        phases: Vec::new(),
+      },
+      fetched: Ok(Fetched::default()),
+      fetch: None,
+      lock: None,
+      forgotten: end.forgotten,
+      done: Some(end),
     })
   }
 
@@ -1179,6 +1270,15 @@ fn sleep_unless(time: Duration, poll: Duration, stop: &AtomicBool) {
       return;
     }
     thread::sleep(left.min(poll));
+  }
+}
+
+/// How far a run came by the steps of the host: past the start, or into its command
+pub(crate) fn reached_of(phases: &[Phase]) -> Reached {
+  if phases.iter().any(|phase| phase.name == "command") {
+    Reached::CommandStarted
+  } else {
+    Reached::Started
   }
 }
 

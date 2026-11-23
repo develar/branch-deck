@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`brd-host run studio`)
 
 **Status:** Active  
-**Updated:** 2026-11-16  
+**Updated:** 2026-11-23  
 **Tags:** [tests, e2e, nextest, studio, brd-host]
 
 ## Summary
@@ -75,9 +75,11 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   measured), …; a wait, not a hang: …` at once
   and once a minute. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
   (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
-  later. A run that is not heavy goes at once. Start a heavy run in the background (`run_in_background`) and follow
-  its output: SIGTERM and SIGHUP of the client cancel the run there, as Ctrl+C does, so the 10 min timeout of a
-  foreground call would cancel it.
+  later. A run that is not heavy goes at once. Start a run that can take minutes as `brd-host run studio --max 9m -- <command>`
+  and, while it exits 124 (`still_running`), `brd-host wait studio <run>`: each call says only the changes of the state
+  of the run and ends before the 10 min of a tool call, the run goes on past it, and the end gives a summary with the
+  path of the log of the whole output. SIGTERM and SIGHUP of `brd-host run` cancel the run there, as Ctrl+C does, so
+  never a `timeout` wrapper, a run in the background with a marker file, or a `brd-host follow` loop.
 - **One heavy run is one check**: `cargo nextest run --workspace`, `pnpm lint:backend`, `pnpm e2e` and each side of an
   A/B comparison are runs of their own, each with `--heavy` when `[host]` does not name it. A bundle (`zsh -c 'pnpm
   test:unit && for i in 1 2 3 4; do pnpm e2e …; done && pnpm e2e:webkit && …'`) held the turn for 1 h 19 min on

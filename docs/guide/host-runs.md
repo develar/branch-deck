@@ -244,7 +244,8 @@ heavy runs went first, a long `slot` that every slot was busy, a long `prepare` 
 The first Ctrl+C cancels the run on the host and shows the output to its end. `brd-host follow`, `wait`, `cancel`,
 `fetch` and `forget` take the run id. The host keeps an ended run for 24 h.
 
-`brd-host wait studio <run> [--max 9m]`, in the checkout of the run, waits for its end in one call of at most `--max`
+`brd-host run studio --max 9m -- <command>` starts a run and waits for it in the same way, its output into the log
+instead of the terminal. `brd-host wait studio <run> [--max 9m]`, in the checkout of the run, waits for its end in one call of at most `--max`
 (9 min by default): it says only each change of the state of the run, then copies its files as `run` does, puts its
 output into `<git dir>/branch-deck/host/runs/<run>.log`, and ends with a summary and the last 30 lines of the output.
 Past `--max` it exits 124 and the run goes on; the next `wait` goes on waiting. A `wait` after the end answers again

@@ -760,6 +760,7 @@ const APPLY: RunOptions = RunOptions {
   repo_by_name: false,
   heavy: false,
   exclusive: false,
+  max: None,
 };
 
 /// The patch of the changes of a command applies to the files of the working tree, not to the index, and stays in the
@@ -1568,4 +1569,106 @@ fn a_run_that_a_wait_finished_first_reports_its_end_and_fetches_nothing() {
   let end = files.read_end(&run).unwrap().expect("the end of the run");
   assert_eq!((end.exit, end.command_exit, end.forgotten), (4, Some(4), true));
   assert_eq!(end.fetched, outcome.facts.fetched);
+}
+
+/// The answer of an agent to `Runs`: the run of the start that reached it, with `phases` ended and `exit`
+fn runs_reply(setup_requests: &Mutex<Vec<Request>>, phases: &[&str], exit: Option<i32>) -> Reply {
+  let run = setup_requests
+    .lock()
+    .unwrap_or_else(PoisonError::into_inner)
+    .iter()
+    .find_map(|request| match request {
+      Request::Start(spec) => Some(spec.run.clone()),
+      _ => None,
+    })
+    .unwrap_or_default();
+  Reply::Runs {
+    runs: vec![RunInfo {
+      run,
+      affinity: AFFINITY.to_owned(),
+      commit: String::new(),
+      command: command(),
+      started_ms: 0,
+      ended_ms: None,
+      exit,
+      phases: phases.iter().map(|name| step(name, 1)).collect(),
+      fetch: fetch(),
+      forgotten: false,
+      refused: None,
+      cores: None,
+    }],
+    heavy: None,
+  }
+}
+
+/// An agent whose run answers `Runs` with the ended steps `phases` and `exit`, for a run with `--max`
+fn agent_polled(phases: &'static [&'static str], exit: Option<i32>) -> Setup {
+  let Commits { repo, first, .. } = two_commits();
+  let requests: Arc<Mutex<Vec<Request>>> = Arc::default();
+  let seen = Arc::clone(&requests);
+  let (setup, _) = agent(repo, known(vec![first]), move |request, channel| {
+    seen.lock().unwrap_or_else(PoisonError::into_inner).push(request.clone());
+    match request {
+      Request::Runs => {
+        let _ = channel.send(&runs_reply(&seen, phases, exit));
+        true
+      }
+      Request::Follow { .. } => {
+        output(channel, Stream::Stdout, "ran", 3);
+        let _ = channel.send(&Reply::Phases { phases: vec![step("command", 7)] });
+        let _ = channel.send(&Reply::Exit { code: exit.unwrap_or_default() });
+        true
+      }
+      _ => false,
+    }
+  });
+  setup
+}
+
+/// A run with `--max` follows no output: past its max it leaves the run going with `still_running` (124) and sends no
+/// cancel and no follow; the pack reached the host before it left
+#[test]
+fn run_max_leaves_past_its_max_without_a_cancel_and_never_before_its_pack() {
+  let setup = agent_polled(&["slot", "prepare"], None);
+  let past = || true;
+  let processes = FakeProcesses::default();
+  let options = RunOptions {
+    max: Some(Duration::from_mins(9)),
+    ..RunOptions::default()
+  };
+  let failure = run_by(&setup.client(&processes, &|_| {}, &calm).with_past_max(&past), &setup, &fetch(), options).unwrap_err();
+  assert_eq!(
+    (failure.refusal.code, failure.exit),
+    (Code::StillRunning, Exit::StillRunning),
+    "{}",
+    failure.refusal.message
+  );
+  assert!(failure.refusal.message.contains("it runs its command"), "{}", failure.refusal.message);
+  let kinds = kinds(&setup);
+  assert!(kinds.contains(&"pack") && kinds.contains(&"runs"), "{kinds:?}");
+  assert!(!kinds.contains(&"cancel") && !kinds.contains(&"follow") && !kinds.contains(&"forget"), "{kinds:?}");
+  assert!(failure.facts.phases.iter().any(|phase| phase.name == "upload"), "{:?}", failure.facts.phases);
+}
+
+/// A run with `--max` whose run ends in time finishes it as a wait does: its output into the log of the run and not to
+/// the stdout, its files, its end and its forget, and the exit code of the command
+#[test]
+fn run_max_finishes_a_run_that_ends_in_time_as_a_wait_does() {
+  let setup = agent_polled(&["slot", "prepare", "command"], Some(5));
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  let options = RunOptions {
+    max: Some(Duration::from_mins(9)),
+    ..RunOptions::default()
+  };
+  let outcome = run_in(&setup, &say, &calm, &fetch(), options).unwrap();
+  assert_eq!(outcome.code, 5);
+  assert_eq!(outcome.stdout, b"", "the output goes to the log");
+  assert_eq!(outcome.facts.fetched, ["out/bt-runs/0000000002000/test.log"]);
+  let run = outcome.facts.run.expect("the run");
+  let files = RunFiles::new(&setup.repo.path().join(".git").join(STATE_DIR).join("host/runs")).unwrap();
+  assert_eq!(std::fs::read_to_string(files.log(&run)).unwrap(), "ran\n");
+  assert!(files.read_end(&run).unwrap().expect("the end").forgotten);
+  assert_eq!(kinds(&setup).last(), Some(&"forget"));
+  assert!(said.lines().iter().any(|line| line.ends_with(&format!("run {run} ended on studio"))), "{:#?}", said.lines());
 }

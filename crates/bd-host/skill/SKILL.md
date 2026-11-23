@@ -32,8 +32,19 @@ of this machine instead of the checkout of the session, and no pack travels.
 
 ```sh
 brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--exclusive] [--nice <0-19>]
-               [--repo <path>] [--affinity <key>] [--report-fd <n>] -- <command> <args>
+               [--repo <path>] [--affinity <key>] [--max <duration>] [--report-fd <n>] -- <command> <args>
 ```
+
+An agent starts every run that can take minutes as `brd-host run <host> --max 9m -- <command>`, in the foreground, and
+while it exits 124 (`still_running`) runs `brd-host wait <host> <run>` with the run id of its first line (see "Wait for
+a run"). Never a `timeout` wrapper, a run in the background with a poll of a marker file, a `brd-host follow` loop, or
+`brd-host runs | grep`.
+
+- `--max <duration>` waits for the end at most this long from the start of the call, as `brd-host wait` does: it says
+  only each change of the state of the run, puts the output into the log of the run instead of stdout, and ends with
+  the summary of a wait. Past it the call exits 124 and the run goes on, without a cancel. It never leaves before the
+  pack reached the host, and the fetch after the end takes its own time, so 9m leaves a minute to the 10 min of a tool
+  call. Ctrl+C cancels the run as without it.
 
 - `brd-host` ships the working tree as it is: HEAD plus the tracked and untracked changes that git does not ignore, as
   one commit. Your index, files and refs stay as they are. Ignored files stay local, and the host has its own.
@@ -115,14 +126,13 @@ and more, while the fast lanes and the checks of other sessions wait; between ru
 A heavy run that waits is superseded by a later run of the same checkout and the same command (the words it runs,
 without `nice` or `time` before them): the later run says `brd-host: replaces run <run>, which waited <time> …` and takes
 its place, and the waiting run ends with `superseded` (exit 75), before its lend, so nothing of it ran. Never run a
-superseded run again, here or there: `brd-host follow <host> <later run>` follows the one that replaced it. A run that
+superseded run again, here or there: `brd-host wait <host> <later run>` waits for the one that replaced it. A run that
 holds the turn is never superseded. `brd-host: run <run> of this checkout also waits for the heavy turn, …: <command>`
 says that your checkout queued another command: cancel the one you no longer need.
 
-A heavy run can wait long, so start it in the background (`run_in_background` of a coding agent), keep its run id from
-its first line, and wait for it with `brd-host wait <host> <run>` (see "Wait for a run"), rather than in a call that a
-tool kills at its timeout. SIGTERM and SIGHUP cancel the run on the host as Ctrl+C does; SIGKILL leaves it going:
-`brd-host cancel <host> <run>` then.
+A heavy run can wait long for its turn, so start it with `--max 9m` and wait for it with `brd-host wait <host> <run>`,
+rather than in a call that a tool kills at its timeout: SIGTERM and SIGHUP cancel the run on the host as Ctrl+C does;
+SIGKILL leaves it going: `brd-host cancel <host> <run>` then.
 
 `bt --host <host> <the usual bt args>` runs a test of the IntelliJ monorepo the same way. It ships the working tree,
 HEAD plus the local changes as one commit, as `brd-host run` does. The new run directories of `out/bt-runs` come back.
@@ -177,8 +187,8 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 | The code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Never locally: `brd-host runs <host>`, then run it again later. |
-| 75 with `superseded` | A later run of your checkout and command took its place before it started: nothing ran. | Never run it again: `brd-host follow <host> <later run>`, which the message names. |
-| 124 with `still_running` | `brd-host wait` passed its `--max`; the run goes on, and nothing was cancelled. | `brd-host wait <host> <run>` again. A command that itself exits 124 has no `still_running` line. |
+| 75 with `superseded` | A later run of your checkout and command took its place before it started: nothing ran. | Never run it again: `brd-host wait <host> <later run>`, for the later run that the message names. |
+| 124 with `still_running` | `brd-host wait` or `run --max` passed its `--max`; the run goes on, and nothing was cancelled. | `brd-host wait <host> <run>` again. A command that itself exits 124 has no `still_running` line. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
 | 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
@@ -286,7 +296,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
-| `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: follow the later run that the message names. |
+| `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: wait for the later run that the message names. |
 | `local_changes` | `--head` with uncommitted or untracked changes. Commit first, or run without `--head`. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |

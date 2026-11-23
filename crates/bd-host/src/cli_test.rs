@@ -31,6 +31,7 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
       repo_by_name: true,
       heavy: false,
       exclusive: false,
+      max: None,
     }
   );
   assert_eq!(
@@ -43,6 +44,7 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
       repo_by_name: true,
       heavy: false,
       exclusive: false,
+      max: None,
     }
   );
   assert!(options_of(&["brd-host", "run", "studio", "--heavy", "--", "make"]).heavy, "--heavy");

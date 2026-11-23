@@ -250,7 +250,8 @@ The tool of a coding agent ends a call after 10 min, and a SIGTERM or SIGHUP of 
 Ctrl+C does, so a run is never left to wait for its slot for nobody. An agent therefore started its heavy runs in the
 background and waited by hand: on 2026-11-23, 93 follows in `timeout 59x`, 59 polls of a marker file, 82 `brd-host runs
 | grep` and 92 `grep -v` of the lines of the heavy turn in one day (#258). `brd-host wait <alias> <run> [--max 9m]`
-waits in calls that end before the tool does (`host_client::wait`).
+waits in calls that end before the tool does (`host_client::wait`), and `brd-host run … --max 9m` starts a run and
+waits for it the same way, so a run of minutes takes one call and a longer one a few.
 
 - **Polls, not a follow**: a wait asks the agent for its runs (`Request::Runs`) every 5 s, each on a new connection,
   so a lost link costs one poll and no reconnect logic. The agent writes the steps that have ended to `phases.json` at
@@ -270,6 +271,9 @@ waits in calls that end before the tool does (`host_client::wait`).
 - **Resumable**: `--max` bounds the wait for the end, not the fetch after it, so a large fetch can outlast a call. A
   fetch that fails writes no end, and the next wait fetches again; the end file says what came, and a later wait
   only forgets a run that the call before could not.
+- **`run --max` follows no output**: after its pack, which it never leaves before, a bounded run polls as a wait does
+  and finishes the run through the same finisher. A flag of its own (`--wait`) would only switch on what `--max` says
+  already, so the bound is the switch.
 - **124 only for a host that answered**: past `--max` a wait exits 124 (`still_running`) and the run goes on. A host
   that answered no poll in the whole call is `timed_out` (255), so a host that is down never keeps an agent waiting
   call after call, and nothing is kept between the calls.

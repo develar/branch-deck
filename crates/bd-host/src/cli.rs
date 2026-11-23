@@ -201,6 +201,10 @@ struct RunArgs {
   /// Write one JSON report of the run to this open descriptor on every way out
   #[arg(long, value_name = "N")]
   report_fd: Option<i32>,
+  /// Wait for the end of the run at most this long, such as `9m`, as `brd-host wait` does: the output goes to the log of
+  /// the run, and past it the call exits 124 and the run goes on
+  #[arg(long, value_name = "DURATION", value_parser = parse_max)]
+  max: Option<Duration>,
   /// The command and its arguments, after `--`
   #[arg(last = true, required = true)]
   command: Vec<String>,
@@ -412,6 +416,7 @@ const fn run_options(args: &RunArgs) -> RunOptions {
     repo_by_name: args.repo.is_none(),
     heavy: args.heavy,
     exclusive: args.exclusive,
+    max: args.max,
   }
 }
 
@@ -458,6 +463,8 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     fetch: &args.fetch,
   };
   let report = match client.run(&args.alias, &request, run_options(args)) {
+    // a bounded run said its summary
+    Ok(outcome) if args.max.is_some() => RunReport::of_outcome(&args.alias, &outcome),
     Ok(outcome) => {
       let facts = &outcome.facts;
       if !facts.fetched.is_empty() {
@@ -473,7 +480,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     }
     Err(failure) => {
       refuse(&failure.refusal);
-      if !failure.facts.phases.is_empty() {
+      if !failure.facts.phases.is_empty() && args.max.is_none() {
         say(&phases_line(&failure.facts.phases));
       }
       RunReport::of_failure(&args.alias, &failure)
