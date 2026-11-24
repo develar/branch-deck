@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.23.0](https://github.com/develar/branch-deck/compare/v1.22.1...v1.23.0) (2026-11-24)
+
+
+### Features
+
+* **app-api:** a window is its connection and its label, a command takes the desktop of its window's connection, the events of the app go to every connection, and the requests for branch names and the search of a conflict fix are one per window ([63fe1a1](https://github.com/develar/branch-deck/commit/63fe1a1e027aa785c40a8e0091cf7bd62272b92d))
+* **app:** the app starts without a window (--background) and outlives its last window and Quit while an IDE is connected, exits 30 s after the last connection, and shows its main window again by Reopen and showMain ([b8d745e](https://github.com/develar/branch-deck/commit/b8d745e56f1ebb205b6426eaea69611bca775d8e))
+* **backend:** backend-host, the one backend of a user: an AHP-shaped host of app-api with the repository channels, the root commands and their fence, the Desktop of a client, the in-process transport and the local socket ([4c9cdbf](https://github.com/develar/branch-deck/commit/4c9cdbfe8782d0a9b4f34aef9e0348649e739e91))
+* **patronus:** the session estimates how long each running robot takes, over the history of the repository's finished robots in its object cache, so every window says the same time ([2c9a8cb](https://github.com/develar/branch-deck/commit/2c9a8cb7759221f1ae4dcaa6ce56fe975e8a4a07))
+
+
+### Bug Fixes
+
+* **app:** the update check of the app without a window asks the desktop of the app's own connection, as `AppContext::desktop` is by connection since 420056ad5 ([f6165f7](https://github.com/develar/branch-deck/commit/f6165f76abfdf86a4ae055f204625a0fb15c5f25))
+* **bd:** a command that an answer's message names for the repository is `brd -C <repo> …` as its step, so the text of `approvals_missing` and its `next_steps` name the same `--create-pull-request` ([e8b24d2](https://github.com/develar/branch-deck/commit/e8b24d25eba7d731872996b9d93f16b137f16270))
+* **host:** the tests of brd-host compare a line that says a measured time by its shape, so a loaded host no longer fails the total of brd-host wait ([5c62dc1](https://github.com/develar/branch-deck/commit/5c62dc15344b0daaa11cff2bcd898cd774c817c7))
+* **lease:** a lease pick whose update resolved the conflict by words lands nothing and names the merged files, so a merge of words that no build saw never reaches master ([dc8415a](https://github.com/develar/branch-deck/commit/dc8415a1472ebdfcbdb002d79cee0e7337f1cfd2))
+* **move:** the entries a move by the small index puts back keep the stat data of their files where a local edit of a .gitattributes says other than the attributes the merge wrote them by, as on the whole index ([2d5bf25](https://github.com/develar/branch-deck/commit/2d5bf25cbce5e086c7970e195608ffd6eb36d913))
+* **pick:** a check under the repository lock whose moves meet the index lock of another process waits for it outside the lock and checks under it again, so a pick whose witness missed after a wait no longer waits for git's lock under branch-deck.lock ([687c9b4](https://github.com/develar/branch-deck/commit/687c9b4dcea834c6e4ba466e5e5f88495904c1b2))
+* **update:** `next` of `brd update --continue` in a lease is `brd -C <lease> lease pick` with one `-C`, and every command brd names for a worktree gets its `-C` from `in_worktree` only, its brd `brd -C <repo>` also when the binary is unknown ([123bc20](https://github.com/develar/branch-deck/commit/123bc20ccae8b1eb324881edfd6550bfefec862b))
+
+
+### Performance Improvements
+
+* **move:** in an index file of 16 MB or more the files of a move follow, and its exact dry run runs, by an index of the paths it changes, cut out of the user's index and put back under the index lock the move holds ([bde56be](https://github.com/develar/branch-deck/commit/bde56be5e9409f2998d1c1b55b67859cde304de2))
+
 ## [1.22.1](https://github.com/develar/branch-deck/compare/v1.22.0...v1.22.1) (2026-11-23)
 
 
