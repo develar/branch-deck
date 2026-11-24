@@ -54,12 +54,25 @@ const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineI
 const InlineAmendChangesInput = lazy(() => import("@/components/branch/InlineAmendChangesInput").then(it => ({ default: it.InlineAmendChangesInput })))
 const InlineUngroupConfirm = lazy(() => import("@/components/branch/InlineUngroupConfirm").then(it => ({ default: it.InlineUngroupConfirm })))
 const InlineCloseStackPullRequest = lazy(() => import("@/components/branch/InlineCloseStackPullRequest").then(it => ({ default: it.InlineCloseStackPullRequest })))
+const InlineShownReviewers = lazy(() => import("@/components/branch/InlineShownReviewers").then(it => ({ default: it.InlineShownReviewers })))
+const InlineCloseShownReview = lazy(() => import("@/components/branch/InlineCloseShownReview").then(it => ({ default: it.InlineCloseShownReview })))
 const InlineUnapplyConfirm = lazy(() => import("@/components/branch/InlineUnapplyConfirm").then(it => ({ default: it.InlineUnapplyConfirm })))
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
 
 const columnCount = 4
 
-const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request", "park", "need"])
+const inlineFormTypes: ReadonlySet<InlineActionType> = new Set([
+  "issue-reference",
+  "rename",
+  "amend-changes",
+  "unapply",
+  "ungroup",
+  "close-stack-pull-request",
+  "shown-reviewers",
+  "close-shown-review",
+  "park",
+  "need",
+])
 
 export interface BranchRowProps {
   name: string
@@ -303,6 +316,8 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "unapply" && <InlineUnapplyConfirm key={`unapply:${name}`} branchName={name} />}
               {activeInline.type === "ungroup" && <InlineUngroupConfirm key={`ungroup:${name}`} branchName={name} />}
               {activeInline.type === "close-stack-pull-request" && <InlineCloseStackPullRequest key={`close-stack-pull-request:${name}`} root={name} />}
+              {activeInline.type === "shown-reviewers" && <InlineShownReviewers key={`shown-reviewers:${name}`} branchName={name} />}
+              {activeInline.type === "close-shown-review" && <InlineCloseShownReview key={`close-shown-review:${name}`} branchName={name} />}
               {activeInline.type === "park" && <InlineParkBranchInput key={`park:${name}`} branchName={name} />}
               {activeInline.type === "need" && <InlineNeedInput key={`need:${name}`} branchName={name} />}
             </Suspense>

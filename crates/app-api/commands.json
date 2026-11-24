@@ -259,6 +259,11 @@
     "transport": "json"
   },
   {
+    "name": "get_show_reviewers",
+    "class": "read",
+    "transport": "json"
+  },
+  {
     "name": "get_robot_stats",
     "class": "read",
     "transport": {

@@ -15,6 +15,8 @@ export type InlineActionType =
   | "squash-fixups"
   | "ungroup"
   | "close-stack-pull-request"
+  | "shown-reviewers"
+  | "close-shown-review"
   | "park"
   | "need"
 

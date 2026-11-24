@@ -111,7 +111,7 @@ export function SafePushAskPopover({ ask, anchor }: { ask: SafePushAsk | null; a
   }
   return (
     <Suspense fallback={null}>
-      <SafePushPopover key={`${ask.mode}:${ask.profileId ?? ""}:${ask.bypassReview === true}`} ask={ask} anchor={anchor} />
+      <SafePushPopover key={`${ask.mode}:${ask.profileId ?? ""}:${ask.bypassReview === true}:${ask.requestReview === true}`} ask={ask} anchor={anchor} />
     </Suspense>
   )
 }

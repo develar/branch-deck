@@ -124,4 +124,26 @@ describe("the Status cell of a branch row", () => {
     // a sync lays over it as over any fact
     expect(presentRowCell(rowStatus({ kind: "wait" }), context({ ...branch, status: "Syncing" }))).toMatchObject({ kind: "text" })
   })
+
+  it("marks the review after landing beside what landed the branch, its hover whose move it is in each state", () => {
+    const auth = testBranch("auth", null, { remoteStatus: testRemoteStatus() })
+    const mark = (state: Extract<RowFact, { kind: "shown" }>["state"]) => presentRowMark(rowStatus({ kind: "landed" }, [{ kind: "shown", number: 12, state }]), context(auth))
+    expect([
+      mark({ kind: "draft" }),
+      mark({ kind: "inReview", waiting: ["alice", "bob"] }),
+      mark({ kind: "changesRequested", by: ["alice"] }),
+      mark({ kind: "extending", robot: "r2" }),
+      mark({ kind: "approved", by: ["alice"] }),
+    ]).toEqual([
+      { color: "warning", lines: ["#12 opens for review once the Safe Push of auth merges"] },
+      { color: "warning", lines: ["In review after landing: waits for alice and bob in #12"] },
+      { color: "error", lines: ["alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review"] },
+      { color: "warning", lines: ["A fix of auth lands: #12 takes it once its Safe Push merged and asks its reviewers again"] },
+      { color: "success", lines: ["Approved by alice in #12: it closes with its branches"] },
+    ])
+    // the preview names the first fact that is not a robot: the review where nothing else is said
+    expect(presentPreviewStatus(rowStatus(null, [{ kind: "shown", number: 12, state: { kind: "changesRequested", by: ["alice"] } }]), context(auth)).text).toBe(
+      "changes requested after landing",
+    )
+  })
 })

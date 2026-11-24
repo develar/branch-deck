@@ -40,7 +40,7 @@ use domain_types::landing::Subject;
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind};
 use domain_types::operation::{Intent, OperationId, OperationStep, Origin, PullRequestField, PushScope, Resource, RunningOperation};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView};
+use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView, ShownReview};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{RestartAction, RobotRestart};
 use domain_types::rewrite::{AutosquashScope, RewriteIntent};
@@ -115,10 +115,15 @@ pub struct BranchFacts<'a> {
   pub merge_route: bool,
   /// Its remote actions read a frame nobody checked yet (`on_cached_frame`)
   pub cached: bool,
+  /// What its Safe Push lands, root first (`LandDecision::lands` of the view): more than the branch refuses a review
+  /// after landing; empty while the view has no decision of it
+  pub lands: &'a [String],
+  /// Its review after landing, open or a draft (`PullRequestsView::shown_reviews`, its state settled by the robots)
+  pub shown: Option<&'a ShownReview>,
 }
 
 /// The most actions a branch offers: the vector of them is sized once (every row of every patch of a view derives them)
-const BRANCH_ACTIONS: usize = 25;
+const BRANCH_ACTIONS: usize = 27;
 
 /// The actions of a branch, in the order of the enum
 #[must_use]
@@ -149,6 +154,10 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   if let Some(without_review) = step.without_review.as_ref().filter(|_| !facts.push_route) {
     offer(ActionId::SafePushWithoutReview, without_review.blocker.as_ref().map(of_step));
   }
+  // a review after landing opens with a Safe Push of Patronus, as a pull request of GitHub
+  if !facts.push_route && !facts.merge_route && !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && facts.repository {
+    offer(ActionId::SafePushRequestReview, show_blocker(facts));
+  }
   offer(ActionId::Push, push_blocker(facts));
   if let Some(children) = &facts.children {
     offer(ActionId::PushWithChildren, children_blocker(facts, children));
@@ -163,6 +172,10 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   }
   if let Some(open) = facts.open_pull_request {
     offer(ActionId::RequestReview, review_request_blocker(open, facts.first_push));
+  } else if facts.shown.is_some() {
+    // its review is the one after landing: Request Review… asks more reviewers of it, Close Review… ends it
+    offer(ActionId::RequestShownReview, None);
+    offer(ActionId::CloseShownReview, None);
   } else if facts.repository {
     // its place from the first view where git names the GitHub repository: the review is asked on a pull request
     offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
@@ -229,6 +242,31 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   checked(actions, facts.cached)
 }
 
+/// Why the Safe Push with a review after landing of the branch can't start, as the plan of its start refuses it
+/// (`land::show_blockers`, with the reasons of the Safe Push): its review after landing open already, an open pull
+/// request (its review is there), more than the branch to land, approvals the code owners must give before it lands;
+/// else what holds its Safe Push back. Nobody to ask is the popover's: the user picks the reviewers there
+fn show_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
+  let rule = |reason| Some(ActionBlocker::Rule { reason });
+  if let Some(review) = facts.shown.filter(|review| !review.pull_request.is_draft) {
+    return rule(Reason::ShowReviewOpen {
+      number: review.pull_request.number,
+    });
+  }
+  if let Some(open) = facts.open_pull_request {
+    return rule(Reason::ShowWithPullRequest { number: open.number });
+  }
+  if facts.lands.len() > 1 {
+    return rule(Reason::ShowLandsStack { lands: facts.lands.to_vec() });
+  }
+  if let StepKind::CreatePullRequest { groups, .. } = &facts.step.kind {
+    return rule(Reason::ShowNeedsApprovals {
+      groups: groups.iter().map(|group| group.name.clone()).collect(),
+    });
+  }
+  facts.step.safe_push.as_ref().map(of_step)
+}
+
 /// Why Request Review… asks nobody while GitHub lists no open pull request of the subject: the listing is to come, or
 /// GitHub can't give it (the pull requests are unknown then), or it lists none
 fn no_open_pull_request(listing: Listing<'_>) -> ActionBlocker {
@@ -257,11 +295,12 @@ pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a Fact
 /// The actions that write the remote: a push, a start (a robot's, a push into the target, a merge of the pull request
 /// and its auto-merge), a restart or a cancel of a robot, a pull request, its base and its close, a review request, a
 /// review
-const REMOTE: [ActionId; 24] = [
+const REMOTE: [ActionId; 27] = [
   ActionId::SafePush,
   ActionId::SafePushWithProfile,
   ActionId::DryRun,
   ActionId::SafePushWithoutReview,
+  ActionId::SafePushRequestReview,
   ActionId::Push,
   ActionId::PushWithChildren,
   ActionId::PushToBaseline,
@@ -270,6 +309,8 @@ const REMOTE: [ActionId; 24] = [
   ActionId::RequestReview,
   ActionId::RetargetPullRequest,
   ActionId::CreatePullRequest,
+  ActionId::RequestShownReview,
+  ActionId::CloseShownReview,
   ActionId::SafePushWholeStack,
   ActionId::DryRunWholeStack,
   ActionId::SafePushMainLine,

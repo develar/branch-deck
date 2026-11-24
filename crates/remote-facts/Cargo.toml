@@ -16,6 +16,7 @@ git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
+codeowners = { path = "../codeowners" }
 github = { path = "../github" }
 youtrack = { path = "../youtrack" }
 cli-tools = { path = "../cli-tools" }

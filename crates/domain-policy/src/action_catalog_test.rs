@@ -193,6 +193,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::DryRun
       | ActionId::CheckApprovals
       | ActionId::SafePushWithoutReview
+      | ActionId::SafePushRequestReview
       | ActionId::Push
       | ActionId::PushWithChildren
       | ActionId::PickRemoteCommits
@@ -205,6 +206,8 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::RetargetPullRequest
       | ActionId::LinkGithubStack
       | ActionId::CreatePullRequest
+      | ActionId::RequestShownReview
+      | ActionId::CloseShownReview
       | ActionId::Rename
       | ActionId::MoveTo
       | ActionId::StackOn

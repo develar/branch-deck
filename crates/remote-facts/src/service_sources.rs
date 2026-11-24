@@ -12,6 +12,7 @@ use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_req
 use crate::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, readiness_inputs};
 use crate::review_requests::list_review_requests;
 use crate::reviews::search_closed_reviews;
+use crate::show_reviewers::CodeOwnersAccess;
 use crate::sign_in::SignIns;
 use domain_policy::reviews::gone_links;
 use domain_types::error::{ApiError, ErrorCode};
@@ -56,6 +57,18 @@ pub trait ServiceHost: Send + Sync + 'static {
   /// # Errors
   /// Why there is none (the E2E server stopped)
   fn github(&self, key: &SessionKey) -> Result<Arc<GitHubService>, ApiError>;
+
+  /// The `CodeOwners` service of the session of `key` with the Space token of Patronus, which the default reviewers of a
+  /// review after landing are looked up in (`show_reviewers`); a host without one answers why
+  ///
+  /// # Errors
+  /// `not_logged_in` without a Space token, a host without the service
+  fn codeowners(&self, _key: &SessionKey) -> Result<CodeOwnersAccess, ApiError> {
+    Err(ApiError::new(
+      ErrorCode::InvalidArguments,
+      "No CodeOwners service here: the app and brd look up the code owners",
+    ))
+  }
 
   /// The YouTrack of the app, which the state of an issue is set in; a host without one (`bd`) answers why
   ///

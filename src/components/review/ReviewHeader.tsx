@@ -12,6 +12,7 @@ import { WaitingAge } from "@/components/repository/ReviewRequestRow"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { ShownBadge } from "@/components/shared/ShownBadge"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { RangeReadingView, ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
@@ -231,6 +232,7 @@ function RequestChips({
       >
         {`#${request.number}`}
       </Badge>
+      {request.shown === true && <ShownBadge />}
       <Badge variant="outline" className="max-w-full min-w-0 gap-1 pr-0.5 font-mono">
         <span className="min-w-0 truncate">{`${request.baseRefName} ← ${request.headRefName}`}</span>
         <CopyButton

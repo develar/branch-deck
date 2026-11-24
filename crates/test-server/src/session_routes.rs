@@ -597,6 +597,10 @@ impl ServiceHost for TestServices {
     Ok(remote_of(&*self.state()?, &key.worktree)?.github_service())
   }
 
+  fn codeowners(&self, key: &SessionKey) -> Result<remote_facts::show_reviewers::CodeOwnersAccess, ApiError> {
+    Ok(remote_of(&*self.state()?, &key.worktree)?.codeowners_access())
+  }
+
   fn youtrack(&self, key: &SessionKey) -> Result<Arc<youtrack::service::YouTrackService>, ApiError> {
     Ok(remote_of(&*self.state()?, &key.worktree)?.shared_youtrack_service())
   }

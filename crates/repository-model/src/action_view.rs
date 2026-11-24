@@ -232,6 +232,8 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
       push_route,
       merge_route,
       cached,
+      lands: sources.lands.get(name).map_or(&[][..], |lands| lands.safe_push.lands.as_slice()),
+      shown: pull_requests.shown_reviews.get(name),
     };
     // what a push of it writes, read only while an operation may hold it
     let pushes = (!operations.is_empty()).then(|| to_final_branch_name(sources.prefix, name).ok()).flatten();

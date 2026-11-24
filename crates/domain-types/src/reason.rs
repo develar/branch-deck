@@ -187,6 +187,9 @@ pub enum Reason {
   /// A Safe Push with a review after landing (show) would land `lands` (the branches it is built on, or a whole stack),
   /// more than the one branch a review after landing reviews
   ShowLandsStack { lands: Vec<String> },
+  /// A Safe Push with a review after landing (show) of a branch whose review after landing `number` is open already: a
+  /// fix of the branch lands by its own Safe Push and goes into that review, and a new start would replace its commits
+  ShowReviewOpen { number: u32 },
   /// The shown review `number` waits for the approvals of `waiting` (or holds their requested changes): it closes once
   /// every reviewer it asked approved
   ReviewNotApproved { number: u32, waiting: Vec<String> },
@@ -256,6 +259,7 @@ impl Reason {
       | Self::ShowWithPullRequest { .. }
       | Self::ShowNeedsPatronus
       | Self::ShowLandsStack { .. }
+      | Self::ShowReviewOpen { .. }
       | Self::ReviewNotApproved { .. } => None,
     }
   }

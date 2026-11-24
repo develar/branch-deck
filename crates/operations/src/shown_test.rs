@@ -1,5 +1,6 @@
 use crate::shown::{ShownRun, ShownServices, after_run, close_plan, extend_plan, open_plan, run_shown, shown_body, shown_request};
 use domain_policy::shown::{fix_conflict_comment, recorded_landed, recorded_reviewers, shown_review};
+use domain_types::error::ErrorCode;
 use domain_types::fixtures::{asked, pull_request, robot};
 use domain_types::landing::{LandedFix, PlannedEffect};
 use domain_types::operation::{EffectStatus, Intent, PullRequestField, Resource};
@@ -130,6 +131,25 @@ fn a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is
     ]
   );
   assert_eq!(plan, open_plan(&ready, "auth", None, false, &logins(&["carol", "Alice"])).unwrap());
+  assert_eq!(
+    plan.intent,
+    Intent::OpenShownReview {
+      branch: "auth".to_owned(),
+      reviewers: logins(&["carol", "Alice"])
+    },
+    "the intent names whom the user adds: the engine plans it again with them"
+  );
+  // a draft before its Safe Push merged: carol is only recorded, its open asks her with the others; nobody new is no plan
+  let record = open_plan(&draft, "auth", None, false, &logins(&["carol"])).unwrap();
+  assert_eq!(
+    record.effects,
+    [PlannedEffect::RecordShown {
+      number: 12,
+      reviewers: logins(&["alice", "bob", "carol"]),
+      landed: Vec::new()
+    }]
+  );
+  assert_eq!(open_plan(&draft, "auth", None, false, &logins(&["bob"])).unwrap_err().code, ErrorCode::NoShownReview);
 }
 
 #[test]

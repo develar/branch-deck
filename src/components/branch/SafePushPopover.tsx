@@ -19,15 +19,21 @@ import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
+import { getSafePushRequestReviewItem } from "@/hooks/useBranchContextActions"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import { useRowBusy } from "@/hooks/useRowOperation"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { pushAlone, requestSafePush, startPlanned, useSafePushRead } from "@/hooks/useSafePush"
+import type { ShowReviewersState } from "@/hooks/useShowReviewers"
+import { useShowReviewers } from "@/hooks/useShowReviewers"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { getWholeStackStartItems } from "@/hooks/useWholeStackActions"
-import type { Commit, Confirmation, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit, Unchecked } from "@/lib/bindings"
+import type { Commit, Confirmation, GitHubUser, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit, Unchecked } from "@/lib/bindings"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -50,16 +56,19 @@ import {
   formatWholeStackApprovals,
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { LandingRefused } from "@/presenters/landing"
 import { describeLandingRefusals, describeRegenerate, formatLandingFix } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
+import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { useIndicatorClaim } from "@/stores/indicators"
 import { peekBranchRules, usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
+import { useSelectedProjectPath } from "@/stores/repository"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
-import { closeSafePushPopover } from "@/stores/safe-push"
+import { closeSafePushPopover, openSafePushPopover } from "@/stores/safe-push"
 import { pinStackPath } from "@/stores/stack-view"
 
 /** The Select value of the default checks of the target: no merge profile */
@@ -97,7 +106,13 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const root = stackRootOfReadinessKey(branchName)
   const subject = formatReadinessSubject(branchName)
   const [chosenProfile, setChosenProfile] = useState<string | null | undefined>(ask.profileId)
-  const read = useSafePushRead(ask, chosenProfile)
+  // Safe Push and Request Review…: the picker starts with the code owners of the changes, until the user changes it
+  const show = ask.requestReview === true && mode === "rebaseAutosquash"
+  const candidates = useShowReviewers(branchName, show)
+  const [picked, setPicked] = useState<GitHubUser[] | null>(null)
+  const reviewers = picked ?? usersOf(candidates)
+  const logins = reviewers.map(user => user.login)
+  const read = useSafePushRead(ask, chosenProfile, logins)
   const stacked = read !== null && read.ancestors.length > 0
   const independence = useStackIndependence(branchName, mode === "rebaseAutosquash" && stacked)
   // a branch of a stack: the whole stack lands in one Safe Push too, the second way its popover offers
@@ -239,10 +254,15 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           {merges ?? title}
         </h2>
         {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
+        {show && candidates !== null && (
+          <ShowReviewersField target={target} candidates={candidates} reviewers={reviewers} onChange={setPicked} disabled={busy !== null} author={null} />
+        )}
         {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />)}
         {byPush && landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
         {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
-        {wholeStackItem !== undefined && wholeStackRoot !== null && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
+        {/* a review after landing reviews one branch: no whole stack beside it */}
+        {wholeStackItem !== undefined && wholeStackRoot !== null && !show && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
+        {mode === "rebaseAutosquash" && !show && !byPush && root === null && ask.bypassReview !== true && <ShowOption ask={ask} />}
         {independence.state.status === "loading" && (
           <p className="flex items-center gap-2 text-muted-foreground" data-testid="safe-push-alone-checking">
             <Spinner className="size-4" />
@@ -251,7 +271,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         )}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
           <Status read={read} busy={busy} placement={ask.placement} onPiece={close} />
-          {mode === "rebaseAutosquash" && !byPush && (
+          {mode === "rebaseAutosquash" && !byPush && !show && (
             <Button size="xs" variant="ghost" onClick={dryRun} data-testid="safe-push-dry-run">
               <FlaskConicalIcon data-icon="inline-start" />
               Dry Run
@@ -262,7 +282,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           </Button>
           <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled onClick={start} data-testid="safe-push-start">
             {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : byPush ? <GitMergeIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
-            {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : modeName}
+            {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : show ? "Safe Push and Request Review" : modeName}
           </Button>
         </div>
       </PopoverContent>
@@ -714,6 +734,103 @@ function Status({ read, busy, placement, onPiece }: { read: SafePushRead | null;
     )
   }
   return null
+}
+
+/** The users the picker starts with: the code owners Rust chose (`get_show_reviewers`), none while they are read */
+function usersOf(candidates: ShowReviewersState | null): GitHubUser[] {
+  return candidates?.kind === "loaded" ? candidates.value.reviewers.map(login => ({ login, name: null })) : NO_USERS
+}
+
+const NO_USERS: GitHubUser[] = []
+
+/**
+ * The reviewers of a Safe Push and Request Review…: what it opens, the chosen ones as chips (the code owners of the
+ * changes first, one available member of each owner group), the search of the users of the repository for more, and
+ * whom the code owners give or why none; the start asks nobody without one (`noReviewer` of its plan)
+ */
+function ShowReviewersField({
+  target,
+  candidates,
+  reviewers,
+  onChange,
+  disabled,
+  author,
+}: {
+  target: string
+  candidates: ShowReviewersState
+  reviewers: GitHubUser[]
+  onChange: (reviewers: GitHubUser[]) => void
+  disabled: boolean
+  author: string | null
+}) {
+  const search = useReviewerSearch(useSelectedProjectPath() ?? "")
+  const note = describeShowCandidates(candidates)
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="safe-push-show">
+      <Line testId="safe-push-show-start">{describeShowStart(target)}</Line>
+      <ReviewerPicker
+        testIdPrefix="safe-push-show"
+        reviewers={reviewers}
+        setReviewers={onChange}
+        search={search}
+        viewerLogin={author}
+        disabled={disabled || candidates.kind === "loading"}
+        placeholder="Add a reviewer by login or name"
+      />
+      {candidates.kind === "loading" ? (
+        <p className="flex items-center gap-2 text-muted-foreground" data-testid="safe-push-show-candidates" data-kind="loading">
+          <Spinner className="size-4" />
+          Reading the code owners of the changes…
+        </p>
+      ) : (
+        note !== null && (
+          <Line tone={candidates.kind === "failed" ? "warning" : "muted"} testId="safe-push-show-candidates">
+            {note}
+          </Line>
+        )
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Review after landing: Safe Push and Request Review…" in the popover of a Safe Push of a branch: the same start with a
+ * review after landing, its reviewers picked in the popover it opens at the same slot; disabled, it says why under it,
+ * as the menus do (the item of the branch menu, `getSafePushRequestReviewItem`)
+ */
+function ShowOption({ ask }: { ask: SafePushAsk }) {
+  const { branchName } = ask
+  const actions = useRowPart(branchName, "actions")
+  const step = useBranchNextStep(branchName)
+  const branch = useBranchSync(state => state.branches[branchName])
+  if (branch === undefined) {
+    return null
+  }
+  const item = getSafePushRequestReviewItem(branch, step ?? undefined, actions)
+  if (item === null) {
+    return null
+  }
+  const disabled = item.disabled === true
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="safe-push-show-option">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+        Review after landing:
+        <Button
+          variant="outline"
+          size="xs"
+          className="w-fit"
+          disabled={disabled}
+          focusableWhenDisabled
+          data-testid="safe-push-show-option-start"
+          onClick={() => openSafePushPopover({ ...ask, requestReview: true })}
+        >
+          <ShieldCheckIcon data-icon="inline-start" />
+          {item.label}
+        </Button>
+      </p>
+      {disabled && item.description !== undefined && <Line testId="safe-push-show-option-reason">{item.description}</Line>}
+    </div>
+  )
 }
 
 /**

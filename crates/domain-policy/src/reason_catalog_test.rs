@@ -75,10 +75,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::ShowNeedsPatronus => 58,
     Reason::ShowLandsStack { .. } => 59,
     Reason::ReviewNotApproved { .. } => 60,
+    Reason::ShowReviewOpen { .. } => 61,
   }
 }
 
-const CODES: usize = 61;
+const CODES: usize = 62;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -219,6 +220,7 @@ fn examples() -> Vec<Reason> {
       number: 12,
       waiting: vec![s("alice")],
     },
+    Reason::ShowReviewOpen { number: 12 },
     Reason::OtherBase {
       number: 7,
       base: s("release/253"),

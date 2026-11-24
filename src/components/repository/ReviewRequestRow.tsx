@@ -11,6 +11,7 @@ import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { ShownBadge } from "@/components/shared/ShownBadge"
 import { useLandingNode } from "@/hooks/useLandingNode"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useOperationWords } from "@/hooks/useOperationWords"
@@ -167,7 +168,8 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
           <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
         </>
       )}
-      {!request.baseIsDefault && !inStack && ` · → ${request.baseRefName}`}
+      {/* the base of a review after landing is its fork point: the badge says what it is */}
+      {!request.baseIsDefault && !inStack && request.shown !== true && ` · → ${request.baseRefName}`}
     </span>
   )
   return (
@@ -195,6 +197,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
         <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
           <PullRequestTitle title={request.title} lead={request.titleLead} />
         </span>
+        {request.shown === true && <ShownBadge className="h-4 px-1.5" />}
         <RequestLabels number={request.number} labels={request.labels ?? []} />
         <RequestTitleClaim number={request.number} />
         <MetaPlace dot={request.checksState === "failing" || request.checksState === "pending"}>

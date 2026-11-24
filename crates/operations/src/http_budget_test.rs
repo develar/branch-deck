@@ -372,7 +372,10 @@ async fn the_open_the_extend_and_the_close_of_a_shown_review_read_their_facts_on
     (counted, sources)
   };
   let (counted, sources) = reads(2);
-  let open = domain_types::operation::Intent::OpenShownReview { branch: "auth".to_owned() };
+  let open = domain_types::operation::Intent::OpenShownReview {
+    branch: "auth".to_owned(),
+    reviewers: Vec::new(),
+  };
   fill(&mut session(), &sources, &GitCommandExecutor::new(), &needs(&open)).await;
   assert_eq!(counted.calls(), BTreeMap::from([("pull_requests", 1), ("robots", 1)]));
   let close = domain_types::operation::Intent::CloseShownReview {

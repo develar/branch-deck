@@ -14,6 +14,8 @@ use crate::remote_git_fixtures::FakeRemote;
 use crate::review_fixtures::{ReviewAnswers, review_check_answer};
 use app_api::app::sign_in::account_changed;
 use app_api::transport::AppEvents;
+use codeowners::client::CodeOwnersClient;
+use codeowners::fake_codeowners::FakeCodeOwners;
 use domain_types::error::ApiError;
 use domain_types::sign_in::{Account, SignInProvider};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -110,6 +112,10 @@ pub struct RemoteHost {
   review_answers: Arc<RwLock<ReviewAnswers>>,
   /// The pull requests of the review requests: GitHub keeps them beside the ones of a GitHub fixture
   review_pulls: Mutex<Vec<FakePull>>,
+  /// The `CodeOwners` service the default reviewers of a review after landing come from (`set_codeowners`), asked with
+  /// its token (`FAKE_TOKEN`)
+  codeowners: Arc<FakeCodeOwners>,
+  codeowners_server: FakeServer,
   /// The YouTrack of the issue links a test names, with its built-in Hub
   youtrack: Arc<FakeYouTrack>,
   youtrack_server: FakeServer,
@@ -262,10 +268,17 @@ impl RemoteHost {
       ..RepositoryState::default()
     });
     // GitHub has the branches of the repository itself, not only those a push gave its remote (`.git/upstream.git`): a
-    // pull request a test sets on a branch it never pushed finds its head (an empty `headRefOid`) at the local tip
+    // pull request a test sets on a branch it never pushed finds its head (an empty `headRefOid`) at the local tip; a
+    // branch only the remote has (the head and the base of a review after landing, which only a push writes) as the
+    // mirror of the remote copies it
     let (git_of_tip, path_of_tip) = (git.clone(), repository_path.to_string());
+    let origin_of_tip = test_utils::remote_git::bare_origin(std::path::Path::new(repository_path));
     repository.set_branch_tip(Box::new(move |branch| {
-      resolve_commit(&git_of_tip, &path_of_tip, &format!("refs/heads/{branch}")).ok().flatten()
+      let name = format!("refs/heads/{branch}");
+      resolve_commit(&git_of_tip, &path_of_tip, &name).ok().flatten().or_else(|| {
+        let origin = origin_of_tip.to_str()?;
+        origin_of_tip.is_dir().then(|| resolve_commit(&git_of_tip, origin, &name).ok().flatten()).flatten()
+      })
     }));
     // a merge of a pull request on its base is a fast-forward of the remote (`.git/upstream.git`), which the fetch of
     // the update brings in
@@ -277,6 +290,8 @@ impl RemoteHost {
     let github_server = FakeServer::serve(github::fake_github::router(Arc::clone(&github)));
     std::fs::create_dir_all(&app_data).expect("the app data directory of the test repository");
     let github_service = Arc::new(RwLock::new(Arc::new(new_github_service(&github_server.url, &app_data, GhSource::None, &git))));
+    let codeowners = Arc::new(FakeCodeOwners::default());
+    let codeowners_server = FakeServer::serve(codeowners::fake_codeowners::router(Arc::clone(&codeowners)));
     let youtrack = Arc::new(FakeYouTrack::default());
     youtrack.set_clock(PAGE_CLOCK_START);
     let youtrack_server = FakeServer::serve(youtrack::fake_youtrack::router(Arc::clone(&youtrack)));
@@ -311,6 +326,8 @@ impl RemoteHost {
       gh: RwLock::new(GhSource::None),
       review_answers,
       review_pulls: Mutex::default(),
+      codeowners,
+      codeowners_server,
       youtrack,
       youtrack_server,
       youtrack_service,
@@ -326,6 +343,21 @@ impl RemoteHost {
 
   pub fn patronus(&self) -> &FakePatronus {
     &self.patronus
+  }
+
+  /// The fake `CodeOwners` service: the groups a test set, the lookups that reached it
+  pub fn codeowners(&self) -> &FakeCodeOwners {
+    &self.codeowners
+  }
+
+  /// A client of the app on the fake `CodeOwners` service, which asks a failed lookup again at once, with the token it
+  /// takes
+  pub fn codeowners_access(&self) -> remote_facts::show_reviewers::CodeOwnersAccess {
+    let client = CodeOwnersClient::new(self.codeowners_server.url.clone(), "Branch Deck test server").with_retry_delay(std::time::Duration::ZERO);
+    remote_facts::show_reviewers::CodeOwnersAccess {
+      client: Arc::new(client),
+      token: codeowners::fake_codeowners::FAKE_TOKEN.to_owned(),
+    }
   }
 
   /// The fake remote the pre-receive hook of the repository's remote asks

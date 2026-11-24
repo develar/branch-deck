@@ -249,6 +249,12 @@ export const commands = {
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>("search_github_users", __TAURI_INVOKE("search_github_users", { params })),
 	/**
+	 *  Whom the review after landing of a branch asks by default, which the picker of Safe Push and Request Review…
+	 *  starts with (`remote_facts::show_reviewers`, as `brd safe-push --request-review`): one available member of each
+	 *  owner group of what it changes, from the `CodeOwners` service with the Space token of Patronus, never the user
+	 */
+	getShowReviewers: (params: GetShowReviewersParams) => typedError<ShowReviewers, ApiError>("get_show_reviewers", __TAURI_INVOKE("get_show_reviewers", { params })),
+	/**
 	 *  The Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`): everyone's robots into
 	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
@@ -472,7 +478,7 @@ export const commands = {
 /* Constants */
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"unattended":false,"zoom":1} as const;
 
-export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
+export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","safe-push-request-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","request-shown-review","close-shown-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
 
 /* Types */
 /**  An account of the app, which a sign-out removes the token of */
@@ -555,7 +561,12 @@ export type ActionBlocker =
 { code: "shown"; number: number };
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
-export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
+export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | 
+/**
+ *  The Safe Push that opens a review after landing (show of ship/show/ask, `Land::request_review`): the reviewers the
+ *  user picks are asked once the robot merged
+ */
+"safe-push-request-review" | "push" | "push-with-children" | 
 /**  The commits someone else pushed to its remote branch, taken into the branch (`brd pick --remote`) */
 "pick-remote-commits" | 
 /**
@@ -574,7 +585,17 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  The stack of GitHub of a layer linked as its chain is (`Intent::LinkStack`): an old pull request into the target
  *  joins it, one outside it is linked
  */
-"link-github-stack" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
+"link-github-stack" | "create-pull-request" | 
+/**
+ *  More reviewers asked of its open review after landing and recorded in its body (`Intent::OpenShownReview`):
+ *  Request Review… of a branch whose review is the shown one
+ */
+"request-shown-review" | 
+/**
+ *  Its review after landing closed with its branches after a confirmation (`Intent::CloseShownReview`), approved or
+ *  not
+ */
+"close-shown-review" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
 /**  What lands before the branch, typed in a form of the row (`RewriteIntent::Need`) */
 "add-need" | 
 /**  One declared need of the branch taken back (`RewriteIntent::Unneed`) */
@@ -4127,6 +4148,12 @@ export type GetRobotStatsParams = {
 	refresh: boolean,
 };
 
+/**  What `get_show_reviewers` asks: the default reviewers of the review after landing of `branch_name` */
+export type GetShowReviewersParams = {
+	repositoryPath: string,
+	branchName: string,
+};
+
 export type GetUncommittedChangesParams = {
 	repositoryPath: string,
 };
@@ -4314,9 +4341,11 @@ export type Intent =
 /**
  *  The draft shown review of `branch` is opened once the Safe Push that landed the branch merged
  *  (`operations::shown`): its head goes to the commit the robot landed (its base to the fork point of it), it is marked
- *  ready for review, and the reviewers its text records are asked
+ *  ready for review, and the reviewers its text records are asked. `reviewers`, those the user adds (Request Review…
+ *  of the row, `brd request-review --reviewer`), are asked too and recorded in its body; of a draft before the merge
+ *  they are only recorded, its open asks them
  */
-({ kind: "openShownReview"; branch: string }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "openShownReview"; branch: string; reviewers?: string[] }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The fixes of `branch` that landed after its shown review opened are added to it (`operations::shown`): their
  *  commits replayed onto its head, pushed leased on the head the remote has, its reviewers asked again; a fix that
@@ -7513,6 +7542,11 @@ export type Reason =
  */
 { code: "showLandsStack"; lands: string[] } | 
 /**
+ *  A Safe Push with a review after landing (show) of a branch whose review after landing `number` is open already: a
+ *  fix of the branch lands by its own Safe Push and goes into that review, and a new start would replace its commits
+ */
+{ code: "showReviewOpen"; number: number } | 
+/**
  *  The shown review `number` waits for the approvals of `waiting` (or holds their requested changes): it closes once
  *  every reviewer it asked approved
  */
@@ -8546,6 +8580,12 @@ export type ReviewRequest = {
 	 *  by; empty without labels
 	 */
 	labels?: string[],
+	/**
+	 *  A review after landing (show of ship/show/ask, `domain_policy::shown::is_shown` of its base, set where it is read
+	 *  with `title_lead`): its change is in master already, and the review gates no Safe Push; left out of the JSON when
+	 *  false
+	 */
+	shown?: boolean,
 };
 
 /**
@@ -9595,6 +9635,22 @@ export type ShowRequest = {
 	 *  the changed paths (`domain_policy::shown::show_candidates`); none refuses the start (`Reason::NoReviewer`)
 	 */
 	reviewers: string[],
+};
+
+/**
+ *  Whom a review after landing asks when the user names nobody (`domain_policy::shown::show_candidates`): the picker of
+ *  Safe Push and Request Review… starts with them
+ */
+export type ShowReviewers = {
+	/**
+	 *  The owner groups of the paths the branch changes, by the `OWNERSHIP` files of the target; empty where none names an
+	 *  owner of them
+	 */
+	groups: string[],
+	/**  One available GitHub login of each group, each once, never the author */
+	reviewers: string[],
+	/**  The groups none of whose members or reviewers can be asked */
+	withoutReviewer: string[],
 };
 
 /**  A unit of a step that a stop of another step shows (`ReviewStep::shown_elsewhere`) */

@@ -1375,4 +1375,27 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
   assert_eq!(missing.decide(&show(&["alice"])).blockers, [Reason::ShowNeedsApprovals { groups: vec!["Air".to_owned()] }]);
   // nobody to ask
   assert_eq!(lone().decide(&show(&[])).blockers, [Reason::NoReviewer { groups: Vec::new() }]);
+  // its review after landing is open: a fix lands by its own Safe Push and goes into it; a draft (its robot failed) is
+  // taken again
+  let shown = |draft: bool| World {
+    pull_requests: PullRequestsView {
+      shown_reviews: [(
+        "login".to_owned(),
+        domain_types::pull_request::ShownReview {
+          pull_request: PullRequest {
+            is_draft: draft,
+            ..pull_request("login", 12)
+          },
+          reviewers: vec!["alice".to_owned()],
+          landed: Vec::new(),
+          state: domain_types::pull_request::ShownState::Draft,
+        },
+      )]
+      .into(),
+      ..listed(&[])
+    },
+    ..lone()
+  };
+  assert_eq!(shown(false).decide(&show(&["alice"])).blockers, [Reason::ShowReviewOpen { number: 12 }]);
+  assert_eq!(codes(&shown(true).decide(&show(&["alice"]))), Vec::<String>::new());
 }

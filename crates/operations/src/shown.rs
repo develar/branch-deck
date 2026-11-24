@@ -89,14 +89,19 @@ fn with_added(asked: &[String], added: &[String]) -> Vec<String> {
 /// landed it (`landing_robot`), or the baseline that has it by content (`landed`) while no robot of it is listed: a draft
 /// pushes its branches to the commit the robot took (by content: keeps the head it has), is marked ready and asks its
 /// reviewers; one ready asks again those it asked who neither approved nor are asked now. `added`, reviewers the user
-/// names, are asked too and recorded in its body
+/// names, are asked too and recorded in its body; of a draft whose branch landed by neither yet they are only recorded,
+/// its open asks them with the others
 ///
 /// # Errors
-/// `no_shown_review` for a draft whose branch landed by neither yet, or one that records no reviewer and is given none
+/// `no_shown_review` for a draft whose branch landed by neither yet and that is given nobody new, or one that records no
+/// reviewer and is given none
 pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobot>, landed: bool, added: &[String]) -> Result<Plan, ApiError> {
   let pull_request = &review.pull_request;
   let number = pull_request.number;
-  let intent = Intent::OpenShownReview { branch: branch.to_owned() };
+  let intent = Intent::OpenShownReview {
+    branch: branch.to_owned(),
+    reviewers: added.to_vec(),
+  };
   let reviewers = with_added(&review.reviewers, added);
   if reviewers.is_empty() {
     return Err(ApiError::new(
@@ -104,8 +109,11 @@ pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobo
       format!("The shown review #{number} of {branch} records no reviewer to ask: ask them on its page"),
     ));
   }
-  let mut effects = if pull_request.is_draft {
-    let source = robot.and_then(|robot| robot.source_revision.clone());
+  let source = robot.and_then(|robot| robot.source_revision.clone());
+  let mut effects = if pull_request.is_draft && source.is_none() && !landed && reviewers.len() > review.reviewers.len() {
+    // not landed yet: the record names whom its open asks
+    Vec::new()
+  } else if pull_request.is_draft {
     if source.is_none() && !landed {
       return Err(ApiError::new(
         ErrorCode::NoShownReview,
@@ -217,7 +225,11 @@ pub fn create_plan(branch: &str, source: &str, reviewers: &[String]) -> Plan {
       draft: false,
     },
   ];
-  write_plan(Intent::OpenShownReview { branch: branch.to_owned() }, effects, Vec::new(), None, [], [])
+  let intent = Intent::OpenShownReview {
+    branch: branch.to_owned(),
+    reviewers: Vec::new(),
+  };
+  write_plan(intent, effects, Vec::new(), None, [], [])
 }
 
 /// The plan of the close of the shown review `review` of `branch`: its close with the comment that names who approved it
@@ -253,7 +265,7 @@ pub fn close_plan(review: &ShownReview, branch: &str, allow_unapproved: bool, ta
 #[must_use]
 pub fn shown_request(prefix: &str, intent: &Intent, plan: Option<&Plan>) -> OperationRequest {
   let (branch, field) = match intent {
-    Intent::OpenShownReview { branch } | Intent::ExtendShownReview { branch } => (branch.as_str(), PullRequestField::Reviewers),
+    Intent::OpenShownReview { branch, .. } | Intent::ExtendShownReview { branch } => (branch.as_str(), PullRequestField::Reviewers),
     Intent::CloseShownReview { branch, .. } => (branch.as_str(), PullRequestField::State),
     _ => ("", PullRequestField::State),
   };
@@ -489,11 +501,11 @@ pub async fn prepare_shown(sessions: &Sessions, key: &SessionKey, intent: &Inten
       let target = baseline_on_remote(&state.header().baseline_branch).to_owned();
       let shown = &facts.pull_requests.view().shown_reviews;
       match &intent {
-        Intent::OpenShownReview { branch } => {
+        Intent::OpenShownReview { branch, reviewers } => {
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;
           let robots = facts.robots.view().robots.values();
           let landed = opens_by_content(robots.clone(), branch, facts.shown_landed());
-          open_plan(review, branch, landing_robot(robots, branch), landed, &[]).map(Some)
+          open_plan(review, branch, landing_robot(robots, branch), landed, reviewers).map(Some)
         }
         Intent::ExtendShownReview { branch } => {
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;

@@ -68,6 +68,7 @@ targets:
   - src/components/repository/YourTurnCard.tsx
   - src/hooks/useSettledLayout.ts
   - src/components/repository/ReviewRequestRow.tsx
+  - src/components/shared/ShownBadge.tsx
   - src/components/repository/ReviewStatusLine.tsx
   - src/components/review/PullRequestReview.tsx
   - src/components/review/ReviewOwnerChips.tsx
@@ -878,6 +879,18 @@ meta are hidden below `sm`.
 - **WHEN** the pull request has labels on GitHub
 - **THEN** its row shows the first two as muted chips after the title, then "+2" for the rest
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should show a chain of requests as one stack, its layers under it by a click and the keys, each with its labels`)
+
+### Requirement: Card: A review after landing carries the badge Shown
+
+A request whose pull request is a review after landing (`ReviewRequest.shown`, Rust's by its base, of any prefix) MUST
+carry the badge "Shown" after its title, in Your Turn, in Reviews and in the header of its review window, its hover
+"In master already: your review gates no Safe Push, and the approval of every reviewer it asked closes it"; its meta
+names no base, which is the fork point of what landed.
+
+#### Scenario: A review after landing of carol
+- **WHEN** carol's review after landing of login waits for the user's review
+- **THEN** its row and its review window carry "Shown", its hover says what it is
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should tell a reviewer a review after landing by its badge, offer no Safe Push of it, and take the approval`)
 
 ### Requirement: Card: A narrow row gives way in one order
 

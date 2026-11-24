@@ -589,13 +589,22 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
 
 /// What refuses a Safe Push with a review after landing (show, `Land::request_review`): a whole stack, or more than the
 /// branch to land (a review after landing reviews one branch, and a fix of a branch it is built on would land outside
-/// it), an open pull request of the branch (its review is there, before landing), nobody to ask
+/// it), an open pull request of the branch (its review is there, before landing), its review after landing open already
+/// (a fix lands by its own Safe Push and goes into it), nobody to ask
 fn show_blockers(facts: &LandFacts<'_>, part: &SubjectPart<'_>, nobody: bool, decision: &mut LandDecision) {
   if matches!(facts.subject, SubjectFacts::WholeStack(_)) || part.lands.len() > 1 {
     decision.blockers.push(Reason::ShowLandsStack { lands: part.lands.clone() });
   }
   if let Some((pull_request, _)) = &part.own {
     decision.blockers.push(Reason::ShowWithPullRequest { number: pull_request.number });
+  }
+  // a draft is taken again and moved (its robot failed or was canceled); an open one takes a fix of its own Safe Push
+  if let SubjectFacts::Branch(branch) = &facts.subject
+    && let Some(review) = facts.pull_requests.shown_reviews.get(branch.start.name).filter(|review| !review.pull_request.is_draft)
+  {
+    decision.blockers.push(Reason::ShowReviewOpen {
+      number: review.pull_request.number,
+    });
   }
   if nobody {
     decision.blockers.push(Reason::NoReviewer { groups: Vec::new() });

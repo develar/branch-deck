@@ -21,10 +21,11 @@ use app_settings::projects::{record_sync, synced_before};
 use app_settings::robot_history::{forget_robot_history, legacy_robot_history};
 use app_settings::service::SettingsService;
 use cli_tools::environment::ToolEnvironment;
+use codeowners::client::{CODEOWNERS_URL, CodeOwnersClient};
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
-use domain_types::error::{ApiError, HolderTool};
+use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::patronus::FinishedRobot;
 use domain_types::review_request::{LinkedPullRequest, ReviewRequest};
 use domain_types::sign_in::Account;
@@ -44,11 +45,12 @@ use operations::rewrite::RewriteHost;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
-use patronus::token::find_user_token;
+use patronus::token::{TokenLookup, find_user_token};
 use remote_facts::cli_tool_releases::{refresh_releases, releases_file};
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
+use remote_facts::show_reviewers::CodeOwnersAccess;
 use remote_facts::sign_in::{SignInHost, SignIns};
 use remote_facts::youtrack_cli::handed_token_file;
 use repository_model::branch_table::BranchTable;
@@ -332,6 +334,20 @@ impl<S: ContextSource> ServiceHost for AppServices<S> {
     Ok(Arc::clone(&self.remote.github.service))
   }
 
+  /// The Space token of the Safe Push CLI, read now: the user may log in meanwhile
+  fn codeowners(&self, _key: &SessionKey) -> Result<CodeOwnersAccess, ApiError> {
+    match find_user_token(unix_now()) {
+      TokenLookup::Found(token) => Ok(CodeOwnersAccess {
+        client: Arc::clone(&self.remote.patronus.codeowners),
+        token: token.value,
+      }),
+      TokenLookup::Missing | TokenLookup::Expired(_) => Err(ApiError::new(
+        ErrorCode::NotLoggedIn,
+        "No Space token for the CodeOwners service, or it expired: run ./safePush.cmd once to log in",
+      )),
+    }
+  }
+
   fn youtrack(&self, _key: &SessionKey) -> Result<Arc<YouTrackService>, ApiError> {
     Ok(Arc::clone(&self.remote.youtrack.service))
   }
@@ -531,6 +547,9 @@ impl<S: ContextSource> AppServices<S> {
 /// Space repository of each repository, so a poll starts no git process
 pub struct PatronusState {
   service: Arc<PatronusService>,
+  /// The `CodeOwners` service, asked with the Space token of Patronus (`find_user_token`) for the default reviewers of a
+  /// review after landing: `BRANCHDECK_CODEOWNERS_URL` (as for `brd`), else the production one
+  codeowners: Arc<CodeOwnersClient>,
   /// The Space repository (None = not on Space) by repository path. Re-read now and then: the remote can change.
   repositories: Cache<String, Option<SpaceRepository>>,
   /// The `teamcity` CLI with an authenticated server, once found, and the generation a search keeps its find in (one
@@ -546,8 +565,10 @@ impl PatronusState {
     let user_agent = app_user_agent(app_version);
     // the variable of the Safe Push CLI, for the staging and dev instances
     let base_url = std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string());
+    let codeowners_url = std::env::var("BRANCHDECK_CODEOWNERS_URL").map_or_else(|_| CODEOWNERS_URL.to_string(), |url| url.trim_end_matches('/').to_string());
     Self {
       service: Arc::new(PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token)),
+      codeowners: Arc::new(CodeOwnersClient::new(codeowners_url, &user_agent)),
       repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
       teamcity: std::sync::Mutex::new((None, 0)),
       teamcity_search: SingleFlight::default(),

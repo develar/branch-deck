@@ -60,6 +60,11 @@ export interface SafePushAsk {
   readonly profileId?: string | null
   /** A Safe Push without review, with a merge profile that skips the code-owner review (the Create Pull Request dialog) */
   readonly bypassReview?: boolean
+  /**
+   * A Safe Push and Request Review…: a review after landing opens with the start, its reviewers picked in the popover
+   * (show of ship/show/ask, `Land.requestReview`)
+   */
+  readonly requestReview?: boolean
 }
 
 /**

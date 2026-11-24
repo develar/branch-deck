@@ -141,7 +141,11 @@ const words = {
   pullRequestMerged: ({ number }) => `Pull request #${number} is merged`,
   pullRequestOpen: ({ number }) => `Pull request #${number} is open: Open Pull Request shows it`,
   needsPush: ({ branch }) => `${branch} has commits the remote lacks: the review request pushes them first`,
-  noReviewer: ({ groups }) => `Patronus names no code owner with a GitHub login of ${joinNames(groups)}: choose the reviewers`,
+  // of a review after landing the user picks (no groups): none picked
+  noReviewer: ({ groups }) =>
+    groups.length === 0
+      ? "Add a reviewer: a review after landing asks at least one"
+      : `Patronus names no code owner with a GitHub login of ${joinNames(groups)}: choose the reviewers`,
   unprotected: ({ target }) => `Patronus does not push into ${target}`,
   draft: ({ number }) => `#${number} is a draft: Patronus merges it once it is ready for review`,
   profileOnComment: ({ number }) => `A comment on #${number} runs the default checks: it can't choose a profile`,
@@ -182,6 +186,7 @@ const words = {
   showWithPullRequest: ({ number }) => `Its review is in pull request #${number}, before it lands`,
   showNeedsPatronus: () => "A review after landing opens with a Safe Push of Patronus: the repository lands without one",
   showLandsStack: ({ lands }) => `The Safe Push lands ${joinNames(lands)}: a review after landing reviews one branch`,
+  showReviewOpen: ({ number }) => `Its review after landing #${number} is open: a fix lands by Safe Push and goes into it`,
   reviewNotApproved: ({ number, waiting }) =>
     waiting.length === 0 ? `The review after landing #${number} asked nobody yet` : `${joinNames(waiting)} has not approved the review after landing #${number}`,
 } satisfies Words as Words

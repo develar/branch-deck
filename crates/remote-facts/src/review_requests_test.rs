@@ -190,6 +190,7 @@ async fn maps_the_review_requests_of_the_search() {
       is_cross_repository: false,
       base_is_default: true,
       labels: vec!["refactoring".to_string(), "proxy".to_string()],
+      shown: false,
     }
   );
 

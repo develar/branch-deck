@@ -25,6 +25,9 @@ pub enum ActionId {
   DryRun,
   CheckApprovals,
   SafePushWithoutReview,
+  /// The Safe Push that opens a review after landing (show of ship/show/ask, `Land::request_review`): the reviewers the
+  /// user picks are asked once the robot merged
+  SafePushRequestReview,
   Push,
   PushWithChildren,
   /// The commits someone else pushed to its remote branch, taken into the branch (`brd pick --remote`)
@@ -46,6 +49,12 @@ pub enum ActionId {
   /// joins it, one outside it is linked
   LinkGithubStack,
   CreatePullRequest,
+  /// More reviewers asked of its open review after landing and recorded in its body (`Intent::OpenShownReview`):
+  /// Request Review… of a branch whose review is the shown one
+  RequestShownReview,
+  /// Its review after landing closed with its branches after a confirmation (`Intent::CloseShownReview`), approved or
+  /// not
+  CloseShownReview,
   // its shape and its commits: the rewrites
   Rename,
   MoveTo,
@@ -112,12 +121,13 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 56] = [
+  pub const ALL: [Self; 59] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
     Self::CheckApprovals,
     Self::SafePushWithoutReview,
+    Self::SafePushRequestReview,
     Self::Push,
     Self::PushWithChildren,
     Self::PickRemoteCommits,
@@ -130,6 +140,8 @@ impl ActionId {
     Self::RetargetPullRequest,
     Self::LinkGithubStack,
     Self::CreatePullRequest,
+    Self::RequestShownReview,
+    Self::CloseShownReview,
     Self::Rename,
     Self::MoveTo,
     Self::StackOn,
@@ -174,8 +186,9 @@ impl ActionId {
   /// Whether a start of the action opens a form, a confirmation or a popover under the row of its subject in the main
   /// window: the inline forms of a row (rename, park, amend, the issue reference, the squash of the fixups, unapply, the
   /// typed delete of a kept branch, the confirmation of an ungroup and of the close of the pull request of a whole stack),
-  /// the target picker of a move or a stack, the popover of a Safe Push and of its rarer starts, of Request Review and
-  /// of Start in Air, the question of a push that would drop remote commits. A review window asks the main window to run
+  /// the target picker of a move or a stack, the popover of a Safe Push and of its rarer starts (a review after landing
+  /// among them), of Request Review (of a review after landing too), of Start in Air and the confirmation of the close of
+  /// a review after landing, the question of a push that would drop remote commits. A review window asks the main window to run
   /// it there (`review/run`, openspec/specs/review/review-window/spec.md#actions); every other action runs where it is chosen.
   #[must_use]
   pub const fn opens_row_form(self) -> bool {
@@ -185,12 +198,15 @@ impl ActionId {
         | Self::SafePushWithProfile
         | Self::DryRun
         | Self::SafePushWithoutReview
+        | Self::SafePushRequestReview
         | Self::Push
         | Self::PushWithChildren
         | Self::PickRemoteCommits
         | Self::PushToBaseline
         | Self::MergePullRequest
         | Self::RequestReview
+        | Self::RequestShownReview
+        | Self::CloseShownReview
         | Self::Rename
         | Self::MoveTo
         | Self::StackOn

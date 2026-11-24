@@ -61,7 +61,7 @@ import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/sto
 import { getOperationWords, indicatorsStore } from "@/stores/indicators"
 import { openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, patronusStore } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { getPullRequest, getShownReview, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -187,6 +187,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       ...pullRequestItems(branch, pullRequest),
       // the row's step when it is the one (a group nobody of it can approve says so), else the action's item
       nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItemNow(branch.name),
+      // its review after landing, once its own pull request is none: open it, ask more reviewers of it, close it
+      ...getShownReviewItems(branch, pullRequest),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
       getLinkGitHubStackItem(branch),
@@ -376,6 +378,7 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
       ),
       nextStep.safePushBlocker,
     ),
+    getSafePushRequestReviewItem(branch, nextStep),
     withStepReason(
       branchItem(
         branch,
@@ -548,6 +551,54 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
     blocker,
   )
   return withStepReason(item, blocker)
+}
+
+/**
+ * "Safe Push and Request Review…": the popover of the Safe Push of the branch with a review after landing, its reviewers
+ * picked there (the code owners of what it changes first), as Rust offers it (`domain_policy::actions`: refused as its
+ * start would refuse it), with the reasons of the next step of the branch over it. A component passes the actions it
+ * subscribed to (`actions`, `useRowPart`)
+ */
+export function getSafePushRequestReviewItem(
+  branch: Branch,
+  nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP,
+  actions: readonly ActionState[] | undefined = actionsOf(branch.name),
+): MenuItem | null {
+  const item = branchItem(
+    branch,
+    "safe-push-request-review",
+    {
+      description: `Lands ${branch.name} now and asks for its review after landing, in a pull request that can never land`,
+      onSelect: () => void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "click", requestReview: [] }),
+    },
+    nextStep.safePushBlocker,
+    actions,
+  )
+  return withStepReason(item, nextStep.safePushBlocker)
+}
+
+/**
+ * The review after landing of the branch (`ShownReview` of the listing) on every surface of its menu: "Open Pull Request
+ * #12" of it while the branch has no pull request of its own, "Request Review…" (more reviewers asked and recorded, the
+ * picker under the row) and "Close Review…" (its confirmation under the row), as Rust offers them; none without one
+ */
+function getShownReviewItems(branch: Branch, pullRequest: PullRequest | undefined): MenuItem[] {
+  const shown = getShownReview(branch.name)
+  if (shown === undefined) {
+    return []
+  }
+  const number = shown.pullRequest.number
+  return present(
+    pullRequest === undefined ? openPullRequestItemOf(shown.pullRequest) : null,
+    branchItem(branch, "request-shown-review", {
+      description: `Asks more reviewers of the review after landing #${number}`,
+      onSelect: () => openInline("shown-reviewers", branch.name),
+    }),
+    branchItem(branch, "close-shown-review", {
+      description: `Closes the review after landing #${number} and deletes its branches`,
+      onSelect: () => openInline("close-shown-review", branch.name),
+    }),
+  )
 }
 
 /**

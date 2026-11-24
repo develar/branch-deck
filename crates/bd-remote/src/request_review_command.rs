@@ -183,7 +183,16 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let synced = sync(context)?;
   if !synced.branches.iter().any(|branch| branch.name == name) {
     // a branch that landed and left the table keeps its shown review: its open or extend
-    let read = read_shown_of(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() }, synced)?;
+    let read = read_shown_of(
+      context,
+      environment,
+      name,
+      &Intent::OpenShownReview {
+        branch: name.to_owned(),
+        reviewers: Vec::new(),
+      },
+      synced,
+    )?;
     if read.review.is_none() {
       return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
     }
@@ -224,7 +233,16 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
       return Err(no_pull_request(context, name));
     }
     // its review is the shown one: its open or extend, and its reviewers asked again
-    let read = read_shown_of(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() }, synced)?;
+    let read = read_shown_of(
+      context,
+      environment,
+      name,
+      &Intent::OpenShownReview {
+        branch: name.to_owned(),
+        reviewers: Vec::new(),
+      },
+      synced,
+    )?;
     return shown_review_request(context, args, environment, read);
   };
   let review = if reviewers.is_empty() {
@@ -385,7 +403,15 @@ fn no_pull_request(context: &RepoContext, name: &str) -> CliError {
 /// of the branch (`shown_review_request`)
 fn request_after_landing(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
-  let read = read_shown(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() })?;
+  let read = read_shown(
+    context,
+    environment,
+    name,
+    &Intent::OpenShownReview {
+      branch: name.to_owned(),
+      reviewers: Vec::new(),
+    },
+  )?;
   shown_review_request(context, args, environment, read)
 }
 

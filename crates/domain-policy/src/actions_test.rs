@@ -8,8 +8,8 @@ use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, 
 use domain_types::fixtures::{pull_request, remote_status, robot, robot_of};
 use domain_types::landing_route::{LandingRemote, LandingRoute, LocalGitHub};
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind, StepRetarget, StepRow, WithoutReview};
-use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ViewerPermission};
+use domain_types::patronus::{MissingReviewGroup, PatronusAvailability, PatronusPushMode, PatronusRobotStatus};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ShownReview, ShownState, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RestartAction, RobotRestart};
 use domain_types::session::{BranchStatus, ChildrenPush, Fact, FactState, Parked, PullRequestsView, RobotsHead, RobotsView, StackBranchAlong};
@@ -18,11 +18,11 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
 
 use ActionId::{
-  AddIssueReference, AddNeed, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest,
-  CreateStackPullRequest, DryRun, DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest,
-  OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, RemoveNeed, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges,
-  ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, StartRobotInAir, Unapply, Ungroup, Unpark,
-  Unstack,
+  AddIssueReference, AddNeed, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseShownReview, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt,
+  CreatePullRequest, CreateStackPullRequest, DryRun, DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest,
+  OpenStackPullRequest, OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, RemoveNeed, Rename, RequestReview, RequestShownReview, RestartRobot,
+  RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushRequestReview, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview,
+  SquashFixups, StackOn, StartRobotInAir, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -108,6 +108,8 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     push_route: false,
     merge_route: false,
     cached: false,
+    lands: &[],
+    shown: None,
   }
 }
 
@@ -127,6 +129,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
     SafePushWithProfile,
     DryRun,
     CheckApprovals,
+    SafePushRequestReview,
     Push,
     ReviewChanges,
     CreatePullRequest,
@@ -141,7 +144,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
     AddNeed,
     Park,
   ]);
-  ready.insert(6, (RequestReview, Some(ActionBlocker::NoOpenPullRequest { unlisted: None })));
+  ready.insert(7, (RequestReview, Some(ActionBlocker::NoOpenPullRequest { unlisted: None })));
   assert_eq!(table(&branch_actions(&facts(&step, &status))), ready);
   let off_space = BranchFacts {
     patronus: PatronusAnswer::NotOnSpace,
@@ -622,13 +625,19 @@ fn the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts()
     ..facts(&step, &status)
   });
   assert_eq!(
-    table(&actions)[..10],
+    table(&actions)[..11],
     [
       (SafePush, None),
       (SafePushWithProfile, Some(ActionBlocker::CommentRoute { number: 7 })),
       (DryRun, None),
       (CheckApprovals, None),
       (SafePushWithoutReview, Some(ActionBlocker::Step { blocker: StepBlocker::Syncing })),
+      (
+        SafePushRequestReview,
+        Some(ActionBlocker::Rule {
+          reason: Reason::ShowWithPullRequest { number: 7 }
+        })
+      ),
       (Push, None),
       (ReviewChanges, None),
       (OpenPullRequest, None),
@@ -1875,6 +1884,9 @@ fn on_a_frame_nobody_checked_every_remote_action_waits_for_the_first_sync_and_th
     SafePush,
     SafePushWithProfile,
     DryRun,
+    SafePushRequestReview,
+    RequestShownReview,
+    CloseShownReview,
     Push,
     PushWithChildren,
     PushToBaseline,
@@ -2216,4 +2228,133 @@ fn a_shown_review_is_offered_no_safe_push_and_its_review_stays() {
     (reason_of(&actions, SafePushPullRequest), reason_of(&actions, Approve), reason_of(&actions, RequestChanges)),
     (Some(ActionBlocker::Shown { number: 101 }), None, None)
   );
+}
+
+/// The shown review of auth: #12, a draft or open, waiting for alice
+fn shown_review(draft: bool) -> ShownReview {
+  ShownReview {
+    pull_request: PullRequest {
+      is_draft: draft,
+      base_ref_name: "user/review/auth/base".to_string(),
+      ..pull_request("auth", 12)
+    },
+    reviewers: vec!["alice".to_string()],
+    landed: Vec::new(),
+    state: if draft {
+      ShownState::Draft
+    } else {
+      ShownState::InReview {
+        waiting: vec!["alice".to_string()],
+      }
+    },
+  }
+}
+
+/// Safe Push and Request Review… is offered where a Safe Push of Patronus lands into a GitHub repository, refused as its
+/// start would refuse it (a review after landing open already, an open pull request, more than the branch, approvals
+/// before landing, then what holds the Safe Push back) and never for nobody to ask, which its popover asks; a branch
+/// whose review is the one after landing offers Request Review… and Close Review… of it instead of the request of a pull
+/// request, a draft too
+#[test]
+fn a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review_is_asked_and_closed_from_the_row() {
+  let status = remote(PushAction::Push);
+  let ready = ready_step();
+  let reason_of = |facts: BranchFacts<'_>, id: ActionId| table(&branch_actions(&facts)).into_iter().find(|(it, _)| *it == id).map(|(_, reason)| reason);
+  let rule = |reason: Reason| Some(Some(ActionBlocker::Rule { reason }));
+  assert_eq!(reason_of(facts(&ready, &status), SafePushRequestReview), Some(None), "a ready branch");
+
+  let open = shown_review(false);
+  let with_review = BranchFacts {
+    shown: Some(&open),
+    ..facts(&ready, &status)
+  };
+  assert_eq!(reason_of(with_review.clone(), SafePushRequestReview), rule(Reason::ShowReviewOpen { number: 12 }));
+  assert_eq!(
+    ids(&branch_actions(&with_review))
+      .into_iter()
+      .filter(|id| matches!(id, RequestReview | RequestShownReview | CloseShownReview))
+      .collect::<Vec<_>>(),
+    [RequestShownReview, CloseShownReview],
+    "the review after landing in place of the request of a pull request"
+  );
+  let draft = shown_review(true);
+  let with_draft = BranchFacts {
+    shown: Some(&draft),
+    ..facts(&ready, &status)
+  };
+  assert_eq!(reason_of(with_draft.clone(), SafePushRequestReview), Some(None), "a draft whose robot failed starts again");
+  assert_eq!(
+    (reason_of(with_draft.clone(), RequestShownReview), reason_of(with_draft, CloseShownReview)),
+    (Some(None), Some(None))
+  );
+
+  let lands = ["core".to_string(), "auth".to_string()];
+  assert_eq!(
+    reason_of(
+      BranchFacts {
+        lands: &lands,
+        ..facts(&ready, &status)
+      },
+      SafePushRequestReview
+    ),
+    rule(Reason::ShowLandsStack { lands: lands.to_vec() })
+  );
+  let group = MissingReviewGroup {
+    name: "IJPL Code Platform".to_string(),
+    needed: Some(1),
+    approved_by: Vec::new(),
+    requested: Vec::new(),
+    suggested: Vec::new(),
+    changes_requested_by: Vec::new(),
+  };
+  let approvals = NextStep {
+    row: StepRow::Seven,
+    kind: StepKind::CreatePullRequest {
+      groups: vec![group],
+      stack: None,
+      repository: true,
+    },
+    safe_push: Some(StepBlocker::Step),
+    ..ready_step()
+  };
+  assert_eq!(
+    reason_of(facts(&approvals, &status), SafePushRequestReview),
+    rule(Reason::ShowNeedsApprovals {
+      groups: vec!["IJPL Code Platform".to_string()]
+    })
+  );
+  let syncing = NextStep {
+    safe_push: Some(StepBlocker::Syncing),
+    ..ready_step()
+  };
+  assert_eq!(
+    reason_of(facts(&syncing, &status), SafePushRequestReview),
+    Some(Some(ActionBlocker::Step { blocker: StepBlocker::Syncing }))
+  );
+  // where it never applies: no GitHub repository, off Space, a push into the target
+  for (of, facts) in [
+    (
+      "no GitHub repository",
+      BranchFacts {
+        repository: false,
+        ..facts(&ready, &status)
+      },
+    ),
+    (
+      "off Space",
+      BranchFacts {
+        patronus: PatronusAnswer::NotOnSpace,
+        ..facts(&ready, &status)
+      },
+    ),
+    (
+      "a push into the target",
+      BranchFacts {
+        push_route: true,
+        ..facts(&ready, &status)
+      },
+    ),
+  ] {
+    assert_eq!(reason_of(facts, SafePushRequestReview), None, "{of}");
+  }
 }

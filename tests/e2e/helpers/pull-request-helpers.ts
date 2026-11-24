@@ -38,6 +38,11 @@ export type GitHubFixture = PullRequestsFixture & {
   viewerPermission?: "READ" | "TRIAGE" | "WRITE" | "MAINTAIN" | "ADMIN"
   nextNumber?: number
   missingBranches?: string[]
+  /**
+   * The reviews after landing of the user beside the pull requests of the branches (heads under `user-name/review/`),
+   * each with its body, whose records the listing reads (`<!-- branch-deck show reviewers: … -->`)
+   */
+  shown?: { pullRequest: PullRequest; body: string }[]
 }
 
 /** A request that reached the fake GitHub: method, path and JSON body (null for none) */

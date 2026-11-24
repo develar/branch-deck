@@ -29,6 +29,7 @@ pool-disk = { path = "../pool-disk" }
 object-cache = { path = "../object-cache" }
 # the Patronus service of the robots and the `teamcity` CLI of the full failure of a robot
 patronus = { path = "../patronus" }
+codeowners = { path = "../codeowners" }
 # the sessions of the repositories, the engine of their operations and the reads of the remote services they make
 operations = { path = "../operations" }
 remote-facts = { path = "../remote-facts" }

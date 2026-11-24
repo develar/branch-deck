@@ -64,8 +64,15 @@ pub enum Intent {
   DisableAutoMerge { number: u32 },
   /// The draft shown review of `branch` is opened once the Safe Push that landed the branch merged
   /// (`operations::shown`): its head goes to the commit the robot landed (its base to the fork point of it), it is marked
-  /// ready for review, and the reviewers its text records are asked
-  OpenShownReview { branch: String },
+  /// ready for review, and the reviewers its text records are asked. `reviewers`, those the user adds (Request Review…
+  /// of the row, `brd request-review --reviewer`), are asked too and recorded in its body; of a draft before the merge
+  /// they are only recorded, its open asks them
+  OpenShownReview {
+    branch: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reviewers: Vec<String>,
+  },
   /// The fixes of `branch` that landed after its shown review opened are added to it (`operations::shown`): their
   /// commits replayed onto its head, pushed leased on the head the remote has, its reviewers asked again; a fix that
   /// doesn't apply on its commits is named in a comment instead
@@ -192,7 +199,7 @@ impl Intent {
       Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
         Some(subject.key())
       }
-      Self::LinkStack { branch } | Self::OpenShownReview { branch } | Self::ExtendShownReview { branch } | Self::CloseShownReview { branch, .. } => Some(branch.clone()),
+      Self::LinkStack { branch } | Self::OpenShownReview { branch, .. } | Self::ExtendShownReview { branch } | Self::CloseShownReview { branch, .. } => Some(branch.clone()),
       Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }

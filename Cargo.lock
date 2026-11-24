@@ -176,6 +176,7 @@ dependencies = [
  "app-settings",
  "branch-integration",
  "cli-tools",
+ "codeowners",
  "diff-marks",
  "domain-policy",
  "domain-types",
@@ -6175,6 +6176,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cli-tools",
+ "codeowners",
  "domain-policy",
  "domain-types",
  "git-executor",
@@ -8023,6 +8025,7 @@ dependencies = [
  "backend-host",
  "branch-integration",
  "cli-tools",
+ "codeowners",
  "dashmap",
  "diff-marks",
  "domain-policy",

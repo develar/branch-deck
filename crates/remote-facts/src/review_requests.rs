@@ -6,6 +6,7 @@ use crate::pull_requests::{
   GhLabel, GhReview as GhLatestReview, GhReviewRequestNode, MERGED_LABEL, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data,
 };
 use crate::reviews::{reviews_answer, reviews_query, reviews_searches};
+use domain_policy::shown::is_shown;
 use domain_types::pull_request::{ChecksState, PullRequestAvailability, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, ReviewRequestsResult, ReviewsAsk};
 use github::service::{GitHubService, RequestKind};
@@ -266,6 +267,7 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     .and_then(|commit| commit.commit)
     .and_then(|commit| Nodes::into_nodes(commit.parents).into_iter().next())
     .and_then(|parent| parent.oid);
+  let base_ref_name = node.base_ref_name.unwrap_or_default();
   ReviewRequest {
     number,
     title_lead: issue_lead(&title),
@@ -290,10 +292,11 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     reviewed_state: review.as_ref().and_then(|(_, _, state)| *state),
     reviewed_commit: review.and_then(|(_, commit, _)| commit),
     reviewers: Vec::new(),
-    base_is_default: default_branch.as_deref().is_some_and(|name| name == node.base_ref_name.as_deref().unwrap_or_default()),
+    base_is_default: default_branch.as_deref().is_some_and(|name| name == base_ref_name),
     head_ref_name: node.head_ref_name.unwrap_or_default(),
     head_ref_oid: node.head_ref_oid.unwrap_or_default(),
-    base_ref_name: node.base_ref_name.unwrap_or_default(),
+    shown: is_shown(&base_ref_name),
+    base_ref_name,
     base_ref_oid: fork_point.filter(|_| state != PullRequestState::Open).or(node.base_ref_oid).unwrap_or_default(),
     is_cross_repository: node.is_cross_repository.unwrap_or(false),
     labels,

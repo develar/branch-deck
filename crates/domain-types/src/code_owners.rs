@@ -28,3 +28,27 @@ pub struct GroupMember {
   /// The rotation of the group passes them by
   pub rotated: bool,
 }
+
+/// Whom a review after landing asks when the user names nobody (`domain_policy::shown::show_candidates`): the picker of
+/// Safe Push and Request Review… starts with them
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ShowReviewers {
+  /// The owner groups of the paths the branch changes, by the `OWNERSHIP` files of the target; empty where none names an
+  /// owner of them
+  pub groups: Vec<String>,
+  /// One available GitHub login of each group, each once, never the author
+  pub reviewers: Vec<String>,
+  /// The groups none of whose members or reviewers can be asked
+  pub without_reviewer: Vec<String>,
+}
+
+/// What `get_show_reviewers` asks: the default reviewers of the review after landing of `branch_name`
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetShowReviewersParams {
+  pub repository_path: String,
+  pub branch_name: String,
+}

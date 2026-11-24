@@ -292,6 +292,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/patronus-progress", post(remote_fixtures::set_patronus_progress))
     .route("/repositories/{id}/patronus-profiles", post(remote_fixtures::set_patronus_profiles))
     .route("/repositories/{id}/patronus-start-refusal", post(remote_fixtures::set_patronus_start_refusal))
+    .route("/repositories/{id}/codeowners", post(remote_fixtures::set_codeowners).get(remote_fixtures::get_codeowners))
+    .route("/repositories/{id}/github-review", post(remote_fixtures::submit_github_review))
     .route(
       "/repositories/{id}/remote-gates",
       post(remote_fixtures::set_remote_gates).get(remote_fixtures::get_remote_gates),

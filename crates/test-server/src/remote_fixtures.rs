@@ -246,6 +246,40 @@ pub async fn set_patronus_profiles(Path(id): Path<String>, State(state): State<A
   Ok(StatusCode::OK)
 }
 
+/// What the `CodeOwners` service of the repository answers from now on (`POST /repositories/{id}/codeowners`): the body
+/// of the lookup of each group by its name, as the service answers it (`codeowners::fake_codeowners::group_json`); `real`
+/// the groups that answer the lookup the real service gave (`real_lookup`: two members, one away on vacation, fields
+/// Branch Deck doesn't read), under their own name. A group of neither is one the service doesn't know (404)
+#[derive(Deserialize)]
+pub struct CodeOwnersFixture {
+  #[serde(default)]
+  pub groups: HashMap<String, serde_json::Value>,
+  #[serde(default)]
+  pub real: Vec<String>,
+}
+
+/// Sets the groups of the fake `CodeOwners` service (`CodeOwnersFixture`), in place of those before
+pub async fn set_codeowners(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<CodeOwnersFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  let fake = host.codeowners();
+  fake.groups.lock().expect("codeowners groups lock").clear();
+  for (name, group) in fixture.groups {
+    fake.set_group(&name, group);
+  }
+  for name in fixture.real {
+    let mut group = codeowners::fake_codeowners::real_lookup();
+    group["name"] = serde_json::Value::String(name.clone());
+    fake.set_group(&name, group);
+  }
+  Ok(StatusCode::OK)
+}
+
+/// The names of the groups the app looked up, in order
+pub async fn get_codeowners(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let (host, _) = host_of(&state, &id)?;
+  Ok(Json(serde_json::json!({ "lookups": host.codeowners().lookups() })))
+}
+
 /// How Patronus answers a start from now on: `description` refuses every start with it (400), logged as any start;
 /// `null` starts again
 #[derive(Deserialize)]
@@ -451,6 +485,18 @@ pub struct GitHubFixture {
   /// Branches GitHub doesn't have yet although the test repository does: a mirror has not copied them
   #[serde(default)]
   pub missing_branches: std::collections::BTreeSet<String>,
+  /// The reviews after landing of the user GitHub holds beside the pull requests of the branches (their heads under
+  /// `{prefix}/review/`, their bases the fork points), each with its body, whose records the listing reads
+  #[serde(default)]
+  pub shown: Vec<ShownFixture>,
+}
+
+/// A review after landing a GitHub fixture holds (`GitHubFixture::shown`): its pull request and its body
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownFixture {
+  pub pull_request: PullRequest,
+  pub body: String,
 }
 
 /// The GitHub repository a fixture names, and how GitHub answers: signed in, and the failure of every request
@@ -552,7 +598,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   let (host, path) = host_of(&state, &id)?;
   let answers = github_answers(&fixture).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
   let (git, repository, result) = (state.git_executor.clone(), answers.repository.clone(), fixture.result.clone());
-  let pulls = tokio::task::spawn_blocking(in_current_span(move || -> anyhow::Result<Vec<FakePull>> {
+  let mut pulls = tokio::task::spawn_blocking(in_current_span(move || -> anyhow::Result<Vec<FakePull>> {
     write_github_repository(&git, &path, repository.as_ref())?;
     let prefix = crate::state::read_local_branch_prefix(&git, &path)?.prefix;
     match &repository {
@@ -564,6 +610,13 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   .await
   .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
   .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  pulls.extend(fixture.shown.into_iter().map(|shown| FakePull {
+    pull_request: shown.pull_request,
+    body: shown.body,
+    comments: Vec::new(),
+    reviews: Vec::new(),
+    assignees: Vec::new(),
+  }));
   let stacks = stacks_of(&pulls).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
   let next_number = fixture.next_number.unwrap_or_else(|| {
     let numbers = pulls.iter().map(|pull| pull.pull_request.number).chain(stacks.iter().map(|stack| stack.number));
@@ -593,6 +646,46 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   };
   host.set_github(github, answers.signed_in);
   Ok(StatusCode::OK)
+}
+
+/// A review someone else submitted on GitHub (`POST /repositories/{id}/github-review`): `login` reviewed the pull
+/// request `number` the fake holds (one the app created too) in `state` (`approved`, `changesRequested`, `commented`),
+/// and is asked no more
+#[derive(Deserialize)]
+pub struct GitHubReviewFixture {
+  pub number: u32,
+  pub login: String,
+  pub state: domain_types::pull_request::ReviewerState,
+}
+
+/// Submits the review of `GitHubReviewFixture` on the fake GitHub, as its author would on the page of the pull request;
+/// 404 for a pull request the fake doesn't hold
+pub async fn submit_github_review(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<GitHubReviewFixture>) -> FixtureResult {
+  let (host, _) = host_of(&state, &id)?;
+  let mut found = false;
+  host.github_repository().update(|github| {
+    let Some(pull) = github.pulls.iter_mut().find(|pull| pull.pull_request.number == fixture.number) else {
+      return;
+    };
+    found = true;
+    let reviewers = &mut pull.pull_request.reviewers;
+    match reviewers.iter_mut().find(|reviewer| reviewer.login.eq_ignore_ascii_case(&fixture.login)) {
+      Some(reviewer) => {
+        reviewer.state = fixture.state;
+        reviewer.requested = false;
+      }
+      None => reviewers.push(domain_types::pull_request::Reviewer {
+        login: fixture.login.clone(),
+        state: fixture.state,
+        requested: false,
+      }),
+    }
+  });
+  if found {
+    Ok(StatusCode::OK)
+  } else {
+    Err((StatusCode::NOT_FOUND, format!("GitHub holds no pull request #{}", fixture.number)))
+  }
 }
 
 /// What the app asked of GitHub (`calls`: the session's lists of the pull requests) and every request that reached the fake GitHub, in

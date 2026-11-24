@@ -1886,6 +1886,12 @@ impl Told<'_> {
         format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
       )
       .with_next_step(format!("{} request-review {}", context.bd, shell_word(name)), true),
+      // a fix lands by the plain Safe Push, and the review takes it once it merged
+      Reason::ShowReviewOpen { .. } => Refusal::new(
+        ErrorCode::PullRequestOpen,
+        format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
+      )
+      .with_next_step(format!("{} safe-push {}", context.bd, shell_word(name)), true),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

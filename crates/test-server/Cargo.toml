@@ -37,6 +37,7 @@ git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
+codeowners = { path = "../codeowners", features = ["fake"] }
 test-utils = { path = "../test-utils", features = ["http"] }
 sync-core = { path = "../sync-core" }
 remote-facts = { path = "../remote-facts" }

@@ -151,36 +151,38 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
       return { text: formatRegenerate(fact.files), tooltip: describeRegenerate(fact.files, fact.fix), color: "warning" }
     // its review after landing: in master already, the review follows
     case "shown":
-      return shownTexts(fact.number, fact.state)
+      return shownTexts(fact.number, fact.state, branch.name)
   }
 }
 
 /**
- * "In review after landing: alice", "alice requested changes in #123", "Approved", a fix that goes into it: the review
- * after landing of a branch
+ * The review after landing of `branch` in the cell, its hover whose move it is: "review after landing" while its Safe
+ * Push lands it (a draft), "in review after landing" waiting for named people, "changes requested after landing" with
+ * how a fix goes into it (a commit of the branch, `(auth) …`, its own Safe Push), "fix goes into review after landing"
+ * while that fix lands, "approved after landing" until it closes
  */
-function shownTexts(number: number, state: ShownState): StatusTexts {
+function shownTexts(number: number, state: ShownState, branch: string): StatusTexts {
   switch (state.kind) {
     case "draft":
-      return { text: "review after landing", tooltip: `#${number} opens for review once the Safe Push merges`, color: "neutral" }
+      return { text: "review after landing", tooltip: `#${number} opens for review once the Safe Push of ${branch} merges`, color: "neutral" }
     case "inReview":
       return {
         text: "in review after landing",
-        tooltip: state.waiting.length === 0 ? `In review after landing: #${number}` : `In review after landing: ${joinNames(state.waiting)} (#${number})`,
+        tooltip: state.waiting.length === 0 ? `In review after landing in #${number}` : `In review after landing: waits for ${joinNames(state.waiting)} in #${number}`,
         color: "neutral",
       }
     case "changesRequested":
       return {
         text: "changes requested after landing",
-        tooltip: `${joinNames(state.by)} requested changes in #${number}: commit a fix of the branch, its Safe Push lands it`,
+        tooltip: `${joinNames(state.by)} requested changes in #${number}: commit a fix as (${branch}) …, and its Safe Push adds it to the review`,
         color: "error",
       }
     case "approved":
-      return { text: "approved after landing", tooltip: `Approved by ${joinNames(state.by)} (#${number})`, color: "success" }
+      return { text: "approved after landing", tooltip: `Approved by ${joinNames(state.by)} in #${number}: it closes with its branches`, color: "success" }
     case "extending":
       return {
         text: "fix goes into review after landing",
-        tooltip: `A fix of the branch lands (robot ${state.robot}): #${number} takes it once it merged and asks its reviewers again`,
+        tooltip: `A fix of ${branch} lands: #${number} takes it once its Safe Push merged and asks its reviewers again`,
         color: "neutral",
       }
   }

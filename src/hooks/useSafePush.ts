@@ -91,6 +91,11 @@ export interface SafePushRequest {
   readonly profileId?: string | null
   /** A Safe Push without review, asked from the Create Pull Request dialog */
   readonly bypassReview?: boolean
+  /**
+   * A Safe Push with a review after landing (Safe Push and Request Review…): the GitHub logins it asks once the robot
+   * merged, as the popover picked them; none refuses the start (`noReviewer`)
+   */
+  readonly requestReview?: readonly string[]
 }
 
 /**
@@ -201,6 +206,9 @@ export interface WholeStackRead {
   readonly piece: string | null
 }
 
+/** No reviewer picked yet */
+const NO_REVIEWERS: readonly string[] = []
+
 // ---- the profile of the last robot ----
 
 /** The last robot of the branch, or of the whole stack of a key (`stackReadinessKey`): its profile is the default */
@@ -242,6 +250,7 @@ export function landOf(branchName: string, request: Omit<SafePushRequest, "place
     mode: request.mode,
     profile: profileId === undefined ? { kind: "default" } : profileId === null ? { kind: "none" } : { kind: "id", id: profileId },
     withoutApprovals: request.bypassReview === true && request.mode === "rebaseAutosquash",
+    ...(request.requestReview !== undefined && request.mode === "rebaseAutosquash" && { requestReview: { reviewers: [...request.requestReview] } }),
   }
 }
 
@@ -253,6 +262,7 @@ function requestOf(land: Land): SafePushRequest {
     via: "click",
     ...(profile.kind === "none" ? { profileId: null } : profile.kind === "id" ? { profileId: profile.id } : {}),
     ...(land.withoutApprovals === true && { bypassReview: true }),
+    ...(land.requestReview != null && { requestReview: land.requestReview.reviewers }),
   }
 }
 
@@ -264,12 +274,13 @@ function askOf(branchName: string, request: Omit<SafePushRequest, "placement">, 
     placement,
     ...(request.profileId !== undefined && { profileId: request.profileId }),
     ...(request.bypassReview === true && { bypassReview: true }),
+    ...(request.requestReview !== undefined && { requestReview: true }),
   }
 }
 
 /** The start of the default intent (the default profile, with review): the view carries its decision (`RepositoryView.lands`) */
 function isDefaultAsk(request: Omit<SafePushRequest, "placement">): boolean {
-  return request.profileId === undefined && request.bypassReview !== true
+  return request.profileId === undefined && request.bypassReview !== true && request.requestReview === undefined
 }
 
 /** The plan the session answers of the start `request` of `branchName` (`prepare`); null without an answer */
@@ -641,7 +652,8 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   // (the open is a new state of the store of the starts, which its read is memoized on)
   void askBranchRulesAgain()
   const ask = askOf(branchName, request, placement)
-  if (request.via === "key" || request.bypassReview === true) {
+  // its rarer forms ask first: the profile, the reviewers
+  if (request.via === "key" || request.bypassReview === true || request.requestReview !== undefined) {
     openSafePushPopover(ask)
     return
   }
@@ -1039,32 +1051,49 @@ function tellStartRefusal(error: ApiError, plan: Plan, repositoryPath: string): 
 function useStartPlan(branchName: string, request: Omit<SafePushRequest, "placement">): Plan | null {
   const [answer, setAnswer] = useState<{ readonly key: string; readonly plan: Plan | null } | null>(null)
   const version = useStore(branchSyncStore, state => (state.viewVersion === null ? null : `${state.viewVersion.epoch}:${state.viewVersion.seq}`))
-  const key = JSON.stringify([branchName, request.mode, request.profileId ?? "default", request.bypassReview === true])
+  // the reviewers by value: a picker gives a new list of the same logins on a render
+  const reviewers = request.requestReview?.join("\n") ?? null
+  const key = JSON.stringify([branchName, request.mode, request.profileId ?? "default", request.bypassReview === true, reviewers])
   const { mode, via, profileId, bypassReview } = request
   useEffect(() => {
     let current = true
-    prepareStart(branchName, { mode, via, ...(profileId !== undefined && { profileId }), ...(bypassReview === true && { bypassReview }) }).then(
+    const requestReview = reviewers === null ? undefined : reviewers === "" ? [] : reviewers.split("\n")
+    const asked = {
+      mode,
+      via,
+      ...(profileId !== undefined && { profileId }),
+      ...(bypassReview === true && { bypassReview }),
+      ...(requestReview !== undefined && { requestReview }),
+    }
+    prepareStart(branchName, asked).then(
       plan => current && setAnswer({ key, plan }),
       (error: unknown) => current && notifyError(`Cannot read the ${formatStartName(mode)} of ${formatReadinessSubject(branchName)}`, error),
     )
     return () => {
       current = false
     }
-  }, [branchName, key, mode, via, profileId, bypassReview, version])
+  }, [branchName, key, mode, via, profileId, bypassReview, reviewers, version])
   // a plan of another profile is not this start's
   return answer?.key === key ? answer.plan : null
 }
 
 /**
  * `readSafePush` of the popover's ask, read again on every change of the stores it reads and of the plan of the
- * session; the profiles and the review demanded meanwhile
+ * session; the profiles and the review demanded meanwhile. `reviewers`: whom the review after landing of a Safe Push
+ * and Request Review… asks, as its popover picked them
  */
-export function useSafePushRead(ask: SafePushAsk, profileId: string | null | undefined): SafePushRead | null {
+export function useSafePushRead(ask: SafePushAsk, profileId: string | null | undefined, reviewers: readonly string[] = NO_REVIEWERS): SafePushRead | null {
   useEffect(() => {
     void askStartOptions(ask.branchName)
   }, [ask.branchName])
   useDemandReviewReadiness(ask.branchName, ask.mode === "rebaseAutosquash")
-  const request: Omit<SafePushRequest, "placement"> = { mode: ask.mode, via: "key", bypassReview: ask.bypassReview, ...(profileId !== undefined && { profileId }) }
+  const request: Omit<SafePushRequest, "placement"> = {
+    mode: ask.mode,
+    via: "key",
+    bypassReview: ask.bypassReview,
+    ...(profileId !== undefined && { profileId }),
+    ...(ask.requestReview === true && { requestReview: reviewers }),
+  }
   const plan = useStartPlan(ask.branchName, request)
   // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler. One read per
   // change of what it reads (the stores, the plan of the session), the same object for the same state, shared by the
@@ -1072,7 +1101,9 @@ export function useSafePushRead(ask: SafePushAsk, profileId: string | null | und
   const memo = useSourceMemo<SafePushRead | null>()
   const select = () => {
     const stores = [branchSyncStore.getState(), reviewReadinessStore.getState(), pullRequestsStore.getState(), patronusStore.getState(), safePushStore.getState()]
-    return memo([ask.branchName, request.mode, request.via, request.profileId, request.bypassReview, plan, ...stores], () => readSafePush(ask.branchName, request, plan))
+    return memo([ask.branchName, request.mode, request.via, request.profileId, request.bypassReview, request.requestReview?.join("\n"), plan, ...stores], () =>
+      readSafePush(ask.branchName, request, plan),
+    )
   }
   useStore(branchSyncStore, select)
   useStore(reviewReadinessStore, select)

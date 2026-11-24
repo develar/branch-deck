@@ -113,6 +113,18 @@ export function useRepositoryShownReviews(): Readonly<Record<string, ShownReview
   return useStore(pullRequestsStore, state => state.repositories[key]?.shownReviews ?? EMPTY.shownReviews)
 }
 
+/** The open review after landing of `branchName` (a draft too); re-renders only when it changes */
+export function useShownReview(branchName: string): ShownReview | undefined {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => state.repositories[key]?.shownReviews[branchName])
+}
+
+/** Non-hook variant of `useShownReview`, for menus built on open */
+export function getShownReview(branchName: string): ShownReview | undefined {
+  const key = currentKey()
+  return key === null ? undefined : pullRequestsStore.getState().repositories[key]?.shownReviews[branchName]
+}
+
 /** Non-hook variant of `useStackPullRequest`, for menus built on open */
 export function getStackPullRequest(root: string): PullRequest | undefined {
   const key = currentKey()

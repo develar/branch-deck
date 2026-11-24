@@ -268,6 +268,13 @@ pub trait StartHost: Send + Sync {
   /// push `sent` (its text names what the push sent)
   fn pull_request_text<'a>(&'a self, sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>>;
 
+  /// The text of the draft of the shown review of the virtual branch `branch` a Safe Push with a review after landing
+  /// opens (`PlannedEffect::CreateShownReview`), its commits against `target` after the push `sent`: the text of its
+  /// pull request where the host has one (`brd`), else the host's own
+  fn shown_text<'a>(&'a self, _branch: &'a str, _target: &'a str, sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>> {
+    self.pull_request_text(sent)
+  }
+
   /// The title and the body of the pull request of `head` (its full name), a layer below the subject in its stack of
   /// GitHub, into `base`: of its own commits against the branch below it (`CreateLayerPullRequest`); a host that opens no
   /// pull request of a layer refuses it
@@ -835,7 +842,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::KeptCheckedOut { .. } => ErrorCode::BranchCheckedOut,
     // a review after landing (show) refused before anything is pushed
     Reason::ShowNeedsApprovals { .. } => ErrorCode::ApprovalsRequired,
-    Reason::ShowWithPullRequest { .. } => ErrorCode::PullRequestOpen,
+    Reason::ShowWithPullRequest { .. } | Reason::ShowReviewOpen { .. } => ErrorCode::PullRequestOpen,
     Reason::ShowNeedsPatronus => ErrorCode::ShowNeedsPatronus,
     Reason::ShowLandsStack { .. } => ErrorCode::ShowLandsStack,
     Reason::ReviewNotApproved { .. } => ErrorCode::ReviewNotApproved,
@@ -1779,7 +1786,7 @@ impl Run<'_> {
   /// taken), its text the host's with what a shown review is and the record of `reviewers`, whom its open asks; nobody is
   /// asked now (a draft is no review request of Your Turn)
   async fn create_shown_review(&mut self, branch: &str, reviewers: &[String]) -> EffectStatus {
-    let text = match self.host.pull_request_text(self.pushed.as_ref()).await {
+    let text = match self.host.shown_text(branch, &self.services.target, self.pushed.as_ref()).await {
       Ok(text) => text,
       Err(error) => return self.fail(error),
     };

@@ -16,11 +16,12 @@ use domain_types::session::ViewPatch;
 /// the branches 111 KB, the landing decisions 77 KB, the next steps 72 KB, the facts 68 KB, the Patronus part 29 KB)
 const FIRST_PATCH_BUDGET: usize = 560_000;
 /// The patch of one robot that fails: its fact, and the next step, the landing decisions, the actions and the attention
-/// of its branch (measured 3 075 bytes)
-const FAILED_ROBOT_BUDGET: usize = 3_400;
+/// of its branch (measured 3 476 bytes, of them 1 714 the actions with the Safe Push and Request Review… of the branch,
+/// disabled with the step's reason as its Safe Push is)
+const FAILED_ROBOT_BUDGET: usize = 3_700;
 /// The patch of the readiness one subject is answered: its fact, and the next step, the landing decisions and the
-/// actions of its row (measured 2 460 bytes)
-const READINESS_ANSWER_BUDGET: usize = 2_700;
+/// actions of its row, its Safe Push and Request Review… among them (measured 2 864 bytes)
+const READINESS_ANSWER_BUDGET: usize = 3_100;
 
 /// The bytes of the JSON a window gets of each item, as the channel of the app carries it
 pub(super) fn json_bytes<T: serde::Serialize>(items: &[T]) -> usize {

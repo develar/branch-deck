@@ -13,6 +13,7 @@ import type {
   RemoteStatusUpdate,
   RepositoryView,
   Resource,
+  ReviewerState,
   StackBranchUpdate,
   UnattendedDenial,
 } from "../../../src/lib/bindings"
@@ -486,6 +487,29 @@ export class TestRepositoryBuilder {
   /** What the page asked of GitHub and every request that reached the fake GitHub, in order */
   async getGitHubLog(): Promise<GitHubLog> {
     return this.getFixture<GitHubLog>("pull-requests")
+  }
+
+  /**
+   * `login` reviewed the pull request `number` the fake GitHub holds (one the app created too) in `state`, as its author
+   * would on GitHub: they are asked no more. The session reads it with its next listing of the pull requests
+   */
+  async reviewOnGitHub(number: number, login: string, state: ReviewerState): Promise<void> {
+    await this.setFixture("github-review", { number, login, state })
+  }
+
+  /**
+   * What the `CodeOwners` service of the repository answers from now on: the lookup of each group of `groups` by its
+   * name (`{ name, reviewers, members }`, the members with `githubUsername`, `isReviewer`, `rotated`, `availability`),
+   * and of each of `real` the lookup the real service gave (two members, one of them away on vacation). A group of
+   * neither is one the service doesn't know
+   */
+  async setCodeOwners(fixture: { groups?: Record<string, unknown>; real?: string[] }): Promise<void> {
+    await this.setFixture("codeowners", fixture)
+  }
+
+  /** The names of the groups the app looked up in the `CodeOwners` service, in order */
+  async getCodeOwnersLookups(): Promise<string[]> {
+    return (await this.getFixture<{ lookups: string[] }>("codeowners")).lookups
   }
 
   /**

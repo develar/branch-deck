@@ -1,16 +1,20 @@
 //! The pull requests the user creates and the reviewers they ask (openspec/specs/branch/pull-requests/spec.md): the text a new
-//! pull request of a branch or of a whole stack starts with, and the users a review can be asked from, over the GitHub
-//! and the YouTrack of the session of the repository (`ServiceHost`)
+//! pull request of a branch or of a whole stack starts with, the users a review can be asked from, and whom a review
+//! after landing asks by default (openspec/specs/branch/shown-reviews/spec.md), over the GitHub, the YouTrack and the
+//! `CodeOwners` service of the session of the repository (`ServiceHost`)
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
 use crate::transport::Call;
-use domain_types::error::ApiError;
+use codeowners::client::CodeOwnersError;
+use domain_types::code_owners::{GetShowReviewersParams, ShowReviewers};
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::pull_request::{GitHubUser, NewPullRequest};
 use remote_facts::pull_request_create::{
   GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request as read_new_pull_request, read_viewer_login, search_github_users as search_users,
 };
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
+use remote_facts::show_reviewers::{lookup_candidates, owner_groups};
 use remote_facts::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use repository_model::session::SessionKey;
 
@@ -50,4 +54,52 @@ async fn with_viewer(ctx: &AppContext, key: &SessionKey, mut pull_request: NewPu
     pull_request.viewer_login = read_viewer_login(&github, &key.worktree, &repository).await.ok();
   }
   Ok(pull_request)
+}
+
+/// Whom the review after landing of `params.branch_name` asks by default (`remote_facts::show_reviewers`, as `brd
+/// safe-push --request-review` without `--reviewer`): the owner groups of what the branch changes against the baseline
+/// of the session, by the `OWNERSHIP` files there, then one available member of each from the `CodeOwners` service,
+/// never the user of the GitHub token. No lookup where no `OWNERSHIP` file names an owner of what it changes
+///
+/// # Errors
+/// The session is not open or its table lacks the branch, no Space token, a failure of git, of the service or of GitHub
+pub async fn get_show_reviewers(ctx: &AppContext, _call: &Call, key: SessionKey, params: GetShowReviewersParams) -> Result<ShowReviewers, ApiError> {
+  let branch = params.branch_name;
+  let read = {
+    let branch = branch.clone();
+    ctx
+      .sessions
+      .read(&key, move |state, facts| {
+        let table = facts.table_facts(state)?;
+        Some((table.table.tip_of(&branch)?.to_owned(), state.header().baseline_branch.clone()))
+      })
+      .await
+      .flatten()
+  };
+  let (tip, baseline) = read.ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, format!("The table of the repository has no built branch {branch}")))?;
+  let (git, path) = (ctx.git.clone(), key.worktree.clone());
+  let target_ref = format!("refs/remotes/{baseline}");
+  let groups = run_blocking(move || owner_groups(&git, &path, &target_ref, &tip)).await?;
+  if groups.is_empty() {
+    return Ok(ShowReviewers::default());
+  }
+  let access = ctx.services.codeowners(&key)?;
+  let repository = ctx.services.github_repository(&key).await?.ok_or_else(|| ApiError::internal(NOT_ON_GITHUB_MESSAGE))?;
+  let github = ctx.services.github(&key)?;
+  let author = read_viewer_login(&github, &key.worktree, &repository)
+    .await
+    .map_err(|failure| ApiError::new(ErrorCode::NetworkError, failure_message(&failure)))?;
+  let candidates = lookup_candidates(&access.client, &access.token, &groups, &author).await.map_err(|error| {
+    let code = if matches!(error, CodeOwnersError::Unauthorized) {
+      ErrorCode::NotLoggedIn
+    } else {
+      ErrorCode::NetworkError
+    };
+    ApiError::new(code, error.message())
+  })?;
+  Ok(ShowReviewers {
+    groups,
+    reviewers: candidates.reviewers,
+    without_reviewer: candidates.without_reviewer,
+  })
 }

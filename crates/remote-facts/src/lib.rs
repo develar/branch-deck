@@ -55,6 +55,7 @@ pub mod robot_stats;
 pub mod robot_stats_aggregate;
 pub mod scheduler;
 pub mod service_sources;
+pub mod show_reviewers;
 pub mod sign_in;
 pub mod stack_pull_request;
 pub mod youtrack_cli;

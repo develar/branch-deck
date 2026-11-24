@@ -339,9 +339,23 @@ Patronus, one of each group from its reviewers when it names any, available, not
 login, never the author (`domain_policy::shown::show_candidates`). The pre-check of Patronus names no group of a change
 that needs no approval, so it can't name them.
 
-A reviewer tells a shown review by its base (`domain_policy::shown::is_shown`, any prefix): its Safe Push is never
-offered (`ActionBlocker::Shown`), Approve and merge (`SubmitReview { then_land }`) is refused, and the review window says
-"Shown: in master already; your review gates no Safe Push".
+A reviewer tells a shown review by its base (`domain_policy::shown::is_shown`, any prefix; `ReviewRequest.shown`,
+set where the request is read): its Safe Push is never offered (`ActionBlocker::Shown`), Approve and merge
+(`SubmitReview { then_land }`) is refused, its row in Your Turn and Reviews and the review window carry the badge
+"Shown", and the review window says "Shown: in master already; your review gates no Safe Push".
+
+In the app the start is **Safe Push and Request Review…** ("Patronus ›" of the branch menu, the command palette, and the
+popover of the Safe Push of the branch, which offers it beside its start): its popover is the Safe Push popover with a
+picker of the reviewers, which starts with the code owners Rust chose (`get_show_reviewers`: the same groups, lookups and
+choice as `brd`, the Space token of the Safe Push CLI read as the Patronus client reads it); the user removes one or adds
+any GitHub login of the repository, and the start plans `Land::request_review` with them (none refuses it,
+`no_reviewer`). Rust offers it where the start would be taken (`ActionId::SafePushRequestReview`, refused as
+`land::show_blockers` refuses: its review after landing open already, a pull request of the branch, more than the
+branch, approvals before landing, then the reasons of the Safe Push); a draft whose robot failed is started again from
+it, an open review is not (`show_review_open`: its fix lands by the plain Safe Push). A branch whose review is the shown
+one offers **Request Review…** (more reviewers asked and recorded, `Intent::OpenShownReview { reviewers }`; of a draft
+only recorded, its open asks them) and **Close Review…** (a confirmation that says what it closes without, then
+`CloseShownReview { allow_unapproved: true }`) in place of the request of a pull request, in every surface of its menu.
 
 D5 holds for it too: the reviewers see exactly what landed, as its head is the commit the robot took, pushed before
 the review opens, and a fix is added only once its own robot landed it. The branches of the review are no input of a

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts GitHub answers of the pull request, each read by its own surface")]
 pub struct ReviewRequest {
   pub number: u32,
   pub title: String,
@@ -78,6 +79,12 @@ pub struct ReviewRequest {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub labels: Vec<String>,
+  /// A review after landing (show of ship/show/ask, `domain_policy::shown::is_shown` of its base, set where it is read
+  /// with `title_lead`): its change is in master already, and the review gates no Safe Push; left out of the JSON when
+  /// false
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub shown: bool,
 }
 
 impl ReviewRequest {

@@ -236,6 +236,11 @@ macro_rules! for_each_command {
       /// The users of the repository a review can be asked from whose login or name matches the query
       read session(query = %params.query) search_github_users(params: remote_facts::pull_request_create::SearchGitHubUsersParams) -> Vec<domain_types::pull_request::GitHubUser> = $crate::remote::pull_requests::search_github_users;
 
+      /// Whom the review after landing of a branch asks by default, which the picker of Safe Push and Request Review…
+      /// starts with (`remote_facts::show_reviewers`, as `brd safe-push --request-review`): one available member of each
+      /// owner group of what it changes, from the `CodeOwners` service with the Space token of Patronus, never the user
+      read session(branch_name = %params.branch_name) get_show_reviewers(params: domain_types::code_owners::GetShowReviewersParams) -> domain_types::code_owners::ShowReviewers = $crate::remote::pull_requests::get_show_reviewers;
+
       /// The Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`): everyone's robots into
       /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
       /// before the runs are read

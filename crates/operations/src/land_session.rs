@@ -15,6 +15,7 @@ use crate::land::planned_of;
 use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, lock_failure, shown_remote};
 use crate::push::Sent;
 use domain_types::RemoteStatusUpdate;
+use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, FactWait, Land, LandFact, LandingRefusal, Subject};
 use domain_types::landing_route::LandingRoute;
@@ -476,6 +477,24 @@ impl StartHost for SessionStart {
         .await
         .map(|text| (text.title, text.body))
         .map_err(|error| ApiError::new(ErrorCode::GitError, format!("Cannot read the commits of {head}: {error:#}")))
+    })
+  }
+
+  /// The text of the draft of a shown review: the description of the virtual branch (`brd describe`), else its commits
+  /// against the target (`remote_facts::pull_request_create::new_pull_request`), the summaries of its issues left out
+  /// (no YouTrack is asked); assigned to the user, as a pull request of Create Pull Request is
+  fn shown_text<'a>(&'a self, branch: &'a str, target: &'a str, _sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>> {
+    Box::pin(async move {
+      let head = to_final_branch_name(&self.key.prefix, branch).map_err(|error| ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+      let (title, body) = self.layer_text(&self.key.worktree, &head, target).await?;
+      Ok(PullRequestText {
+        head,
+        base: target.to_owned(),
+        title,
+        body,
+        reviewers: Vec::new(),
+        assign_self: true,
+      })
     })
   }
 
