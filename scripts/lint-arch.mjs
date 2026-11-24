@@ -283,7 +283,7 @@ export const APP_COMMAND_CALLERS = {
   browse_repository: "src/stores/repository.ts",
   set_auto_sync_menu_checked: "src/hooks/useMenuSync.ts",
   set_unattended_menu_checked: "src/hooks/useMenuSync.ts",
-  restart_app: "src/components/settings/AppearancePage.tsx",
+  restart_app: "src/lib/restart.ts",
   check_for_updates: "src/hooks/useAutoUpdate.ts",
   install_update: "src/hooks/useAutoUpdate.ts",
   install_agent_cli: "src/hooks/useInstallAgentCli.ts",

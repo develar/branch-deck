@@ -17,8 +17,8 @@ use crate::state::AppState;
 /// The version the app of an E2E test runs
 pub const TEST_APP_VERSION: &str = "0.0.0-test";
 
-/// The message of `install_update` and `restart_app`, which the test server cannot do
-pub const NO_UPDATER_MESSAGE: &str = "The E2E test server has no updater: it installs no update and restarts no app";
+/// The message of `install_update`, which the test server cannot do
+pub const NO_UPDATER_MESSAGE: &str = "The E2E test server has no updater: it installs no update";
 
 /// The update of a test repository: the version a check finds, downloaded at once as the app downloads it; none, the app
 /// is up to date

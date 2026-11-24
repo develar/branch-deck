@@ -11,6 +11,7 @@ use app_api::app::windows::{Awaited, Deadline, OpenSubWindowParams, Shown};
 use app_api::transport::{DialogHost, Later, RestartHost, WindowHost, WindowId, at_once};
 use domain_types::error::ApiError;
 use std::time::Duration;
+use sync_utils::span::in_current_span;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tracing::{info, warn};
 
@@ -106,9 +107,18 @@ impl DialogHost for TauriDesktop {
 }
 
 impl RestartHost for TauriDesktop {
-  /// With the windows as they are now: a start `--background` that shows a window restarts with it
-  fn restart(&self) -> ApiError {
-    self.0.state::<std::sync::Arc<crate::life::AppLife>>().restart()
+  /// With the windows as they are now: a start `--background` that shows a window restarts with it. Off the main thread,
+  /// where `restart_app` runs: there tauri would restart at once with the arguments of the start, and the exit that runs
+  /// the arguments of the life (`AppLife::run_restart`) needs the event loop of the main thread, which the command holds
+  fn restart(&self) -> Result<(), ApiError> {
+    let life = std::sync::Arc::clone(&self.0.state::<std::sync::Arc<crate::life::AppLife>>());
+    std::thread::Builder::new()
+      .name("restart".to_owned())
+      .spawn(in_current_span(move || {
+        life.restart();
+      }))
+      .map(drop)
+      .map_err(|error| ApiError::internal(format!("Cannot restart the app: {error}")))
   }
 }
 

@@ -5,12 +5,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { SettingRow, SettingsSection } from "@/components/settings/SettingRow"
-import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
 import { zoomMenuItems } from "@/lib/main-menu"
 import { formatKbds, FROM_MENU, kbdLabel } from "@/lib/menu"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
+import { restartBranchDeck } from "@/lib/restart"
 import type { Theme } from "@/lib/theme"
 import { titleBar } from "@/lib/title-bar"
 import type { NativeTitleBarReason } from "@/lib/title-bar"
@@ -155,13 +154,8 @@ function SystemTitleBarSwitch() {
             size="xs"
             variant="outline"
             onClick={() => {
-              // the backend's writer saves the setting before the restart, whose new process reads the file; a command
-              // of a Result never rejects
-              void commands.restartApp(setting).then(result => {
-                if (result.status === "error") {
-                  notifyError("Cannot restart Branch Deck", result.error)
-                }
-              })
+              // the backend's writer saves the setting before the restart, whose new process reads the file
+              restartBranchDeck(setting)
             }}
           >
             <RotateCwIcon data-icon="inline-start" />

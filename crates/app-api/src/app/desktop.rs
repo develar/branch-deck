@@ -69,7 +69,7 @@ pub fn restart_app(ctx: &AppContext, call: &Call, system_title_bar: bool) -> Res
       .map_err(|e| api_error(anyhow::Error::new(e).context("Cannot change the settings")))?;
     settings_changed(&*ctx.events, &change);
     ctx.settings.flush().map_err(|e| api_error(anyhow::Error::new(e).context("Cannot save the settings")))?;
-    Err(ctx.desktop(&call.window).restart.restart())
+    ctx.desktop(&call.window).restart.restart()
   })
 }
 

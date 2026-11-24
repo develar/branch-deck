@@ -165,8 +165,8 @@ pub mod without {
   }
 
   impl RestartHost for Without {
-    fn restart(&self) -> ApiError {
-      lacks("restart")
+    fn restart(&self) -> Result<(), ApiError> {
+      Err(lacks("restart"))
     }
   }
 

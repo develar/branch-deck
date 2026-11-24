@@ -12,7 +12,6 @@ use crate::cli_tools_fixtures::CliToolsHost;
 use crate::invoke::event_stream;
 use crate::remote_host::{HeldAnswer, PAGE_CLOCK_START, RemoteHost};
 use crate::state::AppState;
-use crate::updater::NO_UPDATER_MESSAGE;
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
 use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId, at_once};
@@ -432,9 +431,11 @@ impl MenuHost for TestDesktop {
   }
 }
 
+/// The restart starts as the app's does, and the test server goes on: what a test asserts is that it was asked
+/// (`restart_app` answered)
 impl RestartHost for TestDesktop {
-  fn restart(&self) -> ApiError {
-    ApiError::internal(NO_UPDATER_MESSAGE)
+  fn restart(&self) -> Result<(), ApiError> {
+    Ok(())
   }
 }
 

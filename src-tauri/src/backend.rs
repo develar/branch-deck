@@ -8,11 +8,12 @@
 //!   main window (`x-branch-deck/showMain`) and exits (a start `--background` of a bridge just exits: a backend serves);
 //!   a holder that answers not (a backend that exits, or starts) is waited for a few seconds, then the process serves.
 //! - **The serve** (`serve`): the host on the context of the app, its hooks the life of the process (`AppLife`): the main
-//!   window it shows, whether a window is open, the exit of a stale backend without a window; the count of its clients is
-//!   the count of the bridges the life reads (`BridgeConnections`).
+//!   window it shows, whether a window is open, the exit of a stale backend without a window, and Restart to Update of
+//!   a stale one with a window open (`BuildReplaced`); the count of its clients is the count of the bridges the life
+//!   reads (`BridgeConnections`).
 
 use crate::life::AppLife;
-use app_api::app::life::MainWindowHost;
+use app_api::app::life::{BuildReplaced, MainWindowHost};
 use app_api::context::AppContext;
 use backend_host::host::{Host, HostHooks};
 use backend_host::identity::{Executable, build_id};
@@ -98,7 +99,15 @@ pub fn serve(app: &AppHandle, ctx: Arc<AppContext>, life: &Arc<AppLife>, listene
         app.exit(0);
       })
     },
-    restart_to_update: Box::new(|| warn!("the binary of the app was replaced: restart the app to run the new build")),
+    // the main window tells it with Restart to Update (`restart_app`)
+    restart_to_update: {
+      let (ctx, replaced) = (Arc::clone(&ctx), BuildReplaced::default());
+      Box::new(move || {
+        if replaced.tell(&*ctx.events) {
+          info!("the binary of the app was replaced while a window is open: the main window offers Restart to Update");
+        }
+      })
+    },
   };
   let host = Host::new(ctx, hooks);
   let mut clients = host.clients();

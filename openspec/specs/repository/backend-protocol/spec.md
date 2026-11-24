@@ -23,6 +23,8 @@ targets:
   - crates/backend-host/src/stream.rs
   - crates/backend-host/src/socket.rs
   - src-tauri/src/backend.rs
+  - src/hooks/useBuildReplaced.ts
+  - crates/app-api/src/app/life.rs
   - crates/app-api/src/connections.rs
   - crates/app-api/src/transport.rs
   - crates/app-api/src/context.rs
@@ -163,7 +165,8 @@ A second start of the app MUST connect and send `x-branch-deck/showMain`, which 
 
 An `initialize` whose `clientInfo.build` is not the host's MUST be `-32005 otherBuild` with the host's build and
 `exits`. The side whose executable on disk is no longer its build yields: a stale backend without a window exits after
-the answer, a stale backend with a window stays and offers Restart to Update, and a stale bridge exits with 1.
+the answer, a stale backend with a window stays and its main window MUST offer Restart to Update once, and a stale
+bridge exits with 1.
 
 #### Scenario: The app updated in place, no window
 - **WHEN** a bridge of the new build connects to a backend of the old one that has no window
@@ -175,6 +178,14 @@ the answer, a stale backend with a window stays and offers Restart to Update, an
 - **WHEN** a bridge of the new build connects to a backend of the old one that shows a window
 - **THEN** the answer is `otherBuild` with `exits: false`, and the backend stays and tells Restart to Update
   [@test] crates/backend-host/src/connection_test.rs (`a_stale_backend_with_a_window_stays_and_tells_restart_to_update`)
+
+#### Scenario: Restart to Update
+- **GIVEN** the binary of the app was replaced on disk while its main window is open
+- **WHEN** a bridge of the new build asks the backend, once or again
+- **THEN** the main window shows one toast "A newer Branch Deck is installed", and its Restart to Update restarts the
+  app with its windows as they are
+  [@test] tests/e2e/repository/restart-to-update.spec.ts (`a binary of the app replaced while its window is open is one toast of the main window, whose Restart to Update restarts the app`)
+  [@test] crates/app-api/src/app/life_test.rs (`a_replaced_binary_is_told_to_the_main_window_once`)
 
 ### Requirement: Socket: The backend counts its clients
 
@@ -509,4 +520,3 @@ desktop without it: a client without `showWindow` (the bridge, which shows its v
 - **WHEN** a window of a client without `showWindow` is due to show (its page settled, a deadline of a window built hidden)
 - **THEN** the client gets no `showWindow`; a client that declares it does
   [@test] crates/backend-host/src/channel_test.rs (`a_client_that_shows_its_windows_itself_gets_no_show_window`)
-

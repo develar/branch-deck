@@ -13,7 +13,9 @@
 //! The rule is pure; the shell (`src-tauri/src/life.rs`) feeds it the count of the connections (`BridgeConnections`,
 //! which the host of the socket sets) and asks the shell for the main window (`MainWindowHost`).
 
+use crate::transport::{AppEvents, WindowId};
 use std::ffi::{OsStr, OsString};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
@@ -114,6 +116,28 @@ pub trait MainWindowHost: Send + Sync {
 /// `--background`: a bridge that starts the app asks for the backend, not for a window
 pub fn shows_main<A: AsRef<OsStr>>(args: &[A]) -> bool {
   !is_background_start(args)
+}
+
+/// The event the main window of the app tells as "A newer Branch Deck is installed" with Restart to Update
+/// (`restart_app`): the binary of the process was replaced on disk (an update in place) while a window is open, and a
+/// bridge of the new build asked the backend (`otherBuild`), which stays for its window
+pub const BUILD_REPLACED_EVENT: &str = "build-replaced";
+
+/// That the binary of the process was replaced, told once per process (`BUILD_REPLACED_EVENT`): each bridge of the new
+/// build asks again, the main window tells it once, and a restart runs the new build
+#[derive(Debug, Default)]
+pub struct BuildReplaced(AtomicBool);
+
+impl BuildReplaced {
+  /// A bridge of another build found this process stale with a window open: the main window of the app's own connection
+  /// hears it, the first time only; whether it was told now
+  pub fn tell(&self, events: &dyn AppEvents) -> bool {
+    if self.0.swap(true, Ordering::SeqCst) {
+      return false;
+    }
+    events.emit_to(&WindowId::main(), BUILD_REPLACED_EVENT, serde_json::Value::Null);
+    true
+  }
 }
 
 #[cfg(test)]

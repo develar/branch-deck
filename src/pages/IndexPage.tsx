@@ -13,6 +13,7 @@ import { ACTIVITY_PANEL_MIN_WIDTH, useActivityPanel } from "@/hooks/useActivityP
 import { useActivityWindowLink } from "@/hooks/useActivityWindowLink"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
+import { useBuildReplaced } from "@/hooks/useBuildReplaced"
 import { KeptViewContext } from "@/hooks/useCloseWhenViewHides"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
@@ -176,6 +177,8 @@ export function IndexPage() {
   useReviewRuns()
   // Show in Branch Deck of a notification of the IDE
   useRevealBranchEvent()
+  // Restart to Update of a binary replaced while the app runs
+  useBuildReplaced()
   // "Activity" of every window: the log of the selected repository in the side panel, or in its window, and what the
   // window asks for
   const area = useRef<HTMLDivElement>(null)

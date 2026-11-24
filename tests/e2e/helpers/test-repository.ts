@@ -308,6 +308,14 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * The binary of the app is replaced on disk while its window is open, and a bridge of the IDE of the new build asks
+   * its backend (`POST …/stale-backend`): the stale backend refuses it (`otherBuild`) and stays for its window
+   */
+  async replaceTheBinaryWhileRunning(): Promise<void> {
+    await this.setFixture("stale-backend", {})
+  }
+
+  /**
    * Sets `branchdeck.branchPrefix` in `.git/config` behind the app's back, as `git config` in a terminal does: no command
    * of the app knows of it until one reads the config again
    */

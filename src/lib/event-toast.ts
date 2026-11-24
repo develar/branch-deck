@@ -35,6 +35,8 @@ export const toastKeys = {
   autoMerge: (repositoryPath: string, pullRequest: number) => `auto-merge\n${repositoryPath}\n${pullRequest}`,
   /** A YouTrack issue: marked Fixed, back to its state */
   issue: (key: string) => `issue\n${key}`,
+  /** The binary of the app, replaced on disk while it runs: Restart to Update */
+  buildReplaced: () => "build-replaced",
 } as const
 
 /** An action of a toast; `running` while the operation it starts runs, from any surface: disabled, its toast stays */

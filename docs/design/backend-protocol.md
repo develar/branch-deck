@@ -279,7 +279,10 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 - **Another build**: `initialize` of a client whose `build` is not the host's is `-32005 otherBuild` with the host's
   build and `exits`. The stale side yields: the side whose executable on disk is no longer its build (the app updated in
   place), told by the identity of the file (device, inode, size, modification time) against the one at its start. A stale backend without a window exits after the answer (`exits: true`), and the bridge starts the app of its
-  build; a stale backend with a window stays, tells "Restart to Update", and the bridge runs its fallback. A stale
+  build; a stale backend with a window stays, and the bridge runs its fallback: the hook of the app
+  (`app_api::app::life::BuildReplaced`) tells its main window `build-replaced` once per process, an event toast "A
+  newer Branch Deck is installed" whose Restart to Update is `restart_app` (`AppLife::restart`, off the main thread, so
+  the new process starts with the windows as they are). A stale
   bridge exits with 1, and the IDE starts it again from the new binary. Windows has no inode in `std`: there the
   identity is the size and the modification and creation times (`backend_host::identity::Executable`).
 

@@ -253,6 +253,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     // `brd mcp` on a WebSocket, for the fake host of the page in Air (`mcp_socket.rs`)
     .route("/repositories/{id}/mcp", get(mcp_socket::mcp_socket))
+    // a bridge of a new build refused by a stale backend with a window open: Restart to Update (`mcp_socket.rs`)
+    .route("/repositories/{id}/stale-backend", post(mcp_socket::stale_backend))
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
     .route("/repositories/{id}/update-outside", post(update_outside_the_app))

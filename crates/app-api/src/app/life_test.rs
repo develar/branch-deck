@@ -1,4 +1,6 @@
-use crate::app::life::{BridgeConnections, WINDOWLESS_GRACE, WindowsClosed, exit_deadline, is_background_start, restart_args, shows_main, when_windows_close};
+use crate::app::life::{
+  BUILD_REPLACED_EVENT, BridgeConnections, BuildReplaced, WINDOWLESS_GRACE, WindowsClosed, exit_deadline, is_background_start, restart_args, shows_main, when_windows_close,
+};
 use std::ffi::OsString;
 use std::time::{Duration, Instant};
 
@@ -82,4 +84,28 @@ async fn the_count_of_the_connections_is_what_the_host_set_last_and_none_never_c
 
   let mut none = BridgeConnections::none();
   assert_eq!((none.now(), none.changed().await), (0, None));
+}
+
+/// The events of a test: each window and event it heard
+#[derive(Default)]
+struct Heard(std::sync::Mutex<Vec<(Option<String>, String)>>);
+
+impl crate::transport::AppEvents for Heard {
+  fn emit(&self, event: &str, _payload: serde_json::Value) {
+    self.0.lock().unwrap().push((None, event.to_owned()));
+  }
+
+  fn emit_to(&self, window: &crate::transport::WindowId, event: &str, _payload: serde_json::Value) {
+    self.0.lock().unwrap().push((Some(window.as_str().to_owned()), event.to_owned()));
+  }
+}
+
+/// A binary replaced on disk is told to the main window of the app once per process, whatever count of bridges of the
+/// new build asks after it
+#[test]
+fn a_replaced_binary_is_told_to_the_main_window_once() {
+  let (heard, replaced) = (Heard::default(), BuildReplaced::default());
+  assert!(replaced.tell(&heard));
+  assert!(!replaced.tell(&heard), "a second bridge of the new build");
+  assert_eq!(*heard.0.lock().unwrap(), [(Some("main".to_owned()), BUILD_REPLACED_EVENT.to_owned())]);
 }

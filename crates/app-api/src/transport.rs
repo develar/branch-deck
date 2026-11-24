@@ -317,8 +317,12 @@ pub trait MenuHost: Send + Sync {
 
 /// The restart of the app
 pub trait RestartHost: Send + Sync {
-  /// Restarts the app: never returns where it can; the error of a host that cannot
-  fn restart(&self) -> ApiError;
+  /// Starts the restart of the app: once it is under way the process ends shortly, after the command that asked it
+  /// answered
+  ///
+  /// # Errors
+  /// The host cannot restart the app
+  fn restart(&self) -> Result<(), ApiError>;
 }
 
 /// The updater of the app: a check downloads the newer release it finds, an install applies the downloaded one and
