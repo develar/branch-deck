@@ -660,6 +660,19 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * The settings file of Claude Code of the repository's host (`…/claude-settings`), which the hook of Unattended Mode
+   * goes into while the mode is on: its text, `null` while there is none
+   */
+  async claudeSettings(): Promise<string | null> {
+    return (await this.getFixture<{ text: string | null }>("claude-settings")).text
+  }
+
+  /** Writes the settings file of Claude Code of the repository's host as the user would, `text` as it is */
+  async setClaudeSettings(text: string): Promise<void> {
+    await this.setFixture("claude-settings", { text })
+  }
+
+  /**
    * The fake `teamcity` and `youtrack` CLIs and `brew` of the repository (`cli_tools_fixtures.rs`): the tools installed,
    * whether the machine has Homebrew, the newest release of each, and state files of the fakes (`teamcity.auth`,
    * `youtrack.auth`: their `auth status --json`; `teamcity.skill`: the bundled skill; `brew.fail`: brew's error)

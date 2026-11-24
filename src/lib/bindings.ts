@@ -677,11 +677,6 @@ export type AgentCliInstall = {
 	skills: string[],
 	/**  How agents work where a repository has no value of its own (the global git config) */
 	agents: AgentRules,
-	/**
-	 *  Why the hook of Unattended Mode could not go into the settings of Claude Code, which stay as they were while the
-	 *  rest is installed; `null` when it is there
-	 */
-	hook_error: string | null,
 };
 
 /**  Whether the agent skill is installed (Settings → Agents), and Branch Deck in IntelliJ IDEA (Settings → Tools) */
@@ -697,8 +692,6 @@ export type AgentCliStatus = {
 	skill_dirs: string[],
 	/**  The app file of an IDE with Air (`install_ide_app`); `null` while there is none */
 	ide_app: IdeApp | null,
-	/**  The `PermissionRequest` hook of Unattended Mode in the settings of Claude Code (`brd install` adds it) */
-	unattended_hook: UnattendedHook,
 	/**
 	 *  This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
 	 *  so the page offers no install there
@@ -2995,7 +2988,11 @@ export type ErrorCode =
 "push_too_large" | 
 /**  No remote to push to */
 "no_remote" | 
-/**  `brd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way */
+/**
+ *  `brd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way; or the hook of
+ *  Unattended Mode can't go into the settings of Claude Code, so the mode stays off (`brd unattended on`, the app's
+ *  switch)
+ */
 "install_refused" | 
 /**
  *  `brd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
@@ -11068,23 +11065,6 @@ export type UnattendedDenial = {
 	summary?: string,
 };
 
-/**  The hook of `brd install` in the settings of Claude Code (`~/.claude/settings.json`) */
-export type UnattendedHook = 
-/**  The hook runs this brd */
-"installed" | 
-/**
- *  A hook of Branch Deck runs another brd (the app moved, an older install), or is a command line of the shell form,
- *  as the first installs wrote it: `brd install` writes it anew
- */
-"stale" | 
-/**  No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install` */
-"missing" | 
-/**
- *  The settings file cannot hold the hook (no JSON object, its `hooks` of another type, or unreadable): `brd install`
- *  installs the rest and leaves the file as it is until the user fixes it
- */
-"invalid";
-
 /**
  *  The mode as `brd unattended` and the app answer it: on or off, whether the hook is there to deny, and the requests
  *  denied since the mode was last turned on (they stay after it is turned off, until it is turned on again)
@@ -11093,9 +11073,11 @@ export type UnattendedMode = {
 	on: boolean,
 	/**  Whether this call turned the mode on or off; false for a read, and for a switch to the state it was in */
 	changed: boolean,
-	hook: UnattendedHook,
-	/**  This host installs the hook (`brd install`): false in an IDE (`brd mcp`), whose desktop app installs it */
-	installable: boolean,
+	/**
+	 *  A switch off: why the hook stayed in the settings of Claude Code; off all the same, as the hook denies nothing
+	 *  while the mode is off
+	 */
+	warning: string | null,
 	/**  Oldest first */
 	denials: UnattendedDenial[],
 };

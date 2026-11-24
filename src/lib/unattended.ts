@@ -1,16 +1,16 @@
 import { MoonIcon, MoonStarIcon } from "lucide-react"
-import { installAgentCli } from "@/hooks/useInstallAgentCli"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { MenuItem } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
-import { offersDeniedRequests, offersInstall, SHOW_DENIED_REQUESTS, UNATTENDED_DESCRIPTION, unattendedModeLabel, unattendedToast } from "@/presenters/unattended"
+import { offersDeniedRequests, SHOW_DENIED_REQUESTS, UNATTENDED_DESCRIPTION, unattendedModeLabel, unattendedToast } from "@/presenters/unattended"
 import { openDeniedRequests } from "@/stores/unattended"
 
 /**
- * Turns Unattended Mode on or off (`set_unattended_mode`, openspec/specs/repository/unattended-mode/spec.md); the title
- * bar hears the setting from the writer as every window does. Its toast: a switch on without the hook offers Install
- * Agent CLI, a switch off tells the requests the night denied and opens their list
+ * Turns Unattended Mode on or off (`set_unattended_mode`, openspec/specs/repository/unattended-mode/spec.md): Rust adds
+ * the hook to the settings of Claude Code before a switch on, which it refuses when the hook cannot go in, and removes it
+ * after a switch off; the title bar hears the setting from the writer as every window does. A switch off tells the
+ * requests the night denied and opens their list
  */
 export async function setUnattendedMode(on: boolean, listHere = true): Promise<void> {
   const result = await commands.setUnattendedMode(on)
@@ -23,9 +23,7 @@ export async function setUnattendedMode(on: boolean, listHere = true): Promise<v
   if (toast === null) {
     return
   }
-  if (offersInstall(mode)) {
-    showToast({ ...toast, action: { children: "Install Agent CLI", onClick: () => void installAgentCli(false) } })
-  } else if (offersDeniedRequests(mode, listHere)) {
+  if (offersDeniedRequests(mode, listHere)) {
     showToast({ ...toast, action: { children: SHOW_DENIED_REQUESTS, onClick: () => openDeniedRequests(mode.denials) } })
   } else {
     showToast(toast)

@@ -130,7 +130,7 @@ Other tasks
 - A message to change: `brd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
   or plumbing for it (`brd reword --help`).
 - A change in the wrong commit: `brd move-hunk <from> <to> <path>` (`brd move-hunk --help`).
-- `brd install` puts `brd` on PATH, the skill (`brd help skill`) and the hook of `brd unattended --help`.
+- `brd install` puts `brd` on PATH and the skill (`brd help skill`); the night: `brd unattended --help`.
 "
 );
 
@@ -914,16 +914,18 @@ changed since the id was read, `error.blocks` are its ids now.
 pub const UNATTENDED_HELP: &str = "\
 Unattended Mode is the user's: they turn it on (`brd unattended on`, the app's command palette or Settings) before they
 leave agents alone, and off when they are back (`brd unattended off`, the mark in the app's title bar). An agent never switches it.
-- While it is on, the `PermissionRequest` hook of Claude Code that `brd install` adds to ~/.claude/settings.json
-  denies every permission request of an agent with a message that nobody can approve it: do it without new access, or
-  skip the step, name it in the report and go on. Off, Claude Code asks as it would without the hook.
+- `on` adds a `PermissionRequest` hook to ~/.claude/settings.json (refused, the mode off, when the file cannot take it:
+  `install_refused`), then turns the mode on; `off` turns it off, then removes the hook, so the file is what it was
+  (`warning` when the removal failed: off all the same). While it is on, the hook denies every permission request of
+  an agent with a message that nobody can approve it: do it without new access, or skip the step, name it in the
+  report and go on. Off, Claude Code asks as it would without the hook.
 - Each denial goes into the journal beside the settings of the app (`journal`); `brd unattended status` prints `on`,
   `hook`, `denied` and `denials` (`time`, `session_id`, `agent_id`, `cwd`, `tool_name`, `summary`: the command, the
   path or the URL it asked for, never the content of a file), oldest first, the requests since the mode was last turned
   on. `brd unattended on` from off starts the list anew; `brd unattended off` keeps it until the next on. `changed`
   says whether the command switched the mode.
-- `hook` is `installed`, `stale` (a hook of another brd: the app moved) or `missing`; while it is not `installed`
-  nothing is denied, and `next` names `brd install`.
+- `hook` is `present` or `absent`: whether ~/.claude/settings.json holds the hook now; while the mode is on and it is
+  `absent`, nothing is denied: turn the mode on again.
 ";
 
 /// The skill `brd install` writes and `brd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex

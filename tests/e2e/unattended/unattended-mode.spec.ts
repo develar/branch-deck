@@ -1,12 +1,31 @@
 // @spec openspec/specs/repository/unattended-mode/spec.md
 import type { Page } from "@playwright/test"
-import { expect, test } from "../fixtures/test-fixtures"
+import { expect, expectErrorLog, test } from "../fixtures/test-fixtures"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { header } from "../helpers/header-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { closeToast, openToast } from "../helpers/toast-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
+
+/** The settings of Claude Code of a user, as Claude Code writes them, with a hook of their own */
+const CLAUDE_SETTINGS = `{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "audit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
 
 /** The mark of Unattended Mode in the title bar, there only while the mode is on; a click turns it off */
 function mark(page: Page) {
@@ -20,34 +39,53 @@ async function turnOnFromPalette(page: Page): Promise<void> {
 }
 
 test.describe("Unattended Mode", () => {
-  test("should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark", async ({ page, setupRepo }) => {
-    await setupRepo("simple")
+  test("should turn the mode on from the palette, show its mark, add the hook to the settings of Claude Code, and turn it off by the mark, which gives the file back", async ({
+    page,
+    setupRepo,
+  }) => {
+    const repo = await setupRepo("simple")
+    await repo.setClaudeSettings(CLAUDE_SETTINGS)
     // off: nothing of the mode in the title bar
     await expect(header(page).getByRole("button", { name: "Settings" })).toBeVisible()
     await expect(mark(page)).toHaveCount(0)
 
     await turnOnFromPalette(page)
     await expect(mark(page)).toHaveText("Unattended")
-    // the agent CLI of the test is not installed, so the toast warns and offers it
-    const warning = openToast(page, "Turned on Unattended Mode")
-    await expect(warning).toContainText("Claude Code has no hook of Unattended Mode, so its permission requests still wait for you")
-    await runAndWaitForAnswer(page, "install_agent_cli", () => warning.getByRole("button", { name: "Install Agent CLI" }).click())
-    await expect(openToast(page, "Agent CLI installed")).toBeVisible()
+    // the hook went into the settings of Claude Code before the mode, beside the user's own hook
+    const settings = JSON.parse((await repo.claudeSettings()) ?? "{}")
+    expect(settings.hooks.PermissionRequest).toEqual([
+      { matcher: "*", hooks: [{ type: "command", command: "/Users/test/.local/bin/brd", args: ["hook", "permission-request"], onFailure: "continue" }] },
+    ])
+    expect(settings.hooks.PreToolUse).toEqual([{ matcher: "Bash", hooks: [{ type: "command", command: "audit.sh" }] }])
 
-    // the mark turns the mode off: it leaves, and the night denied nothing
+    // the mark turns the mode off: it leaves, the night denied nothing, and the file is the user's again, byte for byte
     await runAndWaitForAnswer(page, "set_unattended_mode", () => mark(page).click())
     await expect(mark(page)).toHaveCount(0)
     const off = openToast(page, "Turned off Unattended Mode")
     await expect(off).toContainText("No permission request was denied while it was on")
     await expect(off.getByRole("button", { name: "Show Denied Requests…" })).toHaveCount(0)
     await closeToast(off)
+    expect(await repo.claudeSettings()).toBe(CLAUDE_SETTINGS)
 
-    // on again, the hook installed now: the palette names the other way, which turns it off
+    // on again: the palette names the other way, which turns it off
     await turnOnFromPalette(page)
     await expect(mark(page)).toBeVisible()
     await openPalette(page)
     await runAndWaitForAnswer(page, "set_unattended_mode", () => runByKeyboard(page, "unattended", "Turn Off Unattended Mode"))
     await expect(mark(page)).toHaveCount(0)
+    expect(await repo.claudeSettings()).toBe(CLAUDE_SETTINGS)
+  })
+
+  test("should stay off and say why when the settings of Claude Code cannot take the hook", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple")
+    await repo.setClaudeSettings('{ "model": ')
+    expectErrorLog(page, /^Cannot turn on Unattended Mode: Cannot add the hook of Unattended Mode to .*: it is no JSON object/)
+    await turnOnFromPalette(page)
+    const error = openToast(page, "Cannot turn on Unattended Mode")
+    await expect(error).toContainText("Cannot add the hook of Unattended Mode to")
+    await expect(error).toContainText("it is no JSON object")
+    await expect(mark(page)).toHaveCount(0)
+    expect(await repo.claudeSettings()).toBe('{ "model": ')
   })
 
   test("should turn the mode on and off from Settings → General, the mark of the main window following it", async ({ page, setupRepo }) => {
@@ -58,7 +96,6 @@ test.describe("Unattended Mode", () => {
     await runAndWaitForAnswer(settings, "set_unattended_mode", () => unattended.click())
     await expect(unattended).toBeChecked()
     await expect(mark(page)).toBeVisible()
-    await expect(openToast(settings, "Turned on Unattended Mode")).toBeVisible()
 
     await runAndWaitForAnswer(settings, "set_unattended_mode", () => unattended.click())
     await expect(unattended).not.toBeChecked()
@@ -69,7 +106,7 @@ test.describe("Unattended Mode", () => {
   test("should tell on a switch off how many requests the night denied and list them", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
     await turnOnFromPalette(page)
-    await closeToast(openToast(page, "Turned on Unattended Mode"))
+    await expect(mark(page)).toBeVisible()
     // the night: a subagent's command and a fetch of the main session, as the hook writes them
     await repo.addUnattendedDenials([
       {

@@ -1,8 +1,9 @@
 //! `brd install`: lets coding agents find it. It puts a `brd` command into `~/.local/bin` (macOS, Linux: a symlink to the
 //! app binary, which runs the CLI under that name) and a skill into the user skill directories of the agents, which says
-//! when to use brd and to start with `brd help agent`, and the `PermissionRequest` hook of Unattended Mode into the user
-//! settings of Claude Code (`claude_hook`), which runs `brd hook permission-request`; a settings file the hook cannot go
-//! into stays as it is, the rest is installed and the answer says why (`hook_error`). On macOS it also links
+//! when to use brd and to start with `brd help agent`. The `PermissionRequest` hook of Unattended Mode is in the user
+//! settings of Claude Code only while the mode is on (`app_settings::claude_hook`): an install while it is off removes
+//! the hook an earlier install wrote, one while it is on writes it anew for this brd, and `--uninstall` removes it. On
+//! macOS it also links
 //! `~/.local/bin/brd-host` to the `brd-host` that the app bundle carries (`BranchDeck.app/Contents/MacOS/brd-host`,
 //! docs/design/host-runs.md). The app's Help menu runs the same install.
 //!
@@ -11,8 +12,8 @@
 //! as `brd mcp` for each project and shows the page in its tool window; Remove deletes the file (`install_ide_app`).
 
 use crate::agent_help::skill_text;
-use crate::claude_hook::{claude_settings_file, install_hook, uninstall_hook};
-use crate::unattended::{hook_command_of, installed_hook};
+use crate::unattended::hook_command;
+use app_settings::claude_hook::{add_hook, claude_settings_file, remove_hook};
 use bd_core::bd_command::{BdCommand, CLI_NAME, app_binary, bd_command, display, io_error, running_binary};
 #[cfg(unix)]
 use bd_core::bd_command::{LINK_DIR, links_to};
@@ -20,7 +21,6 @@ use bd_core::context::{Environment, counted_git};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
-use domain_types::unattended::UnattendedHook;
 use lease_pool::agent_workspace::{AgentDefaults, agent_defaults};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -63,18 +63,11 @@ pub struct InstallOutput {
   /// that stays, such as the one that `brd-host upgrade` wrote; `null` when the app carries none. With --uninstall, the
   /// symlink that went
   pub bd_host: Option<String>,
-  /// The settings of Claude Code that hold the `PermissionRequest` hook of Unattended Mode; with --uninstall the file it
-  /// was removed from, `null` when it had none
+  /// The settings of Claude Code whose `PermissionRequest` hook of Unattended Mode the install changed: removed while the
+  /// mode is off and with --uninstall, written anew for this brd while it is on; `null` when it changed none
   pub hook_file: Option<String>,
-  /// The program of that hook, this `brd`, which Claude Code starts with `hook_args` and no shell; omitted with
-  /// --uninstall
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub hook_command: Option<String>,
-  /// The arguments of that hook, `hook permission-request`; omitted with --uninstall
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub hook_args: Option<Vec<String>>,
-  /// Why the hook could not go into `hook_file` (no JSON object, `hooks` of another type), which stays as it was while
-  /// the rest is installed; omitted when the hook is there
+  /// Why that file could not be changed (no JSON object, `hooks` of another type), which stays as it was while the rest
+  /// is installed; omitted when it could
   #[serde(skip_serializing_if = "Option::is_none")]
   pub hook_error: Option<String>,
   /// How agents work in a repository without its own value, by the global git config (`brd workspace`, Settings →
@@ -102,8 +95,10 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     let brd = uninstall_command(home, &target)?;
     let removed_legacy = remove_legacy_links(home, &target)?;
     let bd_host = uninstall_bd_host(home, &target)?;
-    // a file Claude Code cannot read runs no hook: it stays as it is
-    let hook_removed = uninstall_hook(&hook_file).unwrap_or(false);
+    let (hook_removed, hook_error) = match remove_hook(&hook_file) {
+      Ok(removed) => (removed, None),
+      Err(e) => (false, Some(format!("Cannot remove the hook of Unattended Mode from {e}"))),
+    };
     return Ok(InstallOutput {
       schema: SchemaVersion,
       on_path: false,
@@ -113,9 +108,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
       uninstalled: true,
       bd_host: bd_host.as_deref().map(display),
       hook_file: hook_removed.then(|| display(&hook_file)),
-      hook_command: None,
-      hook_args: None,
-      hook_error: None,
+      hook_error,
       agents: None,
     });
   }
@@ -136,9 +129,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     std::fs::create_dir_all(dir).map_err(|e| io_error(dir, &e))?;
     std::fs::write(file, &text).map_err(|e| io_error(file, &e))?;
   }
-  let hook_command = hook_command_of(&brd);
-  // a settings file of Claude Code the hook cannot go into stays as it is, and the rest is installed all the same
-  let hook_error = install_hook(&hook_file, &hook_command).err().map(|e| e.message);
+  let (hook_changed, hook_error) = refresh_hook(environment, &hook_file, &brd);
   Ok(InstallOutput {
     schema: SchemaVersion,
     on_path: on_path(environment, &brd),
@@ -147,12 +138,27 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     skills: skill_files.iter().map(|file| display(file)).collect(),
     uninstalled: false,
     bd_host: bd_host.as_deref().map(display),
-    hook_file: Some(display(&hook_file)),
-    hook_command: Some(hook_command.program),
-    hook_args: Some(hook_command.args),
+    hook_file: hook_changed.then(|| display(&hook_file)),
     hook_error,
     agents: Some(agent_defaults(counted_git(environment).ok().as_ref())),
   })
+}
+
+/// The hook of Unattended Mode in the settings of Claude Code `file` as the mode has it: removed while it is off (an
+/// earlier install wrote it), written for `brd` while it is on. Answers whether the file changed, and why it could not;
+/// a settings file that cannot be changed stays as it is and the rest is installed all the same
+fn refresh_hook(environment: &Environment, file: &Path, brd: &Path) -> (bool, Option<String>) {
+  let on = environment.settings.unattended;
+  let command = hook_command(&BdCommand {
+    program: brd.to_path_buf(),
+    subcommand: None,
+  });
+  let changed = if on { add_hook(file, &command) } else { remove_hook(file) };
+  match changed {
+    Ok(changed) => (changed, None),
+    Err(e) if on => (false, Some(format!("Cannot add the hook of Unattended Mode to {e}"))),
+    Err(e) => (false, Some(format!("Cannot remove the hook of Unattended Mode from {e}"))),
+  }
 }
 
 /// Whether the skill is installed, without writing anything (Settings → Agents)
@@ -162,8 +168,6 @@ pub struct InstallStatus {
   pub bd: Option<String>,
   /// The skill files that exist
   pub skills: Vec<String>,
-  /// Whether the settings of Claude Code have the hook of Unattended Mode of this brd
-  pub hook: UnattendedHook,
 }
 
 pub fn install_status(environment: &Environment) -> InstallStatus {
@@ -180,11 +184,7 @@ pub fn install_status(environment: &Environment) -> InstallStatus {
   } else {
     bd_command(environment).ok().map(|command| command.display())
   };
-  InstallStatus {
-    bd,
-    skills,
-    hook: installed_hook(environment),
-  }
+  InstallStatus { bd, skills }
 }
 
 /// Refuse a symlink to an app that macOS runs translocated, from a read-only copy under `AppTranslocation/` (an app

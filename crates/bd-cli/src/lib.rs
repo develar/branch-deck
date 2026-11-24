@@ -2,7 +2,6 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
-pub mod claude_hook;
 pub mod flag_names;
 pub mod install;
 pub mod lease_pick;
@@ -298,10 +297,10 @@ enum Command {
   /// Unattended Mode of Branch Deck, while the user is away: on, off, or its status. The user's switch: an agent never
   /// turns it off
   ///
-  /// While it is on, the `PermissionRequest` hook of Claude Code that `brd install` adds denies every permission
-  /// request of an agent, which reads that nobody can approve it and goes on without it. `brd unattended status` lists
-  /// the requests denied since the mode was last turned on, `brd unattended on` starts that list anew, `brd unattended
-  /// off` keeps it; `next` names `brd install` while the hook is missing
+  /// `brd unattended on` adds a `PermissionRequest` hook to ~/.claude/settings.json, then turns the mode on; while it is
+  /// on, the hook denies every permission request of an agent, which reads that nobody can approve it and goes on
+  /// without it. `brd unattended off` turns it off, then removes the hook. `brd unattended status` lists the requests
+  /// denied since the mode was last turned on, `on` starts that list anew, `off` keeps it
   #[command(after_help = "Outputs: `brd unattended --help`", after_long_help = UNATTENDED_HELP)]
   Unattended(UnattendedArgs),
   /// The hooks of Claude Code that `brd install` adds, which Claude Code runs, no agent: `brd hook permission-request`
@@ -902,8 +901,6 @@ fn io_error(error: std::io::Error) -> CliError {
 mod agent_help_test;
 #[cfg(test)]
 mod architecture_test;
-#[cfg(test)]
-mod claude_hook_test;
 #[cfg(test)]
 mod context_test;
 #[cfg(test)]

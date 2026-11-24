@@ -39,24 +39,6 @@ pub struct UnattendedDenial {
 /// The longest summary of a denial, in characters; a longer one is cut and ends with `…`
 pub const SUMMARY_LIMIT: usize = 200;
 
-/// The hook of `brd install` in the settings of Claude Code (`~/.claude/settings.json`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum UnattendedHook {
-  /// The hook runs this brd
-  Installed,
-  /// A hook of Branch Deck runs another brd (the app moved, an older install), or is a command line of the shell form,
-  /// as the first installs wrote it: `brd install` writes it anew
-  Stale,
-  /// No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install`
-  Missing,
-  /// The settings file cannot hold the hook (no JSON object, its `hooks` of another type, or unreadable): `brd install`
-  /// installs the rest and leaves the file as it is until the user fixes it
-  Invalid,
-}
-
 /// The mode as `brd unattended` and the app answer it: on or off, whether the hook is there to deny, and the requests
 /// denied since the mode was last turned on (they stay after it is turned off, until it is turned on again)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,9 +48,9 @@ pub struct UnattendedMode {
   pub on: bool,
   /// Whether this call turned the mode on or off; false for a read, and for a switch to the state it was in
   pub changed: bool,
-  pub hook: UnattendedHook,
-  /// This host installs the hook (`brd install`): false in an IDE (`brd mcp`), whose desktop app installs it
-  pub installable: bool,
+  /// A switch off: why the hook stayed in the settings of Claude Code; off all the same, as the hook denies nothing
+  /// while the mode is off
+  pub warning: Option<String>,
   /// Oldest first
   pub denials: Vec<UnattendedDenial>,
 }

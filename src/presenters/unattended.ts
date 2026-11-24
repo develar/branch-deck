@@ -1,4 +1,4 @@
-import type { UnattendedDenial, UnattendedHook, UnattendedMode } from "@/lib/bindings"
+import type { UnattendedDenial, UnattendedMode } from "@/lib/bindings"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /*
@@ -29,54 +29,19 @@ export function deniedCount(count: number): string {
   return count === 1 ? "1 permission request was denied" : `${count} permission requests were denied`
 }
 
-/** Why the switch on denies nothing yet: no hook of Branch Deck, one of another Branch Deck, or a settings file of Claude Code it cannot go into */
-function hookWarning(hook: UnattendedHook): string | null {
-  switch (hook) {
-    case "installed":
-      return null
-    case "missing":
-      return "Claude Code has no hook of Unattended Mode, so its permission requests still wait for you: Install Agent CLI adds it"
-    case "stale":
-      return "The hook of Unattended Mode runs another Branch Deck, so it denies nothing: Install Agent CLI puts this one in its place"
-    case "invalid":
-      return `${INVALID_SETTINGS}, so its permission requests still wait for you: fix the file, then Install Agent CLI`
-  }
-}
-
-/** The settings file of Claude Code is no JSON object the hook can go into */
-const INVALID_SETTINGS = "The hook of Unattended Mode cannot go into ~/.claude/settings.json, which is no JSON object of Claude Code's settings"
-
-/** The line of Settings → Tools under brd while the hook is not this brd's */
-export function unattendedHookLine(hook: UnattendedHook): string {
-  switch (hook) {
-    case "stale":
-      return "The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place"
-    case "invalid":
-      return `${INVALID_SETTINGS}: fix the file, then Install Agent CLI`
-    case "installed":
-    case "missing":
-      return "The hook of Unattended Mode is not installed: Install Agent CLI adds it"
-  }
-}
-
 /**
- * The toast of a switch, none where the title bar says it in place: a switch on whose hook is installed, and a switch
- * that changed nothing. A switch on without the hook warns, a switch off tells how many requests the night denied
+ * The toast of a switch, none where the title bar says it in place: a switch on, and a switch that changed nothing. A
+ * switch off tells how many requests the night denied, and warns when the hook stayed in the settings of Claude Code
  */
 export function unattendedToast(mode: UnattendedMode): Omit<ToastMessage, "action"> | null {
-  if (!mode.changed) {
+  if (!mode.changed || mode.on) {
     return null
   }
-  if (mode.on) {
-    const warning = hookWarning(mode.hook)
-    return warning === null ? null : { type: "warning", title: "Turned on Unattended Mode", description: warning }
-  }
-  return { title: "Turned off Unattended Mode", description: `${deniedCount(mode.denials.length)} while it was on` }
-}
-
-/** The toast of a switch offers Install Agent CLI: a switch on without the hook, where this host installs it */
-export function offersInstall(mode: UnattendedMode): boolean {
-  return mode.changed && mode.on && mode.hook !== "installed" && mode.installable
+  const description = `${deniedCount(mode.denials.length)} while it was on`
+  const warning = mode.warning ?? null
+  return warning === null
+    ? { title: "Turned off Unattended Mode", description }
+    : { type: "warning", title: "Turned off Unattended Mode", description: `${description}. ${warning}; it denies nothing while the mode is off` }
 }
 
 /**

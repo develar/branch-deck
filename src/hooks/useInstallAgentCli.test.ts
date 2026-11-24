@@ -8,22 +8,14 @@ const defaults = { lease: true, subject_branch: true, pull_request: false }
 
 describe("describeInstall", () => {
   it("names the skills, and brd as a command when it is on PATH", () => {
-    expect(describeInstall({ bd: "/Users/ann/.local/bin/brd", on_path: true, skills, agents: defaults, hook_error: null }, homeDir)).toBe(
+    expect(describeInstall({ bd: "/Users/ann/.local/bin/brd", on_path: true, skills, agents: defaults }, homeDir)).toBe(
       "Coding agents find brd through the skills in ~/.claude/skills/branch-deck/SKILL.md, ~/.agents/skills/branch-deck/SKILL.md. In a terminal, run brd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.",
     )
   })
 
   it("names the full path and the directory to add to PATH when brd is not on it", () => {
-    expect(describeInstall({ bd: "C:\\Program Files\\BranchDeck\\brd.exe", on_path: false, skills: [claudeSkill], agents: defaults, hook_error: null }, homeDir)).toBe(
+    expect(describeInstall({ bd: "C:\\Program Files\\BranchDeck\\brd.exe", on_path: false, skills: [claudeSkill], agents: defaults }, homeDir)).toBe(
       `Coding agents find brd through the skill in ~/.claude/skills/branch-deck/SKILL.md. In a terminal, run C:\\Program Files\\BranchDeck\\brd.exe, or add C:\\Program Files\\BranchDeck to PATH to run brd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.`,
-    )
-  })
-
-  it("tells why the hook of Unattended Mode stayed out of a settings file of Claude Code it cannot go into", () => {
-    const hook_error =
-      "Cannot add the hook of Unattended Mode to /Users/ann/.claude/settings.json: it is no JSON object (EOF while parsing an object at line 1 column 11). Fix the file, then install again"
-    expect(describeInstall({ bd: "/Users/ann/.local/bin/brd", on_path: true, skills: [claudeSkill], agents: defaults, hook_error }, homeDir)).toBe(
-      `Coding agents find brd through the skill in ~/.claude/skills/branch-deck/SKILL.md. In a terminal, run brd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject. ${hook_error}.`,
     )
   })
 })

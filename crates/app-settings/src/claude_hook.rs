@@ -1,7 +1,8 @@
 //! The hook of Unattended Mode in the user settings of Claude Code, `~/.claude/settings.json`
-//! (openspec/specs/repository/unattended-mode/spec.md): `brd install` adds a `PermissionRequest` hook that runs
-//! `brd hook permission-request` for every tool (`"matcher": "*"`), `brd install --uninstall` removes it, Settings →
-//! Tools reads whether it is there (`hook_state`).
+//! (openspec/specs/repository/unattended-mode/spec.md): a `PermissionRequest` hook that runs `brd hook
+//! permission-request` for every tool (`"matcher": "*"`), in the file only while the mode is on. Turning the mode on
+//! adds it before the setting (`add_hook`), turning it off removes it after (`remove_hook`), so the file of a user who
+//! never turns the mode on is never written; Claude Code reads a hook written into the file while a session runs.
 //!
 //! The hook is a command hook of the exec form (`HookExec`): `command` is the path of brd and `args` its arguments,
 //! which Claude Code starts with no shell on every platform. A command line of the shell form would run in `sh` on macOS
@@ -12,20 +13,17 @@
 //! The file is the user's: an edit changes only the hook of Branch Deck. Every other key, hook and value stays as it was
 //! written, in its order, its text kept as it is (`RawValue`); only the objects on the way to the hook (the file,
 //! `hooks`) are read as objects, and only the entries of `PermissionRequest` that held a hook of Branch Deck are written
-//! anew. A hook of Branch Deck is a command hook whose `args` end with `hook permission-request`, or one of the shell
-//! form whose command ends with it (as the first installs wrote it), so an install finds the hook of an earlier one
-//! wherever brd was then, and keeps one: the command of this brd, in one entry of its own. A file that is no JSON
-//! object, or whose `hooks` is no object, is refused and stays as it is.
+//! anew; a `PermissionRequest` and a `hooks` the removal empties go, so the file comes back to what it was. A hook of
+//! Branch Deck is a command hook whose `args` end with `hook permission-request`, or one of the shell form whose command
+//! ends with it (as the first installs wrote it), so an edit finds the hook of an earlier one wherever brd was then, and
+//! keeps one: the command of this brd, in one entry of its own. A file that is no JSON object, or whose `hooks` is no
+//! object, is refused and stays as it is.
 //!
 //! The file is written whole and renamed over the old one, so Claude Code never reads a cut file; a settings file that
 //! is a symlink (stow, chezmoi) is written where it points and stays a link. Claude Code writes the file too: just
 //! before the rename the file is read again (`replace_if_unchanged`), and when it changed since the read the edit reads
 //! and merges again, so a write of Claude Code during the edit is kept.
 
-use bd_core::bd_command::{BdCommand, display, io_error};
-use bd_core::error::CliError;
-use domain_types::error::ErrorCode;
-use domain_types::unattended::UnattendedHook;
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -47,6 +45,7 @@ const EDIT_ATTEMPTS: usize = 5;
 const MAX_LINKS: usize = 40;
 
 /// The settings file of Claude Code under `home`
+#[must_use]
 pub fn claude_settings_file(home: &Path) -> PathBuf {
   home.join(CLAUDE_SETTINGS)
 }
@@ -56,16 +55,41 @@ pub fn claude_settings_file(home: &Path) -> PathBuf {
 pub struct HookExec {
   /// The path of brd, as it is: `/Users/me/.local/bin/brd`, `C:\…\brd.exe`
   pub program: String,
-  /// `hook permission-request`, after `cli` when the program is the app binary
+  /// `hook permission-request`, after `subcommand` (`cli` when the program is the app binary)
   pub args: Vec<String>,
 }
 
 impl HookExec {
-  /// The hook of `brd`
-  pub fn of(brd: &BdCommand) -> Self {
+  /// The hook of the brd `program`, run with `subcommand` before the arguments of the hook
+  #[must_use]
+  pub fn new(program: String, subcommand: Option<&str>) -> Self {
     Self {
-      program: display(&brd.program),
-      args: brd.subcommand.into_iter().chain(HOOK_ARGUMENTS).map(str::to_owned).collect(),
+      program,
+      args: subcommand.into_iter().chain(HOOK_ARGUMENTS).map(str::to_owned).collect(),
+    }
+  }
+}
+
+/// Where the hook of a host goes and what it runs: the settings file of Claude Code of the user and the brd of the host
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookTarget {
+  pub file: PathBuf,
+  pub command: HookExec,
+}
+
+/// Why the settings file could not take the edit: it names the file and says why
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}: {why}", file.display())]
+pub struct HookFileError {
+  pub file: PathBuf,
+  pub why: String,
+}
+
+impl HookFileError {
+  fn new(file: &Path, why: impl Into<String>) -> Self {
+    Self {
+      file: file.to_path_buf(),
+      why: why.into(),
     }
   }
 }
@@ -84,32 +108,25 @@ pub(crate) enum Node {
 }
 
 /// The bytes of `file`, `None` when it is missing
-fn read_bytes(file: &Path) -> Result<Option<Vec<u8>>, CliError> {
+fn read_bytes(file: &Path) -> Result<Option<Vec<u8>>, HookFileError> {
   match std::fs::read(file) {
     Ok(bytes) => Ok(Some(bytes)),
     Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-    Err(e) => Err(io_error(file, &e)),
+    Err(e) => Err(HookFileError::new(file, e.to_string())),
   }
 }
 
 /// The settings file `file` of the bytes `read` as an object: empty when it is missing or blank; an error that names it
 /// when it is no object
-fn parse(file: &Path, read: Option<&[u8]>) -> Result<RawObject, CliError> {
+fn parse(file: &Path, read: Option<&[u8]>) -> Result<RawObject, HookFileError> {
   let Some(bytes) = read else {
     return Ok(RawObject::new());
   };
-  let text = std::str::from_utf8(bytes).map_err(|e| refused(file, &format!("it is no UTF-8 text ({e})")))?;
+  let text = std::str::from_utf8(bytes).map_err(|e| HookFileError::new(file, format!("it is no UTF-8 text ({e})")))?;
   if text.trim().is_empty() {
     return Ok(RawObject::new());
   }
-  serde_json::from_str(text).map_err(|e| refused(file, &format!("it is no JSON object ({e})")))
-}
-
-fn refused(file: &Path, why: &str) -> CliError {
-  CliError::new(
-    ErrorCode::InstallRefused,
-    format!("Cannot add the hook of Unattended Mode to {}: {why}. Fix the file, then install again", file.display()),
-  )
+  serde_json::from_str(text).map_err(|e| HookFileError::new(file, format!("it is no JSON object ({e})")))
 }
 
 /// Whether `hook`, an item of `hooks` of an entry, is a hook of Branch Deck: of the exec form whose `args` end with
@@ -152,13 +169,13 @@ type Entry = (Box<RawValue>, Value);
 
 /// The hooks of the file, and the entries of `PermissionRequest`; refused when `hooks` is no object or
 /// `PermissionRequest` no array
-fn read_hooks(file: &Path, root: &RawObject) -> Result<(RawObject, Vec<Entry>), CliError> {
+fn read_hooks(file: &Path, root: &RawObject) -> Result<(RawObject, Vec<Entry>), HookFileError> {
   let hooks: RawObject = match root.get("hooks") {
-    Some(raw) => serde_json::from_str(raw.get()).map_err(|e| refused(file, &format!("its `hooks` is no object ({e})")))?,
+    Some(raw) => serde_json::from_str(raw.get()).map_err(|e| HookFileError::new(file, format!("its `hooks` is no object ({e})")))?,
     None => RawObject::new(),
   };
   let entries: Vec<Box<RawValue>> = match hooks.get(HOOK_EVENT) {
-    Some(raw) => serde_json::from_str(raw.get()).map_err(|e| refused(file, &format!("its `hooks.{HOOK_EVENT}` is no array ({e})")))?,
+    Some(raw) => serde_json::from_str(raw.get()).map_err(|e| HookFileError::new(file, format!("its `hooks.{HOOK_EVENT}` is no array ({e})")))?,
     None => Vec::new(),
   };
   let entries = entries
@@ -171,24 +188,16 @@ fn read_hooks(file: &Path, root: &RawObject) -> Result<(RawObject, Vec<Entry>), 
   Ok((hooks, entries))
 }
 
-/// Whether the file has the hook of `command`, a hook of Branch Deck that runs another brd or is of the shell form, none,
-/// or cannot hold one
-pub fn hook_state(file: &Path, command: &HookExec) -> UnattendedHook {
+/// Whether the file holds a hook of Branch Deck, of any brd and form; a file that cannot be read holds none
+#[must_use]
+pub fn has_hook(file: &Path) -> bool {
   let entries = read_bytes(file)
     .and_then(|read| parse(file, read.as_deref()))
     .and_then(|root| read_hooks(file, &root).map(|(_, entries)| entries));
-  let Ok(entries) = entries else {
-    return UnattendedHook::Invalid;
-  };
-  let values: Vec<Value> = entries.into_iter().map(|(_, value)| value).collect();
-  let ours = our_hooks(&values);
-  if ours.iter().any(|hook| runs(hook, command)) {
-    UnattendedHook::Installed
-  } else if ours.is_empty() {
-    UnattendedHook::Missing
-  } else {
-    UnattendedHook::Stale
-  }
+  entries.is_ok_and(|entries| {
+    let values: Vec<Value> = entries.into_iter().map(|(_, value)| value).collect();
+    !our_hooks(&values).is_empty()
+  })
 }
 
 /// The entries of `PermissionRequest` without the hooks of Branch Deck: an entry that held none as it was written, one
@@ -260,8 +269,8 @@ fn with_entries(hooks: RawObject, entries: Vec<Node>) -> IndexMap<String, Node> 
 ///
 /// # Errors
 /// What `change` answers; the file is no JSON object, cannot be read or written, or kept changing
-pub(crate) fn edit(file: &Path, mut change: impl FnMut(RawObject) -> Result<Option<IndexMap<String, Node>>, CliError>) -> Result<bool, CliError> {
-  let target = link_target(file).map_err(|e| io_error(file, &e))?;
+pub(crate) fn edit(file: &Path, mut change: impl FnMut(RawObject) -> Result<Option<IndexMap<String, Node>>, HookFileError>) -> Result<bool, HookFileError> {
+  let target = link_target(file).map_err(|e| HookFileError::new(file, e.to_string()))?;
   for _ in 0..EDIT_ATTEMPTS {
     let read = read_bytes(&target)?;
     let Some(root) = change(parse(file, read.as_deref())?)? else {
@@ -271,13 +280,7 @@ pub(crate) fn edit(file: &Path, mut change: impl FnMut(RawObject) -> Result<Opti
       return Ok(true);
     }
   }
-  Err(CliError::new(
-    ErrorCode::InstallRefused,
-    format!(
-      "Cannot change the hook of Unattended Mode in {}: another program kept writing it. Install again",
-      file.display()
-    ),
-  ))
+  Err(HookFileError::new(file, "another program kept writing it"))
 }
 
 /// The file a symlink `file` points at, through every link; `file` itself when it is no link or is missing
@@ -305,15 +308,15 @@ fn link_target(file: &Path) -> std::io::Result<PathBuf> {
 /// # Errors
 /// The file is no JSON object, its `hooks` no object or `hooks.PermissionRequest` no array; it cannot be read or
 /// written, or kept changing
-pub fn install_hook(file: &Path, command: &HookExec) -> Result<bool, CliError> {
+pub fn add_hook(file: &Path, command: &HookExec) -> Result<bool, HookFileError> {
   edit(file, |root| with_our_hook(file, root, command))
 }
 
 /// The file `root` with the hook of `command`, `None` when it is there
 ///
 /// # Errors
-/// As `install_hook`
-pub(crate) fn with_our_hook(file: &Path, root: RawObject, command: &HookExec) -> Result<Option<IndexMap<String, Node>>, CliError> {
+/// As `add_hook`
+pub(crate) fn with_our_hook(file: &Path, root: RawObject, command: &HookExec) -> Result<Option<IndexMap<String, Node>>, HookFileError> {
   let (hooks, entries) = read_hooks(file, &root)?;
   if is_installed(entries.iter().map(|(_, entry)| entry), command) {
     return Ok(None);
@@ -327,8 +330,8 @@ pub(crate) fn with_our_hook(file: &Path, root: RawObject, command: &HookExec) ->
 /// Answers whether there was one; a file without one is not written
 ///
 /// # Errors
-/// As `install_hook`
-pub fn uninstall_hook(file: &Path) -> Result<bool, CliError> {
+/// As `add_hook`
+pub fn remove_hook(file: &Path) -> Result<bool, HookFileError> {
   edit(file, |root| {
     let (hooks, entries) = read_hooks(file, &root)?;
     let (kept, found) = without_ours(entries);
@@ -358,17 +361,17 @@ pub(crate) fn our_entry(command: &HookExec) -> Value {
 
 /// Writes `root` into `target` as Claude Code writes it, two spaces of indent, while it still holds `read`; the file
 /// keeps whether only its owner reads it. Answers whether it was written
-fn write(target: &Path, root: &IndexMap<String, Node>, read: Option<&[u8]>) -> Result<bool, CliError> {
-  let mut text = serde_json::to_string_pretty(root).map_err(|e| CliError::new(ErrorCode::InstallRefused, e.to_string()))?;
+fn write(target: &Path, root: &IndexMap<String, Node>, read: Option<&[u8]>) -> Result<bool, HookFileError> {
+  let mut text = serde_json::to_string_pretty(root).map_err(|e| HookFileError::new(target, e.to_string()))?;
   text.push('\n');
   if let Some(dir) = target.parent() {
-    std::fs::create_dir_all(dir).map_err(|e| io_error(dir, &e))?;
+    std::fs::create_dir_all(dir).map_err(|e| HookFileError::new(dir, e.to_string()))?;
   }
   let options = AtomicWrite {
     private: is_private(target),
     durable: true,
   };
-  replace_if_unchanged(target, text.as_bytes(), read, options).map_err(|e| io_error(target, &e))
+  replace_if_unchanged(target, text.as_bytes(), read, options).map_err(|e| HookFileError::new(target, e.to_string()))
 }
 
 /// Whether only the owner may read `file` (0600 and the like), which the new file keeps

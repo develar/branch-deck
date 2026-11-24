@@ -8,9 +8,10 @@
 //! `auto_update.rs`, `agent_cli.rs`) and the e2e server records or answers from the fixtures of the test repository
 //! (`crates/test-server/src/host.rs`, `updater.rs`).
 
-use crate::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
+use crate::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp, process_hook_target};
 use crate::app::disk::HostDisk;
 use crate::app::windows::{OpenSubWindowParams, Shown};
+use app_settings::claude_hook::HookTarget;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
@@ -373,4 +374,10 @@ pub trait AgentCliHost: Send + Sync {
   /// # Errors
   /// The removal failed
   fn remove_ide_app(&self) -> Result<(), ApiError>;
+
+  /// Where the hook of Unattended Mode goes while the mode is on: the settings of Claude Code of the user and the brd
+  /// it runs (`set_unattended_mode`); by default this binary's (`process_hook_target`)
+  fn unattended_hook(&self) -> Option<HookTarget> {
+    process_hook_target()
+  }
 }

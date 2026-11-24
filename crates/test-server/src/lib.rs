@@ -331,6 +331,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/windows/built", post(host::built_window))
     .route("/repositories/{id}/dialog-pick", post(host::set_dialog_pick))
     .route("/repositories/{id}/unattended-denials", post(host::add_unattended_denials))
+    .route("/repositories/{id}/claude-settings", get(host::get_claude_settings).post(host::set_claude_settings))
     .route("/repositories/{id}/companion", post(companion_fixtures::add_companion))
     .route("/repositories/{id}/companion-link", post(companion_fixtures::set_companion_link))
     // Health check

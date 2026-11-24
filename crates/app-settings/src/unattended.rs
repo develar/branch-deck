@@ -1,13 +1,18 @@
 //! Unattended Mode (openspec/specs/repository/unattended-mode/spec.md), as the app and `brd unattended` switch it and
 //! as the hook records what it denied: the setting `appSettings.unattended`, written only through the writer of the
-//! settings (`set_unattended`), and the journal of denials, `unattended-denials.jsonl` beside `settings.json` in the app
-//! data directory (`denials_file`), one JSON line per denied request (`UnattendedDenial`).
+//! settings, with the hook in the settings of Claude Code only while it is on (`set_unattended`), and the journal of
+//! denials, `unattended-denials.jsonl` beside `settings.json` in the app data directory (`denials_file`), one JSON line
+//! per denied request (`UnattendedDenial`).
+//!
+//! A crash or a quit while the mode is on leaves the hook and the mode on: the night goes on, and the hook keeps
+//! denying until the user turns the mode off.
 //!
 //! The journal is the list of one run of the mode: turning the mode on (from off) removes the list of the run before,
 //! turning it off keeps it, so the morning reads it until the next night. Many hook processes append at once, each a
 //! line of one `write` to a file opened for appending, which the system puts at the end whole; a reader takes the lines
 //! that parse and skips the rest (a line cut by a full disk), so one bad line never costs the others.
 
+use crate::claude_hook::{HookFileError, HookTarget, add_hook, remove_hook};
 use crate::service::{SettingsError, SettingsService};
 use domain_types::settings::{APP_SETTINGS_KEY, SettingsChange, SettingsPatch};
 use domain_types::unattended::UnattendedDenial;
@@ -56,45 +61,77 @@ pub struct UnattendedSwitch {
   pub changed: bool,
   /// The change of the settings the windows get; none when nothing changed
   pub change: Option<SettingsChange>,
+  /// Why the hook stayed in the settings of Claude Code after a switch off, which is off all the same: the hook reads
+  /// the mode and denies nothing while it is off
+  pub warning: Option<String>,
 }
 
-/// Turns the mode on or off through the writer of the settings, `origin` the window or `brd` that asks. Turning it on
-/// from off first removes the journal of the run before, so its list starts empty; turning it off keeps the journal.
-/// The change is on the disk once this answers (`SettingsService::flush`): the hook reads the file, so after the switch
-/// off of the app or of `brd` no request is denied. A switch to the state the mode is in changes nothing
+/// Turns the mode on or off, `origin` the window or `brd` that asks, `hook` where the hook of the host goes (`None`:
+/// the host cannot tell, no home directory or no brd).
+///
+/// On: the hook goes into the settings of Claude Code first (`claude_hook::add_hook`, a hook of an earlier brd
+/// replaced), so the mode is never on without it; then, from off, the journal of the run before is removed, so its list
+/// starts empty, and the setting is switched. Off: the setting is switched first, then the hook removed; the journal
+/// stays. Either way the setting is on the disk once this answers (`SettingsService::flush`): the hook reads the file.
+/// A switch to the state the mode is in changes no setting, and still adds or removes the hook
 ///
 /// # Errors
-/// The journal of the run before cannot be removed (the mode stays off), the writer refused the change, or it could not
-/// save it (the writer saves it again later)
-pub fn set_unattended(settings: &SettingsService, journal: &Path, on: bool, origin: &str) -> Result<UnattendedSwitch, UnattendedError> {
-  if settings.app().unattended == on {
-    return Ok(UnattendedSwitch { changed: false, change: None });
-  }
+/// On: no place for the hook, a settings file of Claude Code that cannot take it, or a journal of the run before that
+/// cannot be removed (the mode stays off). Either way: the writer refused the change, or could not save it (the writer
+/// saves it again later)
+pub fn set_unattended(settings: &SettingsService, journal: &Path, on: bool, origin: &str, hook: Option<&HookTarget>) -> Result<UnattendedSwitch, UnattendedError> {
   if on {
-    match fs_retry::remove_file(journal) {
-      Ok(()) => {}
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-      Err(e) => return Err(UnattendedError::Journal(e)),
-    }
+    let hook = hook.ok_or(UnattendedError::NoHookFile)?;
+    add_hook(&hook.file, &hook.command).map_err(UnattendedError::Hook)?;
   }
-  let fields = Map::from_iter([(UNATTENDED_FIELD.to_owned(), Value::Bool(on))]);
-  let change = settings.set(
-    SettingsPatch::Fields {
+  let change = if settings.app().unattended == on {
+    None
+  } else {
+    if on {
+      match fs_retry::remove_file(journal) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(UnattendedError::Journal(e)),
+      }
+    }
+    let fields = Map::from_iter([(UNATTENDED_FIELD.to_owned(), Value::Bool(on))]);
+    let patch = SettingsPatch::Fields {
       key: APP_SETTINGS_KEY.to_owned(),
       fields,
-    },
-    origin,
-  )?;
+    };
+    match settings.set(patch, origin) {
+      Ok(change) => Some(change),
+      Err(e) => {
+        // the mode stays as it was: a hook just added for it goes again (it would deny nothing while off)
+        if let (true, Some(hook)) = (on, hook) {
+          let _ = remove_hook(&hook.file);
+        }
+        return Err(e.into());
+      }
+    }
+  };
   settings.flush()?;
+  let warning = if on {
+    None
+  } else {
+    hook
+      .and_then(|hook| remove_hook(&hook.file).err())
+      .map(|e| format!("Cannot remove the hook of Unattended Mode from {e}"))
+  };
   Ok(UnattendedSwitch {
-    changed: true,
-    change: Some(change),
+    changed: change.is_some(),
+    change,
+    warning,
   })
 }
 
 /// Why `set_unattended` changed nothing
 #[derive(Debug, thiserror::Error)]
 pub enum UnattendedError {
+  #[error("no home directory of the user or no brd binary to run, so no hook for the settings of Claude Code")]
+  NoHookFile,
+  #[error("cannot add the hook of Unattended Mode to {0}. Fix the file, then turn the mode on again")]
+  Hook(#[source] HookFileError),
   #[error("cannot remove the denied requests of the last run: {0}")]
   Journal(#[source] std::io::Error),
   #[error(transparent)]

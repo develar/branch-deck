@@ -29,7 +29,6 @@ import {
 } from "@/lib/cli-tools"
 import { notifyError } from "@/lib/errors"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
-import { unattendedHookLine } from "@/presenters/unattended"
 import {
   cancelCliToolAction,
   refreshCliTools,
@@ -142,9 +141,8 @@ function RowMeta({ children, title }: { children: string; title?: string }) {
 /**
  * `brd`, the agent CLI of Branch Deck (openspec/specs/repository/settings/spec.md#tools): whether its skill is installed
  * (`agent_cli_status`, asked by the page on each open and focus) with the path of brd to copy and the skill directories of
- * the agents, else Install Agent CLI, the install of Help → Install Agent CLI…, whose toast has no action here; Install
- * Agent CLI also while the hook of Unattended Mode is missing or runs another brd, which a line says. The rules agents
- * follow are on Agents, which its link shows
+ * the agents, else Install Agent CLI, the install of Help → Install Agent CLI…, whose toast has no action here. The rules
+ * agents follow are on Agents, which its link shows
  */
 function AgentCliRow({ status, homeDir, onShowAgents }: { status: AgentCliStatus | null; homeDir: string; onShowAgents: () => void }) {
   const brd = status?.bd ?? null
@@ -162,7 +160,7 @@ function AgentCliRow({ status, homeDir, onShowAgents }: { status: AgentCliStatus
           </>
         )
       }
-      end={status !== null && (brd === null || (status.installable && status.unattended_hook !== "installed")) && <InstallAgentCliButton openAgentSettings={false} />}
+      end={status !== null && brd === null && <InstallAgentCliButton openAgentSettings={false} />}
       purpose={
         <>
           {"Coding agents ask it how to work in your repositories, by the rules of "}
@@ -175,11 +173,6 @@ function AgentCliRow({ status, homeDir, onShowAgents }: { status: AgentCliStatus
       {status !== null && (
         <p className="min-w-0 truncate text-xs" data-testid="agent-skill-files" title={status.skills.join("\n")}>
           {brd === null ? "The agent skill is not installed" : `Agent skill branch-deck · ${status.skill_dirs.map(it => tildePath(it, homeDir)).join(", ")}`}
-        </p>
-      )}
-      {status !== null && brd !== null && status.unattended_hook !== "installed" && (
-        <p className="text-xs text-warning" data-testid="unattended-hook">
-          {unattendedHookLine(status.unattended_hook)}
         </p>
       )}
     </ToolRow>

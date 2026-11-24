@@ -42,7 +42,8 @@ pub struct Environment {
   /// The directory `-C` defaults to
   pub cwd: PathBuf,
   /// The settings of the app (`app_settings`), read once as `brd` starts (`app_settings_of`): General → Branch prefix
-  /// (`globalUserBranchPrefix`) and Settings → Landing (`patronusNewApi`), with the defaults the app has without them
+  /// (`globalUserBranchPrefix`), Settings → Landing (`patronusNewApi`) and Unattended Mode, whose hook `brd install`
+  /// keeps as the mode has it, with the defaults the app has without them
   pub settings: AppSettings,
   /// The data directory of the app (`app_data_dir`): `brd unattended` switches the mode through the writer of its
   /// settings and reads the denials of the hook beside them; `None` without one

@@ -198,7 +198,7 @@ pub mod without {
     }
 
     fn status(&self) -> AgentCliStatus {
-      AgentCliStatus::new(None, Vec::new(), None, domain_types::unattended::UnattendedHook::Missing, false)
+      AgentCliStatus::new(None, Vec::new(), None, false)
     }
 
     fn install_ide_app(&self) -> Result<IdeApp, ApiError> {

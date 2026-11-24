@@ -113,8 +113,6 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
           skill_dirs: ["/Users/test/.claude/skills", "/Users/test/.agents/skills"],
           // the app file of the IDE that another Branch Deck wrote: its line of the warning
           ide_app: { file: "/Users/test/.air/apps/branch-deck.yaml", current: false },
-          // the hook of Unattended Mode of another Branch Deck: its line and Install Agent CLI
-          unattended_hook: "stale",
           installable: true,
         }))
       },

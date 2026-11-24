@@ -215,8 +215,10 @@ name = "app-settings"
 version = "0.1.0"
 dependencies = [
  "domain-types",
+ "indexmap 2.14.2",
  "notify",
  "pretty_assertions",
+ "serde",
  "serde_json",
  "sync-utils",
  "tempfile",

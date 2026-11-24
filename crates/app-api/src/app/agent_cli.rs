@@ -8,8 +8,8 @@
 use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
 use crate::transport::Call;
+use app_settings::claude_hook::{HookExec, HookTarget, claude_settings_file};
 use domain_types::error::ApiError;
-use domain_types::unattended::UnattendedHook;
 use lease_pool::agent_workspace::agent_defaults;
 use std::path::Path;
 use tracing::instrument;
@@ -25,9 +25,6 @@ pub struct AgentCliInstall {
   pub skills: Vec<String>,
   /// How agents work where a repository has no value of its own (the global git config)
   pub agents: AgentRules,
-  /// Why the hook of Unattended Mode could not go into the settings of Claude Code, which stay as they were while the
-  /// rest is installed; `null` when it is there
-  pub hook_error: Option<String>,
 }
 
 /// The three rules of `brd workspace` (Settings → Agents)
@@ -48,8 +45,6 @@ pub struct AgentCliInstalled {
   pub on_path: bool,
   pub skills: Vec<String>,
   pub agents: Option<AgentRules>,
-  /// Why the hook of Unattended Mode is not there (`brd install`'s `hook_error`)
-  pub hook_error: Option<String>,
 }
 
 /// How the prompts the app copies run this app's brd in a repository
@@ -74,8 +69,6 @@ pub struct AgentCliStatus {
   pub skill_dirs: Vec<String>,
   /// The app file of an IDE with Air (`install_ide_app`); `null` while there is none
   pub ide_app: Option<IdeApp>,
-  /// The `PermissionRequest` hook of Unattended Mode in the settings of Claude Code (`brd install` adds it)
-  pub unattended_hook: UnattendedHook,
   /// This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
   /// so the page offers no install there
   pub installable: bool,
@@ -83,7 +76,7 @@ pub struct AgentCliStatus {
 
 impl AgentCliStatus {
   /// The status of `skills`, with the directories of the agents they are in
-  pub fn new(bd: Option<String>, skills: Vec<String>, ide_app: Option<IdeApp>, unattended_hook: UnattendedHook, installable: bool) -> Self {
+  pub fn new(bd: Option<String>, skills: Vec<String>, ide_app: Option<IdeApp>, installable: bool) -> Self {
     let mut skill_dirs: Vec<String> = Vec::new();
     for skill in &skills {
       let dir = Path::new(skill).parent().and_then(Path::parent).map(|dir| dir.to_string_lossy().into_owned());
@@ -96,7 +89,6 @@ impl AgentCliStatus {
       skills,
       skill_dirs,
       ide_app,
-      unattended_hook,
       installable,
     }
   }
@@ -132,7 +124,6 @@ pub async fn install_agent_cli(ctx: &AppContext, call: &Call) -> Result<AgentCli
       on_path: installed.on_path,
       skills: installed.skills,
       agents,
-      hook_error: installed.hook_error,
     })
   })
   .await
@@ -165,4 +156,17 @@ pub async fn install_ide_app(ctx: &AppContext, call: &Call) -> Result<IdeApp, Ap
 pub async fn remove_ide_app(ctx: &AppContext, call: &Call) -> Result<(), ApiError> {
   let host = ctx.desktop(&call.window).agent_cli;
   run_blocking(move || host.remove_ide_app()).await
+}
+
+/// Where the hook of Unattended Mode of this process goes, for a host that knows no better brd (an IDE): the settings of
+/// Claude Code under the home directory, and this binary, with `cli` unless it is a `brd`; `None` without a home
+/// directory or a binary
+pub fn process_hook_target() -> Option<HookTarget> {
+  let home = std::env::home_dir()?;
+  let binary = std::env::current_exe().ok()?;
+  let subcommand = (binary.file_stem().and_then(|stem| stem.to_str()) != Some("brd")).then_some("cli");
+  Some(HookTarget {
+    file: claude_settings_file(&home),
+    command: HookExec::new(binary.to_string_lossy().into_owned(), subcommand),
+  })
 }

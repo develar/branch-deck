@@ -13,8 +13,6 @@ use bd_core::bd_command::app_binary_path;
 use bd_core::bd_command::{BdCommand, bd_command};
 use bd_core::context::Environment;
 use domain_types::error::ErrorCode;
-#[cfg(unix)]
-use domain_types::unattended::UnattendedHook;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -34,11 +32,32 @@ fn home_with_app() -> (TempDir, PathBuf) {
 
 #[cfg(unix)]
 fn run_install(home: &Path, app: &Path, args: &[&str]) -> (i32, Value) {
+  run_install_with(home, app, args, false)
+}
+
+/// `brd install` that answers 0 and links `~/.local/bin/brd` to `app`: its output
+#[cfg(unix)]
+fn install_linked(home: &Path, app: &Path) -> Value {
+  let (exit_code, output) = run_install(home, app, &["install"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(std::fs::read_link(home.join(".local/bin/brd")).unwrap(), app);
+  output
+}
+
+/// `run_install` with Unattended Mode `unattended`
+#[cfg(unix)]
+fn run_install_with(home: &Path, app: &Path, args: &[&str], unattended: bool) -> (i32, Value) {
   let mut environment = environment(home);
+  environment.settings.unattended = unattended;
   environment.home = Some(home.to_path_buf());
   environment.executable = Some(app.to_path_buf());
   environment.path = Some(std::env::join_paths([home.join(".local/bin"), PathBuf::from("/usr/bin")]).unwrap());
   run_json(&environment, args)
+}
+
+#[cfg(unix)]
+fn read_json(file: &Path) -> Value {
+  serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap()
 }
 
 #[cfg(unix)]
@@ -80,14 +99,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   let mut status_environment = environment(&home);
   status_environment.home = Some(home.clone());
   status_environment.executable = Some(app.clone());
-  assert_eq!(
-    install_status(&status_environment),
-    InstallStatus {
-      bd: None,
-      skills: Vec::new(),
-      hook: UnattendedHook::Missing,
-    }
-  );
+  assert_eq!(install_status(&status_environment), InstallStatus { bd: None, skills: Vec::new() });
 
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -101,9 +113,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "skills": skill_files(&home),
       "uninstalled": false,
       "bd_host": null,
-      "hook_file": home.join(".claude/settings.json").to_str().unwrap(),
-      "hook_command": link.to_str().unwrap(),
-      "hook_args": ["hook", "permission-request"],
+      "hook_file": null,
       "agents": { "lease": true, "subject_branch": true, "pull_request": false }
     })
   );
@@ -113,7 +123,6 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
     InstallStatus {
       bd: Some(link.to_str().unwrap().to_string()),
       skills: skill_files(&home),
-      hook: UnattendedHook::Installed,
     }
   );
   let (_, schema) = run_install(&home, &app, &["schema", "--all"]);
@@ -139,9 +148,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert_eq!((exit_code, &output["brd"]), (0, &json!(link.to_str().unwrap())), "{output}");
   std::fs::remove_file(&link).unwrap();
   std::os::unix::fs::symlink("/old/branch-deck", &link).unwrap();
-  let (exit_code, output) = run_install(&home, &app, &["install"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(std::fs::read_link(&link).unwrap(), app);
+  install_linked(&home, &app);
 
   let legacy = home.join(".local/bin/bd");
   std::os::unix::fs::symlink(&app, &legacy).unwrap();
@@ -154,48 +161,59 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert!(!home.join(".claude/skills/branch-deck").exists());
   assert_eq!(install_status(&status_environment).skills, Vec::<String>::new());
   assert!(home.join(".claude/skills").exists(), "only the skill's own directory goes");
-  assert_eq!(output["hook_file"], json!(home.join(".claude/settings.json").to_str().unwrap()));
-  assert_eq!(
-    std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
-    "{}\n",
-    "the hook is gone, and the `hooks` it emptied"
+  assert_eq!(output["hook_file"], json!(null));
+  assert!(
+    !home.join(".claude/settings.json").exists(),
+    "the mode never on: the settings of Claude Code are never written"
   );
-  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Missing);
 }
 
-/// A settings file of Claude Code that the hook cannot go into stays as it is: the command and the skills are installed,
-/// the answer and Settings → Tools say why the hook is not
+/// The hook of Unattended Mode is in the settings of Claude Code only while the mode is on: an install while it is off
+/// removes the hook an earlier install wrote, one while it is on writes it anew for this brd, `--uninstall` removes it;
+/// a settings file that cannot be changed stays as it is and the rest is installed
 #[cfg(unix)]
 #[test_log::test]
-fn a_settings_file_the_hook_cannot_go_into_stays_and_the_rest_is_installed() {
+fn an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
+  let link = home.join(".local/bin/brd");
   let settings = home.join(".claude/settings.json");
   std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
-  std::fs::write(&settings, "{ \"model\": ").unwrap();
+  // the hook of an earlier install, a command line of the shell form, beside a value of the user
+  let earlier = json!({
+    "model": "opus",
+    "hooks": { "PermissionRequest": [{ "matcher": "*", "hooks": [{ "type": "command", "command": format!("{} hook permission-request", link.display()) }] }] }
+  });
+  std::fs::write(&settings, serde_json::to_string_pretty(&earlier).unwrap()).unwrap();
 
   let (exit_code, output) = run_install(&home, &app, &["install"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let link = home.join(".local/bin/brd");
-  assert_eq!(std::fs::read_link(&link).unwrap(), app);
-  assert_eq!(output["skills"], json!(skill_files(&home)));
+  assert_eq!((exit_code, &output["hook_file"]), (0, &json!(settings.to_str().unwrap())), "{output}");
+  assert_eq!(read_json(&settings), json!({ "model": "opus" }), "off: the hook of the earlier install is gone");
+  let (_, output) = run_install(&home, &app, &["install"]);
+  assert_eq!(output["hook_file"], json!(null), "and nothing more to remove");
+
+  // on: the install writes the hook of this brd in its place
+  std::fs::write(&settings, serde_json::to_string_pretty(&earlier).unwrap()).unwrap();
+  let (exit_code, output) = run_install_with(&home, &app, &["install"], true);
+  assert_eq!((exit_code, &output["hook_file"]), (0, &json!(settings.to_str().unwrap())), "{output}");
+  assert_eq!(
+    read_json(&settings)["hooks"]["PermissionRequest"],
+    json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": link.to_str().unwrap(), "args": ["hook", "permission-request"], "onFailure": "continue" }] }])
+  );
+  let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
+  assert_eq!((exit_code, &output["hook_file"]), (0, &json!(settings.to_str().unwrap())), "{output}");
+  assert_eq!(read_json(&settings), json!({ "model": "opus" }));
+
+  // a file that is no JSON object stays, and the rest is installed
+  std::fs::write(&settings, "{ \"model\": ").unwrap();
+  let output = install_linked(&home, &app);
   assert!(skill_files(&home).iter().all(|file| Path::new(file).is_file()));
   let error = output["hook_error"].as_str().unwrap_or_default();
   assert!(
-    error.starts_with(&format!("Cannot add the hook of Unattended Mode to {}: it is no JSON object", settings.display())),
+    error.starts_with(&format!("Cannot remove the hook of Unattended Mode from {}: it is no JSON object", settings.display())),
     "{output}"
   );
   assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ \"model\": ", "the file stays as it was");
-  let mut status_environment = environment(&home);
-  status_environment.home = Some(home.clone());
-  status_environment.executable = Some(app.clone());
-  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Invalid);
-
-  // fixed, the next install adds the hook and says nothing of it
-  std::fs::write(&settings, "{}").unwrap();
-  let (exit_code, output) = run_install(&home, &app, &["install"]);
-  assert_eq!((exit_code, output.get("hook_error")), (0, None), "{output}");
-  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Installed);
 }
 
 #[cfg(unix)]

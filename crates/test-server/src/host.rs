@@ -16,6 +16,7 @@ use crate::updater::NO_UPDATER_MESSAGE;
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, IdeApp};
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
 use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId, at_once};
+use app_settings::claude_hook::{HookExec, HookTarget};
 use app_settings::service::SettingsService;
 use app_settings::unattended::{append_denial, denials_file};
 use app_settings::windows::window_snapshot;
@@ -29,7 +30,7 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
 use domain_types::error::ApiError;
-use domain_types::unattended::{UnattendedDenial, UnattendedHook};
+use domain_types::unattended::UnattendedDenial;
 use domain_types::youtrack::YouTrackAuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::teamcity_cli::TeamCityCli;
@@ -440,13 +441,32 @@ const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.m
 /// The app file of the IDE the fake install names
 const IDE_APP_FILE: &str = "/Users/test/.air/apps/branch-deck.yaml";
 
+/// The settings file of Claude Code of the tests whose app data directory is `app_data`, which the hook of Unattended Mode
+/// goes into
+fn claude_settings_of(app_data: &std::path::Path) -> PathBuf {
+  // a directory of its own: the watch of the app data directory never hears its writes
+  app_data.join("claude").join("settings.json")
+}
+
 /// The agent CLI of a test repository: `brd install` without its files, which leaves the rules of `brd workspace` to the
 /// global config of the repository, as the app reads the developer's; the command of a POSIX shell, with the repository
-/// path as it is (test paths are plain). The app file of the IDE is a flag too: installed or not
-#[derive(Default)]
+/// path as it is (test paths are plain). The app file of the IDE is a flag too: installed or not. The hook of Unattended
+/// Mode goes into a settings file of Claude Code beside the settings of the test, never the developer's
 pub struct TestAgentCli {
   installed: AtomicBool,
   ide_app: AtomicBool,
+  claude_settings: PathBuf,
+}
+
+impl TestAgentCli {
+  /// The agent CLI of the tests whose app data directory is `app_data`
+  pub fn new(app_data: &std::path::Path) -> Self {
+    Self {
+      installed: AtomicBool::new(false),
+      ide_app: AtomicBool::new(false),
+      claude_settings: claude_settings_of(app_data),
+    }
+  }
 }
 
 impl AgentCliHost for TestAgentCli {
@@ -457,7 +477,6 @@ impl AgentCliHost for TestAgentCli {
       on_path: true,
       skills: AGENT_SKILLS.map(str::to_owned).to_vec(),
       agents: None,
-      hook_error: None,
     })
   }
 
@@ -468,7 +487,7 @@ impl AgentCliHost for TestAgentCli {
     })
   }
 
-  /// The skills and the hook of Unattended Mode once `install_agent_cli` ran, else none; the app file of the IDE from `install_ide_app` to
+  /// The skills once `install_agent_cli` ran, else none; the app file of the IDE from `install_ide_app` to
   /// `remove_ide_app`
   fn status(&self) -> AgentCliStatus {
     let ide_app = self.ide_app.load(Ordering::SeqCst).then(|| IdeApp {
@@ -476,15 +495,9 @@ impl AgentCliHost for TestAgentCli {
       current: true,
     });
     if self.installed.load(Ordering::SeqCst) {
-      AgentCliStatus::new(
-        Some(AGENT_CLI.to_owned()),
-        AGENT_SKILLS.map(str::to_owned).to_vec(),
-        ide_app,
-        UnattendedHook::Installed,
-        true,
-      )
+      AgentCliStatus::new(Some(AGENT_CLI.to_owned()), AGENT_SKILLS.map(str::to_owned).to_vec(), ide_app, true)
     } else {
-      AgentCliStatus::new(None, Vec::new(), ide_app, UnattendedHook::Missing, true)
+      AgentCliStatus::new(None, Vec::new(), ide_app, true)
     }
   }
 
@@ -493,6 +506,15 @@ impl AgentCliHost for TestAgentCli {
     Ok(IdeApp {
       file: IDE_APP_FILE.to_owned(),
       current: true,
+    })
+  }
+
+  /// The settings file of Claude Code of the tests and the fake brd: a test reads the hook there and breaks the file to
+  /// see a switch on refused (`…/claude-settings`)
+  fn unattended_hook(&self) -> Option<HookTarget> {
+    Some(HookTarget {
+      file: self.claude_settings.clone(),
+      command: HookExec::new(AGENT_CLI.to_owned(), None),
     })
   }
 
@@ -514,6 +536,28 @@ pub async fn add_unattended_denials(Path(id): Path<String>, State(state): State<
       tracing::error!(error = %e, "cannot write the journal of Unattended Mode");
       return StatusCode::INTERNAL_SERVER_ERROR;
     }
+  }
+  StatusCode::OK
+}
+
+/// The settings file of Claude Code of the test repository `id` (`{ "text": … }`, `null` while there is none), which
+/// the hook of Unattended Mode goes into while the mode is on
+pub async fn get_claude_settings(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<Value>, StatusCode> {
+  let repository = state.repositories.get(&id).ok_or(StatusCode::GONE)?;
+  let text = std::fs::read_to_string(claude_settings_of(&repository.app_data)).ok();
+  Ok(Json(serde_json::json!({ "text": text })))
+}
+
+/// `POST /repositories/{id}/claude-settings` with `{ "text": … }`: the settings file of Claude Code as the user wrote it
+pub async fn set_claude_settings(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(body): Json<Value>) -> StatusCode {
+  let Some(repository) = state.repositories.get(&id) else {
+    return StatusCode::GONE;
+  };
+  let text = body["text"].as_str().unwrap_or_default();
+  let file = claude_settings_of(&repository.app_data);
+  if let Err(e) = std::fs::create_dir_all(file.parent().unwrap_or(&repository.app_data)).and_then(|()| std::fs::write(&file, text)) {
+    tracing::error!(error = %e, "cannot write the settings of Claude Code");
+    return StatusCode::INTERNAL_SERVER_ERROR;
   }
   StatusCode::OK
 }

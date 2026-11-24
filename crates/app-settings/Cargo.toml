@@ -8,7 +8,10 @@ license.workspace = true
 domain-types = { path = "../domain-types" }
 # the watch of the app data directory for the saves of the writer of another process (`watch`)
 notify.workspace = true
-serde_json.workspace = true
+# the settings of Claude Code read and written with every other value as it was (`claude_hook`)
+indexmap = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 # the writer thread carries the span of the service's opener (`span::in_current_span`); the atomic save of a file
 # (`atomic_file`)
 sync-utils = { path = "../sync-utils" }

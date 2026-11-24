@@ -1,6 +1,6 @@
 ---
 name: Unattended Mode
-description: Requirements for Unattended Mode, which the user turns on while they leave coding agents alone - the PermissionRequest hook of Claude Code that brd install adds denies every permission request with a way on and records it, brd unattended switches the mode and lists what was denied.
+description: Requirements for Unattended Mode, which the user turns on while they leave coding agents alone - a PermissionRequest hook of Claude Code, in its settings only while the mode is on, denies every permission request with a way on and records it, brd unattended switches the mode and lists what was denied.
 style: plain-1
 targets:
   - crates/domain-types/src/unattended.rs
@@ -8,7 +8,7 @@ targets:
   - crates/app-settings/src/unattended.rs
   - crates/app-settings/src/service.rs
   - crates/bd-cli/src/unattended.rs
-  - crates/bd-cli/src/claude_hook.rs
+  - crates/app-settings/src/claude_hook.rs
   - crates/bd-cli/src/install.rs
   - crates/sync-utils/src/atomic_file.rs
   - crates/bd-cli/src/lib.rs
@@ -16,9 +16,10 @@ targets:
   - crates/bd-core/src/context.rs
   - crates/app-api/src/app/unattended.rs
   - crates/app-api/src/app/agent_cli.rs
+  - crates/app-api/src/transport.rs
+  - src-tauri/src/agent_cli.rs
   - crates/test-server/src/host.rs
   - src/lib/unattended.ts
-  - src/hooks/useInstallAgentCli.ts
   - src/presenters/unattended.ts
   - src/stores/unattended.ts
   - src/stores/settings/appSettings.ts
@@ -26,7 +27,6 @@ targets:
   - src/components/repository/ConfigurationHeader.tsx
   - src/components/unattended/DeniedRequestsDialog.tsx
   - src/lib/command-palette.ts
-  - src/components/settings/ToolsPage.tsx
   - src/components/settings/GeneralPage.tsx
 ---
 
@@ -39,8 +39,9 @@ Date: 2026-11-24
 
 An agent team left running overnight stops at the first permission prompt of its lead or of any of its background
 subagents: the prompt waits for a human until morning, and the whole team with it. While the user has turned
-Unattended Mode on, the `PermissionRequest` hook of Claude Code that `brd install` adds answers every such prompt with
-a denial whose message tells the agent to go on without the access, and records what was denied; the user reads that
+Unattended Mode on, a `PermissionRequest` hook of Claude Code, which the switch puts into its settings and takes out
+again, answers every such prompt with a denial whose message tells the agent to go on without the access, and records
+what was denied; the user reads that
 list in the morning and decides what to allow. While the mode is off, the prompts are as they were. The user switches it
 in the command palette, in Settings → General or with `brd unattended`; the title bar marks it while it is on and its
 mark turns it off, and the switch off says how many requests the night denied and lists them.
@@ -61,7 +62,9 @@ mark turns it off, and the switch off says how many requests the night denied an
 
 The hook is a command of Claude Code's settings, run before every permission prompt with the hook's JSON on stdin; a
 JSON answer with `"behavior": "deny"` denies the request and its message reaches the model, no answer leaves the
-prompt to the user. Claude Code runs it for the main session and for foreground and background subagents alike.
+prompt to the user. Claude Code runs it for the main session and for foreground and background subagents alike, and
+reads a hook written into its settings while a session runs (its file watcher, within seconds), so the hook can come
+with the mode and go with it.
 
 ## Requirements
 
@@ -106,19 +109,56 @@ agent to do without new access or to skip the step, name it in its report and go
 ### Requirement: Hook: Otherwise the hook answers nothing and Claude Code asks
 
 With the mode off, a settings file the hook cannot read, no data directory, or an input that is no permission request
-(not JSON, no `tool_name`, another `hook_event_name`), the hook MUST print nothing and record nothing; it MUST never
-allow a request, MUST exit 0, MUST write nothing to stderr, and MUST start no git and no network.
+(not JSON, no `tool_name`, another `hook_event_name`), the hook MUST print nothing and record nothing, its entry in the
+settings of Claude Code or not; it MUST never allow a request, MUST exit 0, MUST write nothing to stderr, and MUST start
+no git and no network.
 
 #### Scenario: The mode is off or unreadable
 - **WHEN** the hook runs with the mode off, without a settings file, or with a settings file that does not parse
 - **THEN** it prints nothing, records nothing and exits 0
   [@test] crates/bd-cli/src/unattended_test.rs (`the_hook_answers_nothing_while_the_mode_is_off_or_its_setting_cannot_be_read`)
 
+#### Scenario: The entry stayed, the mode is off
+- **GIVEN** the hook is in the settings of Claude Code
+- **WHEN** the mode goes off without its removal and the hook runs
+- **THEN** it prints nothing and records nothing
+  [@test] crates/bd-cli/src/unattended_test.rs (`the_hook_answers_nothing_while_the_mode_is_off_with_its_entry_in_place`)
+
 #### Scenario: An input that is no permission request
 - **GIVEN** the mode is on
 - **WHEN** the hook gets an empty input, text, an array, an input without `tool_name` or of another event
 - **THEN** it prints nothing, records nothing and exits 0
   [@test] crates/bd-cli/src/unattended_test.rs (`the_hook_answers_nothing_to_an_input_that_is_no_permission_request`)
+
+### Requirement: Hook: The hook is in the settings of Claude Code only while the mode is on
+
+Turning the mode on MUST first add the hook to `~/.claude/settings.json`, then switch the setting; a hook that cannot be
+written (no home directory or brd, a settings file that cannot take it, a failed write) MUST keep the mode off and
+answer `install_refused` with why. Turning it off MUST switch the setting first, then remove the hook; a removal that
+fails MUST be the `warning` of the answer, the mode off all the same. A crash or a quit while the mode is on MUST leave
+the hook and the mode on.
+
+#### Scenario: On adds, off gives the file back
+- **GIVEN** settings of Claude Code with a hook of the user
+- **WHEN** the mode is turned off, on, then off
+- **THEN** the first off writes nothing, on adds the hook beside the user's, and the last off gives the file back byte for byte
+  [@test] crates/app-settings/src/unattended_test.rs (`the_hook_is_in_the_settings_of_claude_code_only_while_the_mode_is_on`)
+  [@test] crates/bd-cli/src/unattended_test.rs (`unattended_turns_the_mode_on_and_off_and_lists_what_the_hook_denied_since_it_was_turned_on`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, add the hook to the settings of Claude Code, and turn it off by the mark, which gives the file back`)
+
+#### Scenario: A settings file that cannot take the hook
+- **GIVEN** a settings file of Claude Code that is no JSON object
+- **WHEN** the mode is turned on
+- **THEN** it stays off, the answer is `install_refused` naming the file, and the file stays as it was
+  [@test] crates/app-settings/src/unattended_test.rs (`a_switch_on_whose_hook_cannot_be_written_stays_off`)
+  [@test] crates/bd-cli/src/unattended_test.rs (`unattended_on_whose_hook_cannot_be_written_stays_off`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should stay off and say why when the settings of Claude Code cannot take the hook`)
+
+#### Scenario: A removal that fails
+- **GIVEN** the mode is on and the user broke the settings file of Claude Code
+- **WHEN** the mode is turned off
+- **THEN** it is off, and the answer warns that the hook stayed
+  [@test] crates/app-settings/src/unattended_test.rs (`a_switch_on_whose_hook_cannot_be_written_stays_off`)
 
 ### Requirement: Journal: Each denial is one line of what was asked, never of a file
 
@@ -156,32 +196,41 @@ keep the journal, so the list of the night stays readable until the mode is turn
 
 ### Requirement: `brd`: brd unattended status lists the mode, its hook and the denials
 
-`brd unattended status` MUST print whether the mode is on, whether the hook of this brd is installed (`installed`,
-`stale`, `missing`, or `invalid` for a settings file that cannot hold it), the number of requests denied since the mode
-was last turned on and those requests, oldest first, and the journal; while the hook is not installed, `next` MUST name
-`brd install`. `on` and `off` MUST print the same.
+`brd unattended status` MUST print whether the mode is on, whether the settings of Claude Code hold the hook (`present`,
+`absent`), the number of requests denied since the mode was last turned on and those requests, oldest first, and the
+journal. `on` and `off` MUST print the same, `off` with the `warning` of a removal that failed.
 
 #### Scenario: The morning
 - **GIVEN** the hook denied a request during the night
 - **WHEN** the user runs `brd unattended off`, then `brd unattended status`
-- **THEN** both print `denied: 1` and the request, with `hook` and `next`
+- **THEN** both print `denied: 1` and the request, with `hook: absent`
   [@test] crates/bd-cli/src/unattended_test.rs (`unattended_turns_the_mode_on_and_off_and_lists_what_the_hook_denied_since_it_was_turned_on`)
 
-### Requirement: Install: brd install adds the hook once and keeps the rest of the file
+### Requirement: Hook file: An edit adds the hook once and keeps the rest of the file
 
-`brd install` MUST add to `hooks.PermissionRequest` of `~/.claude/settings.json` the entry `{"matcher": "*", "hooks":
+An addition MUST add to `hooks.PermissionRequest` of `~/.claude/settings.json` the entry `{"matcher": "*", "hooks":
 [{"type": "command", "command": "<brd>", "args": ["hook", "permission-request"], "onFailure": "continue"}]}`, creating
-the file, and MUST keep every other key, hook and value of the file as it was written, in its order; an install when
-the hook is there MUST write nothing.
+the file, keep every other key, hook and value as written, in its order, and write nothing when it is there. A
+file that is no JSON object, or of `hooks` of another type, MUST be refused and stay; a blank file is an empty one, and
+a private file stays private.
 
 #### Scenario: A file of the user
 - **GIVEN** a settings file with other keys, a hook of another event and another hook of `PermissionRequest`
-- **WHEN** `brd install` runs, then again
+- **WHEN** the hook is added, then again
 - **THEN** the first adds the entry at the end of `PermissionRequest` and keeps the text of the rest; the second writes nothing
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`an_install_adds_the_hook_once_and_keeps_every_other_key_and_hook_as_written`)
-  [@test] crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
+  [@test] crates/app-settings/src/claude_hook_test.rs (`an_add_writes_the_hook_once_and_keeps_every_other_key_and_hook_as_written`)
 
-### Requirement: Install: The hook runs brd with no shell and never blocks
+#### Scenario: A broken file
+- **WHEN** an edit meets an array, a cut file, or `hooks` of the wrong type
+- **THEN** it is refused with why, naming the file, and the file stays as it was
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_file_that_is_no_object_is_refused_and_stays`)
+
+#### Scenario: A private file
+- **WHEN** the hook is added to a file of mode 0600
+- **THEN** the file stays 0600
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_private_file_stays_private`)
+
+### Requirement: Hook file: The hook runs brd with no shell and never blocks
 
 The hook MUST be a command hook of the exec form, `command` the path of brd as it is and `args` its arguments, which
 Claude Code starts with no shell on every platform (a command line would run in PowerShell on Windows without Git
@@ -190,78 +239,79 @@ Bash), and its `onFailure` MUST be `continue`, so a hook that fails leaves the r
 #### Scenario: No shell, no block
 - **WHEN** the entry is written for the app binary under `/Applications/Branch Deck.app` and for `brd.exe` under a Windows home with an apostrophe
 - **THEN** `command` is the path as it is, `args` are `cli hook permission-request` and `hook permission-request`, and `onFailure` is `continue`
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`the_hook_runs_brd_with_no_shell_and_never_blocks_when_it_fails`)
+  [@test] crates/app-settings/src/claude_hook_test.rs (`the_hook_runs_brd_with_no_shell_and_never_blocks_when_it_fails`)
 
-### Requirement: Install: An edit keeps the writes of Claude Code and the symlink
+### Requirement: Hook file: An edit keeps the writes of Claude Code and the symlink
 
 An edit of the settings file MUST read it again just before its rename and, when it changed since the read, read and
 merge again, five times at most, so a write of Claude Code during the edit is kept; a settings file that is a symlink MUST be
 written where it points and stay a link.
 
-#### Scenario: Claude Code writes the file during the install
-- **WHEN** Claude Code writes the file after the install read it and before its rename
-- **THEN** the install reads it again and adds the hook to what Claude Code wrote; a file that keeps changing five times is refused as Claude Code wrote it last
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`a_write_of_claude_code_during_the_install_is_kept`)
+#### Scenario: Claude Code writes the file during an edit
+- **WHEN** Claude Code writes the file after an edit read it and before its rename
+- **THEN** the edit reads it again and adds the hook to what Claude Code wrote; a file that keeps changing five times is refused as Claude Code wrote it last
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_write_of_claude_code_during_an_edit_is_kept`)
 
 #### Scenario: A settings file that is a symlink
 - **GIVEN** `~/.claude/settings.json` is a relative symlink into a directory of dotfiles
-- **WHEN** `brd install` runs, then `brd install --uninstall`
+- **WHEN** the hook is added, then removed
 - **THEN** the file of the dotfiles gets the hook, then loses it, and the settings file stays a link
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`a_settings_file_that_is_a_symlink_stays_one`)
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_settings_file_that_is_a_symlink_stays_one`)
 
-### Requirement: Install: A moved brd replaces the hook of the old one
+### Requirement: Hook file: A hook of another brd or of the shell form is replaced
 
 A command hook whose `args` end with `hook permission-request`, or of the shell form whose command ends with it, MUST be
-read as Branch Deck's: an install MUST replace every such hook of another command or of the shell form by one hook of
-this brd, keep the other hooks of its entry, and keep what the user added to the installed hook (a `timeout`, another
-`onFailure`); Settings → Tools and `brd unattended` MUST read such a hook as `stale`.
+read as Branch Deck's: an addition MUST replace every such hook of another command or of the shell form by one hook of
+this brd, keep the other hooks of its entry, and keep what the user added to the hook of this brd (a `timeout`, another
+`onFailure`); a removal MUST remove each of them.
 
 #### Scenario: The app moved
 - **GIVEN** the hook of the app binary of another place, with a hook of the user in its entry
-- **WHEN** `brd install` runs
+- **WHEN** the hook is added
 - **THEN** the entry keeps the hook of the user, and one entry has the hook of this brd
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`an_install_of_a_moved_brd_replaces_the_command_of_the_old_one`)
+  [@test] crates/app-settings/src/claude_hook_test.rs (`an_add_of_a_moved_brd_replaces_the_command_of_the_old_one`)
 
 #### Scenario: A hook of the shell form
 - **GIVEN** the hook of this brd as a command line of the shell form, as the first installs wrote it
-- **WHEN** Settings → Tools reads it, then `brd install` runs; or `brd install --uninstall` runs
-- **THEN** it is `stale`, and the install puts the hook of the exec form in its place; the uninstall removes it
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`a_hook_of_the_shell_form_is_replaced_by_the_exec_form`)
+- **WHEN** the hook is added; or removed
+- **THEN** the hook of the exec form takes its place; the removal removes it
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_hook_of_the_shell_form_is_replaced_by_the_exec_form`)
 
-### Requirement: Install: A file the hook cannot go into stays, the rest is installed
+### Requirement: Install: brd install keeps the hook as the mode has it
 
-A settings file that is no JSON object, or whose `hooks` is no object or `hooks.PermissionRequest` no array, MUST stay as
-it is; `brd install` MUST install the `brd` command and the skills all the same and say why in `hook_error`, and the
-hook MUST read `invalid`. A blank file MUST be read as an empty one, and a file only its owner reads MUST stay so.
+`brd install` MUST write no hook of its own: while the mode is off it MUST remove a hook of Branch Deck an earlier
+install wrote, while it is on it MUST write the hook anew for this brd, and name the file in `hook_file` when it changed
+it; a settings file it cannot change MUST stay as it is, the `brd` command and the skills installed all the same and
+`hook_error` saying why.
 
-#### Scenario: A broken file
-- **WHEN** the hook meets an array, a cut file, or `hooks` of the wrong type
-- **THEN** it is refused with `install_refused`, which names the file, the file stays as it was, and its hook reads `invalid`
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`a_file_that_is_no_object_is_refused_and_stays`)
+#### Scenario: The hook of an earlier install
+- **GIVEN** the hook of an earlier install, of the shell form, beside a value of the user
+- **WHEN** `brd install` runs with the mode off, then again; then with the mode on; then `brd install --uninstall`
+- **THEN** the first removes the hook and keeps the value, the second changes nothing, the install while on writes the hook of this brd, and the uninstall removes it
+  [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
 
-#### Scenario: The rest is installed
-- **GIVEN** a cut settings file
-- **WHEN** `brd install` runs, then again after the file is fixed
-- **THEN** the first installs the `brd` command and the skills, answers `hook_error`, which names the file, and leaves the file; the toast "Agent CLI installed" of the app is a warning that says why; the second adds the hook
-  [@test] crates/bd-cli/src/install_test.rs (`a_settings_file_the_hook_cannot_go_into_stays_and_the_rest_is_installed`)
-  [@test] src/hooks/useInstallAgentCli.test.ts (`tells why the hook of Unattended Mode stayed out of a settings file of Claude Code it cannot go into`)
+#### Scenario: A user who never turns the mode on
+- **WHEN** `brd install` runs, then `brd install --uninstall`, without settings of Claude Code
+- **THEN** neither writes them, and `hook_file` is `null`
+  [@test] crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 
-#### Scenario: A private file
-- **WHEN** `brd install` adds the hook to a file of mode 0600
-- **THEN** the file stays 0600
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`a_private_file_stays_private`)
+#### Scenario: A file it cannot change
+- **GIVEN** a cut settings file of Claude Code
+- **WHEN** `brd install` runs
+- **THEN** it installs the `brd` command and the skills, answers `hook_error`, which names the file, and leaves the file
+  [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
 
 ### Requirement: Install: brd install --uninstall removes only the hook of Branch Deck
 
-`brd install --uninstall` MUST remove the hooks of Branch Deck, an entry they leave empty, a `PermissionRequest` and a
-`hooks` they leave empty, keep everything else, and name the file in `hook_file`; a file without such a hook MUST stay
-unwritten.
+A removal of the hook (a switch off, `brd install` while the mode is off, `brd install --uninstall`) MUST remove the
+hooks of Branch Deck, an entry they leave empty, a `PermissionRequest` and a `hooks` they leave empty, and keep
+everything else as written; a file without such a hook MUST stay unwritten.
 
 #### Scenario: Uninstall
-- **WHEN** `brd install --uninstall` runs after `brd install`
-- **THEN** the file is what it was before the install
-  [@test] crates/bd-cli/src/claude_hook_test.rs (`an_uninstall_removes_only_the_hook_of_branch_deck`)
-  [@test] crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
+- **WHEN** the hook is removed after it was added to a file of the user
+- **THEN** the file is what it was before, byte for byte
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_removal_takes_only_the_hook_of_branch_deck_and_gives_the_file_back`)
+  [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
 
 ### Requirement: App: The title bar marks the mode while it is on, and the mark turns it off
 
@@ -272,7 +322,7 @@ the moon in the warning tone, with "Unattended" where the header has room; a cli
 #### Scenario: The mark comes and goes
 - **WHEN** the user turns the mode on from the palette, then clicks the mark
 - **THEN** the mark reads "Unattended", then the title bar shows nothing of the mode
-  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, add the hook to the settings of Claude Code, and turn it off by the mark, which gives the file back`)
 
 #### Scenario: The row keeps one line with the mode on
 - **GIVEN** the mode is on, between ☰ and the window buttons of a custom title bar
@@ -289,7 +339,7 @@ on, and Settings → General MUST hold the switch Unattended Mode under "Coding 
 #### Scenario: On and off by the palette
 - **WHEN** the user runs Turn On Unattended Mode, then Turn Off Unattended Mode, from the palette
 - **THEN** the mark of the title bar shows, then goes
-  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, add the hook to the settings of Claude Code, and turn it off by the mark, which gives the file back`)
   [@test] src/presenters/unattended.test.ts (`names the switch by what a choice of it does`)
 
 #### Scenario: On and off in Settings
@@ -298,23 +348,11 @@ on, and Settings → General MUST hold the switch Unattended Mode under "Coding 
   [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on and off from Settings → General, the mark of the main window following it`)
   [@test] src/presenters/unattended.test.ts (`tells how many requests a switch off found and offers their list only when there are some, in the main window`)
 
-### Requirement: App: A switch on without the hook warns and offers its install
-
-A switch on while the hook is missing, runs another Branch Deck or cannot go into the settings file MUST show a warning
-toast "Turned on Unattended Mode" that says the requests still wait for the user, with Install Agent CLI where the host
-installs it; a switch on with the hook installed MUST show no toast, the mark says it.
-
-#### Scenario: No hook yet
-- **GIVEN** the agent CLI is not installed
-- **WHEN** the user turns the mode on
-- **THEN** the warning toast offers Install Agent CLI, which installs the agent CLI and its hook
-  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
-  [@test] src/presenters/unattended.test.ts (`says nothing of a switch on whose hook is installed, warns of one without it and offers its install where the host installs`)
-
 ### Requirement: App: A switch off tells how many requests were denied and opens them
 
 A switch off MUST show the toast "Turned off Unattended Mode" with the number of requests denied while the mode was on,
-and, when there are some, the action Show Denied Requests… that opens their list.
+and, when there are some, the action Show Denied Requests… that opens their list; when the hook stayed in the settings
+of Claude Code the toast MUST be a warning that says why. A switch on MUST show no toast: the mark says it.
 
 #### Scenario: A night with denials
 - **GIVEN** the hook denied two requests while the mode was on
@@ -326,7 +364,17 @@ and, when there are some, the action Show Denied Requests… that opens their li
 #### Scenario: A quiet night
 - **WHEN** the user turns the mode off and nothing was denied
 - **THEN** the toast says "No permission request was denied while it was on", without an action
-  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, add the hook to the settings of Claude Code, and turn it off by the mark, which gives the file back`)
+
+#### Scenario: The hook stayed
+- **WHEN** the switch off answers the warning of a removal that failed
+- **THEN** the toast is a warning that adds the warning and that the hook denies nothing while the mode is off
+  [@test] src/presenters/unattended.test.ts (`warns on a switch off whose hook stayed in the settings of Claude Code`)
+
+#### Scenario: A switch on
+- **WHEN** the user turns the mode on, or switches it to the state it is in
+- **THEN** no toast shows
+  [@test] src/presenters/unattended.test.ts (`says nothing of a switch on, nor of a switch that changed nothing: the mark of the title bar says it`)
 
 ### Requirement: App: Denied Requests lists each request, oldest first
 
@@ -340,23 +388,6 @@ working directory; Escape MUST close it.
   [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should tell on a switch off how many requests the night denied and list them`)
   [@test] src/presenters/unattended.test.ts (`words who asked and where`)
 
-### Requirement: App: Settings → Tools says when the hook denies nothing
-
-While the agent skill is installed but the hook is missing, runs another Branch Deck or cannot go into the settings file,
-the row of `brd` in Settings → Tools MUST say so in the warning tone and offer Install Agent CLI where the host installs
-it.
-
-#### Scenario: A hook of another Branch Deck
-- **WHEN** Settings → Tools reads a hook of another brd
-- **THEN** the row of `brd` says "The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place"
-  [@test] src/presenters/unattended.test.ts (`says in Settings → Tools why the hook denies nothing`)
-  [@test] tests/e2e/settings/settings.spec.ts (`should show every page of the window in its tallest state`)
-
-#### Scenario: A settings file the hook cannot go into
-- **WHEN** Settings → Tools reads a settings file of Claude Code that is no JSON object
-- **THEN** the row of `brd` says "The hook of Unattended Mode cannot go into ~/.claude/settings.json, which is no JSON object of Claude Code's settings: fix the file, then Install Agent CLI"
-  [@test] src/presenters/unattended.test.ts (`says in Settings → Tools why the hook denies nothing`)
-
 ## User Experience
 
 - The message of a denial: "Branch Deck is in Unattended Mode: nobody can approve this. Do it without new access (a path
@@ -369,9 +400,10 @@ it.
   denied with a way on instead of waiting for you".
 - The palette: "Turn On Unattended Mode" (`MoonIcon`), "Turn Off Unattended Mode"; Settings → General: "Coding agents",
   "While you leave them alone", the switch "Unattended Mode".
-- The toasts: "Turned on Unattended Mode" (warning) with "Claude Code has no hook of Unattended Mode, so its permission
-  requests still wait for you: Install Agent CLI adds it" and Install Agent CLI; "Turned off Unattended Mode" with
-  "2 permission requests were denied while it was on" and Show Denied Requests….
+- The toasts: "Turned off Unattended Mode" with "2 permission requests were denied while it was on" and Show Denied
+  Requests…, a warning with ". Cannot remove the hook of Unattended Mode from …; it denies nothing while the mode is
+  off" when the hook stayed; "Cannot turn on Unattended Mode" with "Cannot add the hook of Unattended Mode to …: it is
+  no JSON object (…). Fix the file, then turn the mode on again".
 - The dialog: "Denied Requests"; each request its tool, its summary, "Today 2:32 PM · general-purpose (a7) · app".
 
 ## References

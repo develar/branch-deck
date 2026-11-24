@@ -120,7 +120,7 @@ impl AppState {
         menu: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::MenuHost>,
         restart: std::sync::Arc::clone(&hosts.desktop) as std::sync::Arc<dyn app_api::transport::RestartHost>,
         updater: std::sync::Arc::clone(&hosts.updater) as std::sync::Arc<dyn app_api::transport::Updater>,
-        agent_cli: std::sync::Arc::new(crate::host::TestAgentCli::default()),
+        agent_cli: std::sync::Arc::new(crate::host::TestAgentCli::new(&self.app_data_of(repository_id))),
       },
       sub_windows: std::sync::Arc::default(),
       cli_tools: app_api::app::cli_tools::CliToolsState::default(),

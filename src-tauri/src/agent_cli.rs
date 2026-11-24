@@ -4,7 +4,9 @@
 
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, AgentRules, IdeApp};
 use app_api::transport::AgentCliHost;
+use app_settings::claude_hook::HookTarget;
 use bd_cli::install::{InstallArgs, ide_app_status, install, install_ide_app, install_status, uninstall_ide_app};
+use bd_cli::unattended::hook_target;
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
 use domain_types::error::ApiError;
@@ -30,7 +32,6 @@ impl AgentCliHost for AppAgentCli {
         subject_branch: agents.subject_branch,
         pull_request: agents.pull_request,
       }),
-      hook_error: output.hook_error,
     })
   }
 
@@ -49,12 +50,18 @@ impl AgentCliHost for AppAgentCli {
       file: app.file,
       current: app.current,
     });
-    AgentCliStatus::new(status.bd, status.skills, ide_app, status.hook, true)
+    AgentCliStatus::new(status.bd, status.skills, ide_app, true)
   }
 
   fn install_ide_app(&self) -> Result<IdeApp, ApiError> {
     let file = install_ide_app(&Environment::from_process()).map_err(|e| ApiError::new(e.code, e.message))?;
     Ok(IdeApp { file, current: true })
+  }
+
+  /// The settings of Claude Code of the user and the `brd` of the prompts (`bd_command`): the symlink once it points
+  /// here, on Windows `brd.exe` beside the app
+  fn unattended_hook(&self) -> Option<HookTarget> {
+    hook_target(&Environment::from_process())
   }
 
   fn remove_ide_app(&self) -> Result<(), ApiError> {

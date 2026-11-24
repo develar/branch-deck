@@ -197,7 +197,9 @@ pub enum ErrorCode {
   PushTooLarge,
   /// No remote to push to
   NoRemote,
-  /// `brd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way
+  /// `brd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way; or the hook of
+  /// Unattended Mode can't go into the settings of Claude Code, so the mode stays off (`brd unattended on`, the app's
+  /// switch)
   InstallRefused,
   /// `brd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
   /// was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user

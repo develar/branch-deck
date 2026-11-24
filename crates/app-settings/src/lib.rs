@@ -4,6 +4,8 @@
 //!
 //! - `branch_prefixes`: the prefix of each command of the app, the git prefix by repository from a memo
 //!   (`BranchPrefixes`)
+//! - `claude_hook`: the `PermissionRequest` hook of Unattended Mode in the user settings of Claude Code, added while
+//!   the mode is on and removed when it goes off (`add_hook`, `remove_hook`), each other value of the file as written
 //! - `file`: a settings file (`SettingsFile`): a tolerant load, the stored form of a save, the atomic write; the fields
 //!   of a sync that a file of before keeps in its recent projects (`take_repository_state`); the lock of the directory
 //!   that the writers of two processes take turns at (`lock_directory`)
@@ -23,7 +25,7 @@
 //!   arrive, one version counter, a debounced save of the changed files on one thread, merged into the file under the
 //!   lock of the directory, `flush`; the changes of the writer of another process taken from the file
 //!   (`on_external_change`)
-//! - `unattended`: Unattended Mode: its switch through the writer (`set_unattended`), the journal of the requests its
+//! - `unattended`: Unattended Mode: its switch through the writer and the hook (`set_unattended`), the journal of the requests its
 //!   hook denied beside the settings (`append_denial`, `read_denials`)
 //! - `watch`: the watch of the directory, which asks the writer to read a file another process renamed over it
 //! - `windows`: which window gets which key (`MAIN_ONLY_KEYS`): the snapshot a window starts from, the changes it hears
@@ -32,6 +34,7 @@
 //! `SettingsPatch`, `SettingsChange`) are `domain_types::settings`.
 
 pub mod branch_prefixes;
+pub mod claude_hook;
 pub mod file;
 pub mod ide_roots;
 pub mod journals;
@@ -47,6 +50,8 @@ pub mod windows;
 
 #[cfg(test)]
 mod branch_prefixes_test;
+#[cfg(test)]
+mod claude_hook_test;
 #[cfg(test)]
 mod file_test;
 #[cfg(test)]
