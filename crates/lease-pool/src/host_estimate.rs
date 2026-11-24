@@ -92,6 +92,7 @@ pub fn estimate(sight: &Sight, asked: &Asked<'_>, wall: &dyn Fn(&TurnEntry) -> O
     window: sight.window,
     sampled: sight.sampled,
     light: &sight.turn.light,
+    now_ms: now,
   };
   let mut unknown = 0u32;
   // each holder, and each run admitted on the way, with the time of its end
@@ -192,6 +193,7 @@ fn entry_of(asked: &Asked<'_>, now_ms: u64) -> TurnEntry {
     exclusive: false,
     passed: None,
     measure_as: None,
+    recent: None,
   }
 }
 

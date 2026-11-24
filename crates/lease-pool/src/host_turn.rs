@@ -6,7 +6,13 @@
 //! The turn holds cores, not one run: the head of the queue is admitted while the cores that the holders are expected
 //! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
 //! without a measure of its command (`TurnEntry::expected` is `None`), or one whose command measured the whole host,
-//! takes the whole host: it waits for no holder, and no heavy run joins it. Only the head of the queue is admitted, so a
+//! takes the whole host: it waits for no holder, and no heavy run joins it. A holder without a measure holds the whole
+//! host only until its use is known ([`TurnEntry::need`]): from [`UNMEASURED_GRACE`] (10 min) after its admission it
+//! counts the most of its live use of the last [`USE_WINDOW`] (5 min, `TurnEntry::recent`, which its supervisor notes at
+//! each sample), as a measured holder counts its live use above its measure; a window that spans less, or whose last
+//! sample is older than [`USE_GAP`], or that leaves less than a fifth of the host ([`quiet`]) beside it, holds the
+//! whole host still. So the first run of a class whose tail runs on one core for hours lets the queue beside it, and a
+//! burst raises what it holds at its next sample. Only the head of the queue is admitted, so a
 //! run that is admitted later never takes the cores that a run before it waits for; the one exception is an exclusive
 //! run at the head whose drain ended (below).
 //!
@@ -48,7 +54,9 @@
 //! would wait to its timeout. The exclusive run keeps its place at the head and starts once the host is quiet, with no
 //! second drain ([`HeadDrain`]). The holder is also in `exclusive.json` beside the table: a
 //! supervisor of a build before `exclusive` rewrites `turn.json` at each sample of its run and drops the field it does
-//! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry.
+//! not know, and nothing of such a build touches that file. A look of the run puts the field back on its entry. Such a
+//! rewrite drops `recent` too: the window of a holder without a measure begins again at the next sample of its own
+//! supervisor, and until it spans 5 min again the holder holds the whole host, as before the window.
 //!
 //! The table is `turn.json` with its lock `turn.lock` in a directory of the agent of its own (`~/.cache/brd-host/heavy/`),
 //! not in a repository. Each entry names the process of its run (the supervisor), as a lend and a ticket of `host_slots`
@@ -100,6 +108,20 @@ pub const DRAIN_BAR: Duration = Duration::from_mins(15);
 /// the heavy runs, before a free turn admits it whatever that load ([`admits`]): the runs that are not heavy wait for no
 /// heavy run, so on a host of steady light runs a run of the whole host would wait for the whole of its 2 h
 pub const LOAD_BOUND: Duration = Duration::from_mins(15);
+/// How long a holder without a measure holds the whole host from its admission, whatever its use ([`TurnEntry::need`]):
+/// twice [`USE_WINDOW`], so the window that frees its cores begins after its first 5 min, which a build or the start of
+/// the servers of a gate fills, and a short new command ends and is measured before it counts by its use
+pub const UNMEASURED_GRACE: Duration = Duration::from_mins(10);
+/// The span of the live samples of a holder without a measure whose most it counts once its grace ended: longer than the
+/// lull between two bursts of a test run (a link, the start of the next binary), short enough that a tail on one core
+/// frees the cores within minutes
+pub const USE_WINDOW: Duration = Duration::from_mins(5);
+/// The step of the window of the live use ([`RecentUse`]): the most of each half minute, so the table keeps at most 11
+/// steps of a holder, whatever the interval of its samples
+const USE_STEP_MS: u64 = 30_000;
+/// The longest time between two samples of a holder in one window, and the oldest last sample of a window that counts:
+/// 6 samples of 10 s missed say that the supervisor no longer tells its use
+pub const USE_GAP: Duration = Duration::from_mins(1);
 /// The busy cores of the whole host, which the agent samples ([`note_host`])
 const HOST_FILE: &str = "host.json";
 /// The age past which a sample of the host counts as none: its agent is gone or stuck
@@ -192,6 +214,55 @@ pub struct TurnEntry {
   /// of an older build that rewrites the table drops it, and only the lines lose it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_as: Option<String>,
+  /// The live use of the last 5 min of a holder without a measure, which its supervisor notes at each sample: what it
+  /// holds once its grace ended ([`UNMEASURED_GRACE`]); a supervisor of an older build that rewrites the table drops
+  /// it, and the holder holds the whole host until a new window spans 5 min
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub recent: Option<RecentUse>,
+}
+
+/// The live samples of a holder without a measure over the last [`USE_WINDOW`], the most of each half minute
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentUse {
+  /// The first sample since which none was more than [`USE_GAP`] after the one before: the window counts once its
+  /// samples span 5 min from it
+  pub since_ms: u64,
+  /// The last sample
+  pub at_ms: u64,
+  /// The start of each half minute of the window and the most cores of its samples, the oldest first
+  pub steps: Vec<(u64, Cores)>,
+}
+
+impl RecentUse {
+  /// Adds the sample `live` at `at_ms`, and leaves out the steps older than the window; a sample after a gap longer
+  /// than [`USE_GAP`], or before the last one, begins the window again
+  pub fn push(&mut self, at_ms: u64, live: Cores) {
+    if self.steps.is_empty() || at_ms < self.at_ms || at_ms - self.at_ms > millis(USE_GAP) {
+      *self = Self {
+        since_ms: at_ms,
+        at_ms,
+        steps: Vec::new(),
+      };
+    }
+    let step = at_ms - at_ms % USE_STEP_MS;
+    match self.steps.last_mut() {
+      Some((start, most)) if *start == step => *most = (*most).max(live),
+      _ => self.steps.push((step, live)),
+    }
+    self.at_ms = at_ms;
+    let from = at_ms.saturating_sub(millis(USE_WINDOW));
+    self.steps.retain(|&(start, _)| start + USE_STEP_MS > from);
+  }
+
+  /// The most cores of the samples of the last 5 min at `now_ms`, by the half minute, so up to 30 s more; `None` while
+  /// the samples span less than 5 min, or when the last is more than [`USE_GAP`] before `now_ms`
+  pub fn peak(&self, now_ms: u64) -> Option<Cores> {
+    let spans = self.at_ms.saturating_sub(self.since_ms) >= millis(USE_WINDOW);
+    let fresh = now_ms.saturating_sub(self.at_ms) <= millis(USE_GAP);
+    let from = now_ms.saturating_sub(millis(USE_WINDOW));
+    let peak = self.steps.iter().filter(|&&(start, _)| start + USE_STEP_MS > from).map(|&(_, most)| most).max();
+    peak.filter(|_| spans && fresh)
+  }
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
@@ -206,6 +277,9 @@ pub enum Need {
   Cores { cores: Cores, live: bool },
   /// The whole host: its command has no measure yet
   Unmeasured,
+  /// These cores, the most of its live use of the last 5 min: a holder without a measure past its grace
+  /// ([`UNMEASURED_GRACE`])
+  Recent(Cores),
   /// The whole host: its command measured these cores, the cores of the host or more
   Measured(Cores),
   /// The whole host of a quiet host, for a measurement: an exclusive run
@@ -216,13 +290,13 @@ impl Need {
   /// The cores of the need on a host of `cores`
   pub const fn cores(self, cores: u32) -> Cores {
     match self {
-      Self::Cores { cores, .. } => cores,
+      Self::Cores { cores, .. } | Self::Recent(cores) => cores,
       Self::Unmeasured | Self::Measured(_) | Self::Exclusive => Cores::whole(cores),
     }
   }
 
   pub const fn is_whole_host(self) -> bool {
-    !matches!(self, Self::Cores { .. })
+    !matches!(self, Self::Cores { .. } | Self::Recent(_))
   }
 }
 
@@ -271,19 +345,32 @@ impl TurnEntry {
     self.ticket.is_running()
   }
 
-  /// What the entry takes of a host of `cores`: a holder the larger of its expectation and its live use
-  pub fn need(&self, cores: u32) -> Need {
+  /// What the entry takes of a host of `cores` at `now_ms`: a holder the larger of its expectation and its live use; a
+  /// holder without a measure past its grace its use of the last 5 min ([`Self::recent_use`]), else the whole host
+  pub fn need(&self, cores: u32, now_ms: u64) -> Need {
     if self.exclusive {
       return Need::Exclusive;
     }
     match self.expected {
-      None => Need::Unmeasured,
+      None => self.recent_use(cores, now_ms).map_or(Need::Unmeasured, Need::Recent),
       Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
       Some(expected) => match self.live {
         Some(live) if live > expected => Need::Cores { cores: live, live: true },
         _ => Need::Cores { cores: expected, live: false },
       },
     }
+  }
+
+  /// The cores that a holder without a measure counts at `now_ms`: the most of its live use of the last 5 min
+  /// ([`RecentUse::peak`]) and of its last sample, once [`UNMEASURED_GRACE`] passed since its admission (`since_ms`);
+  /// `None`, the whole host, in its grace, without a window that counts (an entry of the queue has none), or with less
+  /// than a fifth of the host ([`quiet`]) left beside it, as that room is the background of a quiet host
+  fn recent_use(&self, cores: u32, now_ms: u64) -> Option<Cores> {
+    if now_ms.saturating_sub(self.since_ms) < millis(UNMEASURED_GRACE) {
+      return None;
+    }
+    let used = self.recent.as_ref()?.peak(now_ms)?.max(self.live.unwrap_or_default());
+    (used.saturating_add(quiet(cores)) < Cores::whole(cores)).then_some(used)
   }
 
   /// Whether the entry is of the checkout of `request` (`same_command`: and of its command), as both name them; an
@@ -383,6 +470,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     exclusive: false,
     passed: None,
     measure_as: None,
+    recent: None,
   })
 }
 
@@ -666,7 +754,7 @@ pub(crate) fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) 
 /// take the whole host, while their needs, `outside` and its own fit. An exclusive run, a measurement, waits for its
 /// quiet host and its quiet window, whatever its wait
 pub(crate) fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32, waited_out: bool) -> bool {
-  let need = entry.need(cores);
+  let need = entry.need(cores, load.now_ms);
   let whole = Cores::whole(cores);
   let outside = load.outside;
   if need == Need::Exclusive {
@@ -677,10 +765,10 @@ pub(crate) fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, 
   if holders.is_empty() {
     return waited_out || outside <= quiet(cores) || (!need.is_whole_host() && outside.saturating_add(need.cores(cores)) <= whole);
   }
-  if need.is_whole_host() || holders.iter().any(|holder| holder.need(cores).is_whole_host()) {
+  if need.is_whole_host() || holders.iter().any(|holder| holder.need(cores, load.now_ms).is_whole_host()) {
     return false;
   }
-  let held: Cores = holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
+  let held: Cores = holders.iter().map(|holder| holder.need(cores, load.now_ms).cores(cores)).sum();
   held.saturating_add(outside).saturating_add(need.cores(cores)) <= whole
 }
 
@@ -713,6 +801,8 @@ pub(crate) struct Load<'a> {
   pub(crate) sampled: bool,
   /// The runs that are not heavy in their command
   pub(crate) light: &'a [LightEntry],
+  /// The time of the admission, which the grace of a holder without a measure counts to ([`TurnEntry::need`])
+  pub(crate) now_ms: u64,
 }
 
 impl Load<'_> {
@@ -844,6 +934,7 @@ impl Seen {
       window: self.window,
       sampled: self.sampled,
       light,
+      now_ms: self.now,
     }
   }
 
@@ -851,7 +942,7 @@ impl Seen {
   fn queue(self, params: &TurnParams<'_>, table: &HeavyTurn, position: usize) -> TurnQueue {
     TurnQueue {
       cores: params.cores,
-      need: table.queue[position].need(params.cores),
+      need: table.queue[position].need(params.cores, self.now),
       holders: self.holders,
       light: self.light,
       outside: self.outside,
@@ -947,6 +1038,7 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
     exclusive: request.exclusive,
     passed: None,
     measure_as: request.measure_as.map(str::to_owned),
+    recent: None,
   };
   table.queue.insert(position, entry);
   Ok(position)
@@ -983,8 +1075,9 @@ pub struct UseNote<'a> {
 }
 
 /// Notes the live cores of the run of `note`: a holder's `live`, which raises what it holds once it is past its
-/// expectation; a run that is neither a holder nor waits is a run that is not heavy, and its entry of `light` gets them.
-/// The admissions that follow count them
+/// expectation, and of a holder without a measure its window too (`recent`), which it holds past its grace; a run that
+/// is neither a holder nor waits is a run that is not heavy, and its entry of `light` gets them. The admissions that
+/// follow count them
 pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
@@ -992,6 +1085,9 @@ pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
     table.cores = params.cores;
     if let Some(holder) = table.holders.iter_mut().find(|holder| holder.ticket.run == note.run) {
       holder.live = Some(note.live);
+      if holder.expected.is_none() && !holder.exclusive {
+        holder.recent.get_or_insert_default().push(now_ms(), note.live);
+      }
     } else if let Some(light) = table.light.iter_mut().find(|light| light.ticket.run == note.run) {
       light.live = note.live;
     } else if !table.queue.iter().any(|entry| entry.ticket.run == note.run) {

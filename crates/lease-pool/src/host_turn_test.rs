@@ -262,6 +262,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     exclusive: false,
     passed: None,
     measure_as: None,
+    recent: None,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 2, "queue": [joined] }));
   let before = now_ms();
@@ -379,7 +380,7 @@ fn heavy_runs_of_a_measure_share_the_cores_while_they_fit() {
   };
   assert_eq!(queue.need, Need::Cores { cores: Cores(40), live: false });
   assert_eq!(
-    queue.holders.iter().map(|holder| holder.need(20)).collect::<Vec<_>>(),
+    queue.holders.iter().map(|holder| holder.need(20, now_ms())).collect::<Vec<_>>(),
     [Need::Cores { cores: Cores(80), live: false }, Need::Cores { cores: Cores(100), live: false }]
   );
   assert_eq!(holders(&read_live(dir.path()).unwrap()), ["a", "b"]);
@@ -448,7 +449,7 @@ fn the_live_use_of_a_holder_and_of_the_runs_that_are_not_heavy_count() {
   let TurnAnswer::Queued(queue) = take(&params, &measured("b", &command, 80)).unwrap() else {
     panic!("14 and 8 do not fit 20");
   };
-  assert_eq!(queue.holders[0].need(20), Need::Cores { cores: Cores(140), live: true });
+  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Cores { cores: Cores(140), live: true });
   note("a", 60);
   assert_eq!(take(&params, &measured("b", &command, 80)).unwrap(), TurnAnswer::Taken, "a holds its 8 again: 8 and 8");
   assert!(leave(&params, "b").unwrap());
@@ -822,7 +823,7 @@ fn the_holder_of_the_build_before_holds_the_whole_host() {
   let TurnAnswer::Queued(queue) = take(&params, &measured("new", &command, 10)).unwrap() else {
     panic!("the holder of the build before holds the whole host");
   };
-  assert_eq!((queue.holders[0].ticket.run.as_str(), queue.holders[0].need(20)), ("old-build", Need::Unmeasured));
+  assert_eq!((queue.holders[0].ticket.run.as_str(), queue.holders[0].need(20, now_ms())), ("old-build", Need::Unmeasured));
   assert_eq!(holders(&read_live(dir.path()).unwrap()), ["old-build"]);
   std::fs::write(dir.path().join(LEGACY_FILE), serde_json::json!({ "schema": 1, "queue": [] }).to_string()).unwrap();
   assert_eq!(take(&params, &measured("new", &command, 10)).unwrap(), TurnAnswer::Taken);
@@ -1165,4 +1166,168 @@ fn a_short_run_waits_behind_an_exclusive_head_that_drains_and_passes_it_as_befor
   assert_eq!(head.head_drain, Some(HeadDrain::Pending));
   assert_eq!(join(&params, &short("next", &command, 40)).unwrap().answer, TurnAnswer::Taken, "4 and 4 of 20");
   assert_eq!(passes(dir.path(), "ab"), 1, "a head whose drain has not begun is passed");
+}
+
+/// The window of a holder whose samples of every 10 s used `tenths` over `span`, the last `ago` before now
+fn steady(span: Duration, ago: Duration, tenths: u32) -> RecentUse {
+  let last = now_ms() - millis(ago);
+  let mut recent = RecentUse::default();
+  let mut at = last - millis(span);
+  while at <= last {
+    recent.push(at, Cores(tenths));
+    at += 10_000;
+  }
+  recent
+}
+
+/// Puts the admission of the holder `run` `admitted_ago` before now and gives it the window `recent`, as the samples of
+/// its supervisor over that time would
+fn age_holder(dir: &Path, run: &str, admitted_ago: Duration, recent: Option<RecentUse>) {
+  table_file(dir)
+    .update(Duration::from_secs(10), |table: &mut HeavyTurn| {
+      let holder = table.holders.iter_mut().find(|holder| holder.ticket.run == run).unwrap();
+      holder.since_ms = now_ms() - millis(admitted_ago);
+      holder.recent = recent;
+      Ok(())
+    })
+    .unwrap();
+}
+
+/// Notes `tenths` as the live cores of the run `run` of the tests
+fn note_live(params: &TurnParams<'_>, run: &str, command: &[String], tenths: u32) {
+  let pid = std::process::id();
+  note_use(
+    params,
+    &UseNote {
+      run,
+      pid,
+      process_started: sync_utils::process_scan::process_started(pid),
+      repo: "/Users/u/projects/accio",
+      command,
+      live: Cores(tenths),
+    },
+  )
+  .unwrap();
+}
+
+/// `gate`, a run without a measure, takes the free turn: the whole host
+fn gate_takes_the_free_turn(params: &TurnParams<'_>, command: &[String]) {
+  assert_eq!(take(params, &request("gate", command)).unwrap(), TurnAnswer::Taken);
+}
+
+/// A holder without a measure holds the whole host in its grace of 10 min from its admission; past it, it counts the
+/// most of its live use of the last 5 min, so the head of the queue is admitted beside its tail on one core; a burst
+/// raises what it holds at its next sample, and a head without a measure still waits for no holder
+#[test]
+fn a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  gate_takes_the_free_turn(&params, &command);
+  note_live(&params, "gate", &command, 10);
+  assert!(read_live(dir.path()).unwrap().holders[0].recent.is_some(), "its supervisor notes its window");
+  age_holder(dir.path(), "gate", Duration::from_mins(9), Some(steady(Duration::from_mins(6), Duration::from_secs(1), 10)));
+  let TurnAnswer::Queued(queue) = take(&params, &measured("nextest", &command, 80)).unwrap() else {
+    panic!("in its grace it holds the whole host");
+  };
+  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Unmeasured);
+
+  age_holder(
+    dir.path(),
+    "gate",
+    UNMEASURED_GRACE + Duration::from_mins(1),
+    Some(steady(Duration::from_mins(6), Duration::from_secs(1), 10)),
+  );
+  assert_eq!(read_live(dir.path()).unwrap().holders[0].need(20, now_ms()), Need::Recent(Cores(10)));
+  assert_eq!(take(&params, &measured("nextest", &command, 80)).unwrap(), TurnAnswer::Taken, "1.0 and 8.0 of 20");
+
+  note_live(&params, "gate", &command, 150);
+  let TurnAnswer::Queued(queue) = take(&params, &measured("e2e", &command, 40)).unwrap() else {
+    panic!("15.0, 8.0 and 4.0 do not fit 20");
+  };
+  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Recent(Cores(150)), "a burst counts at once");
+  assert!(leave(&params, "nextest").unwrap());
+  assert!(!leave(&params, "e2e").unwrap());
+  let TurnAnswer::Queued(queue) = take(&params, &request("unknown", &command)).unwrap() else {
+    panic!("a run without a measure waits for every holder");
+  };
+  assert_eq!(queue.need, Need::Unmeasured);
+}
+
+/// Past its grace, a holder without a measure holds the whole host still while its window leaves less than a fifth of
+/// the host beside it, spans less than 5 min, or its last sample is more than a minute old, and when a supervisor of an
+/// older build dropped its window: a new window begins at the next sample and counts once it spans 5 min
+#[test]
+fn a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  gate_takes_the_free_turn(&params, &command);
+  let past_grace = UNMEASURED_GRACE + Duration::from_mins(110);
+  for (recent, why) in [
+    (steady(Duration::from_mins(6), Duration::from_secs(1), 160), "16.0 leave less than a fifth of 20"),
+    (steady(Duration::from_mins(4), Duration::from_secs(1), 10), "a window of 4 min"),
+    (steady(Duration::from_mins(6), Duration::from_mins(2), 10), "a last sample 2 min old"),
+  ] {
+    age_holder(dir.path(), "gate", past_grace, Some(recent));
+    let TurnAnswer::Queued(queue) = take(&params, &measured("lint", &command, 10)).unwrap() else {
+      panic!("{why}: it holds the whole host");
+    };
+    assert_eq!(queue.holders[0].need(20, now_ms()), Need::Unmeasured, "{why}");
+  }
+  age_holder(dir.path(), "gate", past_grace, Some(steady(Duration::from_mins(6), Duration::from_secs(1), 150)));
+  assert_eq!(read_live(dir.path()).unwrap().holders[0].need(20, now_ms()), Need::Recent(Cores(150)), "15.0 leave a fifth");
+
+  let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
+  table["holders"][0].as_object_mut().unwrap().remove("recent");
+  write_table(dir.path(), &table);
+  assert!(
+    matches!(take(&params, &measured("lint", &command, 10)).unwrap(), TurnAnswer::Queued(_)),
+    "a table that an older build rewrote holds the whole host"
+  );
+  note_live(&params, "gate", &command, 10);
+  let holder = read_live(dir.path()).unwrap().holders.remove(0);
+  assert_eq!(
+    (holder.need(20, now_ms()), holder.need(20, now_ms() + millis(USE_WINDOW))),
+    (Need::Unmeasured, Need::Unmeasured),
+    "a window of one sample counts in no time"
+  );
+  assert!(leave(&params, "gate").unwrap());
+  assert!(!leave(&params, "lint").unwrap());
+
+  assert_eq!(take(&params, &measured("measured", &command, 40)).unwrap(), TurnAnswer::Taken);
+  note_live(&params, "measured", &command, 30);
+  assert_eq!(read_live(dir.path()).unwrap().holders[0].recent, None, "a holder of a measure keeps no window");
+}
+
+/// The window of the live use keeps the most of each half minute of the last 5 min: a burst older than that counts no
+/// more, a gap of over a minute between two samples begins the window again, and so does a sample before the last
+#[test]
+fn the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min() {
+  let start = 1_800_000_000_000;
+  let mut recent = RecentUse::default();
+  for second in (0..=600).step_by(10) {
+    let burst = (60..90).contains(&second) || (400..420).contains(&second);
+    recent.push(start + second * 1_000, Cores(if burst { 180 } else { 10 }));
+  }
+  let last = start + 600_000;
+  assert_eq!(recent.since_ms, start);
+  assert!(recent.steps.len() <= 11, "{} steps", recent.steps.len());
+  assert_eq!(recent.peak(last), Some(Cores(180)), "the burst of 3 min ago");
+  assert_eq!(recent.peak(last + 30_000), Some(Cores(180)), "a fresh window of a supervisor between its samples");
+  assert_eq!(recent.peak(last + millis(USE_GAP) + 1), None, "a last sample older than a minute");
+  let mut tail = recent.clone();
+  for second in (610..=1_000).step_by(10) {
+    tail.push(start + second * 1_000, Cores(10));
+  }
+  assert_eq!(tail.peak(start + 1_000_000), Some(Cores(10)), "the burst is 10 min old");
+  let mut gap = recent.clone();
+  gap.push(last + millis(USE_GAP) + 1_000, Cores(10));
+  assert_eq!(
+    (gap.since_ms, gap.steps.len(), gap.peak(last + millis(USE_GAP) + 1_000)),
+    (last + millis(USE_GAP) + 1_000, 1, None)
+  );
+  let mut back = recent;
+  back.push(last - 1_000, Cores(10));
+  assert_eq!(back.since_ms, last - 1_000, "a clock set back begins the window again");
 }

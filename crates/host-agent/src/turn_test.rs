@@ -45,8 +45,9 @@ fn the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waitin
 }
 
 /// The lines of `brd-host runs` say the cores held of the cores of the host, each holder with what it holds, why and
-/// for how long, each waiting run with what it waits for, a run without a measure what gives one, a run of a class of
-/// measures without one its class, and each run that is not heavy with its live cores
+/// for how long, a holder without a measure past its grace its live use of the last 5 min, each waiting run with what
+/// it waits for, a run without a measure what gives one, a run of a class of measures without one its class, and each
+/// run that is not heavy with its live cores
 #[test]
 fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_light_run() {
   let now = 1_000_000_000;
@@ -56,6 +57,7 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
     "holders": [
       { "run": "1788-12", "pid": 1, "repo": "/Users/u/projects/branch-deck", "command": "pnpm lint:backend", "since_ms": now - 250_000, "expected": 6.5 },
       { "run": "1789-40", "pid": 1, "repo": "/Users/u/projects/accio", "command": "scripts/check.sh --smoke", "since_ms": now - 30_000, "expected": 4.0, "live": 7.5 },
+      { "run": "1789-41", "pid": 1, "repo": "/Users/u/projects/accio", "command": "bash -c ./typing-gate.sh", "since_ms": now - 8_000_000, "live": 0.6, "recent": { "since_ms": now - 7_000_000, "at_ms": now - 5_000, "steps": [[now - 200_000, 1.2], [now - 20_000, 0.6]] } },
     ],
     "queue": [
       { "run": "1790-03", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane fast", "since_ms": now - 60_000 },
@@ -68,9 +70,10 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
   assert_eq!(
     lines_at(&table, now).unwrap(),
     [
-      "heavy turn: 14.0 of 20 cores held",
+      "heavy turn: 15.2 of 20 cores held",
       "  run 1788-12 of branch-deck holds 6.5 for 4 min (measured): pnpm lint:backend",
       "  run 1789-40 of accio holds 7.5 for 30 s (live, above its measure): scripts/check.sh --smoke",
+      "  run 1789-41 of accio holds 1.2 for 133 min (no measure: it held the whole host for its first 10 min, now its live use of the last 5 min): bash -c ./typing-gate.sh",
       "  run 1790-03 of idea-1 waits 60 s for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one): ./community/tools/bt.cmd --lane fast",
       "  run 1790-04 of idea-1 waits 10 s for the whole host (measured 20.0): ./community/tools/bt.cmd --lane slow",
       "  run 1790-05 of branch-deck waits 5 s for 9.0 (measured): pnpm e2e",
@@ -142,6 +145,7 @@ fn the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed() {
     exclusive: true,
     passed: None,
     measure_as: None,
+    recent: None,
   };
   assert_eq!(took_line(Duration::from_millis(300), Some(Cores(50)), 20, None), None);
   assert_eq!(

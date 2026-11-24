@@ -35,8 +35,8 @@ fn the_queue_line_names_the_wait_the_runs_ahead_the_lent_slots_the_quarantine_an
   assert_eq!(queue_line("r", &empty, Duration::ZERO), "run r waits 0 s: 0 runs ahead, 0 slots, lent to none");
 }
 
-/// The line of a wait names what the run waits for, what each holder holds and why, what the runs that are not heavy
-/// use, and the runs ahead
+/// The line of a wait names what the run waits for, what each holder holds and why, a holder without a measure past its
+/// grace its live use, what the runs that are not heavy use, and the runs ahead
 #[test]
 fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
   let entry = |run: &str, repo: &str, command: &str, since_ms: u64, expected: Option<u32>| TurnEntry {
@@ -55,7 +55,16 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     exclusive: false,
     passed: None,
     measure_as: None,
+    recent: None,
   };
+  assert_eq!(
+    holds_text(Need::Recent(Cores(12))),
+    (
+      "holds 1.2".to_owned(),
+      "no measure: it held the whole host for its first 10 min, now its live use of the last 5 min".to_owned()
+    ),
+    "a holder without a measure past its grace"
+  );
   let now_ms = 1_000_000_000;
   let live = TurnEntry {
     live: Some(Cores(60)),
@@ -144,6 +153,7 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
     exclusive: true,
     passed: None,
     measure_as: None,
+    recent: None,
   };
   assert_eq!(
     drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 780_000, now_ms),
@@ -219,6 +229,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     exclusive,
     passed: None,
     measure_as: None,
+    recent: None,
   };
   let passer = TurnEntry {
     passed: Some("1788-12".to_owned()),

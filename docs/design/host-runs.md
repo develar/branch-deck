@@ -149,6 +149,21 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
   the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
   from joining a host they already load.
+- **A holder without a measure**: it holds the whole host only until its use is known. On 2026-11-24 the first run of
+  the class `accio-typing-gate` held the whole Studio for over 2 h at 0.6 of its 20 cores on average (18.3 at its
+  peak, its late phases on one core), and the heavy runs behind it ended with `heavy_timeout`. So from 10 min after its
+  admission (`UNMEASURED_GRACE`) it counts the most of its live use of the last 5 min (`USE_WINDOW`), its own
+  supervisor noting each sample into `recent` of its entry, the most of each half minute; a burst counts at its next
+  sample, as the live use of a measured holder above its measure does. Not its peak since its start: that is the
+  burst of its build, 18.3 of 20, and frees nothing. The window is 5 min, longer than the lull between two bursts of a
+  test run (a link, the start of the next binary), short enough that a tail on one core frees the cores within
+  minutes; the grace is twice the window, so the window begins after the first 5 min, which a build or the start of
+  the servers of a gate fill, and a short new command ends and is measured before it counts by its use. A window that
+  spans less than 5 min, whose last sample is more than a minute old, or that leaves less than a fifth of the host
+  beside it (the background of a quiet host) holds the whole host still. A supervisor of an older build rewrites the
+  table without `recent`: the window begins again at the next sample of the holder, so the loss costs the queue 5 min
+  of the whole host, never an admission beside a run whose use is unknown. A run of the queue without a measure still
+  needs the whole host: only a holder has samples. Its measure at its end is as before.
 - **A busy free turn**: as the runs that are not heavy wait for no heavy run, a host of steady light runs is never
   quiet. On 2026-11-21 a UI lane of idea-1 without a measure waited 2 h at a free turn of the Studio, busy with 20 of
   its 20 cores outside the heavy runs, and ended with `heavy_timeout`; the runs behind it waited too. So the head of the

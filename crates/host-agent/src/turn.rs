@@ -502,7 +502,7 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
     return Ok(lines_of_one_holder(&table, now_ms));
   }
   let cores = table.cores;
-  let held: Cores = table.holders.iter().map(|holder| holder.need(cores).cores(cores)).sum();
+  let held: Cores = table.holders.iter().map(|holder| holder.need(cores, now_ms).cores(cores)).sum();
   let mut lines = vec![if table.holders.is_empty() && cores == 0 {
     "heavy turn: free".to_owned()
   } else if cores == 0 {
@@ -514,7 +514,7 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
     format!("heavy turn: {held} of {cores} cores held")
   }];
   for holder in &table.holders {
-    let (holds, why) = holds_text(holder.need(cores));
+    let (holds, why) = holds_text(holder.need(cores, now_ms));
     lines.push(format!(
       "  run {} {holds} for {} ({why}{}): {}",
       run_of_repo(holder),
@@ -525,8 +525,9 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
   }
   for (position, waiting) in table.queue.iter().enumerate() {
     let mark = table.marks.get(&waiting.ticket.run).copied().unwrap_or_default();
-    let need = match waiting.need(cores) {
-      Need::Cores { cores, .. } => match mark.short_ms {
+    let need = match waiting.need(cores, now_ms) {
+      // an entry of the queue has no window of its use, and a measure decides
+      Need::Cores { cores, .. } | Need::Recent(cores) => match mark.short_ms {
         Some(wall) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
         None => format!("{cores} (measured)"),
       },

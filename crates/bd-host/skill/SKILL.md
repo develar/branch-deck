@@ -86,7 +86,8 @@ until their tests fail on timeouts, which are no flakes. A heavy run is admitted
 last runs fits beside the holders and the busy cores of the host outside them (the runs that are not heavy and
 processes of no run: the agent samples the whole host every 2 s); a command without a measure (its first runs, any new
 command) takes the whole host and waits for a quiet one (at most a fifth of its cores busy), and so does one that
-measured the whole host. The queue is first come first, and a head of the queue that waited 15 min starts on a free
+measured the whole host; from 10 min after its start such a run without a measure counts its live use of the last 5
+min instead, so the queue starts beside its quiet tail. The queue is first come first, and a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with

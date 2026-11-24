@@ -5,7 +5,7 @@
 
 use crate::host_refs::reclaim_refs;
 use crate::host_slots::{HostSlotsParams, Queued, Reclaimed, live_runs, reclaim};
-use crate::host_turn::{HeadDrain, Need, TurnEntry, TurnQueue};
+use crate::host_turn::{HeadDrain, Need, TurnEntry, TurnQueue, UNMEASURED_GRACE, USE_WINDOW};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::Path;
@@ -49,7 +49,7 @@ pub fn turn_line(run: &str, queue: &TurnQueue, measure_as: Option<&str>, waited:
       .holders
       .iter()
       .map(|holder| {
-        let (holds, why) = holds_text(holder.need(queue.cores));
+        let (holds, why) = holds_text(holder.need(queue.cores, now_ms));
         format!(
           "run {} {holds} for {} ({}, {why}{})",
           run_of_repo(holder),
@@ -174,7 +174,7 @@ pub const NEVER_MEASURED: &str = "a command whose text changes every run never g
 /// `all its 20 cores, as the class accio-gate has no measure yet`
 pub fn need_text(need: Need, cores: u32, measure_as: Option<&str>) -> String {
   match need {
-    Need::Cores { cores: need, .. } => format!("{need} of its {cores} cores"),
+    Need::Cores { cores: need, .. } | Need::Recent(need) => format!("{need} of its {cores} cores"),
     Need::Unmeasured => match measure_as {
       Some(class) => format!("all its {cores} cores, as the class {class} has no measure yet"),
       None => format!("all its {cores} cores, as the command has no measure yet ({NEVER_MEASURED})"),
@@ -185,12 +185,21 @@ pub fn need_text(need: Need, cores: u32, measure_as: Option<&str>) -> String {
 }
 
 /// What a holder holds and why: (`holds 12.0`, `measured`), (`holds 14.0`, `live, above its measure`), (`holds the
-/// whole host`, `no measure`), (`holds the whole host for a measurement`, `exclusive`)
+/// whole host`, `no measure`), (`holds 1.2`, `no measure: it held the whole host for its first 10 min, now its live use
+/// of the last 5 min`), (`holds the whole host for a measurement`, `exclusive`)
 pub fn holds_text(need: Need) -> (String, String) {
   match need {
     Need::Cores { cores, live: false } => (format!("holds {cores}"), "measured".to_owned()),
     Need::Cores { cores, live: true } => (format!("holds {cores}"), "live, above its measure".to_owned()),
     Need::Unmeasured => ("holds the whole host".to_owned(), "no measure".to_owned()),
+    Need::Recent(cores) => (
+      format!("holds {cores}"),
+      format!(
+        "no measure: it held the whole host for its first {}, now its live use of the last {}",
+        span(UNMEASURED_GRACE),
+        span(USE_WINDOW)
+      ),
+    ),
     Need::Measured(measured) => ("holds the whole host".to_owned(), format!("measured {measured}")),
     Need::Exclusive => ("holds the whole host for a measurement".to_owned(), "exclusive".to_owned()),
   }
