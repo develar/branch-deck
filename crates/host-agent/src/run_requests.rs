@@ -250,6 +250,10 @@ impl Agent {
       bytes += sent;
       count += 1;
     }
+    // the bytes of each fetch of the run, for its line in the history
+    if let Err(error) = run.add_fetched_bytes(bytes) {
+      log(&format!("cannot count the fetch of {}: {error}", run.path().display()));
+    }
     channel.send(&Reply::Fetched { files: count, bytes }).await
   }
 
@@ -275,7 +279,7 @@ impl Agent {
         message: format!("the run {run_id} was forgotten already"),
       });
     }
-    for removed in runs.remove_forgotten_past(KEPT_FORGOTTEN) {
+    for removed in runs.remove_forgotten_past(KEPT_FORGOTTEN, &crate::history::History::new(&self.home)) {
       log(&format!("removed the run {removed}, past the last {KEPT_FORGOTTEN} forgotten runs"));
     }
     Ok(Reply::Done {

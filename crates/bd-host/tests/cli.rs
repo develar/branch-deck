@@ -724,6 +724,38 @@ fn disk_reports_the_pools_of_the_host() {
   drop(agent);
 }
 
+/// `brd-host stats`: the agent sums the runs that ended on its host, the ones that it still keeps too, and answers the
+/// summary; without an alias every host of the client, and a window past 90 days is a usage error
+#[test]
+fn stats_summarizes_the_runs_that_ended_on_the_host() {
+  let world = World::new();
+  let agent = world.serve();
+  let ran = world.bd_host(&["run", ALIAS, "--head", "--", "echo", "hello"]);
+  assert_eq!(ran.status.code(), Some(0), "{}", text(&ran.stderr));
+  let stats = world.bd_host(&["stats", ALIAS, "--days", "1", "--json"]);
+  assert_eq!(stats.status.code(), Some(0), "{}", text(&stats.stderr));
+  let stats: Value = serde_json::from_slice(&stats.stdout).expect("JSON");
+  let report = &stats["hosts"][0]["report"];
+  assert_eq!(
+    (&stats["hosts"][0]["alias"], &report["runs"], &report["days"]),
+    (&json!(ALIAS), &json!(1), &json!(1)),
+    "{stats}"
+  );
+  assert_eq!(report["outcomes"], json!([{"exit": 0, "runs": 1}]), "{stats}");
+  assert_eq!(report["commands"][0]["command"], "echo hello", "{stats}");
+  assert!(report["bytes"]["output"].as_u64().is_some_and(|bytes| bytes > 0), "{stats}");
+  let every = world.bd_host(&["stats"]);
+  assert_eq!(every.status.code(), Some(0), "{}", text(&every.stderr));
+  let every = text(&every.stdout);
+  assert!(
+    every.starts_with(&format!("{ALIAS}: 1 run(s) in the last 7 day(s), 0 heavy, 0 exclusive: waited ")),
+    "{every}"
+  );
+  assert!(every.contains(": echo hello\n"), "{every}");
+  assert_eq!(world.bd_host(&["stats", ALIAS, "--days", "91"]).status.code(), Some(2));
+  drop(agent);
+}
+
 /// `setup --local` makes the temporary home its own host: the client is in the allow list of the agent of this home, the
 /// host file names the loopback address and the fingerprint of that agent, the `LaunchAgent` runs a copy of the binary
 /// outside the `PATH` and binds the loopback address on macOS, the link of the client stays, and a run then goes over
@@ -806,9 +838,9 @@ fn schema_and_version_answer_one_json_object() {
 /// disk report, the trim and the heavy turn everywhere
 fn features_of_this_platform() -> Value {
   if cfg!(target_os = "macos") {
-    json!(["upgrade", "disk", "trim", "heavy", "exclusive"])
+    json!(["upgrade", "disk", "trim", "heavy", "exclusive", "stats"])
   } else {
-    json!(["disk", "trim", "heavy", "exclusive"])
+    json!(["disk", "trim", "heavy", "exclusive", "stats"])
   }
 }
 

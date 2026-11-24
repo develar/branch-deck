@@ -181,6 +181,14 @@ the limit now, as `brd lease trim` does there; `brd-host disk <host>` shows what
 ends `trim` and `upgrade` at once (130); the host goes on with the request it has. An agent without
 the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 
+## The statistics of a host
+
+`brd-host stats [<host>] [--days <n>] [--json]` sums the runs that ended there in the last `n` days (7 by default, 90
+at most), of every host without one: the waits against the work by phase, the heavy queue (behind holders, or at the
+head of a free turn for the load of the host), the outcomes, the runs that ended before their command, the cores, the
+30 commands that waited longest, and the bytes. Read it before you guess why heavy runs wait; an agent without the
+feature `stats` names `brd-host upgrade <host>`: ask the user for it.
+
 ## Exit codes
 
 | Exit | Meaning | What to do |
@@ -332,5 +340,6 @@ from another build. An edited copy stays: `brd-host skill install --force` repla
 ## The files
 
 - Here: `~/.config/brd-host/identity.crt` and `identity.key`, and one host file per alias in `hosts/<alias>.json`.
-- On the host: `~/.cache/brd-host/runs/<run>/` (`events.log`, `exit.json`, `supervisor.log`) and, on macOS,
+- On the host: `~/.cache/brd-host/runs/<run>/` (`events.log`, `exit.json`, `supervisor.log`), the history of the ended
+  runs in `~/.cache/brd-host/history/` and, on macOS,
   `~/Library/Logs/brd-host.log`. Read them only through the user or a run, never over ssh on your own.

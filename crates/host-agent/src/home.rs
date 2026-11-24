@@ -80,6 +80,12 @@ impl Home {
     self.cache_dir().join("heavy")
   }
 
+  /// The history of the ended runs (`history`): `~/.cache/brd-host/history/`, a `<YYYY-MM>.jsonl` and a
+  /// `bases-<YYYY-MM>.jsonl` per month
+  pub fn history_dir(&self) -> PathBuf {
+    self.cache_dir().join("history")
+  }
+
   /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/brd-host/slots/`
   pub fn slots_dir(&self) -> PathBuf {
     self.cache_dir().join("slots")

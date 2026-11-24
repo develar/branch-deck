@@ -133,8 +133,9 @@ fn a_run_that_ended_a_day_ago_is_removed() {
   ended.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
   let _going = runs.create(&spec("going")).expect("created");
   let now = SystemTime::now();
-  assert_eq!(runs.remove_expired(now), Vec::<String>::new());
-  assert_eq!(runs.remove_expired(now + KEEP + Duration::from_secs(1)), vec!["ended".to_owned()]);
+  let history = History::new(&crate::home::Home::new(dir.path().to_path_buf()));
+  assert_eq!(runs.remove_expired(now, &history), Vec::<String>::new());
+  assert_eq!(runs.remove_expired(now + KEEP + Duration::from_secs(1), &history), vec!["ended".to_owned()]);
   assert_eq!(runs.list().len(), 1, "a run that goes on stays");
 }
 
@@ -328,10 +329,11 @@ fn the_forgotten_runs_past_the_latest_by_their_end_go() {
       .and_then(|file| file.set_modified(now - Duration::from_secs(ended_ago * 60)))
       .expect("the end");
   }
-  assert_eq!(runs.remove_forgotten_past(2), ["1-2"]);
+  let history = History::new(&crate::home::Home::new(dir.path().to_path_buf()));
+  assert_eq!(runs.remove_forgotten_past(2, &history), ["1-2"]);
   let left: Vec<String> = runs.list().iter().map(run_id).collect();
   assert_eq!(left, ["1-1", "1-3", "1-4"]);
-  assert_eq!(runs.remove_forgotten_past(2), Vec::<String>::new());
+  assert_eq!(runs.remove_forgotten_past(2, &history), Vec::<String>::new());
 }
 
 #[test]

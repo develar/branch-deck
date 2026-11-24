@@ -75,7 +75,8 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   ./e2e.sh`, read from the root) are not read: a heavy run through them says so with `--heavy`. Its wait
   says `brd-host: run … waits … for the heavy turn of the host, 7.5 of its 20 cores, … left: run … holds 12.0 for … (…,
   measured), …; a wait, not a hang: …` at once
-  and once a minute. `brd-host runs studio` names the holder and the waiting runs. A wait past 2 h exits 75
+  and once a minute. `brd-host runs studio` names the holder and the waiting runs, and `brd-host stats studio --days 1`
+  how long the heavy runs of the last day waited, by command. A wait past 2 h exits 75
   (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
   later. A run that is not heavy goes at once. Start a run that can take minutes as `brd-host run studio --max 9m -- <command>`
   and, while it exits 124 (`still_running`), `brd-host wait studio <run>`: each call says only the changes of the state

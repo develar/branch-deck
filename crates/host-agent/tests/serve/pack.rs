@@ -117,4 +117,7 @@ fn a_pack_after_the_end_of_its_run_lands_and_marks_no_run() {
   assert_eq!(world.repo.git(&["cat-file", "-t", &commit]).trim(), "commit", "the objects land");
   assert_eq!(world.repo.git(&["rev-parse", "refs/branch-deck/host/run/3-1"]).trim(), commit, "the ref lands");
   assert!(!world.run_dir("3-1").join("packed").exists(), "the ended run gets no mark");
+  // the bytes of the pack count for the line of its run in the history
+  let counted: serde_json::Value = serde_json::from_slice(&std::fs::read(world.run_dir("3-1").join("pack.json")).expect("pack.json")).expect("JSON");
+  assert_eq!((&counted["bytes"], &counted["times"]), (&serde_json::json!(pack.len()), &serde_json::json!(1)), "{counted}");
 }

@@ -575,6 +575,28 @@ fn a_run_waits_for_its_pack_checks_out_by_the_diff_and_gives_its_slot_back() {
     commit,
     "a base pack keeps its ref"
   );
+  // the pack of a base belongs to no run: its bytes go to the day of the host in the history, and a refused one counts none
+  let bases: Vec<serde_json::Value> = fs::read_dir(world.home.path().join(".cache/brd-host/history"))
+    .expect("the history")
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+    .filter(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("bases-")))
+    .flat_map(|path| {
+      fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("a line"))
+        .collect::<Vec<_>>()
+    })
+    .collect();
+  assert_eq!(
+    bases.iter().map(|line| (line["base"].clone(), line["bytes"].clone())).collect::<Vec<_>>(),
+    [(serde_json::json!(AFFINITY), serde_json::json!(pack.len()))],
+    "{bases:?}"
+  );
+  assert_eq!(
+    fs::read_to_string(world.run_dir("2-1").join("pack.json")).expect("pack.json of the run"),
+    format!("{{\"bytes\":{},\"times\":1}}", pack.len())
+  );
 }
 
 /// `brd-host run` forgets its run as soon as it ended, while the supervisor still gives the slot back: its lines reach

@@ -93,6 +93,24 @@ fn heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_bes
   assert_eq!(beside.end, Reply::Exit { code: 0 }, "{}", agent.dump("7-3"));
   assert_eq!(beside.phase_names(), ALL_PHASES, "a run that is not heavy takes no turn");
   eventually("the second heavy run gives the turn back", || heavy_turn(&agent) == (None, vec![]));
+  // each heavy run wrote its place and its wait in the queue, for its line in the history
+  let queue = |run: &str| -> serde_json::Value { serde_json::from_slice(&fs::read(world.run_dir(run).join("queue.json")).unwrap_or_default()).unwrap_or_default() };
+  let first = queue("7-1");
+  assert_eq!(
+    (&first["place"], &first["holders"], &first["need"], &first["behind_ms"], &first["load_ms"]),
+    (
+      &serde_json::json!(0),
+      &serde_json::json!(0),
+      &serde_json::json!("unmeasured"),
+      &serde_json::json!(0),
+      &serde_json::json!(0)
+    ),
+    "{first}"
+  );
+  let second = queue("7-2");
+  assert_eq!((&second["place"], &second["holders"]), (&serde_json::json!(0), &serde_json::json!(1)), "{second}");
+  assert!(second["behind_ms"].as_u64().is_some_and(|ms| ms > 0), "it waited behind the first: {second}");
+  assert!(!world.run_dir("7-3").join("queue.json").exists(), "a run that is not heavy has no place in the queue");
 }
 
 #[test]

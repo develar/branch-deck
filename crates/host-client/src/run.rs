@@ -949,6 +949,18 @@ impl Client<'_> {
       .await
   }
 
+  /// The summary of the runs of the host that ended in the last `days` days, as the JSON of
+  /// `lease_pool::host_history::StatsReport` (`Request::Stats`). An agent without the feature `stats` refuses with
+  /// `agent_failed` and the upgrade to run (`featured_host`)
+  pub async fn stats(&self, alias: &str, days: u32) -> Result<serde_json::Value, Refusal> {
+    self
+      .ask(&mut self.featured_host(alias, feature::STATS).await?, &Request::Stats { days }, |reply| match reply {
+        Reply::Stats { report } => Taken::Answer(report),
+        reply => Taken::Other(reply),
+      })
+      .await
+  }
+
   /// The host of `alias` once its hello names `feature`. An agent without it refuses with `agent_failed` and the upgrade
   /// to run, before the request: it would close the connection on a request it does not know
   async fn featured_host(&self, alias: &str, wanted: &str) -> Result<Host, Refusal> {

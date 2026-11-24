@@ -19,6 +19,9 @@
 //! | `forgotten` | written first by a forget, its intent: the client has the end and the files of the run; once the log is kept, how ([`KeptLog`]) |
 //! | `events.log.cut` | the cut log of a forget before its rename over `events.log` |
 //! | `forget.lock` | the flock of a forget for its whole time, so two forgets of a run (a request, the cleanup) never cut its log at once |
+//! | `queue.json` | the place and the wait of a heavy run in the queue of the heavy turn (`lease_pool::host_history::QueueRecord`), which its supervisor writes after its wait |
+//! | `pack.json` | the bytes of the packs of the run that the agent took, `{"bytes", "times"}` |
+//! | `fetched.json` | the bytes of the files that the fetches of the run sent, `{"bytes", "times"}` |
 //!
 //! The supervisor writes the last event before `exit.json`, so a reader that sees `exit.json` and then reads the log to
 //! its end has every event. A run is alive while a process holds the flock of `lock`. A run that is not alive and has no
@@ -34,9 +37,13 @@
 //! hourly cleanup finishes ([`RunDir::forget`] goes on from where it stopped). The cut log goes to `events.log.cut`,
 //! `forgotten` records the cut with the inode of that file, and a rename puts it over `events.log`. Offsets stay those
 //! of the log before the cut: a follow that opened the log before the rename reads that file to its end, and a follow
-//! of the cut log maps an offset in and each end out ([`LogCut`])
+//! of the cut log maps an offset in and each end out ([`LogCut`]).
+//!
+//! As its directory goes, by its age or past the kept forgotten runs, a run leaves its line in the history of the agent
+//! (`history`)
 
 use crate::files::{append_private, open_private, private_dir, remove_entry, try_flock, try_flock_shared, write_private};
+use crate::history::History;
 use host_link::proto::{Phase, Piece, RunInfo, RunRefusal, RunSpec, Stream, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
@@ -69,6 +76,12 @@ const CHANGES: &str = "changes.patch";
 const FORGOTTEN: &str = "forgotten";
 const CUT_LOG: &str = "events.log.cut";
 const FORGET_LOCK: &str = "forget.lock";
+/// The place and the wait of a heavy run in the queue of the heavy turn
+const QUEUE: &str = "queue.json";
+/// The bytes of the packs of the run
+const PACK_BYTES: &str = "pack.json";
+/// The bytes of the fetches of the run
+const FETCHED: &str = "fetched.json";
 pub(crate) const SUPERVISOR_LOG: &str = "supervisor.log";
 
 /// The most bytes of one event. A longer line becomes several events, so each reply stays far below the message limit
@@ -117,6 +130,19 @@ struct ExitFile {
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   lost: bool,
 }
+
+/// The content of `pack.json` and `fetched.json`: the bytes of every pack or fetch of the run, and how many there were
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Counted {
+  #[serde(default)]
+  pub(crate) bytes: u64,
+  #[serde(default)]
+  pub(crate) times: u32,
+}
+
+/// One writer of the history and the removals of the run directories in this process, so two removals of a run (a forget
+/// past the kept runs, the hourly cleanup) leave one line
+static REMOVALS: Mutex<()> = Mutex::new(());
 
 /// The content of `forgotten`: how the log of the forgotten run is kept, once it is
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,8 +305,65 @@ impl RunDir {
 
   /// The cores of `cores.json`: none before the command, from an agent before the samples, or in a file the agent
   /// cannot read
-  fn cores(&self) -> Option<crate::cores::CoresFile> {
+  pub(crate) fn cores(&self) -> Option<crate::cores::CoresFile> {
     fs::read(self.path.join(CORES)).ok().and_then(|text| serde_json::from_slice(&text).ok())
+  }
+
+  /// Writes the place and the wait of the heavy run in the queue to `queue.json`
+  pub(crate) fn write_queue(&self, queue: &lease_pool::host_history::QueueRecord) -> io::Result<()> {
+    let json = serde_json::to_vec(queue).map_err(io::Error::other)?;
+    write_private(&self.path.join(QUEUE), &json)
+  }
+
+  /// The place and the wait of `queue.json`: none for a run that is not heavy, from a supervisor before it, or in a file
+  /// the agent cannot read
+  pub(crate) fn queue(&self) -> Option<lease_pool::host_history::QueueRecord> {
+    fs::read(self.path.join(QUEUE)).ok().and_then(|text| serde_json::from_slice(&text).ok())
+  }
+
+  /// Adds `bytes` of one pack of the run to `pack.json`
+  pub(crate) fn add_pack_bytes(&self, bytes: u64) -> io::Result<()> {
+    self.add_counted(PACK_BYTES, bytes)
+  }
+
+  /// Adds `bytes` of one fetch of the run to `fetched.json`
+  pub(crate) fn add_fetched_bytes(&self, bytes: u64) -> io::Result<()> {
+    self.add_counted(FETCHED, bytes)
+  }
+
+  pub(crate) fn pack_bytes(&self) -> Counted {
+    self.counted(PACK_BYTES)
+  }
+
+  pub(crate) fn fetched_bytes(&self) -> Counted {
+    self.counted(FETCHED)
+  }
+
+  fn counted(&self, name: &str) -> Counted {
+    fs::read(self.path.join(name)).ok().and_then(|text| serde_json::from_slice(&text).ok()).unwrap_or_default()
+  }
+
+  fn add_counted(&self, name: &str, bytes: u64) -> io::Result<()> {
+    let before = self.counted(name);
+    let after = Counted {
+      bytes: before.bytes.saturating_add(bytes),
+      times: before.times.saturating_add(1),
+    };
+    write_private(&self.path.join(name), &serde_json::to_vec(&after).map_err(io::Error::other)?)
+  }
+
+  /// The bytes of the output of the run: its log, and what a forget cut of it
+  pub(crate) fn output_bytes(&self) -> u64 {
+    let log = fs::metadata(self.events_path()).map_or(0, |metadata| metadata.len());
+    match self.kept_log() {
+      Ok(Some(KeptLog::Cut(cut))) => log.saturating_sub(cut.note).saturating_add(cut.gone),
+      _ => log,
+    }
+  }
+
+  /// Whether the agent wrote the end of the run after it lost its supervisor ([`RunDir::end_if_lost`])
+  pub(crate) fn is_lost(&self) -> bool {
+    self.exit_file().ok().flatten().is_some_and(|file| file.lost)
   }
 
   /// Writes the steps that have ended so far to `phases.json`
@@ -611,8 +694,9 @@ impl Runs {
     runs.into_iter().map(RunDir::new).collect()
   }
 
-  /// Removes each forgotten run past the latest `keep` by their end. Answers the ids of the removed runs
-  pub(crate) fn remove_forgotten_past(&self, keep: usize) -> Vec<String> {
+  /// Removes each forgotten run past the latest `keep` by their end, each after its line in `history`. Answers the ids of
+  /// the removed runs
+  pub(crate) fn remove_forgotten_past(&self, keep: usize, history: &History) -> Vec<String> {
     let mut forgotten: Vec<(SystemTime, RunDir)> = self
       .list()
       .into_iter()
@@ -623,22 +707,43 @@ impl Runs {
     forgotten
       .into_iter()
       .skip(keep)
-      .filter(|(_, run)| fs_retry::remove_dir_all(run.path()).is_ok())
+      .filter(|(_, run)| remove(run, history))
       .map(|(_, run)| run_id(&run))
       .collect()
   }
 
-  /// Removes each run that ended [`KEEP`] or more before `now`. Answers the ids of the removed runs
-  pub(crate) fn remove_expired(&self, now: SystemTime) -> Vec<String> {
+  /// Removes each run that ended [`KEEP`] or more before `now`, each after its line in `history`. Answers the ids of the
+  /// removed runs
+  pub(crate) fn remove_expired(&self, now: SystemTime, history: &History) -> Vec<String> {
     let mut removed = Vec::new();
     for run in self.list() {
       let expired = run.ended().is_some_and(|ended| now.duration_since(ended).is_ok_and(|age| age >= KEEP));
-      if expired && fs_retry::remove_dir_all(run.path()).is_ok() {
+      if expired && remove(&run, history) {
         removed.push(run_id(&run));
       }
     }
     removed
   }
+}
+
+/// Removes the ended run `run`, and appends its line to `history` once its directory is gone: the line is read before,
+/// so the bytes of its fetches are final, and it is written after, so a removal that fails leaves no line for a run that
+/// stays. Answers whether the directory went; another removal of the run in this process waits, and finds it gone
+fn remove(run: &RunDir, history: &History) -> bool {
+  let _one = REMOVALS.lock().unwrap_or_else(PoisonError::into_inner);
+  if !run.path().join(SPEC).is_file() {
+    return false;
+  }
+  let line = history.line_of(run);
+  if fs_retry::remove_dir_all(run.path()).is_err() {
+    return false;
+  }
+  match line {
+    Ok(Some(line)) => history.append(&line),
+    Ok(None) => {}
+    Err(error) => crate::log::log(&format!("cannot keep the run {} in the history: {error}", run.path().display())),
+  }
+  true
 }
 
 /// The id of a run: the name of its directory

@@ -41,6 +41,9 @@ const DEFAULT_NICE: u8 = 10;
 /// The main repository on a host when `setup --repo` names none
 const DEFAULT_REPO: &str = "~/projects/idea-1";
 
+/// The days of `brd-host stats` when `--days` names none
+const DEFAULT_STATS_DAYS: u32 = 7;
+
 /// The deadline of the `hostname` call for the name of this client
 const HOSTNAME_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -127,6 +130,18 @@ enum Command {
     /// Only say what would be deleted; nothing is written
     #[arg(long)]
     plan: bool,
+    /// One JSON object on stdout
+    #[arg(long)]
+    json: bool,
+  },
+  /// The summary of the runs that ended on a host in the last days, of every host without an alias: the waits against
+  /// the work, the heavy queue, the outcomes, the cores, the commands that waited longest and the bytes
+  Stats {
+    /// The alias of the host file; without it every host of the client
+    alias: Option<String>,
+    /// The days of the summary, 1 to 90
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_STATS_DAYS, value_parser = clap::value_parser!(u32).range(1..=90))]
+    days: u32,
     /// One JSON object on stdout
     #[arg(long)]
     json: bool,
@@ -628,6 +643,13 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     Command::Slots(args) => slots(&args, out),
     Command::Disk { alias, fresh, json } => disk(alias.as_deref(), fresh, json, out),
     Command::Trim { alias, max, plan, json } => trim(alias.as_deref(), max, plan, json, out),
+    Command::Stats { alias, days, json } => each_host(
+      alias.as_deref(),
+      json,
+      out,
+      &async |client: &Client<'_>, alias: &str| client.stats(alias, days).await,
+      host_agent::history::report_lines,
+    ),
     Command::Setup(args) => setup(&args, out),
     Command::Upgrade { alias, binary, force } => {
       end_on_interrupt("Ctrl+C, SIGTERM or SIGHUP ends this process; the host goes on with an upgrade whose binary came whole");
@@ -778,7 +800,7 @@ fn trim(alias: Option<&str>, max: Option<usize>, plan: bool, json: bool, out: &O
 }
 
 /// One request to `alias`, else to every host of the client one after the other, its JSON answer printed as `lines`
-/// of `pool-disk` read it; a host that does not answer, or whose agent lacks the feature, names its refusal and the
+/// of its report read it; a host that does not answer, or whose agent lacks the feature, names its refusal and the
 /// others go on. Exit 0 when one answered, else the exit of the refusal
 fn each_host(
   alias: Option<&str>,
@@ -834,18 +856,19 @@ fn each_host(
   }
 }
 
-/// The answer of one host to `brd-host disk` or `brd-host trim`, or why it has none
+/// The answer of one host to `brd-host disk`, `brd-host trim` or `brd-host stats`, or why it has none
 #[derive(Serialize)]
 struct HostAnswer {
   alias: String,
-  /// As `pool_disk::report::DiskReport` or `pool_disk::trim_report::TrimReport` writes it
+  /// As `pool_disk::report::DiskReport`, `pool_disk::trim_report::TrimReport` or `lease_pool::host_history::StatsReport`
+  /// writes it
   #[serde(skip_serializing_if = "Option::is_none")]
   report: Option<serde_json::Value>,
   #[serde(skip_serializing_if = "Option::is_none")]
   refusal: Option<Refusal>,
 }
 
-/// `brd-host disk --json` and `brd-host trim --json`
+/// `brd-host disk --json`, `brd-host trim --json` and `brd-host stats --json`
 #[derive(Serialize)]
 struct HostsOutput<'a> {
   schema: u32,

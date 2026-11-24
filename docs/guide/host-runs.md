@@ -302,6 +302,17 @@ brd-host trim studio --plan     # what a trim would delete now
 brd-host trim studio --max 6    # delete the free worktrees past 6 in every pool now
 ```
 
+## How the host spends its time
+
+```sh
+brd-host stats studio --days 1  # the runs of the last day: the waits against the work, the heavy queue, the commands
+```
+
+The host keeps a line of each run that ended for 90 days, and sums them for this command: how long the runs waited
+for the heavy turn and why (behind other heavy runs, or for a quiet host), how they ended, the cores they used, the 30
+commands that waited longest, and the bytes of the packs, the output and the fetched files. Without a host it asks
+every host.
+
 ## Upgrade the host
 
 ```sh

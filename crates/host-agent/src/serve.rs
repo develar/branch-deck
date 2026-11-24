@@ -458,6 +458,11 @@ impl Agent {
         let result = with_heartbeats(channel, &mut || {}, blocking(move || trim(&home, max, plan, &peer))).await?;
         answer(channel, result).await
       }
+      Request::Stats { days } => {
+        let home = self.home.clone();
+        let result = with_heartbeats(channel, &mut || {}, blocking(move || crate::history::stats(&home, days, crate::history::now_ms()))).await?;
+        answer(channel, result).await
+      }
       Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))).await,
     }
   }
@@ -640,6 +645,10 @@ impl Agent {
       PackTarget::Run(run) => self.runs().get(run).ok(),
       PackTarget::Base(_) => None,
     };
+    let base = match &target {
+      PackTarget::Base(name) => Some(name.clone()),
+      PackTarget::Run(_) => None,
+    };
     let progress = Arc::new(PackProgress::new(run.clone()));
     let (reader, writer) = match io::pipe() {
       Ok(pipe) => pipe,
@@ -664,10 +673,12 @@ impl Agent {
       }
     }));
     let mut chunks = Some(chunks);
+    let mut bytes = 0u64;
     let received = loop {
       match channel.recv_frame().await {
         Ok(Frame::Bytes(chunk)) => {
           progress.note();
+          bytes += chunk.len() as u64;
           if let Some(sender) = &chunks
             && sender.send(chunk).await.is_err()
           {
@@ -688,6 +699,16 @@ impl Agent {
       let ingested = ingesting
         .await
         .unwrap_or_else(|_| Err(Refusal::new(Code::PackFailed, "the ingest of the pack failed inside the agent")));
+      // the bytes that came, whatever the ingest made of them: for the line of the run, or the day of the host
+      match (&run, &base) {
+        (Some(run), _) => {
+          if let Err(error) = run.add_pack_bytes(bytes) {
+            log(&format!("cannot count the pack of {}: {error}", run.path().display()));
+          }
+        }
+        (None, Some(base)) => crate::history::History::new(&home).note_base_pack(base, bytes, crate::history::now_ms()),
+        (None, None) => {}
+      }
       received?;
       if ingested.is_ok() {
         if let Err(error) = cleanup::remember_repo(&home, &repo.path) {

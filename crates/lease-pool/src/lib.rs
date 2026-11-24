@@ -14,6 +14,8 @@
 //!   holders `brd-host/<n>`, and the lend table that lends each to one run at a time, gives it back, cleans and shrinks
 //!   it
 //! - `host_git`: the floor of the version of the git of a host that serves remote runs
+//! - `host_history`: the history of the ended runs of a host, the place and the wait of a heavy run in the queue, and
+//!   the summary of `brd-host stats`
 //! - `host_refs`: the refs that keep the commits of the runs of a host and the bases of its clients (`ingest`), and
 //!   when a pack last moved each, which the give-back of a run and `reclaim` read to delete them
 //! - `host_runs`: the steps of the agent of `brd-host`: the queue line of a waiting lend, the line of a run that waits
@@ -54,6 +56,7 @@ pub mod free_space;
 mod host_brew;
 pub mod host_cores;
 pub mod host_git;
+pub mod host_history;
 pub mod host_refs;
 pub mod host_runs;
 pub mod host_slots;

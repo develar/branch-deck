@@ -6,10 +6,13 @@
 //!
 //! - `command`: the agent commands that `brd-host` flattens into its own: `serve`, `supervise`, `check`, `watchdog`,
 //!   `dump-env`
-//! - `serve`: the listener, the requests of a repository (`Have`, `Pack`, `Slots`) and the upgrade request
+//! - `serve`: the listener, the requests of a repository (`Have`, `Pack`, `Slots`), of the host (`Disk`, `Trim`,
+//!   `Stats`) and the upgrade request
 //! - `run_requests`: the requests of a run (`Start`, `Follow`, `Cancel`, `Fetch`, `Forget`, `Runs`)
 //! - `supervise`: one run from the lend of its slot to `exit.json` and the give-back
 //! - `run`: the run directory and its files
+//! - `history`: the history of the ended runs, the place and the wait of a heavy run in the queue, and the summary of
+//!   `Request::Stats`
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
 //! - `turn`: the heavy turn of the host, whose cores the heavy runs of every repository there share by their measure
 //! - `cores`: the samples of the cores that the command of a run uses, and its measure
@@ -30,6 +33,7 @@ mod cleanup;
 pub mod command;
 mod cores;
 mod files;
+pub mod history;
 pub mod home;
 mod keeper;
 mod log;

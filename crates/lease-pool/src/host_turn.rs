@@ -1149,7 +1149,7 @@ fn remove_named(path: &Path, run: &str) -> Result<()> {
 }
 
 /// The words of a command as one line, at most `COMMAND_CHARS` characters
-fn one_line(command: &[String]) -> String {
+pub(crate) fn one_line(command: &[String]) -> String {
   // a word of a script holds its line ends: `zsh -c 'a\nb'`
   let line = command.join(" ").replace(['\n', '\r', '\t'], " ");
   match line.char_indices().nth(COMMAND_CHARS) {

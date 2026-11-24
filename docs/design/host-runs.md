@@ -292,6 +292,49 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
 - **The end of a lost run** is the time the agent saw the loss, not the end of the run, so its `RunInfo` has no
   `ended_ms` and its line no `took`.
 
+### The history of the runs
+
+On 2026-11-24 the heavy queue was the bottleneck of the Studio: in 22.6 h its 144 runs waited 3189 min for the heavy
+turn against 346 min of commands, the median wait 37 min, and the checkout, the prepare, the slot and the pack took
+about a minute in all. `brd-host runs` shows the runs of the last day, one at a time, and the rules of the queue that
+come next (a lane for short runs, a choice of the host at the start) need the waits of several days, by command. So the
+agent keeps a line of each ended run, and `brd-host stats` sums them on the host.
+
+- **Where**: `~/.cache/brd-host/history/<YYYY-MM>.jsonl`, one `HistoryLine` (`lease_pool::host_history`) per run, in
+  the month of its end by UTC, and `bases-<YYYY-MM>.jsonl`, one line per pack of a base, which belongs to no run. The
+  hourly cleanup removes a month whose every line is more than 90 days old (`KEEP_DAYS`).
+- **One writer, at one point**: `serve`, as the run directory goes, by its age (`Runs::remove_expired`) or past the
+  kept forgotten runs (`Runs::remove_forgotten_past`). The line is read from the directory before the removal, when the
+  bytes of every fetch of the run are final, and appended after it, so a removal that fails leaves no line for a run
+  that stays. The removals of a process go one at a time, so a forget and the cleanup never write one run twice. There
+  are no markers and no dedupe: until its directory goes the run is its directory, and after it its line; the summary
+  reads both.
+- **A line**: the run, the repository, the affinity, the commit, the command as the heavy turn names it (one line of
+  200 characters: never the whole text, since a command can hold `env TOKEN=…`), the key of its measures
+  (`measure_key`, with the repository the key of `cores.json`), `heavy`, `exclusive`, the start, the end (none for a
+  lost run), the exit, the code of the refusal, `lost`, the phases, the cores (mean, peak, CPU and wall time of the
+  command) and the bytes.
+- **The bytes**: nothing counted them before. A pack adds what came to `pack.json` of its run, a fetch what it sent to
+  `fetched.json` (each fetch of the run, as each crossed the link), and the output is `events.log` with what a forget
+  cut of it. They tell whether the output and the files or the packs hold the link, before anything of the link is
+  compressed.
+- **The queue of a heavy run** (`queue.json`, `QueueRecord`): its place as it joined, the holders then, the cores of
+  the host, what its measures led to expect and what it needed (`NeedKind`: the cores of its measure, or the whole host
+  without one, past one or for a measurement), and its wait split in two: behind the holders or the runs before it,
+  and at the head of a free turn for the load of the host (a quiet host, or room beside the runs that are not heavy).
+  Without the split a summary cannot tell a first-come queue from a wait for a quiet host. The supervisor writes it
+  after the phase `heavy`, whatever its end; a watch of the wait reads the table without its lock at most once a
+  second, at the stop check of each look, so it holds no look back and changes nothing of the turn. The file is the
+  run's own and not a field of `turn.json`: a supervisor of an older build rewrites the table without the fields that
+  it does not know.
+- **The summary on the host**: `Request::Stats` (feature `stats`: an older agent closes the connection on a request
+  that it does not know, so the client checks the hello first) sums the lines of its window and the ended runs that the
+  agent keeps, with the pure `host_history::aggregate`, and only the summary crosses the link: the waits against the
+  work by phase, the queue, the outcomes by exit and refusal (255 is any refusal), the waits of the runs that never
+  ran their command, the cores, the 30 commands that waited longest and the rest in one entry, so the reply stays far
+  below the 1 MiB of a message, and the bytes by day. A command fails when it ran and exited with a code other than 0
+  and 130 (a cancel). The aggregate lives on the side of the agent: `host-link` and `host-client` reach no pool.
+
 ### Waiting in bounded calls
 
 The tool of a coding agent ends a call after 10 min, and a SIGTERM or SIGHUP of `brd-host run` cancels its run, as

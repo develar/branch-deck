@@ -74,16 +74,18 @@ pub mod feature {
   pub const HEAVY: &str = "heavy";
   /// `RunSpec::exclusive`: a measurement takes a quiet host, and while it runs the other runs wait
   pub const EXCLUSIVE: &str = "exclusive";
+  /// `Request::Stats`: the summary of the history of the ended runs of the host
+  pub const STATS: &str = "stats";
 }
 
-/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy` and `exclusive` everywhere, `upgrade`
-/// on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive` and `stats` everywhere,
+/// `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
+  let mut features = vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS];
   if cfg!(target_os = "macos") {
-    vec![feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]
-  } else {
-    vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]
+    features.insert(0, feature::UPGRADE);
   }
+  features
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +141,10 @@ pub enum Request {
     #[serde(default, skip_serializing_if = "is_false")]
     plan: bool,
   },
+  /// The summary of the runs of the host that ended in the last `days` days (`lease_pool::host_history::aggregate`): the
+  /// history of the agent and the ended runs that it still keeps, summed on the host, so only the summary travels.
+  /// Replies: `Reply::Heartbeat` while the agent reads, then `Reply::Stats`. Feature `feature::STATS`
+  Stats { days: u32 },
   /// Replaces the binary that the `LaunchAgent` names. The new binary follows as a byte stream of `size` bytes whose
   /// SHA-256 is `sha256` (64 lower-case hex digits). Replies: `Reply::Heartbeat` while the agent checks the binary, then
   /// `Reply::Upgraded`. Feature `feature::UPGRADE`.
@@ -304,6 +310,11 @@ pub enum Reply {
   /// What the trim of `Request::Trim` deleted, as `pool_disk::trim_report::TrimReport` writes it: JSON here for the
   /// reason of `Reply::Disk`
   Trimmed {
+    report: serde_json::Value,
+  },
+  /// The summary of `Request::Stats` as `lease_pool::host_history::StatsReport` writes it: JSON here for the reason of
+  /// `Reply::Disk`
+  Stats {
     report: serde_json::Value,
   },
   Done {

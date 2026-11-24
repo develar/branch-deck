@@ -8,9 +8,12 @@ use pretty_assertions::assert_eq;
 #[test]
 fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_heavy_turn() {
   if cfg!(target_os = "macos") {
-    assert_eq!(features(), [feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]);
+    assert_eq!(
+      features(),
+      [feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS]
+    );
   } else {
-    assert_eq!(features(), [feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE]);
+    assert_eq!(features(), [feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS]);
   }
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
 }
@@ -33,6 +36,11 @@ fn a_request_and_a_reply_have_a_tagged_json_shape() {
     report: serde_json::json!({"bytes": 7}),
   };
   assert_eq!(serde_json::to_string(&disk).expect("json"), r#"{"reply":"disk","report":{"bytes":7}}"#);
+  assert_eq!(serde_json::to_string(&Request::Stats { days: 7 }).expect("json"), r#"{"request":"stats","days":7}"#);
+  let stats = Reply::Stats {
+    report: serde_json::json!({"runs": 3}),
+  };
+  assert_eq!(serde_json::to_string(&stats).expect("json"), r#"{"reply":"stats","report":{"runs":3}}"#);
   assert_eq!(serde_json::to_string(&Request::Trim { max: None, plan: false }).expect("json"), r#"{"request":"trim"}"#);
   assert_eq!(
     serde_json::from_str::<Request>(r#"{"request":"trim","max":6,"plan":true}"#).expect("parsed"),
@@ -309,9 +317,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim","heavy","exclusive"]"#
+    r#"["upgrade","disk","trim","heavy","exclusive","stats"]"#
   } else {
-    r#"["disk","trim","heavy","exclusive"]"#
+    r#"["disk","trim","heavy","exclusive","stats"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");

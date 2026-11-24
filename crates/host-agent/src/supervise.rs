@@ -10,7 +10,9 @@
 //!    process), in the phase `heavy`: at once when no other heavy run of the host holds it or waits before it, else
 //!    after a wait of up to 2 h whose line goes to the log at once and once a minute. A wait that ends in the queue ends
 //!    the run with `heavy_timeout`; a later run of the same checkout and command that took its place in the queue ends
-//!    it with `superseded`. A run that is not heavy takes no turn.
+//!    it with `superseded`. After its wait, whatever its end, it writes `queue.json`: its place in the queue as it joined,
+//!    what it needed, and its wait behind the others and for the load of the host (`history::QueueWatch`). A run that
+//!    is not heavy takes no turn.
 //! 1. Lend a host slot of the repository (`slots::lend`, with the pid of this process): the slot that the affinity used
 //!    last, else the one used longest ago, else a place in the queue. While Homebrew upgrades the git of the host, the
 //!    run waits in the phase `git`. While every slot is lent, the run waits up to an hour, and the queue line goes to
@@ -478,7 +480,14 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
   let started = Instant::now();
   let repo = context.repo.path.display().to_string();
   let of = turn_run(context, &repo);
-  let taken = phases.time("heavy", || turn::take(context.home, &of, wait, stop, &mut |line| context.say(line)));
+  // each look of the wait also looks where the run waits, for its `queue.json`
+  let queue = std::cell::RefCell::new(crate::history::QueueWatch::start(context.home, &of));
+  let stop_and_look = || {
+    queue.borrow_mut().look();
+    stop()
+  };
+  let taken = phases.time("heavy", || turn::take(context.home, &of, wait, &stop_and_look, &mut |line| context.say(line)));
+  queue.into_inner().finish(context.run);
   let waited = started.elapsed();
   match taken {
     Err(_) | Ok(None) if stop() => Ok(false),

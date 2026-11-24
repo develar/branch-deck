@@ -190,6 +190,7 @@ fn kind(request: &Request) -> &'static str {
     Request::Slots => "slots",
     Request::Disk { .. } => "disk",
     Request::Trim { .. } => "trim",
+    Request::Stats { .. } => "stats",
     Request::Upgrade { .. } => "upgrade",
   }
 }
@@ -1329,12 +1330,12 @@ async fn the_outputs_of_the_commit_come_back_in_place_of_their_local_copies() {
   assert!(start_spec(&setup).outputs);
 }
 
-/// The disk report and the trim come after the heartbeats of the agent, as the JSON it sent, and `fresh`, `max` and
-/// `plan` reach it
+/// The disk report, the trim and the summary of the runs come after the heartbeats of the agent, as the JSON it sent,
+/// and `fresh`, `max`, `plan` and `days` reach it
 #[tokio::test(start_paused = true)]
-async fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
+async fn runs_cancel_slots_disk_trim_and_stats_answer_the_replies_of_the_agent() {
   let hello = Hello {
-    features: vec!["upgrade".to_owned(), "disk".to_owned(), "trim".to_owned()],
+    features: vec!["upgrade".to_owned(), "disk".to_owned(), "trim".to_owned(), "stats".to_owned()],
     ..Hello::default()
   };
   let setup = Setup::with_hello(hello, |request, channel| {
@@ -1351,6 +1352,12 @@ async fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
           Reply::Heartbeat { elapsed_ms: 100 },
           Reply::Trimmed {
             report: serde_json::json!({"plan": true}),
+          },
+        ],
+        Request::Stats { days: 3 } => vec![
+          Reply::Heartbeat { elapsed_ms: 100 },
+          Reply::Stats {
+            report: serde_json::json!({"runs": 2}),
           },
         ],
         Request::Slots => vec![Reply::Slots {
@@ -1377,12 +1384,14 @@ async fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
   assert_eq!(client.disk(ALIAS, false).await.unwrap_err().code, Code::BadRequest);
   assert_eq!(client.trim(ALIAS, Some(6), true).await.unwrap(), serde_json::json!({"plan": true}));
   assert_eq!(kinds(&setup).last(), Some(&"trim"));
+  assert_eq!(client.stats(ALIAS, 3).await.unwrap(), serde_json::json!({"runs": 2}));
+  assert_eq!(kinds(&setup).last(), Some(&"stats"));
 }
 
-/// An agent without the feature `disk` or `trim` gets no such request: it would close the connection on one it does
-/// not know
+/// An agent without the feature `disk`, `trim` or `stats` gets no such request: it would close the connection on one it
+/// does not know
 #[tokio::test(start_paused = true)]
-async fn disk_and_trim_of_an_agent_without_the_feature_send_no_request() {
+async fn disk_trim_and_stats_of_an_agent_without_the_feature_send_no_request() {
   let older = Setup::new(|_, channel| {
     Box::pin(async move {
       let _ = channel.send(&Reply::refused(Code::BadRequest, "no")).await;
@@ -1390,7 +1399,11 @@ async fn disk_and_trim_of_an_agent_without_the_feature_send_no_request() {
   });
   let processes = FakeProcesses::default();
   let client = older.client(&processes, &|_| {}, &calm);
-  for refused in [client.disk(ALIAS, false).await.unwrap_err(), client.trim(ALIAS, None, false).await.unwrap_err()] {
+  for refused in [
+    client.disk(ALIAS, false).await.unwrap_err(),
+    client.trim(ALIAS, None, false).await.unwrap_err(),
+    client.stats(ALIAS, 3).await.unwrap_err(),
+  ] {
     assert_eq!(refused.code, Code::AgentFailed, "{}", refused.message);
     assert!(refused.message.contains("brd-host upgrade studio"), "{}", refused.message);
   }
