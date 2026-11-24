@@ -293,10 +293,10 @@ its own Safe Push), the fix that lands, who approved it.
 #### Scenario: The words of each state
 - **WHEN** the review is a draft, waits for alice and bob, has changes requested by alice, waits for a fix, or alice
   approved it
-- **THEN** the mark says "#12 opens for review once the Safe Push of auth merges", "In review after landing: waits for
-  alice and bob in #12", "alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the
-  review", "A fix of auth lands: #12 takes it once its Safe Push merged and asks its reviewers again", "Approved by
-  alice in #12: it closes with its branches"
+- **THEN** the mark says "auth is landing: once its Safe Push merges, #12 opens and its reviewers are asked", "In review
+  after landing: waits for alice and bob in #12", "alice requested changes in #12: commit a fix as (auth) …, and its
+  Safe Push adds it to the review", "A fix of auth is landing: once its Safe Push merges, it goes into #12 and the
+  reviewers are asked again", "Approved by alice: #12 closes and its branches are deleted; the change stays in master"
   [@test] src/presenters/row-status.test.ts (`marks the review after landing beside what landed the branch, its hover whose move it is in each state`)
   [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should return the review to the author on changes requested, wait while a fix lands, then put the fix onto its head and ask again`)
 
@@ -354,26 +354,31 @@ or who approved it; its Close Review MUST close it with its comment and delete i
   `number`; `brd request-review <branch> [--after-landing]`, whose `shown.extended` names the fixes it added (`fixes`,
   `head`, `not_applied`); `brd robot <branch>`: `extends`; `brd close-review <branch> [--allow-unapproved]`.
 - The Status cell: "review after landing", "in review after landing", "changes requested after landing", "fix goes into
-  review after landing", "approved after landing"; the hover whose move it is: "#12 opens for review once the Safe Push
-  of auth merges", "In review after landing: waits for alice in #12", "alice requested changes in #12: commit a fix as
-  (auth) …, and its Safe Push adds it to the review", "A fix of auth lands: #12 takes it once its Safe Push merged and
-  asks its reviewers again", "Approved by alice in #12: it closes with its branches".
+  review after landing", "approved after landing"; the hover what happens next: "auth is landing: once its Safe Push
+  merges, #12 opens and its reviewers are asked", "In review after landing: waits for alice in #12", "alice requested
+  changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review", "A fix of auth is landing: once its
+  Safe Push merges, it goes into #12 and the reviewers are asked again", "Approved by alice: #12 closes and its branches
+  are deleted; the change stays in master".
 - The menu of the branch: "Safe Push and Request Review…" in "Patronus ›" (also "Review after landing: Safe Push and
   Request Review…" in the popover of its Safe Push); of a branch with one, "Open Pull Request #12", "Request Review…",
-  "Close Review…". The popover: "A draft pull request into the fork point opens now and asks the reviewers once the Safe
-  Push merged into master; it closes once they all approved.", the picker, "One available code owner of Auth Team.",
-  the start "Safe Push and Request Review"; without a reviewer "Add a reviewer: a review after landing asks at least
-  one". The confirmation of Close Review… "Close review after landing #12", what it closes without, then "Closes it on
-  GitHub with a comment and deletes its branches; the change stays in master."; the toasts "Asked bob to review #12
-  after landing", "Closed review after landing #12 of auth".
-- A reviewer's row in Your Turn and Reviews and the header of the review window: the badge "Shown", its hover "In master
-  already: your review gates no Safe Push, and the approval of every reviewer it asked closes it".
+  "Close Review…". The popover: "auth lands now; the reviewers are asked once it is in master. The review closes when they
+  all approve; it can never land itself.", the picker, "One available code owner of Auth Team.", the readiness "No
+  code-owner approval needed before landing.", no whole stack beside it, the start "Safe Push and Request Review";
+  without a reviewer "Add a reviewer: a review after landing asks at least one". The confirmation of Close Review…
+  "Close Review #12?", what closing now leaves without a review ("alice has not approved #12 yet; closing now ends the
+  review without that approval.", "A fix of auth is still landing and is not in #12 yet; closing now leaves it
+  unreviewed."), then "#12 closes on GitHub with a comment and its branches are deleted; the change stays in master.";
+  the toasts "Asked bob to review #12 after landing", "Closed review after landing #12 of auth".
+- A reviewer's row in Your Turn and Reviews and the header of the review window: the badge "Shown", its hover "Already
+  in master: your review does not block landing. The review closes when every requested reviewer approves."; the
+  author's "Returned to you" line of it the same badge, its hover "Already in master: reviewed after landing. A fix of
+  auth goes into #12 by its own Safe Push."
 - The comment of a fix that doesn't apply: "Landed a follow-up as <sha>; it does not apply on this review's commits:
   <the robot page>".
 - Your Turn: a review after landing a reviewer handed back is a "Returned to you" line.
-- The review window of a reviewer: "Shown: in master already; your review gates no Safe Push, its approval closes the
-  review"; the Safe Push of it disabled: "#12 is a review after landing: its change is in master already, so there is
-  nothing to Safe Push".
+- The review window of a reviewer: "Already in master: your review does not block landing; the review closes when every
+  requested reviewer approves"; the Safe Push of it disabled: "#12 is a review after landing: its change is in master
+  already, so there is nothing to Safe Push".
 - The toasts of a failure: "Cannot open the review after landing of auth", "Cannot add the fix to the review after
   landing of auth", "Cannot close the review after landing of auth", "Cannot request the review after landing of auth".
 

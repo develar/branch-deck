@@ -231,11 +231,15 @@ test.describe("Reviews after landing", () => {
     await expect(statusMark(page)).toHaveAccessibleName("alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review")
     const returned = getYourTurnCard(page).getByTestId("returned-pull-request-row")
     await expect(returned).toHaveAttribute("data-returned-branch", BRANCH)
+    // the author's own review after landing: its badge says so
+    await returned.getByTestId("shown-badge").hover()
+    await expect(openTooltip(page)).toHaveText("Already in master: reviewed after landing. A fix of auth goes into #12 by its own Safe Push.")
+    await page.mouse.move(0, 0)
 
     // a fix of auth: its Safe Push runs, the review waits for it, nobody's move
     const fix = await startFix(page, repo, syncAndWaitForBranches, head)
     const fixTip = fix.sourceRevision!
-    await expect(statusMark(page)).toHaveAccessibleName("A fix of auth lands: #12 takes it once its Safe Push merged and asks its reviewers again")
+    await expect(statusMark(page)).toHaveAccessibleName("A fix of auth is landing: once its Safe Push merges, it goes into #12 and the reviewers are asked again")
     await expect(returned).toHaveCount(0)
 
     // merged: the fix on the head of the review, alice asked again, then the record names it
@@ -303,7 +307,10 @@ test.describe("Reviews after landing", () => {
       await findBranchRow(page, BRANCH).click({ button: "right" })
       await page.getByRole("menuitem", { name: "Close Review…" }).click()
       const confirm = page.getByTestId("close-shown-review")
-      await expect(confirm).toContainText("has not approved #12: it closes without that approval.")
+      await expect(confirm).toContainText("Close Review #12?")
+      await expect(confirm).toContainText(
+        "alice and bob have not approved #12 yet; closing now ends the review without that approval. #12 closes on GitHub with a comment and its branches are deleted; the change stays in master.",
+      )
       await runAndWaitForAnswer(page, "execute", () => confirm.getByRole("button", { name: "Close Review" }).click())
       await expect(toastWith(page, "Closed review after landing #12 of auth")).toBeVisible()
       expect(await gitHubRequests(repo, "POST", "issues", 12, "comments")).toEqual([
@@ -317,8 +324,14 @@ test.describe("Reviews after landing", () => {
     "should tell a reviewer a review after landing by its badge, offer no Safe Push of it, and take the approval",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      // carol's review after landing of login: its base is the fork point under her prefix
-      const shown = reviewRequest("login", 301, 2, { title: "Add the login form", author: "carol", baseRefName: "carol/review/login/base", baseIsDefault: false })
+      // carol's review after landing of login: its head the commits that landed, its base their fork point, under her prefix
+      const shown = reviewRequest("login", 301, 2, {
+        title: "Add the login form",
+        author: "carol",
+        headRefName: "carol/review/login/head",
+        baseRefName: "carol/review/login/base",
+        baseIsDefault: false,
+      })
       const repo = await setupRepo("stacked_ownership", {
         reviewRequests: availableReviewRequests([shown]),
         patronus: { ...availableRobots(), githubRepository: `${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}` },
@@ -326,11 +339,14 @@ test.describe("Reviews after landing", () => {
         gitHubSignIn: { signedIn: true },
       })
       await syncAndWaitForBranches()
+      // her branches on the remote, as her Safe Push with it left them: the review fetches its head
+      await repo.pushInTerminal("carol/review/login/head", { revision: await repo.revision("user-name/virtual/login") })
+      await repo.pushInTerminal("carol/review/login/base", { revision: await repo.revision("origin/master") })
       await expect(getReviewRow(page, 301)).toBeVisible()
       const badge = getReviewRow(page, 301).getByTestId("shown-badge")
       await expect(badge).toHaveText("Shown")
       await badge.hover()
-      await expect(openTooltip(page)).toHaveText("In master already: your review gates no Safe Push, and the approval of every reviewer it asked closes it")
+      await expect(openTooltip(page)).toHaveText("Already in master: your review does not block landing. The review closes when every requested reviewer approves.")
       await page.mouse.move(0, 0)
 
       // the row's menu offers no Safe Push of it: its change is in master already
@@ -344,7 +360,12 @@ test.describe("Reviews after landing", () => {
       const { window: reviewPage, review, fetched } = await openRequestReview(page, 301)
       await fetched
       await expect(review.getByTestId("shown-badge")).toHaveText("Shown")
-      await expect(review.getByTestId("review-safe-push")).toBeDisabled()
+      await expect(review.getByTestId("review-dialog-meta")).toContainText("carol/review/login/base ← carol/review/login/head")
+      const windowSafePush = review.getByTestId("review-safe-push")
+      await expect(windowSafePush).toBeDisabled()
+      await windowSafePush.hover()
+      await expect(openTooltip(reviewPage)).toHaveText("#301 is a review after landing: its change is in master already, so there is nothing to Safe Push")
+      await reviewPage.mouse.move(0, 0)
       // the approval is a write of the session, its answer the window's
       await expect(review.getByTestId("review-commit").first()).toBeVisible()
       await expect(review.getByTestId("review-approve")).toBeEnabled()

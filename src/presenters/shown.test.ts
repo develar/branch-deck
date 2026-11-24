@@ -30,7 +30,7 @@ describe("the words of a review after landing", () => {
   })
 
   it("confirm a close by what the review waits for, closed anyway without the approvals or the fix", () => {
-    const deletes = "Closes it on GitHub with a comment and deletes its branches; the change stays in master."
+    const closes = "#12 closes on GitHub with a comment and its branches are deleted; the change stays in master."
     expect(
       [
         review({ kind: "approved", by: ["alice"] }),
@@ -40,13 +40,13 @@ describe("the words of a review after landing", () => {
         review({ kind: "draft" }),
       ].map(it => describeCloseShownReview(it, "auth").description),
     ).toEqual([
-      `alice approved #12. ${deletes}`,
-      `alice has not approved #12: it closes without that approval. ${deletes}`,
-      `alice requested changes in #12: it closes without a fix. ${deletes}`,
-      `A fix of auth lands, which #12 has not taken yet: it closes before its review. ${deletes}`,
-      `#12 is a draft that asked nobody yet: it closes without a review. ${deletes}`,
+      `alice approved #12. ${closes}`,
+      `alice has not approved #12 yet; closing now ends the review without that approval. ${closes}`,
+      `alice requested changes in #12; closing now ends the review without a fix. ${closes}`,
+      `A fix of auth is still landing and is not in #12 yet; closing now leaves it unreviewed. ${closes}`,
+      `#12 is a draft that asked nobody yet; closing now ends it without a review. ${closes}`,
     ])
-    expect(describeCloseShownReview(review({ kind: "draft" }), "auth").title).toBe("Close review after landing #12")
+    expect(describeCloseShownReview(review({ kind: "draft" }), "auth").title).toBe("Close Review #12?")
   })
 
   it("toast a request as asked, of a draft as asked once its Safe Push merged", () => {

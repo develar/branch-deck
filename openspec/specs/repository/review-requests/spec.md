@@ -882,15 +882,19 @@ meta are hidden below `sm`.
 
 ### Requirement: Card: A review after landing carries the badge Shown
 
-A request whose pull request is a review after landing (`ReviewRequest.shown`, Rust's by its base, of any prefix) MUST
-carry the badge "Shown" after its title, in Your Turn, in Reviews and in the header of its review window, its hover
-"In master already: your review gates no Safe Push, and the approval of every reviewer it asked closes it"; its meta
-names no base, which is the fork point of what landed.
+A request whose pull request is a review after landing (`ReviewRequest.shown`, Rust's by its base) MUST carry the badge
+"Shown" after its title in Your Turn, Reviews and the header of its review window, its hover that the review does not
+block landing; its meta names no base. The author's own line of "Returned to you" MUST carry it too.
 
 #### Scenario: A review after landing of carol
 - **WHEN** carol's review after landing of login waits for the user's review
 - **THEN** its row and its review window carry "Shown", its hover says what it is
   [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should tell a reviewer a review after landing by its badge, offer no Safe Push of it, and take the approval`)
+
+#### Scenario: The author's own handed back
+- **WHEN** alice requested changes in the author's review after landing of auth
+- **THEN** its "Returned to you" line carries "Shown", its hover that a fix goes into it by its own Safe Push
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should return the review to the author on changes requested, wait while a fix lands, then put the fix onto its head and ask again`)
 
 ### Requirement: Card: A narrow row gives way in one order
 

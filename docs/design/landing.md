@@ -342,7 +342,7 @@ that needs no approval, so it can't name them.
 A reviewer tells a shown review by its base (`domain_policy::shown::is_shown`, any prefix; `ReviewRequest.shown`,
 set where the request is read): its Safe Push is never offered (`ActionBlocker::Shown`), Approve and merge
 (`SubmitReview { then_land }`) is refused, its row in Your Turn and Reviews and the review window carry the badge
-"Shown", and the review window says "Shown: in master already; your review gates no Safe Push".
+"Shown", and the review window says "Already in master: your review does not block landing; the review closes when every requested reviewer approves".
 
 In the app the start is **Safe Push and Request Review…** ("Patronus ›" of the branch menu, the command palette, and the
 popover of the Safe Push of the branch, which offers it beside its start): its popover is the Safe Push popover with a

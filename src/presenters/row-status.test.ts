@@ -135,11 +135,11 @@ describe("the Status cell of a branch row", () => {
       mark({ kind: "extending", robot: "r2" }),
       mark({ kind: "approved", by: ["alice"] }),
     ]).toEqual([
-      { color: "warning", lines: ["#12 opens for review once the Safe Push of auth merges"] },
+      { color: "warning", lines: ["auth is landing: once its Safe Push merges, #12 opens and its reviewers are asked"] },
       { color: "warning", lines: ["In review after landing: waits for alice and bob in #12"] },
       { color: "error", lines: ["alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review"] },
-      { color: "warning", lines: ["A fix of auth lands: #12 takes it once its Safe Push merged and asks its reviewers again"] },
-      { color: "success", lines: ["Approved by alice in #12: it closes with its branches"] },
+      { color: "warning", lines: ["A fix of auth is landing: once its Safe Push merges, it goes into #12 and the reviewers are asked again"] },
+      { color: "success", lines: ["Approved by alice: #12 closes and its branches are deleted; the change stays in master"] },
     ])
     // the preview names the first fact that is not a robot: the review where nothing else is said
     expect(presentPreviewStatus(rowStatus(null, [{ kind: "shown", number: 12, state: { kind: "changesRequested", by: ["alice"] } }]), context(auth)).text).toBe(

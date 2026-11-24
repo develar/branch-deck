@@ -5,9 +5,9 @@
 import type { ShownReview, ShownState, ShowReviewers } from "@/lib/bindings"
 import { joinNames } from "@/lib/text"
 
-/** What a Safe Push and Request Review… opens beside the robot, a line of its popover */
-export function describeShowStart(target: string): string {
-  return `A draft pull request into the fork point opens now and asks the reviewers once the Safe Push merged into ${target}; it closes once they all approved.`
+/** What a Safe Push and Request Review… does beside the robot, a line of its popover */
+export function describeShowStart(branch: string, target: string): string {
+  return `${branch} lands now; the reviewers are asked once it is in ${target}. The review closes when they all approve; it can never land itself.`
 }
 
 /**
@@ -41,26 +41,25 @@ export function describeShowCandidates(
 /** The confirmation of Close Review… of the review after landing `review` of `branch`: its title and what the close does */
 export function describeCloseShownReview(review: ShownReview, branch: string): { readonly title: string; readonly description: string } {
   const number = review.pullRequest.number
-  const title = `Close review after landing #${number}`
-  const deletes = "Closes it on GitHub with a comment and deletes its branches; the change stays in master."
-  return { title, description: `${closeStateWords(review.state, number, branch)} ${deletes}` }
+  const closes = `#${number} closes on GitHub with a comment and its branches are deleted; the change stays in master.`
+  return { title: `Close Review #${number}?`, description: `${closeStateWords(review.state, number, branch)} ${closes}` }
 }
 
-/** What the review waits for as the close says it: closed approved, or closed anyway without what it waits for */
+/** What the review waits for as the close says it: who approved it, or what closing now leaves without a review */
 function closeStateWords(state: ShownState, number: number, branch: string): string {
   switch (state.kind) {
     case "approved":
       return `${joinNames(state.by)} approved #${number}.`
     case "inReview":
       return state.waiting.length === 0
-        ? `#${number} asked nobody yet: it closes without a review.`
-        : `${joinNames(state.waiting)} has not approved #${number}: it closes without that approval.`
+        ? `#${number} asked nobody yet; closing now ends it without a review.`
+        : `${joinNames(state.waiting)} ${state.waiting.length === 1 ? "has" : "have"} not approved #${number} yet; closing now ends the review without that approval.`
     case "changesRequested":
-      return `${joinNames(state.by)} requested changes in #${number}: it closes without a fix.`
+      return `${joinNames(state.by)} requested changes in #${number}; closing now ends the review without a fix.`
     case "extending":
-      return `A fix of ${branch} lands, which #${number} has not taken yet: it closes before its review.`
+      return `A fix of ${branch} is still landing and is not in #${number} yet; closing now leaves it unreviewed.`
     case "draft":
-      return `#${number} is a draft that asked nobody yet: it closes without a review.`
+      return `#${number} is a draft that asked nobody yet; closing now ends it without a review.`
   }
 }
 
@@ -80,5 +79,10 @@ export function formatShownRequestedTitle(number: number, reviewers: readonly st
 /** The badge of a review after landing to review (Your Turn, Reviews, the review window): its label and its hover */
 export const SHOWN_BADGE = {
   label: "Shown",
-  hint: "In master already: your review gates no Safe Push, and the approval of every reviewer it asked closes it",
+  hint: "Already in master: your review does not block landing. The review closes when every requested reviewer approves.",
 } as const
+
+/** The hover of the badge of the author's own review after landing a reviewer handed back ("Returned to you") */
+export function formatOwnShownHint(branch: string, number: number): string {
+  return `Already in master: reviewed after landing. A fix of ${branch} goes into #${number} by its own Safe Push.`
+}

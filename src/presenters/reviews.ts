@@ -405,7 +405,7 @@ export function presentApprovalLanding(landing: ApprovalLanding | undefined, num
     case "ownSafePush":
       return inStack ? `Counts for the Safe Push of #${number} alone, not of the layers above it` : null
     case "shown":
-      return "Shown: in master already; your review gates no Safe Push, its approval closes the review"
+      return "Already in master: your review does not block landing; the review closes when every requested reviewer approves"
     case undefined:
       return null
   }

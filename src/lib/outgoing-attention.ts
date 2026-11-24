@@ -5,6 +5,8 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 export interface ReturnedPullRequest {
   readonly branchName: string
   readonly pullRequest: PullRequest
+  /** A review after landing of the branch (`ShownReview` of the listing): its row carries the badge "Shown" */
+  readonly shown?: boolean
 }
 
 /**
@@ -18,12 +20,12 @@ export function collectReturnedToYou(
   pullRequests: Readonly<Record<string, PullRequest>>,
   shownReviews: Readonly<Record<string, ShownReview>> = {},
 ): ReturnedPullRequest[] {
-  const returned = collectAttention(rows, pullRequests, pullRequest =>
+  const returned: ReturnedPullRequest[] = collectAttention(rows, pullRequests, pullRequest =>
     pullRequest.state === "open" && pullRequest.reviewDecision === "changesRequested" ? "changes requested" : null,
   ).map(item => ({ branchName: item.branchName, pullRequest: pullRequests[item.branchName]! }))
   for (const [branchName, review] of Object.entries(shownReviews)) {
     if (review.state.kind === "changesRequested") {
-      returned.push({ branchName, pullRequest: review.pullRequest })
+      returned.push({ branchName, pullRequest: review.pullRequest, shown: true })
     }
   }
   return returned

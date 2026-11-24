@@ -255,9 +255,9 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         </h2>
         {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
         {show && candidates !== null && (
-          <ShowReviewersField target={target} candidates={candidates} reviewers={reviewers} onChange={setPicked} disabled={busy !== null} author={null} />
+          <ShowReviewersField branchName={branchName} target={target} candidates={candidates} reviewers={reviewers} onChange={setPicked} disabled={busy !== null} author={null} />
         )}
-        {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />)}
+        {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} show={show} />)}
         {byPush && landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
         {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
         {/* a review after landing reviews one branch: no whole stack beside it */}
@@ -339,11 +339,14 @@ function Lines({
   landing,
   pullRequest,
   onProfile,
+  show,
 }: {
   read: SafePushRead
   landing: ReturnType<typeof describeStackLanding> | null
   pullRequest: PullRequest | undefined
   onProfile: (id: string | null) => void
+  /** A Safe Push and Request Review…: its review follows the landing */
+  show: boolean
 }) {
   const { fromPullRequest, profiles, plan } = read
   const branchProfile = profiles?.offered.find(profile => profile.id === profiles.default) ?? null
@@ -385,7 +388,7 @@ function Lines({
       {fromPullRequest === null && profiles !== null && (profiles.offered.length > 0 || read.withoutReview) && (
         <ProfileField read={read} profiles={profiles} onChange={onProfile} />
       )}
-      <ReviewLine read={read} pullRequest={pullRequest} />
+      <ReviewLine read={read} pullRequest={pullRequest} show={show} />
       {read.replaces !== null && (
         <Line tone="warning" testId="safe-push-replaces">
           {`Cancels the ${formatPushMode(read.mode)} of ${read.subject} running on ${formatShortHash(read.replaces.sourceRevision ?? "")}.`}
@@ -584,7 +587,7 @@ function formatUnknown(readiness: Extract<ReviewReadiness, { kind: "unknown" | "
  * approvals count), not needed, judged only at the start, missing but skipped by the profile; on Space, the approvals the
  * merge request needs. Nothing for a dry run, nor while it loads (the footer says so)
  */
-function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: PullRequest | undefined }) {
+function ReviewLine({ read, pullRequest, show }: { read: SafePushRead; pullRequest: PullRequest | undefined; show: boolean }) {
   const { review, profile } = read
   switch (review.kind) {
     case "none":
@@ -641,7 +644,8 @@ function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: Pu
         case "notRequired":
           return (
             <Line tone="success" testId="safe-push-review">
-              No code-owner review needed.
+              {/* beside the reviewers of a review after landing: what the landing needs, not the review */}
+              {show ? "No code-owner approval needed before landing." : "No code-owner review needed."}
             </Line>
           )
         case "approved":
@@ -749,6 +753,7 @@ const NO_USERS: GitHubUser[] = []
  * whom the code owners give or why none; the start asks nobody without one (`noReviewer` of its plan)
  */
 function ShowReviewersField({
+  branchName,
   target,
   candidates,
   reviewers,
@@ -756,6 +761,7 @@ function ShowReviewersField({
   disabled,
   author,
 }: {
+  branchName: string
   target: string
   candidates: ShowReviewersState
   reviewers: GitHubUser[]
@@ -767,7 +773,7 @@ function ShowReviewersField({
   const note = describeShowCandidates(candidates)
   return (
     <div className="flex flex-col gap-1.5" data-testid="safe-push-show">
-      <Line testId="safe-push-show-start">{describeShowStart(target)}</Line>
+      <Line testId="safe-push-show-start">{describeShowStart(branchName, target)}</Line>
       <ReviewerPicker
         testIdPrefix="safe-push-show"
         reviewers={reviewers}

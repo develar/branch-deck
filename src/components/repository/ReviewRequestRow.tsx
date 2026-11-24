@@ -32,6 +32,7 @@ import { cutList } from "@/lib/text"
 import { useRowPart } from "@/model/store"
 import type { OperationWords } from "@/presenters/operations"
 import { claimedLabel, describeClaimConflict, describeUnproven, formatClaimConflict, formatRequestReading, formatStackRowReading, orderLabels } from "@/presenters/range-reading"
+import { formatOwnShownHint } from "@/presenters/shown"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { ReviewAction } from "@/stores/review-requests"
@@ -636,6 +637,7 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
         <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
           <PullRequestTitle title={pullRequest.title} lead={pullRequest.titleLead} />
         </span>
+        {item.shown === true && <ShownBadge className="h-4 px-1.5" hint={formatOwnShownHint(branchName, pullRequest.number)} />}
         <MetaPlace>
           <span className={META_CLASS_NAME} data-testid="returned-pull-request-meta">
             {formatReturnedMeta(pullRequest)}

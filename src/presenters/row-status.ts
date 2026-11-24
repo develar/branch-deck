@@ -164,7 +164,7 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
 function shownTexts(number: number, state: ShownState, branch: string): StatusTexts {
   switch (state.kind) {
     case "draft":
-      return { text: "review after landing", tooltip: `#${number} opens for review once the Safe Push of ${branch} merges`, color: "neutral" }
+      return { text: "review after landing", tooltip: `${branch} is landing: once its Safe Push merges, #${number} opens and its reviewers are asked`, color: "neutral" }
     case "inReview":
       return {
         text: "in review after landing",
@@ -178,11 +178,15 @@ function shownTexts(number: number, state: ShownState, branch: string): StatusTe
         color: "error",
       }
     case "approved":
-      return { text: "approved after landing", tooltip: `Approved by ${joinNames(state.by)} in #${number}: it closes with its branches`, color: "success" }
+      return {
+        text: "approved after landing",
+        tooltip: `Approved by ${joinNames(state.by)}: #${number} closes and its branches are deleted; the change stays in master`,
+        color: "success",
+      }
     case "extending":
       return {
         text: "fix goes into review after landing",
-        tooltip: `A fix of ${branch} lands: #${number} takes it once its Safe Push merged and asks its reviewers again`,
+        tooltip: `A fix of ${branch} is landing: once its Safe Push merges, it goes into #${number} and the reviewers are asked again`,
         color: "neutral",
       }
   }
