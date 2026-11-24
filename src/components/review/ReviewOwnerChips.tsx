@@ -1,10 +1,14 @@
+import { useState } from "react"
+import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
 import { CheckIcon, ShieldAlertIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox"
+import { toggleVariants } from "@/components/ui/toggle"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { FilesCount } from "@/components/commit/CommitReview"
 import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import { canonicalOwnerFilter, ownerChipKey, ownerEmptyText, ownerPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
+import { canonicalOwnerFilter, ownerChipKey, ownerChipRow, ownerEmptyText, ownerPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip, ReviewOwners } from "@/lib/review-owners"
 
 /*
@@ -70,25 +74,78 @@ export function ReviewOwnerChips({
 
 function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
   // a chip by its filter (a group and an owner may share a label), the one shown by the filter of the review
-  const chosen = ownerChipKey(canonicalOwnerFilter(chips, filter))
+  const canonical = canonicalOwnerFilter(chips, filter)
+  const chosen = ownerChipKey(canonical)
+  const { shown, more } = ownerChipRow(chips, canonical)
   return (
-    <FilterChips
-      label="Files of"
-      value={chosen}
-      onValueChange={key => {
-        const chip = chips.find(it => ownerChipKey(it.filter) === key)
-        if (chip !== undefined) {
-          onFilterChange(chip.filter)
+    <>
+      <FilterChips
+        label="Files of"
+        value={chosen}
+        onValueChange={key => {
+          const chip = chips.find(it => ownerChipKey(it.filter) === key)
+          if (chip !== undefined) {
+            onFilterChange(chip.filter)
+          }
+        }}
+        // All pressed while it is chosen: chosen on purpose, so the groups that come later do not move it
+        onChosenPress={() => onFilterChange(filter)}
+        data-testid="branch-review-owners"
+      >
+        {shown.map(chip => (
+          <OwnerChip key={ownerChipKey(chip.filter)} chip={chip} />
+        ))}
+      </FilterChips>
+      {more.length > 0 && <MoreOwners chips={more} onChoose={onFilterChange} />}
+    </>
+  )
+}
+
+/**
+ * "N More": the chips the header has no room for, each found by its name in a search, with the shield of a group that
+ * still needs its approval; the trigger shows the shield too while one of them does
+ */
+function MoreOwners({ chips, onChoose }: { chips: readonly ReviewFilterChip[]; onChoose: (filter: ReviewFilter) => void }) {
+  const [open, setOpen] = useState(false)
+  const awaiting = chips.filter(chip => chip.needsApproval && !chip.approved).length
+  return (
+    <Combobox<ReviewFilterChip>
+      items={chips}
+      value={null}
+      open={open}
+      onOpenChange={setOpen}
+      onValueChange={chip => {
+        if (chip !== null) {
+          onChoose(chip.filter)
+          setOpen(false)
         }
       }}
-      // All pressed while it is chosen: chosen on purpose, so the groups that come later do not move it
-      onChosenPress={() => onFilterChange(filter)}
-      data-testid="branch-review-owners"
+      itemToStringLabel={chip => chip.label}
+      isItemEqualToValue={(item, value) => ownerChipKey(item.filter) === ownerChipKey(value.filter)}
     >
-      {chips.map(chip => (
-        <OwnerChip key={ownerChipKey(chip.filter)} chip={chip} />
-      ))}
-    </FilterChips>
+      <ComboboxPrimitive.Trigger
+        className={toggleVariants({ variant: "outline", size: "sm" })}
+        aria-label={awaiting > 0 ? `${chips.length} more owners, ${awaiting} of them need approval` : `${chips.length} more owners`}
+        data-testid="branch-review-more-owners"
+      >
+        {awaiting > 0 && <ShieldAlertIcon data-icon="inline-start" className="text-warning" />}
+        {chips.length} More
+      </ComboboxPrimitive.Trigger>
+      <ComboboxContent className="w-80">
+        <ComboboxInput showTrigger={false} placeholder="Search owners" aria-label="Owner" />
+        <ComboboxEmpty>No owner matches</ComboboxEmpty>
+        <ComboboxList data-testid="branch-review-more-owner-list">
+          {(chip: ReviewFilterChip) => (
+            <ComboboxItem key={ownerChipKey(chip.filter)} value={chip} disabled={chip.count === null} data-testid="branch-review-more-owner">
+              {chip.needsApproval && (chip.approved ? <CheckIcon className="text-success" /> : <ShieldAlertIcon className="text-warning" />)}
+              <span className="min-w-0 flex-1 truncate">{chip.label}</span>
+              {chip.yours && <span className="text-muted-foreground">You</span>}
+              {chip.count !== null && <span className="text-muted-foreground tabular-nums">{chip.count}</span>}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   )
 }
 

@@ -1083,6 +1083,94 @@ pub mod templates {
 
   /// One commit of nine files in three modules, enough for the search of the files of a review
   /// (`FILE_FILTER_MIN_FILES`): `parser`, `lexer` and `printer`, each with a source, a test and a README
+  /// The modules of `generated_range`: a generator's run over a monorepo writes the build file of each
+  pub const GENERATED_RANGE_MODULES: usize = 3000;
+
+  /// A branch of the shape of a generator's run over a monorepo, `jps-bridge`: a commit a person wrote (the record of
+  /// a module, its converter, its test and its spec), then one whose files a tool wrote, the section the generator
+  /// writes into the `BUILD.bazel` of each of `GENERATED_RANGE_MODULES` modules rewritten and a `load` line added, the
+  /// list of the generated files and the lock file too. Each group of a hundred modules has its owner by an
+  /// `OWNERSHIP` file (`Team 0` … `Team 29`), the build its own (`Build Tools`)
+  pub fn generated_range() -> RepoTemplate {
+    let build = |index: usize, record: bool| -> String {
+      let name = format!("intellij.m{index}");
+      let (load, section) = if record {
+        (
+          "load(\"@community//build:jps_module.bzl\", \"jps_module\")\n",
+          format!("jps_module(\n    name = \"{name}\",\n    target = \"m{index}\",\n)\n"),
+        )
+      } else {
+        ("", format!("exports_files(\n    [\"{name}.iml\"],\n    visibility = [\"//visibility:public\"],\n)\n"))
+      };
+      format!(
+        "{load}load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\")\n\njvm_library(name = \"m{index}\")\n\n### auto-generated section `iml {name}` start\n{section}### auto-generated section `iml {name}` end\n"
+      )
+    };
+    let path = |index: usize| format!("modules/group{}/m{index}/BUILD.bazel", index / 100);
+    let builds = |record: bool| -> Vec<(String, String)> { (0..GENERATED_RANGE_MODULES).map(|index| (path(index), build(index, record))).collect() };
+    let before = builds(false);
+    let after = builds(true);
+    let mut initial: Vec<(&str, &str)> = before.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+    initial.push(("build/src/Converter.kt", "class Converter {\n  fun convert(module: String) = module\n}\n"));
+    let ownership: Vec<(String, String)> = (0..GENERATED_RANGE_MODULES.div_ceil(100))
+      .map(|group| (format!("modules/group{group}/OWNERSHIP"), format!("owner 'Team {group}'\n")))
+      .chain([("build/OWNERSHIP".to_string(), "owner 'Build Tools'\n".to_string())])
+      .collect();
+    initial.extend(ownership.iter().map(|(path, text)| (path.as_str(), text.as_str())));
+    let hand = [
+      (
+        "build/src/Converter.kt",
+        "class Converter {\n  fun convert(module: String) = JpsModule(module).record()\n}\n",
+      ),
+      (
+        "build/src/JpsModule.kt",
+        "class JpsModule(val name: String) {\n  fun record() = \"jps_module(name = $name)\"\n}\n",
+      ),
+      (
+        "build/testSrc/JpsModuleTest.kt",
+        "class JpsModuleTest {\n  fun recordsItsName() = JpsModule(\"a\").record()\n}\n",
+      ),
+      (
+        "build/jps_module.bzl",
+        "def jps_module(name, target):\n    native.filegroup(name = name, srcs = [target])\n",
+      ),
+      (
+        "build/openspec/specs/generation/spec.md",
+        "# Generation\n\n## Requirement: The record of each JPS module is in its package\n\nThe converter MUST write the record of each module into its package.\n",
+      ),
+    ];
+    let list = |record: bool| -> String {
+      (0..GENERATED_RANGE_MODULES)
+        .map(|index| {
+          if record {
+            format!("{}:jps_module\n", path(index))
+          } else {
+            format!("{}\n", path(index))
+          }
+        })
+        .collect()
+    };
+    let (list_before, list_after) = (list(false), list(true));
+    initial.push(("build/bazel-generated-file-list.txt", &list_before));
+    initial.push(("MODULE.bazel.lock", "{\n  \"lockFileVersion\": 18\n}\n"));
+    let mut generated: Vec<(&str, &str)> = after.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+    generated.push(("build/bazel-generated-file-list.txt", &list_after));
+    generated.push(("MODULE.bazel.lock", "{\n  \"lockFileVersion\": 18,\n  \"moduleExtensions\": {}\n}\n"));
+    generated.push((
+      "build/dist_plugin.bzl",
+      "def dist_plugin(name, modules):\n    native.filegroup(name = name, srcs = modules)\n",
+    ));
+    RepoTemplate::new("generated_range")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &initial, Some(1704117600))
+      .commit_with_timestamp("(jps-bridge) the record of each JPS module is in its package", &hand, Some(1704119400))
+      .commit_with_timestamp(
+        "(jps-bridge) tool output only, the record of each JPS module is in its package",
+        &generated,
+        Some(1704121200),
+      )
+  }
+
   pub fn commit_many_files() -> RepoTemplate {
     RepoTemplate::new("commit_many_files")
       .branch_prefix("user-name")

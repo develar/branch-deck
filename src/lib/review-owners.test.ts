@@ -5,6 +5,7 @@ import {
   canonicalOwnerFilter,
   initialOwnerFilter,
   ownerChipKey,
+  ownerChipRow,
   ownerEmptyText,
   ownerLabel,
   ownerPaths,
@@ -72,6 +73,31 @@ describe("reviewFilterChips", () => {
       ["All", 0],
       ["No Owner", 0],
     ])
+  })
+})
+
+describe("ownerChipRow", () => {
+  // a change of a file per owner: hundreds of owners, as a generator's run over a monorepo has
+  const many = Array.from({ length: 30 }, (_, index) => file(`m${index}/BUILD.bazel`))
+  const manyOwners = new Map(many.map((it, index) => [it.path, `Team ${String(index).padStart(2, "0")}`]))
+  const chips = reviewFilterChips(many, [{ name: "Bazel QA", paths: [], branchWide: true }], manyOwners)
+  const labels = (list: readonly { label: string }[]) => list.map(chip => chip.label)
+
+  it("shows the first chips in their order and keeps the others for N More", () => {
+    const { shown, more } = ownerChipRow(chips, { kind: "all" }, 4)
+    expect(labels(shown)).toEqual(["All", "Bazel QA", "Team 00", "Team 01"])
+    expect(more).toHaveLength(chips.length - 4)
+    expect(labels(more).slice(0, 2)).toEqual(["Team 02", "Team 03"])
+  })
+
+  it("shows the chosen chip of N More in the header, and N More no more", () => {
+    const { shown, more } = ownerChipRow(chips, { kind: "owner", name: "Team 20" }, 4)
+    expect(labels(shown)).toEqual(["All", "Bazel QA", "Team 00", "Team 01", "Team 20"])
+    expect(labels(more)).not.toContain("Team 20")
+  })
+
+  it("shows every chip where one more would be all N More holds", () => {
+    expect(ownerChipRow(chips.slice(0, 5), { kind: "all" }, 4)).toEqual({ shown: chips.slice(0, 5), more: [] })
   })
 })
 

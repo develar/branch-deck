@@ -739,6 +739,39 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
+  test("should keep the tree in view under the chips of tens of owners, the others under N More with their search", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `generated_range` template: jps-bridge, 3008 files, the 3000 generated BUILD.bazel of Team 0 … Team 29 (a hundred
+    // each), the 7 of build/ of Build Tools, the lock file at the root of no owner: 33 chips with All
+    await setupRepo("generated_range")
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "jps-bridge")
+    const tree = page.getByRole("tree", { name: "Changed files" })
+    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+    const more = page.getByTestId("branch-review-more-owners")
+
+    // the header shows All and the owners of the most files, of as many in the order of their numbers, the others under
+    // N More: the tree keeps its place below
+    await expect.poll(() => ownerChips(page)).toEqual(["All3008", "Team 0100", "Team 1100", "Team 2100", "Team 3100", "Team 4100", "Team 5100", "Team 6100"])
+    await expect(more).toHaveText("25 More")
+    await expect(tree.getByRole("treeitem").first()).toBeInViewport()
+
+    // N More finds an owner by its name; the chosen one shows in the header, pressed, and marks its files
+    await more.click()
+    await page.getByRole("combobox", { name: "Owner", exact: true }).fill("build")
+    await expect(page.getByTestId("branch-review-more-owner")).toHaveText(["Build Tools7"])
+    await page.getByRole("option", { name: /Build Tools/ }).click()
+    await expect(owner("Build Tools")).toHaveAttribute("aria-pressed", "true")
+    await expect(more).toHaveText("24 More")
+    await expect(page.getByTestId("review-files-header")).toContainText("7 of 3008")
+    await expect(tree.getByRole("treeitem", { name: "Converter.kt" })).toBeInViewport()
+    await expect(tree.getByRole("treeitem", { name: "BUILD.bazel" })).toHaveCount(0)
+
+    // All again: the chip of Build Tools goes back under N More
+    await owner("All").click()
+    await expect(owner("Build Tools")).toHaveCount(0)
+    await expect(more).toHaveText("25 More")
+  })
+
   test("should open on the owner chip last chosen in a review window of the repository where it marks files", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()

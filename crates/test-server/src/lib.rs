@@ -528,6 +528,8 @@ pub enum RepositoryTemplate {
   CommitDeleted,
   #[serde(rename = "commit_many_files")]
   CommitManyFiles,
+  #[serde(rename = "generated_range")]
+  GeneratedRange,
   #[serde(rename = "commit_whitespace")]
   CommitWhitespace,
   #[serde(rename = "commit_marks")]
@@ -653,6 +655,7 @@ impl RepositoryTemplate {
       Self::CommitTree => "commit_tree",
       Self::CommitDeleted => "commit_deleted",
       Self::CommitManyFiles => "commit_many_files",
+      Self::GeneratedRange => "generated_range",
       Self::CommitWhitespace => "commit_whitespace",
       Self::CommitMarks => "commit_marks",
       Self::DeclarationMoves => "declaration_moves",

@@ -120,7 +120,7 @@ export function reviewFilterChips(
       }
     }
     const others = [...counts].filter(([owner]) => !groups.some(group => sameName(group.name, owner)))
-    others.sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))
+    others.sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b, undefined, { numeric: true }))
     for (const [owner, count] of others) {
       chips.push({ filter: { kind: "owner", name: owner }, label: owner, count, needsApproval: false, yours: false, approved: false })
     }
@@ -137,6 +137,33 @@ export function reviewFilterChips(
   }
   // one chip beside "All" that marks every file marks nothing
   return chips.length === 2 && !chips[1]!.needsApproval && chips[1]!.count === files.length ? [all] : chips
+}
+
+/**
+ * The chips the header of the files shows before "N More" (openspec/specs/branch/branch-review/spec.md, "Code owners: The
+ * chips stay a few rows"): a change of thousands of files has hundreds of owners, whose chips would push the tree out of
+ * the sidebar
+ */
+export const SHOWN_OWNER_CHIPS = 8
+
+/** The chips of the header of the files and those under "N More", each list in the order of `reviewFilterChips` */
+export interface OwnerChipRow {
+  readonly shown: readonly ReviewFilterChip[]
+  readonly more: readonly ReviewFilterChip[]
+}
+
+/**
+ * The first `limit` chips of `chips` in the header and the chosen one wherever it stands, the others under "N More"; all of
+ * them in the header when one chip more would be all "N More" holds
+ */
+export function ownerChipRow(chips: readonly ReviewFilterChip[], chosen: ReviewFilter, limit: number = SHOWN_OWNER_CHIPS): OwnerChipRow {
+  if (chips.length <= limit + 1) {
+    return { shown: chips, more: [] }
+  }
+  const chosenKey = ownerChipKey(chosen)
+  const isChosen = (chip: ReviewFilterChip) => ownerChipKey(chip.filter) === chosenKey
+  const rest = chips.slice(limit)
+  return { shown: [...chips.slice(0, limit), ...rest.filter(isChosen)], more: rest.filter(chip => !isChosen(chip)) }
 }
 
 /**

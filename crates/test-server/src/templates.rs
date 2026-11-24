@@ -37,6 +37,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("commit_tree", |path| templates::commit_tree().build(path)),
   ("commit_deleted", |path| templates::commit_deleted().build(path)),
   ("commit_many_files", |path| templates::commit_many_files().build(path)),
+  ("generated_range", |path| templates::generated_range().build(path)),
   ("commit_whitespace", |path| templates::commit_whitespace().build(path)),
   ("commit_marks", |path| templates::commit_marks().build(path)),
   ("declaration_moves", |path| templates::declaration_moves().build(path)),
