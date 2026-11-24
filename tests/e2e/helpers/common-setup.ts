@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import type { CachedModel } from "../../../src/lib/bindings"
-import { allowErrorLog, expect } from "../fixtures/base-test"
+import { expect } from "../fixtures/base-test"
 import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { registerWindowBuild } from "./sub-window-helpers"
@@ -194,6 +194,10 @@ export async function setupTestRepository(page: Page, templateName: string, opti
 
   await page.addInitScript(
     ({ storeValues, version }) => {
+      // no app on a blank page (`reloadWarm`), whose storage is no app's
+      if (window.location.href === "about:blank") {
+        return
+      }
       // Inject the store values just like Tauri does in production: a window starts from the writer's copy as it is
       // now, so a reload starts from the changes the page heard since, at the version of the last one
       // (`rememberStoreChange` of `tauri-mocks.ts`); a test's own init script may change the copy after this one
@@ -275,22 +279,26 @@ export async function injectWarmModel(page: Page, model: CachedModel): Promise<v
 }
 
 /**
- * The app quits and starts again warm: the sessions of the repository close (each saves its frame), the start opens the
- * session seeded from the frame, and the page loads again with that seed (`window.__BD_MODEL__`); answers the seed
+ * The app quits and starts again warm, in the order of an app: its window goes first (the page of the test leaves for
+ * `about:blank`), so no page hears the end of its sessions or subscribes again while its window is forgotten; then the
+ * sessions of the repository close (each saves its frame), the start opens the session seeded from the frame, and the
+ * page loads again with that seed (`window.__BD_MODEL__`); answers the seed
  */
 export async function reloadWarm(page: Page, repo: TestRepositoryBuilder): Promise<CachedModel> {
-  allowErrorLog(
-    page,
-    /^Cannot subscribe to the branches of the repository: The page of the window went away while it subscribed$/,
-    "the quit of the app forgets its windows while the page of the test still lives: a subscribe of that page then in flight is refused, which a window of an app that quits never sees",
-  )
+  const url = page.url()
+  // a request the page still has fails as it leaves, which base-test counts no error of the app (`[e2e-leaving]`)
+  await page.evaluate(() => {
+    ;(window as unknown as { __e2eLeaving: boolean }).__e2eLeaving = true
+    console.info("[e2e-leaving]")
+  })
+  await page.goto("about:blank")
   await repo.closeSessions()
   const model = await repo.warmStartModel()
   if (model === null) {
     throw new Error("The frame of the repository seeds no session")
   }
   await injectWarmModel(page, model)
-  await page.reload()
+  await page.goto(url)
   return model
 }
 

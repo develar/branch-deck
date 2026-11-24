@@ -24,6 +24,11 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
 
   debug("[Test Mock] Initializing Tauri mocks...")
 
+  // no app on a blank page: the window of an app that quits (`reloadWarm`) leaves for `about:blank` first
+  if (window.location.href === "about:blank") {
+    return
+  }
+
   // the mock server serves the page, on the port of this run (E2E_PORT)
   const serverUrl = window.location.origin
 
