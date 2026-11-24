@@ -31,7 +31,7 @@ rules:
 operations:
   apply:
     guidance:
-      - Verify by the table in AGENTS.md ("Verification"); heavy runs go to the Studio with `brd-host run studio -- <command>`.
+      - Verify by the table in AGENTS.md ("Verification"); heavy runs go to a host with `brd-host run any -- <command>` (`studio` where the set `any` is not set up).
   archive:
     guidance:
       - Archive in the commit of the code, so that the specs of master always describe the code.

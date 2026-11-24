@@ -1,6 +1,6 @@
 # Runs on Another Mac (`brd-host`)
 
-**Updated:** 2026-11-21  
+**Updated:** 2026-11-24  
 **Tags:** [brd-host, host, remote-run, setup]
 
 `brd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
@@ -175,6 +175,8 @@ brd-host run any --max 9m -- pnpm lint:backend
 - `wait`, `cancel`, `follow`, `fetch` and `forget` take the name of the set too, and go to the member that took the run.
 - `hostJobs` stays below `hostCores`: a command that uses every core counts as one of the whole host and waits for a
   quiet one.
+- The run that measures a command waits for the whole host, as no measure says what it needs, and starts after 15 min
+  in the queue on a busy Mac. On a short disk, `git config --global branchdeck.hostSlots 2` keeps fewer warm slots.
 - A set takes no `--exclusive`: a measurement names the host it measures.
 - `brd-host set any` prints the set, and `brd-host set any studio` writes it again with one member.
 

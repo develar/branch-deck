@@ -95,8 +95,8 @@ pass only on a retry is FLAKY and fails the run: a race to fix. `cargo nextest r
 `create_commit*` or `commit_with`, `with_history` for many commits; never a `git config` process per key, a sleep, or
 a wall-clock limit an assertion depends on.
 
-**Heavy runs go to the Mac Studio**: full `cargo nextest run --workspace`, `pnpm e2e`, `pnpm lint:backend` run as
-`brd-host run studio --max 9m -- <command>` (or a set) from the lease, `brd-host wait` on 124; exit 75 but
+**Heavy runs go to a host**: `cargo nextest run --workspace`, `pnpm e2e`, `pnpm lint:backend` run as
+`brd-host run any --max 9m -- <command>` (no set `any`: `studio`) from the lease, `brd-host wait` on 124; exit 75 but
 `heavy_timeout`, `superseded` or `busy`: run it here ([Studio Runs](docs/contributing/studio-runs.md): the wait,
 `--apply`). **One heavy run, one check**: an A/B loop or `zsh -c 'a && b'` holds it an hour.
 

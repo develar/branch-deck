@@ -1,7 +1,7 @@
 # Checks
 
 **Status:** Active  
-**Updated:** 2026-10-29  
+**Updated:** 2026-11-24  
 **Tags:** [tests, lint, nextest, e2e]
 
 ## Summary
@@ -30,11 +30,13 @@ assertion depends on. `pnpm perf:test-processes measure|summarize|compare` count
 processes of every test, which the load of the machine does not change, and splits the time of each test into its
 time in git and beside git (`pnpm test:perf` tests the script).
 
-**Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
-`pnpm lint:backend` run as `brd-host run studio -- <command>` from the lease, on its working tree, committed or not
-([Studio Runs](studio-runs.md), `[host]` of `.branchdeck.toml`). This Mac runs several agents at once,
-and under that load the suites take far longer and E2E fails on timeouts. What a command edits (`cargo fmt`,
-`pnpm e2e-up`, `UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: the Studio did not run it, run it here.
+**Heavy runs go to a host**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
+`pnpm lint:backend` run as `brd-host run any -- <command>` from the lease, on its working tree, committed or not
+([Studio Runs](studio-runs.md), `[host]` of `.branchdeck.toml`). The set `any` is the Mac Studio and this Mac, which
+takes a run only when it has room at once; where `brd-host set any` prints no set, run to `studio`. This Mac runs
+several agents at once, and under that load a plain run of the suites takes far longer and E2E fails on timeouts. What
+a command edits (`cargo fmt`, `pnpm e2e-up`, `UPDATE_BINDINGS=1`) comes back with `--apply`. Exit code 75: no host
+ran it; run it here, but never after `heavy_timeout`, `superseded` or `busy`.
 
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
 the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
@@ -93,8 +95,8 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 
 pnpm test                 # test:backend + test:unit + test:perf (Rust, Vitest and the perf scripts; not E2E)
 pnpm test:backend         # cargo nextest run --workspace
-brd-host run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
-brd-host run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, pnpm fix:backend)
+brd-host run any -- cargo nextest run --workspace  # The same on the host where it ends first, on this working tree
+brd-host run any -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, pnpm fix:backend)
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 pnpm test:perf            # node --test of scripts/perf/test-processes.test.mjs

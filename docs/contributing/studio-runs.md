@@ -1,30 +1,39 @@
-# Runs on the Mac Studio (`brd-host run studio`)
+# Runs on the Mac Studio and This Mac (`brd-host run any`)
 
 **Status:** Active  
 **Updated:** 2026-11-24  
-**Tags:** [tests, e2e, nextest, studio, brd-host]
+**Tags:** [tests, e2e, nextest, studio, brd-host, host-set]
 
 ## Summary
 
 This Mac runs several agents at once; under that load a full `cargo nextest run --workspace` takes minutes longer
-and a full `pnpm e2e` fails on timeouts. The heavy checks run on the Mac Studio, the user's second Mac, through
-`brd-host` ([brd-host](../../openspec/specs/cli/host/spec.md), [Host Runs](../design/host-runs.md)): the client
-`~/.local/bin/brd-host` here, which `brd install` links to the app bundle, and `brd-host serve` there. A run ships the
-working tree as it is, committed or not, runs the command in a warm host slot that the Studio lends to that run,
-streams its output here and exits with the command's exit code. `brd-host skill install` writes the skill of the
+and a full `pnpm e2e` fails on timeouts. The heavy checks run on a host through `brd-host`
+([brd-host](../../openspec/specs/cli/host/spec.md), [Host Runs](../design/host-runs.md)): the client
+`~/.local/bin/brd-host` here, which `brd install` links to the app bundle, and `brd-host serve` on the host. A run
+ships the working tree as it is, committed or not, runs the command in a warm host slot that the host lends to that
+run, streams its output here and exits with the command's exit code. `brd-host skill install` writes the skill of the
 binary, with the spec as its reference. The setup of a host is in [Runs on Another Mac](../guide/host-runs.md).
 
+The target is the set `any`: the Mac Studio, the user's second Mac, first, and this Mac as a member that takes a run
+only when it has room at once (`idle_only`). A run goes to the member where it would end first, so the agents of a
+burst no longer queue one by one on the Studio. Where `brd-host set any` prints no set (another Mac, a new setup), run
+to `studio`: never treat the `no_host` of `any` as a reason to run the command here.
+
 ```bash
-brd-host run studio -- cargo nextest run --workspace          # the Rust suite
-brd-host run studio -- pnpm e2e                               # the whole E2E suite
-brd-host run studio -- pnpm e2e tests/e2e/branch-row.spec.ts  # one spec
-brd-host run studio -- env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts
-brd-host run studio -- pnpm lint:backend                      # cargo fmt --check and clippy: a check, edits nothing
-brd-host run studio --apply -- pnpm fix:backend               # the edits of cargo fmt and clippy --fix come back here
-brd-host run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
-brd-host run studio --heavy -- sh -c 'cargo build --release'   # a heavy command that `heavy` of [host] does not name
-brd-host run studio --fetch notes.local -- zsh -c 'mkdir -p notes.local; cargo nextest run -p host-link > notes.local/nt-1.log 2>&1'
+brd-host run any -- cargo nextest run --workspace          # the Rust suite
+brd-host run any -- pnpm e2e                               # the whole E2E suite
+brd-host run any -- pnpm e2e tests/e2e/branch-row.spec.ts  # one spec
+brd-host run any -- env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts
+brd-host run any -- pnpm lint:backend                      # cargo fmt --check and clippy: a check, edits nothing
+brd-host run any --apply -- pnpm fix:backend               # the edits of cargo fmt and clippy --fix come back here
+brd-host run any --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
+brd-host run any --heavy -- sh -c 'cargo build --release'   # a heavy command that `heavy` of [host] does not name
+brd-host run any --fetch notes.local -- zsh -c 'mkdir -p notes.local; cargo nextest run -p host-link > notes.local/nt-1.log 2>&1'
+brd-host run studio --exclusive -- <measurement>            # a measurement names its host: a set takes no --exclusive
 ```
+
+The rest of this page says `studio` where a fact is of the Studio (its 20 cores, its disk); `runs`, `slots`, `stats`
+and `disk` name one host, `wait`, `cancel`, `follow`, `fetch` and `forget` take `any` too and go to the member that took the run.
 
 yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host took them over and yonderd was retired.
 
@@ -84,8 +93,15 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   line; a heavy run goes to this Mac only with a measure of the command here, and only when its agent admits it at
   once, else `busy` sends it to the Studio. A `busy` line is no end; a run that every member refused exits 75 with
   `busy`: nothing ran, so run it to the set again later, never here. `brd-host wait any <run>` goes to the member that
-  took it. A run that is not heavy goes at once. Start a run that can take minutes as `brd-host run studio --max 9m -- <command>`
-  and, while it exits 124 (`still_running`), `brd-host wait studio <run>`: each call says only the changes of the state
+  took it. A run that is not heavy goes at once. This Mac is the host `local` (`brd-host setup --local --repo
+  ~/projects/branch-deck`), and its global git config gives the heavy runs 12 of its 18 cores
+  (`branchdeck.hostCores`), 6 jobs per command (`branchdeck.hostJobs`) and 2 slots (`branchdeck.hostSlots`), as its
+  disk is short. It measured `pnpm lint:backend` and `cargo nextest run --workspace` once each; `pnpm e2e` has no
+  measure there, so it stays on the Studio. A new heavy command gets its measure here with `brd-host run local --
+  <command>` (`--heavy` where `heavy` of `[host]` does not name it): without a measure it waits for the whole host, and
+  starts on a free turn after 15 min.
+- **Long runs**: start a run that can take minutes as `brd-host run any --max 9m -- <command>`
+  and, while it exits 124 (`still_running`), `brd-host wait any <run>`: each call says only the changes of the state
   of the run and ends before the 10 min of a tool call, the run goes on past it, and the end gives a summary with the
   path of the log of the whole output. SIGTERM and SIGHUP of `brd-host run` cancel the run there, as Ctrl+C does, so
   never a `timeout` wrapper, a run in the background with a marker file, or a `brd-host follow` loop.
@@ -118,3 +134,9 @@ On 2026-10-24, with yonder, Studio load 4 to 22: `cargo nextest run --workspace`
 tests), `pnpm e2e` 2 min 34 s, an `--apply` of `cargo fmt` 2.1 s, a rerun of the same tree sends no pack. On
 2026-10-28, with brd-host: `cargo nextest run --workspace --no-fail-fast` 4 min 48 s in a warm slot (239.6 s of tests,
 3605 tests), and 0.6 s of it before the command.
+
+On 2026-11-24 this Mac became the member `local` of `any`. Its first runs, in new slots under a load of 40 to 140 of
+the agent sessions: `pnpm lint:backend` 13 min 45 s (0.5 cores on average), `cargo nextest run --workspace` 46 min 37 s
+(5400 tests, 1.1 cores), each after 15 min of waiting for the whole host. The next run to `any` chose the Studio:
+`studio: starts now after a run of an unknown length, runs ~57 s; local: starts in ~46 min, runs ~14 min, only at
+once; chose studio`. A measure is of the last 5 runs of a command, so warm runs at a lower load replace these.

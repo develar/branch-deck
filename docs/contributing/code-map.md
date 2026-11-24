@@ -263,7 +263,7 @@ tests/
 - [Agent CLI](agent-cli.md) - The `brd` commands, their JSON, error codes and exit codes
 - [Platform Checks](platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
 - [Fast Rust Tests](rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
-- [Studio Runs](studio-runs.md) - `brd-host run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
+- [Studio Runs](studio-runs.md) - `brd-host run any -- <command>`: a heavy check on the Mac Studio or this Mac, where it ends first, on the exact working tree of a lease, in a warm host slot that the host lends to that run
 - [Real App Checks](real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](imports.md) - No re-exports policy and proper import patterns
 - [UX Writing](ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation
