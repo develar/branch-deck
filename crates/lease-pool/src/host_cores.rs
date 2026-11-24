@@ -15,6 +15,11 @@
 //! wait. Their locks are leaves, taken one after the other. A repository and command whose last entry is older than
 //! `FORGET_AFTER` leaves its table. `walls.json` is a file of its own: a supervisor of the build before rewrites
 //! `cores.json` without the fields it does not know
+//!
+//! A run whose command was starved adds no measure and no wall (`starved`): when the rest of the host used more cores
+//! on average beside it than the cores of the host left for its own mean, as on a laptop under the load of agent
+//! sessions, its measure tells the load, not the command. A command that only ever runs starved keeps no measure, so it
+//! runs alone, as a new command does
 
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
@@ -167,6 +172,19 @@ fn of_this_schema(dir: &Path, name: &str, schema: u32) -> Result<()> {
     );
   }
   Ok(())
+}
+
+/// Why the measure of a run of `mean` cores is no measure of its command, on a host whose heavy runs share `cores`: the
+/// rest of the host used `outside` cores on average beside it (the busy cores of the host less the run's own, by the
+/// time of each sample), more than the cores of the host left for `mean`, the room that an admission of the heavy turn
+/// counts. `None` when it had that room, or without a sample of the host (`outside` `None`)
+pub fn starved(outside: Option<Cores>, mean: Cores, cores: u32) -> Option<String> {
+  let outside = outside?;
+  (outside.saturating_add(mean) > Cores::whole(cores)).then(|| {
+    format!(
+      "this run adds no measure of its command: the rest of the host used {outside} cores on average beside its {mean}, past the {cores} of the host, so its time tells the load and not the command"
+    )
+  })
 }
 
 /// The cores that the last runs of `command_key` in `repo` lead to expect: the 80th percentile of their means, by the

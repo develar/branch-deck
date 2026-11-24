@@ -537,6 +537,67 @@ fn a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound(
   assert_eq!(agent.follow("17-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("17-2"));
 }
 
+/// A run beside a host busier than the cores of the host leave for it adds no measure of its command and says why, as
+/// its time tells the load; the same command beside a host without a sample adds its measure as before
+#[test]
+fn a_run_starved_by_the_rest_of_the_host_adds_no_measure_of_its_command() {
+  let world = World::new(1, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "4"), ("BD_HOST_TEST_SAMPLE_MS", "100"), ("BD_HOST_TEST_MIN_WALL_MS", "0")]);
+  let (gate, _marks) = gate_and_marks(&world);
+  let heavy_dir = world.home.path().join(".cache/brd-host/heavy");
+  fs::create_dir_all(&heavy_dir).expect("the directory of the heavy turn");
+  let cores_of_commands = heavy_dir.join("cores.json");
+  // the sampler of `serve` is off in the tests: the test is the sampler, a host of 20 busy cores, fresh at each look
+  let busy_host = || {
+    let now = u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()).unwrap();
+    fs::write(heavy_dir.join("host.json"), format!(r#"{{"busy": 20.0, "at_ms": {now}}}"#)).expect("a sample of the host");
+  };
+  let samples = |run: &str| {
+    fs::read_to_string(world.run_dir(run).join("cores.json"))
+      .ok()
+      .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+      .and_then(|file| file["samples"].as_array().map(Vec::len))
+      .unwrap_or(0)
+  };
+  let command = world.spec("19-1", &wait_for(&gate)).command;
+  let run = |id: &str| RunSpec {
+    command: command.clone(),
+    ..world.spec(id, "")
+  };
+
+  busy_host();
+  agent.start(run("19-1"));
+  eventually("the run has samples beside the busy host", || {
+    busy_host();
+    samples("19-1") >= 2
+  });
+  busy_host();
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("19-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("19-1"));
+  let said = events(&world, "19-1");
+  let line = said
+    .lines()
+    .find(|line| line.contains("brd-host: this run adds no measure of its command: the rest of the host used "));
+  assert!(
+    line.is_some_and(|line| line.contains(" past the 4 of the host, so its time tells the load and not the command")),
+    "{}",
+    agent.dump("19-1")
+  );
+  assert!(
+    !fs::read_to_string(&cores_of_commands).unwrap_or_default().contains("19-1"),
+    "no measure of the starved run"
+  );
+
+  fs::remove_file(heavy_dir.join("host.json")).expect("no sample of the host");
+  agent.start(run("19-2"));
+  assert_eq!(agent.follow("19-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("19-2"));
+  assert!(!events(&world, "19-2").contains("adds no measure"), "{}", agent.dump("19-2"));
+  assert!(
+    fs::read_to_string(&cores_of_commands).unwrap_or_default().contains("19-2"),
+    "the measure of a run with room"
+  );
+}
+
 /// A heavy command that passed 3 times within 2 min is short: its run goes ahead of a run that waits for the whole host
 /// behind the holder, says so, and `Request::Runs` names the pass; a failed run adds no wall, so only the passed runs
 /// are in `walls.json`, and both waiting runs run once the holder ends

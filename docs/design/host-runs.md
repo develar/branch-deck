@@ -255,6 +255,16 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   expected heavier at its next run, one that got lighter (a faster fast lane) frees its cores within a few runs, and a
   cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use, so a run that
   grows past its expectation holds more at once, for the admissions that follow, not only at its end.
+- **A starved run adds no measure** (`lease_pool::host_cores::starved`): beside each sample the supervisor notes the busy
+  cores of the whole host by the sample of `serve` (`host.json`), less the run's own, and at the end it keeps no measure
+  and no wall when their mean and the run's mean exceed the cores of the host (`branchdeck.hostCores`), the room that
+  an admission counts. Its log says so in one line. On 2026-11-24 the first runs of a laptop host under a load of 40 to
+  140 of agent sessions measured `pnpm lint:backend` at 0.5 cores in 13 min 45 s (58 s and 6.7 cores on the Studio)
+  and `cargo nextest run --workspace` at 1.1 cores in 46 min 37 s: a starved measure tells the admission that the
+  command needs almost nothing, so the laptop takes it beside the next load and starves it again, while its estimate
+  says the wall of the load. A start by the load bound (15 min) is no reason of its own: the load may end after the
+  start, and the measure is right then. A host that is never quiet so keeps a command without a measure, and its runs
+  take the whole host, as the runs of a new command do; a member of a set takes no such run.
 - **The upgrade**: `heavy.json`, the table of one holder of the build before, stays for its supervisors, which go on
   after an upgrade; its live holder holds the whole host for the runs of this build. A supervisor of the build before
   that waits in `heavy.json` takes its turn without seeing the holders of `turn.json`, so for the hours after an

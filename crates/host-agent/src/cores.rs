@@ -19,7 +19,9 @@
 //!
 //! Each sample rewrites `cores.json` of the run, which `brd-host runs` reads, and the live cores go to the heavy turn
 //! (`lease_pool::host_turn::note_use`); the end adds the measure to the measures of the command
-//! (`lease_pool::host_cores::record`)
+//! (`lease_pool::host_cores::record`). Beside each sample the supervisor notes the busy cores of the whole host
+//! (`Sampler::note_host`): the rest of the host beside the run (`Outside`), whose mean tells a starved command
+//! (`lease_pool::host_cores::starved`)
 
 use crate::sys::children_cpu;
 use host_link::proto::RunCores;
@@ -73,6 +75,9 @@ pub(crate) struct Sampler {
   started_clock: Option<StartClock>,
   /// The cores of the machine: a sample counts at most these over its time
   machine_cores: u32,
+  /// The time and the live cores of the last sample, for the busy cores of the host beside it
+  last_sample: Option<(Duration, Cores)>,
+  outside: Outside,
   file: CoresFile,
 }
 
@@ -104,6 +109,8 @@ impl Sampler {
       children_before: children_cpu(),
       started_clock: start_clock(),
       machine_cores: std::thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)),
+      last_sample: None,
+      outside: Outside::default(),
       file: CoresFile::default(),
     }
   }
@@ -154,6 +161,7 @@ impl Sampler {
     self.cpu += used;
     let live = Cores::of(used, interval);
     self.file.peak = self.file.peak.max(live);
+    self.last_sample = Some((interval, live));
     self.file.samples.push(Sample {
       ms: millis(now.duration_since(self.started)),
       cores: live,
@@ -183,11 +191,47 @@ impl Sampler {
     &self.file
   }
 
+  /// Notes `busy`, the busy cores of the whole host by its last sample (`None` without a fresh one), beside the last
+  /// sample of the run: the rest of the host over the time of that sample. Once per sample
+  pub(crate) fn note_host(&mut self, busy: Option<Cores>) {
+    if let (Some((interval, live)), Some(busy)) = (self.last_sample.take(), busy) {
+      self.outside.add(interval, busy, live);
+    }
+  }
+
+  /// The mean busy cores of the rest of the host beside the command so far; `None` without a sample of the host
+  pub(crate) fn outside(&self) -> Option<Cores> {
+    self.outside.mean()
+  }
+
   fn note(&mut self, cpu: Duration) {
     let wall = self.started.elapsed();
     self.file.cpu_ms = millis(cpu);
     self.file.wall_ms = millis(wall);
     self.file.mean = Cores::of(cpu, wall);
+  }
+}
+
+/// The busy cores of the rest of a host beside a run: at each sample the busy cores of the whole host less the live
+/// cores of the run, weighted by the time of the sample
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Outside {
+  /// The tenths of cores times the milliseconds of each sample
+  weighted: u128,
+  ms: u128,
+}
+
+impl Outside {
+  /// Adds a sample of `interval` in which the host was busy with `busy` cores and the run with `live`
+  pub(crate) fn add(&mut self, interval: Duration, busy: Cores, live: Cores) {
+    let rest = busy.0.saturating_sub(live.0);
+    self.weighted = self.weighted.saturating_add(u128::from(rest).saturating_mul(interval.as_millis()));
+    self.ms = self.ms.saturating_add(interval.as_millis());
+  }
+
+  /// The mean of the samples, to the nearest tenth; `None` without a sample of a time
+  pub(crate) fn mean(&self) -> Option<Cores> {
+    (self.ms > 0).then(|| Cores(u32::try_from((self.weighted + self.ms / 2) / self.ms).unwrap_or(u32::MAX)))
   }
 }
 

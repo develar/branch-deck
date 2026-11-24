@@ -175,9 +175,11 @@ brd-host run any --max 9m -- pnpm lint:backend
 - `wait`, `cancel`, `follow`, `fetch` and `forget` take the name of the set too, and go to the member that took the run.
 - `hostJobs` stays below `hostCores`: a command that uses every core counts as one of the whole host and waits for a
   quiet one.
-- The run that measures a command waits for the whole host, as no measure says what it needs, and starts after 15 min
-  in the queue on a busy Mac. It holds the whole host for its first 10 min, then what it used in the last 5 min, so the
-  queue starts beside its quiet phases. On a short disk, `git config --global branchdeck.hostSlots 2` keeps fewer warm slots.
+- The run that measures a command waits for the whole host, as no measure says what it needs, and after 15 min in the
+  queue it starts whatever the load. It holds the whole host for its first 10 min, then what it used in the last 5 min,
+  so the queue starts beside its quiet phases. Measure this Mac while it is quiet: a run beside more load than
+  `hostCores` leaves room for adds no measure, and its log says why. Run to this Mac through the set only, where it
+  starts at once or answers `busy`. On a short disk, `git config --global branchdeck.hostSlots 2` keeps fewer warm slots.
 - A set takes no `--exclusive`: a measurement names the host it measures.
 - `brd-host set any` prints the set, and `brd-host set any studio` writes it again with one member.
 

@@ -96,3 +96,20 @@ fn the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least() {
   assert_eq!(passed_wall(dir.path(), REPO, "e2e").unwrap(), None, "another command");
   assert_eq!(measured_wall(dir.path(), REPO, "e2e").unwrap(), None, "no measure of another command");
 }
+
+/// A run is starved when the rest of the host used more cores beside it than the cores of the host leave for its own
+/// mean, as an admission counts the room: of 12 cores, 17.0 beside 0.5 is starved, 6.0 beside 6.0 is not, 6.0 beside
+/// 6.1 is, and a run without a sample of the host is never starved
+#[test]
+fn a_run_beside_more_load_than_the_host_leaves_room_for_is_starved() {
+  let why = starved(Some(Cores(170)), Cores(5), 12);
+  assert_eq!(
+    why.as_deref(),
+    Some(
+      "this run adds no measure of its command: the rest of the host used 17.0 cores on average beside its 0.5, past the 12 of the host, so its time tells the load and not the command"
+    )
+  );
+  assert_eq!(starved(Some(Cores(60)), Cores(60), 12), None, "the host had room for it");
+  assert!(starved(Some(Cores(60)), Cores(61), 12).is_some(), "a tenth past the room");
+  assert_eq!(starved(None, Cores(5), 12), None, "no sample of the host");
+}

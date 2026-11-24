@@ -368,6 +368,7 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     sampled_group = group;
     if sampler.is_due() {
       let live = sampler.sample(group);
+      sampler.note_host(lease_pool::host_turn::host_busy_now(&context.home.heavy_dir()));
       if let Err(error) = run.write_cores(sampler.file()) {
         supervisor(&format!("cannot write the cores of the run {}: {error}", spec.run));
       }
@@ -402,9 +403,11 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
 
 /// The measure of the command of the run `of`, which ended and `passed` or not: `cores.json` of the run, its line in the
 /// log, and the measures of the command, which the admissions of the heavy turn read, with its wall among the walls of
-/// the passed runs of the command when it passed, which the place of a short run in the heavy queue reads
+/// the passed runs of the command when it passed, which the place of a short run in the heavy queue reads. A starved
+/// command adds neither, and its log says why (`lease_pool::host_cores::starved`)
 fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Sampler, group: u32, passed: bool) {
   let file = sampler.finish(group).clone();
+  sampler.note_host(lease_pool::host_turn::host_busy_now(&context.home.heavy_dir()));
   if let Err(error) = context.run.write_cores(&file) {
     supervisor(&format!("cannot write the cores of the run {}: {error}", of.run));
   }
@@ -412,6 +415,10 @@ fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Samp
     "the command used {} cores on average and {} at its peak, of the {} of the host",
     file.mean, file.peak, of.cores
   ));
+  if let Some(why) = lease_pool::host_cores::starved(sampler.outside(), file.mean, of.cores) {
+    context.say(&why);
+    return;
+  }
   if let Err(refusal) = turn::record(context.home, of, file.mean, file.peak, Duration::from_millis(file.wall_ms), passed) {
     supervisor(&format!("run {}: {refusal}", of.run));
   }

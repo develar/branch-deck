@@ -192,3 +192,29 @@ fn a_child_seen_alive_counts_once_after_its_parent_reaped_it() {
     sampler.file()
   );
 }
+
+/// The rest of the host beside a run is the busy cores of the host less the run's own at each sample, weighted by the
+/// time of the sample: 10.0 over 1 s and 4.0 over 3 s are 5.5 on average; a run that used more than the host counted
+/// leaves none, and a sampler without a sample of the host has none
+#[test]
+fn the_rest_of_the_host_beside_a_run_is_its_busy_cores_less_the_run_by_the_time_of_each_sample() {
+  let mut outside = Outside::default();
+  assert_eq!(outside.mean(), None);
+  outside.add(Duration::from_secs(1), Cores(120), Cores(20));
+  outside.add(Duration::from_secs(3), Cores(50), Cores(10));
+  assert_eq!(outside.mean(), Some(Cores(55)));
+  let mut over = Outside::default();
+  over.add(Duration::from_secs(1), Cores(10), Cores(30));
+  assert_eq!(over.mean(), Some(Cores(0)), "the run counted more than the host");
+
+  let slot = tempfile::tempdir().unwrap();
+  let mut sampler = Sampler::start(slot.path(), Duration::ZERO);
+  sampler.note_host(Some(Cores(100)));
+  assert_eq!(sampler.outside(), None, "no sample of the run before it");
+  let _first = sampler.sample(0);
+  sampler.note_host(None);
+  let _second = sampler.sample(0);
+  sampler.note_host(Some(Cores(100)));
+  sampler.note_host(Some(Cores(200)));
+  assert_eq!(sampler.outside(), Some(Cores(100)), "one note per sample, and none without a sample of the host");
+}

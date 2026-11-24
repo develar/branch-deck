@@ -98,10 +98,13 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   took it. A run that is not heavy goes at once. This Mac is the host `local` (`brd-host setup --local --repo
   ~/projects/branch-deck`), and its global git config gives the heavy runs 12 of its 18 cores
   (`branchdeck.hostCores`), 6 jobs per command (`branchdeck.hostJobs`) and 2 slots (`branchdeck.hostSlots`), as its
-  disk is short. It measured `pnpm lint:backend` and `cargo nextest run --workspace` once each; `pnpm e2e` has no
-  measure there, so it stays on the Studio. A new heavy command gets its measure here with `brd-host run local --
-  <command>` (`--heavy` where `heavy` of `[host]` does not name it): without a measure it waits for the whole host, and
-  starts on a free turn after 15 min.
+  disk is short. A heavy run goes there only with a measure of its command there, so a command that has none stays on
+  the Studio. **Never run a heavy command to `local` directly**, only through `any`: a direct run waits in the queue
+  of this Mac, starts after 15 min whatever the load of the agent sessions, gets about one core under `nice` 10, and
+  holds the checks of other sessions behind it for an hour; through `any` it starts at once or answers `busy`. Measure
+  a command on `local` (`brd-host run local -- <command>`) only while this Mac is quiet, with no agent sessions: a run
+  beside more load than `branchdeck.hostCores` leaves room for adds no measure, and its log says `this run adds no
+  measure of its command: …`.
 - **Long runs**: start a run that can take minutes as `brd-host run any --max 9m -- <command>`
   and, while it exits 124 (`still_running`), `brd-host wait any <run>`: each call says only the changes of the state
   of the run and ends before the 10 min of a tool call, the run goes on past it, and the end gives a summary with the
@@ -141,4 +144,5 @@ On 2026-11-24 this Mac became the member `local` of `any`. Its first runs, in ne
 the agent sessions: `pnpm lint:backend` 13 min 45 s (0.5 cores on average), `cargo nextest run --workspace` 46 min 37 s
 (5400 tests, 1.1 cores), each after 15 min of waiting for the whole host. The next run to `any` chose the Studio:
 `studio: starts now after a run of an unknown length, runs ~57 s; local: starts in ~46 min, runs ~14 min, only at
-once; chose studio`. A measure is of the last 5 runs of a command, so warm runs at a lower load replace these.
+once; chose studio`. Those measures told the load, not the commands, and were removed the same day: since then a
+run beside more load than the cores of the host leave room for adds no measure.
