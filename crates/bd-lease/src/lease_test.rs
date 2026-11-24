@@ -167,8 +167,28 @@ pub(crate) fn busy_of_another_session(dir: &str) -> OtherSession {
     .output()
     .unwrap();
   let pid: u32 = String::from_utf8_lossy(&output.stdout).trim().parse().unwrap();
+  wait_for_exec(pid, "sleep");
   let started = sync_utils::process_scan::process_started(pid).unwrap();
   OtherSession { pid, started }
+}
+
+/// Wait until the process `pid` runs `program`: a child that the shell forked is the shell until its `exec`, which under
+/// load comes late, and a scan meanwhile names it by the argv of the shell (`bash (… sh -c sleep 30 & wait)`), not
+/// as the command a test expects
+#[cfg(unix)]
+fn wait_for_exec(pid: u32, program: &str) {
+  let deadline = std::time::Instant::now() + Duration::from_secs(10);
+  loop {
+    let ran = sync_utils::process_scan::process_list()
+      .unwrap_or_default()
+      .into_iter()
+      .any(|process| process.pid == pid && process.name == program);
+    if ran {
+      return;
+    }
+    assert!(std::time::Instant::now() < deadline, "{pid} never ran {program}");
+    std::thread::sleep(Duration::from_millis(1));
+  }
 }
 
 /// A command of the session that holds a lease of the test, as a coding agent runs one in the background: a shell in
@@ -182,6 +202,7 @@ pub(crate) fn holder_command(dir: &str) -> (Killed, u64, sync_utils::process_sca
   loop {
     let below = sync_utils::process_scan::descendants(shell.id(), started).unwrap();
     if let Some(sleep) = below.first() {
+      wait_for_exec(sleep.pid, "sleep");
       return (shell, started, *sleep);
     }
     assert!(std::time::Instant::now() < deadline, "the shell started no sleep");
