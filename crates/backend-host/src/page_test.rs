@@ -124,12 +124,13 @@ async fn a_subscription_of_a_page_answers_its_view_and_its_patches_reach_its_cha
   assert_eq!(subscription["catchUp"], Value::Null);
 
   let synced = json_of(pages.invoke("main", "sync", &sync_args(&fixture.repo), None).await);
-  // the patches up to the version of the answer came before it (the fence)
+  // the patches up to the version of the answer came before it (the fence); a patch of a read of a fact may come after
+  // it, so the sync's is any of them, not the last
   let mut came = Vec::new();
   while let Ok(patch) = received.try_recv() {
     came.push(patch);
   }
-  assert_eq!(came.last().map(|patch| &patch["next"]), Some(&synced["version"]), "{came:#?}");
+  assert!(came.iter().any(|patch| patch["next"] == synced["version"]), "no patch to {}: {came:#?}", synced["version"]);
 
   let demand = json!({ "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "robotDetails": [], "watchedRobots": [] });
   let set = pages.invoke("main", "set_demand", &json!({ "params": { "subscription": subscription["id"], "demand": demand } }), None);
