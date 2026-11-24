@@ -105,6 +105,31 @@ pub fn dir_of(key: &str) -> PathBuf {
   base().join(format!("{PREFIX}{key}"))
 }
 
+/// The key of the backend of the app at `executable` on the data directory `data_dir`: `key` of the executable as the
+/// file system resolves it (a `brd` symlink, a path with `..`), so the app and the bridge it starts name one key
+pub fn app_key(data_dir: &Path, executable: &Path) -> String {
+  let resolved = std::fs::canonicalize(executable).unwrap_or_else(|_| executable.to_owned());
+  key(data_dir, &resolved)
+}
+
+/// Creates the directory of a key owner-only when it is missing, and refuses one that is not the owner's (the bridge
+/// takes the lock of a start in it before the backend exists)
+///
+/// # Errors
+/// The directory cannot be created, or is refused
+pub fn prepare_dir(dir: &Path) -> Result<(), SocketError> {
+  create_dir(dir)?;
+  check_dir(dir)
+}
+
+/// Whether another process holds `backend.lock` of `dir` now: a backend lives, or one starts
+pub fn lock_held(dir: &Path) -> bool {
+  let Ok(file) = std::fs::OpenOptions::new().write(true).open(dir.join(LOCK_FILE)) else {
+    return false;
+  };
+  matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+}
+
 #[cfg(target_os = "macos")]
 fn base() -> PathBuf {
   std::env::var_os("TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from)
@@ -285,7 +310,8 @@ pub type Stream = tokio::net::windows::named_pipe::NamedPipeClient;
 /// The directory is refused, no backend listens, or it runs as another user
 #[cfg(unix)]
 pub async fn connect(dir: &Path) -> Result<Stream, SocketError> {
-  check_dir(dir).inspect_err(|error| tracing::warn!(%error, "the backend is not reached"))?;
+  // no directory is no backend yet, which a bridge then starts: a refused one is told by the backend that binds it
+  check_dir(dir).inspect_err(|error| tracing::debug!(%error, "the backend is not reached"))?;
   let path = socket_path(dir)?;
   let stream = tokio::net::UnixStream::connect(&path).await.map_err(io(format!("connect to {}", path.display())))?;
   let peer = stream.peer_cred().map_err(io("read the user of the backend"))?;

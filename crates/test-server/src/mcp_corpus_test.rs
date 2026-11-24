@@ -1,16 +1,17 @@
-//! The app link of `brd mcp` (openspec/specs/repository/ide-embedding/spec.md): the corpus of the app side,
-//! `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson`, against `ide-host` on the fixtures of the e2e
-//! server, and the requirements of the spec the corpus does not pin. The runner plays air-ide: it sends each line of
+//! The app link of the bridge `branch-deck ide` (openspec/specs/repository/ide-embedding/spec.md): the corpus of the app
+//! side, `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson`, against `ide-host` on a backend of the
+//! fixtures of the e2e server, through the bridge's socket to it as to the desktop app and over the in-process transport
+//! of its fallback, and the requirements of the spec the corpus does not pin. The runner plays air-ide: it sends each line of
 //! `air-ide` (its `${any}` arguments of a command filled from the fixture) and checks each line of `app` in order:
 //! `${any}` matches any value, `${repo}` is the path of the test repository. A line of the app that is a notification
 //! takes each message after it that matches it too (a diff is one call event per step), and an event of the app or a
 //! change of a mirror between two lines (the first sync of the session, a change of the settings) is no line of the
 //! corpus: the session of the fixture lives while it runs.
 
-use crate::mcp_socket::context_of_connection;
+use crate::mcp_socket::{backend_of, serve_bridge};
 use crate::test_support::{create_repository, head, start_test_server_with_state};
 use domain_types::session::{SyncOutcome, SyncReason};
-use ide_host::server::Connection;
+use ide_host::server::{Backend, Connection, Ended};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -29,7 +30,7 @@ struct Ide {
   id: String,
   to_app: Option<mpsc::UnboundedSender<String>>,
   from_app: mpsc::UnboundedReceiver<String>,
-  serving: tokio::task::JoinHandle<()>,
+  serving: tokio::task::JoinHandle<Ended>,
   repo: String,
   /// The notifications of brd the runner passed over, for the message of a failure
   passed: Vec<Value>,
@@ -51,9 +52,9 @@ impl Ide {
 
   fn connect(state: std::sync::Arc<crate::state::AppState>, addr: std::net::SocketAddr, id: String, repo: String) -> Self {
     let (connection, from_app) = Connection::new();
-    let ctx = context_of_connection(&state, &id, &connection).unwrap();
+    let backend = backend_of(&state, &id).unwrap();
     let (to_app, incoming) = mpsc::unbounded_channel();
-    let serving = tokio::spawn(connection.serve(ctx, incoming));
+    let serving = tokio::spawn(serve_bridge(connection, backend, incoming));
     Self {
       state,
       addr,
@@ -110,10 +111,46 @@ impl Ide {
     }
   }
 
-  /// The stdin of brd ends: the connection ends
+  /// A bridge on the test repository whose backend is a host on its context listening on a socket of its own, as the
+  /// desktop app listens: the bridge reaches it as it reaches the app
+  async fn through_socket() -> (Self, tempfile::TempDir) {
+    let (addr, state) = start_test_server_with_state().await;
+    let (_, repo) = create_repository(&reqwest::Client::new(), addr).await;
+    let id = state.path_to_id.get(&repo).map(|id| id.value().clone()).unwrap();
+    #[cfg(unix)]
+    let scratch = tempfile::Builder::new().prefix("bdb").tempdir_in("/tmp").unwrap();
+    #[cfg(not(unix))]
+    let scratch = tempfile::Builder::new().prefix("bdb").tempdir().unwrap();
+    let dir = scratch.path().join(format!("branch-deck-{}", scratch.path().file_name().unwrap().to_string_lossy()));
+    let ctx = std::sync::Arc::clone(&state.repositories.get(&id).unwrap().context);
+    let listener = backend_host::socket::Listener::bind(&dir).await.unwrap();
+    let host = backend_host::host::Host::new(ctx, backend_host::host::HostHooks::default());
+    tokio::spawn(listener.serve(host));
+    let stream = backend_host::socket::connect(&dir).await.unwrap();
+    let (link, source) = ide_host::backend::handshake(ide_host::backend::Transport::Socket(stream), &backend_host::identity::build_id())
+      .await
+      .unwrap();
+    let (connection, from_app) = Connection::new();
+    let (to_app, incoming) = mpsc::unbounded_channel();
+    let serving = tokio::spawn(connection.serve(async move { Backend { link, source } }, incoming));
+    let ide = Self {
+      state,
+      addr,
+      id,
+      to_app: Some(to_app),
+      from_app,
+      serving,
+      repo,
+      passed: Vec::new(),
+    };
+    (ide, scratch)
+  }
+
+  /// The stdin of the bridge ends: the connection ends, the end the IDE asked for
   async fn end(mut self) {
     self.to_app = None;
-    tokio::time::timeout(WAIT, self.serving).await.expect("the connection ends with its input").unwrap();
+    let ended = tokio::time::timeout(WAIT, self.serving).await.expect("the connection ends with its input").unwrap();
+    assert_eq!(ended, Ended::Input);
   }
 }
 
@@ -149,7 +186,17 @@ fn fixture_params(command: &str, repo: &str) -> Value {
 
 #[tokio::test]
 async fn the_app_link_corpus_runs() {
-  let mut ide = Ide::start().await;
+  run_corpus(Ide::start().await).await;
+}
+
+/// The corpus through the socket of a backend, as the bridge serves the IDE with the backend of the desktop app
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_app_link_corpus_runs_through_the_socket_of_the_backend() {
+  let (ide, _scratch) = Ide::through_socket().await;
+  run_corpus(ide).await;
+}
+
+async fn run_corpus(mut ide: Ide) {
   let repo_json = serde_json::to_string(&ide.repo).unwrap();
   let repo_text = repo_json.trim_matches('"').to_owned();
   let mut last_notification: Option<Value> = None;
@@ -631,7 +678,7 @@ async fn a_root_added_to_the_project_tells_the_main_view_and_the_recent_projects
     .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "instance": "main:1", "event": "roots-changed", "payload": { "roots": both } } }))
     .await;
   let change = ide
-    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "event": "settings_changed", "payload": { "version": "${any}", "key": "recentProjects", "value": "${any}", "origin": "rust" } } }))
+    .expect(&json!({ "jsonrpc": "2.0", "method": "x-air-app/event", "params": { "event": "settings_changed", "payload": { "version": "${any}", "key": "recentProjects", "value": "${any}", "origin": "bridge" } } }))
     .await;
   assert_eq!(
     paths(&change["params"]["payload"]["value"]),

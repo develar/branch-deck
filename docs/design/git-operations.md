@@ -2890,7 +2890,7 @@ answer dropped by the new session, which is checking nothing (`InputsRead`,
 subscription and gets one patch from the version it holds into the new epoch, with no change, which applies to no view:
 the page reads the snapshot and takes it as the view of another session, as on a switch (`installAnother` and
 `forgetRows` of `src/model/store.ts`; every store that names a branch forgets what it held of a row, `row-store` of
-`pnpm lint:arch`), and the mirror of `brd mcp` moves to the session as at a change of the prefix (`Server::resync`),
+`pnpm lint:arch`), and the mirror of the bridge of an IDE reads the view of its window anew (`get_snapshot`),
 so the window shows the Ready to Sync card and nothing of the rows of the lease before. An intent the page asked on the
 rows before runs on nothing of them: a rewrite names the epoch of the view its table was seen in (`TableWitness::epoch`),
 and one of another epoch than the session's is `plan_changed` before anything is admitted to write

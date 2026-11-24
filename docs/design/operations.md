@@ -368,6 +368,11 @@ laid over the nodes (`presentOperationMoves`), in every window, from the admissi
 
 The page's own operations declare no move.
 
+The views of an IDE are windows of a connection of the backend of the app (the bridge `branch-deck ide`,
+[Backend Protocol](backend-protocol.md)): their operations are operations of the app's process, in its session, so a
+Safe Push started in the IDE joins the same intent of the desktop app and is busy for it as for another window; only a
+bridge in its fallback (no app can run) is another process, admitted by the registry as `brd` is.
+
 Between processes, the operations registry of the repository admits an operation first
 ([Git Operations](git-operations.md), "Operations registry"): while an agent's `brd push`, `brd safe-push` or
 `brd request-review` runs what it needs (the same intent, a branch it lands or pushes, a robot, a field of a pull

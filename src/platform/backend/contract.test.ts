@@ -44,11 +44,11 @@ const RESULTS: Readonly<Record<string, string>> = {
   unsubscribe: "EmptyResult",
   "x-branch-deck/repositoryChannel": "RepositoryChannelResult",
   "x-branch-deck/setDemand": "EmptyResult",
+  "x-branch-deck/followPrefix": "EmptyResult",
   "x-branch-deck/claimNews": "ClaimNewsResult",
   "x-branch-deck/showMain": "EmptyResult",
   "x-branch-deck/openWindow": "OpenWindowResult",
   "x-branch-deck/showWindow": "EmptyResult",
-  "x-branch-deck/notify": "EmptyResult",
 }
 
 /** The def of the result of `method` */

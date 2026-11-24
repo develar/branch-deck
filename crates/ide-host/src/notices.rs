@@ -3,15 +3,20 @@
 //! `x-air-app/notify` with the action Show in Branch Deck, the tool `reveal_branch` of the branch the robot tested (the
 //! root of a whole stack), which shows the main view and reveals the branch in it.
 //!
-//! brd tells the failure itself while the main view is not shown (the tool window is hidden), as the desktop app tells
-//! it by the OS while no window has the focus, if the switch "Safe Push failures" of Settings is on; while the main
-//! view is shown its toast tells it. The page's own notification of a news (`plugin:notification|notify` with
-//! `extra: {repositoryPath, news}`, sent while its frame has no focus) is left out once brd told that news, and takes
-//! the action of the news when brd did not, so the IDE shows one notification of a failure, and each opens its branch.
+//! The bridge tells the failure itself while the main view is not shown (the tool window is hidden), as the desktop app
+//! tells it by the OS while no window has the focus, if the switch "Safe Push failures" of Settings is on; while the
+//! main view is shown its toast tells it. The page's own notification of a news (`plugin:notification|notify` with
+//! `extra: {repositoryPath, news}`, sent while its frame has no focus) is left out once the bridge told that news, and
+//! takes the action of the news when it did not, so the IDE shows one notification of a failure, and each opens its
+//! branch. A news is told once by the backend: the bridge claims each news it tells (`x-branch-deck/claimNews`, the news
+//! by what it tells, `NewsClaim`: a robot that failed), and only the first claim of the backend tells it, so a second
+//! IDE on the repository, or the desktop app, tells it not again; the page claims its own (`claim_news`) before it
+//! notifies.
 
+use crate::backend::BackendLink;
 use crate::hosts::Instances;
 use crate::link::Link;
-use app_settings::service::SettingsService;
+use crate::settings::SettingsMirror;
 use domain_types::landing::Subject;
 use domain_types::session::{News, NewsEvent, RepositoryView};
 use serde_json::{Value, json};
@@ -67,31 +72,52 @@ struct Handled {
 /// The notifications of the news of the mirrors of one connection
 pub struct Notices {
   link: Arc<Link>,
+  backend: Arc<BackendLink>,
   instances: Arc<Instances>,
-  settings: Arc<SettingsService>,
+  settings: Arc<SettingsMirror>,
   handled: Mutex<VecDeque<Handled>>,
 }
 
+/// The claim of a news of `repository_path` by what it tells: the failure of the robot `robot_id` (`NewsClaim` of
+/// domain-types; the id of a news starts again with each session, the robot does not)
+fn claim(repository_path: &str, robot_id: &str) -> Value {
+  json!({ "repositoryPath": repository_path, "news": { "kind": "robotFailed", "robotId": robot_id } })
+}
+
 impl Notices {
-  pub fn new(link: Arc<Link>, instances: Arc<Instances>, settings: Arc<SettingsService>) -> Self {
+  pub fn new(link: Arc<Link>, backend: Arc<BackendLink>, instances: Arc<Instances>, settings: Arc<SettingsMirror>) -> Self {
     Self {
       link,
+      backend,
       instances,
       settings,
       handled: Mutex::default(),
     }
   }
 
+  /// Tells `notification` once the backend answered that the claim `claim` of its news is the first, then runs `then`
+  fn tell_claimed(&self, claim: Value, notification: Option<Value>, then: impl FnOnce() + Send + 'static) {
+    let link = Arc::clone(&self.link);
+    self.backend.request_then("x-branch-deck/claimNews", claim, move |reply| {
+      let first = reply.as_ref().is_ok_and(|answer| answer["first"] == true);
+      if let (true, Some(notification)) = (first, notification) {
+        link.ask("x-air-app/notify", notification);
+      }
+      then();
+    });
+  }
+
   /// The news a patch of the mirror of `repository_path` brought, `view` the view after it: the failure of a robot is
-  /// a notification of the IDE while the main view is not shown and Settings lets it
+  /// a notification of the IDE while the main view is not shown and Settings lets it, when the claim of the news is the
+  /// first of the backend
   pub fn tell(&self, view: &RepositoryView, repository_path: &str, news: &[News]) {
     for news in news {
       let Some(notice) = notice_of(view, repository_path, news) else {
         continue;
       };
       let told = !self.instances.main_shown() && self.settings.value(FAILURES_SWITCH).as_bool().unwrap_or(true);
-      if told {
-        self.link.ask("x-air-app/notify", notice.clone());
+      if told && let NewsEvent::RobotFailed { robot_id, .. } = &news.event {
+        self.tell_claimed(claim(repository_path, robot_id), Some(notice.clone()), || {});
       }
       let mut handled = self.handled.lock().unwrap_or_else(PoisonError::into_inner);
       if handled.len() == KEPT {
@@ -106,8 +132,17 @@ impl Notices {
     }
   }
 
+  /// Tells the page's `plugin:notification|notify {options}` as `page_notification` words it, then runs `then`: the page
+  /// claimed its news itself before it notifies (`claim_news`)
+  pub fn tell_page_notification(&self, options: &Value, then: impl FnOnce() + Send + 'static) {
+    if let Some(notification) = self.page_notification(options) {
+      self.link.ask("x-air-app/notify", notification);
+    }
+    then();
+  }
+
   /// The notification of the IDE of the page's `plugin:notification|notify {options}`: its title and its body; of a
-  /// news brd told, none, and of one it did not, with the kind and the action of that news
+  /// news the bridge told, none, and of one it did not, with the kind and the action of that news
   pub fn page_notification(&self, options: &Value) -> Option<Value> {
     let mut notification = json!({ "title": options["title"].as_str().unwrap_or("Branch Deck") });
     if let Some(body) = options["body"].as_str() {

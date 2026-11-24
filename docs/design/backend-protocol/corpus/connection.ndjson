@@ -4,9 +4,9 @@
 {"client":{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"channel":"x-branch-deck:/repository/1","_meta":{"x-branch-deck":{"window":"main"}}}}}
 {"host":{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"${any}","data":{"reason":"notInitialized"}}}}
 {"comment":"The host takes the highest offered version in its caret range."}
-{"client":{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0","1.2.0","2.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}}}
+{"client":{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0","1.2.0","2.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow"]}}}}}}
 {"host":{"jsonrpc":"2.0","id":3,"result":{"protocolVersion":"1.2.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"branch-deck","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0"}}}}}
-{"client":{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}}}
+{"client":{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow"]}}}}}}
 {"host":{"jsonrpc":"2.0","id":4,"error":{"code":-32600,"message":"${any}","data":{"reason":"alreadyInitialized"}}}}
 {"comment":"The parse errors: no JSON, a batch, no jsonrpc. The connection stays open after each."}
 {"clientRaw":"{not json"}
@@ -24,8 +24,8 @@
 {"client":{"jsonrpc":"2.0","id":9,"method":"ping","params":{"channel":"ahp-root://"}}}
 {"host":{"jsonrpc":"2.0","id":9,"result":{}}}
 {"comment":"Another build: the second connection offers a build that is not the host's. Its executable is not stale and the host shows a window in the test, so it stays: exits false."}
-{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus-2","clientInfo":{"name":"branch-deck-ide","build":"0.0.0-corpus-other"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}},"conn":2}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus-2","clientInfo":{"name":"branch-deck-ide","build":"0.0.0-corpus-other"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow"]}}}}},"conn":2}
 {"host":{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"${any}","data":{"reason":"otherBuild","build":"${build}","exits":false}}},"conn":2}
 {"comment":"No common version: a third connection offers only 2.0.0."}
-{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["2.0.0"],"clientId":"corpus-3","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow","showWindow","notify"]}}}}},"conn":3}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["2.0.0"],"clientId":"corpus-3","clientInfo":{"name":"branch-deck-ide","build":"${build}"},"_meta":{"x-branch-deck":{"version":"1.0.0","capabilities":{"hostRequests":["openWindow"]}}}}},"conn":3}
 {"host":{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"${any}","data":{"reason":"ahpVersion"}}},"conn":3}

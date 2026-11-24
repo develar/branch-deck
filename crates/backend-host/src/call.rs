@@ -24,12 +24,12 @@ const CHANNEL_COMMANDS: &[&str] = &["subscribe_view", "unsubscribe_view", "set_d
 pub const PROTOCOL_METHODS: &[&str] = &[
   "repositoryChannel",
   "setDemand",
+  "followPrefix",
   "claimNews",
   "bootstrap",
   "showMain",
   "openWindow",
   "showWindow",
-  "notify",
   "cancel",
   "windowShown",
   "windowHidden",

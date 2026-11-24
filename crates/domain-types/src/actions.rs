@@ -12,10 +12,10 @@ use crate::pull_request::PullRequestAvailability;
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use crate::session::StackBranchAlong;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionId {
@@ -219,7 +219,7 @@ impl ActionId {
 }
 
 /// An action a subject offers now, and whether it can run
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ActionState {
@@ -229,7 +229,7 @@ pub struct ActionState {
 
 /// Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions"), or what an
 /// operation of the session does to it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Availability {
@@ -254,7 +254,7 @@ pub enum Availability {
 }
 
 /// Why an action can't run now, as a code with the facts its words need
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "code", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ActionBlocker {
@@ -351,7 +351,7 @@ pub enum ActionBlocker {
 }
 
 /// Why Push with Children of a branch pushes nothing beyond the branch itself
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum NothingBeyond {

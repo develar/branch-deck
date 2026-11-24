@@ -27,7 +27,7 @@ pub struct Capabilities {
   pub restart: bool,
   pub agent_cli: bool,
   pub native_menu: bool,
-  /// The host requests the client answers: `openWindow`, `showWindow`, `notify`
+  /// The host requests the client answers: `openWindow`, `showWindow`
   pub host_requests: HashSet<String>,
 }
 

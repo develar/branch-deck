@@ -47,8 +47,10 @@ domain-types = { path = "../domain-types" }
 domain-policy = { path = "../domain-policy" }
 # `api_error`: a core's error as the `ApiError` the app answers
 app-api = { path = "../app-api" }
-# `brd mcp` on a WebSocket, for the fake host of the page in Air (`mcp_socket.rs`)
+# the bridge of the IDE on a WebSocket, for the fake host of the page in Air (`mcp_socket.rs`)
 ide-host = { path = "../ide-host" }
+# the socket of a backend the corpus of the bridge reaches as it reaches the desktop app (`mcp_corpus_test.rs`)
+backend-host = { path = "../backend-host" }
 # the types of the commands of Start in Air, which the registry names by their path
 air-launch = { path = "../air-launch" }
 # the writer of the settings of a test repository (`TestRepository::store`), as the app's

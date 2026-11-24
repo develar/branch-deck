@@ -114,3 +114,36 @@ fn every_part_replaces_the_state_with_the_view_and_its_version_last() {
   assert_eq!(serde_json::Value::Object(replaced), state, "the ops name every part once, the state after them is the view");
   assert_eq!(ops.len(), state.as_object().unwrap().len());
 }
+
+/// A view and a patch read back as the backend wrote them: the bridge applies the patches of the repository channel
+/// with the reducer of the session (`apply_patch`), so each type of the view reads its own JSON
+#[test]
+fn a_view_and_a_patch_read_back_as_the_backend_wrote_them() {
+  let mut view = crate::notices::notices_test::view_with(&[crate::notices::notices_test::robot("r1", Some("auth"), None)]);
+  let mut changes = TableChanges {
+    order: Some(vec!["a".to_owned()]),
+    news: vec![crate::notices::notices_test::failed(1, "r1", Some(false))],
+    ..TableChanges::default()
+  };
+  changes.branches.insert("a".to_owned(), added("a"));
+  let patch = ViewPatch {
+    base: Version { epoch: 0, seq: 0 },
+    next: Version { epoch: 0, seq: 1 },
+    changes,
+  };
+  let read: ViewPatch = serde_json::from_value(serde_json::to_value(&patch).unwrap()).unwrap();
+  assert_eq!(read, patch);
+  repository_model::patch::apply_patch(&mut view, patch).unwrap();
+  let read: RepositoryView = serde_json::from_value(serde_json::to_value(&view).unwrap()).unwrap();
+  assert_eq!(read, view);
+  // a part cleared (`null`) is a change, a part absent none
+  let cleared = TableChanges {
+    undo: Some(None),
+    inputs_checked_at: Some(None),
+    ..TableChanges::default()
+  };
+  let read: TableChanges = serde_json::from_value(serde_json::to_value(&cleared).unwrap()).unwrap();
+  assert_eq!(read, cleared);
+  let unchanged: TableChanges = serde_json::from_value(serde_json::to_value(TableChanges::default()).unwrap()).unwrap();
+  assert_eq!(unchanged, TableChanges::default());
+}

@@ -73,7 +73,14 @@ async fn two_connections_on_one_repository_get_the_same_actions_and_the_end_of_o
   let of_app = patches_of(&frames, "main");
   let ide_frames = patched_to(&ide, &mirror, &synced).await;
   let of_ide = patches_of(&ide_frames, &mirror);
-  assert_ne!(of_app, Vec::new());
+  // a patch of the session of its own (a fact read again) between the two subscribes reaches the app as an action and
+  // the bridge as its catch-up: both get every patch from the first they share on
+  let first = of_app
+    .iter()
+    .position(|patch| of_ide.contains(patch))
+    .expect("a patch of the sync reaches both connections");
+  let of_app = &of_app[first..];
+  let of_ide = &of_ide[of_ide.iter().position(|patch| *patch == of_app[0]).unwrap()..];
   assert_eq!(of_app, of_ide, "the same patches with the same serverSeq to each connection");
 
   drop(ide);
@@ -193,4 +200,112 @@ async fn a_review_opened_in_the_ide_opens_no_window_of_the_app() {
   assert_eq!(answer["result"], json!({ "value": null }));
   assert!(!fixture.ctx.app_desktop.windows.is_open("review-branch:feature"), "no window of the app");
   assert!(fixture.ctx.desktop(&WindowId::main_of(ide.id())).windows.is_open("review-branch:feature"));
+}
+
+fn follow_prefix(id: u32, channel: &str, window: &str) -> Value {
+  json!({ "jsonrpc": "2.0", "id": id, "method": "x-branch-deck/followPrefix", "params": { "channel": channel, "window": window } })
+}
+
+/// `followPrefix` of a window takes the session of the prefix the git config names now: under the same prefix it answers
+/// at once and moves nothing; a prefix set meanwhile (in a terminal) moves every window of the channel to the session of
+/// the new prefix, each with one resync of another epoch, before the answer; a window that subscribes not is refused
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_follow_of_the_prefix_moves_every_window_of_the_channel_before_its_answer() {
+  let fixture = Fixture::new().await;
+  let (app, ide) = (fixture.shell().await, fixture.bridge().await);
+  let uri = channel(&app, &fixture.repo).await;
+  let view = app.ask(&subscribe(2, &uri, "main", None)).await["result"]["snapshot"]["state"].clone();
+  let mirror = format!("mirror:{}", fixture.repo);
+  channel(&ide, &fixture.repo).await;
+  ide.ask(&subscribe(2, &uri, &mirror, Some(&view["version"]))).await;
+
+  let frames = ide.frames_of(&follow_prefix(3, &uri, &mirror)).await;
+  assert_eq!(frames.last().unwrap()["result"], json!({}), "{frames:#?}");
+  assert!(
+    frames.iter().all(|frame| frame["method"] != "x-branch-deck/resync"),
+    "the same prefix moves nothing: {frames:#?}"
+  );
+
+  crate::corpus_test::git(&fixture.repo, &["config", "branchdeck.branchPrefix", "team"]);
+  let frames = ide.frames_of(&follow_prefix(4, &uri, &mirror)).await;
+  let resync = frames
+    .iter()
+    .find(|frame| frame["method"] == "x-branch-deck/resync" && frame["params"]["window"] == mirror)
+    .unwrap_or_else(|| panic!("the window of the bridge moves before the answer: {frames:#?}"));
+  assert_eq!(resync["params"]["snapshot"]["state"]["header"]["prefix"], "team");
+  assert_ne!(resync["params"]["snapshot"]["state"]["version"]["epoch"], view["version"]["epoch"]);
+  assert_eq!(frames.last().unwrap()["result"], json!({}));
+  // the window of the app moves too
+  let moved = app.until(|frame| frame["method"] == "x-branch-deck/resync").await.pop().unwrap();
+  assert_eq!(
+    (&moved["params"]["window"], &moved["params"]["snapshot"]["state"]["header"]["prefix"]),
+    (&json!("main"), &json!("team"))
+  );
+
+  let refused = ide.ask(&follow_prefix(5, &uri, "review:9")).await;
+  assert_eq!(refused["error"]["data"]["reason"], "notSubscribed", "{refused:#}");
+}
+
+/// A client that shows its windows itself (the bridge of the IDE: no `showWindow` among its host requests) gets no
+/// `showWindow` when a window of it is due to show (a deadline of a window built hidden, a page that settled); a client
+/// that declares it does
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_that_shows_its_windows_itself_gets_no_show_window() {
+  let fixture = Fixture::new().await;
+  for (host_requests, shown) in [(json!(["openWindow"]), false), (json!(["openWindow", "showWindow"]), true)] {
+    let client = fixture.client(&json!({ "hostRequests": host_requests })).await;
+    client.send(&window_life("x-branch-deck/windowShown", "review:1"));
+    let desktop = fixture.ctx.desktop(&WindowId::of(client.id(), "review:1"));
+    let show = desktop.windows.show("review:1", app_api::app::windows::Shown::Settled { open_id: 1 });
+    if shown {
+      let request = client.next().await;
+      assert_eq!((&request["method"], &request["params"]["window"]), (&json!("x-branch-deck/showWindow"), &json!("review:1")));
+      client.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": {} }));
+      show.await;
+    } else {
+      show.await;
+      let ping = client
+        .ask(&json!({ "jsonrpc": "2.0", "id": 9, "method": "ping", "params": { "channel": "ahp-root://" } }))
+        .await;
+      assert_eq!(ping["result"], json!({}));
+    }
+  }
+}
+
+/// The count of the clients is the bridges connected now that initialized, the app's own connection left out: what
+/// keeps a backend without a window alive
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_count_of_the_clients_leaves_out_the_connection_of_the_app() {
+  let fixture = Fixture::new().await;
+  let clients = fixture.host.clients();
+  let app = crate::in_process::InProcess::app(&fixture.host);
+  app.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+    "channel": "ahp-root://", "protocolVersions": ["1.0.0"], "clientId": "app", "clientInfo": { "name": "branch-deck-app", "build": fixture.host.build() },
+    "_meta": { "x-branch-deck": { "version": "1.0.0", "capabilities": {} } },
+  } }));
+  let answer: Value = serde_json::from_str(&app.next().await.unwrap().into_text()).unwrap();
+  assert!(answer.get("result").is_some(), "{answer:#}");
+  assert_eq!(*clients.borrow(), 0, "the app's own connection");
+  let ide = fixture.bridge().await;
+  assert_eq!(*clients.borrow(), 1);
+  drop(ide);
+  assert_eq!(*clients.borrow(), 0);
+}
+
+/// The desktop of the bridge of the IDE, which declares the host requests alone: no folder dialog (the roots of the
+/// project name the repositories), no install of `brd` or of the app file, a menu and a restart that do nothing, no
+/// updater (the app updates with the desktop app)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_desktop_of_the_bridge_has_no_folder_dialog_and_installs_nothing() {
+  let fixture = Fixture::new().await;
+  let ide = fixture.bridge().await;
+  let desktop = fixture.ctx.desktop(&WindowId::main_of(ide.id()));
+  assert!(!desktop.dialog.has_folder_dialog(), "the page offers no Open Repository… in the IDE");
+  assert_eq!(desktop.dialog.pick_folder("Open"), None);
+  assert!(!desktop.agent_cli.status().installable, "the page offers no install of brd or of the app file in the IDE");
+  let refused = desktop.agent_cli.install().unwrap_err();
+  assert_ne!(refused.message, "");
+  desktop.menu.set_auto_sync_checked(true).unwrap();
+  let refused = desktop.updater.check().await.unwrap_err();
+  assert_ne!(refused.message, "", "no updater of the app runs for the IDE");
 }

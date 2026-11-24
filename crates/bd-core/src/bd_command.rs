@@ -107,6 +107,22 @@ pub fn without_verbatim(path: &Path) -> PathBuf {
 /// The binary the command runs: on macOS and Linux the app binary (a `brd` symlink resolves to it), on Windows `brd.exe`
 /// next to the app, the console binary
 pub fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
+  let executable = running_binary(environment)?;
+  if cfg!(windows) {
+    let cli = executable.with_file_name(CLI_EXE);
+    if !cli.is_file() {
+      return Err(CliError::new(ErrorCode::InstallRefused, format!("No {CLI_EXE} next to {}", executable.display())));
+    }
+    return Ok(cli);
+  }
+  Ok(executable)
+}
+
+/// The binary of this process as the file system resolves it, the `.AppImage` file when the app runs from one
+///
+/// # Errors
+/// The binary cannot be told or resolved
+pub fn running_binary(environment: &Environment) -> Result<PathBuf, CliError> {
   let executable = environment
     .executable
     .as_deref()
@@ -118,15 +134,7 @@ pub fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
     .as_deref()
     .and_then(|path| std::fs::canonicalize(path).ok())
     .map(|path| without_verbatim(&path));
-  let executable = app_binary_path(&executable, appimage.as_deref());
-  if cfg!(windows) {
-    let cli = executable.with_file_name(CLI_EXE);
-    if !cli.is_file() {
-      return Err(CliError::new(ErrorCode::InstallRefused, format!("No {CLI_EXE} next to {}", executable.display())));
-    }
-    return Ok(cli);
-  }
-  Ok(executable)
+  Ok(app_binary_path(&executable, appimage.as_deref()))
 }
 
 /// The app binary of the running `executable`: the `.AppImage` file when the app runs from one (`appimage`, the `APPIMAGE`

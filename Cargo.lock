@@ -953,6 +953,7 @@ dependencies = [
  "anyhow",
  "app-api",
  "app-settings",
+ "backend-host",
  "bd-cli",
  "bd-core",
  "block2",
@@ -3568,6 +3569,7 @@ version = "0.1.0"
 dependencies = [
  "app-api",
  "app-settings",
+ "backend-host",
  "base64 0.23.1",
  "dirs",
  "domain-types",
@@ -3584,6 +3586,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7997,6 +8000,7 @@ dependencies = [
  "app-api",
  "app-settings",
  "axum",
+ "backend-host",
  "branch-integration",
  "cli-tools",
  "dashmap",

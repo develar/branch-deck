@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 /// What the app gives its host: what only the app can do, and what tells whether its executable is stale
 pub struct HostHooks {
@@ -56,6 +56,9 @@ pub struct Host {
   channels: Mutex<Channels>,
   connections: Mutex<BTreeMap<u64, Weak<Connection>>>,
   last_connection: AtomicU64,
+  /// The clients connected now that initialized, the app's own connection left out: what keeps a backend without a
+  /// window alive (`app_api::app::life`)
+  clients: watch::Sender<usize>,
   /// The news of each repository claimed so far
   news: Mutex<HashSet<(String, String)>>,
   me: Weak<Self>,
@@ -90,6 +93,7 @@ impl Host {
       channels: Mutex::default(),
       connections: Mutex::default(),
       last_connection: AtomicU64::new(0),
+      clients: watch::Sender::new(0),
       news: Mutex::default(),
       me: Weak::clone(me),
     })
@@ -129,6 +133,17 @@ impl Host {
   /// The connection `key` ended
   pub(crate) fn forget_connection(&self, key: u64) {
     lock(&self.connections).remove(&key);
+  }
+
+  /// A client initialized (`up`), or one that initialized ended
+  pub(crate) fn count_client(&self, up: bool) {
+    self.clients.send_modify(|count| *count = if up { *count + 1 } else { count.saturating_sub(1) });
+  }
+
+  /// The count of the clients connected now that initialized, the app's own connection left out, and its changes: the
+  /// bridges of the IDEs, a second start of the app while it asks `showMain`
+  pub fn clients(&self) -> watch::Receiver<usize> {
+    self.clients.subscribe()
   }
 
   /// The connections open now that initialized

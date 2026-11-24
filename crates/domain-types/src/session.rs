@@ -105,7 +105,7 @@ pub enum FactState {
   /// The value is an earlier answer: the newest read failed (`reason`), or what the fact is of changed and it is being
   /// read or computed again (`None`); nothing waits for it
   Stale {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "specta", specta(optional))]
     reason: Option<ApiError>,
   },
@@ -305,7 +305,7 @@ pub enum SyncReason {
 }
 
 /// How the request of a sync ended, when it did not fail
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum SyncOutcome {
@@ -321,7 +321,7 @@ pub enum SyncOutcome {
 /// The answer of a request of a sync: how it ended, and the version of the view after the last patch of the run that
 /// served it. The patch and the answer travel apart, so a window whose view is older waits for the patch that brings
 /// it to `version`
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncAnswer {
@@ -333,7 +333,7 @@ pub struct SyncAnswer {
 /// and the version of the view after the patch of that change, which a window waits for as it waits for the last patch
 /// of a sync (`SyncAnswer`); `None` when no session of the repository is open (no window shows it). A command with no
 /// outcome of its own (the deletion of an archived or unapplied branch) answers the version alone
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ViewAnswer<T> {
@@ -357,7 +357,7 @@ impl<T> ViewAnswer<T> {
 /// What the start of the app hands the page of the main window before it subscribes (`window.__BD_MODEL__`,
 /// `src-tauri/src/warm_start.rs`): the project the view is of and the seed of its session, the view of the frame an
 /// earlier run saved
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CachedModel {
@@ -380,7 +380,7 @@ pub struct SubscribeViewParams {
 /// view at the subscription, which the first patch on the channel follows: the view (`view`), the patch from the seed
 /// it holds (`catch_up`), or neither when it holds that view already. A patch may reach the window before this answer:
 /// the window keeps it until it has the answer
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ViewSubscription {
@@ -390,7 +390,7 @@ pub struct ViewSubscription {
 }
 
 /// Whether a sync runs, and what it does
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SyncState {
@@ -415,7 +415,7 @@ pub enum SyncState {
 }
 
 /// The step of a running sync, as its events tell it
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum SyncStep {
@@ -430,7 +430,7 @@ pub enum SyncStep {
 
 /// The snapshot of the view of a session: the branch table, what the robots land, landed and hold of it, the facts of
 /// the remote services and their news
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryView {
@@ -551,7 +551,7 @@ pub struct GitHubLayer {
 }
 
 /// A reviewer group a pull request to review needs (`RepositoryView::review_groups`)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewerGroupView {
@@ -572,7 +572,7 @@ pub struct ReviewerGroupView {
 /// What an approval of a pull request to review counts for where Patronus merges (`RepositoryView::approval_landing`,
 /// `domain_policy::approval_landing`): Patronus counts the approvals of the one pull request a Safe Push starts from, into
 /// its base, for all it lands
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ApprovalLanding {
@@ -585,7 +585,7 @@ pub enum ApprovalLanding {
 }
 
 /// Approve N Pull Requests of a stack a review window shows (`RepositoryView::review_stacks`)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewStackApproval {
@@ -596,7 +596,7 @@ pub struct ReviewStackApproval {
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotAttention {
@@ -629,7 +629,7 @@ pub struct PatronusPart {
 
 /// The facts of the remote services a session keeps, each with how it stands (docs/design/rust-domain-authority.md,
 /// "Факты")
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FactsView {
@@ -684,7 +684,7 @@ pub struct ReviewRequestsView {
 /// "Read ahead"; `domain_policy::range_reading::request_readings`): each request being read or read at the head and
 /// the base its listing names, in the order of the requests, and each stack of the rows with a layer being read or every
 /// layer read; a request the read ahead could not read, or of a repository that reads no review plans, has none
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewReadingsView {
@@ -696,7 +696,7 @@ pub struct ReviewReadingsView {
 /// name stands (`head`: `Unknown` while no window shows the view and nothing was read, `Loading` until its first answer,
 /// then as the review requests), its sections in their order, the empty ones left out, each pull request in the first
 /// section that has it, and when GitHub gave them
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewsView {
@@ -711,7 +711,7 @@ pub struct ReviewsView {
 
 /// The closed pull requests the user takes part in whose titles have `words` (`Demand::reviews_searches`), as GitHub
 /// found them: the reviewed and the user's own, the newest closed first, none that a section of Reviews shows
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ClosedSearchView {
@@ -719,7 +719,7 @@ pub struct ClosedSearchView {
   pub state: ClosedSearchState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ClosedSearchState {
@@ -732,7 +732,7 @@ pub enum ClosedSearchState {
 }
 
 /// A section of Reviews after the requests by name (Your Turn's rows lead it)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewSectionKind {
@@ -746,7 +746,7 @@ pub enum ReviewSectionKind {
   Authored,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewSection {
@@ -824,7 +824,7 @@ pub struct RobotsView {
 
 /// A transition the session saw in the answers of a remote service, which a window tells once (a toast, an OS
 /// notification); `id` grows by one per news of a session
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct News {
@@ -832,7 +832,7 @@ pub struct News {
   pub event: NewsEvent,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NewsEvent {
@@ -1023,46 +1023,46 @@ pub struct BranchView {
 #[serde(rename_all = "camelCase", default)]
 pub struct BranchStructure {
   /// The branch of the table it stacks on, its declared parent; absent for a root or a parent the table lacks
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub parent: Option<String>,
   /// The branches stacked directly on it, in the order of the table
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub children: Vec<String>,
   /// The branches it is built on, root first: the chain of its effective bases among the branches of the table
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub ancestors: Vec<String>,
   /// The branches stacked on it, directly or further down, each after its parent
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub descendants: Vec<String>,
   /// The main line of its stack below it: at each fork the child with the longest chain (lane 0 of the stack graph),
   /// empty when nothing is stacked on it. A Safe Push of its last branch lands the branch and the line in one robot
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub main_line: Vec<String>,
   /// Why it stays local: its own line of the parked branches, or a parked branch it is built on; absent otherwise
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub parked: Option<Parked>,
   /// Of the root of a stack that forks: the first member of its stack branch that is parked, which keeps the stack
   /// branch local; absent otherwise
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_parked: Option<ParkedMember>,
   /// What the user declared lands before it (`brd need`), as it is written: Remove Need of its menu names each
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub needs: Vec<String>,
   /// Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
   /// declared parent); absent for a branch alone and for a branch that heads no stack
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub whole_stack: Option<WholeStackView>,
   /// The table it is a row of, in the order of the table (`RepositoryView::order`); absent for the main one
-  #[serde(skip_serializing_if = "BranchSection::is_main")]
+  #[serde(default, skip_serializing_if = "BranchSection::is_main")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub section: BranchSection,
 }
@@ -1076,7 +1076,7 @@ pub enum WholeStackView {
   /// The stack forks: its stack branch `{prefix}/stack/<root>` lands it (what of it is left to land:
   /// `StackLanding::rest`); `not_built` why the sync did not build it, the stack lands in pieces then
   Forking {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "specta", specta(optional))]
     not_built: Option<Reason>,
   },
@@ -1124,41 +1124,41 @@ impl BranchSection {
 /// What the pushes of a branch send besides the branch, root first, as `domain_policy::push::push_plan` orders them over
 /// the table and the holds of the robots: the branch goes last in each, and an empty list sends it alone. A list absent
 /// is the one of its structure, most of the time: the view sends only what differs (`RepositoryView::pushes`)
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchPush {
   /// Push Stack: the branches it is built on that have work for the remote, root first, up to the nearest one a running
   /// Safe Push holds; one a merged Safe Push landed whole, or the fetched baseline has whole, is left out. Absent while
   /// it is every branch it is built on (`BranchStructure::ancestors`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack: Option<Vec<String>>,
   /// The push of the push button and of an action that needs the branch on the remote (a pull request, a review
   /// request): as `stack`, starting above the nearest branch whose push drops remote commits, which asks first in its
   /// row; absent while none of `stack` asks first (`stack` then). A Safe Push start pushes what its decision does (the
   /// `Push` effect, `domain_policy::push::start_push`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub action: Option<Vec<String>>,
   /// The push button pushes the stack, `action` and then the branch: the branch has work for the remote and asks nothing
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub button: bool,
   /// Push with Children; absent for a branch nothing but parked branches is stacked on
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub children: Option<ChildrenPush>,
   /// Push Up to Here of the commits of the branch the remote lacks; absent while every one of them offers it, it sends
   /// the branches of Push Stack first (`stack`) and nothing stops it
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub up_to: Option<PushUpTo>,
   /// Why the push an action needs (`action`, then the branch: a pull request, a review request, the push a refused
   /// start offers) can't be made for the user, of the table as it is (`derive::action_push_of`): the branch stays local,
   /// a running Safe Push holds it, the last sync did not build it, its push drops remote commits, or a branch of its chain
   /// up to the nearest held one the sync did not build or whose push drops remote commits (`ActionPush::stop`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub action_blocker: Option<Reason>,
 }
@@ -1166,49 +1166,49 @@ pub struct BranchPush {
 /// Push Up to Here of a branch (`domain_policy::push::up_to_push`): the branches it is built on that have work for the
 /// remote go first, whole, root first, then the branch up to the commit, in one atomic push. A field absent is the
 /// common answer, so most branches send none
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PushUpTo {
   /// The copies of the commits of the branch that offer it, oldest first: of its own commits the remote lacks, those no
   /// merged Safe Push landed; absent while it is every one of them (`RemoteStatusUpdate::unpushed_commits`). The last
   /// commit the remote lacks pushes the whole branch
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub commits: Option<Vec<String>>,
   /// The branches it is built on that it pushes first, whole, root first; absent while they are those of Push Stack
   /// (`BranchPush::stack`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub ancestors: Option<Vec<String>>,
   /// Why it can't push now: the branch stays local, a Safe Push holds it, the sync did not build it, it was rewritten
   /// since its push, or a branch it is built on is held, not built or asks first
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub blocker: Option<Reason>,
 }
 
 /// What Push with Children of a branch sends, in one atomic push, parents first
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ChildrenPush {
   /// The branch while it has work for the remote, then the branches stacked on it that have work, each after its
   /// parent: none parked, none a Safe Push holds or a merged one landed, none whose push drops remote commits. Absent
   /// while it is the branch and every branch stacked on it (`BranchStructure::descendants`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub order: Option<Vec<String>>,
   /// The branches stacked on it whose push drops remote commits they lack: left out, each asks first in its row
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub ask_first: Vec<String>,
   /// Of the root of a stack that forks: what the push does with the stack branch of the whole stack
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_branch: Option<StackBranchAlong>,
   /// It pushes more than the branch itself: a branch stacked on it, or the stack branch along
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub offers: bool,
 }
@@ -1216,7 +1216,7 @@ pub struct ChildrenPush {
 /// What Push with Children of the root of a stack that forks does with the stack branch of its whole stack
 /// (`domain_policy::push::stack_branch_along`): `along` pushes it in the same atomic push, after the branches, so the
 /// pull request of the whole stack follows them; any other kind leaves it as it is, and says why
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StackBranchAlong {
@@ -1245,30 +1245,30 @@ pub struct BranchHead {
   pub latest_commit_time: u32,
   pub summary: String,
   /// The title of the branch's description (`brd describe`); `None` without one
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub description_title: Option<String>,
   /// `description_title` split at the issue key it starts with, which a row that shows the key leaves out
   /// (`sync_utils::issue_pattern::issue_lead`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub description_lead: Option<crate::commit::IssueLead>,
   /// The issue key the name starts with (`IJPL-1` of `IJPL-1` and of `IJPL-1-cache`), which the row shows in the name
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub name_issue_key: Option<String>,
   pub all_commits_have_issue_references: bool,
   /// Most frequent author email in this branch's commits
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub my_email: Option<String>,
   pub origin: BranchOrigin,
   /// The issue the branch belongs to
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub issue_key: Option<String>,
   /// Where the branch sits in its stack; `None` for a branch the sync did not place
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack: Option<BranchStack>,
 }
@@ -1279,17 +1279,17 @@ pub struct BranchHead {
 #[serde(rename_all = "camelCase")]
 pub struct CommitSync {
   /// The virtual copy the sync wrote or kept
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub hash: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub status: Option<CommitSyncStatus>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub error: Option<BranchError>,
   /// The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`)
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub resolved: Option<WordResolutionSummary>,
 }
@@ -1332,11 +1332,11 @@ pub struct BranchSync {
   pub processed_count: u32,
   pub has_error: bool,
   /// The error of the branch or of its last failed commit
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub error_details: Option<BranchError>,
   /// Why a `Blocked` branch was not rebuilt (its parent can't be built on); `None` otherwise
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub blocked_reason: Option<String>,
 }
@@ -1401,9 +1401,20 @@ pub struct LandedSection {
   pub landed: Vec<LandedBranch>,
 }
 
+/// A part of a change that is absent when it did not change and `null` when it was cleared: a present value, `null`
+/// included, is a change (`Some`), which the default of serde would read as no change
+#[expect(clippy::option_option, reason = "the three states of a part of a change: absent, cleared, set")]
+fn set_or_cleared<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+  D: serde::Deserializer<'de>,
+  T: Deserialize<'de>,
+{
+  Option::<T>::deserialize(deserializer).map(Some)
+}
+
 /// The change of a view from `base` to `next` (`next` is `base.next()`): the parts that differ from the ones sent last,
 /// each whole. A window applies it only to the view at `base`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ViewPatch {
@@ -1414,172 +1425,172 @@ pub struct ViewPatch {
 
 /// The parts of a `RepositoryView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
 /// integration of the archived branches) carry only the keys that changed and the keys removed
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct TableChanges {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub cached: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub synced: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub sync: Option<SyncState>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub header: Option<TableHeader>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub order: Option<Vec<String>>,
   /// The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
   /// part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it
   /// has no remote status, without its structure it is a root of the main table with nothing stacked on it
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub branches: BTreeMap<String, BranchChange>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_branches: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stacks: BTreeMap<String, StackBranchUpdate>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stacks: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pushes: BTreeMap<String, BranchPush>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_pushes: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub open_pull_requests: BTreeMap<String, PullRequestView>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_open_pull_requests: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub lands: BTreeMap<String, LandDecisions>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_lands: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landed_states: BTreeMap<String, Landed>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_landed_states: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub next_steps: BTreeMap<String, NextStepView>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_next_steps: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub actions: BTreeMap<String, Vec<ActionState>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_actions: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub attention: BTreeMap<String, RobotAttention>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_attention: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub robot_estimates: BTreeMap<String, RobotEstimate>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_robot_estimates: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub github_layers: BTreeMap<String, GitHubLayer>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_github_layers: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_review_groups: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub approval_landing: BTreeMap<String, ApprovalLanding>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_approval_landing: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_stacks: BTreeMap<String, ReviewStackApproval>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_review_stacks: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_operations: Vec<OperationId>,
   /// The rewrite whose Undo the session offers now, `null` for none; absent when it did not change
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
+  #[serde(default, deserialize_with = "set_or_cleared", skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional, type = Option<OperationId>))]
   pub undo: Option<Option<OperationId>>,
   /// When the check of a focus last found the inputs unchanged, `null` since a run ended; absent when it did not change
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
+  #[serde(default, deserialize_with = "set_or_cleared", skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional, type = Option<u32>))]
   pub inputs_checked_at: Option<Option<u32>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub archived: Option<ArchivedChanges>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unapplied: Option<Vec<UnappliedBranchInfo>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landed: Option<LandedSection>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub reviews: Option<ReviewsView>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub patronus: Option<PatronusChange>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub route: Option<LandingRoute>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub facts: Option<FactsChanges>,
   /// The news since the patch before, oldest first
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub news: Vec<News>,
 }
 
 /// What changed of the Patronus view: its states when they differ, the branches and the stacks whose facts changed
 /// with the keys that went, the landings of the merged robots and the restarts of the robots when they differ
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PatronusChange {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub state: Option<FactState>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landing_needs: Option<FactState>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub branches: BTreeMap<String, BranchPatronus>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stacks: BTreeMap<String, StackPatronus>,
   /// Only Rust's, never on the wire (`PatronusView::landed_by_robot`): what landed is Rust's answer of the table as it
@@ -1587,120 +1598,120 @@ pub struct PatronusChange {
   #[serde(skip)]
   pub landed_by_robot: Option<BTreeMap<String, Vec<RobotLandedBranch>>>,
   /// The restarts of the robots, whole, when they differ
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub restarts: Option<BTreeMap<String, RobotRestart>>,
   /// The branches and the stacks the view no longer lists
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_branches: Vec<String>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stacks: Vec<String>,
 }
 
 /// The parts of the facts that changed
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct FactsChanges {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub robots: Option<RobotsChange>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pull_requests: Option<PullRequestsChange>,
   /// All the rules, when one of them changed: a handful of bases
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub rules: Option<BTreeMap<String, Fact<BranchRules>>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub profiles: Option<Fact<PatronusStartOptions>>,
   /// The readiness of the subjects that changed, and the subjects that went
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_readiness: Vec<String>,
   /// The details of the robots that changed, and the robots no window demands any more
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_robot_details: Vec<String>,
   /// The whole part when it changed: at most 50 requests
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_requests: Option<ReviewRequestsView>,
   /// The whole part when it changed: a few entries per waiting request
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub review_readings: Option<ReviewReadingsView>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub auth: Option<Fact<AuthStatus>>,
 }
 
 /// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestsChange {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub head: Option<Fact<PullRequestAvailability>>,
   /// With a head, the repository of the listing that stands and what the token may do there, which change only with
   /// an answer, and every answer changes the head; without a head they stay
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub repository: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub viewer_permission: Option<ViewerPermission>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub merge_methods: Option<MergeMethods>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub pull_requests: BTreeMap<String, PullRequest>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_pull_requests: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_pull_requests: BTreeMap<String, PullRequest>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stack_pull_requests: Vec<String>,
 }
 
 /// What changed of the robots: the head when it differs, the robots that changed and the ids that went
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotsChange {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub head: Option<Fact<RobotsHead>>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub robots: BTreeMap<String, PatronusRobot>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_robots: Vec<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub failing: Option<Vec<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub needs_review: Option<BTreeMap<String, bool>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub problems: Option<BTreeMap<String, Vec<PatronusProblem>>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub problems_failed: Option<BTreeMap<String, String>>,
 }
@@ -1714,45 +1725,45 @@ impl TableChanges {
 }
 
 /// The parts of one branch that changed
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchChange {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub head: Option<BranchHead>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub commits: Option<Vec<Commit>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub sync: Option<BranchSync>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub copies: Option<Vec<CommitSync>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub remote: Option<BranchRemote>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub structure: Option<BranchStructure>,
 }
 
 /// The parts of the archived section that changed
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ArchivedChanges {
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub names: Option<Vec<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub newly_archived: Option<Vec<String>>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub integration: BTreeMap<String, BranchIntegrationInfo>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_integration: Vec<String>,
 }

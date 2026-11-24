@@ -1,7 +1,7 @@
 # IDE Embedding
 
 **Status:** Draft  
-**Updated:** 2026-11-20  
+**Updated:** 2026-11-23  
 **Tags:** [ide, air, mcp, protocol, windows]
 
 ## Problem
@@ -17,19 +17,22 @@ twice. Air needed a general way to host an app of the user; Branch Deck is its f
 
 ## Solution Overview
 
-The IDE reads `~/.air/apps/branch-deck.yaml` (written by the installer of Branch Deck) and starts `branch-deck cli mcp`
-(`brd mcp`) for each project, after the user's consent; it reads the executable of the command only after the user
+The IDE reads `~/.air/apps/branch-deck.yaml` (written by the installer of Branch Deck) and starts the bridge
+`branch-deck ide` (`branch-deck ide` its alias) for each project, after the user's consent; it reads the executable of the command only after the user
 answered. The IDE side is behind the registry key `air.apps.enabled` of Air, off by default: without it a project opens
 no apps channel, and the IDE shows no app. The page runs in a sandboxed frame of the IDE with its own
 origin. Three links carry one protocol, `x-air-app`: the frame talks MCP Apps to a host page by postMessage; the host
-page talks to `air-ide` (the Rust library of Air) over a loopback WebSocket; `air-ide` talks MCP to `brd mcp` over
+page talks to `air-ide` (the Rust library of Air) over a loopback WebSocket; `air-ide` talks MCP to the bridge over
 stdio. Kotlin places the views and holds the browsers, but it is not in the path of the data. `air-ide` serves the host
 page itself, on a port of `127.0.0.1`: Chromium lets a page open a loopback socket without a prompt only when the page
 came over loopback HTTP.
 
-`brd mcp` is a third host of `app-api` beside the Tauri shell and `test-server`: the same commands, the same sessions,
-the same data directories (`org.develar.branch-deck`), so the desktop app and the IDE can be open on the same
-repository at once.
+The bridge is a client of the one backend of the user ([Backend Protocol](backend-protocol.md)): the process of the
+desktop app, whose socket it joins, and which it starts without a window (`--background`) when it does not run. So the
+app and every project of the IDE share the sessions, the polls of the remotes, the last check and the estimates of the
+robots. Where the app cannot run (no display, another build with a window open, Windows while the job of Air refuses
+the breakaway of the app), the bridge serves the IDE with a backend of its own process, on the same data directories
+(`org.develar.branch-deck`), and comes back to the app's once a backend of its build appears.
 
 ## Design
 
@@ -45,11 +48,13 @@ flowchart LR
         end
         A["air-ide (Rust)<br/>air-apps: registry, consent,<br/>process, mirrors, events"]
     end
-    B["brd mcp<br/>app-api + sessions"]
+    B["branch-deck ide<br/>(the bridge, ide-host)"]
+    D["the desktop app<br/>backend-host + app-api + sessions"]
     Y["~/.air/apps/branch-deck.yaml"]
     F <-- "postMessage: MCP Apps + x-air-app" --> H
     H <-- "GET / and the WebSocket on 127.0.0.1:port, ticket" --> A
     A <-- "stdio: MCP + x-air-app" --> B
+    B <-- "socket: the backend protocol<br/>(or a backend of its own process)" --> D
     K <-- "apps channel, tickets, frame files (FFM)" --> A
     K -. "load #ticket=..., executeJavaScript" .-> H
     Y --> A
@@ -62,17 +67,17 @@ in no request, and the host page removes it from its address; after a drop or a 
 ticket by `executeJavaScript`, when the instance in the apps channel turns not `connected`. The files of the frame of
 Branch Deck (`https://branch-deck.air-genui-app.local`, a stable origin, so its `localStorage` survives a restart of
 the IDE) come from the request handler of the IDE, which reads them by `x-air-ide/appResourceRead` of the apps
-channel, and `air-ide` from `brd mcp` by `resources/read`.
+channel, and `air-ide` from `branch-deck ide` by `resources/read`.
 
-Branch Deck speaks two of the links: the page the frame link, `brd mcp` the app link. The page link between the host
+Branch Deck speaks two of the links: the page the frame link, `branch-deck ide` the app link. The page link between the host
 page and `air-ide` is Air's, and a change of it changes neither. On it a mirror is one table channel,
 `x-air-ide:/appView/<n>`, which every view of the mirror subscribes to through `x-air-app/viewOpen`: one state and one
 `serverSeq` for each change, whatever the count of views; a `viewOpen` with the params of the view that its connection
 holds answers at once with that subscription (`held: true`, without a snapshot). The events, the call events and the progress of the process
 are notices of its own channel, `x-air-ide:/appLink/<n>`, which no page subscribes to and whose number changes with
-each run of `brd mcp`. The echo of an intent holds its result in `_meta["x-air-ide"].result`. A cancel of a page call
+each run of `branch-deck ide`. The echo of an intent holds its result in `_meta["x-air-ide"].result`. A cancel of a page call
 is a notification of the root channel, which `air-ide` serves at once, never behind the call it cancels: the call gets
-exactly one answer, and `brd mcp` gets `notifications/cancelled`.
+exactly one answer, and `branch-deck ide` gets `notifications/cancelled`.
 
 ### A call that changes state
 
@@ -81,7 +86,7 @@ sequenceDiagram
     participant F as frame (page)
     participant H as host page
     participant A as air-ide
-    participant B as brd mcp
+    participant B as branch-deck ide
     F->>H: tools/call bd_invoke {execute}
     H->>A: x-air-app/toolsCall
     A->>B: tools/call (origin click, instance main:1)
@@ -102,7 +107,7 @@ sequenceDiagram
    remove one entry of a keyed part.
    **Rationale**: `TableChanges` is that shape already (parts whole, keyed parts by key with `removed*`), so the
    conversion is mechanical and generic; the `Version` of the session is the part `version`, set last in each change,
-   so the page rebuilds its patch between the versions of brd and compares them with those the commands answer. The
+   so the page rebuilds its patch between the versions of the backend and compares them with those the commands answer. The
    news become the part `news` of the kept list, which the page tells by id, so a resync tells none twice.
 3. **Decision**: The mirror key is the repository path.
    **Rationale**: `subscribe_view` answers per session, not per window, so every view of a repository shares one
@@ -135,54 +140,88 @@ sequenceDiagram
 8. **Decision**: The contract is Air's, with a copy here.
    **Rationale**: Air serves other apps with the same protocol; `docs/design/ide-embedding/protocol/` holds the
    schemas and the golden corpus of idea-1 byte for byte (the formatter of the page leaves the directory alone) plus
-   `branch-deck-app.ndjson`, the app link as `brd mcp` writes it, which the tests of `ide-host` run.
+   `branch-deck-app.ndjson`, the app link as `branch-deck ide` writes it, which the tests of `ide-host` run. The copy
+   is idea-1 b8428b3a9f321, but `examples/branch-deck.yaml`, which is cbbc99a271ce7 (it starts `branch-deck ide`);
+   the copy's `README.md` is idea-1's too, so it names no revision.
 
 ### Implementation notes
 
 - `crates/app-api/src/dispatch.rs`: a command of `for_each_command!` by its name, its arguments as the page's `invoke`
   sends them, its answer as JSON or bytes, its channel one sink of JSON values. The e2e server runs every route through
-  it (`crates/test-server/src/invoke.rs`), and `brd mcp` every `bd_invoke`.
+  it (`crates/test-server/src/invoke.rs`), and `branch-deck ide` every `bd_invoke`.
 - `crates/app-api/src/app/services.rs`: the services of a process on the user's machine (the sessions, Patronus,
   GitHub, YouTrack, the sign-ins) over a `ContextSource`, and `AppServices::into_context`, the one construction of its
-  `AppContext`; the Tauri shell gives them the state it manages (`src-tauri/src/services.rs`), `brd mcp` the context it
+  `AppContext`; the Tauri shell gives them the state it manages (`src-tauri/src/services.rs`), `branch-deck ide` the context it
   built. The seed of the main view from the frame of its session is `app_api::app::warm_start::seed`, which the init
   script of the app and `bd_bootstrap` both take.
-- `crates/ide-host` (`brd mcp`, `branch-deck cli mcp`; on Windows `brd.exe mcp`): `server.rs` the connection and its
-  methods, `mirror.rs` the patch as one change, `hosts.rs` the hosts of app-api, `notices.rs` the notifications of the
-  IDE, `link.rs` the one ordered queue of
-  what brd writes, `resources.rs` the files of `dist-air/` built into the binary by `build.rs` (a stub page without
-  them; a new build of the page is picked up as the directory changes), `process.rs` the stdio loop and the context on
-  `org.develar.branch-deck`. `crates/bd-cli/src/architecture_test.rs` admits it to `app-api` and keeps Tauri out of it.
+- `crates/ide-host` (`branch-deck ide`, parsed in `src-tauri/src/main.rs` before Tauri; `branch-deck cli mcp` and
+  `brd mcp` its alias): `server.rs` the connection with air-ide over the protocol of the backend, `backend.rs` the
+  client of the backend (its `initialize`, its requests, its transports: the socket, the in-process connection),
+  `start.rs` how it reaches the backend, `fallback.rs` the backend of its own process and the way back, `mirror.rs` the
+  patch as one change, `hosts.rs` the windows as views, `notices.rs` the notifications of the IDE, `settings.rs` the
+  settings as the backend tells them, `link.rs` the one ordered queue of what the bridge writes, `resources.rs` the
+  files of `dist-air/` built into the binary by `build.rs` (a stub page without them; a new build of the page is picked
+  up as the directory changes), `process.rs` the stdio loop, the choice of the backend and the exit code.
+  `crates/bd-cli/src/architecture_test.rs` admits it to `app-api` and `backend-host` and keeps Tauri out of it.
+- **The start** (`start.rs`, a pure rule `decide` of what the bridge finds): a backend of its build on the socket of the
+  key of the app (`backend_host::socket::app_key` of the data directory and the app binary; `brd` names the
+  `branch-deck` beside it) is joined. A held `backend.lock` is an app that starts: the bridge waits up to 15 s for its
+  socket. With none, the bridge starts the app under `backend.launch.lock`, so two bridges start one app: macOS
+  `/usr/bin/open -g -j -a <bundle> --args --background` (launchd starts it, with none of the environment of the IDE), a
+  double fork on Linux (`/bin/sh` starts it in the background and exits: the stop of an app by Air kills its descendants
+  in other process groups too), `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB` on Windows; the variables of Air and of
+  the IDE are left out (`app_environment`). Another build that answers `otherBuild` with `exits` lets the bridge start
+  the app of its build once its lock is free; one with a window open leaves the bridge its fallback. The bridge answers
+  `initialize`, `ping`, `tools/list` and `resources/read` of air-ide while the app starts, and keeps every other
+  message for its backend, in their order.
+- **The fallback** (`fallback.rs`): a `backend_host::host::Host` on a context of the services of the app, its desktop
+  without any part, its sessions' events to every connection; the bridge is its client over the in-process transport.
+  It serves where no backend of its build can run: Linux without `DISPLAY` and `WAYLAND_DISPLAY`, another build with a
+  window open, Windows while the job of Air refuses the breakaway (until idea-1 IJAI-7005 ships), a start that fails or
+  does not listen within 15 s, `BRANCH_DECK_IDE_BACKEND=in-process` (the tests). Every 5 s it looks for a backend of its
+  build (`backend.lock` held, the socket answers `initialize`), asking another build once while it lives, and ends the
+  bridge with 1 once one answers: the IDE starts it again, and it joins.
+- **The ends**: the end of the stdin ends the connection to the backend and the bridge with 0; an end of the backend
+  first ends it with 1, after which the IDE starts it again.
+- **The places** are the windows of the connection of the bridge: `viewShown`, `viewHidden` and `viewClosed` are
+  `x-branch-deck/windowShown`, `windowHidden` and `windowClosed` of the window of the instance, and `bd_bootstrap` is
+  `x-branch-deck/pageLoaded` of it. The connection declares the host request `openWindow` and no other
+  part of a desktop: the IDE shows its views itself, so it takes no `showWindow`; the updater, the menu, the restart, the
+  folder dialog and the install answer as a desktop without them.
+- **The settings** are the backend's: the bridge reads the keys of its rules (the recent projects, `ideRootPicks`, the
+  switch of the notifications) from the snapshot of the main window (`x-branch-deck/bootstrap`) and each
+  `settings_changed`, and writes through `set_setting` of its own window `bridge`, so every view takes the change as
+  another's.
 - **The window of a call** is the instance of its view: the main window for `main:<n>`, else the instance itself
   (`review:3`), so two review tabs are two windows of `forget_window`. A sub-window opened by `open_sub_window` is
   `x-air-app/openView` of the view of its URL (`/review` → `review`), with `params.data` the data of the open; a
   review is keyed `<kind>:<target>` (`branch:feature`), any other view by its window id. A second open answered with
   the instance shown already sends it `init-data-updated {data}` and `setViewTitle`.
-- **A mirror** subscribes the session once for all the views of a repository, under a window of its own
-  (`mirror:<path>`), and the last unsubscribe forgets that window; the patches that come before the answer of the
-  subscription are in its state, which holds the `version` of the view, set last in each change. `set_demand` of a
-  view names the subscription of its mirror (brd puts it in), and its demand is the union of the demands of the views
-  of the mirror (`Demand::union`), which brd keeps by instance: the main view and a review share one
-  subscription, so the demand of one never takes back what the other asks. The session dropping the subscription of a shown mirror
-  is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: brd cannot tell a repository that
+- **A mirror** subscribes the repository channel once for all the views of a repository, under a window of the bridge
+  (`mirror:<path>`), and the last unsubscribe ends that subscription; its state holds the `version` of the view, set
+  last in each change, and each `x-branch-deck/viewPatched` of its window is one change. `set_demand` of a view is
+  `x-branch-deck/setDemand` of the window of its mirror, and its demand is the union of the demands of the views of the
+  mirror (`Demand::union`), which the bridge keeps by instance: the main view and a review share one subscription, so
+  the demand of one never takes back what the other asks. The session dropping the subscription of a shown mirror
+  is `x-air-app/viewEnded {reason: "sessionClosed"}`, the one reason of the contract: the bridge cannot tell a repository that
   is gone from a session that closed. Air ends the channel of the mirror for each view of it with that reason, and
-  an exit of brd ends each mirror with `serverExited` before it fails the calls in flight. A subscription again to a
-  mirror brd holds (`bd_invoke` of `subscribe_view` from the page, or `x-air-app/subscribe` of another view) takes the
-  session of the prefix the git config names now (`session_key_now`), as a window of the desktop app that subscribes
-  again does: a mirror of another prefix moves to that session in one change that replaces every part
-  (`MirrorView::parts`, the `version` of another epoch last), before the answer; the subscription of the old session
-  ends, none of its patches reaches the mirror after the move, and the new one takes the demand a view set last. So a
+  an exit of the bridge ends each mirror with `serverExited` before it fails the calls in flight. A subscription again to a
+  mirror the bridge holds (`bd_invoke` of `subscribe_view` from the page, or `x-air-app/subscribe` of another view) is
+  `x-branch-deck/followPrefix` of the window of the mirror: the channel takes the session of the prefix the git config
+  names now, as a window of the desktop app that subscribes again does, and a channel of another prefix moves to that
+  session, a resync of each of its windows before the answer, which the mirror takes in one change that replaces every
+  part (`MirrorView::parts`, the `version` of another epoch last); none of the patches of the old session reaches the
+  mirror after it, and the window takes the demand the views set last. So a
   prefix set in a terminal, in Settings or as the app's prefix reaches every view of the mirror, and the channel of the
   mirror never ends for it. A patch of the session into another epoch (the session opened anew: a slot of a lease pool
-  leased again) moves the mirror the same way (`Server::resync`), as no patch of another epoch applies to its view: the
-  slot that got it asks the server, which serves the request between the messages of air-ide, so a move never runs
-  beside a subscription or another move, and does nothing for a mirror whose slot was replaced meanwhile; a session
-  that answers no view ends the mirror with `sessionClosed`.
+  leased again), or past a patch the mirror lacks, applies to no view the mirror holds: the bridge reads the view anew
+  (`get_snapshot` of the window of the mirror), the patches after it waiting, and the mirror takes it in one change of
+  every part; a session that answers no view ends the mirror with `sessionClosed`.
 - **`bd_bootstrap {view, titleBar}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another), `titleBar: {kind: "native", checkForUpdates: false,
-  folderDialog: false, progressText: true}` and `homeDir`, the home directory of `brd mcp` (`dirs::home_dir`, which
-  `homeDir` of Tauri reads in the desktop app). The dialog host of brd has no folder dialog (`DialogHost::has_folder_dialog`),
+  folderDialog: false, progressText: true}` and `homeDir`, the home directory of `branch-deck ide` (`dirs::home_dir`, which
+  `homeDir` of Tauri reads in the desktop app). The desktop of the bridge has no folder dialog (`DialogHost::has_folder_dialog`),
   so the page offers no Open Repository… beside its selector or in the command palette and no Add Companion…; the roots
   of the project are its repositories, and one root shows as the text of its path. `progressText` says that the title
   of the tool window names the progress. The shim answers `homeDir` of Tauri with `homeDir`, so the page shows `~`.
@@ -192,10 +231,10 @@ sequenceDiagram
   `{kind: "overlay", doubleClick: "host", height, …}`: the IDE merges the row of the page into the title bar of the
   window. The app file asks it for the Settings window only (`window: {titleBar: overlay}`). A tool window, an editor
   tab and a dialog draw their own title and stay `native`. One Rust type owns the shape of the answer for the desktop
-  app and for `brd mcp` (`domain_types::title_bar`).
+  app and for `branch-deck ide` (`domain_types::title_bar`).
 - **The desktop of the page**: an event the page emits for the other windows is `bd_invoke` of
-  `plugin:event|emit {event, payload, target}`, which brd tells the views (`x-air-app/event`, with the instance of the
-  window `target` names). The page sets the badge, the progress and its notifications only through brd, by `bd_invoke`
+  `plugin:event|emit {event, payload, target}`, which the bridge tells the views (`x-air-app/event`, with the instance of the
+  window `target` names). The page sets the badge, the progress and its notifications only through the bridge, by `bd_invoke`
   of the plugin calls of Tauri (`plugin:window|set_badge_count`, `plugin:window|set_progress_bar`,
   `plugin:notification|notify` → `setBadge`,
   `setProgress` of `main`, `notify`). In the IDE the value of the progress bar has the `text` of what runs (Safe
@@ -203,7 +242,7 @@ sequenceDiagram
   `{fraction, text}`, an indeterminate one `{text}` without `fraction`, a progress without a percent, and
   `fraction: null` the clear. An IDE before that form reads a progress without a fraction as the clear, so a robot
   without an estimate shows no progress there, as before. Show in Branch Deck asks `openView {view: "main"}` and
-  tells the instance the IDE answers `reveal-branch` (`Server::show_view`). brd tells an event at once: the IDE holds
+  tells the instance the IDE answers `reveal-branch` (`Server::show_view`). the bridge tells an event at once: the IDE holds
   an event for a view until its page sent `ui/notifications/initialized`, and the page sends it only once the first
   render of its page ran its effects (`markPageStarted`), after the listens they asked for, so a page that the IDE
   builds for the open gets its event too. `plugin:window|set_focus` of the main view (the main window comes to the
@@ -214,20 +253,23 @@ sequenceDiagram
   `settings` in the IDE alone. `plugin:window|close` of a page is `x-air-app/closeView` of its instance. A change of
   the Git roots of the project is the event `roots-changed` to the main view.
 - **The notifications** (`notices.rs`): the failure of a robot, a news that a patch of a mirror brings, is
-  `x-air-app/notify` from brd itself while the main view is not shown (`viewHidden` after its `viewShown`) and "Safe
+  `x-air-app/notify` from the bridge itself while the main view is not shown (`viewHidden` after its `viewShown`) and "Safe
   Push failures" of Settings is on, worded in Rust ("Safe Push of auth failed" / "auth → master", or "… needs review"),
   with the action Show in Branch Deck: `run: {tool: "reveal_branch", arguments: {repositoryPath, branchName}}`, the
-  branch of the robot or the root of its whole stack. The IDE runs it with the origin `action`; brd asks `openView` of
+  branch of the robot or the root of its whole stack. The IDE runs it with the origin `action`; the bridge asks `openView` of
   `main` (the IDE shows the tool window and answers its instance) and tells that instance `reveal-branch`, which the
   page reveals as Go to of the palette does (`useRevealBranchEvent`). The page's own notification of a news
-  (`announce` while its frame has no focus) carries `extra: {repositoryPath, news}`: brd leaves it out when it told
+  (`announce` while its frame has no focus) carries `extra: {repositoryPath, news}`: the bridge leaves it out when it told
   that news, and else gives it the kind and the action of the news, so a failure is one notification of the IDE and
-  it opens its branch. Another notification of the page (a review request, a merge) stays as the page words it.
+  it opens its branch. The bridge claims each news it tells (`x-branch-deck/claimNews`, the news by what it tells: the
+  robot that failed, whose id outlives a session), and only the first claim of the backend tells it, so a second IDE on
+  the repository, or the desktop app, tells it not again; the page claims its own before it notifies (`claim_news`).
+  Another notification of the page (a review request, a merge) stays as the page words it.
 - **The repositories of the main view** (`projects.rs`): the views see the Git roots of the project as their recent
   projects (`recentProjects`), the root the main view shows first, each with what the recent projects of the settings
   keep of it: in the snapshot of `bd_bootstrap`, in each `settings_changed` and in the answers that carry changes
   (`set_setting`, `get_settings_changes`, `sub_window_loaded`). So the page, unchanged, selects that root, its
-  selector lists the roots, and no rule of it is in TS. A write of `recentProjects` by the page is a pick: brd shows
+  selector lists the roots, and no rule of it is in TS. A write of `recentProjects` by the page is a pick: the bridge shows
   its first root, remembers it by the set of the roots in `ideRootPicks` of `repository-state.json`
   (`app_settings::ide_roots`), which the next start of the project shows, and writes what the page changed of each root
   into the recent projects in their place; their order, which selects the repository of the desktop app, stays. A
@@ -246,7 +288,7 @@ sequenceDiagram
 - The page: `src/air-main.ts` sends `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits
   `bd_bootstrap {view}` (the globals of the init script of a window: `__TAURI_STORE__`, `__BD_MODEL__`,
   `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`, and `__BD_HOME_DIR__` for `homeDir`), installs the shim and runs `src/main.tsx` on the page of
-  its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `brd mcp` embeds and serves as
+  its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `branch-deck ide` embeds and serves as
   `ui://branch-deck/<path>`, `index.html` for every view; the chunks and the highlight worker stay files of their own
   (no blob worker: the CSP of SEP-1865 refuses it). Each build goes into a directory of its own,
   `target/dist-air.builds/<time>-<pid>/`, and `dist-air` becomes a link to it once it is finished, by one rename of a
@@ -264,9 +306,9 @@ sequenceDiagram
   - `src/platform/air/shim.ts`: `invoke` → `tools/call bd_invoke {command, args}` with the arguments as the page sent
     them; the `Channel` the table names gets the `x-air-app/callEvent` of its call (`callId` is the id of the
     `tools/call`); `structuredContent.value`, `bytes` (base64) or `error`. A failure of the frame link is the `ApiError`
-    that `brd mcp` put in the data of the error, which Air passes on (a subscription brd refused: `no_branch_prefix` is
+    that `branch-deck ide` put in the data of the error, which Air passes on (a subscription the bridge refused: `no_branch_prefix` is
     the welcome card, with the prefix git suggests), else `internal` with the reason of the link. `listen` hears `x-air-app/event`; `emit` and
-    `emit_to` are `bd_invoke` of `plugin:event|emit {event, payload, target}`, which `brd mcp` tells the views of the
+    `emit_to` are `bd_invoke` of `plugin:event|emit {event, payload, target}`, which `branch-deck ide` tells the views of the
     app. The plugins: `ui/open-link` for a link, the host tool `air_copy`, the log as `notifications/message`; the
     badge, the progress and the notification (the browser's `Notification` too) are `bd_invoke` of their plugin calls,
     and the close of a window `bd_invoke` of `plugin:window|close`; the size, the zoom and the theme are the place's,
@@ -291,8 +333,8 @@ sequenceDiagram
     asks `get_snapshot`, which the shim answers from the state of the mirror. The end of a mirror
     (`x-air-app/subscriptionEnded`, whatever its reason: `sessionClosed`, `serverExited`, `closed` or one the page does
     not know) sends the same patch, and the snapshot of its repository is then none until the page subscribes to it
-    again, whatever session `brd mcp` holds: the page subscribes again, as when its session went away in the desktop
-    app, and the frame opens the view anew. A snapshot of brd would leave the page a subscription that nothing changes.
+    again, whatever session `branch-deck ide` holds: the page subscribes again, as when its session went away in the desktop
+    app, and the frame opens the view anew. A snapshot of the bridge would leave the page a subscription that nothing changes.
     A change to a version of another epoch (the mirror moved to the session of another prefix, or to a session opened
     anew) is no patch of the view the page holds either: the page asks for the snapshot, and takes it as the view of
     another session, as the desktop page does.
@@ -302,9 +344,9 @@ sequenceDiagram
     then gets the same refusal. The page subscribes again before it leaves (`openSession` of another repository before the
     first answer, `resubscribeSession` after `prefix_changed`, which holds the old subscription until the new one
     answers), so the shim keeps the one view of the frame (`FrameView`) and the subscriptions of the page share it: one
-    of the repository the frame holds joins it and asks `brd mcp` with `bd_invoke` of `subscribe_view`, which moves the
+    of the repository the frame holds joins it and asks `branch-deck ide` with `bd_invoke` of `subscribe_view`, which moves the
     mirror before it answers, and its answer is the state of the mirror, or nothing when the page holds it at that
-    version (`have`). One that joined a view whose `x-air-app/subscribe` brd refused (`no_branch_prefix`) subscribes
+    version (`have`). One that joined a view whose `x-air-app/subscribe` the bridge refused (`no_branch_prefix`) subscribes
     the frame anew: that refusal answered a subscription asked before it, under the config as it was then (a prefix
     saved meanwhile), and in the desktop app every subscription gets an answer asked after it; a link that broke fails
     every subscription that joined. One of another
@@ -331,12 +373,16 @@ sequenceDiagram
   in `agent_cli_status`), runs `bd_cli::install::install_ide_app` (`crates/bd-cli/src/install.rs`): it writes
   `~/.air/apps/branch-deck.yaml` and the icons of the tool window in `~/.air/apps/icons/`, each file whole through a
   rename, since the IDE reads the file at each change. The file is the example of the contract with the binary of the
-  app (`app_binary`, never a translocated one): the app binary with `cli mcp`, `brd` (`brd.exe` beside the app on
-  Windows) with `mcp`, and `styles: neutral`. The user may set `styles` to `all` or `none` in the file: an install
+  app (`ide_app_binary`, never a translocated one): the app binary with `ide` on every platform (`branch-deck.exe ide`
+  on Windows too: the GUI-subsystem binary serves its stdio behind the pipes of the IDE, measured with no console
+  window), `brd` with `mcp` only where no app binary is beside it, and `styles: neutral`. The example of the contract
+  (`examples/branch-deck.yaml`, idea-1 cbbc99a271ce7 byte for byte, the rest of the copy b8428b3a9f321) starts
+  `branch-deck ide` on macOS and Windows; the test compares the file with it but the command. The user may set `styles` to `all` or `none` in the file: an install
   keeps that value (`IdeAppStyles`), as the file is the only setting of it. Remove deletes the file and the two icons.
   The status reads the file and compares it with what an install writes now with its value of `styles`, so a file
-  another Branch Deck wrote (an app moved or a second copy) says so and Install writes it for this one. `brd mcp` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
-  before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`). `brd mcp` installs nothing: its
+  another Branch Deck wrote (an app moved or a second copy, or an earlier build that named `cli mcp`) says so and
+  Install writes it for this one; nothing writes the file but Install. `branch-deck ide` serves the Air build of the page built into it: each build of the app runs `pnpm build:air`
+  before cargo (`beforeBuildCommand` of `src-tauri/tauri*.conf.json`). `branch-deck ide` installs nothing: its
   `agent_cli_status` answers `installable: false`, so the page in the IDE shows neither `brd` nor IntelliJ IDEA on
   Tools and no install of the Agent CLI on Agents or in the hint of the agents.
 
@@ -366,7 +412,7 @@ The transport is Air's decision, with its measurements in JCEF: the decision rec
 
 - Remote development: in a split IDE the frame runs in the client and `air-ide` on the backend, so the loopback port is
   on the other machine; Air serves no app there in its first version.
-- One `brd mcp` for all the projects of a user (P2), and a project that is not on this machine.
+- A project that is not on this machine.
 
 ## Performance Considerations
 
@@ -382,6 +428,6 @@ The transport is Air's decision, with its measurements in JCEF: the decision rec
 - The contract of Air (idea-1): `plugins/air/native/air-apps/protocol/`, the OpenSpec capability `air-apps-host`, the
   decision record `plugins/air/docs/decisions/2026-11-11-the-ide-hosts-an-app-of-the-user-over-x-air-app.md`
 - The copy: `docs/design/ide-embedding/protocol/` (its `README.md` has the rules of a runner)
-- The one backend of P2, which `brd mcp` becomes a bridge to: [Backend Protocol](backend-protocol.md) (Draft)
+- The one backend the bridge is a client of: [Backend Protocol](backend-protocol.md) (Draft)
 - Related docs: [Distributed Settings](distributed-settings.md), [Rendering Performance](rendering-performance.md),
   [E2E Testing](e2e-testing.md)

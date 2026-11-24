@@ -11,10 +11,10 @@ use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
 use crate::repository_view::{FixHold, HoldView, RobotOf, WholeStackRest};
 use crate::session::{BranchStatus, Parked};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A fact of the remote the next step decides on, in the order the step waits for them
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum StepFact {
@@ -37,7 +37,7 @@ pub enum StepFact {
 }
 
 /// Why a read the next step decides on failed: no start is decided on it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StepFailure {
@@ -63,7 +63,7 @@ impl StepFailure {
 }
 
 /// What helps after a read failed: the step of row 0 instead of a start
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum StepHelp {
@@ -75,7 +75,7 @@ pub enum StepHelp {
 
 /// The row of the table that decided the step (openspec/specs/branch/next-step/spec.md, "The table"); `NoSlot` a repository that
 /// is not on Space, which has no slot
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum StepRow {
   #[serde(rename = "noSlot")]
@@ -168,7 +168,7 @@ impl StepRow {
 
 /// The open pull request of the whole stack a branch is in, whose approvals count for the Safe Push of the whole stack
 /// only (row 7, "In #12")
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackPullRequest {
@@ -177,7 +177,7 @@ pub struct StackPullRequest {
 }
 
 /// What the step is, with the facts its words need (the table's rows)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StepKind {
@@ -296,7 +296,7 @@ impl StepKind {
 }
 
 /// Why "Safe Push" (or a Dry Run) can't open now, the same on every surface
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "code", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StepBlocker {
@@ -318,7 +318,7 @@ pub enum StepBlocker {
 }
 
 /// The retarget "⋯" offers of an open pull request into another base than the target
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StepRetarget {
@@ -328,7 +328,7 @@ pub struct StepRetarget {
 }
 
 /// The next step of a subject (openspec/specs/branch/next-step/spec.md, "The table"), the first row that matches
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NextStep {
@@ -336,7 +336,7 @@ pub struct NextStep {
   pub kind: StepKind,
   /// The step is a state the subject waits in (`StepKind::is_wait`): the status of the subject says it, the slot of its
   /// actions shows none; left out of the JSON when false, as most steps are actions
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub wait: bool,
   /// Why "Safe Push" can't open now; `None` when it can
@@ -365,13 +365,13 @@ pub struct NextStep {
   /// keeps it in the preview and the overview with the warning dot and the notice of what changed. `None` without a
   /// robot, and for a robot of the subject as it is. While Patronus is pending for the subject it is the verdict of the
   /// facts there are: the view to come may still say by content that the robot landed the subject as it is
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub earlier_robot: Option<String>,
 }
 
 /// The Safe Push without review a step offers beside it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct WithoutReview {
@@ -380,7 +380,7 @@ pub struct WithoutReview {
 
 /// Where a subject is on its way into master, the node of its row (docs/design/landing.md): filled while the next step
 /// is the user's and on this row, hollow while it waits for others, is done, or stays local
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum LandingNodeKind {
@@ -400,7 +400,7 @@ pub enum LandingNodeKind {
 }
 
 /// Why the node is what it is, with the facts its words need
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum NodeLabel {
@@ -500,7 +500,7 @@ pub enum NodeLabel {
 }
 
 /// The node of a subject
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 #[expect(clippy::struct_excessive_bools, reason = "independent facts of a node: a pending answer, its robot, a move over it, the ring")]
@@ -525,30 +525,30 @@ pub struct LandingNode {
 /// the row of an island root whose header shows the push of its stack, and the surfaces that keep the push in its place
 /// (the preview, the review window). What runs lies over it on the page: a push of the row shows its progress. Each field
 /// absent is the common answer, a push on its row and where it keeps its place, so most branches send none
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PushSlot {
-  #[serde(skip_serializing_if = "RowPush::is_push")]
+  #[serde(default, skip_serializing_if = "RowPush::is_push")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub row: RowPush,
   /// The row of an island root, whose header shows Push with Children, the row the push of the branch alone; absent
   /// while it is `row`
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub in_header: Option<RowPush>,
   /// The branch has no push anywhere, nor where the push keeps its place: its sync failed, or it has no commits
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub none: bool,
   /// Why the push waits where it keeps its place: its first push is a step of its landing, or the answer that tells it
   /// is to come; absent while it pushes
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub first: Option<FirstPush>,
   /// It and every branch stacked on it have nothing wrong and nothing for the remote (`domain_policy::stack::is_quiet`):
   /// the side stack it heads is collapsed until the user expands it
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub quiet: bool,
 }
@@ -562,21 +562,21 @@ impl PushSlot {
 }
 
 /// The push track of a row
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RowPush {
   /// What it shows while nothing of the row runs; absent: the push of the branch
-  #[serde(skip_serializing_if = "RowPushKind::is_push")]
+  #[serde(default, skip_serializing_if = "RowPushKind::is_push")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub kind: RowPushKind,
   /// What a push of the row shows while it runs: the push of the branch (absent), or Push with Children of a branch with
   /// nothing of its own to send
-  #[serde(skip_serializing_if = "PushShape::is_own")]
+  #[serde(default, skip_serializing_if = "PushShape::is_own")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub shape: PushShape,
   /// The answer the track waits for before it shows a push, which a push shown before it would leave with
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub waits_for: Option<StepFact>,
 }
@@ -590,7 +590,7 @@ impl RowPush {
 }
 
 /// What the push track of a row shows
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum RowPushKind {
@@ -611,7 +611,7 @@ impl RowPushKind {
 }
 
 /// The push a run of the row shows
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum PushShape {
@@ -629,7 +629,7 @@ impl PushShape {
 }
 
 /// Why the first push of a branch the remote lacks waits where the push keeps its place
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum FirstPush {
@@ -642,7 +642,7 @@ pub enum FirstPush {
 /// The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";
 /// `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
 /// mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RowStatus {
@@ -653,7 +653,7 @@ pub struct RowStatus {
 }
 
 /// An exceptional fact of a branch row
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RowFact {
@@ -676,7 +676,7 @@ pub enum RowFact {
 }
 
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NextStepView {
@@ -686,24 +686,24 @@ pub struct NextStepView {
   pub status: RowStatus,
   /// Of a whole stack, what its Safe Push lands of the table as it is now (`whole_stack_rest`): what the page says of
   /// it reads this, never what the view of another table says; `None` of a branch
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub rest: Option<WholeStackRest>,
   /// Of a branch, what holds its push now (`derive::hold_now`): a running Safe Push that runs on it or lands it, or a
   /// merged one that landed all of it as it is now; what the page says of the hold reads this, never what the view of
   /// another table says. `None` while nothing holds it, and of a whole stack
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub hold: Option<HoldView>,
   /// Of a branch, what its hold means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`):
   /// `None` while nothing holds it, and of a whole stack
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub fix_hold: Option<FixHold>,
   /// Of a branch, where the page shows its push and whether the side stack it heads is quiet (`domain_policy::push_slot`),
   /// derived with its actions over the pushes of the view; absent while it is the common one (a push on its row and where
   /// the push keeps its place), and of a whole stack
-  #[serde(skip_serializing_if = "PushSlot::is_default")]
+  #[serde(default, skip_serializing_if = "PushSlot::is_default")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub push: PushSlot,
 }

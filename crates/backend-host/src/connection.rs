@@ -154,6 +154,7 @@ impl Connection {
       "unsubscribe" => host.unsubscribe(self, &id, params),
       "x-branch-deck/repositoryChannel" => host.repository_channel(self, &id, params),
       "x-branch-deck/setDemand" => host.set_demand(self, &id, params),
+      "x-branch-deck/followPrefix" => host.follow_prefix(&self.me(), id, params),
       "x-branch-deck/claimNews" => match params["repositoryPath"].as_str() {
         Some(path) => {
           let first = host.claim_news(path, &params["news"]);
@@ -249,6 +250,9 @@ impl Connection {
     };
     let _ = self.client_id.set(client_id.to_owned());
     let _ = self.id.set(of);
+    if self.kind == Kind::Client {
+      host.count_client(true);
+    }
     self.answer(
       id,
       json!({
@@ -273,19 +277,22 @@ impl Connection {
     );
   }
 
-  /// `x-branch-deck/bootstrap {window, view}`: the settings of the window as the app hands them in its init script, and
-  /// for the main view the warm frame of the selected project
+  /// `x-branch-deck/bootstrap {window, view, repositoryPath?}`: the settings of the window as the app hands them in its
+  /// init script, and for the main view the warm frame of the repository it names, else of the selected project (the
+  /// bridge names the root of the project its main view shows)
   fn bootstrap(&self, id: Value, params: &Value) {
     let Some(label) = params["window"].as_str().map(str::to_owned) else {
       return self.fail(&id, &Failure::bad_params("bootstrap names its window"));
     };
     let main = params["view"].as_str() == Some("main");
+    let named = params["repositoryPath"].as_str().filter(|path| !path.is_empty()).map(str::to_owned);
     let me = self.me();
     self.host.ctx.runtime.spawn(
       async move {
         let ctx = &me.host.ctx;
         let (version, values) = app_settings::windows::window_snapshot(&ctx.settings, &label);
-        let warm_frame = match app_settings::projects::selected_project(&ctx.settings).filter(|_| main) {
+        let repository = named.or_else(|| app_settings::projects::selected_project(&ctx.settings));
+        let warm_frame = match repository.filter(|_| main) {
           Some(path) => app_api::app::warm_start::seed(ctx, &path).await,
           None => None,
         };
@@ -308,6 +315,9 @@ impl Connection {
     if let Some(of) = self.id() {
       self.host.end_windows(of, None);
       self.host.ctx.close_connection(of);
+      if self.kind == Kind::Client {
+        self.host.count_client(false);
+      }
     }
     self.host.forget_connection(self.key);
   }

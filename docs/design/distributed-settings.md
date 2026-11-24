@@ -14,8 +14,10 @@ check of Auto-sync on Focus in the native menu, and `brd` the branch prefix of t
 
 `settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
 write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and
-rolls the state back to a stale value while several writes are in flight. Branch Deck in an IDE (`brd mcp`, the
-backend of its views in IntelliJ IDEA, [IDE Embedding](ide-embedding.md)) is a second process with a backend of its own on the same app data directory, so
+rolls the state back to a stale value while several writes are in flight. Branch Deck in an IDE (the bridge
+`branch-deck ide`, [IDE Embedding](ide-embedding.md)) is a client of the backend of the desktop app and writes through
+it; only in its fallback, where the app cannot run (no display, another build with a window open, Windows while the job
+of the IDE refuses the breakaway), is it a second process with a backend of its own on the same app data directory. So
 the files have one writer per process, and neither may drop or miss what the other saved.
 
 ## Solution Overview
@@ -77,7 +79,7 @@ flowchart TD
     Snapshot --> MS
     Snapshot --> SS
     File -.->|read, no write| BD[bd]
-    Other["SettingsService of brd mcp (an IDE)"] <-->|settings.lock: read, merge, rename; watch| File
+    Other["SettingsService of the fallback of an IDE"] <-->|settings.lock: read, merge, rename; watch| File
 ```
 
 ### Data Flow
@@ -207,8 +209,8 @@ sequenceDiagram
     state file is saved before `settings.json` in a pass, so the moved values are on disk before `settings.json` drops
     them. The cached prefix stays in the recent projects: it changes only with the prefix.
 
-11. **Decision**: One writer per process, and the writers of two processes on one directory (the app, `brd mcp` of an
-    IDE) merge by key and by field. A writer remembers what its process changed and has not saved, a key whole (a
+11. **Decision**: One writer per process, and the writers of two processes on one directory (the app, the fallback of
+    the bridge of an IDE) merge by key and by field. A writer remembers what its process changed and has not saved, a key whole (a
     `Value` patch) or its fields (a `Fields` patch), with the version of each (`Unsaved` of
     `crates/app-settings/src/merge.rs`). A save takes the lock of the directory (`settings.lock`,
     `file::lock_directory`), reads the file as it is, puts only those keys and fields on top (`Unsaved::overlay`) and
@@ -297,7 +299,7 @@ Optimizations:
 
 ## References
 
-- [IDE Embedding](ide-embedding.md): `brd mcp`, the second process on the app data directory
+- [IDE Embedding](ide-embedding.md): the bridge, a second process on the app data directory only in its fallback
 - Types that cross a window or a process: `crates/domain-types/src/settings.rs` (`AppSettings`, `SettingsPatch`,
   `SettingsChange`, `GitBranchPrefix`, `ResolvedBranchPrefix`)
 - Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`,

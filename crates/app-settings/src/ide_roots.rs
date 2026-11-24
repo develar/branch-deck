@@ -24,9 +24,26 @@ fn key_of(roots: &[String]) -> String {
 /// root of them any more
 #[must_use]
 pub fn picked(service: &SettingsService, roots: &[String]) -> Option<String> {
-  let picks = service.value(IDE_ROOT_PICKS_KEY);
+  picked_of(&service.value(IDE_ROOT_PICKS_KEY), roots)
+}
+
+/// `picked` of `picks`, the value of `ideRootPicks`: the bridge of an IDE reads it from the settings the backend told it
+#[must_use]
+pub fn picked_of(picks: &Value, roots: &[String]) -> Option<String> {
   let picked = picks.get(key_of(roots))?.as_str()?;
   roots.iter().find(|root| root.as_str() == picked).cloned()
+}
+
+/// The change of the settings that remembers `root` of `roots`: the bridge of an IDE sends it to the backend
+/// (`set_setting`)
+#[must_use]
+pub fn pick_patch(roots: &[String], root: &str) -> SettingsPatch {
+  let mut fields = Map::new();
+  fields.insert(key_of(roots), Value::String(root.to_owned()));
+  SettingsPatch::Fields {
+    key: IDE_ROOT_PICKS_KEY.to_owned(),
+    fields,
+  }
 }
 
 /// The user picked `root` of `roots`: the next start of a project with these roots shows it
@@ -34,13 +51,5 @@ pub fn picked(service: &SettingsService, roots: &[String]) -> Option<String> {
 /// # Errors
 /// The service refused the change
 pub fn remember(service: &SettingsService, roots: &[String], root: &str) -> Result<SettingsChange, SettingsError> {
-  let mut fields = Map::new();
-  fields.insert(key_of(roots), Value::String(root.to_owned()));
-  service.set(
-    SettingsPatch::Fields {
-      key: IDE_ROOT_PICKS_KEY.to_owned(),
-      fields,
-    },
-    ORIGIN,
-  )
+  service.set(pick_patch(roots, root), ORIGIN)
 }

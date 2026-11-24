@@ -1,6 +1,6 @@
 ---
 name: Branch Deck in the IDE
-description: Requirements for running the page and the backend of Branch Deck as an app of IntelliJ IDEA over x-air-app, with brd mcp as its process and its windows as views of the IDE.
+description: Requirements for running the page of Branch Deck as an app of IntelliJ IDEA over x-air-app, with the bridge branch-deck ide as its process, a client of the one backend of the user, and its windows as views of the IDE.
 style: plain-1
 targets:
   - crates/app-api/src/app/life.rs
@@ -29,6 +29,11 @@ targets:
   - crates/ide-host/src/resources.rs
   - crates/ide-host/src/notices.rs
   - crates/ide-host/src/process.rs
+  - crates/ide-host/src/backend.rs
+  - crates/ide-host/src/start.rs
+  - crates/ide-host/src/fallback.rs
+  - crates/ide-host/src/settings.rs
+  - src-tauri/src/main.rs
   - crates/ide-host/src/projects.rs
   - crates/app-settings/src/ide_roots.rs
   - crates/test-server/src/mcp_socket.rs
@@ -50,9 +55,11 @@ Date: 2026-11-13
 ## Purpose
 
 Branch Deck runs inside IntelliJ IDEA as an app of the IDE: the page of the desktop app in a frame of the IDE, the
-backend of the desktop app as the process `brd mcp` of the project. The main window is a tool window, a review an
+process of the project the bridge `branch-deck ide`, a client of the one backend of the user, the desktop app, which it
+starts without a window when it does not run. The main window is a tool window, a review an
 editor tab, the settings a frame and the dialogs dialogs of the IDE. The IDE reads `~/.air/apps/branch-deck.yaml`, and
-it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](../../../../docs/design/ide-embedding.md)).
+it speaks `x-air-app` of Air with the page and with the bridge ([IDE Embedding](../../../../docs/design/ide-embedding.md),
+[Backend Protocol](../../../../docs/design/backend-protocol.md)).
 
 ## Goals
 
@@ -62,7 +69,6 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 
 ## Non-goals
 
-- One process for all the projects of a user (P2): each project of the IDE runs its own `brd mcp`.
 - Tools for an agent: an agent keeps the `brd` command line.
 - A project file of the app, or a project that is not on this machine.
 - Remote development: in a split IDE the frame runs in the client and `air-ide` on the backend, so Air serves no app
@@ -79,44 +85,47 @@ it speaks `x-air-app` of Air with the page and with `brd mcp` ([IDE Embedding](.
 - The host page of a view comes from `air-ide` on `http://127.0.0.1:<port>`, a port that changes with each run of the
   IDE. The frame of Branch Deck stays on `https://branch-deck.air-genui-app.local`, so its `localStorage` survives a
   restart of the IDE.
-- The page of Branch Deck speaks only the frame link, MCP Apps with `x-air-app`, and `brd mcp` only the app link. The
+- The page of Branch Deck speaks only the frame link, MCP Apps with `x-air-app`, and the bridge only the app link. The
   page link between the host page and `air-ide` is Air's. A mirror is one channel of it, `x-air-ide:/appView/<n>`,
   which every view of the mirror subscribes to, so one change is one action with one `serverSeq` for all of them; a
   `viewOpen` with the params of the view that its connection holds answers that subscription, `held` and without a
-  snapshot. The events, the call events and the progress of `brd mcp` are notices of the channel of its process,
+  snapshot. The events, the call events and the progress of the bridge are notices of the channel of its process,
   `x-air-ide:/appLink/<n>`. The echo of an intent holds its result in `_meta["x-air-ide"].result`, and a cancel is a
   notification of the root channel whose call gets exactly one answer. A change of the page link changes neither the
-  page nor brd.
+  page nor the bridge.
 
 ## Requirements
 
-### Requirement: `brd mcp`: branch-deck cli mcp serves MCP with x-air-app over stdio
+### Requirement: Bridge: branch-deck ide serves MCP with x-air-app over stdio
 
-`branch-deck cli mcp` (`brd mcp`) MUST serve MCP over its stdin and stdout, and answer `initialize` with
-`capabilities.experimental["x-air-app"]` of version `1.0.0`. Its stdout carries only the protocol.
+`branch-deck ide` MUST serve MCP over its stdin and stdout, and answer `initialize` with
+`capabilities.experimental["x-air-app"]` of version `1.0.0`, before its backend is ready too; `branch-deck cli mcp` and
+`brd mcp` are its alias. Its stdout carries only the protocol.
 
 #### Scenario: initialize
 - **WHEN** air-ide sends `initialize` with `x-air-app` 1.0.0
-- **THEN** brd answers the server `branch-deck` with the tools, the resources and `x-air-app` 1.0.0
+- **THEN** the bridge answers the server `branch-deck` with the tools, the resources and `x-air-app` 1.0.0
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
   [@test] crates/bd-cli/tests/mcp.rs (`brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin`)
 
 #### Scenario: The app link corpus
-- **WHEN** a test runs `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson` against `brd mcp` on the fixtures
-- **THEN** each line of the app matches the corpus
+- **WHEN** a test runs `docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson` against the bridge on the fixtures
+- **THEN** each line of the app matches the corpus, through the socket of a backend and in the fallback alike
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs_through_the_socket_of_the_backend`)
 
-### Requirement: `brd mcp`: The data of brd mcp is the data of the desktop app
+### Requirement: Bridge: The data of the bridge is the data of the desktop app
 
-`brd mcp` MUST keep its settings, its caches and its journals in the directories of `org.develar.branch-deck`, the
-same as the desktop app and `brd`.
+The bridge MUST serve the settings, the caches and the journals of the directories of `org.develar.branch-deck`, the
+same as the desktop app and `brd`: those of the backend it joins, or, in its fallback, its own writer of them beside
+the app's.
 
 #### Scenario: A setting of the desktop app
-- **WHEN** the desktop app saved a setting, and `brd mcp` starts
+- **WHEN** the desktop app saved a setting, and the bridge starts
 - **THEN** `bd_bootstrap` gives that setting
-  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`the_bridge_serves_the_settings_of_the_app_until_its_input_ends`)
 
-### Requirement: `brd mcp`: The page of each view is a resource built into the binary
+### Requirement: Bridge: The page of each view is a resource built into the binary
 
 `resources/read` of `ui://branch-deck/<view>` MUST answer the page of the view as `text/html;profile=mcp-app`. Each
 file of the Air build is `ui://branch-deck/<path>`, and another URI gets `-32602 badParams`.
@@ -127,15 +136,71 @@ file of the Air build is `ui://branch-deck/<path>`, and another URI gets `-32602
   [@test] crates/ide-host/src/resources_test.rs (`a_view_is_the_page_and_a_missing_file_is_none`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
-### Requirement: `brd mcp`: The end of stdin ends brd mcp
+### Requirement: Bridge: The end of stdin ends the bridge with 0, an end of its backend with 1
 
-At the end of its stdin, `brd mcp` MUST close its sessions and exit with 0.
+At the end of its stdin, the bridge MUST end its connection to the backend and exit with 0; when the backend ends the
+connection first, the bridge MUST exit with 1, so the IDE starts it again.
 
 #### Scenario: The IDE closes the project
-- **WHEN** the stdin of `brd mcp` ends
+- **WHEN** the stdin of the bridge ends
 - **THEN** the process exits with 0
-  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`the_bridge_serves_the_settings_of_the_app_until_its_input_ends`)
   [@test] crates/bd-cli/tests/mcp.rs (`brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin`)
+  [@test] crates/ide-host/src/fallback_test.rs (`an_end_of_the_backend_is_unexpected_and_an_end_of_the_input_is_asked_for`)
+
+#### Scenario: The app exits
+- **WHEN** the backend ends the connection of the bridge
+- **THEN** the bridge exits with 1
+  [@test] crates/ide-host/src/fallback_test.rs (`an_end_of_the_backend_is_unexpected_and_an_end_of_the_input_is_asked_for`)
+
+### Requirement: Bridge: The bridge joins the backend of the desktop app
+
+`branch-deck ide` MUST be a client of the one backend of the user: when a backend of its build answers on the socket of
+the key of the app (the data directory and the app binary), the bridge MUST serve the IDE with it, its mirrors the
+subscriptions of the repository channels under its window `mirror:<path>`, its places the windows of its connection.
+
+#### Scenario: The app and the IDE on one repository
+- **WHEN** the desktop app runs and the IDE opens a project of the same repository
+- **THEN** the bridge serves the IDE with the backend of the app, through its socket, as the corpus of the app link runs
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs_through_the_socket_of_the_backend`)
+  [@test] crates/ide-host/src/start_test.rs (`the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds`)
+
+### Requirement: Bridge: The bridge starts the desktop app without a window
+
+With no backend on the socket and `backend.lock` of the key free, the bridge MUST start the app with `--background`
+under `backend.launch.lock`, so that no process of the bridge is its parent (macOS `/usr/bin/open -g -j`, a double
+fork on Linux, `DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB` on Windows), with no variable of Air or the IDE, and wait
+up to 15 s for its socket; a held lock MUST be waited for the same way.
+
+#### Scenario: The IDE opens a project while the app does not run
+- **WHEN** the bridge finds no backend and the lock free
+- **THEN** it starts the app without a window and joins it once its socket answers
+  [@test] crates/ide-host/src/start_test.rs (`the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds`)
+  [@test] crates/ide-host/src/start_test.rs (`the_app_the_bridge_starts_gets_no_variable_of_air_or_of_the_ide`)
+
+#### Scenario: Another build that exits
+- **WHEN** the backend of the key is of another build, stale and without a window, and answers `otherBuild` with `exits`
+- **THEN** the bridge waits for its lock to go free and starts the app of its own build
+  [@test] crates/ide-host/src/start_test.rs (`the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds`)
+
+### Requirement: Bridge: The fallback serves the IDE where the app cannot run
+
+The bridge MUST serve the IDE with a backend in its own process over the in-process transport when the app cannot run:
+Linux without `DISPLAY` and `WAYLAND_DISPLAY`, a backend of another build with a window open, Windows while the job of
+the IDE refuses the breakaway, a start that fails or does not listen within 15 s, `BRANCH_DECK_IDE_BACKEND=in-process`.
+Then it MUST end with 1 once a backend of its build answers on the socket.
+
+#### Scenario: No display
+- **WHEN** the bridge starts on Linux without a display
+- **THEN** it serves the IDE alone at once, and the corpus of the app link runs in it
+  [@test] crates/ide-host/src/start_test.rs (`the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds`)
+  [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
+
+#### Scenario: The way back
+- **GIVEN** the bridge serves alone while a backend of another build keeps a window open
+- **WHEN** that backend goes and the app of the bridge's build starts
+- **THEN** the bridge ends with 1, and the IDE starts it again, which joins that backend
+  [@test] crates/ide-host/src/fallback_test.rs (`the_fallback_ends_once_a_backend_of_its_build_listens`)
 
 ### Requirement: Tools: Every tool of brd mcp is only for the app
 
@@ -214,7 +279,7 @@ gives no code the code of JSON-RPC (`badParams` and `unknownAction` `-32602`, `p
 - **THEN** brd answers `-32601 {reason: "unknownTool"}` and runs no command
 - **AND** an unknown method, a call of an agent, an intent of the mirror, a missing resource, a subscription without a
   repository and a line that is no JSON get the code of their reason by the contract
-  [@test] crates/ide-host/src/server_test.rs (`every_refusal_of_brd_has_the_code_the_contract_gives_its_reason`)
+  [@test] crates/ide-host/src/server_test.rs (`every_refusal_of_the_bridge_has_the_code_the_contract_gives_its_reason`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`the_app_link_corpus_runs`)
 
 ### Requirement: Tools: A cancel stops a read and lets a write end
@@ -270,14 +335,14 @@ dialog (`folderDialog: false`) and with a text of the progress in the title of t
 #### Scenario: The settings of the desktop app
 - **WHEN** the settings window bootstraps after the desktop app saved a setting
 - **THEN** `settings.values` holds the setting
-  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`the_bridge_serves_the_settings_of_the_app_until_its_input_ends`)
 
 #### Scenario: A window whose row is in the title bar of the IDE
 - **GIVEN** the host context of the Settings window names `{kind: "overlay", height: 40, insetStart: 80}`
 - **WHEN** its page calls `bd_bootstrap` with that title bar
 - **THEN** the title bar is `{kind: "overlay", doubleClick: "host", height: 40}` with the same flags
 - **AND** a place whose host context names no title bar gets `native`
-  [@test] crates/ide-host/src/process_test.rs (`brd_mcp_serves_the_settings_of_the_app_until_its_input_ends`)
+  [@test] crates/ide-host/src/process_test.rs (`the_bridge_serves_the_settings_of_the_app_until_its_input_ends`)
 
 ### Requirement: View: subscribe_view is the mirror of the repository
 
@@ -368,9 +433,9 @@ its `version` of another epoch, before the answer, and no patch of the old sessi
 ### Requirement: View: A patch into another epoch moves the mirror to the session of now
 
 A patch of the session of a mirror into another epoch (the session opened anew: a slot of a lease pool leased again)
-applies to no view of the epoch before. `brd mcp` MUST then move the mirror to the session of the repository as at a
-change of the prefix, in one change that replaces every part, between the messages of air-ide; a session that answers
-no view MUST end the mirror with `sessionClosed`.
+applies to no view of the epoch before. The bridge MUST then read the view of the session anew (`get_snapshot` of the
+window of the mirror) and take it in one change that replaces every part, the patches that came meanwhile after it; a
+session that answers no view MUST end the mirror with `sessionClosed`.
 
 #### Scenario: A slot leased again
 - **GIVEN** the main view shows a slot of a lease pool
@@ -378,7 +443,7 @@ no view MUST end the mirror with `sessionClosed`.
 - **THEN** one change of every part moves the mirror to the view of the new lease, none of the rows of the lease before,
   the main view shows the new lease with no row of the lease before selected, and the mirror holds the view of the
   session, without an end of the mirror
-  [@test] crates/ide-host/src/server_test.rs (`a_patch_into_another_epoch_asks_the_server_to_read_the_view_anew`)
+  [@test] crates/ide-host/src/server_test.rs (`a_patch_into_another_epoch_reads_the_view_anew`)
   [@test] crates/test-server/src/mcp_corpus_test.rs (`a_slot_leased_again_moves_the_mirror_to_the_view_of_the_new_lease`)
   [@test] tests/e2e/air/air-page.spec.ts (`a slot of a lease pool the main view shows that an agent leased again moves the mirror to the view of the new lease: none of its rows is selected as the row of the same name of the lease before was, and the view subscribed once`)
 
@@ -441,16 +506,22 @@ the branch the robot tested (the root of a whole stack). While the main view sho
 
 ### Requirement: Windows: The notification of the page names its news
 
-The page MUST name the news its own notification tells (`extra: {repositoryPath, news}`). brd leaves it out once it
-told that news, and else gives it the kind and the action of the news, so the IDE shows one notification of a failure,
+The page MUST name the news its own notification tells (`extra: {repositoryPath, news}`). The bridge leaves it out once
+it told that news, and else gives it the kind and the action of the news; each tell of a news MUST claim it first
+(`x-branch-deck/claimNews`), and only the first claim of the backend tells it, so one notification of a failure shows,
 and it opens the branch.
 
 #### Scenario: The notification of the page
 - **WHEN** the page notifies the failure as its frame loses the focus
-- **THEN** the IDE shows no second notification of a failure brd told, and the notification of one brd did not tell
-  opens the branch too; with "Safe Push failures" off brd tells none
-  [@test] crates/ide-host/src/notices_test.rs (`brd_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown`)
+- **THEN** the IDE shows no second notification of a failure the bridge told, and the notification of one it did not
+  tell opens the branch too; with "Safe Push failures" off the bridge tells none
+  [@test] crates/ide-host/src/notices_test.rs (`the_bridge_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown`)
   [@test] src/platform/air/shim.test.ts (`The plugins: a link, the clipboard and the log go to the host, the badge, the progress, a notification and the close of the window are bd_invoke of their plugin calls, the size does nothing`)
+
+#### Scenario: A news another client told
+- **WHEN** another client of the backend (the desktop app, a second IDE) claimed a news first
+- **THEN** the bridge tells it not
+  [@test] crates/ide-host/src/server_test.rs (`a_news_another_client_claimed_first_is_no_notification_of_the_bridge`)
 
 ### Requirement: Windows: Show in Branch Deck reveals the branch in the main view
 
@@ -598,17 +669,18 @@ and the views that took the settings the recent projects of the roots, as a chan
 
 ### Requirement: Hosts: The hosts without a place in the IDE do nothing
 
-In `brd mcp`, the menu, the updater, the restart and the install of the agent CLI MUST do nothing. A folder dialog is
-not offered, because the roots name the repositories.
+The connection of the bridge MUST declare no part of the desktop but the host request `openWindow`: the
+menu, the restart and the install of the agent CLI do nothing, the updater answers as a desktop without one, and no
+folder dialog is offered, because the roots name the repositories.
 
 #### Scenario: A check for updates
-- **WHEN** the page asks for an update in the IDE
-- **THEN** brd does nothing, because the app updates with the desktop app
-  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+- **WHEN** a window of the bridge asks `check_for_updates`
+- **THEN** the answer is the `ApiError` of a desktop without an updater, because the app updates with the desktop app
+  [@test] crates/backend-host/src/corpus_test.rs (`the_host_requests_corpus_runs`)
 
 ### Requirement: Hosts: The page in the IDE offers no folder dialog
 
-In `brd mcp`, the dialog host MUST answer that it has no folder dialog (`has_folder_dialog`), which `bd_bootstrap` gives
+In the bridge, the dialog host MUST answer that it has no folder dialog (`has_folder_dialog`), which `bd_bootstrap` gives
 the page as `titleBar.folderDialog: false`. The page then offers no Open Repository… beside the selector of the
 repositories or in the command palette, and no Add Companion… on Settings → Landing; it only words the fact.
 
@@ -616,20 +688,20 @@ repositories or in the command palette, and no Add Companion… on Settings → 
 - **WHEN** the IDE shows the main view
 - **THEN** its repository shows without the folder button beside it, and the command palette offers no Open
   Repository…
-  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+  [@test] crates/backend-host/src/channel_test.rs (`the_desktop_of_the_bridge_has_no_folder_dialog_and_installs_nothing`)
   [@test] tests/e2e/air/air-page.spec.ts (`the main view in the IDE offers no Open Repository, as the IDE has no folder dialog: the one root of the project is the text of the repository, without the menu of a selector`)
   [@test] src/lib/command-palette.test.ts (`offers no Open Repository… where the host has no folder dialog`)
 
 ### Requirement: Hosts: The page in the IDE offers no install
 
-In `brd mcp`, `agent_cli_status` MUST answer `installable: false`: the desktop app installs `brd` and the app file of
+In the bridge, `agent_cli_status` MUST answer `installable: false`: the desktop app installs `brd` and the app file of
 the IDE. The page then shows no row `brd` and no row IntelliJ IDEA on Settings → Tools, and no install of the Agent CLI
 on Agents or in the hint of the agents; it only words the status.
 
 #### Scenario: Settings → Tools in the IDE
 - **WHEN** the user opens Settings → Tools in the IDE
 - **THEN** it shows the command-line tools without `brd` and IntelliJ IDEA
-  [@test] crates/ide-host/src/hosts_test.rs (`the_hosts_without_a_place_in_the_ide_do_nothing`)
+  [@test] crates/backend-host/src/channel_test.rs (`the_desktop_of_the_bridge_has_no_folder_dialog_and_installs_nothing`)
   [@test] tests/e2e/air/air-page.spec.ts (`Settings → Tools in the IDE shows the command-line tools but no install of brd or of IntelliJ IDEA, which the desktop app installs`)
 
 ### Requirement: Page: The page in the IDE is the page of the desktop app
@@ -857,10 +929,10 @@ Install to write it for this one.
 
 ### Requirement: Install: The app file is the example of the contract with this binary
 
-The app file MUST be the example app file of the contract with the command of this binary: the app binary with
-`cli mcp`; `brd`, on Windows `brd.exe` beside the app, with `mcp`. A binary that macOS runs translocated is refused, as
-the install of the agent CLI refuses it. The file MUST have `styles: neutral`, but an install MUST keep the value
-`all`, `neutral` or `none` that the file has, and the status MUST compare the file with the text of that value.
+The app file MUST be the example app file of the contract with the command of this binary: the app binary with `ide`
+on every platform (`branch-deck.exe ide` on Windows), `brd` with `mcp` only where no app binary is beside it. A binary
+that macOS runs translocated is refused. The file MUST have `styles: neutral`, but an install MUST keep the value `all`,
+`neutral` or `none` that the file has, and the status MUST compare the file with the text of that value.
 
 #### Scenario: The app file
 - **WHEN** the install writes the app file
@@ -869,8 +941,10 @@ the install of the agent CLI refuses it. The file MUST have `styles: neutral`, b
 
 #### Scenario: The command of each binary
 - **WHEN** the binary is the app binary, or `brd`
-- **THEN** the arguments are `cli mcp` (`mcp` on Windows), or `mcp`
-  [@test] crates/bd-cli/src/install_test.rs (`the_ide_runs_brd_mcp_with_the_app_binary_and_mcp_with_brd`)
+- **THEN** the arguments are `ide` on every platform, or `mcp`; a file of an earlier Branch Deck (`cli mcp`) is not
+  current, and nothing writes it but Install
+  [@test] crates/bd-cli/src/install_test.rs (`the_ide_runs_the_bridge_with_the_app_binary_on_every_platform_and_mcp_with_brd_alone`)
+  [@test] crates/bd-cli/src/install_test.rs (`installs_the_ide_app_for_this_binary_and_removes_it`)
 
 #### Scenario: The styles of the user
 - **GIVEN** the user set `styles: all` in the app file of this binary

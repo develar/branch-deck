@@ -1,6 +1,7 @@
 pub mod agent_cli;
 pub mod api;
 pub mod auto_update;
+pub mod backend;
 pub mod desktop;
 pub mod legacy_model_cache;
 pub mod life;
@@ -178,13 +179,23 @@ pub fn run() {
     // a page that loads again (a reload) starts without the subscriptions of the one before
     .on_page_load(|webview, payload| {
       if payload.event() == tauri::webview::PageLoadEvent::Started
-        && let Some(ctx) = webview.try_state::<AppContext>()
+        && let Some(ctx) = webview.try_state::<Arc<AppContext>>()
       {
         ctx.forget_page(&WindowId::new(webview.label()));
       }
     })
     .setup(move |app| {
       ts_builder.mount_events(app);
+      // the one backend of the user: this process serves the key of the app, or it is a second start, which the backend
+      // answers (`backend::claim`)
+      let listener = match app.path().app_data_dir().ok().as_deref().and_then(backend::key_dir) {
+        Some(dir) => match backend::claim(&dir, background) {
+          backend::Claim::Backend(listener) => Some(listener),
+          backend::Claim::Served => std::process::exit(0),
+          backend::Claim::Alone => None,
+        },
+        None => None,
+      };
 
       let git = GitCommandExecutor::new();
       let repository_state = RepositoryStateCache::new();
@@ -228,7 +239,7 @@ pub fn run() {
         }),
         agent_cli: Arc::new(agent_cli::AppAgentCli),
       };
-      app.manage(services.into_context(ProcessParts {
+      let ctx = Arc::new(services.into_context(ProcessParts {
         git,
         settings: Arc::clone(&settings_service),
         repository_state,
@@ -238,11 +249,14 @@ pub fn run() {
         desktop,
         runtime,
       }));
+      app.manage(Arc::clone(&ctx));
       app.manage(settings_service);
       // the life of the process beside its windows; the count of the bridges of an IDE comes from the host of the
-      // socket, none connect without it
-      let life = AppLife::new(app.handle().clone(), background, BridgeConnections::none());
+      // socket (`backend::serve`)
+      let (bridges, connections) = BridgeConnections::channel();
+      let life = AppLife::new(app.handle().clone(), background, connections);
       app.manage(Arc::clone(&life));
+      backend::serve(app.handle(), ctx, &life, listener, bridges);
       life.watch();
       // without a window the app checks for its updates itself, as the page of the main window does
       auto_update::check_while_windowless(app.handle());
@@ -281,7 +295,7 @@ pub fn run() {
       event: tauri::WindowEvent::Destroyed,
       ..
     } => {
-      app_handle.state::<AppContext>().forget_window(&WindowId::new(label.as_str()));
+      app_handle.state::<Arc<AppContext>>().forget_window(&WindowId::new(label.as_str()));
       title_bar::forget_window(&label);
       if label == app_settings::windows::MAIN_WINDOW {
         close_sub_windows(app_handle);
@@ -308,7 +322,7 @@ fn flush_settings(app_handle: &tauri::AppHandle) {
 /// Builds the main window, hidden: it shows once its page drew its first rows (`show_when_settled`). At the start, and
 /// again when the app without a window shows it (`AppLife::show_main`)
 pub(crate) fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
-  let ctx = app.state::<AppContext>();
+  let ctx = app.state::<Arc<AppContext>>();
   let app_settings = ctx.settings.app();
   // the settings and the title bar, before the page's own scripts
   // the main window's page catches up from the version of this snapshot itself (`get_settings_changes`): a reload

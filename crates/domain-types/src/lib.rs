@@ -262,7 +262,7 @@ pub struct LandedRemoteCommit {
 }
 
 /// Progress events for sync operations
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", content = "data", rename_all = "camelCase")]
 pub enum SyncEvent {
@@ -387,7 +387,7 @@ pub enum SyncEvent {
   },
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct GroupedBranchInfo {

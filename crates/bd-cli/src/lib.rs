@@ -301,8 +301,9 @@ enum Command {
   /// The hooks of Claude Code that `brd install` adds, which Claude Code runs, no agent: `brd hook permission-request`
   #[command(hide = true)]
   Hook(HookArgs),
-  /// Serve an IDE with Air: MCP with x-air-app on the stdin and the stdout, for the app file of Branch Deck
-  /// (`~/.air/apps/branch-deck.yaml`); the stdout carries only the protocol, the end of the stdin ends it
+  /// Serve an IDE with Air: the bridge `branch-deck ide`, MCP with x-air-app on the stdin and the stdout, for the app file
+  /// of Branch Deck (`~/.air/apps/branch-deck.yaml`), with the backend of the desktop app, which it starts without a
+  /// window, or one of its own; the stdout carries only the protocol, the end of the stdin ends it
   #[command(hide = true)]
   Mcp,
   /// `brd help agent`, `brd help update`, `brd help worktrees`, `brd help skill`, `brd help <command>`, or the usage
@@ -767,7 +768,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     // `run` serves it before any output: a run of a test has no stdin of an IDE
     Command::Mcp => Err(CliError::new(
       ErrorCode::InvalidArguments,
-      "`brd mcp` is the process of an IDE: run it as `branch-deck cli mcp` with its stdin",
+      "`brd mcp` is the process of an IDE: run it as `branch-deck ide` with its stdin",
     )),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map(|()| 0).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map(|()| 0).map_err(io_error),

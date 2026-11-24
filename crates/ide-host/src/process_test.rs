@@ -7,7 +7,8 @@ use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, Lines};
 use tokio::task::JoinHandle;
 
-/// `brd mcp` on an app data directory, as the IDE starts it: its input, the lines of its output and its task
+/// The bridge on an app data directory, as the IDE starts it, without an app to join, so it serves the IDE with a
+/// backend of its own: its input, the lines of its output and its task
 pub(crate) struct Brd {
   input: DuplexStream,
   lines: Lines<BufReader<DuplexStream>>,
@@ -18,7 +19,7 @@ impl Brd {
   pub(crate) fn start(app_data: &Path) -> Self {
     let (input, from_test) = tokio::io::duplex(1 << 16);
     let (to_test, output) = tokio::io::duplex(1 << 20);
-    let task = tokio::spawn(serve(from_test, to_test, Some(app_data.to_path_buf())));
+    let task = tokio::spawn(serve(from_test, to_test, Some(app_data.to_path_buf()), None));
     Self {
       input,
       lines: BufReader::new(output).lines(),
@@ -32,7 +33,7 @@ impl Brd {
     serde_json::from_str(&self.lines.next_line().await.unwrap().unwrap()).unwrap()
   }
 
-  /// The end of the input ends `brd mcp` with 0
+  /// The end of the input ends the bridge with 0
   pub(crate) async fn end(self) {
     drop(self.input);
     assert_eq!(tokio::time::timeout(std::time::Duration::from_secs(30), self.task).await.unwrap().unwrap(), 0);
@@ -45,9 +46,9 @@ fn settings_bootstrap(id: u32, arguments: &Value) -> String {
 }
 
 /// The settings of the app data directory that the desktop app saved, as `bd_bootstrap` gives them with the title bar
-/// of the IDE, `native` unless the host context names an overlay one; the end of the input ends `brd mcp` with 0
+/// of the IDE, `native` unless the host context names an overlay one; the end of the input ends the bridge with 0
 #[tokio::test]
-async fn brd_mcp_serves_the_settings_of_the_app_until_its_input_ends() {
+async fn the_bridge_serves_the_settings_of_the_app_until_its_input_ends() {
   let app_data = tempfile::tempdir().unwrap();
   {
     let desktop = SettingsService::open(app_data.path().to_path_buf()).unwrap();

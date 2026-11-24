@@ -1,10 +1,10 @@
+use crate::backend::BackendLink;
 use crate::hosts::Instances;
 use crate::link::Link;
 use crate::notices::{Notices, notice_of};
-use app_settings::service::SettingsService;
+use crate::settings::SettingsMirror;
 use domain_types::patronus::PatronusRobot;
 use domain_types::session::{News, NewsEvent, RepositoryView};
-use domain_types::settings::SettingsPatch;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -73,7 +73,8 @@ fn a_failed_robot_is_a_notification_whose_action_reveals_its_branch() {
 }
 
 /// The requests brd wrote so far, by their method
-fn written(out: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Vec<Value> {
+/// The messages `out` holds since the last look
+pub(crate) fn written(out: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Vec<Value> {
   let mut messages = Vec::new();
   while let Ok(message) = out.try_recv() {
     messages.push(serde_json::from_str(&message).unwrap());
@@ -81,49 +82,59 @@ fn written(out: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Vec<Value>
   messages
 }
 
-/// brd tells a failure while the main view is hidden, and leaves out the page's notification of it; while the main view
-/// shows, the page's notification of the failure (its frame without the focus) takes the action of the news; with the
-/// switch of Settings off brd tells none
+/// The backend answers each claim of a news the bridge sent since the last look: the first of each news is the first
+fn claims_answered(backend: &BackendLink, sent: &mut tokio::sync::mpsc::UnboundedReceiver<String>, claimed: &mut Vec<Value>) {
+  for claim in written(sent) {
+    let first = !claimed.contains(&claim["params"]);
+    claimed.push(claim["params"].clone());
+    backend.answered(&claim["id"], Ok(json!({ "first": first })));
+  }
+}
+
+/// The bridge tells a failure while the main view is hidden, and leaves out the page's notification of it; while the
+/// main view shows, the page's notification of the failure (its frame without the focus) takes the action of the news;
+/// with the switch of Settings off the bridge tells none. The bridge tells a news once its claim is the first of the
+/// backend
 #[test]
-fn brd_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown() {
-  let directory = tempfile::tempdir().unwrap();
-  let settings = Arc::new(SettingsService::open(directory.path().to_path_buf()).unwrap());
+fn the_bridge_tells_a_failure_while_the_main_view_is_hidden_and_the_notification_of_the_page_takes_its_action_while_shown() {
+  let settings = Arc::new(SettingsMirror::default());
   let (link, mut out) = Link::new();
+  let (backend, mut sent) = BackendLink::new();
+  let mut claimed = Vec::new();
   let instances = Arc::new(Instances::default());
-  let notices = Notices::new(Arc::new(link), Arc::clone(&instances), Arc::clone(&settings));
+  let notices = Notices::new(Arc::new(link), Arc::clone(&backend), Arc::clone(&instances), Arc::clone(&settings));
   let view = view_with(&[robot("r1", Some("auth"), None)]);
   let page = |news: u32| json!({ "title": "Safe Push of auth failed", "body": "Fast Tests · auth → master", "extra": { "repositoryPath": REPO, "news": news } });
 
   instances.shown("main:1", json!({}));
   notices.tell(&view, REPO, &[failed(1, "r1", Some(false))]);
+  claims_answered(&backend, &mut sent, &mut claimed);
   assert_eq!(written(&mut out), Vec::<Value>::new(), "the toast of the shown main view tells it");
   let notification = notices.page_notification(&page(1)).unwrap();
   assert_eq!(notification["body"], "Fast Tests · auth → master", "the words of the page");
   assert_eq!(notification["kind"], "error");
   assert_eq!(notification["actions"][0]["run"]["arguments"]["branchName"], "auth");
+  // the page tells it, its own claim the first
+  notices.tell_page_notification(&page(1), || {});
+  assert_eq!(written(&mut sent), Vec::<Value>::new(), "the page claimed it before it notified");
+  assert_eq!(written(&mut out).len(), 1);
 
   instances.hidden("main:1");
   notices.tell(&view, REPO, &[failed(2, "r1", Some(false))]);
+  claims_answered(&backend, &mut sent, &mut claimed);
   let told = written(&mut out);
   assert_eq!(told.len(), 1, "{told:#?}");
   assert_eq!(told[0]["method"], "x-air-app/notify");
   assert_eq!(told[0]["params"]["actions"][0]["run"]["tool"], "reveal_branch");
-  assert_eq!(notices.page_notification(&page(2)), None, "brd told it");
+  assert_eq!(notices.page_notification(&page(2)), None, "the bridge told it");
   assert_eq!(
     notices.page_notification(&json!({ "title": "A review request", "body": "#12" })),
     Some(json!({ "title": "A review request", "body": "#12" })),
-    "a notification of no news of brd stays the page's"
+    "a notification of no news of the bridge stays the page's"
   );
 
-  settings
-    .set(
-      SettingsPatch::Value {
-        key: "notifyPatronusFailures".to_owned(),
-        value: json!(false),
-      },
-      "test",
-    )
-    .unwrap();
+  settings.changed(&json!({ "key": "notifyPatronusFailures", "value": false, "version": 1, "origin": "main" }));
   notices.tell(&view, REPO, &[failed(3, "r1", Some(false))]);
-  assert_eq!(written(&mut out), Vec::<Value>::new(), "Settings turned the failures off");
+  assert_eq!(written(&mut sent), Vec::<Value>::new(), "Settings turned the failures off: no claim");
+  assert_eq!(written(&mut out), Vec::<Value>::new());
 }

@@ -1,17 +1,16 @@
-use super::{Mirror, MirrorPatches, Resync, Slot, mirror_window, path_of_uri, progress_of, tools};
+use super::{Mirror, Server, View, mirror_window, path_of_uri, progress_of, tools};
+use crate::backend::BackendLink;
 use crate::hosts::Instances;
 use crate::link::Link;
 use crate::mirror::MirrorView;
-use crate::notices::Notices;
-use crate::notices::notices_test::{REPO, failed, robot, view_with};
+use crate::notices::notices_test::{REPO, failed, robot, view_with, written};
 use crate::process::process_test::Brd;
-use app_api::transport::EventSink;
-use app_settings::service::SettingsService;
 use domain_types::session::{Demand, RepositoryView, TableChanges, Version, ViewPatch};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 /// A root is a `file://` URI: its path, decoded; a Windows root without the slash before its drive
 #[test]
@@ -49,11 +48,11 @@ fn codes_of_the_contract() -> Vec<(String, i64)> {
   codes
 }
 
-/// Every refusal of brd has the code the contract gives its reason: an unknown tool and an unknown method `-32601`, a
+/// Every refusal of the bridge has the code the contract gives its reason: an unknown tool and an unknown method `-32601`, a
 /// call of an agent `-32009`; a reason the contract gives no code of its own has the code of JSON-RPC, as the corpus of
 /// the copy answers it (`unknownAction` and `badParams` `-32602`, `parse` `-32700`)
 #[tokio::test]
-async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
+async fn every_refusal_of_the_bridge_has_the_code_the_contract_gives_its_reason() {
   let app_data = tempfile::tempdir().unwrap();
   let mut brd = Brd::start(app_data.path());
   let click = json!({ "x-air-app": { "origin": "click", "instance": "main:1" } });
@@ -104,7 +103,7 @@ async fn every_refusal_of_brd_has_the_code_the_contract_gives_its_reason() {
 const APP_FILE: &str = include_str!("../../../docs/design/ide-embedding/protocol/examples/branch-deck.yaml");
 
 /// Every tool is only for the app: the two of the page, the tool each action of the app file runs, and the tool of the
-/// action of a notification of brd
+/// action of a notification of the bridge
 #[test]
 fn every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool() {
   let tools = tools();
@@ -116,62 +115,168 @@ fn every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool()
   assert!(run.iter().all(|tool| names.contains(tool)));
 }
 
+/// A server of the bridge whose backend is the test: the lines it sends the backend and the IDE, and the frames of the
+/// backend it is handed (`Server::from_backend`)
+struct Bridged {
+  server: Arc<Server>,
+  backend: Arc<BackendLink>,
+  to_backend: UnboundedReceiver<String>,
+  to_ide: UnboundedReceiver<String>,
+}
+
+impl Bridged {
+  /// The bridge with the main view of the IDE hidden
+  fn new() -> Self {
+    let (link, to_ide) = Link::new();
+    let (backend, to_backend) = BackendLink::new();
+    let instances = Arc::new(Instances::default());
+    instances.shown("main:1", json!({}));
+    instances.hidden("main:1");
+    let server = Server::new(Arc::clone(&backend), Arc::new(link), instances, Arc::default());
+    Self {
+      server,
+      backend,
+      to_backend,
+      to_ide,
+    }
+  }
+
+  /// A mirror of `REPO` that shows `view`, its window subscribed to its channel
+  fn with_mirror(self, view: RepositoryView) -> Self {
+    super::locked(&self.server.mirrors).insert(
+      REPO.to_owned(),
+      Mirror {
+        window: mirror_window(REPO),
+        channel: "x-branch-deck:/repository/1".to_owned(),
+        instances: HashSet::from(["main:1".to_owned()]),
+        view: View::Live(Box::new(MirrorView::new(view))),
+        demands: HashMap::new(),
+      },
+    );
+    self
+  }
+
+  /// The backend sends `frame`
+  fn frame(&self, frame: &Value) {
+    self.server.from_backend(frame);
+  }
+
+  /// What the bridge wrote to the IDE since the last look
+  fn ide(&mut self) -> Vec<Value> {
+    written(&mut self.to_ide)
+  }
+
+  /// What the bridge sent the backend since the last look
+  fn backend(&mut self) -> Vec<Value> {
+    written(&mut self.to_backend)
+  }
+
+  /// The backend answers the request `request` with `result`
+  fn answer(&self, request: &Value, result: Value) {
+    self.backend.answered(&request["id"], Ok(result));
+  }
+}
+
+/// The action of the channel of the mirror of `REPO` with `patch`
+fn patched(patch: &ViewPatch) -> Value {
+  json!({ "jsonrpc": "2.0", "method": "action", "params": {
+    "channel": "x-branch-deck:/repository/1", "action": { "type": "x-branch-deck/viewPatched", "patch": patch },
+    "window": mirror_window(REPO), "serverSeq": 7,
+  } })
+}
+
+/// A bridge whose mirror of `REPO` got the patch of the failure of the robot `r1` of `auth`
+fn robot_failed() -> Bridged {
+  let bridged = Bridged::new().with_mirror(view_with(&[robot("r1", Some("auth"), None)]));
+  let base = Version { epoch: 0, seq: 0 };
+  bridged.frame(&patched(&ViewPatch {
+    base,
+    next: base.next(),
+    changes: failed_robot(),
+  }));
+  bridged
+}
+
+/// The first notification of the IDE among `told`: a failure of `auth` whose action reveals its branch
+fn assert_failure_told(told: &[Value]) {
+  assert_eq!(told[0]["method"], "x-air-app/notify", "{told:#?}");
+  assert_eq!(told[0]["params"]["title"], "Safe Push of auth failed");
+  assert_eq!(
+    told[0]["params"]["actions"][0]["run"],
+    json!({ "tool": "reveal_branch", "arguments": { "repositoryPath": REPO, "branchName": "auth" } })
+  );
+}
+
 /// The failure of a robot a patch of the session brings is a notification of the IDE, after the change of the mirror
-/// that tells the page the news: while the main view is hidden, with the action that reveals the branch
+/// that tells the page the news: while the main view is hidden, with the action that reveals the branch, once the
+/// backend answered that the claim of the news is its first
 #[test]
 fn a_failed_robot_of_a_patch_is_a_notification_of_the_ide_after_the_change_of_the_mirror() {
-  let mirror = Mirrored::new();
-  let base = Version { epoch: 0, seq: 0 };
-  mirror
-    .patches
-    .send(ViewPatch {
-      base,
-      next: base.next(),
-      changes: failed_robot(),
-    })
-    .unwrap();
-  let Mirrored { patches, mut out, .. } = mirror;
-  let mut written = Vec::new();
-  while let Ok(message) = out.try_recv() {
-    written.push(serde_json::from_str::<Value>(&message).unwrap());
-  }
+  let mut bridged = robot_failed();
+  let written = bridged.ide();
   let methods: Vec<_> = written.iter().map(|message| message["method"].as_str().unwrap_or_default()).collect();
-  assert_eq!(methods, ["x-air-app/viewChanged", "x-air-app/notify"]);
-  assert_eq!(written[1]["params"]["title"], "Safe Push of auth failed");
+  assert_eq!(methods, ["x-air-app/viewChanged"], "the notification waits for the claim of its news");
+  let claims = bridged.backend();
+  assert_eq!(claims.len(), 1, "{claims:#?}");
+  assert_eq!(claims[0]["method"], "x-branch-deck/claimNews");
   assert_eq!(
-    written[1]["params"]["actions"][0]["run"],
-    serde_json::json!({ "tool": "reveal_branch", "arguments": { "repositoryPath": REPO, "branchName": "auth" } })
+    claims[0]["params"],
+    json!({ "channel": "ahp-root://", "repositoryPath": REPO, "news": { "kind": "robotFailed", "robotId": "r1" } })
   );
-  drop(patches);
+  bridged.answer(&claims[0], json!({ "first": true }));
+  assert_failure_told(&bridged.ide());
+}
+
+/// A news another client of the backend claimed first (another IDE on the repository, the desktop app) is told by that
+/// one: the bridge tells it not again
+#[test]
+fn a_news_another_client_claimed_first_is_no_notification_of_the_bridge() {
+  let mut bridged = robot_failed();
+  bridged.ide();
+  let claims = bridged.backend();
+  bridged.answer(&claims[0], json!({ "first": false }));
+  assert_eq!(bridged.ide(), Vec::<Value>::new());
 }
 
 /// A patch into another epoch of the session (a slot of a lease pool leased again, which opened it anew) changes nothing
-/// of the mirror and tells the IDE nothing, its news included: the server is asked to read the view of the session anew,
-/// with the slot that got the patch, so a mirror that moved meanwhile moves no more
+/// of the mirror and tells the IDE nothing, its news included: the bridge reads the view of its window anew
+/// (`get_snapshot`), and the mirror takes it in one change of every part, the version of the new epoch last
 #[test]
-fn a_patch_into_another_epoch_asks_the_server_to_read_the_view_anew() {
-  let mut mirror = Mirrored::new();
-  let held = mirror.view.clone();
+fn a_patch_into_another_epoch_reads_the_view_anew() {
+  let view = view_with(&[robot("r1", Some("auth"), None)]);
+  let mut bridged = Bridged::new().with_mirror(view.clone());
   let base = Version { epoch: 0, seq: 0 };
-  mirror
-    .patches
-    .send(ViewPatch {
-      base,
-      next: Version { epoch: 1, seq: 0 },
-      changes: failed_robot(),
-    })
-    .unwrap();
-  assert!(mirror.out.try_recv().is_err(), "no change of the mirror and no notification");
-  let resync = mirror.resynced.try_recv().expect("the server reads the view anew");
-  assert_eq!(resync.mirror, REPO);
-  assert!(Arc::ptr_eq(&resync.slot, &mirror.patches.slot));
-  {
-    let Slot::Live(live) = &*mirror.patches.slot.lock().unwrap() else {
-      panic!("the mirror shows its view until it moves");
-    };
-    assert_eq!(live.view(), &held);
-  }
-  drop(mirror);
+  bridged.frame(&patched(&ViewPatch {
+    base,
+    next: Version { epoch: 1, seq: 0 },
+    changes: failed_robot(),
+  }));
+  assert_eq!(bridged.ide(), Vec::<Value>::new(), "no change of the mirror and no notification");
+  let asked = bridged.backend();
+  assert_eq!(asked.len(), 1, "{asked:#?}");
+  assert_eq!(asked[0]["method"], "x-branch-deck/get_snapshot");
+  assert_eq!(asked[0]["params"]["window"], mirror_window(REPO));
+  assert_eq!(asked[0]["params"]["args"], json!({ "params": { "repositoryPath": REPO } }));
+
+  let mut anew = view;
+  anew.version = Version { epoch: 1, seq: 2 };
+  bridged.answer(&asked[0], json!({ "value": anew }));
+  let changed = bridged.ide();
+  assert_eq!(changed.len(), 1, "{changed:#?}");
+  assert_eq!(changed[0]["method"], "x-air-app/viewChanged");
+  let ops = changed[0]["params"]["ops"].as_array().unwrap();
+  assert_eq!(ops.last().unwrap(), &json!({ "op": "part", "part": "version", "value": { "epoch": 1, "seq": 2 } }));
+  // the patches of the new epoch apply to it
+  bridged.frame(&patched(&ViewPatch {
+    base: Version { epoch: 1, seq: 2 },
+    next: Version { epoch: 1, seq: 3 },
+    changes: TableChanges {
+      order: Some(vec!["auth".to_owned()]),
+      ..TableChanges::default()
+    },
+  }));
+  let changed = bridged.ide();
+  assert_eq!(changed[0]["params"]["ops"][0], json!({ "op": "part", "part": "order", "value": ["auth"] }));
 }
 
 /// The news of a patch: the robot `r1` of `auth` failed
@@ -182,54 +287,16 @@ fn failed_robot() -> TableChanges {
   }
 }
 
-/// The patches of the session to a mirror of `REPO` that shows a view with the robot `r1` of `auth`, while the main view
-/// is hidden: what brd writes, and what the slot asks the server to read anew
-struct Mirrored {
-  patches: MirrorPatches,
-  view: RepositoryView,
-  out: tokio::sync::mpsc::UnboundedReceiver<String>,
-  resynced: tokio::sync::mpsc::UnboundedReceiver<Resync>,
-  _directory: tempfile::TempDir,
-}
-
-impl Mirrored {
-  fn new() -> Self {
-    let directory = tempfile::tempdir().unwrap();
-    let settings = Arc::new(SettingsService::open(directory.path().to_path_buf()).unwrap());
-    let (link, out) = Link::new();
-    let link = Arc::new(link);
-    let instances = Arc::new(Instances::default());
-    instances.shown("main:1", serde_json::json!({}));
-    instances.hidden("main:1");
-    let view = view_with(&[robot("r1", Some("auth"), None)]);
-    let (resyncs, resynced) = tokio::sync::mpsc::unbounded_channel();
-    let patches = MirrorPatches {
-      mirror: REPO.to_owned(),
-      slot: Arc::new(Mutex::new(Slot::Live(Box::new(MirrorView::new(view.clone()))))),
-      link: Arc::clone(&link),
-      notices: Arc::new(Notices::new(Arc::clone(&link), instances, settings)),
-      resyncs,
-    };
-    Self {
-      patches,
-      view,
-      out,
-      resynced,
-      _directory: directory,
-    }
-  }
-}
-
-/// The views of a mirror share its subscription: the main view and a review each set a demand, and the session gets
-/// the union of them, so the demand of the main view never takes back what the review asked; the view that leaves
-/// takes only its own demand with it
+/// The views of a mirror share its subscription: the main view and a review each set a demand, and the window of the
+/// mirror gets the union of them, so the demand of the main view never takes back what the review asked; the view that
+/// leaves takes only its own demand with it
 #[test]
 fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
   let mut mirror = Mirror {
     window: mirror_window(REPO),
-    subscription: 1,
+    channel: "x-branch-deck:/repository/1".to_owned(),
     instances: HashSet::from(["main:1".to_owned(), "review:1".to_owned()]),
-    slot: Arc::new(Mutex::new(Slot::Ended)),
+    view: View::Ended,
     demands: HashMap::new(),
   };
   let main = Demand {
@@ -249,7 +316,7 @@ fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
   // the main view sends its demand again: what the review asked stays asked while the review shows
   assert!(mirror.set_demand("main:1", main.clone()).reviews);
 
-  assert_eq!(mirror.leave("review:1"), Some(main.clone()), "the session gets the demand of the main view alone");
+  assert_eq!(mirror.leave("review:1"), Some(main.clone()), "the window gets the demand of the main view alone");
   assert_eq!(mirror.demand(), Some(main));
   // the last view leaves: the subscription ends with the mirror, no demand is sent
   assert_eq!(mirror.leave("main:1"), None);

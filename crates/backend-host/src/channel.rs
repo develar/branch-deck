@@ -261,7 +261,7 @@ impl Host {
         return connection.fail(id, &Failure::api_error(&error));
       }
     };
-    let moved = self.follow(&channel, &key, &window);
+    let moved = self.follow(&channel, &key, Some(&window));
     let mine = match self.join(&channel, connection, &window, &ended, &key, have).await {
       Ok(joined) => Ok(joined),
       Err(error) => {
@@ -271,22 +271,7 @@ impl Host {
       }
     };
     let state_of_mine = mine.as_ref().ok().and_then(|joined| joined.answer.view.clone());
-    let mut others = Vec::new();
-    for (other, other_ended) in moved {
-      let Some(other_connection) = channel.state().windows.get(&other).and_then(|window| window.connection.upgrade()) else {
-        continue;
-      };
-      let have = state_of_mine.as_ref().map(|view| view.version);
-      match self.join(&channel, &other_connection, &other, &other_ended, &key, have).await {
-        Ok(joined) => others.push(joined),
-        Err(error) => {
-          tracing::warn!(window = %other.1, channel = %channel.uri, %error, "a window of a channel that moved cannot subscribe again");
-          other_ended.store(true, Ordering::SeqCst);
-          channel.state().windows.remove(&other);
-          other_connection.notify("x-branch-deck/subscriptionEnded", json!({ "channel": channel.uri, "window": other.1, "reason": "closed" }));
-        }
-      }
-    }
+    let others = self.rejoin(&channel, &key, moved, state_of_mine.as_ref().map(|view| view.version)).await;
     let moving = !others.is_empty();
     // the windows of a move start from one view, the session's once every one joined: the patches each heard before
     // it are in it
@@ -294,12 +279,7 @@ impl Host {
     let state_of_all = current.as_ref().or(state_of_mine.as_ref());
     self.publish(|sequence| {
       let from_seq = if moving { sequence.next() } else { sequence.now() };
-      for joined in &others {
-        let view = current.as_ref().or(joined.answer.view.as_ref()).or(state_of_all);
-        let resync = json!({ "channel": channel.uri, "window": joined.window.1, "snapshot": snapshot(&channel, view, None, from_seq) });
-        joined.connection.notify("x-branch-deck/resync", resync);
-        Self::joined(&channel, joined, view.map(|view| view.version), sequence);
-      }
+      Self::resync_moved(&channel, &others, current.as_ref(), state_of_all, from_seq, sequence);
       match &mine {
         Ok(joined) => {
           let view = joined.answer.view.as_ref().map(|view| current.as_ref().unwrap_or(view));
@@ -312,9 +292,75 @@ impl Host {
     });
   }
 
+  /// `x-branch-deck/followPrefix {channel, window}`: the channel takes the session of the prefix the git config names
+  /// now, as a subscribe does, without a subscription of its own: when that is another session than the one it follows,
+  /// every window subscribed to it moves to it, each with a resync of the view of the new session, before the answer;
+  /// else the answer is all. The window that asks subscribes to the channel, or it is `notSubscribed`
+  pub(crate) fn follow_prefix(&self, connection: &Arc<Connection>, id: Value, params: &Value) {
+    let Some((channel, window)) = self.window_command(connection, &id, params) else {
+      return;
+    };
+    if !channel.state().windows.contains_key(&window) {
+      return connection.fail(&id, &Failure::channel("notSubscribed", format!("{} subscribes to {} not", window.1, channel.uri)));
+    }
+    let (host, connection) = (self.me(), Arc::clone(connection));
+    self.ctx.runtime.spawn(
+      async move {
+        let key = match host.ctx.session_key_now(&channel.path).await {
+          Ok(key) => key,
+          Err(error) => return connection.fail(&id, &Failure::api_error(&error)),
+        };
+        if channel.state().key.as_ref() == Some(&key) {
+          return connection.answer(&id, json!({}));
+        }
+        let moved = host.follow(&channel, &key, None);
+        let others = host.rejoin(&channel, &key, moved, None).await;
+        let current = host.ctx.sessions.get_snapshot(&key).await;
+        host.publish(|sequence| {
+          let from_seq = sequence.next();
+          Self::resync_moved(&channel, &others, current.as_ref(), None, from_seq, sequence);
+          connection.answer(&id, json!({}));
+        });
+      }
+      .in_current_span(),
+    );
+  }
+
+  /// The windows of a channel that moved to the session of `key` subscribe to it again, each from `have`: those that
+  /// joined; one that cannot is ended (`subscriptionEnded {reason: "closed"}`)
+  async fn rejoin(&self, channel: &Arc<Channel>, key: &SessionKey, moved: Vec<(WindowKey, Arc<AtomicBool>)>, have: Option<Version>) -> Vec<Joined> {
+    let mut others = Vec::new();
+    for (other, other_ended) in moved {
+      let Some(other_connection) = channel.state().windows.get(&other).and_then(|window| window.connection.upgrade()) else {
+        continue;
+      };
+      match self.join(channel, &other_connection, &other, &other_ended, key, have).await {
+        Ok(joined) => others.push(joined),
+        Err(error) => {
+          tracing::warn!(window = %other.1, channel = %channel.uri, %error, "a window of a channel that moved cannot subscribe again");
+          other_ended.store(true, Ordering::SeqCst);
+          channel.state().windows.remove(&other);
+          other_connection.notify("x-branch-deck/subscriptionEnded", json!({ "channel": channel.uri, "window": other.1, "reason": "closed" }));
+        }
+      }
+    }
+    others
+  }
+
+  /// Each window of a move gets its resync, of `current`, the view of the session once every one joined, else of the
+  /// view it joined with, else of `fallback`. Within the publish lock
+  fn resync_moved(channel: &Channel, others: &[Joined], current: Option<&RepositoryView>, fallback: Option<&RepositoryView>, from_seq: u64, sequence: &mut Sequence<'_>) {
+    for joined in others {
+      let view = current.or(joined.answer.view.as_ref()).or(fallback);
+      let resync = json!({ "channel": channel.uri, "window": joined.window.1, "snapshot": snapshot(channel, view, None, from_seq) });
+      joined.connection.notify("x-branch-deck/resync", resync);
+      Self::joined(channel, joined, view.map(|view| view.version), sequence);
+    }
+  }
+
   /// The channel follows the session of `key` from now on: when it followed another, the windows subscribed to it but
-  /// `window` leave that session and join again, which this answers, each with its new flag
-  fn follow(&self, channel: &Channel, key: &SessionKey, window: &WindowKey) -> Vec<(WindowKey, Arc<AtomicBool>)> {
+  /// `window` (every one without it) leave that session and join again, which this answers, each with its new flag
+  fn follow(&self, channel: &Channel, key: &SessionKey, window: Option<&WindowKey>) -> Vec<(WindowKey, Arc<AtomicBool>)> {
     let mut left = Vec::new();
     let mut moved = Vec::new();
     {
@@ -323,7 +369,7 @@ impl Host {
       state.key = Some(key.clone());
       if other_session {
         state.last = None;
-        for (other, subscription) in state.windows.iter_mut().filter(|(other, _)| *other != window) {
+        for (other, subscription) in state.windows.iter_mut().filter(|(other, _)| Some(*other) != window) {
           let Some(session) = subscription.subscription.take() else {
             continue;
           };

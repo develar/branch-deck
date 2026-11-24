@@ -664,7 +664,7 @@ for about a second): its build of `dist/` would empty it under the pages of the 
 - **The fake IDE** (`openFakeIde` of `fake-host.ts`): one page of the test server's origin (its `/health`, then the
   content of the host page), so its WebSocket to the server is a loopback one. Each view is a frame at the origin of the
   app (`https://branch-deck.air-genui-app.local`), whose files a route of the test serves from `dist-air/` (a path with
-  no file is `index.html`), as `brd mcp` serves them by `resources/read`. `openFakeIde` and `ide.openView` answer once
+  no file is `index.html`), as the bridge serves them by `resources/read`. `openFakeIde` and `ide.openView` answer once
   the page of the frame drew its shell (`ide.started(instance)`: its `sub_window_drawn` through `bd_invoke`, the stage
   the desktop app counts the content budget of a window from), as the setup of a desktop page waits for its header: the
   files of the frame, its bootstrap and its first frame take the test's time, not that of an `expect`. Under a load of
@@ -673,7 +673,7 @@ for about a second): its build of `dist/` would empty it under the pages of the 
   took 0.4 s at the median and 1.1 s at most.
 - **The links**: the frame link is the `AppBridge` of `@modelcontextprotocol/ext-apps` with the extension `x-air-app`
   (`host-page.ts`); the app link is the WebSocket `ws://127.0.0.1:<port>/repositories/<id>/mcp` of the test server, where
-  `ide-host` serves `brd mcp` on the fixture repository. The fake IDE plays `air-ide`: it numbers the instances
+  `ide-host` serves the bridge on the fixture repository. The fake IDE plays `air-ide`: it numbers the instances
   (`main:1`, `review:1`), maps the ids of the calls of a frame to those of the app link (`callId`, `progressToken`),
   answers `roots/list` with the fixture repository, opens a frame for each `x-air-app/openView` and closes the frame of
   each `x-air-app/closeView`.
@@ -691,11 +691,11 @@ for about a second): its build of `dist/` would empty it under the pages of the 
   repository for a cause of Air (`closed`): each view of it gets `x-air-app/subscriptionEnded`, and brd hears that each
   instance left the mirror but keeps the session of the repository.
 - **The end of a test**: the IDE closes before the repositories of the test go (`closeFakeIde`: the page closes with
-  its app link, so `brd mcp` ends its connection). The fixture `repo` closes it in its teardown; without that, the
+  its app link, so the bridge ends its connection). The fixture `repo` closes it in its teardown; without that, the
   teardown removed the repository while the page still showed it, its session closed, brd ended the mirror with
   `sessionClosed`, and the main view subscribed again to a repository that was gone, at the end of every test.
 - **What a test reads**: the frame of a view (`ide.frame("review:1")`), the views (`ide.views()`), the mirrors
-  (`ide.mirrorLog()`), the requests of `brd mcp` to the IDE and the host tools the pages called (`ide.calls()`); it
+  (`ide.mirrorLog()`), the requests of the bridge to the IDE and the host tools the pages called (`ide.calls()`); it
   switches the theme of the IDE
   (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`, the output of
   `ideStyleVariables` of Air; `themeFor(theme, "neutral")` filters them by the field `styles` of the app file as Air
@@ -718,7 +718,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 |---|---|---|
 | `POST /invoke/<name>` | a command of the registry in the context of the repository of `X-Repository-Id`, for the window of `X-Window-Label`; SSE with `X-Progress-Channel` (`invoke.rs`) | the page mock |
 | `POST /repositories`, `GET`/`DELETE …` | a repository of a template, named by the test that makes it (`test`: its file, line and titles), its path, its deletion after its commands, each of which answers once its work ended (the read ahead of a review too: a read that outlived its command failed on the objects of a deleted repository) | `setupRepo`, `init`, `cleanup` |
-| `GET …/mcp` | `brd mcp` on a WebSocket: one connection of `ide-host` in the context of the repository, one JSON-RPC message per text frame (`mcp_socket.rs`, [IDE Embedding](ide-embedding.md)) | the fake host of the page in Air |
+| `GET …/mcp` | the bridge on a WebSocket: one connection of `ide-host`, a client of a backend host on the context of the repository, one JSON-RPC message per text frame (`mcp_socket.rs`, [IDE Embedding](ide-embedding.md)) | the fake host of the page in Air |
 | `GET`/`POST …/events` | the event stream of a page (`?window=`), an event a page emits (`host.rs`) | the page mock |
 | `GET …/windows`, `POST …/windows/built`, `POST …/dialog-pick` | what the desktop opened and its menus, the build of a page a test opens, the folder of the dialog | `getOpenedSubWindows`, `getWindowMenus`, `registerWindowBuild` (sub-window-helpers.ts), `setDialogPick` |
 | `GET /store/{repo}`, `GET`/`POST`/`DELETE /store/{repo}/{key}` | the settings of the repository's app, through their writer | `setupRepo` (`initialStoreValues`, `syncedAgoMs`; common-setup.ts) |

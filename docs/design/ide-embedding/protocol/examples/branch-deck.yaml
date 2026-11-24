@@ -7,10 +7,10 @@ icon: icons/branch-deck.svg
 server:
   command:
     mac: /Applications/BranchDeck.app/Contents/MacOS/branch-deck
-    windows: C:\Program Files\BranchDeck\brd.exe
+    windows: C:\Program Files\BranchDeck\branch-deck.exe
   args:
-    mac: [cli, mcp]
-    windows: [mcp]
+    mac: [ide]
+    windows: [ide]
   env: {}
   start: onFirstView
 projects:

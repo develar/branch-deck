@@ -483,7 +483,7 @@ pub struct CancelOperationParams {
 pub struct Fingerprint(pub String);
 
 /// How an operation ended (the contract's `Outcome`): each effect of its plan with its status, in order
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
@@ -690,7 +690,7 @@ pub struct OperationStats {
 }
 
 /// What the caller of an operation hears while it runs
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OperationEvent {

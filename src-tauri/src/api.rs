@@ -71,7 +71,7 @@ macro_rules! tauri_command {
     $(#[doc = $doc])*
     #[tauri::command]
     #[specta::specta]
-    pub async fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+    pub async fn $name(ctx: tauri::State<'_, std::sync::Arc<app_api::context::AppContext>>, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
       $body(&ctx, $($arg),*).await
     }
   };
@@ -86,7 +86,7 @@ macro_rules! tauri_command {
   ($(#[doc = $doc:literal])* raw $name:ident($($arg:ident: $type:ty),*) [] [$output:ty] = $body:path) => {
     $(#[doc = $doc])*
     #[tauri::command]
-    pub async fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, $($arg: $type),*) -> Result<tauri::ipc::Response, domain_types::error::ApiError> {
+    pub async fn $name(ctx: tauri::State<'_, std::sync::Arc<app_api::context::AppContext>>, $($arg: $type),*) -> Result<tauri::ipc::Response, domain_types::error::ApiError> {
       $body(&ctx, $($arg),*).await.map(tauri::ipc::Response::new)
     }
   };
@@ -106,7 +106,7 @@ macro_rules! tauri_command {
     $(#[doc = $doc])*
     #[tauri::command]
     #[specta::specta]
-    pub fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+    pub fn $name(ctx: tauri::State<'_, std::sync::Arc<app_api::context::AppContext>>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
       let call = ctx.call(webview.label());
       $answer($body(&ctx, &call, $($arg),*))
     }
@@ -116,7 +116,7 @@ macro_rules! tauri_command {
     $(#[doc = $doc])*
     #[tauri::command]
     #[specta::specta]
-    pub async fn $name(ctx: tauri::State<'_, app_api::context::AppContext>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
+    pub async fn $name(ctx: tauri::State<'_, std::sync::Arc<app_api::context::AppContext>>, webview: tauri::Webview, $($arg: $type),*) -> Result<$output, domain_types::error::ApiError> {
       let call = ctx.call(webview.label());
       let args = app_api::commands::$name::Args { $($arg),* };
       <app_api::commands::$name::Command as app_api::registry::Command>::call(&ctx, &call, args, ()).await
@@ -128,7 +128,7 @@ macro_rules! tauri_command {
     #[tauri::command]
     #[specta::specta]
     pub async fn $name(
-      ctx: tauri::State<'_, app_api::context::AppContext>,
+      ctx: tauri::State<'_, std::sync::Arc<app_api::context::AppContext>>,
       webview: tauri::Webview,
       $($arg: $type,)*
       $channel: tauri::ipc::Channel<$event>,

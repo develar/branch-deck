@@ -99,7 +99,7 @@ pub struct IssueLead {
 
 /// The branch a commit message groups into (`history_rewrite::commit_grouper::group_of`), as the forms that type a
 /// message or a branch name preview it (`preview_group`)
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitGroup {

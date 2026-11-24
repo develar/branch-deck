@@ -30,20 +30,3 @@ fn a_review_is_keyed_by_its_target() {
   assert_eq!(key_of("review", "review", &json!({})), "review");
   assert_eq!(key_of("settings", "settings", &json!({ "branchName": "x" })), "settings");
 }
-
-/// The hosts without a place in the IDE do nothing: a check for updates finds none, the menu and the restart take
-/// nothing, no folder dialog opens, and the agent CLI is the desktop app's
-#[tokio::test]
-async fn the_hosts_without_a_place_in_the_ide_do_nothing() {
-  let (link, _out) = crate::link::Link::new();
-  let desktop = crate::hosts::desktop(&std::sync::Arc::new(link), &std::sync::Arc::default());
-  let update = desktop.updater.check().await.unwrap();
-  assert!(!update.is_update_available);
-  assert_eq!(desktop.updater.downloaded(), None);
-  desktop.menu.set_auto_sync_checked(true).unwrap();
-  assert_eq!(desktop.dialog.pick_folder("Open"), None);
-  assert!(!desktop.dialog.has_folder_dialog(), "the page offers no Open Repository… in the IDE");
-  assert!(matches!(desktop.agent_cli.install(), Err(error) if !error.message.is_empty()));
-  assert_eq!(desktop.agent_cli.status().bd, None);
-  assert!(!desktop.agent_cli.status().installable, "the page offers no install of brd or of the app file in the IDE");
-}

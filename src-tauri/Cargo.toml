@@ -42,6 +42,8 @@ history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }
 domain-types = { path = "../crates/domain-types", features = ["specta"] }
 # `api_error`: a core's error as the `ApiError` of a command, the same as the e2e server answers
 app-api = { path = "../crates/app-api" }
+# the one backend of the user: the host of app-api on the local socket of the app, for the bridges of the IDEs (`backend.rs`)
+backend-host = { path = "../crates/backend-host" }
 # the types of the commands of Start in Air, which the registry names by their path
 air-launch = { path = "../crates/air-launch" }
 sync-utils = { path = "../crates/sync-utils" }
@@ -76,7 +78,7 @@ object-cache = { path = "../crates/object-cache" }
 bd-cli = { path = "../crates/bd-cli" }
 bd-core = { path = "../crates/bd-core" }
 # the deadline of the exit of the app without a window (`life.rs`), the update check without one (`auto_update.rs`)
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = { version = "2", optional = true }

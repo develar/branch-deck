@@ -10,6 +10,6 @@ pub struct TauriContext(pub AppHandle);
 
 impl ContextSource for TauriContext {
   fn context(&self) -> &AppContext {
-    self.0.state::<AppContext>().inner()
+    self.0.state::<std::sync::Arc<AppContext>>().inner()
   }
 }

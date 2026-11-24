@@ -29,6 +29,8 @@ fn brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin() {
   let home = tempfile::tempdir().expect("a temporary home");
   let mut child = Command::new(BRD)
     .arg("mcp")
+    // the backend of the bridge's process: a test starts no app
+    .env("BRANCH_DECK_IDE_BACKEND", "in-process")
     .current_dir(home.path())
     .env("HOME", home.path())
     .env("XDG_DATA_HOME", home.path().join(".local/share"))

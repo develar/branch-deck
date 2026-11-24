@@ -169,6 +169,22 @@
           "if": {
             "properties": {
               "method": {
+                "const": "x-branch-deck/followPrefix"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/FollowPrefixParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
                 "const": "x-branch-deck/claimNews"
               }
             }
@@ -249,22 +265,6 @@
           "if": {
             "properties": {
               "method": {
-                "const": "x-branch-deck/notify"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "params": {
-                "$ref": "#/$defs/NotifyParams"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "method": {
                 "pattern": "^x-branch-deck/[a-z][a-z0-9_]*$",
                 "not": {
                   "enum": [
@@ -275,7 +275,6 @@
                     "x-branch-deck/showMain",
                     "x-branch-deck/openWindow",
                     "x-branch-deck/showWindow",
-                    "x-branch-deck/notify",
                     "x-branch-deck/cancel",
                     "x-branch-deck/windowShown",
                     "x-branch-deck/windowHidden",
@@ -622,7 +621,7 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "enum": ["openWindow", "showWindow", "notify"]
+            "enum": ["openWindow", "showWindow"]
           }
         }
       }
@@ -1005,6 +1004,19 @@
       "type": "string",
       "minLength": 1
     },
+    "FollowPrefixParams": {
+      "description": "The channel takes the session of the prefix the git config names now; a window of the connection subscribes to it.",
+      "type": "object",
+      "required": ["channel", "window"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/RepositoryChannel"
+        },
+        "window": {
+          "$ref": "#/$defs/WindowLabel"
+        }
+      }
+    },
     "SetDemandParams": {
       "type": "object",
       "required": ["channel", "window", "demand"],
@@ -1057,6 +1069,10 @@
           "$ref": "#/$defs/WindowLabel"
         },
         "view": {
+          "type": "string"
+        },
+        "repositoryPath": {
+          "description": "The repository the main view shows, whose warm frame the answer holds: the root of the project the bridge shows; else the selected project of the app.",
           "type": "string"
         }
       }
@@ -1231,24 +1247,6 @@
       "properties": {
         "window": {
           "$ref": "#/$defs/WindowLabel"
-        }
-      }
-    },
-    "NotifyParams": {
-      "type": "object",
-      "required": ["channel", "title", "body"],
-      "properties": {
-        "channel": {
-          "$ref": "#/$defs/Root"
-        },
-        "title": {
-          "type": "string"
-        },
-        "body": {
-          "type": "string"
-        },
-        "action": {
-          "type": "object"
         }
       }
     },

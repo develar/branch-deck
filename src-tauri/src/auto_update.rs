@@ -315,7 +315,7 @@ pub fn check_while_windowless(app: &tauri::AppHandle) {
       tokio::time::sleep(STARTUP_CHECK_DELAY).await;
       loop {
         if app.get_webview_window(app_settings::windows::MAIN_WINDOW).is_none()
-          && let Err(e) = app.state::<AppContext>().desktop(&app_api::transport::WindowId::main()).updater.check().await
+          && let Err(e) = app.state::<Arc<AppContext>>().desktop(&app_api::transport::WindowId::main()).updater.check().await
         {
           error!(error = %e.message, "the update check of the app without a window failed");
         }

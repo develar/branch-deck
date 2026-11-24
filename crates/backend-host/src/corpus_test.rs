@@ -94,15 +94,16 @@ impl Fixture {
     repository(&self.state, template).await.1
   }
 
-  /// A client of the host, initialized as the bridge of the IDE: the host requests alone
+  /// A client of the host, initialized as the bridge of the IDE: the host requests alone, no `showWindow` (the IDE shows
+  /// its views itself)
   pub(crate) async fn bridge(&self) -> Link {
-    self.client(&json!({ "hostRequests": ["openWindow", "showWindow", "notify"] })).await
+    self.client(&json!({ "hostRequests": ["openWindow"] })).await
   }
 
   /// A client of the host, initialized as the Tauri shell: every capability
   pub(crate) async fn shell(&self) -> Link {
     self
-      .client(&json!({ "folderDialog": true, "updater": true, "restart": true, "agentCli": true, "nativeMenu": true, "hostRequests": ["openWindow", "showWindow", "notify"] }))
+      .client(&json!({ "folderDialog": true, "updater": true, "restart": true, "agentCli": true, "nativeMenu": true, "hostRequests": ["openWindow", "showWindow"] }))
       .await
   }
 
@@ -145,7 +146,7 @@ fn head(repo: &str) -> String {
 }
 
 /// What git with `args` prints in `repo`, which must succeed
-fn git(repo: &str, args: &[&str]) -> String {
+pub(crate) fn git(repo: &str, args: &[&str]) -> String {
   let ran = git_command().args(args).current_dir(repo).output().unwrap();
   let printed = String::from_utf8_lossy(&ran.stdout).trim().to_owned();
   assert!(ran.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&ran.stderr));

@@ -13,9 +13,9 @@
 use crate::agent_help::skill_text;
 use crate::claude_hook::{claude_settings_file, install_hook, uninstall_hook};
 use crate::unattended::{hook_command_of, installed_hook};
-use bd_core::bd_command::{BdCommand, app_binary, bd_command, cli_subcommand, display, io_error};
+use bd_core::bd_command::{BdCommand, CLI_NAME, app_binary, bd_command, display, io_error, running_binary};
 #[cfg(unix)]
-use bd_core::bd_command::{CLI_NAME, LINK_DIR, links_to};
+use bd_core::bd_command::{LINK_DIR, links_to};
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
@@ -400,7 +400,7 @@ fn ide_app_styles_of(file: &Path) -> IdeAppStyles {
 /// No home directory, a binary the command can't tell or one that macOS runs translocated, a failed write
 pub fn install_ide_app(environment: &Environment) -> Result<String, CliError> {
   let home = home_of(environment)?;
-  let target = app_binary(environment)?;
+  let target = ide_app_binary(environment)?;
   refuse_temporary_location(&target)?;
   let file = ide_app_file(home);
   let icons = file.with_file_name(IDE_ICONS_DIR);
@@ -444,13 +444,34 @@ pub fn ide_app_status(environment: &Environment) -> Option<IdeAppStatus> {
   let file = ide_app_file(environment.home.as_deref()?);
   let text = std::fs::read_to_string(&file).ok()?;
   let styles = IdeAppStyles::of_file(&text).unwrap_or(IdeAppStyles::DEFAULT);
-  let current = app_binary(environment).is_ok_and(|target| text == ide_app_text(&target, &ide_app_args(&target), styles));
+  let current = ide_app_binary(environment).is_ok_and(|target| text == ide_app_text(&target, &ide_app_args(&target), styles));
   Some(IdeAppStatus { file: display(&file), current })
 }
 
-/// The arguments that run `brd mcp` with `target`: `cli mcp` for the app binary, `mcp` for `brd` (on Windows `brd.exe`)
+/// The binary the IDE runs as the bridge: the app binary on every platform (`branch-deck.exe` on Windows too, whose stdio
+/// behind the pipes of the IDE serves as a console program's does), the `.AppImage` file of an `AppImage`; `brd` only where
+/// no app binary is beside it (a cargo build)
+///
+/// # Errors
+/// The binary of this process cannot be told
+pub fn ide_app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
+  let executable = running_binary(environment)?;
+  if executable.file_stem().is_some_and(|stem| stem == CLI_NAME) {
+    let app = executable.with_file_name(if cfg!(windows) { "branch-deck.exe" } else { "branch-deck" });
+    if app.is_file() {
+      return Ok(app);
+    }
+  }
+  Ok(executable)
+}
+
+/// The arguments that run the bridge with `target`: `ide` for the app binary on every platform, `mcp` for `brd`
 pub fn ide_app_args(target: &Path) -> Vec<&'static str> {
-  cli_subcommand(target).into_iter().chain(["mcp"]).collect()
+  if target.file_stem().is_some_and(|stem| stem == CLI_NAME) {
+    vec!["mcp"]
+  } else {
+    vec!["ide"]
+  }
 }
 
 /// The app file that starts `command` with `args`, its field `styles` set to `styles`, as

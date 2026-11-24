@@ -55,7 +55,9 @@ console `brd.exe` next to `branch-deck.exe`: the `brd` binary of `crates/bd-cli`
 for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
 only, so other builds don't need the file). The macOS release build carries `brd-host` the same way
 (`scripts/build-bd-host.mjs`, `src-tauri/tauri.macos-bd-host.conf.json`), and `brd install` links
-`~/.local/bin/brd-host` to it. The code is in `crates/bd-cli` (the `Cli`, the dispatch, `brd schema`, the help texts) and the crates it
+`~/.local/bin/brd-host` to it. The process of an IDE is the app binary too, `branch-deck ide` on every platform
+(`branch-deck.exe ide` on Windows: behind the pipes of the IDE the GUI-subsystem binary serves its stdio, so no
+`brd.exe mcp`); `brd mcp` and `branch-deck cli mcp` are its alias ([IDE Embedding](../design/ide-embedding.md)). The code is in `crates/bd-cli` (the `Cli`, the dispatch, `brd schema`, the help texts) and the crates it
 builds on: `bd-core`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`, and the library `commit-clustering`; the requirements are in the
 [Agent CLI spec](../../openspec/specs/cli/agent-cli/spec.md).
 

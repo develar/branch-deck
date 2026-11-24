@@ -7,7 +7,7 @@
 ## Problem
 
 The desktop app and the IDE run two backends of one user. The IDE starts a backend without a window for each project
-(`branch-deck ide`, before it `brd mcp`), with its own sessions, its own scheduler and its own polls; the desktop app
+(`brd mcp` before the bridge `branch-deck ide`), with its own sessions, its own scheduler and its own polls; the desktop app
 builds the same `AppContext` once more. Two windows on one repository then show another time of the last check,
 another estimate of a robot and another Landed card, and GitHub, Patronus and YouTrack get one poll from each process.
 brd, later, would be a third.
@@ -93,8 +93,9 @@ over the in-process transport: the behaviour of P1, one backend per project.
   `dev`, and its executable path gives it a backend of its own beside a release ([The socket](#the-socket)).
 - **Capabilities** say what the Desktop of the connection's windows has ([The Desktop](#the-desktop-of-a-connection)):
   `folderDialog`, `updater`, `restart`, `agentCli`, `nativeMenu` (each a boolean, absent is false) and `hostRequests`,
-  the host requests the client answers (`openWindow`, `showWindow`, `notify`). The Tauri shell declares every one; the
-  bridge `hostRequests` only.
+  the host requests the client answers (`openWindow`, `showWindow`). The Tauri shell declares every one; the bridge
+  `hostRequests` only, `openWindow`: the IDE shows its views itself, so a window of the bridge gets
+  no `showWindow`, neither at a deadline of a window built hidden nor when its page settled.
 
 ### The repository channel
 
@@ -155,8 +156,14 @@ sequenceDiagram
 - **Demand**: `x-branch-deck/setDemand {channel, window, demand}` is `Sessions::set_demand` of the subscription of that
   window; the session asks for the facts of the union of its subscriptions, as now. A closed window's subscription and
   demand end with it.
-- **The bridge** subscribes once per repository under a window of its own (`mirror:<path>`, as `mirror.rs` does now),
-  serves its views from that mirror and sends the union of their demands (`Demand::union`) as the demand of that window.
+- **The bridge** subscribes once per repository under a window of its own (`mirror:<path>`), serves its views from that
+  mirror and sends the union of their demands (`Demand::union`) as the demand of that window.
+- **The prefix of now**: `x-branch-deck/followPrefix {channel, window}` of a subscribed window makes the channel take the
+  session of the prefix the git config names now, as a subscribe does, without a subscription of its own: under the
+  prefix the channel follows it answers `{}` at once; else every window of the channel moves to the new session, each
+  with one resync, before the answer. The bridge asks it where a window of the desktop app subscribes again (another view
+  of the IDE opens on the repository, the page subscribes again after `prefix_changed`), so the subscription of its
+  mirror never ends for it. A `notSubscribed` window gets `-32008`.
 
 ### Root commands
 
@@ -190,7 +197,7 @@ The class of each command (the kind of `registry.rs`) says where it runs:
 | Class | Commands | Over the socket |
 |---|---|---|
 | Channel | `subscribe_view`, `unsubscribe_view`, `set_demand` | No: the client maps them to `subscribe`, `unsubscribe` and `x-branch-deck/setDemand` of the window; at the root `-32601 {reason: "channelCommand"}` |
-| Native (`main`) | `show_window_menu`, `set_auto_sync_menu_checked`, `restart_app` | Yes, by the capability (`nativeMenu`, `restart`): without it the menu commands do nothing and `restart_app` answers its `ApiError`, as `brd mcp` does now |
+| Native (`main`) | `show_window_menu`, `set_auto_sync_menu_checked`, `restart_app` | Yes, by the capability (`nativeMenu`, `restart`): without it the menu commands do nothing and `restart_app` answers its `ApiError` |
 | Desktop | `open_sub_window`, `sub_window_loaded`, `sub_window_drawn`, `sub_window_ready` (the windows); `browse_repository`, `add_companion` (`folderDialog`); `check_for_updates`, `get_update_status`, `install_update` (`updater`); `install_agent_cli`, `install_ide_app`, `remove_ide_app`, `agent_cli_command`, `agent_cli_status` (`agentCli`) | Yes: the Desktop of the connection; a capability the client lacks answers as a Desktop without it |
 | Raw | `get_blob_syntax` | Yes: `{bytes}` |
 | Stream | `disk_usage`, `get_file_diffs`, `get_index_marks`, `get_file_merges`, `get_review_plan`, `get_range_readings`, `execute`, `get_robot_stats`, `sign_in`, `air_watch_session` | Yes: `callEvent`s, then the answer |
@@ -231,9 +238,8 @@ requests and of its capabilities:
 | `WindowHost::build`, `reopen` | `x-branch-deck/openWindow {opener, params: OpenSubWindowParams, update?, front}` → `{window}`, the label the client gives the window (the `windowId` in the app, the instance of its view in the IDE, `review:3`) | the open answers its `ApiError` |
 | `WindowHost::show` | `x-branch-deck/showWindow {window}` → `{}` | nothing |
 | `WindowHost::is_open` | none: the host answers from `windowShown` and `windowClosed` | — |
-| the notification of a news (`notices.rs` of the bridge today) | `x-branch-deck/notify {title, body, action?}` → `{}` | not told |
 | `DialogHost` | none: `folderDialog` opens the dialog of the app | `has_folder_dialog` false, `pick_folder` none |
-| `MenuHost`, `RestartHost`, `Updater`, `AgentCliHost` | none: served natively by the app process for a client that declares them | as `brd mcp` answers now: nothing, or `ApiError` |
+| `MenuHost`, `RestartHost`, `Updater`, `AgentCliHost` | none: served natively by the app process for a client that declares them | nothing, or `ApiError` |
 
 The badge, the progress and the close of a window are the page's, as its events: the Tauri shell's plugin calls, the
 bridge's `setBadge`, `setProgress` and `closeView` of `x-air-app`. They never reach the host.
@@ -292,7 +298,7 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 | `AppEvents::emit`, `emit_to` | `x-branch-deck/event` to every connection, to a window of one |
 | `Desktop` (`transport.rs`): `WindowHost`, `DialogHost`, `MenuHost`, `RestartHost`, `Updater`, `AgentCliHost` | the native Desktop of the in-process connection; host requests and capabilities of a socket client |
 | `WindowId(label)`, `Call {window, page}` | `WindowId` = connection + label; `page` grows with `pageLoaded` |
-| `bd_bootstrap` of `brd mcp` | `x-branch-deck/bootstrap {window, view}`: the settings snapshot, the warm frame and the init data; the bridge adds the IDE's parts |
+| `bd_bootstrap` of the bridge | `x-branch-deck/bootstrap {window, view, repositoryPath?}`: the settings snapshot and the warm frame of the repository the main view shows (else of the selected project of the app); the bridge adds the IDE's parts |
 | the `--background` start, the single-instance plugin | `backend.lock`, `x-branch-deck/showMain` |
 
 ### Key Decisions
@@ -316,7 +322,7 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 4. **Decision**: The command name of the registry is the method, verbatim.
    **Rationale**: one name across the Tauri `invoke`, the routes of the e2e server, `commands.json` and the shim; a
    camelCase copy would be a second spelling to keep. A method of the protocol of one word (`cancel`, `event`,
-   `notify`, `bootstrap`) could equal a command added later, so a test of the host checks that no name of `COMMANDS`
+   `bootstrap`) could equal a command added later, so a test of the host checks that no name of `COMMANDS`
    is a method of the protocol.
 5. **Decision**: A failed command is a result, a JSON-RPC error a failure of the protocol.
    **Rationale**: every command answers a `Result` in the bindings and none rejects; the page decides by
@@ -349,12 +355,15 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
   every event after it wait in the forwarder of the call for the fence. A rewrite's `done` names the version of the
   rewrite and its answer the version after the sync that follows it, each fenced to its own.
 - `crates/app-api`: a `Call` and a `WindowId` carry the connection (`ConnectionId::APP` for the app's own windows:
-  the Tauri shell, a test repository of the e2e server, the views of `brd mcp`); `Connections` keeps the desktop and the
+  the Tauri shell, a test repository of the e2e server); `Connections` keeps the desktop and the
   events of each client and is the `AppEvents` of the context; `AppContext::desktop(&window)` picks the desktop of a
   window's connection (`app_desktop` is the app's own), `close_connection` forgets the windows of a connection alone.
   The commands that use the desktop are of the `window` kind; `CommandSpec::window` says which commands need a window.
-- `crates/ide-host` (lane 2.5): the bridge, an AHP client; `mirror.rs` turns `viewPatched` into `x-air-app/viewChanged`
-  as now, `notices.rs` claims a news first.
+- `crates/ide-host`: the bridge `branch-deck ide`, a client of the host (`backend.rs`) over the socket or, in its
+  fallback, the in-process transport of a host of its own (`fallback.rs`); `mirror.rs` turns `viewPatched` into
+  `x-air-app/viewChanged`, `notices.rs` claims a news first ([IDE Embedding](ide-embedding.md)). Its `initialize` names
+  `clientInfo.name: "branch-deck-ide"`; the host counts its clients that initialized, the app's own connection left out
+  (`Host::clients`), which the life of an app without a window reads.
 - `src-tauri`: the in-process connection (`Host::connect_app`, `ConnectionId::APP`), built before the first window, so
   the first message of the main page is still its subscription (`startup-read`).
 - **The contract**: `docs/design/backend-protocol/backend.schema.json` (draft 2020-12) and the golden corpus
@@ -374,8 +383,8 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
   subscriber of the runner, the clocks of the sessions standing still). The runner is
   `crates/backend-host/src/corpus_test.rs`; every host line and every client line not marked `"invalid": true` passes
   the schema after the replacement, each result also the def of its method (`src/platform/backend/contract.test.ts`).
-- **Not yet**: the host request `notify` has no sender (the bridge tells its news from its mirror), and the windows of
-  a client that shows them itself still get the deadlines of the windows built hidden as `showWindow`.
+- **A news** is told by the client that claimed it first: the bridge tells the IDE a news of its mirror itself once
+  `claimNews` answers `first: true`, and the page claims its own; the host sends no notification.
 
 ## Alternatives Considered
 

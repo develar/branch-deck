@@ -3,12 +3,14 @@ use crate::fixture_test::assert_covered;
 use crate::fixture_test::environment;
 #[cfg(unix)]
 use crate::fixture_test::run_json;
-use crate::install::{IDE_APPS_DIR, IdeAppStatus, IdeAppStyles, ide_app_args, ide_app_status, ide_app_text, install_ide_app, refuse_temporary_location, uninstall_ide_app};
+use crate::install::{
+  IDE_APPS_DIR, IdeAppStatus, IdeAppStyles, ide_app_args, ide_app_binary, ide_app_status, ide_app_text, install_ide_app, refuse_temporary_location, uninstall_ide_app,
+};
 #[cfg(unix)]
 use crate::install::{InstallStatus, SKILL_DIRS, SKILL_NAME, install_status};
+use bd_core::bd_command::app_binary_path;
 #[cfg(unix)]
 use bd_core::bd_command::{BdCommand, bd_command};
-use bd_core::bd_command::{app_binary, app_binary_path};
 use bd_core::context::Environment;
 use domain_types::error::ErrorCode;
 #[cfg(unix)]
@@ -393,9 +395,11 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
   let example = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design/ide-embedding/protocol/examples/branch-deck.yaml")).unwrap();
   let mut expected = read_yaml(&example);
   let command = "/Applications/BranchDeck.app/Contents/MacOS/branch-deck";
+  // the example names `ide` for each OS: the file of this binary has its command and the same arguments
+  assert_eq!(expected["server"]["args"], json!({ "mac": ["ide"], "windows": ["ide"] }));
   expected["server"]["command"] = command.into();
-  expected["server"]["args"] = json!(["cli", "mcp"]);
-  let text = ide_app_text(Path::new(command), &["cli", "mcp"], IdeAppStyles::DEFAULT);
+  expected["server"]["args"] = json!(["ide"]);
+  let text = ide_app_text(Path::new(command), &["ide"], IdeAppStyles::DEFAULT);
   assert_eq!(read_yaml(&text), expected);
   // the tool window has one frame, the main view, which switches Branches, Reviews and Landing itself: no tab of its
   // own, no title action; Activity opens as a window where the side panel has no room
@@ -410,16 +414,33 @@ fn the_ide_app_file_is_the_example_of_the_contract_with_the_command_of_this_bina
   );
 
   // a Windows path keeps its backslashes
-  let windows = r"C:\Program Files\Branch Deck\brd.exe";
-  let file = read_yaml(&ide_app_text(Path::new(windows), &["mcp"], IdeAppStyles::DEFAULT));
-  assert_eq!((&file["server"]["command"], &file["server"]["args"]), (&windows.into(), &json!(["mcp"])));
+  let windows = r"C:\Program Files\Branch Deck\branch-deck.exe";
+  let file = read_yaml(&ide_app_text(Path::new(windows), &["ide"], IdeAppStyles::DEFAULT));
+  assert_eq!((&file["server"]["command"], &file["server"]["args"]), (&windows.into(), &json!(["ide"])));
 }
 
+/// The IDE runs the bridge `branch-deck ide` with the app binary on every platform, Windows too (the GUI-subsystem
+/// binary serves its stdio behind the pipes of the IDE); `brd mcp` only where no app binary is beside `brd`
 #[test]
-fn the_ide_runs_brd_mcp_with_the_app_binary_and_mcp_with_brd() {
-  let app = if cfg!(windows) { vec!["mcp"] } else { vec!["cli", "mcp"] };
-  assert_eq!(ide_app_args(Path::new("/Applications/BranchDeck.app/Contents/MacOS/branch-deck")), app);
+fn the_ide_runs_the_bridge_with_the_app_binary_on_every_platform_and_mcp_with_brd_alone() {
+  assert_eq!(ide_app_args(Path::new("/Applications/BranchDeck.app/Contents/MacOS/branch-deck")), ["ide"]);
+  assert_eq!(ide_app_args(Path::new(r"C:\Program Files\BranchDeck\branch-deck.exe")), ["ide"]);
   assert_eq!(ide_app_args(Path::new("/opt/branch-deck/brd")), ["mcp"]);
+  // brd beside the app (brd.exe on Windows) names the app
+  let (_dir, _home, mut environment) = app_in_new_home();
+  let app = environment.executable.clone().unwrap();
+  environment.executable = Some(app.with_file_name(if cfg!(windows) { "brd.exe" } else { "brd" }));
+  std::fs::write(environment.executable.as_ref().unwrap(), "brd").unwrap();
+  if cfg!(windows) {
+    std::fs::write(app.with_file_name("branch-deck.exe"), "app").unwrap();
+  }
+  let named = ide_app_binary(&environment).unwrap();
+  assert_eq!(named.file_stem().unwrap(), "branch-deck");
+  let alone = tempfile::tempdir().unwrap();
+  let brd = alone.path().join(if cfg!(windows) { "brd.exe" } else { "brd" });
+  std::fs::write(&brd, "brd").unwrap();
+  environment.executable = Some(brd);
+  assert_eq!(ide_app_binary(&environment).unwrap().file_stem().unwrap(), "brd");
 }
 
 /// The app binary of Branch Deck in a new home directory, with `brd.exe` beside it, which Windows runs: the directory
@@ -440,7 +461,7 @@ fn app_in_new_home() -> (TempDir, PathBuf, Environment) {
 #[test]
 fn installs_the_ide_app_for_this_binary_and_removes_it() {
   let (_dir, home, environment) = app_in_new_home();
-  let target = app_binary(&environment).unwrap();
+  let target = ide_app_binary(&environment).unwrap();
   let apps = home.join(IDE_APPS_DIR);
   let file = apps.join("branch-deck.yaml");
   let icons = apps.join("icons");
@@ -458,6 +479,20 @@ fn installs_the_ide_app_for_this_binary_and_removes_it() {
     current: true,
   };
   assert_eq!(ide_app_status(&environment), Some(installed.clone()));
+  assert_eq!(read_yaml(&text)["server"]["args"], json!(["ide"]), "the bridge, on every platform");
+
+  // the file an earlier Branch Deck wrote for this binary (`cli mcp`, `mcp` on Windows) is not current, and stays as it
+  // is until an install writes it anew
+  let earlier = if cfg!(windows) { vec!["mcp"] } else { vec!["cli", "mcp"] };
+  std::fs::write(&file, ide_app_text(&target, &earlier, IdeAppStyles::DEFAULT)).unwrap();
+  assert_eq!(
+    ide_app_status(&environment),
+    Some(IdeAppStatus {
+      current: false,
+      ..installed.clone()
+    })
+  );
+  assert_eq!(read_yaml(&std::fs::read_to_string(&file).unwrap())["server"]["args"], json!(earlier));
 
   // the file of another Branch Deck: an install writes it anew
   std::fs::write(&file, ide_app_text(Path::new("/old/branch-deck"), &["cli", "mcp"], IdeAppStyles::DEFAULT)).unwrap();

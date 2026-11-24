@@ -25,7 +25,7 @@ pub enum ReviewTarget {
 }
 
 /// A part of a reviewed range: a branch of a stack on its parent, the whole stack, a kept branch on its base
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewSegment {
@@ -39,7 +39,7 @@ pub struct ReviewSegment {
 }
 
 /// What the resolver answers for a target
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TargetReview {
