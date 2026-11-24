@@ -449,7 +449,7 @@ export const commands = {
 };
 
 /* Constants */
-export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
+export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"unattended":false,"zoom":1} as const;
 
 export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
 
@@ -679,6 +679,8 @@ export type AgentCliStatus = {
 	skill_dirs: string[],
 	/**  The app file of an IDE with Air (`install_ide_app`); `null` while there is none */
 	ide_app: IdeApp | null,
+	/**  The `PermissionRequest` hook of Unattended Mode in the settings of Claude Code (`brd install` adds it) */
+	unattended_hook: UnattendedHook,
 	/**
 	 *  This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
 	 *  so the page offers no install there
@@ -935,6 +937,12 @@ export type AppSettings = {
 	autoSyncOnFocus: boolean,
 	/**  Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar; off by default */
 	systemTitleBar: boolean,
+	/**
+	 *  Unattended Mode (openspec/specs/repository/unattended-mode/spec.md): `brd hook permission-request` denies every
+	 *  permission request of a coding agent instead of letting it wait for the user; off by default, switched by the user
+	 *  only (`app_settings::unattended::set_unattended`)
+	 */
+	unattended: boolean,
 };
 
 export type AppliedConflictFix = 
@@ -10867,6 +10875,15 @@ export type UnapplyBranchResult = {
 	/**  The undo: `UnapplyUndoToken` as it prints */
 	undoToken: string,
 };
+
+/**  The hook of `brd install` in the settings of Claude Code (`~/.claude/settings.json`) */
+export type UnattendedHook = 
+/**  The hook runs this brd */
+"installed" | 
+/**  A hook of Branch Deck runs another brd (the app moved, an older install): `brd install` writes it anew */
+"stale" | 
+/**  No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install` */
+"missing";
 
 /**  Why Patronus didn't answer */
 export type UnavailableReadinessReason = 

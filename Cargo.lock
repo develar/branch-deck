@@ -612,6 +612,7 @@ name = "bd-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "app-settings",
  "bd-core",
  "bd-lease",
  "bd-remote",
@@ -628,6 +629,7 @@ dependencies = [
  "github",
  "history-rewrite",
  "ide-host",
+ "indexmap 2.14.2",
  "lease-pool",
  "line-diff",
  "object-cache",

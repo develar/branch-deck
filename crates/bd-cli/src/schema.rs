@@ -1,5 +1,6 @@
 use crate::install::InstallOutput;
 use crate::lease_pick::LeasePickOutput;
+use crate::unattended::UnattendedOutput;
 use bd_core::error::CliError;
 use bd_core::error::ErrorOutput;
 use bd_core::output::SchemaVersion;
@@ -93,6 +94,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("suggest", &["suggest"]),
   ("sync", &["sync"]),
   ("unapply", &["unapply"]),
+  ("unattended", &["unattended"]),
   ("undo", &["undo"]),
   ("unpark", &["park"]),
   ("unstack", &["rewrite"]),
@@ -102,8 +104,8 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
 ];
 
 /// The commands without a JSON output of their own: `brd schema` prints these schemas or the index, `brd help` text,
-/// `brd mcp` the messages of its protocol with an IDE
-pub const WITHOUT_OUTPUT: &[&str] = &["help", "schema", "mcp"];
+/// `brd mcp` the messages of its protocol with an IDE, `brd hook` the answer of a hook of Claude Code
+pub const WITHOUT_OUTPUT: &[&str] = &["help", "schema", "mcp", "hook"];
 
 #[derive(Debug, clap::Args)]
 pub struct SchemaArgs {
@@ -212,6 +214,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("suggest".to_string(), schema_for!(SuggestOutput)),
     ("sync".to_string(), schema_for!(SyncOutput)),
     ("unapply".to_string(), schema_for!(UnapplyOutput)),
+    ("unattended".to_string(), schema_for!(UnattendedOutput)),
     ("undo".to_string(), schema_for!(UndoOutput)),
     ("update".to_string(), schema_for!(UpdateOutput)),
     ("update_abort".to_string(), schema_for!(UpdateAbortOutput)),

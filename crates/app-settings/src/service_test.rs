@@ -381,6 +381,7 @@ fn the_snapshot_has_the_defaults_of_the_fields_rust_knows_and_the_file_keeps_onl
     "patronusNewApi": false,
     "autoSyncOnFocus": true,
     "systemTitleBar": false,
+    "unattended": false,
     "notifyApprovals": false,
   });
   assert_eq!(service.snapshot(), (0, json!({ "appSettings": full_app, "recentProjects": old["recentProjects"] })));
@@ -464,7 +465,7 @@ fn the_snapshot_of_a_cut_file_is_a_json_object_of_the_defaults() {
     let script_value: Value = serde_json::from_str(&snapshot.to_string()).unwrap();
     assert_eq!(
       script_value,
-      json!({ "appSettings": { "patronusNewApi": false, "autoSyncOnFocus": true, "systemTitleBar": false, "zoom": 1 } }),
+      json!({ "appSettings": { "patronusNewApi": false, "autoSyncOnFocus": true, "systemTitleBar": false, "unattended": false, "zoom": 1 } }),
       "{cut:?}"
     );
   }

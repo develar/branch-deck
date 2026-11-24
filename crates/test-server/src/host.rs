@@ -17,6 +17,7 @@ use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus
 use app_api::app::windows::{BuiltPage, OpenSubWindowParams, Shown, SubWindowOpen, show_when_settled};
 use app_api::transport::{AgentCliHost, AppEvents, AppHost, DialogHost, Later, MenuHost, RestartHost, WindowHost, WindowId, at_once};
 use app_settings::service::SettingsService;
+use app_settings::unattended::{append_denial, denials_file};
 use app_settings::windows::window_snapshot;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -28,6 +29,7 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::cli_tools::CliTool;
 use domain_types::error::ApiError;
+use domain_types::unattended::{UnattendedDenial, UnattendedHook};
 use domain_types::youtrack::YouTrackAuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::teamcity_cli::TeamCityCli;
@@ -465,7 +467,7 @@ impl AgentCliHost for TestAgentCli {
     })
   }
 
-  /// The skills once `install_agent_cli` ran, else none; the app file of the IDE from `install_ide_app` to
+  /// The skills and the hook of Unattended Mode once `install_agent_cli` ran, else none; the app file of the IDE from `install_ide_app` to
   /// `remove_ide_app`
   fn status(&self) -> AgentCliStatus {
     let ide_app = self.ide_app.load(Ordering::SeqCst).then(|| IdeApp {
@@ -473,9 +475,15 @@ impl AgentCliHost for TestAgentCli {
       current: true,
     });
     if self.installed.load(Ordering::SeqCst) {
-      AgentCliStatus::new(Some(AGENT_CLI.to_owned()), AGENT_SKILLS.map(str::to_owned).to_vec(), ide_app, true)
+      AgentCliStatus::new(
+        Some(AGENT_CLI.to_owned()),
+        AGENT_SKILLS.map(str::to_owned).to_vec(),
+        ide_app,
+        UnattendedHook::Installed,
+        true,
+      )
     } else {
-      AgentCliStatus::new(None, Vec::new(), ide_app, true)
+      AgentCliStatus::new(None, Vec::new(), ide_app, UnattendedHook::Missing, true)
     }
   }
 
@@ -491,6 +499,22 @@ impl AgentCliHost for TestAgentCli {
     self.ide_app.store(false, Ordering::SeqCst);
     Ok(())
   }
+}
+
+/// `POST /repositories/{id}/unattended-denials`: the hook of Unattended Mode denied these requests, as a night of agents
+/// leaves them in the journal beside the settings of the app of the repository (`append_denial`, the hook's own write)
+pub async fn add_unattended_denials(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(denials): Json<Vec<UnattendedDenial>>) -> StatusCode {
+  let Some(repository) = state.repositories.get(&id) else {
+    return StatusCode::GONE;
+  };
+  let journal = denials_file(&repository.app_data);
+  for denial in &denials {
+    if let Err(e) = append_denial(&journal, denial) {
+      tracing::error!(error = %e, "cannot write the journal of Unattended Mode");
+      return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+  }
+  StatusCode::OK
 }
 
 /// What the desktop of the test repository `id` recorded: `{ opens, menus, pages }`, each open of a window

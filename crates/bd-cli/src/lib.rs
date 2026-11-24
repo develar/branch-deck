@@ -2,19 +2,22 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
+pub mod claude_hook;
 pub mod flag_names;
 pub mod install;
 pub mod lease_pick;
 pub mod schema;
+pub mod unattended;
 
 use crate::agent_help::{
   AGENT_HELP, CHECK_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP,
-  REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UNATTENDED_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::flag_names::{renamed_in, unknown_argument};
 use crate::install::{InstallArgs, install};
 use crate::lease_pick::{LeasePickOutput, returned_after};
 use crate::schema::{SchemaArgs, schema};
+use crate::unattended::{HookArgs, HookCommand, UnattendedArgs, run_permission_request, unattended};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
@@ -286,6 +289,18 @@ enum Command {
   /// A `brd` symlink in ~/.local/bin (macOS, Linux; on Windows `brd.exe` is next to the app), the skill in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
+  /// Unattended Mode of Branch Deck, while the user is away: on, off, or its status. The user's switch: an agent never
+  /// turns it off
+  ///
+  /// While it is on, the `PermissionRequest` hook of Claude Code that `brd install` adds denies every permission
+  /// request of an agent, which reads that nobody can approve it and goes on without it. `brd unattended status` lists
+  /// the requests denied since the mode was last turned on, `brd unattended on` starts that list anew, `brd unattended
+  /// off` keeps it; `next` names `brd install` while the hook is missing
+  #[command(after_help = "Outputs: `brd unattended --help`", after_long_help = UNATTENDED_HELP)]
+  Unattended(UnattendedArgs),
+  /// The hooks of Claude Code that `brd install` adds, which Claude Code runs, no agent: `brd hook permission-request`
+  #[command(hide = true)]
+  Hook(HookArgs),
   /// Serve an IDE with Air: MCP with x-air-app on the stdin and the stdout, for the app file of Branch Deck
   /// (`~/.air/apps/branch-deck.yaml`); the stdout carries only the protocol, the end of the stdin ends it
   #[command(hide = true)]
@@ -300,6 +315,11 @@ enum Command {
 
 /// Run `brd` with the arguments after `cli` (without a program name) and return the exit code
 pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
+  let args: Vec<OsString> = args.collect();
+  // the hook of Claude Code before each of its permission prompts: no environment of a command, no log, no keychain
+  if args.len() == 2 && args[0] == "hook" && args[1] == "permission-request" {
+    return run_permission_request(bd_core::context::app_data_dir().as_deref(), &mut std::io::stdin().lock(), &mut std::io::stdout().lock());
+  }
   // the tokens of the app's sign-ins, where the app keeps them (`run_with` of the tests leaves the keychain alone)
   sync_utils::secret_store::enable_keychain();
   let stdout = std::io::stdout();
@@ -739,6 +759,11 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Schema(args) => schema(args).and_then(|output| printed(out, &output)),
     Command::Version => printed(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| printed(out, &output)),
+    Command::Unattended(args) => unattended(environment, args).and_then(|output| printed(out, &output)),
+    // `run` serves it before any environment with these arguments alone; a flag before them comes here
+    Command::Hook(HookArgs {
+      command: HookCommand::PermissionRequest,
+    }) => Ok(run_permission_request(environment.app_data.as_deref(), &mut std::io::stdin().lock(), out)),
     // `run` serves it before any output: a run of a test has no stdin of an IDE
     Command::Mcp => Err(CliError::new(
       ErrorCode::InvalidArguments,
@@ -785,6 +810,8 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Version
     | Command::Workspace
     | Command::Install(_)
+    | Command::Unattended(_)
+    | Command::Hook(_)
     | Command::Mcp
     | Command::Help { .. }
     | Command::Lease(LeaseArgs {
@@ -866,6 +893,8 @@ mod agent_help_test;
 #[cfg(test)]
 mod architecture_test;
 #[cfg(test)]
+mod claude_hook_test;
+#[cfg(test)]
 mod context_test;
 #[cfg(test)]
 mod cross_process_test;
@@ -887,5 +916,7 @@ pub mod remote_fixture_test;
 mod schema_test;
 #[cfg(test)]
 mod sync_test;
+#[cfg(test)]
+mod unattended_test;
 #[cfg(test)]
 mod version_test;

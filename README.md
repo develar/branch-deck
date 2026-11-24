@@ -162,7 +162,10 @@ installed (Help → Install Agent CLI…), each agent session works in a worktre
 branch the moment it passes its tests and names its branch in the subject; you review and push its work in the app as
 your own. The commits it reads come with what ties them together, by lines and by the names they declare and use in
 Kotlin, Java, C#, Rust and TypeScript, so its grouping is checked by a trial sync before it rewrites anything. Settings
-→ Agents switches each rule. See [Coding Agents and the Agent CLI](docs/guide/agent-cli.md).
+→ Agents switches each rule. Leaving them alone for the night, turn on Unattended Mode: a permission request nobody is
+there to approve is denied with a way on, and the morning lists each one
+([unattended mode](openspec/specs/repository/unattended-mode/spec.md)). See
+[Coding Agents and the Agent CLI](docs/guide/agent-cli.md).
 
 ## Compared To
 

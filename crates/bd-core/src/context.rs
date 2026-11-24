@@ -43,6 +43,9 @@ pub struct Environment {
   /// The settings of the app (`app_settings`), read once as `brd` starts (`app_settings_of`): General → Branch prefix
   /// (`globalUserBranchPrefix`) and Settings → Landing (`patronusNewApi`), with the defaults the app has without them
   pub settings: AppSettings,
+  /// The data directory of the app (`app_data_dir`): `brd unattended` switches the mode through the writer of its
+  /// settings and reads the denials of the hook beside them; `None` without one
+  pub app_data: Option<PathBuf>,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
   /// The global git config of every git brd starts (`GIT_CONFIG_GLOBAL`): `None` leaves git its own (`GIT_CONFIG_GLOBAL`
@@ -91,6 +94,7 @@ impl Environment {
     Self {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
       settings: app_settings_of(app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)).as_deref()),
+      app_data: app_data_dir(),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       git_config_global: None,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
@@ -113,7 +117,7 @@ impl Environment {
 }
 
 /// The data directory of the app (its bundle identifier): its settings and the token of its GitHub sign-in
-fn app_data_dir() -> Option<PathBuf> {
+pub fn app_data_dir() -> Option<PathBuf> {
   dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER))
 }
 

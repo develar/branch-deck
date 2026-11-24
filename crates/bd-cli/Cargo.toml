@@ -16,6 +16,10 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+# `brd unattended` switches Unattended Mode through the writer of the app's settings and reads the journal of denials
+app-settings = { path = "../app-settings" }
+# the settings of Claude Code read and written with their keys in their order (`claude_hook`)
+indexmap = { workspace = true, features = ["serde"] }
 # the repositories of the tests, for `fixtures`
 test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
@@ -47,7 +51,8 @@ clap = { version = "4.6", features = ["derive"] }
 dirs = "7"
 schemars.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# the values of the settings of Claude Code that `brd install` keeps as they were written (`claude_hook`)
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = "0.11.1"
 tar = "0.4.46"
 tempfile.workspace = true

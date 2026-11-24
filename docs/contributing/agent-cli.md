@@ -2316,14 +2316,22 @@ How an agent learns that brd exists. `brd install`, or Help → Install Agent CL
   fields stay in the binary, so the skill can't fall out of date with it; it names only the fields its rules and the
   recipe act on. Its `allowed-tools` is `Bash(<brd>:*)`: while the skill is active, Claude Code
   runs every brd command without a permission prompt, also `brd group`, which rewrites the checked out branch, and
-  `brd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
+  `brd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt;
+- the `PermissionRequest` hook of Unattended Mode into the user settings of Claude Code, `~/.claude/settings.json`
+  (`crates/bd-cli/src/claude_hook.rs`, [the spec](../../openspec/specs/repository/unattended-mode/spec.md#install)):
+  `hooks.PermissionRequest` gets `{"matcher": "*", "hooks": [{"type": "command", "command": "<brd> hook
+  permission-request"}]}`, `<brd>` the command of the skill. The edit keeps every other key, hook and value as written,
+  in its order; a command hook ending with `hook permission-request` is Branch Deck's, so an install again writes
+  nothing, and one of another brd (the app moved) is replaced by this one. A file that is no JSON object (or whose
+  `hooks` is no object, `hooks.PermissionRequest` no array) is `install_refused` before anything is written, and stays.
 
 It prints `{"schema":2,"brd":"/Users/me/.local/bin/brd","on_path":true,"removed_legacy":[],"skills":[…],"uninstalled":false,
-"bd_host":null,"agents":{"lease":true,"subject_branch":true}}`. `agents` is what `brd workspace` answers in a repository without its
+"bd_host":null,"hook_file":"/Users/me/.claude/settings.json","hook_command":"/Users/me/.local/bin/brd hook permission-request",
+"agents":{"lease":true,"subject_branch":true}}`. `agents` is what `brd workspace` answers in a repository without its
 own value (one `git config --global`), which the app's toast tells the user. `on_path`
 says whether `brd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and current and legacy symlinks only when they point at this app (or at a removed
-`branch-deck`). `brd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
+`branch-deck`), and the hook of Branch Deck (`hook_file` names the file it went from, `null` when it had none). `brd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
 symlink it names the app binary with `cli` (`'/Applications/Branch Deck.app/…/branch-deck' cli`), quoted for the shell
 and to be run as written: the bare app binary starts the app.
 
@@ -2334,6 +2342,30 @@ a cargo build, needs no `cli`). It is quoted for a POSIX
 shell, or for PowerShell on Windows (`& '<brd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
 brd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `brd.exe`), the
 blocked prompt names no command: the user updates in the app.
+
+### `brd unattended on|off|status`, `brd hook permission-request`
+
+Unattended Mode ([the spec](../../openspec/specs/repository/unattended-mode/spec.md)): while the user is away, no
+permission prompt of Claude Code stops an agent team until morning. The mode is the app's setting
+`appSettings.unattended`, off by default; `brd unattended on` and `off` switch it through the writer of the settings
+(`app_settings::unattended::set_unattended`, the app's command palette, Settings → General and the mark of its title bar call the same core), and save it
+before they answer, as the hook reads the file. Each prints `{"schema":2,"on":true,"changed":true,"hook":"installed",
+"denied":0,"denials":[],"journal":"…/unattended-denials.jsonl"}`: `changed` whether it switched the mode, `hook`
+`installed`, `stale` (a hook of another brd) or `missing`, and while it is not `installed` `next` names `brd install`.
+`status` switches nothing. `denials` are the requests denied since the mode was last turned on, oldest first (`time`,
+`session_id`, `agent_id` and `agent_type` of a subagent, `cwd`, `tool_name`, `summary`): `on` from off starts the list
+anew, `off` keeps it until the next `on`, so the morning reads the night. The journal is a JSON line per denial beside
+`settings.json` in the app data directory.
+
+`brd hook permission-request` is the command of the hook, run by Claude Code before every permission prompt of every
+session and subagent, with the hook's JSON on stdin. With the mode on it prints the denial,
+`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Branch Deck is in
+Unattended Mode: nobody can approve this. …"}}}`, whose message the agent reads, and appends the request to the
+journal (`summary` is the command of `Bash`, the path of a file tool, the URL of a fetch or the pattern of a search, cut
+to 200 characters; never `content` or `new_string`). With the mode off, a settings file it cannot read, or an input that
+is not a permission request, it prints nothing and Claude Code asks as it would without the hook. It never allows a
+request, always exits 0, writes nothing to stderr and starts no git: `run` serves these two arguments before it builds
+the environment of a command. It is hidden from `brd --help`: Claude Code runs it, no agent.
 
 ### `brd help agent`
 

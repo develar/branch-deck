@@ -23,6 +23,8 @@
 //!   arrive, one version counter, a debounced save of the changed files on one thread, merged into the file under the
 //!   lock of the directory, `flush`; the changes of the writer of another process taken from the file
 //!   (`on_external_change`)
+//! - `unattended`: Unattended Mode: its switch through the writer (`set_unattended`), the journal of the requests its
+//!   hook denied beside the settings (`append_denial`, `read_denials`)
 //! - `watch`: the watch of the directory, which asks the writer to read a file another process renamed over it
 //! - `windows`: which window gets which key (`MAIN_ONLY_KEYS`): the snapshot a window starts from, the changes it hears
 //!
@@ -39,6 +41,7 @@ pub mod projects;
 pub mod resolve;
 pub mod robot_history;
 pub mod service;
+pub mod unattended;
 pub mod watch;
 pub mod windows;
 
@@ -64,5 +67,7 @@ mod robot_history_test;
 mod service_test;
 #[cfg(test)]
 mod two_processes_test;
+#[cfg(test)]
+mod unattended_test;
 #[cfg(test)]
 mod windows_test;

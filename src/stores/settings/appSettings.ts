@@ -28,6 +28,10 @@ const RustFields = {
   // Settings → Landing, All repositories: the new API of Patronus, the progress of a running robot in one request and the
   // merge profile in the robot list (`new_api` of the Patronus commands; `brd` reads it from the settings file too)
   patronusNewApi: z.boolean().default(APP_SETTINGS_DEFAULTS.patronusNewApi),
+  // Unattended Mode (openspec/specs/repository/unattended-mode/spec.md): the hook of `brd install` denies the permission
+  // requests of coding agents; the page only reads it, its switch is Rust's (`app_settings::unattended::set_unattended`),
+  // which empties the list of the night before
+  unattended: z.boolean().default(APP_SETTINGS_DEFAULTS.unattended),
 } satisfies { [K in keyof RustAppSettings]-?: z.ZodType }
 
 /** `appSettings`: the fields Rust reads, then the fields only the page reads, with the page's defaults */

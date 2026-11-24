@@ -24,6 +24,8 @@ pub fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
     settings: domain_types::settings::AppSettings::default(),
+    // no app: a test of `brd unattended` gives a directory of its own
+    app_data: None,
     // the git the fixtures run (`GitCommandExecutor`'s, Homebrew's first on macOS, where `PATH` may name an older one):
     // brd and its test run one git, which answers its version once per test process
     git: Some(fixture_git()),

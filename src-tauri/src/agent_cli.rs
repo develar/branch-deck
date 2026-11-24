@@ -48,7 +48,7 @@ impl AgentCliHost for AppAgentCli {
       file: app.file,
       current: app.current,
     });
-    AgentCliStatus::new(status.bd, status.skills, ide_app, true)
+    AgentCliStatus::new(status.bd, status.skills, ide_app, status.hook, true)
   }
 
   fn install_ide_app(&self) -> Result<IdeApp, ApiError> {

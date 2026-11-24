@@ -9,6 +9,7 @@ use crate::context::AppContext;
 use crate::operation::{operation, run_blocking};
 use crate::transport::Call;
 use domain_types::error::ApiError;
+use domain_types::unattended::UnattendedHook;
 use lease_pool::agent_workspace::agent_defaults;
 use std::path::Path;
 use tracing::instrument;
@@ -68,6 +69,8 @@ pub struct AgentCliStatus {
   pub skill_dirs: Vec<String>,
   /// The app file of an IDE with Air (`install_ide_app`); `null` while there is none
   pub ide_app: Option<IdeApp>,
+  /// The `PermissionRequest` hook of Unattended Mode in the settings of Claude Code (`brd install` adds it)
+  pub unattended_hook: UnattendedHook,
   /// This host installs `brd` and the app file of an IDE: false in an IDE (`brd mcp`), whose desktop app installs them,
   /// so the page offers no install there
   pub installable: bool,
@@ -75,7 +78,7 @@ pub struct AgentCliStatus {
 
 impl AgentCliStatus {
   /// The status of `skills`, with the directories of the agents they are in
-  pub fn new(bd: Option<String>, skills: Vec<String>, ide_app: Option<IdeApp>, installable: bool) -> Self {
+  pub fn new(bd: Option<String>, skills: Vec<String>, ide_app: Option<IdeApp>, unattended_hook: UnattendedHook, installable: bool) -> Self {
     let mut skill_dirs: Vec<String> = Vec::new();
     for skill in &skills {
       let dir = Path::new(skill).parent().and_then(Path::parent).map(|dir| dir.to_string_lossy().into_owned());
@@ -88,6 +91,7 @@ impl AgentCliStatus {
       skills,
       skill_dirs,
       ide_app,
+      unattended_hook,
       installable,
     }
   }

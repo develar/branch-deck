@@ -1286,7 +1286,7 @@ fn validated_app_settings(mut stored: Map<String, Value>) -> Result<AppSettings,
     value: value.to_string(),
     expected,
   };
-  for field in ["patronusNewApi", "autoSyncOnFocus", "systemTitleBar"] {
+  for field in ["patronusNewApi", "autoSyncOnFocus", "systemTitleBar", "unattended"] {
     if let Some(value) = stored.get(field)
       && !value.is_boolean()
     {

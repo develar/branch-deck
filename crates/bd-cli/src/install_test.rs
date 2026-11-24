@@ -11,6 +11,8 @@ use bd_core::bd_command::{BdCommand, bd_command};
 use bd_core::bd_command::{app_binary, app_binary_path};
 use bd_core::context::Environment;
 use domain_types::error::ErrorCode;
+#[cfg(unix)]
+use domain_types::unattended::UnattendedHook;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -76,7 +78,14 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   let mut status_environment = environment(&home);
   status_environment.home = Some(home.clone());
   status_environment.executable = Some(app.clone());
-  assert_eq!(install_status(&status_environment), InstallStatus { bd: None, skills: Vec::new() });
+  assert_eq!(
+    install_status(&status_environment),
+    InstallStatus {
+      bd: None,
+      skills: Vec::new(),
+      hook: UnattendedHook::Missing,
+    }
+  );
 
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -90,6 +99,8 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "skills": skill_files(&home),
       "uninstalled": false,
       "bd_host": null,
+      "hook_file": home.join(".claude/settings.json").to_str().unwrap(),
+      "hook_command": format!("{} hook permission-request", link.display()),
       "agents": { "lease": true, "subject_branch": true, "pull_request": false }
     })
   );
@@ -99,6 +110,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
     InstallStatus {
       bd: Some(link.to_str().unwrap().to_string()),
       skills: skill_files(&home),
+      hook: UnattendedHook::Installed,
     }
   );
   let (_, schema) = run_install(&home, &app, &["schema", "--all"]);
@@ -139,6 +151,13 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert!(!home.join(".claude/skills/branch-deck").exists());
   assert_eq!(install_status(&status_environment).skills, Vec::<String>::new());
   assert!(home.join(".claude/skills").exists(), "only the skill's own directory goes");
+  assert_eq!(output["hook_file"], json!(home.join(".claude/settings.json").to_str().unwrap()));
+  assert_eq!(
+    std::fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
+    "{}\n",
+    "the hook is gone, and the `hooks` it emptied"
+  );
+  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Missing);
 }
 
 #[cfg(unix)]

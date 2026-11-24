@@ -54,6 +54,7 @@ fn schema_lists_every_output() {
       "suggest",
       "sync",
       "unapply",
+      "unattended",
       "undo",
       "update",
       "update_abort",

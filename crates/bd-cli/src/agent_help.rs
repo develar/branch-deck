@@ -130,7 +130,7 @@ Other tasks
 - A message to change: `brd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
   or plumbing for it (`brd reword --help`).
 - A change in the wrong commit: `brd move-hunk <from> <to> <path>` (`brd move-hunk --help`).
-- `brd install` puts `brd` on PATH and the skill where agents find it; `brd help skill` prints the skill.
+- `brd install` puts `brd` on PATH, the skill (`brd help skill`) and the hook of `brd unattended --help`.
 "
 );
 
@@ -886,6 +886,22 @@ commit between changes the same lines, or lacks the file, also when the words wo
 changed since the id was read, `error.blocks` are its ids now.
 ";
 
+/// `brd unattended --help`: Unattended Mode (openspec/specs/repository/unattended-mode/spec.md) and its outputs
+pub const UNATTENDED_HELP: &str = "\
+Unattended Mode is the user's: they turn it on (`brd unattended on`, the app's command palette or Settings) before they
+leave agents alone, and off when they are back (`brd unattended off`, the mark in the app's title bar). An agent never switches it.
+- While it is on, the `PermissionRequest` hook of Claude Code that `brd install` adds to ~/.claude/settings.json
+  denies every permission request of an agent with a message that nobody can approve it: do it without new access, or
+  skip the step, name it in the report and go on. Off, Claude Code asks as it would without the hook.
+- Each denial goes into the journal beside the settings of the app (`journal`); `brd unattended status` prints `on`,
+  `hook`, `denied` and `denials` (`time`, `session_id`, `agent_id`, `cwd`, `tool_name`, `summary`: the command, the
+  path or the URL it asked for, never the content of a file), oldest first, the requests since the mode was last turned
+  on. `brd unattended on` from off starts the list anew; `brd unattended off` keeps it until the next on. `changed`
+  says whether the command switched the mode.
+- `hook` is `installed`, `stale` (a hook of another brd: the app moved) or `missing`; while it is not `installed`
+  nothing is denied, and `next` names `brd install`.
+";
+
 /// The skill `brd install` writes and `brd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming brd by `command`, its full path. It says when to use brd, what `brd workspace` asks, the rules an
 /// agent must not miss before it reads any help, where the workflow is, and how to review a change by the plan of
@@ -953,6 +969,8 @@ wins over it:
   request: the pick is the landing. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way.
 - All three are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`,
   `branchdeck.agentPullRequest`): never change them.
+- A permission request denied with `Branch Deck is in Unattended Mode`: the user is away and nobody can approve it.
+  Do what its message says, never wait for an answer; Unattended Mode is the user's switch, never `brd unattended off`.
 - The diff shows what changed; the body says why. The body has the form of the repository too: its agent
   instructions, else its `git log`. Code names in backticks as the code spells them (`Owner.member`, a path) link to
   the diffs; `brd review-plan` lists those that resolve nothing (`target: null`). Ask with `Look closely:` where the

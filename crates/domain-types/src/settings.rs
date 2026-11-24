@@ -17,6 +17,7 @@ pub const APP_SETTINGS_KEY: &str = "appSettings";
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "each is a switch of its own the user sets, as the settings file stores it")]
 pub struct AppSettings {
   /// General → Branch prefix: the prefix of every repository whose own git config sets none (`resolve_branch_prefix`)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -30,6 +31,10 @@ pub struct AppSettings {
   pub auto_sync_on_focus: bool,
   /// Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar; off by default
   pub system_title_bar: bool,
+  /// Unattended Mode (openspec/specs/repository/unattended-mode/spec.md): `brd hook permission-request` denies every
+  /// permission request of a coding agent instead of letting it wait for the user; off by default, switched by the user
+  /// only (`app_settings::unattended::set_unattended`)
+  pub unattended: bool,
   /// The fields only the page reads (the notifications, the review sidebar, the Setup skips, …), raw
   #[serde(flatten)]
   #[cfg_attr(feature = "specta", specta(skip))]
@@ -44,6 +49,7 @@ impl Default for AppSettings {
       zoom: 1.0,
       auto_sync_on_focus: true,
       system_title_bar: false,
+      unattended: false,
       other: Map::new(),
     }
   }
@@ -59,6 +65,7 @@ impl AppSettings {
     let patronus_new_api = take_bool("patronusNewApi", defaults.patronus_new_api);
     let auto_sync_on_focus = take_bool("autoSyncOnFocus", defaults.auto_sync_on_focus);
     let system_title_bar = take_bool("systemTitleBar", defaults.system_title_bar);
+    let unattended = take_bool("unattended", defaults.unattended);
     let zoom = stored
       .remove("zoom")
       .and_then(|value| value.as_f64())
@@ -74,6 +81,7 @@ impl AppSettings {
       zoom,
       auto_sync_on_focus,
       system_title_bar,
+      unattended,
       other: stored,
     }
   }
@@ -95,6 +103,7 @@ impl AppSettings {
     put_bool("patronusNewApi", self.patronus_new_api, defaults.patronus_new_api);
     put_bool("autoSyncOnFocus", self.auto_sync_on_focus, defaults.auto_sync_on_focus);
     put_bool("systemTitleBar", self.system_title_bar, defaults.system_title_bar);
+    put_bool("unattended", self.unattended, defaults.unattended);
     #[expect(clippy::float_cmp, reason = "the default is the exact value 1, which the page writes as is")]
     let default_zoom = self.zoom == defaults.zoom;
     if !default_zoom && let Some(zoom) = json_number(self.zoom) {
@@ -116,6 +125,7 @@ impl AppSettings {
     full.insert("patronusNewApi".to_owned(), Value::Bool(self.patronus_new_api));
     full.insert("autoSyncOnFocus".to_owned(), Value::Bool(self.auto_sync_on_focus));
     full.insert("systemTitleBar".to_owned(), Value::Bool(self.system_title_bar));
+    full.insert("unattended".to_owned(), Value::Bool(self.unattended));
     if let Some(zoom) = json_number(self.zoom) {
       full.insert("zoom".to_owned(), Value::Number(zoom));
     }
