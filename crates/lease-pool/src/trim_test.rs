@@ -12,7 +12,8 @@ fn fake_worktree(dir: &Path, at: &Path) -> PathBuf {
   std::fs::write(admin.join("commondir"), "../..\n").unwrap();
   std::fs::write(admin.join("gitdir"), format!("{}\n", at.join(".git").display())).unwrap();
   std::fs::write(at.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
-  std::fs::canonicalize(git_common_dir).unwrap()
+  // the path as the code names it: on Windows without the `\\?\` of `canonicalize`
+  PathBuf::from(sync_utils::paths::display_path(&std::fs::canonicalize(git_common_dir).unwrap()))
 }
 
 /// The notes of the leases beside the slots of a pool directory are no slot: a worktree an agent made in them names no

@@ -41,7 +41,7 @@ fn the_notes_of_a_lease_outlive_its_return_and_the_next_holder_of_the_slot_start
   let pool_dir = PathBuf::from(got["pool"].as_str().unwrap_or_else(|| panic!("no pool: {got}")));
   assert!(pool_dir.starts_with(canonical(fixture.home.path()).join(".branch-deck/pool")), "{got}");
   assert_eq!(dir, pool_dir.join("notes").join(&lease_id));
-  assert_eq!(std::fs::canonicalize(Path::new(&slot).join("notes.local")).unwrap(), dir);
+  assert_eq!(canonical(&Path::new(&slot).join("notes.local")), dir);
   assert!(got["next"].as_array().unwrap().contains(&json!(format!("brd lease notes --lease-id {lease_id}"))), "{got}");
   std::fs::create_dir_all(Path::new(&slot).join("notes.local/logs")).unwrap();
   std::fs::write(Path::new(&slot).join("notes.local/logs/gate.log"), "green\n").unwrap();

@@ -188,7 +188,7 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   assert_covered(&outputs["lease_pick"], &outputs["lease_pick"], &output, "lease_pick");
 
   // the copies of the session are in the notes of the lease, in the pool directory, by the path the link resolves to
-  let notes = std::fs::canonicalize(Path::new(&path).join("notes.local")).unwrap();
+  let notes = canonical(&Path::new(&path).join("notes.local"));
   let edit = edit_of(&output["update"], "b.txt");
   assert!(Path::new(&edit).starts_with(notes.join("resolve")), "{edit}");
   assert!(!Path::new(&edit).starts_with(fixture.repo.path().join(".git").join("worktrees")), "{edit}");
@@ -225,7 +225,7 @@ fn an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort() {
   assert_eq!(exit_code, 1);
   let (exit_code, status) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--status"]);
   assert_eq!(exit_code, 0, "{status}");
-  let resolve = std::fs::canonicalize(Path::new(&path).join("notes.local")).unwrap().join("resolve");
+  let resolve = canonical(&Path::new(&path).join("notes.local")).join("resolve");
   assert!(resolve.is_dir(), "the copies are in the notes of the lease");
   let (exit_code, aborted) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--abort"]);
   assert_eq!((exit_code, &aborted["branch"]), (0, &json!("HEAD")), "{aborted}");

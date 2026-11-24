@@ -10,6 +10,7 @@ use pretty_assertions::assert_eq;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use sync_utils::paths::display_path;
 
 /// A slot, the common dir of its repository and the root of the notes, each a directory of `dir`, the pool directory:
 /// the root is `notes` in it, as the slot `<dir>/1/repo` tells
@@ -385,8 +386,8 @@ fn the_notes_of_a_brd_before_are_read_where_they_are_and_expire_there() {
   assert_eq!(
     roots.places().map(Path::to_path_buf).collect::<Vec<_>>(),
     [
-      std::fs::canonicalize(&pool.root).unwrap_or_else(|_| pool.root.clone()),
-      std::fs::canonicalize(&old_root).unwrap()
+      std::fs::canonicalize(&pool.root).map_or_else(|_| pool.root.clone(), |root| PathBuf::from(display_path(&root))),
+      PathBuf::from(display_path(&std::fs::canonicalize(&old_root).unwrap()))
     ]
   );
   let canonical = |path: &Path| std::fs::canonicalize(path).unwrap();
