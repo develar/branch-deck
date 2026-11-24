@@ -501,8 +501,13 @@ export class TestRepositoryBuilder {
    * The calls of the review commands: the requests (of them with Reviews), the fetches, and the `keep` of each prune of
    * the review refs (the session's, at each change of the review windows)
    */
-  async getReviewRequestsFixture(): Promise<{ calls: number; reviewsCalls: number; fetchCalls: number; prunes: number[][] }> {
+  async getReviewRequestsFixture(): Promise<{ calls: number; reviewsCalls: number; closedSearches: string[]; fetchCalls: number; prunes: number[][] }> {
     return this.getFixture("review-requests")
+  }
+
+  /** The words of every search of the closed pull requests the session made (the filter of the Reviews view), in order */
+  async getClosedSearches(): Promise<string[]> {
+    return (await this.getReviewRequestsFixture()).closedSearches
   }
 
   /** Sets what `suggest_branch_names` answers from now on and how long it takes (E2E never runs claude) */

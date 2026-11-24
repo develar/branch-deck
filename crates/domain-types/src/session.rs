@@ -151,6 +151,10 @@ pub struct Demand {
   /// also once no listing has them any more
   #[serde(default)]
   pub review_windows: Vec<u32>,
+  /// The words the Reviews view of the window filters by (`searchWords`, joined by a space): the session searches the
+  /// closed pull requests the user takes part in by them (`domain_policy::reviews::closed_search_words`)
+  #[serde(default)]
+  pub reviews_searches: Vec<String>,
 }
 
 impl Demand {
@@ -177,6 +181,7 @@ impl Demand {
         .collect::<BTreeSet<u32>>()
         .into_iter()
         .collect(),
+      reviews_searches: names(demands.iter().map(|demand| &demand.reviews_searches)),
     }
   }
 }
@@ -699,6 +704,31 @@ pub struct ReviewsView {
   pub sections: Vec<ReviewSection>,
   /// Unix seconds of the last answer with them, 0 = never
   pub checked_at: u32,
+  /// The searches of the closed pull requests by the words the windows filter by (`Demand::reviews_searches`), each
+  /// words the session searches by; none for words it doesn't search by (too short)
+  pub closed_searches: Vec<ClosedSearchView>,
+}
+
+/// The closed pull requests the user takes part in whose titles have `words` (`Demand::reviews_searches`), as GitHub
+/// found them: the reviewed and the user's own, the newest closed first, none that a section of Reviews shows
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ClosedSearchView {
+  pub words: String,
+  pub state: ClosedSearchState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ClosedSearchState {
+  /// No answer for the words yet
+  Searching,
+  /// `total_count`: how many GitHub matched, also beyond the entries it returned
+  Found { total_count: u32, entries: Vec<ReviewEntry> },
+  /// GitHub could not be asked: the state of the view says why
+  Failed,
 }
 
 /// A section of Reviews after the requests by name (Your Turn's rows lead it)

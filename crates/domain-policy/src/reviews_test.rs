@@ -1,7 +1,7 @@
-use crate::reviews::{ReviewsFacts, gone_links, sections};
+use crate::reviews::{ReviewsFacts, closed_results, closed_search_words, gone_links, sections};
 use domain_types::fixtures::review_request;
-use domain_types::pull_request::{ReviewDecision, ReviewerState};
-use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestState, ReviewDecision, ReviewerState};
+use domain_types::review_request::{AnsweredRequest, ClosedReviewsResult, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{ReviewSection, ReviewSectionKind};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, BTreeSet};
@@ -234,4 +234,58 @@ fn a_merged_closed_or_missing_link_goes() {
     ..ReviewsAnswer::default()
   };
   assert_eq!(gone_links(&answer), vec![3, 4]);
+}
+
+/// The words the closed pull requests are searched by: lower-cased, one space between; none of fewer than three
+/// characters, of more than eight words, nor a number or a link, which names one pull request
+#[test]
+fn the_closed_pull_requests_are_searched_by_three_characters_or_more_never_by_a_number_or_a_link() {
+  let cases = [
+    ("  Claude   Terminal ", Some("claude terminal")),
+    ("cla", Some("cla")),
+    ("a b c", Some("a b c")),
+    ("cl", None),
+    ("  ", None),
+    ("#2181", None),
+    ("2181", None),
+    ("https://github.com/acme/monorepo/pull/2181", None),
+    ("acme/monorepo#2181", None),
+    ("fix 2181", Some("fix 2181")),
+    ("a b c d e f g h", Some("a b c d e f g h")),
+    ("a b c d e f g h i", None),
+  ];
+  for (text, words) in cases {
+    assert_eq!(closed_search_words(text).as_deref(), words, "{text:?}");
+  }
+}
+
+fn closed(mut entry: ReviewEntry, state: PullRequestState, closed_at: u32) -> ReviewEntry {
+  entry.request.state = state;
+  entry.request.closed_at = Some(closed_at);
+  entry
+}
+
+/// What a search of the closed pull requests found shows in one list, the newest closed first, without those a section
+/// or Your Turn shows, GitHub's count of both searches less those left out
+#[test]
+fn the_closed_pull_requests_show_the_newest_closed_first_without_those_a_section_shows() {
+  let result = ClosedReviewsResult {
+    availability: PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    },
+    reviewed: search(
+      23,
+      vec![
+        closed(reviewed(201, 1, false), PullRequestState::Merged, 30),
+        closed(reviewed(202, 1, false), PullRequestState::Closed, 10),
+      ],
+    ),
+    authored: search(1, vec![closed(authored(203, 1), PullRequestState::Merged, 20)]),
+  };
+  let (total, entries) = closed_results(&result, &BTreeSet::new());
+  assert_eq!((total, entries.iter().map(|entry| entry.request.number).collect::<Vec<_>>()), (24, vec![201, 203, 202]));
+  // a listing that still shows #201 open has it once, there
+  let (total, entries) = closed_results(&result, &BTreeSet::from([201]));
+  assert_eq!((total, entries.iter().map(|entry| entry.request.number).collect::<Vec<_>>()), (23, vec![203, 202]));
 }

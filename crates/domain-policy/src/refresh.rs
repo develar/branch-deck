@@ -58,6 +58,11 @@ pub const REVIEW_REQUESTS_MIN_POLL_GAP: Duration = Duration::from_secs(270);
 pub const REVIEW_REQUESTS_MAX_BACKOFF: Duration = Duration::from_mins(30);
 /// After GitHub's rate limit, the next poll waits at least this long
 pub const RATE_LIMIT_WAIT: Duration = Duration::from_mins(15);
+/// The closed pull requests are searched once the words of the Reviews view stood this long: typing asks nothing
+pub const CLOSED_REVIEWS_SEARCH_DELAY: Duration = Duration::from_millis(400);
+/// What a search of the closed pull requests found holds this long for its words: a Backspace, a switch of the views
+/// asks nothing again
+pub const CLOSED_REVIEWS_KEPT: Duration = Duration::from_mins(2);
 /// A fetch of a remote branch whose pull request shows a head the fetch didn't bring (a mirror that lags behind the
 /// remote) is tried again after each of these, then not until the pull request shows another head
 pub const MOVED_REMOTE_RETRIES: [Duration; 3] = [MINUTE, Duration::from_mins(5), Duration::from_mins(15)];
@@ -430,6 +435,12 @@ pub fn review_requests_due(reason: RefreshReason, now: Duration, list: FactTimin
 /// the `retry_at` of a rate limit not. While the view shows, every list of the review requests reads the rest with it
 pub fn reviews_shown_due(now: Duration, reviews: FactTiming, service: ServiceState) -> bool {
   !refused_by_service(RefreshReason::Demand, now, service) && focus_due(now, reviews)
+}
+
+/// A search of the closed pull requests by words the windows filter by: off GitHub and under a rate limit none, nor
+/// offline; else when the words were never answered, or longer ago than `CLOSED_REVIEWS_KEPT`
+pub fn closed_reviews_due(now: Duration, answered_at: Option<Duration>, service: ServiceState, online: bool) -> bool {
+  online && !refused_by_service(RefreshReason::Demand, now, service) && answered_at.is_none_or(|at| now.saturating_sub(at) >= CLOSED_REVIEWS_KEPT)
 }
 
 /// The refresh button during a list asks once more after it

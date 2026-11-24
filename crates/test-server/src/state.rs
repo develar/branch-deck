@@ -352,6 +352,8 @@ pub struct TestRepository {
   pub review_request_calls: AtomicU32,
   /// How many of them read the rest of Reviews too (the Reviews view showed)
   pub reviews_calls: AtomicU32,
+  /// The words of every search of the closed pull requests, in call order
+  pub closed_searches: std::sync::Mutex<Vec<String>>,
   pub review_fetch_calls: AtomicU32,
   /// The `keep` of every `prune_review_refs`, in call order
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
@@ -432,6 +434,10 @@ pub struct ReviewRequestsFixture {
   /// name (`link_pull_request`)
   #[serde(default)]
   pub linkable: Vec<LinkablePull>,
+  /// The merged or closed pull requests the user reviewed (`reviewed`) or opened (`authored`), which a search of the
+  /// closed pull requests finds by the words of their titles (`closed_reviews_of`)
+  #[serde(default)]
+  pub closed: Vec<domain_types::review_request::ReviewEntry>,
 }
 
 /// A pull request a link can name: open, or merged or closed
@@ -463,6 +469,7 @@ impl ReviewRequestsFixture {
       }
     }
     self.linkable.iter_mut().for_each(|pull| lead(&mut pull.request));
+    self.closed.iter_mut().for_each(|entry| lead(&mut entry.request));
     self
   }
 }
@@ -473,6 +480,7 @@ impl Default for ReviewRequestsFixture {
       result: ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
       fetch_error: None,
       linkable: Vec::new(),
+      closed: Vec::new(),
     }
   }
 }

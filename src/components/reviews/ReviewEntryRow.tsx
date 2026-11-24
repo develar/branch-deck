@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { CheckIcon, MessageSquareIcon, MessageSquareXIcon } from "lucide-react"
+import { CheckIcon, GitMergeIcon, GitPullRequestClosedIcon, MessageSquareIcon, MessageSquareXIcon } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchNodeMark, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
 import { useLandingNode } from "@/hooks/useLandingNode"
@@ -98,5 +98,9 @@ function MarkGlyph({ kind }: { kind: Exclude<ReviewMark["kind"], "none"> }) {
       return <MessageSquareXIcon className="size-3.5 text-muted-foreground" />
     case "commented":
       return <MessageSquareIcon className="size-3.5 text-muted-foreground" />
+    case "merged":
+      return <GitMergeIcon className="size-3.5 text-muted-foreground" />
+    case "closed":
+      return <GitPullRequestClosedIcon className="size-3.5 text-muted-foreground" />
   }
 }

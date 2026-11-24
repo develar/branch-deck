@@ -10,9 +10,9 @@ use domain_types::fixtures::{missing_approvals, review_request};
 use domain_types::next_step::StepFact;
 use domain_types::operation::ReviewedLayer;
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusReviewRequirement, PatronusRobotsResult, ReviewReadiness};
-use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
-use domain_types::review_request::{LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer};
-use domain_types::session::{ApprovalLanding, Demand, PullRequestsView, ReviewSectionKind};
+use domain_types::pull_request::{GitHubAuthStatus, PullRequestAvailability, PullRequestReviewEvent, PullRequestState, ReviewerState};
+use domain_types::review_request::{ClosedReviewsResult, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer};
+use domain_types::session::{ApprovalLanding, ClosedSearchState, Demand, PullRequestsView, ReviewSectionKind};
 use domain_types::sign_in::AuthStatus;
 use domain_types::youtrack::YouTrackAuthStatus;
 use pretty_assertions::assert_eq;
@@ -338,4 +338,176 @@ fn signed_in(login: &str) -> AuthStatus {
       manage_url: None,
     },
   }
+}
+
+fn acme() -> PullRequestAvailability {
+  PullRequestAvailability::Available {
+    owner: "acme".to_owned(),
+    name: "monorepo".to_owned(),
+  }
+}
+
+/// The closed pull requests of the words a window filters by: searching until the answer, then what it found, the newest
+/// closed first, without the one Your Turn still shows; each read only, which takes no approval; a failure says so.
+/// Words no window filters by leave the view
+#[test]
+fn the_closed_pull_requests_of_the_words_show_read_only_until_no_window_filters_by_them() {
+  let state = synced();
+  let mut facts = FactStore::new();
+  patronus_answers(&mut facts);
+  let filtered = |texts: &[&str]| Demand {
+    reviews: true,
+    reviews_searches: texts.iter().map(|text| (*text).to_owned()).collect(),
+    ..Demand::default()
+  };
+  facts.review_requests.demand_at(&filtered(&["Claude", "cl", "skill view"]), 100);
+  let result = ReviewRequestsResult {
+    availability: acme(),
+    total_count: 1,
+    requests: vec![with_head(1, "master")],
+    answered: Vec::new(),
+    others: Some(ReviewsAnswer::default()),
+  };
+  facts.apply(at(2), FactResult::ReviewRequests(result));
+  let searches = |facts: &FactStore| {
+    reviews_view(&state, facts, &BTreeMap::new())
+      .closed_searches
+      .into_iter()
+      .map(|search| {
+        let found = match search.state {
+          ClosedSearchState::Searching => None,
+          ClosedSearchState::Failed => Some(None),
+          ClosedSearchState::Found { total_count, entries } => Some(Some((total_count, entries.iter().map(|entry| entry.request.number).collect::<Vec<_>>()))),
+        };
+        (search.words, found)
+      })
+      .collect::<Vec<_>>()
+  };
+  assert_eq!(searches(&facts), vec![("claude".to_owned(), None), ("skill view".to_owned(), None)], "too short: no search");
+
+  let closed = |number: u32, state: PullRequestState, closed_at: u32| {
+    let mut request = with_head(number, "master");
+    request.state = state;
+    request.closed_at = Some(closed_at);
+    entry(
+      request,
+      ReviewInvolvement::Reviewed {
+        state: Some(ReviewerState::Approved),
+        replied_at: None,
+        new_commits: false,
+      },
+    )
+  };
+  let found = ClosedReviewsResult {
+    availability: acme(),
+    reviewed: ReviewSearch {
+      total_count: 3,
+      entries: vec![
+        closed(1, PullRequestState::Merged, 50),
+        closed(5, PullRequestState::Merged, 10),
+        closed(6, PullRequestState::Closed, 20),
+      ],
+    },
+    authored: ReviewSearch::default(),
+  };
+  assert!(facts.apply(
+    at(3),
+    FactResult::ClosedReviews {
+      words: "claude".to_owned(),
+      result: found
+    }
+  ));
+  facts.apply(
+    at(4),
+    FactResult::ClosedReviews {
+      words: "skill view".to_owned(),
+      result: ClosedReviewsResult::unavailable(PullRequestAvailability::Error { message: "502".to_owned() }),
+    },
+  );
+  assert_eq!(
+    searches(&facts),
+    vec![("claude".to_owned(), Some(Some((2, vec![6, 5])))), ("skill view".to_owned(), Some(None))]
+  );
+
+  let reviews = reviews_view(&state, &facts, &BTreeMap::new());
+  let actions = review_actions_of(&state, &facts, &reviews);
+  let approve = |number: u32| {
+    actions[&pull_key(number)]
+      .iter()
+      .find(|action| action.id == ActionId::Approve)
+      .map(|action| action.availability.clone())
+  };
+  assert_eq!(
+    approve(5),
+    Some(Availability::Disabled {
+      reason: ActionBlocker::PullRequestClosed { number: 5, merged: true }
+    })
+  );
+  assert_eq!(
+    approve(6),
+    Some(Availability::Disabled {
+      reason: ActionBlocker::PullRequestClosed { number: 6, merged: false }
+    })
+  );
+  assert!(!approval_landing_of(&state, &facts, &reviews).contains_key(&pull_key(5)), "a closed one takes no approval");
+  // the review window of one fetches it
+  assert_eq!(facts.review_requests.pull_request(5).map(|request| request.state), Some(PullRequestState::Merged));
+
+  // the words leave the view at once and are kept two minutes for a window that filters by them again
+  facts.review_requests.demand_at(&filtered(&[]), 200);
+  assert_eq!(searches(&facts), vec![]);
+  facts.review_requests.demand_at(&filtered(&["claude"]), 300);
+  assert_eq!(searches(&facts), vec![("claude".to_owned(), Some(Some((2, vec![6, 5]))))]);
+  facts.review_requests.demand_at(&filtered(&[]), 300);
+  facts.review_requests.demand_at(&filtered(&["claude"]), 420);
+  assert_eq!(searches(&facts), vec![("claude".to_owned(), None)], "gone after two minutes");
+  // the view hidden: no words
+  facts.review_requests.demand_at(
+    &Demand {
+      reviews_searches: vec!["claude".to_owned()],
+      ..Demand::default()
+    },
+    420,
+  );
+  assert_eq!(searches(&facts), vec![]);
+}
+
+/// A merged link opens but Reviews keeps no link of it: the session remembers it for the fetch of its review window,
+/// whose actions are read only
+#[test]
+fn a_merged_link_is_remembered_for_its_review_window_and_joins_no_links() {
+  let state = synced();
+  let mut facts = FactStore::new();
+  patronus_answers(&mut facts);
+  facts.review_requests.demand(&Demand {
+    reviews: true,
+    review_windows: vec![7],
+    ..Demand::default()
+  });
+  let result = ReviewRequestsResult {
+    availability: acme(),
+    total_count: 0,
+    requests: Vec::new(),
+    answered: Vec::new(),
+    others: Some(ReviewsAnswer::default()),
+  };
+  facts.apply(at(2), FactResult::ReviewRequests(result));
+  let mut request = with_head(7, "master");
+  request.state = PullRequestState::Merged;
+  assert!(!facts.review_requests.linked(entry(request, ReviewInvolvement::Linked { linked_at: 9 })));
+  let reviews = reviews_view(&state, &facts, &BTreeMap::new());
+  assert!(reviews.sections.is_empty(), "no link of a merged pull request");
+  assert!(facts.review_requests.pull_request(7).is_some());
+  let actions = review_actions_of(&state, &facts, &reviews);
+  let approve = actions[&pull_key(7)]
+    .iter()
+    .find(|action| action.id == ActionId::Approve)
+    .map(|action| action.availability.clone());
+  assert_eq!(
+    approve,
+    Some(Availability::Disabled {
+      reason: ActionBlocker::PullRequestClosed { number: 7, merged: true }
+    })
+  );
+  assert!(facts.review_requests.readiness_asks(&[7]).is_empty(), "nothing asks Patronus of a merged one");
 }

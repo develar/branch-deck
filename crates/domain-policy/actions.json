@@ -315,6 +315,14 @@
       }
     ],
     [
+      "approve",
+      {
+        "code": "pullRequestClosed",
+        "number": 101,
+        "merged": true
+      }
+    ],
+    [
       "safe-push-pull-request",
       {
         "code": "targetUnread"

@@ -299,6 +299,12 @@ enum Input {
     availability: Option<PullRequestAvailability>,
     version: Option<Version>,
   },
+  /// A search of the closed pull requests by `words` ended: how GitHub answered (`None`: GitHub was not asked, or the
+  /// session was gone)
+  ClosedReviews {
+    words: String,
+    availability: Option<PullRequestAvailability>,
+  },
   /// A read of the sign-ins ended, with the version after its patch (`None`: the session was gone)
   Auth {
     version: Option<Version>,
@@ -403,6 +409,7 @@ impl SessionFacts {
         self.details_timer(),
         self.github.timer(),
         self.review_requests.timer(),
+        self.review_requests.closed_timer(),
         self.readiness.timer(),
       ];
       let timer = timers.into_iter().flatten().min().filter(|_| self.watched);
@@ -457,6 +464,9 @@ impl SessionFacts {
     if self.review_requests.timer().is_some_and(|at| at <= now) {
       self.poll_review_requests();
     }
+    if self.review_requests.closed_timer().is_some_and(|at| at <= now) {
+      self.search_closed_reviews();
+    }
     if self.readiness.timer().is_some_and(|at| at <= now) {
       self.ask_readiness();
     }
@@ -481,6 +491,7 @@ impl SessionFacts {
       Input::Profiles { baseline, failed, version } => self.profiles_read(&baseline, failed, version),
       Input::Readiness(ended) => self.readiness_ended(ended),
       Input::ReviewRequests { availability, version } => self.review_requests_listed(availability.as_ref(), version),
+      Input::ClosedReviews { words, availability } => self.closed_reviews_searched(words, availability.as_ref()),
       Input::Auth { version } => self.auth_read(version),
     }
   }
@@ -581,6 +592,7 @@ impl SessionFacts {
       self.schedule_poll(true);
     }
     self.reviews_demanded(demand.reviews);
+    self.closed_reviews_demanded(demand);
   }
 
   /// A list for `reason`, if the rules say so now; a reason that follows up asks once more after the list in flight,

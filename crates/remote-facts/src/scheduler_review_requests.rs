@@ -1,13 +1,20 @@
 //! The review requests of others, as the task of a session asks them (the parent module's header); while a window
-//! shows the Reviews view each list reads the rest of Reviews with them, and the view asks once when it shows
+//! shows the Reviews view each list reads the rest of Reviews with them, and the view asks once when it shows. While a
+//! window filters the view by words, the closed pull requests are searched by them once they stood
+//! `CLOSED_REVIEWS_SEARCH_DELAY` (`closed_reviews_demanded`): one search at a time, the words that came meanwhile after
+//! it, an answer kept `CLOSED_REVIEWS_KEPT`; off GitHub, under a rate limit and offline the words fail at once
 
 use super::{InFlight, Input, Reply, SessionFacts};
 use domain_policy::refresh::{
-  FactTiming, REVIEW_REQUESTS_POLL_INTERVAL, RefreshReason, ServiceState, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due,
+  CLOSED_REVIEWS_KEPT, CLOSED_REVIEWS_SEARCH_DELAY, FactTiming, RATE_LIMIT_WAIT, REVIEW_REQUESTS_POLL_INTERVAL, RefreshReason, ServiceState, closed_reviews_due,
+  review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due,
 };
+use domain_policy::reviews::closed_search_words;
 use domain_types::pull_request::PullRequestAvailability;
-use domain_types::session::{FactRefreshReason, Version};
+use domain_types::review_request::ClosedReviewsResult;
+use domain_types::session::{Demand, FactRefreshReason, Version};
 use repository_model::facts::FactResult;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 use tracing::Instrument;
 
@@ -33,6 +40,22 @@ pub(super) struct ReviewRequestsSchedule {
   pub(super) github_repository: Option<String>,
   /// The rest of Reviews, read with the lists while a window shows the view
   reviews: ReviewsSchedule,
+  /// The searches of the closed pull requests by the words the windows filter the view by
+  closed: ClosedSchedule,
+}
+
+/// The searches of the closed pull requests by words
+#[derive(Default)]
+struct ClosedSchedule {
+  /// The words the windows filter the Reviews view by that are searched (`closed_search_words`), as the demand said
+  /// last
+  wanted: Vec<String>,
+  /// When the words stood long enough (`CLOSED_REVIEWS_SEARCH_DELAY`): the wanted words not answered are searched
+  due_at: Option<Duration>,
+  /// The words of the search in flight
+  in_flight: Option<String>,
+  /// When GitHub answered each words last
+  answered: BTreeMap<String, Duration>,
 }
 
 /// The rest of Reviews in the lists of the review requests
@@ -49,6 +72,11 @@ struct ReviewsSchedule {
 impl ReviewRequestsSchedule {
   pub(super) const fn timer(&self) -> Option<Duration> {
     self.poll_at
+  }
+
+  /// When the words the windows filter by stood long enough to search the closed pull requests by them
+  pub(super) const fn closed_timer(&self) -> Option<Duration> {
+    self.closed.due_at
   }
 }
 
@@ -98,6 +126,103 @@ impl SessionFacts {
     } else if self.watched {
       self.start_review_requests(Vec::new());
     }
+  }
+
+  /// The words the windows filter the Reviews view by: other words are searched once they stood
+  /// `CLOSED_REVIEWS_SEARCH_DELAY`, unless each was answered within `CLOSED_REVIEWS_KEPT`
+  pub(super) fn closed_reviews_demanded(&mut self, demand: &Demand) {
+    let now = self.now();
+    let wanted: Vec<String> = if demand.reviews {
+      let words: BTreeSet<String> = demand.reviews_searches.iter().filter_map(|text| closed_search_words(text)).collect();
+      words.into_iter().collect()
+    } else {
+      Vec::new()
+    };
+    let closed = &mut self.review_requests.closed;
+    if closed.wanted == wanted {
+      return;
+    }
+    closed.answered.retain(|_, at| now.saturating_sub(*at) < CLOSED_REVIEWS_KEPT);
+    closed.due_at = wanted.iter().any(|words| !closed.answered.contains_key(words)).then_some(now + CLOSED_REVIEWS_SEARCH_DELAY);
+    closed.wanted = wanted;
+  }
+
+  /// The words stood long enough: the first of the wanted words not answered is searched, unless a search is in flight,
+  /// after which the next one is
+  pub(super) fn search_closed_reviews(&mut self) {
+    self.review_requests.closed.due_at = None;
+    self.next_closed_search();
+  }
+
+  /// The next search of the closed pull requests: of the first wanted words that the rules say are due
+  /// (`closed_reviews_due`); words GitHub can't be asked for now (off GitHub, a rate limit, offline) fail at once
+  fn next_closed_search(&mut self) {
+    let now = self.now();
+    let online = self.online();
+    let schedule = &mut self.review_requests;
+    if schedule.closed.in_flight.is_some() || schedule.closed.due_at.is_some() {
+      return;
+    }
+    let service = ServiceState {
+      off_service: schedule.off_service,
+      retry_at: schedule.retry_at,
+    };
+    let closed = &schedule.closed;
+    let unanswered = |words: &&String| closed.answered.get(*words).is_none_or(|at| now.saturating_sub(*at) >= CLOSED_REVIEWS_KEPT);
+    let Some(words) = closed.wanted.iter().find(unanswered).cloned() else {
+      return;
+    };
+    let refused = !closed_reviews_due(now, None, service, online);
+    self.start_closed_search(words, refused);
+  }
+
+  /// Searches the closed pull requests by `words`; `refused`: GitHub is not asked, the words fail
+  fn start_closed_search(&mut self, words: String, refused: bool) {
+    let Some(inbox) = self.inbox.upgrade() else {
+      return;
+    };
+    let schedule = &mut self.review_requests;
+    schedule.closed.in_flight = Some(words.clone());
+    let github_repository = schedule.github_repository.clone();
+    let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
+    tokio::spawn(
+      async move {
+        let availability = match scheduler.port.begin(&key).await {
+          Some(ticket) => {
+            let result = if refused {
+              ClosedReviewsResult::unavailable(PullRequestAvailability::Error {
+                message: "GitHub is not asked now".to_owned(),
+              })
+            } else {
+              scheduler.sources.closed_reviews(&key, github_repository, words.clone()).await
+            };
+            let availability = result.availability.clone();
+            scheduler.port.apply(&key, ticket, FactResult::ClosedReviews { words: words.clone(), result }).await;
+            (!refused).then_some(availability)
+          }
+          None => None,
+        };
+        let _ = inbox.send(Input::ClosedReviews { words, availability });
+      }
+      .in_current_span(),
+    );
+  }
+
+  /// A search of the closed pull requests by `words` ended with `availability` (`None`: GitHub was not asked, or the
+  /// session was gone): its answer holds `CLOSED_REVIEWS_KEPT`, a failure too, so failing words are not asked again and
+  /// again; a rate limit holds back every read of GitHub but the refresh button for `RATE_LIMIT_WAIT`, another failure
+  /// leaves the poll of the review requests as it was. The next words follow at once
+  pub(super) fn closed_reviews_searched(&mut self, words: String, availability: Option<&PullRequestAvailability>) {
+    let now = self.now();
+    let schedule = &mut self.review_requests;
+    schedule.closed.in_flight = None;
+    schedule.closed.answered.insert(words, now);
+    match availability {
+      Some(PullRequestAvailability::RateLimited { .. }) => schedule.retry_at = Some(now + RATE_LIMIT_WAIT),
+      Some(PullRequestAvailability::NotGitHub) => schedule.off_service = true,
+      _ => {}
+    }
+    self.next_closed_search();
   }
 
   /// A window asks to read the review requests (`Manual`), or opened one on GitHub (`AfterWrite`): then the next focus

@@ -1116,7 +1116,38 @@ fn pull_request_to_review() -> crate::actions::PullRequestFacts<'static> {
     approved: None,
     target: crate::actions::Target::Branch("master"),
     cached: false,
+    state: PullRequestState::Open,
   }
+}
+
+#[test]
+fn a_merged_or_closed_pull_request_is_read_only_its_decisions_and_its_safe_push_disabled_for_it() {
+  use crate::actions::{PullRequestFacts, review_actions};
+  use ActionId::{Approve, RemoveFromReviews, RequestChanges, Review, SafePushPullRequest};
+  let facts = pull_request_to_review();
+  let merged = ActionBlocker::PullRequestClosed { number: 101, merged: true };
+  assert_eq!(
+    table(&review_actions(&PullRequestFacts {
+      state: PullRequestState::Merged,
+      ..facts
+    })),
+    vec![
+      (Review, None),
+      (Approve, Some(merged.clone())),
+      (SafePushPullRequest, Some(merged.clone())),
+      (RequestChanges, Some(merged)),
+      (OpenPullRequest, None)
+    ]
+  );
+  // closed says it before own, and a closed link still goes from Reviews
+  let closed = review_actions(&PullRequestFacts {
+    state: PullRequestState::Closed,
+    own: true,
+    linked: true,
+    ..facts
+  });
+  assert_eq!(reason_of(&closed, Approve), Some(ActionBlocker::PullRequestClosed { number: 101, merged: false }));
+  assert_eq!(ids(&closed).last(), Some(&RemoveFromReviews));
 }
 
 #[test]

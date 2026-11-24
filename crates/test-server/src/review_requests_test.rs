@@ -103,7 +103,7 @@ async fn review_routes_answer_the_fixture_without_a_network() {
     tokio::task::yield_now().await;
     calls = fixture_calls(&client, addr, &id).await;
   }
-  assert_eq!(calls, json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[], [7]] }));
+  assert_eq!(calls, json!({ "calls": 2, "reviewsCalls": 0, "closedSearches": [], "fetchCalls": 2, "prunes": [[], [7]] }));
 }
 
 /// While the window shows Reviews the session reads its rest from the fixture; a link the user adds is asked of the fake

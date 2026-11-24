@@ -2,9 +2,11 @@
 //! GraphQL search: requested by name only (`user-review-requested:@me`), not through a team. Like `pull_requests.rs`,
 //! every failure is an availability, not an error.
 
-use crate::pull_requests::{GhLabel, GhReview as GhLatestReview, GhReviewRequestNode, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data};
+use crate::pull_requests::{
+  GhLabel, GhReview as GhLatestReview, GhReviewRequestNode, MERGED_LABEL, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data,
+};
 use crate::reviews::{reviews_answer, reviews_query, reviews_searches};
-use domain_types::pull_request::{ChecksState, PullRequestAvailability, Reviewer, ReviewerState};
+use domain_types::pull_request::{ChecksState, PullRequestAvailability, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, ReviewRequestsResult, ReviewsAsk};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
@@ -247,11 +249,30 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
   let review = submitted_review(&node);
   let default_branch = node.base_repository.and_then(|repository| repository.default_branch_ref).and_then(|branch| branch.name);
   let title = node.title.unwrap_or_default();
+  let labels: Vec<String> = Nodes::into_nodes(node.labels).into_iter().filter_map(|label| label.name).collect();
+  let state = match node.state.as_deref() {
+    Some("MERGED") => PullRequestState::Merged,
+    // Patronus rebases: GitHub closes the pull request it merged, which it labels
+    Some("CLOSED") if labels.iter().any(|label| label.eq_ignore_ascii_case(MERGED_LABEL)) => PullRequestState::Merged,
+    Some("CLOSED") => PullRequestState::Closed,
+    _ => PullRequestState::Open,
+  };
+  let closed_at = (state != PullRequestState::Open).then(|| parse_time(node.merged_at.as_deref().or(node.closed_at.as_deref())));
+  // the base of a merged pull request has its commits: the review shows them from where it forked, the parent of its
+  // first commit, which GitHub names of a closed one only (`reviews::CLOSED_PULL`)
+  let fork_point = Nodes::into_nodes(node.commits)
+    .into_iter()
+    .next()
+    .and_then(|commit| commit.commit)
+    .and_then(|commit| Nodes::into_nodes(commit.parents).into_iter().next())
+    .and_then(|parent| parent.oid);
   ReviewRequest {
     number,
     title_lead: issue_lead(&title),
     title,
     url: node.url.unwrap_or_default(),
+    state,
+    closed_at,
     body: node.body.unwrap_or_default(),
     author: node.author.and_then(|author| author.login),
     requested_by: None,
@@ -273,9 +294,9 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     head_ref_name: node.head_ref_name.unwrap_or_default(),
     head_ref_oid: node.head_ref_oid.unwrap_or_default(),
     base_ref_name: node.base_ref_name.unwrap_or_default(),
-    base_ref_oid: node.base_ref_oid.unwrap_or_default(),
+    base_ref_oid: fork_point.filter(|_| state != PullRequestState::Open).or(node.base_ref_oid).unwrap_or_default(),
     is_cross_repository: node.is_cross_repository.unwrap_or(false),
-    labels: Nodes::into_nodes(node.labels).into_iter().filter_map(|label| label.name).collect(),
+    labels,
   }
 }
 
@@ -386,6 +407,21 @@ pub struct GhData {
 }
 
 #[derive(Debug, Deserialize)]
+struct GhPullCommit {
+  commit: Option<GhCommitParents>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhCommitParents {
+  parents: Option<Nodes<GhOid>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhOid {
+  oid: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct GhViewer {
   pub(crate) login: String,
 }
@@ -409,6 +445,11 @@ pub(crate) struct GhPullRequest {
   pub(crate) number: Option<u32>,
   /// `OPEN`, `CLOSED`, `MERGED`: asked by Reviews only
   pub(crate) state: Option<String>,
+  /// Asked of a closed pull request only (`reviews::CLOSED_PULL`)
+  merged_at: Option<String>,
+  closed_at: Option<String>,
+  /// The first of its commits, whose parent is where it forked from its base (`reviews::CLOSED_PULL`)
+  commits: Option<Nodes<GhPullCommit>>,
   pub(crate) is_draft: Option<bool>,
   pub(crate) latest_reviews: Option<Nodes<GhLatestReview>>,
   pub(crate) review_requests: Option<Nodes<GhReviewRequestNode>>,

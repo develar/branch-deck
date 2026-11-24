@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
-import { ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon, UserCheckIcon } from "lucide-react"
+import { ExternalLinkIcon, GitPullRequestClosedIcon, GitPullRequestIcon, RefreshCwIcon, UserCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -16,7 +16,7 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { SearchField } from "@/components/shared/SearchField"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { useReturnedToYou } from "@/hooks/useReturnedToYou"
-import type { PullRequestAvailability, ReviewEntry, ReviewRequest, ReviewSection } from "@/lib/bindings"
+import type { ClosedSearchView, PullRequestAvailability, ReviewEntry, ReviewRequest, ReviewSection } from "@/lib/bindings"
 import { describeError } from "@/lib/errors"
 import { formatKbds } from "@/lib/menu"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
@@ -25,9 +25,12 @@ import { handleReviewRowKeys } from "@/lib/review-row-keys"
 import { openPullRequestReview } from "@/lib/review-window"
 import { matchesAllWords, searchWords } from "@/lib/text-search"
 import { formatRelativeTime } from "@/lib/time"
-import { showReviews } from "@/model/demand"
+import { searchClosedReviews, showReviews } from "@/model/demand"
 import {
+  CLOSED_SECTION_TITLE,
   REVIEW_SECTION_TITLES,
+  allReviewsSearchUrl,
+  closedReviewsSearchUrl,
   formatReviewsNoMatch,
   pickVisibleEntries,
   returnedTexts,
@@ -40,7 +43,7 @@ import {
 } from "@/presenters/reviews"
 import { requestReveal } from "@/stores/commit-move"
 import { useSelectedProjectPath } from "@/stores/repository"
-import { openRequestOnGitHub, openReviewRequest, useReviewRequests, useReviewRequestsAvailability, useReviewRequestsTotalCount } from "@/stores/review-requests"
+import { openRequestOnGitHub, openReviewRequest, useReviewRequests, useReviewRequestsAvailability } from "@/stores/review-requests"
 import { linkPullRequest, onLinkFieldFocus, refreshReviews, reviewRows, useIsRefreshingReviews, useReviews } from "@/stores/reviews"
 
 /**
@@ -48,14 +51,14 @@ import { linkPullRequest, onLinkFieldFocus, refreshReviews, reviewRows, useIsRef
  * user takes part in on GitHub. Your Turn's rows lead it ("Waiting for You"), then the sections Rust derives (added by
  * link, requested from the user's teams, reviewed by the user, the user's own), each pull request once. The field
  * filters every section by the words typed, and adds a pull request by its link, as when the author forgot to ask the
- * user. The session reads the rest of Reviews only while the view shows (`showReviews`, the demand); a state of GitHub
+ * user; by its words the session searches the closed pull requests too (`searchClosedReviews`), which the last section
+ * shows. The session reads the rest of Reviews only while the view shows (`showReviews`, the demand); a state of GitHub
  * is the state of the view, never a toast.
  */
 export function ReviewsView({ visible, headingRef }: { visible: boolean; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const repositoryPath = useSelectedProjectPath()
   const reviews = useReviews()
   const requests = useReviewRequests()
-  const requestsTotalCount = useReviewRequestsTotalCount()
   const returned = useReturnedToYou()
   const availability = useReviewRequestsAvailability()
   const viewRef = useRef<HTMLDivElement>(null)
@@ -82,6 +85,13 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
   const words = searchWords(filterText)
   const reference = typedReference(filterText)
   const filtering = words.length > 0
+  // the words search the closed pull requests too, while the view shows; a number or a link names one pull request
+  const closedWords = reference === null ? words.join(" ") : ""
+  useEffect(() => (visible && closedWords !== "" ? searchClosedReviews(closedWords) : undefined), [visible, closedWords])
+  // none while Rust searches nothing by the words (too short)
+  const closedSearch = closedWords === "" ? undefined : reviews.closedSearches.find(search => search.words === closedWords)
+  const closedEntries = closedSearch?.state.kind === "found" ? closedSearch.state.entries : []
+  const searchingClosed = closedSearch?.state.kind === "searching"
 
   // every row of the view in its order, what Enter on it does: the lookup of a typed number or link
   const rows =
@@ -110,8 +120,8 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
           shownReturned,
           shownSections.flatMap(it => it.entries),
         )
-  // GitHub returned only a part of a list: the filter saw only that part
-  const isCut = requestsTotalCount > requests.length || reviews.sections.some(section => section.totalCount > section.entries.length)
+  // the closed matches GitHub found, after the open ones: Enter opens one of them only once no open one matches
+  const shownClosed = repositoryPath === undefined ? [] : rowsOf(repositoryPath, [], [], closedEntries)
 
   const setFilterText = (text: string) => {
     if (repositoryPath === undefined) {
@@ -167,6 +177,10 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
       shown[0]!.open()
     } else if (filtering && shown.length > 1) {
       focusFirstRow()
+    } else if (filtering && shownClosed.length === 1) {
+      shownClosed[0]!.open()
+    } else if (filtering && shownClosed.length > 1) {
+      focusFirstRow()
     }
   }
 
@@ -190,7 +204,7 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
         )}
         <ReviewsHelpPopover />
         <div className="ml-auto flex items-center gap-2">
-          {loading && <Spinner className="size-3 text-muted-foreground" />}
+          {(loading || searchingClosed) && <Spinner className="size-3 text-muted-foreground" data-testid="reviews-busy" />}
           {repositoryPath !== undefined && <MoreActionsMenu name="Reviews" menu={<ReviewsMenu repositoryPath={repositoryPath} repository={repository} />} />}
         </div>
       </div>
@@ -201,11 +215,11 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
         </p>
       )}
       <ReviewsState availability={availability} empty={empty && !loading && !filtering} repository={repository} />
-      {filtering && shown.length === 0 && (
+      {filtering && shown.length === 0 && shownClosed.length === 0 && !searchingClosed && (
         <NoMatch
           text={filterText}
           onAdd={reference !== null && linkError === null ? addLink : null}
-          searchUrl={isCut && repository !== null && reference === null ? reviewsSearchUrl(repository, filterText) : null}
+          searchUrl={repository !== null && reference === null ? allReviewsSearchUrl(repository, filterText) : null}
           onClear={() => setFilterText("")}
         />
       )}
@@ -238,6 +252,17 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
             repository={repository}
           />
         ))}
+      {repositoryPath !== undefined && closedSearch !== undefined && closedEntries.length > 0 && (
+        <ClosedSectionCard
+          search={closedSearch}
+          entries={closedEntries}
+          filterText={filterText}
+          open={isOpen("closed")}
+          onOpenChange={open => setOpen("closed", open)}
+          repositoryPath={repositoryPath}
+          repository={repository}
+        />
+      )}
     </div>
   )
 }
@@ -370,6 +395,10 @@ function ReviewsHelpPopover() {
         </HelpList>
       </HelpSection>
       <p>A section shows your moves and three more rows; the filter looks at every row GitHub returned, the first 50 of each section.</p>
+      <p>
+        Words of three characters or more also search GitHub for the closed and merged pull requests you reviewed or opened: whole words of their titles, so a part of a word finds
+        none of them.
+      </p>
     </HelpPopover>
   )
 }
@@ -485,40 +514,16 @@ function ReviewSectionCard({
   repositoryPath: string
   repository: { owner: string; name: string } | null
 }) {
-  const [focused, setFocused] = useState<number | null>(null)
   const [expanded, setExpanded] = useState(false)
   const filtering = filterText !== ""
   // the user's moves and three more, as Your Turn shows its rows; filtered, every match
   const moves = new Set(section.moves)
   const visible = expanded || filtering ? entries : pickVisibleEntries(entries, moves)
   const hidden = entries.length - visible.length
-  const tabStop = visible.some(entry => entry.request.number === focused) ? focused : visible[0]?.request.number
   const allOnGitHub = repository === null ? null : reviewSectionSearchUrl(section.kind, repository)
   // the words of the filter search GitHub; a number or a link names one pull request, which Enter adds
   const search = repository === null || typedReference(filterText) !== null ? null : reviewSectionSearchUrl(section.kind, repository, filterText)
   const isCut = section.totalCount > section.entries.length
-  const entryOf = (number: number) => entries.find(entry => entry.request.number === number)
-  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
-    handleReviewRowKeys(
-      event,
-      visible.map(entry => String(entry.request.number)),
-      {
-        onEnter: number => {
-          const entry = entryOf(number)
-          if (entry !== undefined) {
-            openEntry(repositoryPath, entry)
-          }
-        },
-        onReview: number => openReviewRequest(repositoryPath, number, "review", "reviews"),
-        onOpen: number => {
-          const entry = entryOf(number)
-          if (entry !== undefined) {
-            openRequestOnGitHub(entry.request)
-          }
-        },
-      },
-      row => setFocused(Number(row)),
-    )
   return (
     <CollapsibleCard
       data-testid={`reviews-section-${section.kind}`}
@@ -533,17 +538,7 @@ function ReviewSectionCard({
       }
     >
       <div className="flex flex-col divide-y divide-border">
-        <ul aria-label={REVIEW_SECTION_TITLES[section.kind]} className="flex flex-col divide-y divide-border" onKeyDown={handleKeyDown}>
-          {visible.map(entry => (
-            <ReviewEntryRow
-              key={entry.request.number}
-              entry={entry}
-              move={moves.has(entry.request.number)}
-              repositoryPath={repositoryPath}
-              tabStop={entry.request.number === tabStop}
-            />
-          ))}
-        </ul>
+        <EntryList title={REVIEW_SECTION_TITLES[section.kind]} entries={visible} moves={moves} repositoryPath={repositoryPath} />
         {(hidden > 0 || expanded || isCut) && (
           <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
             {!filtering && (hidden > 0 || expanded) && (
@@ -564,6 +559,94 @@ function ReviewSectionCard({
                   </span>
                 )
               ))}
+          </div>
+        )}
+      </div>
+    </CollapsibleCard>
+  )
+}
+
+/**
+ * The rows of a section of Reviews, one tab stop among them: ↑/↓ move between them, Enter opens one as its click does, D
+ * reviews it, O opens it on GitHub
+ */
+function EntryList({ title, entries, moves, repositoryPath }: { title: string; entries: readonly ReviewEntry[]; moves: ReadonlySet<number>; repositoryPath: string }) {
+  const [focused, setFocused] = useState<number | null>(null)
+  const tabStop = entries.some(entry => entry.request.number === focused) ? focused : entries[0]?.request.number
+  const entryOf = (number: number) => entries.find(entry => entry.request.number === number)
+  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
+    handleReviewRowKeys(
+      event,
+      entries.map(entry => String(entry.request.number)),
+      {
+        onEnter: number => {
+          const entry = entryOf(number)
+          if (entry !== undefined) {
+            openEntry(repositoryPath, entry)
+          }
+        },
+        onReview: number => openReviewRequest(repositoryPath, number, "review", "reviews"),
+        onOpen: number => {
+          const entry = entryOf(number)
+          if (entry !== undefined) {
+            openRequestOnGitHub(entry.request)
+          }
+        },
+      },
+      row => setFocused(Number(row)),
+    )
+  return (
+    <ul aria-label={title} className="flex flex-col divide-y divide-border" onKeyDown={handleKeyDown}>
+      {entries.map(entry => (
+        <ReviewEntryRow
+          key={entry.request.number}
+          entry={entry}
+          move={moves.has(entry.request.number)}
+          repositoryPath={repositoryPath}
+          tabStop={entry.request.number === tabStop}
+        />
+      ))}
+    </ul>
+  )
+}
+
+const NO_MOVES: ReadonlySet<number> = new Set()
+
+/**
+ * "Closed and Merged": the closed pull requests the user reviewed or opened whose titles have the words of the filter,
+ * as GitHub found them (`ReviewsView.closedSearches`), the newest closed first, each read only; "First 20 of 57 ·
+ * Search on GitHub" when GitHub found more than it returned
+ */
+function ClosedSectionCard({
+  search,
+  entries,
+  filterText,
+  open,
+  onOpenChange,
+  repositoryPath,
+  repository,
+}: {
+  search: ClosedSearchView
+  entries: readonly ReviewEntry[]
+  filterText: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  repositoryPath: string
+  repository: { owner: string; name: string } | null
+}) {
+  const totalCount = search.state.kind === "found" ? search.state.totalCount : entries.length
+  return (
+    <CollapsibleCard
+      data-testid="reviews-section-closed"
+      open={open}
+      onOpenChange={onOpenChange}
+      header={<SectionHeader icon={<GitPullRequestClosedIcon className="size-4 shrink-0 text-muted-foreground" />} title={CLOSED_SECTION_TITLE} count={totalCount} />}
+    >
+      <div className="flex flex-col divide-y divide-border">
+        <EntryList title={CLOSED_SECTION_TITLE} entries={entries} moves={NO_MOVES} repositoryPath={repositoryPath} />
+        {totalCount > entries.length && (
+          <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
+            <FilteredOnGitHub count={entries.length} totalCount={totalCount} url={repository === null ? null : closedReviewsSearchUrl(repository, filterText)} />
           </div>
         )}
       </div>

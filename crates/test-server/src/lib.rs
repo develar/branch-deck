@@ -861,6 +861,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     review_requests: std::sync::RwLock::default(),
     review_request_calls: std::sync::atomic::AtomicU32::new(0),
     reviews_calls: std::sync::atomic::AtomicU32::new(0),
+    closed_searches: std::sync::Mutex::new(Vec::new()),
     review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
     review_prune_keeps: std::sync::Mutex::default(),
     page_clock: std::sync::Mutex::default(),
@@ -1138,13 +1139,15 @@ pub async fn set_review_requests(
   Ok(StatusCode::OK)
 }
 
-/// How often the app asked for review requests and fetched a review, and the `keep` of every prune
+/// How often the app asked for review requests and fetched a review, the words of every search of the closed pull
+/// requests, and the `keep` of every prune
 pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   let ordering = Ordering::SeqCst;
   Ok(Json(serde_json::json!({
     "calls": repo.review_request_calls.load(ordering),
     "reviewsCalls": repo.reviews_calls.load(ordering),
+    "closedSearches": repo.closed_searches.lock().expect("closed searches lock").clone(),
     "fetchCalls": repo.review_fetch_calls.load(ordering),
     "prunes": repo.review_prune_keeps.lock().expect("review prune lock").clone(),
   })))

@@ -1,5 +1,5 @@
 use crate::review_requests::{REVIEW_REQUESTS_QUERY, list_review_requests};
-use domain_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, Reviewer, ReviewerState, TokenSource};
+use domain_types::pull_request::{ChecksState, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use pretty_assertions::assert_eq;
@@ -153,6 +153,8 @@ async fn maps_the_review_requests_of_the_search() {
       title: "Load the registry under a lock".to_string(),
       title_lead: None,
       url: "https://github.com/acme/monorepo/pull/840".to_string(),
+      state: PullRequestState::Open,
+      closed_at: None,
       body: "Fixes a race.\nSecond line".to_string(),
       author: Some("alice".to_string()),
       requested_by: Some("bob".to_string()),

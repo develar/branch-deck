@@ -9,7 +9,7 @@
 use domain_types::error::ApiError;
 use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
-use domain_types::review_request::ReviewRequestsResult;
+use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
 use domain_types::sign_in::AuthStatus;
 use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::session::SessionKey;
@@ -44,6 +44,11 @@ pub trait FactSources: Send + Sync + 'static {
   /// the pull requests named it) skips resolving it; `NotGitHub` without one. With `reviews` (a window shows the Reviews
   /// view) the same request reads the rest of Reviews, the links the host keeps among them
   fn review_requests<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>, reviews: bool) -> Read<'a, ReviewRequestsResult>;
+
+  /// The closed pull requests the user reviewed or opened in the GitHub repository of the worktree of `key` whose
+  /// titles have `words` (`reviews::search_closed_reviews`, one request); `github_repository` as of `review_requests`;
+  /// `NotGitHub` without one
+  fn closed_reviews<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>, words: String) -> Read<'a, ClosedReviewsResult>;
 
   /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
   /// search), in the GitHub repository of its worktree; `NotGitHub` without one

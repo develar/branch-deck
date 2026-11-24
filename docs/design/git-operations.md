@@ -6361,7 +6361,12 @@ to watch the session (`watched_anew`). While a subject waits for approvals, each
 poll lists the pull requests too. While a window shows the Reviews view (`Demand::reviews`, [Reviews](../../openspec/specs/repository/reviews/spec.md)) every
 list reads the rest of Reviews in the same GraphQL request (the teams' requests, the reviewed, the own, the pull
 requests the user added by link, which the host keeps in `linkedPullRequests` of `repository-state.json`); the view
-that shows asks at once when that rest is older than two minutes (`reviews_shown_due`). The fact keeps the rest through a
+that shows asks at once when that rest is older than two minutes (`reviews_shown_due`). While its field holds words
+(`Demand::reviews_searches`, `closed_search_words`), the closed pull requests the user reviewed or opened whose titles
+have them are searched apart (`search_closed_reviews`, one GraphQL request of two searches) once the words stood
+`CLOSED_REVIEWS_SEARCH_DELAY`, one search at a time, each answer kept `CLOSED_REVIEWS_KEPT` for its words; a closed
+pull request's base is where it forked (the parent of its first commit), as the base of a merged one has its commits,
+and its actions are read only. The fact keeps the rest through a
 list without it, the requests the user answered with a comment, the reviews the app submitted (`write_review`, until
 a list gives them) and the last pull request of every number, so the actions of a pull request a review window shows
 (`Demand::review_windows`) stay. The view derives the sections (`domain_policy::reviews`) and the actions of each pull

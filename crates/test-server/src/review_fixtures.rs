@@ -12,7 +12,9 @@ use axum::http::StatusCode;
 use domain_types::error::ApiError;
 use domain_types::patronus::{PatronusCommandReply, PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
 use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
-use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
+use domain_types::review_request::{
+  ClosedReviewsResult, LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer,
+};
 use git_ops::ownership::read_file_owners;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
@@ -259,7 +261,8 @@ pub fn fixture_pulls(fixture: &ReviewRequestsFixture) -> (Vec<FakePull>, BTreeMa
   let mut requests: Vec<(&ReviewRequest, bool)> = result.requests.iter().map(|request| (request, true)).collect();
   requests.extend(result.answered.iter().map(|answered| (&answered.request, true)));
   requests.extend(others.map(|entry| (&entry.request, true)));
-  requests.extend(fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed)));
+  requests.extend(fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed && !pull.request.is_closed())));
+  requests.extend(fixture.closed.iter().map(|entry| (&entry.request, false)));
   let pulls = requests.iter().map(|(request, _)| review_request_pull(request)).collect();
   let nodes = requests.iter().map(|(request, open)| (request.number, pull_request_node(request, *open))).collect();
   (pulls, nodes)
@@ -278,7 +281,7 @@ pub fn fixture_reviews(fixture: &ReviewRequestsFixture, links: &[LinkedPullReque
       .chain(&answer.authored.entries)
       .map(|entry| (&entry.request, true));
     let requests = fixture.result.requests.iter().map(|request| (request, true));
-    let linkable = fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed));
+    let linkable = fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed && !pull.request.is_closed()));
     others
       .chain(requests)
       .chain(linkable)
@@ -321,7 +324,13 @@ fn pull_request_node(request: &ReviewRequest, open: bool) -> Value {
     "title": request.title,
     "url": request.url,
     "body": request.body,
-    "state": if open { "OPEN" } else { "MERGED" },
+    "state": match (open, request.state) {
+      (true, _) => "OPEN",
+      (false, PullRequestState::Closed) => "CLOSED",
+      (false, _) => "MERGED",
+    },
+    "mergedAt": (!open && request.state != PullRequestState::Closed).then(|| time(request.closed_at.unwrap_or(request.updated_at))),
+    "closedAt": (!open).then(|| time(request.closed_at.unwrap_or(request.updated_at))),
     "isDraft": false,
     "author": request.author.as_ref().map(|login| serde_json::json!({"login": login})),
     "createdAt": time(request.created_at),
@@ -412,6 +421,39 @@ pub(crate) async fn review_requests_of(state: &AppState, key: &SessionKey, revie
     host.pass_held(HeldAnswer::ReviewRequests).await;
   }
   Ok(result)
+}
+
+/// The closed pull requests of the fixture whose titles have every word of `words`, as the session of a test repository
+/// searches them (`TestFactSources`): GitHub is never asked in E2E; each search logged with its words
+pub(crate) fn closed_reviews_of(state: &AppState, key: &SessionKey, words: &str) -> Result<ClosedReviewsResult, ApiError> {
+  let repo = state.repository(&key.worktree)?;
+  repo.closed_searches.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(words.to_owned());
+  let fixture = repo.review_requests.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+  let availability = fixture.result.availability.clone();
+  if !matches!(availability, domain_types::pull_request::PullRequestAvailability::Available { .. }) {
+    return Ok(ClosedReviewsResult::unavailable(availability));
+  }
+  let found = |authored: bool| {
+    let entries: Vec<ReviewEntry> = fixture
+      .closed
+      .iter()
+      .filter(|entry| matches!(entry.involvement, ReviewInvolvement::Authored { .. }) == authored)
+      .filter(|entry| {
+        let title = entry.request.title.to_lowercase();
+        words.split_whitespace().all(|word| title.contains(word))
+      })
+      .cloned()
+      .collect();
+    ReviewSearch {
+      total_count: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+      entries,
+    }
+  };
+  Ok(ClosedReviewsResult {
+    availability,
+    reviewed: found(false),
+    authored: found(true),
+  })
 }
 
 /// The heads of the fixture's pull requests that are empty, as the tips of the branches they name (else `HEAD`), read

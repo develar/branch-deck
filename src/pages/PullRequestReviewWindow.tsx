@@ -61,10 +61,12 @@ const NO_GROUPS: PullRequestReviewHost["reviewGroups"] = []
 function useListRows(repositoryPath: string, source: ShownPullRequest["source"]): ReviewRows {
   const requests = useStore(reviewRequestsStore, state => state.repositories[repositoryPath]?.requests ?? NO_REQUESTS)
   const sections = useStore(reviewsStore, state => state.repositories[repositoryPath]?.sections ?? NO_SECTIONS)
-  return source === "yourTurn" ? { requests, involvements: NO_INVOLVEMENTS } : reviewRowsOf(requests, sections)
+  const closedSearches = useStore(reviewsStore, state => state.repositories[repositoryPath]?.closedSearches ?? NO_CLOSED_SEARCHES)
+  return source === "yourTurn" ? { requests, involvements: NO_INVOLVEMENTS } : reviewRowsOf(requests, sections, closedSearches)
 }
 
 const NO_SECTIONS: ReviewsView["sections"] = []
+const NO_CLOSED_SEARCHES: ReviewsView["closedSearches"] = []
 const NO_INVOLVEMENTS: ReviewRows["involvements"] = {}
 
 /** How a write the window runs ends: its toast and its error in the window */

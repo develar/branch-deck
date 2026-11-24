@@ -15,7 +15,7 @@ use crate::host::held_or_failed;
 use crate::remote_fixtures::{context_of, session_of, unknown_repository};
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
-use crate::review_fixtures::review_requests_of;
+use crate::review_fixtures::{closed_reviews_of, review_requests_of};
 use crate::state::AppState;
 use crate::state::CommandHold;
 use crate::state::TestRepository;
@@ -371,6 +371,16 @@ impl FactSources for TestFactSources {
         return failure(stopped().message);
       };
       review_requests_of(&state, key, reviews).await.unwrap_or_else(|error| failure(error.message))
+    })
+  }
+
+  fn closed_reviews<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>, words: String) -> Read<'a, domain_types::review_request::ClosedReviewsResult> {
+    Box::pin(async move {
+      let failure = |message: String| domain_types::review_request::ClosedReviewsResult::unavailable(PullRequestAvailability::Error { message });
+      let Some(state) = self.state.upgrade() else {
+        return failure(stopped().message);
+      };
+      closed_reviews_of(&state, key, &words).unwrap_or_else(|error| failure(error.message))
     })
   }
 

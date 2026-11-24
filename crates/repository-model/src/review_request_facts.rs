@@ -12,6 +12,11 @@
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
 //!
+//! While a window filters Reviews by words (`Demand::reviews_searches`), the session searches the closed pull requests
+//! the user reviewed or opened whose titles have them (`closed_answer`): what each search found is kept by its words
+//! for two minutes after no window filters by them (`domain_policy::refresh::CLOSED_REVIEWS_KEPT`), and remembered, so
+//! the review window of one fetches it.
+//!
 //! The review fetches of the windows (`kept`, by the pull request a fetch writes, of a stack its top with the layers it
 //! brought) count from their start (`fetching`), before the demand of their window may name the pull request, and the
 //! prunes of the session keep their review refs (`fetched_numbers`); a fetch goes when the window that showed its pull
@@ -26,13 +31,16 @@
 use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
 use domain_policy::news::{request_key, review_requested, tells_after};
+use domain_policy::refresh::CLOSED_REVIEWS_KEPT;
 use domain_policy::review_request_chains::{request_rows, stack_layers};
+use domain_policy::reviews::closed_search_words;
 use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
-use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
+use domain_types::review_request::{AnsweredRequest, ClosedReviewsResult, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
 use domain_types::session::{Demand, Fact, FactState, NewsEvent, ReviewRequestsView, request_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::github_repository::GitHubRepository;
+use sync_utils::timestamp::unix_now;
 
 /// A layer of a stack a review window shows, as its last fetch brought it (`ReviewRequestsFact::fetched_stacks`)
 #[derive(Clone, Copy, Debug)]
@@ -79,6 +87,21 @@ pub struct ReviewRequestsFact {
   kept: BTreeMap<u32, Vec<u32>>,
   /// The review fetches that started (`fetching`) and did not end, by the pull request they write
   in_flight: BTreeMap<u32, u32>,
+  /// The words the windows filter Reviews by, which the session searches the closed pull requests by
+  /// (`closed_search_words` of `Demand::reviews_searches`), while a window shows the view
+  closed_wanted: Vec<String>,
+  /// What each search of the closed pull requests found, by its words (`None`: GitHub could not be asked), and when
+  /// (unix seconds); kept for `CLOSED_REVIEWS_KEPT` after no window filters by its words
+  closed: BTreeMap<String, ClosedAnswer>,
+}
+
+/// What a search of the closed pull requests found, and when
+#[derive(Clone, Debug)]
+struct ClosedAnswer {
+  found: Option<ClosedReviewsResult>,
+  observed_at: u32,
+  /// Unix seconds when the last window stopped filtering by its words; `None` while one does
+  unwanted_at: Option<u32>,
 }
 
 impl ReviewRequestsFact {
@@ -181,9 +204,26 @@ impl ReviewRequestsFact {
     (self.view != before || self.reviews != reviews_before, news)
   }
 
-  /// The windows of the session now: the Reviews view, and the pull requests their review windows show
+  /// The windows of the session now: the Reviews view, the words it filters by, and the pull requests their review
+  /// windows show
   pub fn demand(&mut self, demand: &Demand) {
+    self.demand_at(demand, unix_now());
+  }
+
+  /// `demand` at `now` (unix seconds), which starts the time the answers of the words no window filters by any more
+  /// are kept
+  pub fn demand_at(&mut self, demand: &Demand, now: u32) {
     self.reviews_shown = demand.reviews;
+    self.closed_wanted = closed_wanted(demand);
+    let kept = u32::try_from(CLOSED_REVIEWS_KEPT.as_secs()).unwrap_or(u32::MAX);
+    self.closed.retain(|_, answer| answer.unwanted_at.is_none_or(|at| now.saturating_sub(at) < kept));
+    for (words, answer) in &mut self.closed {
+      if self.closed_wanted.contains(words) {
+        answer.unwanted_at = None;
+      } else {
+        answer.unwanted_at.get_or_insert(now);
+      }
+    }
     // the fetch of a window that closed goes, also one that runs, with the layers of its stack: its refs are of no
     // window, nor is the stack it showed. One that started before the demand of its window named the pull request stays
     for number in &self.windows {
@@ -281,7 +321,8 @@ impl ReviewRequestsFact {
     windows
       .iter()
       .filter_map(|number| {
-        let request = self.pull_request(*number).filter(|request| request.base_is_default)?;
+        // nothing is decided of a merged or closed one: its readiness is never asked
+        let request = self.pull_request(*number).filter(|request| request.base_is_default && !request.is_closed())?;
         let fetched = self.heads.get(number).filter(|head| **head == request.head_ref_oid);
         let ask = fetched.map(|head| ReviewReadinessBranch {
           branch_name: request_readiness_key(*number),
@@ -298,10 +339,14 @@ impl ReviewRequestsFact {
   }
 
   /// The pull request of `entry` the user just linked joins the links of Reviews at once, newest first, before the
-  /// listing the link asks for brings it; remembered, so its review window fetches it. Nothing while Reviews was never
-  /// read. Whether it changed what the session knows
+  /// listing the link asks for brings it; remembered, so its review window fetches it. A merged or closed one is only
+  /// remembered: Reviews keeps no link of it. Nothing joins while Reviews was never read. Whether it changed what the
+  /// session knows
   pub fn linked(&mut self, entry: ReviewEntry) -> bool {
     self.remembered.insert(entry.request.number, (entry.request.clone(), Some(entry.involvement.clone())));
+    if entry.request.is_closed() {
+      return false;
+    }
     let Some(reviews) = self.reviews.value.as_mut() else {
       return false;
     };
@@ -320,6 +365,46 @@ impl ReviewRequestsFact {
     let before = reviews.linked.len();
     reviews.linked.retain(|linked| linked.number() != number);
     reviews.linked.len() != before
+  }
+
+  /// What the search of the closed pull requests by `words` found at `observed_at` (unix seconds): kept by its words
+  /// while a window filters by them, its pull requests remembered, so the review window of one fetches it; GitHub
+  /// unavailable keeps that it failed. An answer of words no window filters by any more is dropped. Whether it changed
+  /// what the session knows
+  pub fn closed_answer(&mut self, words: String, result: ClosedReviewsResult, observed_at: u32) -> bool {
+    if !self.closed_wanted.contains(&words) {
+      return false;
+    }
+    let found = matches!(result.availability, PullRequestAvailability::Available { .. }).then_some(result);
+    for entry in found.iter().flat_map(|found| found.reviewed.entries.iter().chain(&found.authored.entries)) {
+      self.remembered.insert(entry.request.number, (entry.request.clone(), Some(entry.involvement.clone())));
+    }
+    let before = self.closed.get(&words).map(|answer| answer.found.clone());
+    let changed = before.as_ref() != Some(&found);
+    self.closed.insert(
+      words,
+      ClosedAnswer {
+        found,
+        observed_at,
+        unwanted_at: None,
+      },
+    );
+    changed
+  }
+
+  /// The words the windows filter Reviews by now, each with what its search found: `None` while no answer came,
+  /// `Some(None)` when GitHub could not be asked
+  pub fn closed_searches(&self) -> impl Iterator<Item = (&str, Option<Option<&ClosedReviewsResult>>)> {
+    self
+      .closed_wanted
+      .iter()
+      .map(|words| (words.as_str(), self.closed.get(words).map(|answer| answer.found.as_ref())))
+  }
+
+  /// When the search by `words` was answered last (unix seconds); `None` for words never answered or no longer kept
+  #[must_use]
+  pub fn closed_observed_at(&self, words: &str) -> Option<u32> {
+    self.closed.get(words).map(|answer| answer.observed_at)
   }
 
   /// The review the user submitted from the app on `commit`; whether it changed what the session knows
@@ -439,6 +524,16 @@ impl ReviewRequestsFact {
   pub(crate) fn cached(mut view: ReviewRequestsView) -> Self {
     if seed_head(&mut view.head) { Self { view, ..Self::default() } } else { Self::default() }
   }
+}
+
+/// The words the windows filter Reviews by that the session searches the closed pull requests by, once each, while a
+/// window shows the view
+fn closed_wanted(demand: &Demand) -> Vec<String> {
+  if !demand.reviews {
+    return Vec::new();
+  }
+  let words: BTreeSet<String> = demand.reviews_searches.iter().filter_map(|text| closed_search_words(text)).collect();
+  words.into_iter().collect()
 }
 
 #[cfg(test)]

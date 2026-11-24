@@ -730,6 +730,8 @@ pub struct PullRequestFacts<'a> {
   pub target: Target<'a>,
   /// Its reviews read a frame nobody checked yet (`on_cached_frame`): the commit it shows may be another
   pub cached: bool,
+  /// Open, merged or closed: of a merged or closed one nothing is decided any more
+  pub state: PullRequestState,
 }
 
 /// The actions of a pull request to review, one list for its row, its menu and the header of its review window:
@@ -737,11 +739,22 @@ pub struct PullRequestFacts<'a> {
 /// Changes, Open Pull Request, then Show Branch of an own one of the table and Remove from Reviews of a linked one. GitHub
 /// takes no review of the author. A pull request into another base (a layer of a stack) is offered no Safe Push: Patronus
 /// refuses a base no protected group names before the start; its Approve stays and counts once it goes into the target
-/// (`approval_landing`). The window's own state (the commit it shows, a write that runs) lies over them in the
-/// page
+/// (`approval_landing`). A merged or closed one is read only: its decisions and its Safe Push are disabled for it. The
+/// window's own state (the commit it shows, a write that runs) lies over them in the page
 #[must_use]
 pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
-  let own = facts.own.then_some(ActionBlocker::OwnPullRequest);
+  let closed = match facts.state {
+    PullRequestState::Open => None,
+    PullRequestState::Merged => Some(ActionBlocker::PullRequestClosed {
+      number: facts.number,
+      merged: true,
+    }),
+    PullRequestState::Closed => Some(ActionBlocker::PullRequestClosed {
+      number: facts.number,
+      merged: false,
+    }),
+  };
+  let own = closed.or_else(|| facts.own.then_some(ActionBlocker::OwnPullRequest));
   let approved = facts
     .approved
     .filter(|commit| *commit == facts.head)

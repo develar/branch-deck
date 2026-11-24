@@ -14,7 +14,7 @@ use domain_types::patronus::{
   PatronusRobotsResult, PatronusStartOptions, ReviewReadiness, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
-use domain_types::review_request::ReviewRequestsResult;
+use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
 use domain_types::sign_in::AuthStatus;
 use domain_types::{BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -115,6 +115,10 @@ impl FactSources for Counted {
 
   fn review_requests<'a>(&'a self, _key: &'a SessionKey, _github_repository: Option<String>, _reviews: bool) -> Read<'a, ReviewRequestsResult> {
     self.answer("review_requests", ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub))
+  }
+
+  fn closed_reviews<'a>(&'a self, _key: &'a SessionKey, _github_repository: Option<String>, _words: String) -> Read<'a, ClosedReviewsResult> {
+    self.answer("closed_reviews", ClosedReviewsResult::unavailable(PullRequestAvailability::NotGitHub))
   }
 
   fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {

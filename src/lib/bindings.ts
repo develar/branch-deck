@@ -510,6 +510,8 @@ export type ActionBlocker =
 { code: "landed"; landed: Landed } | 
 /**  The pull request is the user's own: GitHub takes no review of its author */
 { code: "ownPullRequest" } | 
+/**  The pull request `number` is merged (`merged`) or closed: nothing is decided of it any more */
+{ code: "pullRequestClosed"; number: number; merged: boolean } | 
 /**  The user approved the commit the pull request shows */
 { code: "approved"; commit: string } | 
 /**  The user approved every pull request of the stack on the head the review window shows */
@@ -1673,6 +1675,23 @@ export type CliToolsRunning = {
 	actions: CliToolRunning[],
 };
 
+export type ClosedSearchState = 
+/**  No answer for the words yet */
+{ kind: "searching" } | 
+/**  `total_count`: how many GitHub matched, also beyond the entries it returned */
+{ kind: "found"; totalCount: number; entries: ReviewEntry[] } | 
+/**  GitHub could not be asked: the state of the view says why */
+{ kind: "failed" };
+
+/**
+ *  The closed pull requests the user takes part in whose titles have `words` (`Demand::reviews_searches`), as GitHub
+ *  found them: the reviewed and the user's own, the newest closed first, none that a section of Reviews shows
+ */
+export type ClosedSearchView = {
+	words: string,
+	state: ClosedSearchState,
+};
+
 /**  A span of code in a line of prose (`sync_utils::code_spans`): UTF-16 offsets, the end excluded */
 export type CodeSpan = {
 	start: number,
@@ -2355,6 +2374,11 @@ export type Demand = {
 	 *  also once no listing has them any more
 	 */
 	reviewWindows?: number[],
+	/**
+	 *  The words the Reviews view of the window filters by (`searchWords`, joined by a space): the session searches the
+	 *  closed pull requests the user takes part in by them (`domain_policy::reviews::closed_search_words`)
+	 */
+	reviewsSearches?: string[],
 };
 
 /**  A dependency entry the commits add, remove or change */
@@ -8266,6 +8290,10 @@ export type ReviewRequest = {
 	 */
 	titleLead?: IssueLead | null,
 	url: string,
+	/**  Open, or merged or closed: a closed one comes only of the search of closed pull requests by words, and of a link */
+	state?: PullRequestState,
+	/**  Unix seconds: when it was merged or closed; None while open */
+	closedAt?: number | null,
 	/**
 	 *  The description as its author wrote it, GitHub Markdown (`sync_utils::commit_body` reads it as the body of a
 	 *  commit, its headings and tables too); empty without one
@@ -8725,6 +8753,11 @@ export type ReviewsView = {
 	sections: ReviewSection[],
 	/**  Unix seconds of the last answer with them, 0 = never */
 	checkedAt: number,
+	/**
+	 *  The searches of the closed pull requests by the words the windows filter by (`Demand::reviews_searches`), each
+	 *  words the session searches by; none for words it doesn't search by (too short)
+	 */
+	closedSearches: ClosedSearchView[],
 };
 
 export type RewordResult = {

@@ -88,7 +88,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     undo: null,
     inputsCheckedAt: null,
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
-    reviews: { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0 },
+    reviews: { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0, closedSearches: [] },
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, restarts: {} } },
     route: { kind: "pullRequest", merge: { kind: "wait", fact: { kind: "permission" }, failed: null } },
     facts: {

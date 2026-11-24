@@ -19,6 +19,21 @@ export const REVIEW_SECTION_TITLES: Readonly<Record<ReviewSectionKind, string>> 
   authored: "Your Pull Requests",
 }
 
+/** The title of the last section: the closed pull requests the user takes part in whose titles have the words of the filter */
+export const CLOSED_SECTION_TITLE = "Closed and Merged"
+
+/** "merged", "closed": how a closed pull request ended; null of an open one */
+function closedWord(request: ReviewRequest): "merged" | "closed" | null {
+  switch (request.state) {
+    case "merged":
+      return "merged"
+    case "closed":
+      return "closed"
+    default:
+      return null
+  }
+}
+
 /** "you approved a1b2c3d", "you requested changes", "you commented"; null without a review of the user */
 function yourReview(state: ReviewerState | null, commit: string | null): string | null {
   switch (state) {
@@ -121,15 +136,20 @@ export function formatReviewHint(entry: ReviewEntry): string {
   }
 }
 
-/** The mark at the start of a row of Reviews: the user's move, else the user's review of it; none for a team request */
-export type ReviewMark = { readonly kind: "move" | "approved" | "changesRequested" | "commented" | "none"; readonly label: string }
+/** The mark at the start of a row of Reviews: the user's move, else how a closed one ended, else the user's review of it; none for a team request */
+export type ReviewMark = { readonly kind: "move" | "merged" | "closed" | "approved" | "changesRequested" | "commented" | "none"; readonly label: string }
 
 /**
  * The mark of a row of Reviews: a filled dot for the user's move (Rust decides it: `ReviewSection.moves`), which only
- * it stands out by; of the rest the user's review muted: approved, changes requested, commented or replied
+ * it stands out by; a closed one how it ended, merged or closed; of the rest the user's review muted: approved, changes
+ * requested, commented or replied
  */
 export function reviewMark(entry: ReviewEntry, move: boolean): ReviewMark {
   const { request, involvement } = entry
+  const ended = closedWord(request)
+  if (ended !== null) {
+    return { kind: ended, label: capitalize(ended) }
+  }
   if (move) {
     return { kind: "move", label: moveWords(entry) }
   }
@@ -179,9 +199,22 @@ export function pickVisibleEntries(entries: readonly ReviewEntry[], moves: Reado
   return entries.filter(entry => shown.has(entry.request.number))
 }
 
-/** What the age at the end of a row says: "waiting 2 days" of a team request, "new commits since your review", "updated 3 hours ago" */
+/** What the review window of a merged or closed pull request says of it: "This pull request is merged"; null of an open one */
+export function formatClosedNote(request: ReviewRequest): string | null {
+  const ended = closedWord(request)
+  return ended === null ? null : `This pull request is ${ended}`
+}
+
+/**
+ * What the age at the end of a row says: "merged 2 days ago" of a closed one, "waiting 2 days" of a team request, "new
+ * commits since your review", "updated 3 hours ago"
+ */
 export function formatReviewAge(entry: ReviewEntry, now: number): string {
   const { request, involvement } = entry
+  const ended = closedWord(request)
+  if (ended !== null) {
+    return `${ended} ${formatRelativeTime((request.closedAt ?? request.updatedAt) * 1000, now)}`
+  }
   switch (involvement.kind) {
     case "team":
       return `waiting ${formatDuration(request.waitingSince * 1000, now)}`
@@ -216,6 +249,19 @@ export function reviewSectionSearchUrl(kind: ReviewSectionKind, repository: { ow
 /** Every open pull request of the repository the user takes part in, on GitHub: "Open on GitHub" of the view; with the words of the filter */
 export function reviewsSearchUrl(repository: { owner: string; name: string }, text = ""): string {
   return pullsUrl(repository, withSearchText("is:pr is:open involves:@me", text))
+}
+
+/**
+ * Every pull request of the repository the user takes part in, open or closed, with the words of the filter: "Search on
+ * GitHub" of a filter that found nothing
+ */
+export function allReviewsSearchUrl(repository: { owner: string; name: string }, text: string): string {
+  return pullsUrl(repository, withSearchText("is:pr involves:@me", text))
+}
+
+/** The closed pull requests the user takes part in whose titles have the words of the filter, on GitHub: the rest of a search that found more than it returned */
+export function closedReviewsSearchUrl(repository: { owner: string; name: string }, text: string): string {
+  return pullsUrl(repository, withSearchText("is:pr is:closed involves:@me in:title", text))
 }
 
 function pullsUrl(repository: { owner: string; name: string }, query: string): string {
@@ -282,8 +328,17 @@ export function formatReviewsNoMatch(text: string): string {
   return `No pull requests match “${text.trim()}”`
 }
 
-/** Who asks in the review window of a pull request of Reviews: "Added by link", "ide-platform asks for a review", "You reviewed carol's pull request" */
+/**
+ * Who asks in the review window of a pull request of Reviews: "Added by link", "ide-platform asks for a review", "You
+ * reviewed carol's pull request"; of a closed one how it ended first: "Merged: You reviewed carol's pull request"
+ */
 export function formatAskedBy(request: ReviewRequest, involvement: ReviewInvolvement): string {
+  const ended = closedWord(request)
+  const asked = askedBy(request, involvement)
+  return ended === null ? asked : `${capitalize(ended)}: ${asked}`
+}
+
+function askedBy(request: ReviewRequest, involvement: ReviewInvolvement): string {
   const of = request.author === null ? "the pull request" : `${request.author}'s pull request`
   switch (involvement.kind) {
     case "linked":

@@ -324,6 +324,11 @@ pub enum ActionBlocker {
   },
   /// The pull request is the user's own: GitHub takes no review of its author
   OwnPullRequest,
+  /// The pull request `number` is merged (`merged`) or closed: nothing is decided of it any more
+  PullRequestClosed {
+    number: u32,
+    merged: bool,
+  },
   /// The user approved the commit the pull request shows
   Approved {
     commit: String,

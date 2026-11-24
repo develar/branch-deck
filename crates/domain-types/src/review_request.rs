@@ -1,5 +1,5 @@
 use crate::commit::IssueLead;
-use crate::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, Reviewer, ReviewerState};
+use crate::pull_request::{ChecksState, PullRequestAvailability, PullRequestState, ReviewDecision, Reviewer, ReviewerState};
 use serde::{Deserialize, Serialize};
 
 /// A pull request of someone else that waits for the user's review: the user is a requested reviewer by name
@@ -16,6 +16,14 @@ pub struct ReviewRequest {
   #[cfg_attr(feature = "specta", specta(optional))]
   pub title_lead: Option<IssueLead>,
   pub url: String,
+  /// Open, or merged or closed: a closed one comes only of the search of closed pull requests by words, and of a link
+  #[serde(default, skip_serializing_if = "is_open")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub state: PullRequestState,
+  /// Unix seconds: when it was merged or closed; None while open
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub closed_at: Option<u32>,
   /// The description as its author wrote it, GitHub Markdown (`sync_utils::commit_body` reads it as the body of a
   /// commit, its headings and tables too); empty without one
   pub body: String,
@@ -70,6 +78,19 @@ pub struct ReviewRequest {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub labels: Vec<String>,
+}
+
+impl ReviewRequest {
+  /// Merged or closed: nothing can be decided of it any more
+  #[must_use]
+  pub const fn is_closed(&self) -> bool {
+    !matches!(self.state, PullRequestState::Open)
+  }
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if passes a reference")]
+const fn is_open(state: &PullRequestState) -> bool {
+  matches!(state, PullRequestState::Open)
 }
 
 /// A row of the requests of Your Turn (`domain_policy::review_request_chains::request_rows`): one request, or a chain of
@@ -182,6 +203,28 @@ pub struct ReviewEntry {
 pub struct ReviewSearch {
   pub total_count: u32,
   pub entries: Vec<ReviewEntry>,
+}
+
+/// What GitHub found of the closed pull requests the user takes part in by the words of the Reviews view
+/// (`remote_facts::reviews::search_closed_reviews`): those of others the user reviewed and the user's own, each search
+/// the first 20; empty unless available
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ClosedReviewsResult {
+  pub availability: PullRequestAvailability,
+  pub reviewed: ReviewSearch,
+  pub authored: ReviewSearch,
+}
+
+impl ClosedReviewsResult {
+  pub fn unavailable(availability: PullRequestAvailability) -> Self {
+    Self {
+      availability,
+      reviewed: ReviewSearch::default(),
+      authored: ReviewSearch::default(),
+    }
+  }
 }
 
 /// What GitHub answered of a linked pull request

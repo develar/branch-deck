@@ -88,7 +88,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::repository_view::{PatronusView, RobotLandedBranch};
-use domain_types::review_request::ReviewRequestsResult;
+use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView, SyncState};
 use domain_types::sign_in::AuthStatus;
@@ -367,6 +367,11 @@ pub enum FactResult {
   Readiness(Vec<ReadinessAnswer>),
   /// A listing of the review requests of others
   ReviewRequests(ReviewRequestsResult),
+  /// What the search of the closed pull requests by `words` found (`Demand::reviews_searches`)
+  ClosedReviews {
+    words: String,
+    result: ClosedReviewsResult,
+  },
   /// The details of the robot `id` (boxed: the largest answer by far)
   RobotDetails {
     id: String,
@@ -636,6 +641,7 @@ impl FactStore {
         }
         changed
       }
+      FactResult::ClosedReviews { words, result } => self.review_requests.closed_answer(words, result, observation.observed_at),
       FactResult::RobotDetails { id, result } => {
         // the answer of a robot no window demands any more is dropped with its record
         let Some(record) = self.robot_details.get_mut(&id) else {

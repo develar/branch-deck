@@ -24,7 +24,7 @@ export interface ReviewsState {
 
 export const reviewsStore = createStore<ReviewsState>(() => ({ repositories: {}, refreshing: new Set() }))
 
-const EMPTY: ReviewsView = { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0 }
+const EMPTY: ReviewsView = { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0, closedSearches: [] }
 
 /** Reviews of the session of `repositoryPath` as its view has it, when the patch (`changes`; null for a snapshot) carries it */
 export function applyReviewsView(repositoryPath: string, view: RepositoryView, changes: TableChanges | null): void {
@@ -45,9 +45,13 @@ export function useIsRefreshingReviews(): boolean {
   return useStore(reviewsStore, state => state.refreshing.has(repositoryPath))
 }
 
-/** The rows of Reviews in their order, the requests of Your Turn first, with how the user takes part in each of the rest */
+/**
+ * The rows of Reviews in their order, the requests of Your Turn first, with how the user takes part in each of the rest,
+ * the closed pull requests the searches of the view found last
+ */
 export function reviewRows(repositoryPath: string): ReviewRows {
-  return reviewRowsOf(reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? [], reviewsStore.getState().repositories[repositoryPath]?.sections ?? [])
+  const view = reviewsStore.getState().repositories[repositoryPath]
+  return reviewRowsOf(reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? [], view?.sections ?? [], view?.closedSearches ?? [])
 }
 
 /** The rows of Reviews and how the user takes part in each */
@@ -56,14 +60,25 @@ export interface ReviewRows {
   readonly involvements: Readonly<Record<number, ReviewInvolvement>>
 }
 
-/** The rows of Reviews of the requests of Your Turn and the sections of Reviews (`reviewRows`) */
-export function reviewRowsOf(requests: readonly ReviewRequest[], sections: ReviewsView["sections"]): ReviewRows {
-  const entries: ReviewEntry[] = sections.flatMap(section => section.entries)
+/**
+ * The rows of Reviews of the requests of Your Turn, the sections of Reviews and what its searches of the closed pull
+ * requests found (`reviewRows`), each pull request once
+ */
+export function reviewRowsOf(requests: readonly ReviewRequest[], sections: ReviewsView["sections"], closedSearches: ReviewsView["closedSearches"] = []): ReviewRows {
+  const closed = closedSearches.flatMap(search => (search.state.kind === "found" ? search.state.entries : []))
+  const entries: ReviewEntry[] = [...sections.flatMap(section => section.entries), ...closed]
   const involvements: Record<number, ReviewInvolvement> = {}
+  const shown = new Set(requests.map(request => request.number))
+  const rows: ReviewRequest[] = [...requests]
   for (const entry of entries) {
+    if (shown.has(entry.request.number)) {
+      continue
+    }
+    shown.add(entry.request.number)
     involvements[entry.request.number] = entry.involvement
+    rows.push(entry.request)
   }
-  return { requests: [...requests, ...entries.map(entry => entry.request)], involvements }
+  return { requests: rows, involvements }
 }
 
 /**

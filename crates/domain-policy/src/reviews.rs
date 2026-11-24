@@ -7,9 +7,11 @@
 //! own ones: a link not
 //! reviewed since its head moved, a review its commits outdated that GitHub no longer counts, an own pull request whose
 //! branch is the user's move or that a reviewer handed back.
+//! Beside them, while a window filters by words (`closed_search_words`), the closed pull requests the user reviewed or
+//! opened whose titles have them (`closed_results`), the newest closed first, none that a section has.
 
 use domain_types::pull_request::{ReviewDecision, ReviewerState};
-use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
+use domain_types::review_request::{AnsweredRequest, ClosedReviewsResult, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{ReviewSection, ReviewSectionKind};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,6 +97,58 @@ pub fn sections(facts: &ReviewsFacts<'_>) -> Vec<ReviewSection> {
   let authored = searched(ReviewSectionKind::Authored, &answer.authored, authored, &mut shown, facts);
 
   [linked, team, reviewed, authored].into_iter().flatten().collect()
+}
+
+/// The fewest characters of the words, spaces aside, that the closed pull requests are searched by: fewer match a part
+/// of every title
+pub const CLOSED_SEARCH_MIN_CHARS: usize = 3;
+
+/// The most words a search of the closed pull requests takes, as GitHub limits a query
+const CLOSED_SEARCH_MAX_WORDS: usize = 8;
+
+/// The words the session searches the closed pull requests by, of the text the Reviews view filters by: lower-cased,
+/// one space between them; none for fewer than three characters, more than eight words, or a number or a link, which
+/// names one pull request (Enter adds it)
+#[must_use]
+pub fn closed_search_words(text: &str) -> Option<String> {
+  let lowered = text.to_lowercase();
+  let words: Vec<&str> = lowered.split_whitespace().collect();
+  let chars: usize = words.iter().map(|word| word.chars().count()).sum();
+  if chars < CLOSED_SEARCH_MIN_CHARS || words.len() > CLOSED_SEARCH_MAX_WORDS {
+    return None;
+  }
+  if let [word] = words.as_slice() {
+    let number = word.strip_prefix('#').unwrap_or(word);
+    if word.contains('/') || (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())) {
+      return None;
+    }
+  }
+  Some(words.join(" "))
+}
+
+/// The closed pull requests a search found, as the Reviews view shows them: the reviewed and the user's own in one
+/// list, the newest closed first, none of `shown` (a section of Reviews or Your Turn has it), with GitHub's count of
+/// both less those left out
+#[must_use]
+pub fn closed_results(result: &ClosedReviewsResult, shown: &BTreeSet<u32>) -> (u32, Vec<ReviewEntry>) {
+  let mut seen = shown.clone();
+  let found = len(&result.reviewed.entries) + len(&result.authored.entries);
+  let mut entries: Vec<ReviewEntry> = result
+    .reviewed
+    .entries
+    .iter()
+    .chain(&result.authored.entries)
+    .filter(|entry| seen.insert(entry.request.number))
+    .cloned()
+    .collect();
+  entries.sort_by_key(|entry| {
+    (
+      std::cmp::Reverse(entry.request.closed_at.unwrap_or(entry.request.updated_at)),
+      std::cmp::Reverse(entry.request.number),
+    )
+  });
+  let total = (result.reviewed.total_count + result.authored.total_count).max(found);
+  (total - (found - len(&entries)), entries)
 }
 
 /// The links whose pull request GitHub answered merged, closed or missing: they leave Reviews

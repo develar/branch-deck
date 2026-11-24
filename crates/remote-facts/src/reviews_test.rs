@@ -1,7 +1,7 @@
 use crate::review_requests::list_review_requests;
-use crate::reviews::{parse_pull_request_link, read_linked_pull_request, reviews_query};
+use crate::reviews::{closed_reviews_searches, parse_pull_request_link, read_linked_pull_request, reviews_query, search_closed_reviews};
 use domain_types::error::ErrorCode;
-use domain_types::pull_request::{Reviewer, ReviewerState};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewInvolvement, ReviewsAsk};
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
@@ -182,20 +182,123 @@ fn a_link_names_a_pull_request_of_the_repository() {
   assert_eq!(number("review this"), Err(ErrorCode::InvalidArguments));
 }
 
+/// A fake GitHub that answers every GraphQL request with `data`
+async fn answering(data: serde_json::Value) -> (std::sync::Arc<github::fake_github::FakeGitHub>, github::service::GitHubService) {
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer("POST", "/graphql", FakeAnswer::ok(serde_json::json!({ "data": data })));
+  (fake, github)
+}
+
+/// The answer of the query of one link, of the pull request `pull`
+fn link_data(pull: &serde_json::Value) -> serde_json::Value {
+  serde_json::json!({"viewer": {"login": "carol"}, "repository": {"viewerPermission": "READ", "pullRequest": pull}})
+}
+
 #[test(tokio::test)]
 async fn reads_a_link_the_user_adds() {
-  let (fake, github) = start_fake_service("t0ken").await;
-  fake.answer(
-    "POST",
-    "/graphql",
-    FakeAnswer::ok(
-      serde_json::json!({"data": {"viewer": {"login": "carol"}, "repository": {"viewerPermission": "READ", "pullRequest": pull(105, "frank", &serde_json::json!({}))}}}),
-    ),
-  );
+  let (fake, github) = answering(link_data(&pull(105, "frank", &serde_json::json!({})))).await;
   let link = LinkedPullRequest { number: 105, linked_at: 7 };
-  let (entry, open) = read_linked_pull_request(&github, ".", &repository(), link).await.unwrap().expect("the pull request");
-  assert!(open);
+  let entry = read_linked_pull_request(&github, ".", &repository(), link).await.unwrap().expect("the pull request");
+  assert!(!entry.request.is_closed());
   assert_eq!(entry.involvement, ReviewInvolvement::Linked { linked_at: 7 });
   assert_eq!(entry.request.title, "Change 105");
   assert_eq!(fake.requests_to("POST", "/graphql")[0].json()["variables"]["number"], 105);
+}
+
+/// The closed pull requests the user reviewed and opened are searched by the words in their titles, each word quoted so
+/// that none reads as a qualifier; a merged one (also one Patronus closed with its label) and a closed one with when, the
+/// base of each where it forked
+#[test(tokio::test)]
+async fn searches_the_closed_pull_requests_by_the_words_of_their_titles() {
+  let fork = serde_json::json!({"nodes": [{"commit": {"parents": {"nodes": [{"oid": "fork"}]}}}]});
+  let (fake, github) = answering(serde_json::json!({
+      "viewer": {"login": "carol"},
+      "repository": {"viewerPermission": "READ"},
+      "reviewed": {"issueCount": 23, "nodes": [
+        pull(201, "alice", &serde_json::json!({"state": "MERGED", "mergedAt": "2026-11-20T10:00:00Z", "closedAt": "2026-11-20T10:00:00Z", "commits": fork, "viewerLatestReview": {"state": "APPROVED", "submittedAt": "2026-11-19T08:00:00Z", "commit": {"oid": "head"}}})),
+        pull(202, "bob", &serde_json::json!({"state": "CLOSED", "closedAt": "2026-11-21T10:00:00Z", "labels": {"nodes": [{"name": "Merged"}]}})),
+      ]},
+      "authored": {"issueCount": 1, "nodes": [
+        pull(203, "carol", &serde_json::json!({"state": "CLOSED", "closedAt": "2026-11-22T10:00:00Z", "commits": fork})),
+      ]}
+  }))
+  .await;
+  let result = search_closed_reviews(&github, ".", &repository(), "claude repo:other/x").await;
+  let request = &fake.requests_to("POST", "/graphql")[0].json();
+  let base = r#"repo:acme/monorepo is:pr is:closed archived:false in:title sort:updated-desc "claude" "repo:other/x""#;
+  assert_eq!(request["variables"]["reviewed"], format!("{base} reviewed-by:@me -author:@me"));
+  assert_eq!(request["variables"]["authored"], format!("{base} author:@me"));
+  assert_eq!(closed_reviews_searches(&repository(), "a\"b").map(|(_, search)| search.contains(r#" "ab" "#)), [true, true]);
+  assert!(request["query"].as_str().unwrap().contains("first: 20"));
+
+  assert_eq!(
+    result.availability,
+    PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned()
+    }
+  );
+  assert_eq!((result.reviewed.total_count, result.authored.total_count), (23, 1));
+  let states: Vec<_> = result
+    .reviewed
+    .entries
+    .iter()
+    .chain(&result.authored.entries)
+    .map(|entry| (entry.request.number, entry.request.state, entry.request.closed_at, entry.request.base_ref_oid.as_str()))
+    .collect();
+  assert_eq!(
+    states,
+    [
+      (201, PullRequestState::Merged, Some(1_795_168_800), "fork"),
+      (202, PullRequestState::Merged, Some(1_795_255_200), "base"),
+      (203, PullRequestState::Closed, Some(1_795_341_600), "fork"),
+    ]
+  );
+  assert!(matches!(
+    result.reviewed.entries[0].involvement,
+    ReviewInvolvement::Reviewed {
+      state: Some(ReviewerState::Approved),
+      ..
+    }
+  ));
+  assert!(matches!(result.authored.entries[0].involvement, ReviewInvolvement::Authored { .. }));
+}
+
+/// A token without `read:org` is asked again without the teams, and a failure of GitHub is the availability
+#[test(tokio::test)]
+async fn a_search_of_the_closed_pull_requests_without_read_org_asks_again_without_the_teams() {
+  let refused = FakeAnswer::ok(serde_json::json!({"data": null, "errors": [{"type": "INSUFFICIENT_SCOPES", "message": "read:org"}]}));
+  let empty = FakeAnswer::ok(
+    serde_json::json!({"data": {"viewer": {"login": "carol"}, "repository": {"viewerPermission": "READ"}, "reviewed": {"issueCount": 0, "nodes": []}, "authored": {"issueCount": 0, "nodes": []}}}),
+  );
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer_in_turn("POST", "/graphql", vec![refused, empty]);
+  let result = search_closed_reviews(&github, ".", &repository(), "claude").await;
+  assert!(matches!(result.availability, PullRequestAvailability::Available { .. }));
+  let requests = fake.requests_to("POST", "/graphql");
+  assert_eq!(requests.len(), 2);
+  assert!(requests[0].json()["query"].as_str().unwrap().contains("... on Team { slug }"));
+  assert!(!requests[1].json()["query"].as_str().unwrap().contains("... on Team { slug }"));
+
+  fake.answer("POST", "/graphql", FakeAnswer::status(502, serde_json::json!({})));
+  let failed = search_closed_reviews(&github, ".", &repository(), "claude").await;
+  assert!(!matches!(failed.availability, PullRequestAvailability::Available { .. }));
+}
+
+/// A link of a merged pull request reads it with when it was merged and its base where it forked
+#[test(tokio::test)]
+async fn reads_a_merged_link_with_its_state() {
+  let merged = pull(
+    106,
+    "frank",
+    &serde_json::json!({"state": "MERGED", "mergedAt": "2026-11-20T10:00:00Z", "commits": {"nodes": [{"commit": {"parents": {"nodes": [{"oid": "fork"}]}}}]}}),
+  );
+  let (fake, github) = answering(link_data(&merged)).await;
+  let link = LinkedPullRequest { number: 106, linked_at: 7 };
+  let entry = read_linked_pull_request(&github, ".", &repository(), link).await.unwrap().expect("the pull request");
+  assert_eq!(
+    (entry.request.state, entry.request.closed_at, entry.request.base_ref_oid.as_str()),
+    (PullRequestState::Merged, Some(1_795_168_800), "fork")
+  );
+  assert!(fake.requests_to("POST", "/graphql")[0].json()["query"].as_str().unwrap().contains("fragment ClosedPull"));
 }

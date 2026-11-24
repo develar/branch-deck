@@ -249,6 +249,7 @@ const BLOCKERS = {
   nothingBeyond: ({ why }, _id, words) => nothingBeyondWords(words.subject, why),
   landed: ({ landed }) => formatLanded(landed),
   ownPullRequest: () => "Your own pull request: GitHub takes no review of its author",
+  pullRequestClosed: ({ number, merged }) => `Pull request #${number} is ${merged ? "merged" : "closed"}`,
   approved: ({ commit }) => `You approved ${formatShortHash(commit)}`,
   stackApproved: () => "You approved every pull request of the stack on the commits it shows",
   targetUnread: () => "Reading the branch Patronus pushes into…",

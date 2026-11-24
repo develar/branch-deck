@@ -439,8 +439,10 @@ Mock implementation:
 - **Review requests**: the session of a repository reads `NotGitHub` (`TestFactSources::review_requests`,
   `review_requests_of`) until a test posts a fixture to `/repositories/{id}/review-requests` (a `ReviewRequestsFixture`
   plus an optional `fetchError`, and for [Reviews](../../openspec/specs/repository/reviews/spec.md) `others` (the searches the
-  Reviews view reads), `answered` and `linkable`, the pull requests a link can name, `closed` for a merged one; `GET`
-  returns the counts of the session's lists, of those that read the rest of Reviews (`reviewsCalls`) and of the
+  Reviews view reads), `answered` and `linkable`, the pull requests a link can name, `closed` for a merged one, and
+  `closed`, the merged or closed entries a search of the closed pull requests finds by the words of their titles; `GET`
+  returns the counts of the session's lists, of those that read the rest of Reviews (`reviewsCalls`), the words of
+  every search of the closed ones (`closedSearches`, after 400 ms of the repository's clock) and of the
   fetches, and the `keep` of every prune); it lists them after a sync, on a focus and five minutes after its last answer
   on the clock of the repository (`repo.advanceBackendClock`). An empty `headRefOid` of the fixture is answered as the
   tip of the branch it names, read from the refs without a git process. The links the user adds live in the settings of

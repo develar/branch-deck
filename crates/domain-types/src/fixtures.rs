@@ -68,6 +68,8 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
     title: format!("Change {number}"),
     title_lead: None,
     url: format!("https://github.com/acme/monorepo/pull/{number}"),
+    state: PullRequestState::Open,
+    closed_at: None,
     body: String::new(),
     author: Some("alice".to_string()),
     requested_by: Some("bob".to_string()),

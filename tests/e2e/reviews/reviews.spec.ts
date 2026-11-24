@@ -263,10 +263,10 @@ test.describe("Reviews view", () => {
     await expect(entryRow(page, "reviewed", 202)).toBeVisible()
     await expect(section(page, "team")).toHaveCount(0)
 
-    // words that match nothing: said, and Enter neither opens nor adds anything
-    await field.fill("migrate")
+    // words that match nothing, too short to search the closed ones: said at once, and Enter neither opens nor adds anything
+    await field.fill("qz")
     const empty = reviewsView(page).getByTestId("reviews-filter-empty")
-    await expect(empty).toContainText("No pull requests match “migrate”")
+    await expect(empty).toContainText("No pull requests match “qz”")
     await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toHaveCount(0)
     await field.press("Enter")
     await expect(reviewsView(page).getByTestId("reviews-link-error")).toHaveCount(0)
@@ -287,6 +287,101 @@ test.describe("Reviews view", () => {
     await field.fill("#202")
     expect((await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 3)).data.number).toBe(202)
     expect(linkCalls).toHaveLength(1)
+  })
+
+  test("should search the closed pull requests by the words typed and open one read only, never by a number or too few characters", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const merged = reviewRequest("feature-ui", 401, 30, {
+      title: "A Claude session keeps its estimate",
+      state: "merged",
+      closedAt: NOW - 3600,
+      reviewedState: "approved",
+      reviewedCommit: "2222222222222222222222222222222222222222",
+    })
+    const closed = reviewRequest("feature-db", 402, 40, { title: "Claude reads the store", author: "user-name", state: "closed", closedAt: NOW - 7200 })
+    const repo = await setupReviews(page, setupRepo, syncAndWaitForBranches, {
+      reviewRequests: {
+        ...reviewsFixture(),
+        closed: [
+          { request: merged, involvement: { kind: "reviewed", state: "approved", repliedAt: null, newCommits: false } },
+          { request: closed, involvement: { kind: "authored", reviewers: [], isDraft: false, branch: null } },
+        ],
+      },
+    })
+    await showReviews(page)
+    const field = reviewsView(page).getByTestId("reviews-filter-input")
+    const searched = async (words: string) => (await repo.getClosedSearches()).includes(words)
+    const asked = async () => (await repo.getClosedSearches()).length
+    const empty = reviewsView(page).getByTestId("reviews-filter-empty")
+
+    // a number names one pull request, two characters search nothing: said at once
+    await field.fill("#401")
+    await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toBeVisible()
+    await field.fill("zq")
+    await expect(empty).toContainText("No pull requests match “zq”")
+
+    await field.fill("Claude")
+    await moveClockUntil(repo, 500, () => searched("claude"), { asked })
+    const closedSection = section(page, "closed")
+    await expect(closedSection.getByRole("button", { name: /Closed and Merged/ })).toContainText("2")
+    // the newest closed first, each marked by how it ended, with when
+    await expect(closedSection.getByTestId("review-request-row")).toHaveCount(2)
+    await expect(closedSection.getByTestId("review-request-row").first()).toHaveAttribute("data-review-number", "401")
+    await expect(entryRow(page, "closed", 401).getByTestId("review-entry-mark")).toHaveAttribute("data-mark", "merged")
+    await expect(entryRow(page, "closed", 401).getByTestId("review-request-age")).toHaveText("merged 1 hour ago")
+    await expect(entryRow(page, "closed", 402).getByTestId("review-entry-mark")).toHaveAttribute("data-mark", "closed")
+    await expect(empty).toHaveCount(0)
+    expect(await repo.getClosedSearches()).toEqual(["claude"])
+
+    // no open one matches: Enter opens the first closed one only once there is one, so it narrows to it
+    await field.fill("Claude estimate")
+    await moveClockUntil(repo, 500, () => searched("claude estimate"), { asked })
+    await expect(closedSection.getByTestId("review-request-row")).toHaveCount(1)
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 1)
+    expect([opened.data.number, opened.data.source]).toEqual([401, "reviews"])
+    const window = await openLinkedSubWindow(page, opened)
+    const review = window.getByTestId("review-window")
+    await expect(review.getByTestId("review-closed")).toHaveText("This pull request is merged")
+    await expect(review.getByTestId("review-asked-by")).toContainText("Merged: You reviewed carol's pull request")
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    // its decisions are disabled with the reason: the key approves nothing
+    await expect(review.getByTestId("review-approve")).toBeDisabled()
+    await expect(review.getByTestId("review-approve")).toHaveAccessibleDescription(/Pull request #401 is merged/)
+    await review.getByTestId("review-dialog-body").focus()
+    await window.keyboard.press("a")
+    await expect(review.getByTestId("review-approve")).toBeDisabled()
+    expect(await gitHubRequests(repo, "POST", "pulls", 401, "reviews")).toEqual([])
+    await window.close()
+
+    // cleared: the section goes; words that find nothing search every pull request the user takes part in on GitHub
+    await field.fill("")
+    await expect(closedSection).toHaveCount(0)
+    await field.fill("nothing like it")
+    await moveClockUntil(repo, 500, () => searched("nothing like it"), { asked })
+    await expect(empty).toContainText("No pull requests match “nothing like it”")
+    await empty.getByRole("button", { name: "Search on GitHub" }).click()
+    expect(await getOpenedUrls(page)).toContain(`https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr involves:@me nothing like it")}`)
+  })
+
+  test("should open a merged pull request added by its link read only, keeping no link of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupReviews(page, setupRepo, syncAndWaitForBranches)
+    await showReviews(page)
+    const field = reviewsView(page).getByTestId("reviews-filter-input")
+    await field.fill("#306")
+    const opened = await pressAndExpectReviewOpened<PullRequestReviewWindowData>(page, () => field.press("Enter"), 1)
+    expect(opened.data.number).toBe(306)
+    const window = await openLinkedSubWindow(page, opened)
+    const review = window.getByTestId("review-window")
+    // the session remembers it: its fetch shows its commits, its decisions disabled
+    await expect(review.getByTestId("review-closed")).toHaveText("This pull request is merged")
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    await expect(review.getByTestId("review-approve")).toBeDisabled()
+    await window.close()
+    await expect(field).toHaveValue("")
+    await expect(section(page, "linked")).toHaveCount(0)
   })
 
   test("should search GitHub with the words typed where it returned only a part of a section", async ({ page, setupRepo, syncAndWaitForBranches }) => {

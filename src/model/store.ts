@@ -708,7 +708,8 @@ function projectView(
   if (changes === null || changes.facts != null) {
     applyAuthFacts(next.facts, changes?.facts ?? null)
   }
-  if (changes === null || changes.facts != null || changes.patronus != null || news.length > 0) {
+  // Reviews changes alone too: what a search of the closed pull requests found is in no fact
+  if (changes === null || changes.facts != null || changes.patronus != null || changes.reviews != null || news.length > 0) {
     for (const listener of factsListeners) {
       listener(repositoryPath, next, changes, news)
     }

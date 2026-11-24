@@ -11,6 +11,7 @@ use crate::fact_sources::{FactSources, Read};
 use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use crate::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, readiness_inputs};
 use crate::review_requests::list_review_requests;
+use crate::reviews::search_closed_reviews;
 use crate::sign_in::SignIns;
 use domain_policy::reviews::gone_links;
 use domain_types::error::{ApiError, ErrorCode};
@@ -18,7 +19,7 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
-use domain_types::review_request::{LinkedPullRequest, ReviewRequestsResult, ReviewsAsk};
+use domain_types::review_request::{ClosedReviewsResult, LinkedPullRequest, ReviewRequestsResult, ReviewsAsk};
 use domain_types::sign_in::AuthStatus;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
@@ -161,6 +162,26 @@ impl<H: ServiceHost> ServiceFactSources<H> {
     }
   }
 
+  /// `read` with the GitHub service of the session of `key` and the GitHub repository a read names (`known`), else the
+  /// host's; without either, the answer of `unavailable` (`NotGitHub` without a repository)
+  async fn on_github<T>(
+    &self,
+    key: &SessionKey,
+    known: Option<String>,
+    unavailable: fn(PullRequestAvailability) -> T,
+    read: impl AsyncFnOnce(Arc<GitHubService>, GitHubRepository) -> T,
+  ) -> T {
+    let github = match self.host.github(key) {
+      Ok(github) => github,
+      Err(error) => return unavailable(github_unavailable(error)),
+    };
+    match self.github_repository(key, known.as_deref()).await {
+      Ok(Some(repository)) => read(github, repository).await,
+      Ok(None) => unavailable(PullRequestAvailability::NotGitHub),
+      Err(error) => unavailable(github_unavailable(error)),
+    }
+  }
+
   /// What the review readiness of `asks` against `baseline` is read with for the session of `key`, composed once for
   /// every host: the Space and GitHub repositories, the target of the baseline; a tip that is no commit id is refused
   ///
@@ -242,29 +263,24 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
   }
 
   fn review_requests<'a>(&'a self, key: &'a SessionKey, known: Option<String>, reviews: bool) -> Read<'a, ReviewRequestsResult> {
-    let unavailable = ReviewRequestsResult::unavailable;
-    Box::pin(async move {
-      let github = match self.host.github(key) {
-        Ok(github) => github,
-        Err(error) => return unavailable(github_unavailable(error)),
-      };
-      match self.github_repository(key, known.as_deref()).await {
-        Ok(Some(repository)) => {
-          let also = reviews.then(|| ReviewsAsk {
-            linked: self.host.linked_pull_requests(key, &repository),
-          });
-          let result = list_review_requests(&github, &key.worktree, &repository, also.as_ref()).await;
-          // a link of a merged, closed or missing pull request goes
-          let gone = result.others.as_ref().map_or_default(gone_links);
-          if !gone.is_empty() {
-            self.host.forget_linked_pull_requests(key, &repository, &gone);
-          }
-          result
-        }
-        Ok(None) => unavailable(PullRequestAvailability::NotGitHub),
-        Err(error) => unavailable(github_unavailable(error)),
+    Box::pin(self.on_github(key, known, ReviewRequestsResult::unavailable, async move |github, repository| {
+      let also = reviews.then(|| ReviewsAsk {
+        linked: self.host.linked_pull_requests(key, &repository),
+      });
+      let result = list_review_requests(&github, &key.worktree, &repository, also.as_ref()).await;
+      // a link of a merged, closed or missing pull request goes
+      let gone = result.others.as_ref().map_or_default(gone_links);
+      if !gone.is_empty() {
+        self.host.forget_linked_pull_requests(key, &repository, &gone);
       }
-    })
+      result
+    }))
+  }
+
+  fn closed_reviews<'a>(&'a self, key: &'a SessionKey, known: Option<String>, words: String) -> Read<'a, ClosedReviewsResult> {
+    Box::pin(self.on_github(key, known, ClosedReviewsResult::unavailable, async move |github, repository| {
+      search_closed_reviews(&github, &key.worktree, &repository, &words).await
+    }))
   }
 
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {

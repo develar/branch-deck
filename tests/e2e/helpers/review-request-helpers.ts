@@ -23,6 +23,8 @@ export interface ReviewRequestsFixture {
   readonly others?: { readonly team?: ReviewSearchFixture; readonly reviewed?: ReviewSearchFixture; readonly authored?: ReviewSearchFixture }
   /** The pull requests the fake GitHub has beside them, which a link of the user can name; `closed` merged or closed */
   readonly linkable?: readonly (ReviewRequest & { readonly closed?: boolean })[]
+  /** The merged or closed pull requests the user reviewed or opened, which a search of the closed ones finds by the words of their titles */
+  readonly closed?: readonly ReviewEntry[]
 }
 
 /** One search of Reviews as GitHub answers it (`ReviewSearch`): how many match, and the pull requests it returns */

@@ -16,14 +16,14 @@ use domain_policy::actions::{PullRequestFacts, Target, review_actions};
 use domain_policy::approval_landing::approval_landing;
 use domain_policy::landing_node::is_users_move;
 use domain_policy::reviewer_groups::reviewer_groups;
-use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
+use domain_policy::reviews::{ReviewsFacts, closed_results, is_returned, sections};
 use domain_policy::stack_approval::{LayerFacts, stack_approval, stack_review_actions};
 use domain_types::actions::ActionState;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::pull_request::PullRequestState;
 use domain_types::review_request::{ReviewInvolvement, ReviewRequest};
-use domain_types::session::{ApprovalLanding, ReviewStackApproval, ReviewerGroupView, ReviewsView, request_of_readiness_key};
+use domain_types::session::{ApprovalLanding, ClosedSearchState, ClosedSearchView, ReviewStackApproval, ReviewerGroupView, ReviewsView, request_of_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The key of the actions of the pull request `number` in `RepositoryView::actions`
@@ -54,7 +54,34 @@ pub fn reviews_view(state: &TableState, facts: &FactStore, steps: &BTreeMap<Stri
       own_moves: &own_moves,
     })
   });
-  ReviewsView { head, sections, checked_at }
+  // a closed pull request a listing still shows open (its index lags behind) shows once, open
+  let shown: BTreeSet<u32> = fact
+    .view()
+    .requests
+    .iter()
+    .map(|request| request.number)
+    .chain(sections.iter().flat_map(|section| section.entries.iter().map(|entry| entry.request.number)))
+    .collect();
+  let closed_searches = fact
+    .closed_searches()
+    .map(|(words, found)| ClosedSearchView {
+      words: words.to_owned(),
+      state: match found {
+        None => ClosedSearchState::Searching,
+        Some(None) => ClosedSearchState::Failed,
+        Some(Some(result)) => {
+          let (total_count, entries) = closed_results(result, &shown);
+          ClosedSearchState::Found { total_count, entries }
+        }
+      },
+    })
+    .collect();
+  ReviewsView {
+    head,
+    sections,
+    checked_at,
+    closed_searches,
+  }
 }
 
 /// The actions of every pull request to review by `pull:<number>`: the requests by name, the pull requests of
@@ -83,6 +110,7 @@ pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &Review
         approved: fact.approved(request),
         target,
         cached,
+        state: request.state,
       };
       (pull_key(request.number), review_actions(&facts))
     })
@@ -97,6 +125,8 @@ pub fn approval_landing_of(state: &TableState, facts: &FactStore, reviews: &Revi
   let target = target(state, facts);
   pulls_to_review(facts, reviews)
     .into_iter()
+    // a merged or closed one takes no approval
+    .filter(|(request, _)| !request.is_closed())
     .filter_map(|(request, involvement)| {
       let own = matches!(involvement, Some(ReviewInvolvement::Authored { .. }));
       approval_landing(target, &request.base_ref_name, own).map(|landing| (pull_key(request.number), landing))
@@ -105,7 +135,8 @@ pub fn approval_landing_of(state: &TableState, facts: &FactStore, reviews: &Revi
 }
 
 /// Every pull request to review once, by number, with how the user takes part in it: the requests by name, the pull
-/// requests of `reviews`, and those the review windows show; the first one of a number stands
+/// requests of `reviews` (the closed ones its searches found too), and those the review windows show; the first one of
+/// a number stands
 fn pulls_to_review<'a>(facts: &'a FactStore, reviews: &'a ReviewsView) -> Vec<(&'a ReviewRequest, Option<&'a ReviewInvolvement>)> {
   let fact = &facts.review_requests;
   let requests = fact.view().requests.iter().map(|request| (request, None));
@@ -114,9 +145,22 @@ fn pulls_to_review<'a>(facts: &'a FactStore, reviews: &'a ReviewsView) -> Vec<(&
     .iter()
     .flat_map(|section| &section.entries)
     .map(|entry| (&entry.request, Some(&entry.involvement)));
+  let closed = reviews
+    .closed_searches
+    .iter()
+    .flat_map(|search| match &search.state {
+      ClosedSearchState::Found { entries, .. } => entries.as_slice(),
+      ClosedSearchState::Searching | ClosedSearchState::Failed => &[],
+    })
+    .map(|entry| (&entry.request, Some(&entry.involvement)));
   let windows = fact.windows().map(|(request, involvement)| (request, involvement.as_ref()));
   let mut seen = BTreeSet::new();
-  requests.chain(sections).chain(windows).filter(|(request, _)| seen.insert(request.number)).collect()
+  requests
+    .chain(sections)
+    .chain(closed)
+    .chain(windows)
+    .filter(|(request, _)| seen.insert(request.number))
+    .collect()
 }
 
 /// The key of the stack of `top` a review window shows in `RepositoryView::review_stacks` and `RepositoryView::actions`

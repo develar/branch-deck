@@ -12,7 +12,7 @@ use domain_types::patronus::{
   ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult, TokenSource};
-use domain_types::review_request::ReviewRequestsResult;
+use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use domain_types::sign_in::AuthStatus;
 use pretty_assertions::assert_eq;
@@ -89,6 +89,12 @@ struct ScriptedSources {
   hold_rules: Mutex<BTreeSet<String>>,
   /// While set, each read of the merge profiles waits until the test releases it
   hold_profiles: AtomicBool,
+  /// The searches of the closed pull requests: the words of each
+  closed_calls: Mutex<Vec<String>>,
+  /// What the searches of the closed pull requests answer; available without any unless a test says otherwise
+  closed_answer: Mutex<Option<PullRequestAvailability>>,
+  /// While set, each search of the closed pull requests waits until the test releases it
+  hold_closed: AtomicBool,
 }
 
 impl ScriptedSources {
@@ -151,6 +157,18 @@ impl FactSources for ScriptedSources {
       others: None,
     });
     Box::pin(async move { answer })
+  }
+
+  fn closed_reviews<'a>(&'a self, _key: &'a SessionKey, _github_repository: Option<String>, words: String) -> Read<'a, ClosedReviewsResult> {
+    lock(&self.closed_calls).push(words);
+    let held = self.held(&self.hold_closed);
+    let availability = lock(&self.closed_answer).clone().unwrap_or_else(available_on_github);
+    Box::pin(async move {
+      if let Some(released) = held {
+        let _ = released.await;
+      }
+      ClosedReviewsResult::unavailable(availability)
+    })
   }
 
   fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
@@ -1636,4 +1654,102 @@ async fn the_sign_ins_are_read_when_a_window_opens_the_session_after_a_sign_in_a
   harness.advance(1).await;
   harness.send(SessionEventKind::Focus(true)).await;
   assert_eq!(auth_reads(&harness), 1, "a focus by the rule of the lists");
+}
+
+impl Harness {
+  /// The searches of the closed pull requests since the last call: the words of each
+  fn closed_calls(&self) -> Vec<String> {
+    std::mem::take(&mut *lock(&self.sources.closed_calls))
+  }
+}
+
+/// The demand of a window that shows the Reviews view filtered by `texts`
+fn filtered(texts: &[&str]) -> SessionEventKind {
+  SessionEventKind::Demand(Demand {
+    online: true,
+    reviews: true,
+    reviews_searches: texts.iter().map(|text| (*text).to_owned()).collect(),
+    ..Demand::default()
+  })
+}
+
+/// The closed pull requests are searched by the words of the filter once they stood 400 ms, never while they are typed,
+/// nor by fewer than three characters, a number or a link, nor while the view is hidden; one search at a time, other
+/// words after it; an answer holds two minutes
+#[tokio::test]
+async fn the_closed_pull_requests_are_searched_by_the_words_once_they_stood_one_at_a_time_and_kept_two_minutes() {
+  let session = Harness::watched().await;
+  for text in ["cl", "#2181", "https://github.com/acme/monorepo/pull/2181"] {
+    session.send(filtered(&[text])).await;
+    session.advance(1).await;
+  }
+  assert_eq!(session.closed_calls(), Vec::<String>::new(), "too short, a number, a link");
+
+  session.send(filtered(&["cla"])).await;
+  session.clock.advance(Duration::from_millis(300));
+  session.send(filtered(&["claude"])).await;
+  session.clock.advance(Duration::from_millis(300));
+  settle().await;
+  assert_eq!(session.closed_calls(), Vec::<String>::new(), "typed: the words did not stand yet");
+  session.clock.advance(Duration::from_millis(100));
+  settle().await;
+  assert_eq!(session.closed_calls(), vec!["claude".to_owned()]);
+
+  // other words while a search is in flight are searched after it
+  session.sources.hold_closed.store(true, Ordering::SeqCst);
+  session.send(filtered(&["claude  Terminal"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), vec!["claude terminal".to_owned()]);
+  session.send(filtered(&["skill view"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), Vec::<String>::new(), "one at a time");
+  session.sources.hold_closed.store(false, Ordering::SeqCst);
+  session.release().await;
+  assert_eq!(session.closed_calls(), vec!["skill view".to_owned()]);
+
+  // kept: back to the words within two minutes asks nothing, later again
+  session.send(filtered(&["claude"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), Vec::<String>::new(), "answered a few seconds ago");
+  session.send(filtered(&[])).await;
+  session.advance(120).await;
+  session.send(filtered(&["claude"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), vec!["claude".to_owned()]);
+
+  // the view hidden: nothing
+  session
+    .send(SessionEventKind::Demand(Demand {
+      online: true,
+      reviews_searches: vec!["hidden view".to_owned()],
+      ..Demand::default()
+    }))
+    .await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), Vec::<String>::new());
+}
+
+/// A rate limit of a search holds back the reads of GitHub but the refresh button, and the words searched next fail at
+/// once without asking it; another failure leaves the poll of the review requests as it was
+#[tokio::test]
+async fn a_rate_limit_of_a_search_of_the_closed_pull_requests_holds_back_github_and_fails_the_next_words_at_once() {
+  let session = Harness::watched().await;
+  *lock(&session.sources.closed_answer) = Some(PullRequestAvailability::Error { message: "502".to_owned() });
+  session.send(filtered(&["claude"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), vec!["claude".to_owned()]);
+  // the view that shows read the rest of Reviews at once
+  session.review_request_calls();
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls().len(), 1, "the poll as before");
+
+  *lock(&session.sources.closed_answer) = Some(PullRequestAvailability::RateLimited { retry_at: 0 });
+  session.send(filtered(&["terminal"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), vec!["terminal".to_owned()]);
+  session.send(filtered(&["skill"])).await;
+  session.advance(1).await;
+  assert_eq!(session.closed_calls(), Vec::<String>::new(), "refused under the rate limit");
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), Vec::<Option<String>>::new(), "the focus waits for the rate limit too");
 }

@@ -2,7 +2,7 @@
  * What this window shows and needs of the session of its repository (docs/design/rust-domain-authority.md, "Demand"):
  * the one thing the page tells Rust of itself (`set_demand`, by the window's subscription), which the session asks its
  * facts by. A surface holds a part while it shows it (`showBranch`, `previewBranch`, `showReviews`,
- * `showReviewWindowPullRequest`, `showRobotDetails`, the review readiness below): each answers its release and is counted, so two surfaces of one branch hold it
+ * `searchClosedReviews`, `showReviewWindowPullRequest`, `showRobotDetails`, the review readiness below): each answers its release and is counted, so two surfaces of one branch hold it
  * once; a watched robot of no branch is held for the life of the window (`watchRobotInDemand`). The focus of the window
  * and whether the machine is online come with them.
  *
@@ -25,9 +25,9 @@ import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 /** The least time between two sends of the demand */
 export const DEMAND_SEND_INTERVAL_MS = 250
 
-type Part = "visibleBranches" | "visibleStacks" | "needed" | "robotDetails" | "watchedRobots" | "reviews" | "reviewWindows"
+type Part = "visibleBranches" | "visibleStacks" | "needed" | "robotDetails" | "watchedRobots" | "reviews" | "reviewWindows" | "reviewsSearches"
 
-const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "robotDetails", "watchedRobots", "reviews", "reviewWindows"]
+const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "robotDetails", "watchedRobots", "reviews", "reviewWindows", "reviewsSearches"]
 
 /** By part, each name with the number of surfaces that hold it */
 const held = new Map<Part, Map<string, number>>(PARTS.map(part => [part, new Map()]))
@@ -84,6 +84,14 @@ export function watchRobotInDemand(robotId: string): void {
 /** The Reviews view shows until the returned function is called: the session reads the rest of Reviews */
 export function showReviews(): () => void {
   return hold("reviews", "reviews")
+}
+
+/**
+ * The Reviews view filters by `words` (`searchWords`, joined by a space) until the returned function is called: the
+ * session searches the closed pull requests by them (`ReviewsView.closedSearches`), when they are long enough
+ */
+export function searchClosedReviews(words: string): () => void {
+  return hold("reviewsSearches", words)
 }
 
 /**
@@ -153,6 +161,7 @@ export function currentDemand(): Demand {
     reviewWindows: names("reviewWindows")
       .map(Number)
       .toSorted((a, b) => a - b),
+    reviewsSearches: names("reviewsSearches"),
   }
 }
 

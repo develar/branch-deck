@@ -2,6 +2,11 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReviewDecision, ReviewEntry, Reviewer } from "@/lib/bindings"
 import { searchWords, matchesAllWords } from "@/lib/text-search"
 import {
+  allReviewsSearchUrl,
+  closedReviewsSearchUrl,
+  formatAskedBy,
+  formatClosedNote,
+  formatReviewAge,
   formatReviewHint,
   formatReviewMeta,
   formatReviewsNoMatch,
@@ -105,6 +110,9 @@ describe("the filter of Reviews", () => {
     expect(reviewSectionSearchUrl("linked", REPOSITORY, "oauth")).toBeNull()
     expect(reviewsSearchUrl(REPOSITORY, "oauth")).toBe(`https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr is:open involves:@me oauth")}`)
     expect(formatReviewsNoMatch(" migrate ")).toBe("No pull requests match “migrate”")
+    // a filter that found nothing searches every pull request the user takes part in, a closed search beyond what it returned the closed ones
+    expect(allReviewsSearchUrl(REPOSITORY, " oauth ")).toBe(`https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr involves:@me oauth")}`)
+    expect(closedReviewsSearchUrl(REPOSITORY, "oauth")).toBe(`https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr is:closed involves:@me in:title oauth")}`)
   })
 })
 
@@ -142,6 +150,24 @@ describe("a row of Reviews", () => {
     expect(reviewMark(reviewed("changesRequested"), false).kind).toBe("changesRequested")
     expect(reviewMark(reviewed(null), false)).toEqual({ kind: "commented", label: "You replied" })
     expect(reviewMark(TEAM, false).kind).toBe("none")
+  })
+
+  it("marks a merged or closed one by how it ended, with when, and the window says it", () => {
+    const now = Date.UTC(2026, 10, 24, 12)
+    const merged: ReviewEntry = {
+      ...reviewed("approved"),
+      request: { ...reviewed("approved").request, state: "merged", closedAt: Date.UTC(2026, 10, 24, 1) / 1000 },
+    }
+    expect(reviewMark(merged, false)).toEqual({ kind: "merged", label: "Merged" })
+    expect(formatReviewAge(merged, now)).toBe("merged 11 hours ago")
+    expect(formatReviewMeta(merged)).toBe("#202 · carol")
+    expect(formatReviewHint(merged)).toBe("you approved 6330a0a2")
+    expect(formatAskedBy(merged.request, merged.involvement)).toBe("Merged: You reviewed carol's pull request")
+    expect(formatClosedNote(merged.request)).toBe("This pull request is merged")
+    const closed: ReviewEntry = { ...OWN, request: { ...OWN.request, state: "closed", closedAt: Date.UTC(2026, 10, 22, 12) / 1000 } }
+    expect(reviewMark(closed, false)).toEqual({ kind: "closed", label: "Closed" })
+    expect(formatReviewAge(closed, now)).toBe("closed 2 days ago")
+    expect(formatClosedNote(OWN.request)).toBeNull()
   })
 
   it("shows the user's moves and three more before Show N More", () => {

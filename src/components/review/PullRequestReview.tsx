@@ -55,7 +55,7 @@ import { findAction } from "@/presenters/actions"
 import { describeUnproven, formatReading, formatStackReading } from "@/presenters/range-reading"
 import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
-import { joinApprovalScope, presentApprovalLanding, presentApprovalScope, presentStackApprovalLanding } from "@/presenters/reviews"
+import { formatClosedNote, joinApprovalScope, presentApprovalLanding, presentApprovalScope, presentStackApprovalLanding } from "@/presenters/reviews"
 import { useBranchSync } from "@/stores/branch-sync"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
@@ -592,16 +592,25 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const map = !reviewing && plan.current && plan.plan !== null ? presentMap(plan.plan) : null
   const overviewNavigator = linkNavigator(showLink)
 
+  // a merged or closed one is read only: Rust disables its decisions, the window says why
+  const closedNote = formatClosedNote(request)
   const overview = (
     // the description as wide as what it holds, the measure of reading at most (a body at `max-w-prose`), the rail right
     // after it, the two in the middle of the island: no gap of the window between them
     <div className="mx-auto grid w-fit max-w-full gap-x-10 gap-y-6 md:grid-cols-[auto_18rem]">
       <div className="flex min-w-0 flex-col gap-5">
-        {host.withdrawn && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
+        {closedNote !== null ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-closed">
             <InfoIcon aria-hidden className="size-4 shrink-0" />
-            {host.source === "reviews" ? "No longer in Reviews" : "No longer waiting for your review"}
+            {closedNote}
           </p>
+        ) : (
+          host.withdrawn && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
+              <InfoIcon aria-hidden className="size-4 shrink-0" />
+              {host.source === "reviews" ? "No longer in Reviews" : "No longer waiting for your review"}
+            </p>
+          )
         )}
         {shownLayer?.restacked === true && (
           <Callout tone="warning" data-testid="review-layer-restacked" title={`#${request.number} is not rebased onto the pull request below it as it is now`}>

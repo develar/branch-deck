@@ -2,14 +2,17 @@
 //! requests while the Reviews view shows (`reviews_query`): the pull requests that ask the user's teams, that the user
 //! reviewed, that the user opened, and the ones the user added by their links (aliases `p<number>` of `repository`).
 //! A link is read alone when the user adds it (`read_linked_pull_request`), after `parse_pull_request_link` named its
-//! number in the repository. As the review requests, every failure is an availability, not an error.
+//! number in the repository. While a window filters Reviews by words, the closed pull requests the user reviewed or
+//! opened whose titles have them are searched apart (`search_closed_reviews`). As the review requests, every failure is
+//! an availability, not an error.
 
-use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, Nodes, collect_reviewers, failure_message, visible_data};
+use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, Nodes, availability_of, collect_reviewers, failure_message, visible_data};
 use crate::review_requests::{GhData, GhPullRequest, GhSearch, request_of, take_reviewers};
 use crate::service_sources::ServiceHost;
 use domain_policy::reviews::has_new_commits;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
+use domain_types::pull_request::PullRequestAvailability;
+use domain_types::review_request::{ClosedReviewsResult, LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{FactFamily, FactRefreshReason};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use repository_model::session::{SessionKey, Sessions};
@@ -45,6 +48,15 @@ macro_rules! review_pull_fragment {
   };
 }
 
+/// The fields of a closed pull request beside those of Reviews: when it was merged or closed, and the parent of its
+/// first commit, where it forked from its base (the base of a merged one has its commits)
+const CLOSED_PULL: &str = "fragment ClosedPull on PullRequest {
+  ...ReviewPull
+  mergedAt closedAt
+  commits(first: 1) { nodes { commit { parents(first: 1) { nodes { oid } } } } }
+}
+";
+
 const REVIEW_PULL: &str = review_pull_fragment!(" ... on Team { slug }");
 /// For a token without `read:org`, which GitHub refuses a team's slug
 const REVIEW_PULL_WITHOUT_TEAMS: &str = review_pull_fragment!("");
@@ -60,6 +72,88 @@ pub fn reviews_searches(repository: &GitHubRepository) -> [(&'static str, String
     ("reviewed", format!("{base} draft:false reviewed-by:@me -author:@me")),
     ("authored", format!("{base} author:@me")),
   ]
+}
+
+/// How many closed pull requests each search of the closed ones returns
+const CLOSED_SEARCH_FIRST: u32 = 20;
+
+/// The searches of the closed pull requests of `repository` the user reviewed (of others) and opened whose titles have
+/// every word of `words` (`domain_policy::reviews::closed_search_words`), the newest update first, by their variables;
+/// each word quoted, so a word never reads as a qualifier of the search (`repo:`, `is:`)
+#[must_use]
+pub fn closed_reviews_searches(repository: &GitHubRepository, words: &str) -> [(&'static str, String); 2] {
+  let quoted: Vec<String> = words
+    .split_whitespace()
+    .map(|word| word.replace('"', ""))
+    .filter(|word| !word.is_empty())
+    .map(|word| format!("\"{word}\""))
+    .collect();
+  let base = format!(
+    "repo:{} is:pr is:closed archived:false in:title sort:updated-desc {}",
+    repository.full_name(),
+    quoted.join(" ")
+  );
+  [("reviewed", format!("{base} reviewed-by:@me -author:@me")), ("authored", format!("{base} author:@me"))]
+}
+
+/// The query of the searches of the closed pull requests (`closed_reviews_searches`): one request, about 2 points
+fn closed_reviews_query(teams: bool) -> String {
+  let mut query = String::from(
+    "query($reviewed: String!, $authored: String!, $owner: String!, $name: String!) {\n  viewer { login }\n  repository(owner: $owner, name: $name) { viewerPermission }\n",
+  );
+  for key in ["reviewed", "authored"] {
+    let _ = writeln!(
+      query,
+      "  {key}: search(query: ${key}, type: ISSUE, first: {CLOSED_SEARCH_FIRST}) {{ issueCount nodes {{ ...ClosedPull }} }}"
+    );
+  }
+  query.push_str("}\n");
+  query.push_str(CLOSED_PULL);
+  query.push_str(if teams { REVIEW_PULL } else { REVIEW_PULL_WITHOUT_TEAMS });
+  query
+}
+
+#[derive(Debug, Deserialize)]
+struct ClosedData {
+  /// Null when the token can't see the repository
+  repository: Option<serde_json::Value>,
+  reviewed: Option<GhSearch>,
+  authored: Option<GhSearch>,
+}
+
+/// The closed pull requests of `repository` the user reviewed or opened whose titles have `words`, through one GraphQL
+/// request of two searches (`closed_reviews_searches`), the first 20 of each; `repository_path` is where git reads the
+/// credential config. Every failure is the availability of the answer
+#[instrument(skip(github))]
+pub async fn search_closed_reviews(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, words: &str) -> ClosedReviewsResult {
+  let full_name = repository.full_name();
+  let mut variables = serde_json::json!({"owner": repository.owner, "name": repository.name});
+  for (key, search) in closed_reviews_searches(repository, words) {
+    variables[key] = serde_json::Value::String(search);
+  }
+  let (variables, full_name_ref) = (&variables, full_name.as_str());
+  let answer = github
+    .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
+      let teams = !github.lacks_read_org(&token);
+      let mut response = client.graphql::<ClosedData>(&token, &closed_reviews_query(teams), variables).await?;
+      if teams && response.errors.iter().any(|error| error.kind.as_deref() == Some("INSUFFICIENT_SCOPES")) {
+        github.note_lacks_read_org(&token);
+        response = client.graphql::<ClosedData>(&token, &closed_reviews_query(false), variables).await?;
+      }
+      visible_data(response, full_name_ref, |data| data.repository.is_some())
+    })
+    .await;
+  match answer {
+    Ok(data) => ClosedReviewsResult {
+      availability: PullRequestAvailability::Available {
+        owner: repository.owner.clone(),
+        name: repository.name.clone(),
+      },
+      reviewed: searched(data.reviewed, reviewed_entry),
+      authored: searched(data.authored, authored_entry),
+    },
+    Err(failure) => ClosedReviewsResult::unavailable(availability_of(failure)),
+  }
 }
 
 /// The query of the review requests (`body`, the body of `REVIEW_REQUESTS_QUERY`) with the searches of Reviews and the
@@ -103,12 +197,6 @@ pub(crate) fn reviews_answer(data: &mut GhData, viewer: &str, linked: &[LinkedPu
       entries,
     }
   });
-  let searched = |search: Option<GhSearch>, entry: fn(u32, GhPullRequest) -> ReviewEntry| {
-    search.map_or_default(|search| ReviewSearch {
-      total_count: search.issue_count,
-      entries: search.nodes.into_iter().filter_map(|node| Some(entry(node.number?, node))).collect(),
-    })
-  };
   let reviewed = searched(data.reviewed.take(), reviewed_entry);
   let authored = searched(data.authored.take(), authored_entry);
   let mut by_alias = data.linked.take().unwrap_or_default();
@@ -122,6 +210,14 @@ pub(crate) fn reviews_answer(data: &mut GhData, viewer: &str, linked: &[LinkedPu
     })
     .collect();
   ReviewsAnswer { team, reviewed, authored, linked }
+}
+
+/// The entries of a search of Reviews (`entry` of each node) with GitHub's count; empty without one
+fn searched(search: Option<GhSearch>, entry: fn(u32, GhPullRequest) -> ReviewEntry) -> ReviewSearch {
+  search.map_or_default(|search| ReviewSearch {
+    total_count: search.issue_count,
+    entries: search.nodes.into_iter().filter_map(|node| Some(entry(node.number?, node))).collect(),
+  })
 }
 
 /// A pull request that asks the user's teams; none when it asks the user by name (Your Turn has it)
@@ -185,21 +281,18 @@ fn request_with_reviewers(number: u32, mut node: GhPullRequest) -> ReviewRequest
 /// What GitHub answered of `link`: open, merged or closed, or none of the number
 fn linked_answer(link: LinkedPullRequest, node: Option<GhPullRequest>) -> LinkedAnswer {
   match linked_entry(link, node) {
-    Some((entry, true)) => LinkedAnswer::Open { entry: Box::new(entry) },
-    Some((_, false)) => LinkedAnswer::Closed { number: link.number },
+    Some(entry) if !entry.request.is_closed() => LinkedAnswer::Open { entry: Box::new(entry) },
+    Some(_) => LinkedAnswer::Closed { number: link.number },
     None => LinkedAnswer::Missing { number: link.number },
   }
 }
 
-/// The linked entry of `node`, and whether it is open; none without one
-fn linked_entry(link: LinkedPullRequest, node: Option<GhPullRequest>) -> Option<(ReviewEntry, bool)> {
-  let node = node?;
-  let open = node.state.as_deref().is_none_or(|state| state == "OPEN");
-  let entry = ReviewEntry {
-    request: request_with_reviewers(link.number, node),
+/// The linked entry of `node`, open, merged or closed as its request says; none without one
+fn linked_entry(link: LinkedPullRequest, node: Option<GhPullRequest>) -> Option<ReviewEntry> {
+  Some(ReviewEntry {
+    request: request_with_reviewers(link.number, node?),
     involvement: ReviewInvolvement::Linked { linked_at: link.linked_at },
-  };
-  Some((entry, open))
+  })
 }
 
 /// The number of the pull request of `repository` that `input` names: its URL (`https://github.com/o/r/pull/123`, also
@@ -237,10 +330,10 @@ pub fn parse_pull_request_link(input: &str, repository: &GitHubRepository) -> Re
   Ok(number)
 }
 
-/// The query of one linked pull request
+/// The query of one linked pull request, with the fields of a closed one, which opens though Reviews keeps no link of it
 fn linked_query(teams: bool) -> String {
   format!(
-    "query($owner: String!, $name: String!, $number: Int!) {{\n  viewer {{ login }}\n  repository(owner: $owner, name: $name) {{ viewerPermission pullRequest(number: $number) {{ ...ReviewPull }} }}\n}}\n{}",
+    "query($owner: String!, $name: String!, $number: Int!) {{\n  viewer {{ login }}\n  repository(owner: $owner, name: $name) {{ viewerPermission pullRequest(number: $number) {{ ...ClosedPull }} }}\n}}\n{CLOSED_PULL}{}",
     if teams { REVIEW_PULL } else { REVIEW_PULL_WITHOUT_TEAMS }
   )
 }
@@ -256,8 +349,8 @@ struct LinkedRepository {
   pull_request: Option<GhPullRequest>,
 }
 
-/// What GitHub says of the pull request `link` of `repository`, when the user adds it: the entry and whether it is
-/// open; none for a number the repository lacks
+/// What GitHub says of the pull request `link` of `repository`, when the user adds it: the entry, open, merged or
+/// closed as its request says; none for a number the repository lacks
 ///
 /// # Errors
 /// GitHub could not be asked
@@ -267,7 +360,7 @@ pub async fn read_linked_pull_request(
   repository_path: &str,
   repository: &GitHubRepository,
   link: LinkedPullRequest,
-) -> Result<Option<(ReviewEntry, bool)>, ApiError> {
+) -> Result<Option<ReviewEntry>, ApiError> {
   let full_name = repository.full_name();
   let variables = serde_json::json!({"owner": repository.owner, "name": repository.name, "number": link.number});
   let (variables, full_name_ref) = (&variables, full_name.as_str());
@@ -299,7 +392,7 @@ pub async fn read_linked_pull_request(
 /// seconds), in the repository the session listed the review requests of, else the one the branches are mirrored to:
 /// GitHub is asked for it, an open one joins the links of the repository the host keeps and the links of the session at
 /// once, and the session reads Reviews again, which nothing waits for. Answers the entry and whether it was kept: a
-/// merged or closed one opens but is not kept
+/// merged or closed one opens but is not kept, the session only remembers it, so its review window fetches it
 ///
 /// # Errors
 /// No GitHub repository, an input that names no pull request of it, a number it lacks (`no_pull_request`), a failure
@@ -309,12 +402,15 @@ pub async fn link_pull_request<H: ServiceHost + ?Sized>(host: &H, sessions: &Ses
   let repository = repository_of(host, sessions, key).await?;
   let number = parse_pull_request_link(input, &repository)?;
   let link = LinkedPullRequest { number, linked_at: now };
-  let (entry, open) = read_linked_pull_request(&github, &key.worktree, &repository, link)
+  let entry = read_linked_pull_request(&github, &key.worktree, &repository, link)
     .await?
     .ok_or_else(|| ApiError::new(ErrorCode::NoPullRequest, format!("{} has no pull request #{number}", repository.full_name())))?;
+  let open = !entry.request.is_closed();
   if open {
     host.link_pull_request(key, &repository, link)?;
-    sessions.linked(key, entry.clone()).await;
+  }
+  sessions.linked(key, entry.clone()).await;
+  if open {
     sessions.refresh_later(key, FactFamily::ReviewRequests, FactRefreshReason::Manual);
   }
   Ok((entry, open))
