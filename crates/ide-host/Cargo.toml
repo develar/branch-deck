@@ -26,7 +26,7 @@ sync-utils = { path = "../sync-utils" }
 sync-core = { path = "../sync-core" }
 # the bytes of a raw command and a binary file of the page in base64
 base64 = "0.23.1"
-# the app data directory of the app (`org.develar.branch-deck`)
+# the home directory of the page (`homeDir` of `bd_bootstrap`)
 dirs = "7"
 serde.workspace = true
 serde_json.workspace = true

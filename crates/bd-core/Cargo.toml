@@ -30,7 +30,6 @@ domain-policy = { path = "../domain-policy" }
 domain-types = { path = "../domain-types", features = ["schemars"] }
 youtrack = { path = "../youtrack" }
 anyhow.workspace = true
-dirs = "7"
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -18,9 +18,6 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
-/// The data directory of the app, its bundle identifier: the same as the app's and `brd`'s
-const APP_IDENTIFIER: &str = "org.develar.branch-deck";
-
 /// How long the end of the process waits for the work it leaves (a blocking git of a command)
 const SHUTDOWN: Duration = Duration::from_secs(2);
 
@@ -155,9 +152,10 @@ pub async fn serve(input: impl AsyncRead + Unpin + Send + 'static, output: impl 
   code
 }
 
-/// The app data directory of the app (`~/Library/Application Support/org.develar.branch-deck` on macOS)
+/// The app data directory of the app whose binary runs the bridge (`app_settings::identity`): the one the backend of that
+/// app keys its socket with, a check copy's own
 pub fn app_data_dir() -> Option<PathBuf> {
-  dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER))
+  app_settings::identity::app_data_dir()
 }
 
 #[cfg(test)]

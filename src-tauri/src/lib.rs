@@ -187,8 +187,13 @@ pub fn run() {
     .setup(move |app| {
       ts_builder.mount_events(app);
       // the one backend of the user: this process serves the key of the app, or it is a second start, which the backend
-      // answers (`backend::claim`)
-      let listener = match app.path().app_data_dir().ok().as_deref().and_then(backend::key_dir) {
+      // answers (`backend::claim`); the key of the data directory a bridge of this binary computes too
+      // (`app_settings::identity`), which is Tauri's, of the same configuration
+      let data_dir = app_settings::identity::app_data_dir();
+      if data_dir != app.path().app_data_dir().ok() {
+        tracing::error!(?data_dir, tauri = ?app.path().app_data_dir().ok(), "the data directory of the app is not Tauri's: a bridge of this binary keys another socket");
+      }
+      let listener = match data_dir.as_deref().and_then(backend::key_dir) {
         Some(dir) => match backend::claim(&dir, background) {
           backend::Claim::Backend(listener) => Some(listener),
           backend::Claim::Served => std::process::exit(0),

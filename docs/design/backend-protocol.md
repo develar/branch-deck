@@ -262,7 +262,9 @@ A failed command is `{error: ApiError}` in its result. A receiver ignores a fiel
 ### The socket
 
 - **The key**: 16 hex digits of a hash of the data directory and the path of the executable: a dev build beside a
-  release has its own backend.
+  release has its own backend. The data directory is the one of the identifier compiled into the binary
+  (`app_settings::identity`, `tauri.conf.json` under the overlay of `tauri build --config`), the same for the app and
+  the bridge it runs, so a check copy of its own identifier keys its own socket.
 - **Unix**: `<base>/branch-deck-<key>/backend.sock`; the base is the user's (`$TMPDIR` on macOS, `$XDG_RUNTIME_DIR`
   else, then the temporary directory), the path within the 104 bytes of `sun_path`. The directory is the owner's with
   mode 0700: the backend creates it so, and both sides refuse one that is not (no fallback to another base), as the

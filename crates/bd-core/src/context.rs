@@ -33,10 +33,6 @@ use tokio::runtime::Runtime;
 use youtrack::service::EnvironmentToken;
 use youtrack::token_store::token_file;
 
-/// The bundle identifier of the app (`tauri.conf.json`): its data directory holds its settings file
-/// (`app_settings::file::SETTINGS_FILE_NAME`) and the tokens of its sign-ins
-const APP_IDENTIFIER: &str = "org.develar.branch-deck";
-
 /// What the CLI takes from its process, injectable for tests
 pub struct Environment {
   /// The directory `-C` defaults to
@@ -123,9 +119,10 @@ impl Environment {
   }
 }
 
-/// The data directory of the app (its bundle identifier): its settings and the token of its GitHub sign-in
+/// The data directory of the app (`app_settings::identity`, its bundle identifier): its settings file
+/// (`app_settings::file::SETTINGS_FILE_NAME`) and the tokens of its sign-ins
 pub fn app_data_dir() -> Option<PathBuf> {
-  dirs::data_dir().map(|dir| dir.join(APP_IDENTIFIER))
+  app_settings::identity::app_data_dir()
 }
 
 /// The settings of the app in `settings_file`, read as the app reads them (`SettingsFile::load`): the defaults without

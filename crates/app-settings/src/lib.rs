@@ -9,6 +9,8 @@
 //! - `file`: a settings file (`SettingsFile`): a tolerant load, the stored form of a save, the atomic write; the fields
 //!   of a sync that a file of before keeps in its recent projects (`take_repository_state`); the lock of the directory
 //!   that the writers of two processes take turns at (`lock_directory`)
+//! - `identity`: the bundle identifier the binary was built with and the data directory it names, one source for the
+//!   app's backend, the bridge and `brd` (`app_data_dir`)
 //! - `ide_roots`: the root the main view of an IDE showed last, by the set of the Git roots of its project, which `brd
 //!   mcp` shows again
 //! - `journals`: the journal of the repository of each recent project, which Rust remembers when a window opens its
@@ -37,6 +39,9 @@ pub mod branch_prefixes;
 pub mod claude_hook;
 pub mod file;
 pub mod ide_roots;
+pub mod identity;
+#[cfg(test)]
+mod identity_source;
 pub mod journals;
 pub mod linked_pull_requests;
 pub mod merge;
@@ -56,6 +61,8 @@ mod claude_hook_test;
 mod file_test;
 #[cfg(test)]
 mod ide_roots_test;
+#[cfg(test)]
+mod identity_test;
 #[cfg(test)]
 mod journals_test;
 #[cfg(test)]

@@ -214,6 +214,7 @@ dependencies = [
 name = "app-settings"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "domain-types",
  "indexmap 2.14.2",
  "notify",
@@ -664,7 +665,6 @@ dependencies = [
  "anyhow",
  "app-settings",
  "codeowners",
- "dirs",
  "domain-policy",
  "domain-types",
  "file-diffs",

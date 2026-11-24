@@ -18,6 +18,13 @@ sync-utils = { path = "../sync-utils" }
 thiserror.workspace = true
 tracing.workspace = true
 
+# the data directory of the identifier of the app (`identity`)
+dirs = "7"
+
+[build-dependencies]
+# the identifier of `src-tauri/tauri.conf.json` under the overlay of `TAURI_CONFIG` (`build.rs`)
+serde_json.workspace = true
+
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile.workspace = true
