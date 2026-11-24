@@ -16,9 +16,9 @@ use crate::{Client, short};
 use host_link::proto::{Reply, Request, feature};
 use host_link::refusal::{Code, Refusal};
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use sync_utils::size::format_size;
+use tokio::time::{Instant, sleep};
 
 /// The longest wait between two hellos after an upgrade
 const MAX_POLL: Duration = Duration::from_secs(5);
@@ -62,12 +62,12 @@ struct Installed {
 }
 
 impl Client<'_> {
-  pub fn upgrade(&self, request: &UpgradeRequest<'_>) -> Result<Upgraded, Refusal> {
+  pub async fn upgrade(&self, request: &UpgradeRequest<'_>) -> Result<Upgraded, Refusal> {
     let alias = request.alias;
     check_alias(alias)?;
     let mut host = self.host(alias)?;
-    let (channel, info) = host.connect()?;
-    channel.close();
+    let (channel, info) = host.connect().await?;
+    channel.close().await;
     if info.os != "macos" {
       return Err(Refusal::new(
         Code::AgentFailed,
@@ -99,28 +99,29 @@ impl Client<'_> {
       ));
     }
     (self.say)(&format!("brd-host: sending brd-host ({}) to {alias}", format_size(binary.len() as u64)));
-    let (mut channel, _) = host.connect()?;
+    let (mut channel, _) = host.connect().await?;
     let upgrade = Request::Upgrade {
       size: binary.len() as u64,
       sha256,
       force: request.force,
     };
-    channel
-      .send(&upgrade)
-      .and_then(|()| channel.send_stream(&mut binary.as_slice(), &mut |_| {}))
-      .map_err(|error| host.link_refusal(&error))?;
-    let installed = match host.recv(&mut channel, self.timing.read)? {
+    let sent = match channel.send(&upgrade).await {
+      Ok(()) => channel.send_stream(&mut binary.as_slice(), &mut |_| {}).await.map(drop),
+      Err(error) => Err(error),
+    };
+    sent.map_err(|error| host.link_refusal(&error))?;
+    let installed = match host.recv(&mut channel, self.timing.read).await? {
       Reply::Upgraded { previous_sha256, sha256, .. } => Installed { previous_sha256, sha256 },
       Reply::Refused { code, message } => return Err(host.agent_refusal(&code, &message)),
       reply => return Err(host.unexpected(&reply)),
     };
-    channel.close();
-    self.wait_for_new(alias, installed)
+    channel.close().await;
+    self.wait_for_new(alias, installed).await
   }
 
   /// Connects again until the hello names the new build, up to the upgrade time. Refuses with `rolled_back` when the
   /// previous build answers at the end
-  fn wait_for_new(&self, alias: &str, installed: Installed) -> Result<Upgraded, Refusal> {
+  async fn wait_for_new(&self, alias: &str, installed: Installed) -> Result<Upgraded, Refusal> {
     (self.say)(&format!(
       "brd-host: {alias} installed brd-host {}; waiting for the new agent to answer",
       short(&installed.sha256)
@@ -131,9 +132,9 @@ impl Client<'_> {
     let mut lost = None;
     loop {
       let mut host = self.host(alias)?;
-      match host.connect() {
+      match host.connect().await {
         Ok((channel, info)) => {
-          channel.close();
+          channel.close().await;
           if info.build.as_deref() == Some(installed.sha256.as_str()) {
             return Ok(Upgraded {
               way: UpgradeWay::Request,
@@ -151,7 +152,7 @@ impl Client<'_> {
       if started.elapsed() >= self.timing.upgrade {
         break;
       }
-      thread::sleep(backoff);
+      sleep(backoff).await;
       backoff = (backoff * 2).min(MAX_POLL.min(self.timing.max_backoff));
     }
     let waited = self.timing.upgrade.as_secs();

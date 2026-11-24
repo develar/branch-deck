@@ -70,10 +70,16 @@ machine.
   `crates/host-client/src/testkit.rs`: the steps and the total of a run), and the test asserts the exact line; where it
   cannot, as in the lines of another process, the test compares its shape, `<time>` standing for any duration
   (`is_shape`, `starts_with_shape`, `contains_shape` of `test_utils::time_shape`). An exact time stays where the test
-  gives it (a fake's steps, an injected `now`, the zero wait of the first line). A deadline test races no sleep: the
-  fake answers back to back until its own clock is past the deadline (`heartbeats_keep_a_waiting_request_alive`), or
-  the test reads the deadline that the code set
-  (`after_its_hello_a_connection_writes_with_the_read_deadline_and_a_large_pack_comes_whole`).
+  gives it (a fake's steps, an injected `now`, the zero wait of the first line). A deadline test races no sleep.
+- **Async code waits on tokio time, and its tests pause it** (`#[tokio::test(start_paused = true)]`): a sleep, a
+  deadline and a poll of the code take the time of the test, which passes only when nothing else can go on, so a
+  deadline passes exactly (`a_read_of_a_silent_agent_ends_at_its_deadline` of `crates/host-link/src/channel_test.rs`,
+  `heartbeats_keep_a_waiting_request_alive` of `crates/host-client/src/run_test.rs`) and a load holds nothing back. A
+  test on paused time talks over pipes in memory (`tokio::io::duplex`, `MemoryNet` of
+  `crates/host-client/src/testkit.rs`), never over a socket: a loopback connect completes in the kernel, and the paused
+  clock ran past a deadline of 60 s meanwhile (1 run in 3 of the channel tests). Whatever the fake waits for runs on the
+  same runtime: a task of the test, never a thread. git on the blocking pool holds the clock still. A test whose real
+  process or system call takes real time (`nc`, the resolver, the process tests of the agent) does not pause it.
 - **A shell under SIGINT**: bash 3.2 of macOS can exit 130 without its `INT` trap when the SIGINT comes at the start
   of a foreground command (1 run in 300 under load, a plain `sh -c` too), and a command that the shell starts as the
   SIGINT comes never sees it (the agent of `brd-host` sends it SIGINT again a second later). A test that needs the trap
@@ -84,7 +90,7 @@ machine.
   outcome: a fake that sleeps two minutes against a limit of one (`HANG` of `crates/sync-utils/src/child_process_test.rs`,
   the fakes of `claude`, `ssh` and `teamcity`), a fake agent that answers when the test ends or the client closes (the
   base sync and the `--head` refusal of `crates/host-client/src/run_test.rs`), a trickle that goes on until the agent
-  cuts it (`a_slow_handshake_is_cut_at_the_deadline_…`), the error that tells the closer from the read deadline. Where
+  cuts it (`a_slow_handshake_is_cut_at_the_deadline_…`). Where
   the old test asserted an end within 2–10 s, a loaded run took longer and failed.
 - **A fake answers at a look of the code**, not on a clock of its own: the chunks of a pack come at the looks of
   `wait_for_pack` (its `stop`), a commit lands at its first look; a call that must wait shows its look by the gone user

@@ -1,11 +1,9 @@
 use super::*;
 use pretty_assertions::assert_eq;
 #[cfg(target_os = "macos")]
-use std::io::{Read, Write};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 #[cfg(target_os = "macos")]
-use std::net::{Shutdown, TcpListener};
-#[cfg(target_os = "macos")]
-use std::thread;
+use tokio::net::TcpListener;
 
 const DEADLINE: Duration = Duration::from_secs(5);
 
@@ -16,40 +14,42 @@ fn only_a_host_unreachable_error_on_macos_takes_the_relay() {
   assert!(!is_local_network_refusal(&io::Error::from(io::ErrorKind::ConnectionRefused)));
 }
 
+/// The real `nc`, so the test runs in real time: a deadline that no run reaches
 #[cfg(target_os = "macos")]
-#[test]
-fn the_relay_carries_bytes_both_ways_and_ends_with_the_peer() {
-  let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+#[tokio::test]
+async fn the_relay_carries_bytes_both_ways_and_ends_with_the_peer() {
+  let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
   let address = listener.local_addr().expect("the address");
-  let echo = thread::spawn(move || {
-    let (mut socket, _) = listener.accept().expect("the relayed connection");
+  let echo = tokio::spawn(async move {
+    let (mut socket, _) = listener.accept().await.expect("the relayed connection");
     let mut received = [0u8; 5];
-    socket.read_exact(&mut received).expect("the bytes");
-    socket.write_all(&received).expect("the echo");
-    socket.shutdown(Shutdown::Both).expect("the end");
+    socket.read_exact(&mut received).await.expect("the bytes");
+    socket.write_all(&received).await.expect("the echo");
+    socket.shutdown().await.expect("the end");
     received
   });
-  let mut relayed = connect(address, DEADLINE).expect("relayed");
-  relayed.set_read_timeout(Some(DEADLINE)).expect("a deadline");
-  relayed.write_all(b"hello").expect("written");
+  let mut relayed = connect(address, DEADLINE).await.expect("relayed");
+  relayed.write_all(b"hello").await.expect("written");
   let mut back = Vec::new();
-  relayed.read_to_end(&mut back).expect("the echo and the end");
+  timeout(DEADLINE, relayed.read_to_end(&mut back)).await.expect("in time").expect("the echo and the end");
   assert_eq!(back, b"hello");
-  assert_eq!(&echo.join().expect("the echo thread"), b"hello");
+  assert_eq!(&echo.await.expect("the echo task"), b"hello");
 }
 
 #[cfg(target_os = "macos")]
-#[test]
-fn a_port_without_a_listener_is_an_error_of_nc() {
-  let closed = TcpListener::bind("127.0.0.1:0").expect("a port").local_addr().expect("the address");
-  let error = connect(closed, DEADLINE).expect_err("refused");
+#[tokio::test]
+async fn a_port_without_a_listener_is_an_error_of_nc() {
+  let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("a port").local_addr().expect("the address");
+  let error = connect(closed, DEADLINE).await.expect_err("refused");
   assert_eq!(error.kind(), io::ErrorKind::HostUnreachable, "{error}");
   assert!(error.to_string().starts_with("nc: "), "{error}");
 }
 
-#[test]
-fn a_missing_nc_is_an_error_that_names_it() {
-  let error = connect_with("/nonexistent/nc", "127.0.0.1:9".parse().expect("an address"), DEADLINE).expect_err("missing");
+#[tokio::test]
+async fn a_missing_nc_is_an_error_that_names_it() {
+  let error = connect_with("/nonexistent/nc", "127.0.0.1:9".parse().expect("an address"), DEADLINE)
+    .await
+    .expect_err("missing");
   assert!(error.to_string().contains("/nonexistent/nc"), "{error}");
 }
 

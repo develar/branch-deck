@@ -198,7 +198,7 @@ crates/
 ├── bd-rewrite/      # The brd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
 ├── bd-update/       # `brd update`, `brd pick`, `brd unapply`, `brd reapply` and `brd undo`; its tests run brd through the fixtures of bd-cli
 ├── brd-host/         # `brd-host`, the binary of the remote runs (openspec/specs/cli/host/spec.md): the client and the agent; neither brd nor the app links it
-├── host-link/       # The link of the remote runs: identity, TLS 1.3 with pinned certificates on the provider of the app, frames, protocol host-link; no git
+├── host-link/       # The link of the remote runs on tokio: identity, TLS 1.3 with pinned certificates on the provider of the app, frames, protocol host-link; no git
 ├── host-client/     # The client of a remote run: the commit of the working tree, the pack, the follow, the fetch; git through git-ops
 ├── host-agent/      # The agent on a host: serve, the supervisors, the keeper, the upgrade; the host slots through lease-pool in process
 ├── commit-clustering/ # What `brd suggest` and `brd commits` compute: the clustering, the areas of a commit, the hub files; no CLI, a library of bd-rewrite and bd-remote

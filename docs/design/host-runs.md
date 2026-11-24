@@ -54,13 +54,41 @@ flowchart LR
 
 | Crate | Content | Depends on |
 |---|---|---|
-| `host-link` | The identity files, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, `sync-utils` |
-| `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the upgrade | `host-link`, `git-ops`, `git-executor` |
+| `host-link` | The identity files, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, tokio, tokio-rustls, tokio-util, `sync-utils` |
+| `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the upgrade | `host-link`, `git-ops`, `git-executor`, tokio |
 | `host-agent` | `serve`, the supervisor, the run directories, the login environment, the prepare steps, the keeper, the power assertions, the upgrade | `host-link`, `lease-pool`, `git-ops`, `git-executor` |
 | `brd-host` | The CLI of both ends | `host-agent`, `host-client`, `host-link` |
 
 The direction rules are in [Crates](rust-domain-authority.md#crates-и-направление-зависимостей), and
 `crates/bd-cli/src/architecture_test.rs` checks them.
+
+### The link
+
+Both ends run the link on tokio (`host_link::channel`). TLS 1.3 is tokio-rustls on the rustls of the app, and the
+frames are a `Framed` whose codec is `LengthDelimitedCodec`: a kind byte, then the big-endian u32 length and the
+payload that the codec reads and writes. Each read and each write of a channel runs under `tokio::time::timeout`, a
+deadline of the channel and not of the socket, so it holds through the relay, whose pipes have no socket timeout. The
+`Framed` collects the frames in its buffer and writes it to TLS when it holds 64 KiB, at a flush, before a read and at
+the close, so the many small files of a fetch go in few TLS records. A frame is the one of the blocking link before
+it, byte for byte, so the schema stayed 1 and an agent of an older build took the next binary over the link.
+
+- **The relay** (`host_link::relay`) is the stdin and the stdout of `/usr/bin/nc` as one stream under TLS; the drop of
+  the connection kills `nc`.
+- **Heartbeats** stay messages of the protocol (`Reply::Heartbeat` every 15 s, an empty chunk of a pack): `nc` carries
+  no keepalive of TCP, and a run that says nothing for an hour must differ from a dead link.
+- **The client** (`host-client`) is async; `brd-host` runs each request on a current-thread runtime. The steps that go
+  on beside each other, the follow and the pack of a run, the base sync, the cancel of a Ctrl+C, the `Have` beside
+  the status of the checkout, are futures of one task (`tokio::join!`). A step stops another by a `CancellationToken`,
+  and the stopped future drops its connection with it. The git of a step that goes on beside a connection, the status
+  and the build of a pack, runs on the blocking pool.
+- **The agent** (`serve`) runs a multi-thread runtime: a task per connection, the TLS accept under the deadline of the
+  handshake, the blocking work (git, the walks of the disk, the reads of a follow) on the blocking pool while the task
+  sends the heartbeats. A follow reads the run files on a blocking task, which hands each batch of replies to the
+  task of the connection through a channel. The keeper, the cleanup and the other loops of `serve` stay threads.
+- **The tests** of the channel and of the client run on paused time (`#[tokio::test(start_paused = true)]`) over pipes in
+  memory (`tokio::io::duplex`; `MemoryNet` of the fake agent of `host-client`): a deadline passes exactly when
+  nothing else can go on, and no test waits for the clock. The process tests of the agent run a real `serve` in real
+  time.
 
 ### The slot model in short
 
@@ -318,8 +346,7 @@ session, which starts cold.
   client in the allow list, the fingerprint of the agent in the host file.
 - **The loopback only.** The `LaunchAgent` runs `serve --bind 127.0.0.1`, and the host file names `127.0.0.1` alone.
   No other machine reaches the agent of a laptop. macOS Local Network privacy does not cover the loopback address, so
-  a connect never gets `EHOSTUNREACH` there and no relay through `nc` starts; the relay itself talks to `nc` over a
-  loopback socket.
+  a connect never gets `EHOSTUNREACH` there and no relay through `nc` starts.
 - **No pack.** The repository of the host is a repository of this machine, and a lease shares the objects of its
   repository, so the `Have` finds the commit of the run.
 - **The binary.** On a client `~/.local/bin/brd-host` is the client: `brd install` links it to the `brd-host` of the
@@ -449,6 +476,15 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     **Rationale**: The steps that have ended and the heavy turn name every state that an agent waits on, and a new
     field would work only after `brd-host upgrade` of each host. A new reply in the stream of a follow would break the
     clients of the schema.
+
+12. **Decision**: The link runs on tokio: tokio-rustls, a `Framed` of `LengthDelimitedCodec`, the deadlines by
+    `tokio::time::timeout`, the client and the agent async (2026-11-24).
+    **Rationale**: The blocking link had a length prefix, a socket timeout per deadline, a closer that shut a socket down
+    from another thread, and a relay of two copy threads around a loopback socket. A socket timeout does not reach the
+    pipes of the relay, and the tests raced real sleeps against real deadlines: two failed under load on 2026-11-23. On
+    tokio a deadline is a timeout of the channel, a stop is the drop of a future, and the tests run on paused time. The
+    frames kept their bytes, so the upgrade of each host went over the link. ssh as the transport was rejected by the
+    user: the agent keeps its own pins and allow list, and a host needs no ssh after its setup.
 
 ## Alternatives Considered
 

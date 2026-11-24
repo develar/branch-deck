@@ -33,8 +33,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::{Instant, sleep};
 
 /// The `--max` of a wait when the caller names none: under the 10 min after which a tool of an agent ends a call, with a
 /// minute for the fetch after the end
@@ -66,14 +66,14 @@ pub struct Waited {
 
 impl Client<'_> {
   /// Waits for the end of a run for at most `max`, says each change of its state, and finishes the run at its end
-  pub fn wait(&self, request: &WaitRequest<'_>) -> Waited {
-    self.wait_for(request).unwrap_or_else(|refusal| Waited {
+  pub async fn wait(&self, request: &WaitRequest<'_>) -> Waited {
+    self.wait_for(request).await.unwrap_or_else(|refusal| Waited {
       exit: request_exit(&refusal).code(),
       refusal: Some(refusal),
     })
   }
 
-  fn wait_for(&self, request: &WaitRequest<'_>) -> Result<Waited, Refusal> {
+  async fn wait_for(&self, request: &WaitRequest<'_>) -> Result<Waited, Refusal> {
     let WaitRequest { alias, run, max, .. } = *request;
     if !is_run_id(run) {
       return Err(Refusal::new(Code::Usage, format!("{run:?} cannot name a run")));
@@ -89,7 +89,7 @@ impl Client<'_> {
         format!("Ctrl+C, SIGTERM or SIGHUP left the wait of the run {run}, which goes on on {alias}: `brd-host wait {alias} {run}` waits again"),
       )
     };
-    let Some(_lock) = files.lock(run, None, self.timing.interrupt_poll, &|| self.interrupted() || past_max())? else {
+    let Some(_lock) = files.lock(run, None, self.timing.interrupt_poll, &|| self.interrupted() || past_max()).await? else {
       if self.interrupted() {
         return Err(left());
       }
@@ -100,7 +100,7 @@ impl Client<'_> {
     };
     let mut host = self.host(alias)?;
     if let Some(mut end) = files.read_end(run)? {
-      if !end.forgotten && self.forget_or_say(&mut host, run) {
+      if !end.forgotten && self.forget_or_say(&mut host, run).await {
         end.forgotten = true;
         files.write_end(run, &end)?;
       }
@@ -116,8 +116,8 @@ impl Client<'_> {
         files.dir().display()
       ));
     }
-    let info = self.wait_for_end(&mut host, run, max, started, &past_max, &|| self.interrupted(), &left)?;
-    let end = self.finish(&mut host, run, &checkout, &files, record.as_ref(), &info, &left)?;
+    let info = self.wait_for_end(&mut host, run, max, started, &past_max, &|| self.interrupted(), &left).await?;
+    let end = self.finish(&mut host, run, &checkout, &files, record.as_ref(), &info, &left).await?;
     self.say_summary(alias, run, &end, &files, checkout.root(), false);
     Ok(Waited {
       exit: end.exit,
@@ -128,15 +128,15 @@ impl Client<'_> {
   /// Asks the agent for the run until it ends, until `past_max`, or until `stop`, which ends it with `left`. Says each
   /// change of its state, the first one at once
   #[expect(clippy::too_many_arguments, reason = "the bounds of one wait: its run, its max from its start, its stop and its words")]
-  pub(crate) fn wait_for_end(
+  pub(crate) async fn wait_for_end(
     &self,
     host: &mut Host,
     run: &str,
     max: Duration,
     started: Instant,
-    past_max: &dyn Fn() -> bool,
-    stop: &dyn Fn() -> bool,
-    left: &dyn Fn() -> Refusal,
+    past_max: &(dyn Fn() -> bool + Sync),
+    stop: &(dyn Fn() -> bool + Sync),
+    left: &(dyn Fn() -> Refusal + Sync),
   ) -> Result<RunInfo, Refusal> {
     let alias = host.alias().to_owned();
     let mut said: Option<RunState> = None;
@@ -148,7 +148,8 @@ impl Client<'_> {
       let asked = ask_within(host, &Request::Runs, deadline, |reply| match reply {
         Reply::Runs { runs, heavy } => Taken::Answer(HostRuns { runs, heavy }),
         reply => Taken::Other(reply),
-      });
+      })
+      .await;
       match asked {
         Ok(HostRuns { runs, heavy }) => {
           lost = None;
@@ -169,7 +170,7 @@ impl Client<'_> {
       }
       let until = Instant::now() + self.timing.state_poll;
       while Instant::now() < until && !stop() && !past_max() {
-        thread::sleep(self.timing.interrupt_poll.min(until.saturating_duration_since(Instant::now())));
+        sleep(self.timing.interrupt_poll.min(until.saturating_duration_since(Instant::now()))).await;
       }
       if stop() {
         return Err(left());
@@ -199,7 +200,7 @@ impl Client<'_> {
   /// Finishes an ended run as `run` does: its output into its log, the files that `record` asks for, its changes, the end
   /// file and the forget. A fetch that fails leaves no end file, so the next wait copies the files again
   #[expect(clippy::too_many_arguments, reason = "the end of one run: its host, its checkout, its files, its record and its end")]
-  pub(crate) fn finish(
+  pub(crate) async fn finish(
     &self,
     host: &mut Host,
     run: &str,
@@ -207,7 +208,7 @@ impl Client<'_> {
     files: &RunFiles,
     record: Option<&RunRecord>,
     info: &RunInfo,
-    left: &dyn Fn() -> Refusal,
+    left: &(dyn Fn() -> Refusal + Sync),
   ) -> Result<RunEnd, Refusal> {
     let alias = host.alias().to_owned();
     let log_path = files.log(run);
@@ -218,7 +219,7 @@ impl Client<'_> {
       .mode(0o600)
       .open(&log_path)
       .map_err(|error| Refusal::new(Code::Config, format!("cannot write {}: {error}", log_path.display())))?;
-    let (command_exit, refusal, phases) = match self.follow(host, run, false, &Watch::new(), Some(&log)) {
+    let (command_exit, refusal, phases) = match self.follow(host, run, false, &Watch::new(), Some(&log)).await {
       Ended::Exit(followed) => (Some(followed.code), None, followed.phases),
       Ended::Refused(refusal, _) if refusal.code == Code::UnknownRun => return Err(vanished(&refusal, run, &alias)),
       Ended::Refused(refusal, phases) => (None, Some(refusal), phases),
@@ -255,7 +256,7 @@ impl Client<'_> {
           git_common_dir: checkout.git_common_dir(),
         };
         let fetching = Instant::now();
-        let fetched = self.fetch_run(host, run, local, record, &files.patch(run)).map_err(|refusal| {
+        let fetched = self.fetch_run(host, run, local, record, &files.patch(run)).await.map_err(|refusal| {
           let code = if refusal.code == Code::FetchFailed || is_link(&refusal) {
             Code::FetchFailed
           } else {
@@ -284,7 +285,7 @@ impl Client<'_> {
       _ => {}
     }
     files.write_end(run, &end)?;
-    if !end.forgotten && self.forget_or_say(host, run) {
+    if !end.forgotten && self.forget_or_say(host, run).await {
       end.forgotten = true;
       files.write_end(run, &end)?;
     }

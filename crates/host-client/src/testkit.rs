@@ -1,24 +1,31 @@
-//! The test doubles of the crate: scripted child processes, and an agent on a loopback port that answers each
-//! connection from a script. The checkout of a run is a real repository (`TestRepo`)
+//! The test doubles of the crate: scripted child processes, and an agent on a net in memory that answers each connection
+//! from a script. The checkout of a run is a real repository (`TestRepo`). The tests of the client run on paused time
+//! (`#[tokio::test(start_paused = true)]`): a deadline or a wait of the client passes when nothing else can go on, so
+//! no test waits for the clock and none fails on a loaded machine
 
 use crate::config::{Config, HostFile};
 use crate::process::{Call, Processes, Ran};
-use crate::{Build, Client, Timing};
+use crate::{Build, Client, Net, Timing};
 use host_link::allow::AllowList;
-use host_link::channel::{Channel, ServerTls};
+use host_link::channel::{Channel, Link, LinkError, ServerTls};
 use host_link::identity::Identity;
 use host_link::proto::{Reply, Request, SCHEMA_VERSION};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::future::Future;
+use std::io;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::Duration;
-use sync_utils::span::in_current_span;
 use test_utils::git_test_utils::TestRepo;
+use tokio::io::DuplexStream;
+use tokio::sync::mpsc;
+use tracing::Instrument as _;
 
-/// The timing of the tests: deadlines that no run reaches, and short paces. A deadline that ran out under load turned a
-/// slow reply of a fake into a lost link, so only a test whose subject is a deadline sets its own (a lost link, a
-/// silent agent, the end of an upgrade)
+/// The timing of the tests: deadlines that no run reaches, and short paces. On paused time a deadline passes only when
+/// the fake says nothing, so only a test whose subject is a deadline sets its own (a lost link, a silent agent, the end
+/// of an upgrade)
 pub(crate) const UNHURRIED: Timing = Timing {
   connect: Duration::from_mins(1),
   resolve: Duration::from_mins(1),
@@ -102,8 +109,18 @@ impl Processes for FakeProcesses {
   }
 }
 
-/// What the agent does with the one request of a connection, after the hello
-pub(crate) type Script = dyn Fn(&Request, &mut Channel) + Send + Sync;
+/// What the agent does with the one request of a connection, after the hello: a future that borrows the request and the
+/// channel. The connection closes after it
+pub(crate) type Script = dyn for<'c> Fn(&'c Request, &'c mut Channel) -> Answer<'c> + Send + Sync;
+
+/// The future of a script: `|request, channel| Box::pin(async move { … })`. Whatever else it needs it owns, as a clone of
+/// an `Arc` or a value that `leak` made `'static`
+pub(crate) type Answer<'c, T = ()> = Pin<Box<dyn Future<Output = T> + Send + 'c>>;
+
+/// `value` for the whole test process, so a script copies the reference into each of its futures
+pub(crate) fn leak<T>(value: T) -> &'static T {
+  Box::leak(Box::new(value))
+}
 
 /// What the agent says of itself in its hello
 #[derive(Clone)]
@@ -124,53 +141,91 @@ impl Default for Hello {
   }
 }
 
-/// An agent on a loopback port. Each connection runs on a thread of its own: the hello, then the script
+/// How many bytes a pipe of the net in memory holds before a write waits for its reader
+const PIPE: usize = 256 * 1024;
+
+/// The network of a test: each agent listens on an address of its own, and a connect to another address is refused as
+/// TCP refuses a port without a listener. A connection is a pipe in memory, so a test on paused time waits for no socket
+/// of the system: a loopback connect completes in the kernel, and a paused clock would run past its deadline meanwhile
+#[derive(Debug, Default)]
+pub(crate) struct MemoryNet {
+  listeners: Mutex<HashMap<SocketAddr, mpsc::UnboundedSender<DuplexStream>>>,
+}
+
+impl MemoryNet {
+  /// The connections to `address` from now on
+  fn listen(&self, address: SocketAddr) -> mpsc::UnboundedReceiver<DuplexStream> {
+    let (accepted, connections) = mpsc::unbounded_channel();
+    self.listeners.lock().unwrap_or_else(PoisonError::into_inner).insert(address, accepted);
+    connections
+  }
+
+  /// Ends the listener of `address`: each later connect is refused
+  fn close(&self, address: SocketAddr) {
+    self.listeners.lock().unwrap_or_else(PoisonError::into_inner).remove(&address);
+  }
+
+  /// A connection to the agent of `address`, or the refusal of an address where no agent listens
+  pub(crate) fn dial(&self, address: SocketAddr) -> Result<Link, LinkError> {
+    let refused = || LinkError::Unreachable(io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused"));
+    let listeners = self.listeners.lock().unwrap_or_else(PoisonError::into_inner);
+    let accepted = listeners.get(&address).ok_or_else(refused)?;
+    let (client, agent) = tokio::io::duplex(PIPE);
+    // an agent whose accept loop ended takes no connection
+    if accepted.send(agent).is_err() {
+      return Err(refused());
+    }
+    Ok(Box::new(client))
+  }
+}
+
+/// The addresses of the agents of the tests: a port of their own each, which no socket of the system has
+static NEXT_PORT: AtomicU16 = AtomicU16::new(41_000);
+
+/// An agent on an address of a net in memory. Each connection runs on a task of its own: the hello, then the script
 pub(crate) struct FakeAgent {
   pub(crate) address: SocketAddr,
   pub(crate) identity: Identity,
+  pub(crate) net: Arc<MemoryNet>,
   requests: Arc<Mutex<Vec<Request>>>,
-  stop: Arc<AtomicBool>,
   _dir: tempfile::TempDir,
 }
 
 impl FakeAgent {
-  /// An agent that accepts `client`, says `hello`, and answers each request with `script`
-  pub(crate) fn start(client: &Identity, hello: Hello, script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+  /// An agent that accepts `client`, says `hello`, and answers each request with `script`. It needs the runtime of the
+  /// test, which runs its tasks
+  pub(crate) fn start(client: &Identity, hello: Hello, script: Arc<Script>) -> Self {
     let dir = tempfile::tempdir().unwrap();
     let allow = dir.path().join("clients");
     let mut list = AllowList::default();
     list.add(client.fingerprint(), "test").unwrap();
     std::fs::write(&allow, list.text()).unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
+    let net = Arc::new(MemoryNet::default());
+    let address = SocketAddr::from(([127, 0, 0, 1], NEXT_PORT.fetch_add(1, Ordering::SeqCst)));
+    let mut connections = net.listen(address);
     let identity = Identity::generate().unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let stop = Arc::new(AtomicBool::new(false));
-    let script: Arc<Script> = Arc::new(script);
     let tls = ServerTls::new(&identity, allow).unwrap();
-    {
-      let (requests, stop) = (Arc::clone(&requests), Arc::clone(&stop));
-      thread::spawn(in_current_span(move || {
-        for socket in listener.incoming() {
-          if stop.load(Ordering::SeqCst) {
-            return;
-          }
-          let Ok(socket) = socket else { continue };
-          let (tls, requests, script, hello) = (tls.clone(), Arc::clone(&requests), Arc::clone(&script), hello.clone());
-          thread::spawn(in_current_span(move || serve(socket, &tls, &hello, &requests, &*script)));
+    let served = Arc::clone(&requests);
+    tokio::spawn(
+      async move {
+        while let Some(connection) = connections.recv().await {
+          let (tls, requests, script, hello) = (tls.clone(), Arc::clone(&served), Arc::clone(&script), hello.clone());
+          tokio::spawn(serve(Box::new(connection), tls, hello, requests, script).in_current_span());
         }
-      }));
-    }
+      }
+      .in_current_span(),
+    );
     Self {
       address,
       identity,
+      net,
       requests,
-      stop,
       _dir: dir,
     }
   }
 
-  /// The list of the requests, for a test thread that waits for one
+  /// The list of the requests, for a test that waits for one
   pub(crate) fn requests_handle(&self) -> Arc<Mutex<Vec<Request>>> {
     Arc::clone(&self.requests)
   }
@@ -183,56 +238,57 @@ impl FakeAgent {
   /// The stop of the agent, for a script that ends the agent in the middle of a run
   pub(crate) fn stopper(&self) -> AgentStop {
     AgentStop {
-      stop: Arc::clone(&self.stop),
+      net: Arc::clone(&self.net),
       address: self.address,
     }
   }
 }
 
-impl Drop for FakeAgent {
-  fn drop(&mut self) {
-    self.stopper().stop();
-  }
-}
-
-/// Ends the accept loop of a `FakeAgent` and closes its port, so each new connection is refused
+/// Ends the listener of a `FakeAgent`, so each new connection is refused
+#[derive(Clone)]
 pub(crate) struct AgentStop {
-  stop: Arc<AtomicBool>,
+  net: Arc<MemoryNet>,
   address: SocketAddr,
 }
 
 impl AgentStop {
   pub(crate) fn stop(&self) {
-    self.stop.store(true, Ordering::SeqCst);
-    // Wakes the accept loop, which then sees the stop
-    let _ = TcpStream::connect_timeout(&self.address, Duration::from_secs(1));
+    self.net.close(self.address);
   }
 }
 
-fn serve(socket: TcpStream, tls: &ServerTls, hello: &Hello, requests: &Mutex<Vec<Request>>, script: &Script) {
-  let Ok(mut channel) = Channel::accept(socket, tls, Duration::from_secs(5)) else {
+async fn serve(link: Link, tls: ServerTls, hello: Hello, requests: Arc<Mutex<Vec<Request>>>, script: Arc<Script>) {
+  let Ok(mut channel) = Channel::accept_over(link, &tls, Duration::from_secs(5)).await else {
     return;
   };
-  let Ok(Request::Hello { .. }) = channel.recv::<Request>() else {
+  let Ok(Request::Hello { .. }) = channel.recv::<Request>().await else {
     return;
   };
+  let build = hello.build.lock().unwrap_or_else(PoisonError::into_inner).clone();
   let reply = Reply::Hello {
     schema_version: hello.schema,
     agent_version: "0.37.0".to_owned(),
     os: "macos".to_owned(),
     arch: "aarch64".to_owned(),
     features: hello.features.clone(),
-    binary_sha256: hello.build.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+    binary_sha256: build,
   };
-  if channel.send(&reply).is_err() || hello.schema != SCHEMA_VERSION {
+  if channel.send(&reply).await.is_err() || hello.schema != SCHEMA_VERSION {
     return;
   }
-  let Ok(request) = channel.recv::<Request>() else {
+  let Ok(request) = channel.recv::<Request>().await else {
     return;
   };
   requests.lock().unwrap_or_else(PoisonError::into_inner).push(request.clone());
-  script(&request, &mut channel);
-  channel.close();
+  script(&request, &mut channel).await;
+  channel.close().await;
+}
+
+/// A script that answers each request with no runs
+pub(crate) fn runs_reply<'c>(_: &'c Request, channel: &'c mut Channel) -> Answer<'c> {
+  Box::pin(async move {
+    let _ = channel.send(&Reply::Runs { runs: Vec::new(), heavy: None }).await;
+  })
 }
 
 /// A client directory with a host file of `ALIAS` that names the agent of the script, and a checkout
@@ -245,35 +301,43 @@ pub(crate) struct Setup {
 }
 
 impl Setup {
-  pub(crate) fn new(script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+  /// A setup whose agent answers with `script`. Its agent runs on the runtime of the test
+  pub(crate) fn new(script: impl for<'c> Fn(&'c Request, &'c mut Channel) -> Answer<'c> + Send + Sync + 'static) -> Self {
     Self::with_hello(Hello::default(), script)
   }
 
-  pub(crate) fn with_hello(hello: Hello, script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+  pub(crate) fn with_hello(hello: Hello, script: impl for<'c> Fn(&'c Request, &'c mut Channel) -> Answer<'c> + Send + Sync + 'static) -> Self {
     let repo = TestRepo::new();
     repo.create_commit("Add a", "a.txt", "a\n");
     Self::on(repo, hello, script)
   }
 
   /// A setup whose checkout is `repo`, so the script can name its commits
-  pub(crate) fn on(repo: TestRepo, hello: Hello, script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+  pub(crate) fn on(repo: TestRepo, hello: Hello, script: impl for<'c> Fn(&'c Request, &'c mut Channel) -> Answer<'c> + Send + Sync + 'static) -> Self {
     let dir = tempfile::tempdir().unwrap();
     let config = Config::new(dir.path().join("config"));
     let client = config.identity().unwrap();
-    let agent = FakeAgent::start(&client, hello, script);
+    let agent = FakeAgent::start(&client, hello, Arc::new(script));
     config.write_host(&host_file(&agent, vec![agent.address])).unwrap();
     Self { dir, config, agent, repo }
   }
 
-  /// A client of the setup with the short deadlines
+  /// A client of the setup with the short deadlines, on the net of its agent
   pub(crate) fn client<'a>(&self, processes: &'a dyn Processes, say: &'a (dyn Fn(&str) + Sync), presses: &'a (dyn Fn() -> u32 + Sync)) -> Client<'a> {
     Client::new(self.config.clone(), build(), processes, say, presses)
       .with_timing(UNHURRIED)
       .with_step_time(STEP_TIME)
+      .with_net(self.net())
+  }
+
+  /// The net of the agent, for a client that the test makes itself
+  pub(crate) fn net(&self) -> Net {
+    Net::Memory(Arc::clone(&self.agent.net))
   }
 }
 
-/// The host file of `ALIAS` for `agent`, with `addresses` cached. The host name resolves to the loopback
+/// The host file of `ALIAS` for `agent`, with `addresses` cached. The host name resolves to the loopback address, whose
+/// port is the one of the agent on its net
 pub(crate) fn host_file(agent: &FakeAgent, addresses: Vec<SocketAddr>) -> HostFile {
   HostFile {
     alias: ALIAS.to_owned(),

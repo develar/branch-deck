@@ -1,6 +1,7 @@
 //! The process tests of the agent (openspec/specs/cli/host/spec.md, "serve"): a real `serve` of `host-agent-test` on a loopback
 //! port with a temporary home, a `TestRepo` whose host slots the keeper fills in the pool of that home, and commands of
-//! `/bin/sh`. The client is the `Channel` of host-link. No fake `brd` exists: the lend table, the refs and the git of the
+//! `/bin/sh`. The client is the `Channel` of host-link, which `TestChannel` drives on a runtime of its own, as the agent runs
+//! in another process and the test in real time. No fake `brd` exists: the lend table, the refs and the git of the
 //! host run in process
 #![cfg(unix)]
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
@@ -33,12 +34,14 @@ mod heavy;
 use host_agent::serve::spawn_on_loopback;
 use host_agent::teardown::settle_runs;
 use host_link::allow::AllowList;
-use host_link::channel::{Channel, ClientTls};
+use host_link::channel::{Channel, ClientTls, LinkError};
 use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::{FileKind, PackTarget, Phase, Reply, Request, RunSpec, Stream};
 use pretty_assertions::assert_eq;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -152,6 +155,46 @@ impl Drop for World {
   }
 }
 
+/// The async channel of host-link for the sync bodies of the tests: each call runs to its end on the runtime of the
+/// connection
+struct TestChannel {
+  channel: Channel,
+  runtime: tokio::runtime::Runtime,
+}
+
+impl TestChannel {
+  /// A connection to the agent at `address` that pins its certificate by `tls`
+  fn connect(address: SocketAddr, tls: &ClientTls, deadline: Duration) -> Result<Self, LinkError> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(LinkError::Io)?;
+    let channel = runtime.block_on(Channel::connect(address, tls, deadline))?;
+    Ok(Self { channel, runtime })
+  }
+
+  fn send<T: Serialize + Sync>(&mut self, message: &T) -> Result<(), LinkError> {
+    self.runtime.block_on(self.channel.send(message))
+  }
+
+  fn recv<T: DeserializeOwned>(&mut self) -> Result<T, LinkError> {
+    self.runtime.block_on(self.channel.recv())
+  }
+
+  fn recv_stream(&mut self, writer: &mut (dyn Write + Send)) -> Result<u64, LinkError> {
+    self.runtime.block_on(self.channel.recv_stream(writer))
+  }
+
+  fn send_stream(&mut self, reader: &mut (dyn Read + Send), progress: &mut (dyn FnMut(u64) + Send)) -> Result<u64, LinkError> {
+    self.runtime.block_on(self.channel.send_stream(reader, progress))
+  }
+
+  fn send_keepalive(&mut self) -> Result<(), LinkError> {
+    self.runtime.block_on(self.channel.send_keepalive())
+  }
+
+  const fn set_read_deadline(&mut self, deadline: Duration) {
+    self.channel.set_read_deadline(deadline);
+  }
+}
+
 /// A running `serve` of a world
 struct Agent<'w> {
   child: Child,
@@ -218,9 +261,9 @@ impl Followed {
 
 impl Agent<'_> {
   /// A connection after its hello, with `request` sent
-  fn ask(&self, request: &Request) -> Channel {
+  fn ask(&self, request: &Request) -> TestChannel {
     let tls = ClientTls::new(self.fingerprint, &self.world.client).expect("the TLS setup");
-    let mut channel = Channel::connect(self.address, &tls, DEADLINE).expect("connected");
+    let mut channel = TestChannel::connect(self.address, &tls, DEADLINE).expect("connected");
     channel.send(&Request::hello("test")).expect("the hello");
     let hello: Reply = channel.recv().expect("the hello reply");
     assert!(matches!(hello, Reply::Hello { .. }), "{hello:?}");

@@ -15,6 +15,11 @@ publish = false
 ctrlc = { workspace = true, features = ["termination"] }
 # the identity, the pinned channel, the protocol, the refusal codes and `[host]` of a commit
 host-link = { path = "../host-link" }
+# the client runs on tokio, as its channel: the waits, the deadlines, the lookup of a host name, the git of a step on the
+# blocking pool beside the connections (`run`, `pack`, `wait`, `host`)
+tokio = { workspace = true, features = ["time"] }
+# the stop of a follow, of a base sync and of the question to the host while the status of the checkout runs (`run`)
+tokio-util.workspace = true
 # the git of the client in process: the snapshot, the thin pack, the blob of `[host]` and the apply (`git`)
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
@@ -34,6 +39,10 @@ jiff = { workspace = true, features = ["tz-system"] }
 
 [target.'cfg(unix)'.dev-dependencies]
 pretty_assertions.workspace = true
+# the tests on paused time
+tokio = { workspace = true, features = ["test-util"] }
+# the span of the tasks of the fake agent (`testkit`)
+tracing.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }
 

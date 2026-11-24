@@ -311,8 +311,8 @@ flowchart TD
   `bd-clustering` — библиотека без CLI и в `s3-crates` переименовывается в `commit-clustering`.
 - `bd-*` не зависят от `tauri` (сегодня не зависят; `app-settings` поэтому не использует `tauri-plugin-store`).
 - Удалённые run (2026-10-28, IJAI-4792, [Host Runs](host-runs.md)) — четыре crate вне `brd` и вне приложения.
-  `host-link` не достигает `git-ops`, executor, `lease-pool`, `github`, `patronus`, `youtrack`, reqwest, tokio и
-  tauri: это канал и протокол, без git и без runtime.
+  `host-link` не достигает `git-ops`, executor, `lease-pool`, `github`, `patronus`, `youtrack`, reqwest и tauri:
+  это канал на tokio и протокол, без git; runtime — того, кто его вызывает (клиента и агента, 2026-11-24).
 - `host-client` не достигает `lease-pool`, `host-agent`, `trial-check`, `update-core`, `github`, `patronus`,
   `youtrack`, `operations` и tauri: клиент делает свой git через `git-ops` и не держит слотов.
 - `host-agent` не достигает `host-client`, `trial-check`, `update-core`, `file-diffs`, `code-symbols`, `github`,

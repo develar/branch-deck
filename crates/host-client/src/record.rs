@@ -18,8 +18,8 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::{Instant, sleep};
 
 /// How long the records and the patches stay in the git directory of a checkout
 const KEEP: Duration = Duration::from_hours(7 * 24);
@@ -126,7 +126,7 @@ impl RunFiles {
 
   /// Takes the lock of the end of `run`, and waits for it while another process holds it: up to `until`, and while
   /// `stop` says no. Answers `None` when it did not come
-  pub(crate) fn lock(&self, run: &str, until: Option<Instant>, poll: Duration, stop: &dyn Fn() -> bool) -> Result<Option<RunLock>, Refusal> {
+  pub(crate) async fn lock(&self, run: &str, until: Option<Instant>, poll: Duration, stop: &(dyn Fn() -> bool + Sync)) -> Result<Option<RunLock>, Refusal> {
     let path = self.0.join(format!("{run}.lock"));
     let failed = |error: &io::Error| Refusal::new(Code::Config, format!("cannot lock {}: {error}", path.display()));
     let file = OpenOptions::new()
@@ -146,7 +146,7 @@ impl RunFiles {
       if stop() || until.is_some_and(|until| Instant::now() >= until) {
         return Ok(None);
       }
-      thread::sleep(poll);
+      sleep(poll).await;
     }
   }
 

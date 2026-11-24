@@ -27,6 +27,7 @@ use host_link::refusal::{Code, Exit, Reached, Refusal};
 use serde::Serialize;
 use std::ffi::OsString;
 use std::fmt::Write as _;
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -406,6 +407,16 @@ fn client_of<'a>(out: OutputSink<'a>, say: &'a (dyn Fn(&str) + Sync), build: Bui
   Ok(Client::new(config, build, &OsProcesses, say, &interrupt::presses).with_output(out))
 }
 
+/// Runs a request of the client to its end on this thread: the client runs on tokio, as its link, on a current-thread
+/// runtime of the request whose blocking pool takes the git of the client
+fn block_on<F: Future>(request: F) -> Result<F::Output, Refusal> {
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .map_err(|error| Refusal::new(Code::Config, format!("cannot start the runtime of the client: {error}")))?;
+  Ok(runtime.block_on(request))
+}
+
 /// The options of a run from its command line
 const fn run_options(args: &RunArgs) -> RunOptions {
   RunOptions {
@@ -462,29 +473,32 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     command: &args.command,
     fetch: &args.fetch,
   };
-  let report = match client.run(&args.alias, &request, run_options(args)) {
-    // a bounded run said its summary
-    Ok(outcome) if args.max.is_some() => RunReport::of_outcome(&args.alias, &outcome),
-    Ok(outcome) => {
-      let facts = &outcome.facts;
-      if !facts.fetched.is_empty() {
-        say(&format!(
-          "brd-host: copied {} files of the run {} into {}",
-          facts.fetched.len(),
-          facts.run.as_deref().unwrap_or_default(),
-          checkout.display()
-        ));
+  let report = match block_on(client.run(&args.alias, &request, run_options(args))) {
+    Err(refusal) => refused(&refusal),
+    Ok(outcome) => match outcome {
+      // a bounded run said its summary
+      Ok(outcome) if args.max.is_some() => RunReport::of_outcome(&args.alias, &outcome),
+      Ok(outcome) => {
+        let facts = &outcome.facts;
+        if !facts.fetched.is_empty() {
+          say(&format!(
+            "brd-host: copied {} files of the run {} into {}",
+            facts.fetched.len(),
+            facts.run.as_deref().unwrap_or_default(),
+            checkout.display()
+          ));
+        }
+        say(&phases_line(&facts.phases));
+        RunReport::of_outcome(&args.alias, &outcome)
       }
-      say(&phases_line(&facts.phases));
-      RunReport::of_outcome(&args.alias, &outcome)
-    }
-    Err(failure) => {
-      refuse(&failure.refusal);
-      if !failure.facts.phases.is_empty() && args.max.is_none() {
-        say(&phases_line(&failure.facts.phases));
+      Err(failure) => {
+        refuse(&failure.refusal);
+        if !failure.facts.phases.is_empty() && args.max.is_none() {
+          say(&phases_line(&failure.facts.phases));
+        }
+        RunReport::of_failure(&args.alias, &failure)
       }
-      RunReport::of_failure(&args.alias, &failure)
-    }
+    },
   };
   write_report(&report)
 }
@@ -502,12 +516,18 @@ fn wait_command(alias: &str, run: &str, max: Duration, out: &Out) -> u8 {
     }
   };
   install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
-  let waited = client.wait(&WaitRequest {
+  let waited = match block_on(client.wait(&WaitRequest {
     checkout: &checkout,
     alias,
     run,
     max,
-  });
+  })) {
+    Ok(waited) => waited,
+    Err(refusal) => {
+      refuse(&refusal);
+      return request_exit(&refusal).code();
+    }
+  };
   if let Some(refusal) = &waited.refusal {
     refuse(refusal);
   }
@@ -559,28 +579,28 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     Command::Agent(_) => unreachable!("host_agent::command takes an agent command"),
     Command::Follow { alias, run } => {
       install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
-      let followed = client(&output, &say)?.follow_run(&alias, &run)?;
+      let followed = block_on(client(&output, &say)?.follow_run(&alias, &run))??;
       if !followed.phases.is_empty() {
         say(&phases_line(&followed.phases));
       }
       Ok(command_exit_code(followed.code))
     }
     Command::Cancel { alias, run } => {
-      out.line(&client(&output, &say)?.cancel(&alias, &run)?);
+      out.line(&block_on(client(&output, &say)?.cancel(&alias, &run))??);
       Ok(0)
     }
     Command::Fetch { alias, run, fetch } => {
       let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
-      let fetched = client_with_git(&output, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch)?;
+      let fetched = block_on(client_with_git(&output, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch))??;
       out.line(&format!("copied {} files of the run {run} into {}", fetched.len(), checkout.display()));
       Ok(0)
     }
     Command::Forget { alias, run } => {
-      out.line(&client(&output, &say)?.forget(&alias, &run)?);
+      out.line(&block_on(client(&output, &say)?.forget(&alias, &run))??);
       Ok(0)
     }
     Command::Runs { alias, json } => {
-      let host = client(&output, &say)?.runs(&alias)?;
+      let host = block_on(client(&output, &say)?.runs(&alias))??;
       if json {
         out.json(&RunsOutput {
           schema: REPORT_SCHEMA,
@@ -617,11 +637,11 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       }
       let binary = binary.map_or_else(this_exe, Ok)?;
       let client = client(&output, &say)?;
-      let upgraded = client.upgrade(&UpgradeRequest {
+      let upgraded = block_on(client.upgrade(&UpgradeRequest {
         alias: &alias,
         binary: &binary,
         force,
-      })?;
+      }))??;
       out.line(&upgraded_text(&alias, &upgraded));
       warn_of_slots_off_the_home_volume(&client, &alias, &format!("~/{}", host_client::setup::AGENT_PATH), &upgraded.agent.os);
       Ok(0)
@@ -668,7 +688,7 @@ struct RunsOutput<'a> {
 fn hello(alias: &str, json: bool, out: &Out) -> Result<u8, Refusal> {
   let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
   // the SHA-256 once the agent answered: a refused hello compares no build
-  let answer: Result<(AgentInfo, Build), Refusal> = client(&output, &say).and_then(|client| Ok((client.hello(alias)?, this_build())));
+  let answer: Result<(AgentInfo, Build), Refusal> = client(&output, &say).and_then(|client| Ok((block_on(client.hello(alias))??, this_build())));
   match answer {
     Ok((info, build)) => {
       let report = HelloReport::new(alias, &info, &build);
@@ -715,7 +735,7 @@ fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   }
   let alias = args.alias.as_deref().unwrap_or_default();
   let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
-  let repositories = client(&output, &say)?.slots(alias)?;
+  let repositories = block_on(client(&output, &say)?.slots(alias))??;
   if args.json {
     out.json(&SlotsOutput {
       schema: REPORT_SCHEMA,
@@ -738,7 +758,7 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
     alias,
     json,
     out,
-    |client, alias| client.disk(alias, fresh),
+    &async |client: &Client<'_>, alias: &str| client.disk(alias, fresh).await,
     |report, alias| serde_json::from_value::<pool_disk::report::DiskReport>(report.clone()).map(|report| report.lines(alias)),
   )
 }
@@ -752,7 +772,7 @@ fn trim(alias: Option<&str>, max: Option<usize>, plan: bool, json: bool, out: &O
     alias,
     json,
     out,
-    |client, alias| client.trim(alias, max, plan),
+    &async |client: &Client<'_>, alias: &str| client.trim(alias, max, plan).await,
     |report, alias| serde_json::from_value::<pool_disk::trim_report::TrimReport>(report.clone()).map(|report| report.lines(alias)),
   )
 }
@@ -764,7 +784,7 @@ fn each_host(
   alias: Option<&str>,
   json: bool,
   out: &Out,
-  ask: impl Fn(&Client<'_>, &str) -> Result<serde_json::Value, Refusal>,
+  ask: &impl AsyncFn(&Client<'_>, &str) -> Result<serde_json::Value, Refusal>,
   lines: impl Fn(&serde_json::Value, &str) -> serde_json::Result<Vec<String>>,
 ) -> Result<u8, Refusal> {
   let output = |stream: Stream, bytes: &[u8]| out.output(stream, bytes);
@@ -775,7 +795,7 @@ fn each_host(
   };
   let hosts: Vec<HostAnswer> = aliases
     .into_iter()
-    .map(|alias| match ask(&client, &alias) {
+    .map(|alias| match block_on(ask(&client, &alias)).and_then(|answer| answer) {
       Ok(report) => HostAnswer {
         alias,
         report: Some(report),
@@ -902,13 +922,13 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
     let binary = args.binary.clone().map_or_else(this_exe, Ok)?;
     let name = args.name.clone().unwrap_or_else(|| format!("brd-host on {}", local_name(&OsProcesses)));
     let client = client(&output, &say)?;
-    let prepared = client.setup(&SetupRequest {
+    let prepared = block_on(client.setup(&SetupRequest {
       alias,
       binary: &binary,
       port: args.port,
       repo: &args.repo,
       name: &name,
-    })?;
+    }))??;
     let agent_path = format!("~/{}", host_client::setup::AGENT_PATH);
     out.line(&prepared_text(&prepared, &binary, &format!("{alias}:{agent_path}")));
     warn_of_slots_off_the_home_volume(&client, alias, &agent_path, &prepared.agent.os);
@@ -949,7 +969,7 @@ fn local_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
       line: String::from_utf8_lossy(&line).into_owned(),
     })
   };
-  let prepared = client.setup_local(&LocalSetupRequest { alias, repo: &args.repo }, &agent)?;
+  let prepared = block_on(client.setup_local(&LocalSetupRequest { alias, repo: &args.repo }, &agent))??;
   let agent_path = home.local_binary_file().display().to_string();
   out.line(&prepared_text(&prepared, &binary, &agent_path));
   warn_of_slots_off_the_home_volume(&client, alias, &agent_path, &prepared.agent.os);
@@ -1011,7 +1031,7 @@ fn warn_of_slots_off_the_home_volume(client: &Client<'_>, alias: &str, agent_bin
   if os != "macos" {
     return;
   }
-  let Ok(repositories) = client.slots(alias) else { return };
+  let Ok(Ok(repositories)) = block_on(client.slots(alias)) else { return };
   let off_home: Vec<(String, Vec<String>)> = repositories
     .iter()
     .filter_map(|repository| {

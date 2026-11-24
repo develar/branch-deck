@@ -7,7 +7,7 @@
 //! 4. Writes the host file with the fingerprint of the agent, then checks the hello over the link.
 //!
 //! ssh runs in batch mode with a connect timeout, and each call has a deadline, so a host that does not answer fails in
-//! bounded time. After `setup`, no run needs ssh.
+//! bounded time. An ssh call holds the task of the setup, which runs nothing beside it. After `setup`, no run needs ssh.
 //!
 //! `setup --local [<alias>]` makes this machine its own host without ssh ([`Client::setup_local`]): brd-host runs the
 //! agent setup in process, with the loopback address as the bind of the agent, and steps 4 and the hello are the same
@@ -22,9 +22,9 @@ use host_link::refusal::{Code, Refusal};
 use serde::Deserialize;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use sync_utils::size::format_size;
+use tokio::time::{Instant, sleep};
 
 /// The ssh options of every call: no prompt, a bounded connect, a dead link noticed in 20 s, and a connection of its
 /// own, because a multiplexed client ignores its own keepalive options and waits for its master
@@ -115,7 +115,7 @@ struct AgentSetup {
 }
 
 impl Client<'_> {
-  pub fn setup(&self, request: &SetupRequest<'_>) -> Result<Prepared, Refusal> {
+  pub async fn setup(&self, request: &SetupRequest<'_>) -> Result<Prepared, Refusal> {
     let alias = request.alias;
     check_alias(alias)?;
     let identity = self.config.identity()?;
@@ -170,15 +170,15 @@ impl Client<'_> {
     let answered = setup_line(&setup.stdout_text(), &format!("on {alias}"))?;
 
     let hostname = self.ssh_hostname(alias);
-    let addresses: Vec<SocketAddr> = resolve(&hostname, answered.port, self.timing.resolve).unwrap_or_default();
+    let addresses: Vec<SocketAddr> = resolve(&hostname, answered.port, self.timing.resolve).await.unwrap_or_default();
     let serve = format!("run `~/{AGENT_PATH} serve` on {alias}");
-    self.pin_agent(alias, request.repo, (hostname, addresses), answered, copied, &serve)
+    self.pin_agent(alias, request.repo, (hostname, addresses), answered, copied, &serve).await
   }
 
   /// Makes this machine its own host, without ssh: `agent` runs the agent setup in process for the fingerprint of this
   /// client, with the loopback address as the bind of the agent. The host file names that address only. So a run
   /// connects over the loopback, and its pack is empty: the repository of the host is a repository of this machine
-  pub fn setup_local(&self, request: &LocalSetupRequest<'_>, agent: &dyn Fn(Fingerprint) -> Result<LocalAgent, Refusal>) -> Result<Prepared, Refusal> {
+  pub async fn setup_local(&self, request: &LocalSetupRequest<'_>, agent: &(dyn Fn(Fingerprint) -> Result<LocalAgent, Refusal> + Sync)) -> Result<Prepared, Refusal> {
     let alias = request.alias;
     check_alias(alias)?;
     let identity = self.config.identity()?;
@@ -186,12 +186,22 @@ impl Client<'_> {
     let answered = setup_line(&local.line, "here")?;
     let address = SocketAddr::from((LOCAL_BIND, answered.port));
     let serve = format!("run `~/{AGENT_PATH} serve --bind {LOCAL_BIND} --port {}` here", answered.port);
-    self.pin_agent(alias, request.repo, (LOCAL_BIND.to_string(), vec![address]), answered, local.copied, &serve)
+    self
+      .pin_agent(alias, request.repo, (LOCAL_BIND.to_string(), vec![address]), answered, local.copied, &serve)
+      .await
   }
 
   /// Step 4 of both setups: writes the host file of `alias` with the fingerprint of the agent and `(hostname,
   /// addresses)`, then waits for the hello. `serve` says how to start an agent that launchd does not start
-  fn pin_agent(&self, alias: &str, repo: &str, (hostname, addresses): (String, Vec<SocketAddr>), answered: AgentSetup, copied: bool, serve: &str) -> Result<Prepared, Refusal> {
+  async fn pin_agent(
+    &self,
+    alias: &str,
+    repo: &str,
+    (hostname, addresses): (String, Vec<SocketAddr>),
+    answered: AgentSetup,
+    copied: bool,
+    serve: &str,
+  ) -> Result<Prepared, Refusal> {
     let file = HostFile {
       alias: alias.to_owned(),
       fingerprint: answered.fingerprint,
@@ -202,7 +212,7 @@ impl Client<'_> {
     };
     self.config.write_host(&file)?;
 
-    let agent = self.wait_for_hello(alias, &answered.launchd, serve)?;
+    let agent = self.wait_for_hello(alias, &answered.launchd, serve).await?;
     Ok(Prepared {
       copied,
       launchd: answered.launchd,
@@ -212,16 +222,16 @@ impl Client<'_> {
   }
 
   /// The hello of the agent that `brd-host setup --agent` started, which needs a moment to listen
-  fn wait_for_hello(&self, alias: &str, launchd: &str, serve: &str) -> Result<AgentInfo, Refusal> {
+  async fn wait_for_hello(&self, alias: &str, launchd: &str, serve: &str) -> Result<AgentInfo, Refusal> {
     let started = Instant::now();
     loop {
       let mut host = self.host(alias)?;
-      match host.connect() {
+      match host.connect().await {
         Ok((channel, info)) => {
-          channel.close();
+          channel.close().await;
           return Ok(info);
         }
-        Err(refusal) if refusal.code == Code::Unreachable && started.elapsed() < self.timing.agent_start => thread::sleep(HELLO_RETRY),
+        Err(refusal) if refusal.code == Code::Unreachable && started.elapsed() < self.timing.agent_start => sleep(HELLO_RETRY).await,
         Err(refusal) if launchd == "none" => {
           return Err(Refusal::new(
             refusal.code,

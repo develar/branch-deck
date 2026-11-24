@@ -18,6 +18,8 @@ path = "src/main.rs"
 host-link = { path = "../host-link" }
 # the client: run, follow, cancel, fetch, forget, runs, hello, slots, setup over ssh, upgrade, the report
 host-client = { path = "../host-client" }
+# the runtime of a request of the client, which runs on tokio as its link
+tokio = { workspace = true, features = ["time"] }
 # the agent: serve, supervise, setup --agent, the lend table of `slots --local`
 host-agent = { path = "../host-agent" }
 # the shape of the disk report of `disk` and its lines

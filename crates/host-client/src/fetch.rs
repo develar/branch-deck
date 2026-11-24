@@ -42,7 +42,7 @@ impl Client<'_> {
   /// directories, its outputs and its changes. An explicit `fetch` replaces the directories of the record. Without a
   /// record, only the staged files below an explicit `fetch` come, and no `fetch` refuses with `usage`. Answers the
   /// copied paths, relative to the checkout root with `/` separators
-  pub fn fetch(&self, alias: &str, run: &str, dir: &Path, fetch: &[String]) -> Result<Vec<String>, Refusal> {
+  pub async fn fetch(&self, alias: &str, run: &str, dir: &Path, fetch: &[String]) -> Result<Vec<String>, Refusal> {
     if !is_run_id(run) {
       return Err(Refusal::new(Code::Usage, format!("{run:?} cannot name a run")));
     }
@@ -70,7 +70,7 @@ impl Client<'_> {
       root: checkout.root(),
       git_common_dir: checkout.git_common_dir(),
     };
-    let fetched = self.fetch_run(&mut host, run, local, &record, &files.patch(run))?;
+    let fetched = self.fetch_run(&mut host, run, local, &record, &files.patch(run)).await?;
     if let Some(changes) = &fetched.changes {
       (self.say)(&format!("brd-host: the changes of the run {run} are in {}: `git apply` applies them", changes.display()));
     }
@@ -78,20 +78,20 @@ impl Client<'_> {
   }
 
   /// Forgets a run on the agent: its files go, and the agent keeps its end and the tail of its log
-  pub fn forget(&self, alias: &str, run: &str) -> Result<String, Refusal> {
+  pub async fn forget(&self, alias: &str, run: &str) -> Result<String, Refusal> {
     let mut host = self.host(alias)?;
-    self.forget_on(&mut host, run)
+    self.forget_on(&mut host, run).await
   }
 
-  pub(crate) fn forget_on(&self, host: &mut Host, run: &str) -> Result<String, Refusal> {
-    done(host, &Request::Forget { run: run.to_owned() }, self.timing.read)
+  pub(crate) async fn forget_on(&self, host: &mut Host, run: &str) -> Result<String, Refusal> {
+    done(host, &Request::Forget { run: run.to_owned() }, self.timing.read).await
   }
 
   /// Copies the files of a run that `record` asks for: the staged files below the root of `local`, the outputs in place
   /// of their local copies, and the patch of the changes to `patch`. Each other file is skipped, and fails the fetch
-  pub(crate) fn fetch_run(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path) -> Result<Fetched, Refusal> {
+  pub(crate) async fn fetch_run(&self, host: &mut Host, run: &str, local: Local<'_>, record: &RunRecord, patch: &Path) -> Result<Fetched, Refusal> {
     let root = local.root;
-    let (mut channel, mut reply) = host.request(&Request::Fetch { run: run.to_owned() }, self.timing.read)?;
+    let (mut channel, mut reply) = host.request(&Request::Fetch { run: run.to_owned() }, self.timing.read).await?;
     let mut fetched = Fetched::default();
     let mut missed = Vec::new();
     let mut replaced = BTreeSet::new();
@@ -118,7 +118,7 @@ impl Client<'_> {
             Base::of(local)
           };
           match target {
-            Ok(target) => match receive_file(&mut channel, base, &target, size, executable) {
+            Ok(target) => match receive_file(&mut channel, base, &target, size, executable).await {
               Ok(()) if kind == FileKind::Changes => fetched.changes = Some(target),
               Ok(()) => fetched.files.push(path),
               Err(Received::Link(error)) => return Err(host.link_refusal(&error)),
@@ -128,14 +128,14 @@ impl Client<'_> {
               }
             },
             Err(said) => {
-              channel.recv_stream(&mut io::sink()).map_err(|error| host.link_refusal(&error))?;
+              channel.recv_stream(&mut io::sink()).await.map_err(|error| host.link_refusal(&error))?;
               (self.say)(&format!("brd-host: skipped {path:?} of the run {run}: {said}"));
               missed.push(path);
             }
           }
         }
         Reply::Fetched { .. } => {
-          channel.close();
+          channel.close().await;
           if missed.is_empty() {
             return Ok(fetched);
           }
@@ -152,7 +152,7 @@ impl Client<'_> {
         Reply::Refused { code, message } => return Err(host.agent_refusal(&code, &message)),
         reply => return Err(host.unexpected(&reply)),
       }
-      reply = host.recv(&mut channel, self.timing.read)?;
+      reply = host.recv(&mut channel, self.timing.read).await?;
     }
   }
 }
@@ -266,13 +266,13 @@ enum Received {
 /// The parent directories of `target` below `base` are made, and a link among them refuses. Only `size` bytes go into
 /// the part. A local failure still reads the stream to its end, so the channel stays in step. A cut stream removes the
 /// part
-fn receive_file(channel: &mut Channel, base: Base<'_>, target: &Path, size: u64, executable: bool) -> Result<(), Received> {
+async fn receive_file(channel: &mut Channel, base: Base<'_>, target: &Path, size: u64, executable: bool) -> Result<(), Received> {
   let part = part_path(target);
   let opened = check_parents(base, target, true).and_then(|()| open_part(&part));
   let file = match opened {
     Ok(file) => file,
     Err(error) => {
-      channel.recv_stream(&mut io::sink()).map_err(Received::Link)?;
+      channel.recv_stream(&mut io::sink()).await.map_err(Received::Link)?;
       return Err(Received::Local(error.to_string()));
     }
   };
@@ -280,7 +280,7 @@ fn receive_file(channel: &mut Channel, base: Base<'_>, target: &Path, size: u64,
     inner: BufWriter::new(file),
     left: size,
   };
-  let received = channel.recv_stream(&mut writer);
+  let received = channel.recv_stream(&mut writer).await;
   let flushed = writer.inner.flush();
   drop(writer);
   let checked = match (received, flushed) {

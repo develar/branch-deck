@@ -39,6 +39,11 @@ clap = { version = "4.6", features = ["derive"] }
 libc = "0.2.191"
 # the local time at the start of each line of the log (`log`)
 jiff = { workspace = true, features = ["tz-system"] }
+# the runtime of `serve`: the listener, a task per connection, the heartbeats beside the blocking work (`serve`,
+# `run_requests`)
+tokio = { workspace = true, features = ["time"] }
+# the span of the task of a connection (`serve`)
+tracing.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 pretty_assertions.workspace = true

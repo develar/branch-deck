@@ -134,6 +134,11 @@ notify = "8.2.2"
 rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std"] }
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs"] }
 ctrlc = "3.5.3"
+# The link of the remote runs on tokio: TLS on the rustls above, the frames by `LengthDelimitedCodec` of a `Framed`, its
+# `Sink` and `Stream` by futures-util, the stop of a follow or of a base sync by a `CancellationToken`
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs"] }
+tokio-util = { version = "0.7.20", features = ["codec"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 
 # Every warning fails `pnpm lint:backend` and CI (`-D warnings`, all targets): a lint is either on or allowed below with
 # its reason, and a single exception in code is `#[expect(lint, reason = "...")]`, never `#[allow]`.

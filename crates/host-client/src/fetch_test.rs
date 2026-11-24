@@ -1,6 +1,6 @@
 use super::*;
 use crate::record::RunFiles;
-use crate::testkit::{ALIAS, FakeProcesses, Setup, calm};
+use crate::testkit::{ALIAS, FakeProcesses, Setup, calm, leak};
 use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 
@@ -10,24 +10,30 @@ fn fetch() -> Vec<String> {
 
 /// An agent whose fetch sends `files`: each a path, a kind, the size that it names, and the bytes that it sends
 fn agent_sending(files: Vec<(&'static str, FileKind, u64, Vec<u8>)>) -> Setup {
+  let files: &'static [(&'static str, FileKind, u64, Vec<u8>)] = leak(files);
   Setup::new(move |request, channel| {
-    if let Request::Fetch { .. } = request {
-      for (path, kind, size, bytes) in &files {
-        let _ = channel.send(&Reply::File {
-          path: (*path).to_owned(),
-          size: *size,
-          executable: false,
-          kind: kind.clone(),
-        });
-        for chunk in bytes.chunks(64 * 1024) {
-          let _ = channel.send_bytes(chunk);
-        }
-        let _ = channel.send_end();
+    let fetch = matches!(request, Request::Fetch { .. });
+    Box::pin(async move {
+      if !fetch {
+        let _ = channel.send(&Reply::refused(Code::BadRequest, "not in this script")).await;
+        return;
       }
-      let _ = channel.send(&Reply::Fetched { files: 0, bytes: 0 });
-    } else {
-      let _ = channel.send(&Reply::refused(Code::BadRequest, "not in this script"));
-    }
+      for (path, kind, size, bytes) in files {
+        let _ = channel
+          .send(&Reply::File {
+            path: (*path).to_owned(),
+            size: *size,
+            executable: false,
+            kind: kind.clone(),
+          })
+          .await;
+        for chunk in bytes.chunks(64 * 1024) {
+          let _ = channel.send_bytes(chunk).await;
+        }
+        let _ = channel.send_end().await;
+      }
+      let _ = channel.send(&Reply::Fetched { files: 0, bytes: 0 }).await;
+    })
   })
 }
 
@@ -49,13 +55,13 @@ fn run_files(setup: &Setup) -> RunFiles {
 }
 
 /// Fetches the run `1-1` with `record`, in the checkout of `setup` that `local` changes first
-fn fetch_with(setup: &Setup, record: Option<&RunRecord>, fetch: &[String], local: impl FnOnce(&Path)) -> Result<Vec<String>, Refusal> {
+async fn fetch_with(setup: &Setup, record: Option<&RunRecord>, fetch: &[String], local: impl FnOnce(&Path)) -> Result<Vec<String>, Refusal> {
   local(setup.repo.path());
   if let Some(record) = record {
     run_files(setup).write("1-1", record)?;
   }
   let processes = FakeProcesses::default();
-  setup.client(&processes, &|_| {}, &calm).fetch(ALIAS, "1-1", setup.repo.path(), fetch)
+  setup.client(&processes, &|_| {}, &calm).fetch(ALIAS, "1-1", setup.repo.path(), fetch).await
 }
 
 /// A local `src/main.rs`, which a fetch must not replace unless the record asks for the output `src`
@@ -66,8 +72,8 @@ fn with_src(root: &Path) {
 
 /// A fetch takes only what the record of the run names: the staged files below its directories, the outputs that it
 /// names and its changes. A path outside fails the fetch with `fetch_failed`
-#[test]
-fn a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link() {
+#[tokio::test(start_paused = true)]
+async fn a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link() {
   let setup = agent_of_one_run();
   let record = RunRecord {
     commit: "c".to_owned(),
@@ -75,7 +81,7 @@ fn a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link() {
     outputs: vec!["results".to_owned()],
     changes: true,
   };
-  let refusal = fetch_with(&setup, Some(&record), &[], with_src).unwrap_err();
+  let refusal = fetch_with(&setup, Some(&record), &[], with_src).await.unwrap_err();
   let root = setup.repo.path();
   assert_eq!(refusal.code, Code::FetchFailed);
   assert!(
@@ -90,28 +96,32 @@ fn a_fetch_takes_only_what_the_record_names_and_never_writes_through_a_link() {
 }
 
 /// Without a record, an explicit `--fetch` takes the staged files only, and no `--fetch` refuses before a connection
-#[test]
-fn a_fetch_without_a_record_takes_the_staged_files_of_its_directories_only() {
+#[tokio::test(start_paused = true)]
+async fn a_fetch_without_a_record_takes_the_staged_files_of_its_directories_only() {
   let setup = agent_of_one_run();
-  let refusal = fetch_with(&setup, None, &[], with_src).unwrap_err();
+  let refusal = fetch_with(&setup, None, &[], with_src).await.unwrap_err();
   assert_eq!(refusal.code, Code::Usage);
   assert!(refusal.message.contains("has no record of the run 1-1"), "{}", refusal.message);
   assert!(setup.agent.requests().is_empty(), "{:?}", setup.agent.requests());
 
-  let refusal = fetch_with(&setup, None, &fetch(), |_| {}).unwrap_err();
+  let refusal = fetch_with(&setup, None, &fetch(), |_| {}).await.unwrap_err();
   assert!(refusal.message.contains("3 of 4 files"), "{}", refusal.message);
   assert!(setup.repo.path().join("out/bt-runs/1/a.log").is_file());
   assert_eq!(std::fs::read_to_string(setup.repo.path().join("src/main.rs")).unwrap(), "mine");
   assert!(!run_files(&setup).patch("1-1").exists());
 
   let processes = FakeProcesses::default();
-  let refusal = setup.client(&processes, &|_| {}, &calm).fetch(ALIAS, "../1-1", setup.repo.path(), &fetch()).unwrap_err();
+  let refusal = setup
+    .client(&processes, &|_| {}, &calm)
+    .fetch(ALIAS, "../1-1", setup.repo.path(), &fetch())
+    .await
+    .unwrap_err();
   assert_eq!(refusal.code, Code::Usage);
 }
 
 /// The first file of an output removes its local copy, and the second one keeps the first
-#[test]
-fn the_first_file_of_an_output_replaces_its_local_copy() {
+#[tokio::test(start_paused = true)]
+async fn the_first_file_of_an_output_replaces_its_local_copy() {
   let results = || FileKind::Output { root: "results".to_owned() };
   let setup = agent_sending(vec![
     ("results/new.txt", results(), 3, b"new".to_vec()),
@@ -125,6 +135,7 @@ fn the_first_file_of_an_output_replaces_its_local_copy() {
     std::fs::create_dir_all(root.join("results")).unwrap();
     std::fs::write(root.join("results/old.txt"), "old").unwrap();
   })
+  .await
   .unwrap();
   let root = setup.repo.path();
   assert_eq!(fetched, ["results/new.txt", "results/sub/deep.txt"]);
@@ -143,8 +154,8 @@ fn staged_record() -> RunRecord {
 
 /// A local link in a parent directory would take a write or the removal of an output outside the checkout, so the
 /// fetch refuses the file. The directory that the link names stays as it was
-#[test]
-fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
+#[tokio::test(start_paused = true)]
+async fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
   let outside = tempfile::tempdir().unwrap();
   std::fs::create_dir_all(outside.path().join("results")).unwrap();
   std::fs::write(outside.path().join("results/keep.txt"), "keep").unwrap();
@@ -155,6 +166,7 @@ fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
   let refusal = fetch_with(&setup, Some(&staged_record()), &[], |root| {
     std::os::unix::fs::symlink(outside.path(), root.join("out")).unwrap();
   })
+  .await
   .unwrap_err();
   assert!(refusal.message.contains("2 of 2 files"), "{}", refusal.message);
   assert_eq!(std::fs::read_to_string(outside.path().join("results/keep.txt")).unwrap(), "keep");
@@ -163,8 +175,8 @@ fn a_link_in_a_parent_directory_takes_no_file_and_removes_nothing() {
 }
 
 /// A part that a link names would write through the link. The fetch removes the link, and the file it names stays
-#[test]
-fn a_planted_part_link_is_removed_and_its_target_stays() {
+#[tokio::test(start_paused = true)]
+async fn a_planted_part_link_is_removed_and_its_target_stays() {
   let outside = tempfile::tempdir().unwrap();
   let victim = outside.path().join("victim");
   std::fs::write(&victim, "victim").unwrap();
@@ -174,6 +186,7 @@ fn a_planted_part_link_is_removed_and_its_target_stays() {
     std::fs::create_dir_all(&dir).unwrap();
     std::os::unix::fs::symlink(&victim, dir.join("a.log.bd-host-part")).unwrap();
   })
+  .await
   .unwrap();
   let root = setup.repo.path();
   assert_eq!(fetched, ["out/bt-runs/1/a.log"]);
@@ -186,23 +199,24 @@ fn a_planted_part_link_is_removed_and_its_target_stays() {
 /// Fetches `notes.local/run.log` of the run `1-1` into the checkout of a fresh setup, whose `notes.local` and lease
 /// notes `local` makes first: it gets the root and the notes of the leases of the repository. Answers the outcome and the
 /// setup
-fn fetch_into_notes(local: impl FnOnce(&Path, &Path)) -> (Result<Vec<String>, Refusal>, Setup) {
+async fn fetch_into_notes(local: impl FnOnce(&Path, &Path)) -> (Result<Vec<String>, Refusal>, Setup) {
   let setup = agent_sending(vec![("notes.local/run.log", FileKind::Staged, 3, b"log".to_vec())]);
   let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
   std::fs::create_dir_all(notes.join("lease-1")).unwrap();
-  let fetched = fetch_with(&setup, None, &["notes.local".to_owned()], |root| local(root, &notes));
+  let fetched = fetch_with(&setup, None, &["notes.local".to_owned()], |root| local(root, &notes)).await;
   (fetched, setup)
 }
 
 /// `notes.local` of a lease links to its notes beside the state of the pool, and the logs of a run go there by
 /// `--fetch notes.local`: the write goes through that link, as through no other
-#[test]
-fn a_fetch_writes_through_notes_local_into_the_notes_of_a_lease_of_its_repository() {
+#[tokio::test(start_paused = true)]
+async fn a_fetch_writes_through_notes_local_into_the_notes_of_a_lease_of_its_repository() {
   let mut notes_dir = PathBuf::new();
   let (fetched, _setup) = fetch_into_notes(|root, notes| {
     notes_dir = notes.join("lease-1");
     std::os::unix::fs::symlink(&notes_dir, root.join("notes.local")).unwrap();
-  });
+  })
+  .await;
   assert_eq!(fetched.unwrap(), ["notes.local/run.log"]);
   assert_eq!(std::fs::read_to_string(notes_dir.join("run.log")).unwrap(), "log");
 }
@@ -213,8 +227,8 @@ type MakeLink<'a> = dyn FnOnce(&Path, &Path) + 'a;
 /// Any other link takes no write: one to a directory outside the notes of the repository, one to a link in them, one
 /// whose target has `..`, one to the notes root itself, and one to the notes under another name than `notes.local` at
 /// the root
-#[test]
-fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
+#[tokio::test(start_paused = true)]
+async fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
   let outside = tempfile::tempdir().unwrap();
   let outside_dir = outside.path().to_path_buf();
   let cases: Vec<(&str, Box<MakeLink<'_>>)> = vec![
@@ -239,7 +253,7 @@ fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
     ),
   ];
   for (case, local) in cases {
-    let (fetched, setup) = fetch_into_notes(local);
+    let (fetched, setup) = fetch_into_notes(local).await;
     let refusal = fetched.unwrap_err();
     assert!(refusal.message.contains("1 of 1 files"), "{case}: {}", refusal.message);
     let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
@@ -253,6 +267,7 @@ fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
   let refusal = fetch_with(&setup, None, &["logs".to_owned()], |root| {
     std::os::unix::fs::symlink(notes.join("lease-1"), root.join("logs")).unwrap();
   })
+  .await
   .unwrap_err();
   assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
   assert!(!notes.join("lease-1/run.log").exists());
@@ -260,8 +275,8 @@ fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
 
 /// A link inside the notes of the lease, which an agent may make there, takes no write either: each directory below
 /// `notes.local` is checked as below the root, so `notes.local/sub/run.log` with `sub` a link out of the notes is refused
-#[test]
-fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
+#[tokio::test(start_paused = true)]
+async fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
   let outside = tempfile::tempdir().unwrap();
   let setup = agent_sending(vec![("notes.local/sub/run.log", FileKind::Staged, 3, b"log".to_vec())]);
   let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
@@ -270,6 +285,7 @@ fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
     std::os::unix::fs::symlink(notes.join("lease-1"), root.join("notes.local")).unwrap();
     std::os::unix::fs::symlink(outside.path(), notes.join("lease-1/sub")).unwrap();
   })
+  .await
   .unwrap_err();
   assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
   assert!(!outside.path().join("run.log").exists());
@@ -278,25 +294,26 @@ fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
 /// A relative target takes no write, though from the root of the checkout it names the notes of the lease: the link
 /// that the pool makes is absolute, and a relative one is read by the directory of the link, not by the working
 /// directory of the process. Here the working directory is the root, so the target resolves to the real notes
-#[test]
-fn a_relative_link_to_the_notes_of_a_lease_takes_no_write() {
+#[tokio::test(start_paused = true)]
+async fn a_relative_link_to_the_notes_of_a_lease_takes_no_write() {
   let (fetched, setup) = fetch_into_notes(|root, _| {
     std::env::set_current_dir(root).unwrap();
     std::os::unix::fs::symlink(format!(".git/{STATE_DIR}/notes/lease-1"), root.join("notes.local")).unwrap();
-  });
+  })
+  .await;
   let refusal = fetched.unwrap_err();
   assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
   assert!(!git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git")).join("lease-1/run.log").exists());
 }
 
 /// A stream over its size writes no more than its size, and the next file of the fetch still comes
-#[test]
-fn a_stream_over_its_size_writes_no_more_and_the_next_file_comes() {
+#[tokio::test(start_paused = true)]
+async fn a_stream_over_its_size_writes_no_more_and_the_next_file_comes() {
   let setup = agent_sending(vec![
     ("out/bt-runs/1/big.log", FileKind::Staged, 4, vec![b'x'; 300 * 1024]),
     ("out/bt-runs/1/small.log", FileKind::Staged, 2, b"ok".to_vec()),
   ]);
-  let refusal = fetch_with(&setup, Some(&staged_record()), &[], |_| {}).unwrap_err();
+  let refusal = fetch_with(&setup, Some(&staged_record()), &[], |_| {}).await.unwrap_err();
   let root = setup.repo.path();
   assert!(
     refusal.message.contains("1 of 2 files") && refusal.message.contains("out/bt-runs/1/big.log"),

@@ -1,8 +1,8 @@
 //! What a follow and a fetch send: a follow from an offset in the middle of a run, the bytes of the pieces of a long
 //! line, and the TLS records of a fetch of many small files
 
-use super::{ALL_PHASES, Agent, DEADLINE, World, wait_for};
-use host_link::channel::{Channel, ClientTls};
+use super::{ALL_PHASES, Agent, DEADLINE, TestChannel, World, wait_for};
+use host_link::channel::ClientTls;
 use host_link::proto::{Piece, Reply, Request, Stream};
 use pretty_assertions::assert_eq;
 use std::fs;
@@ -169,7 +169,7 @@ fn a_fetch_of_many_small_files_takes_few_tls_records() {
 
   let (proxy, records) = record_counter(agent.address);
   let tls = ClientTls::new(agent.fingerprint, &world.client).expect("the TLS setup");
-  let mut channel = Channel::connect(proxy, &tls, DEADLINE).expect("connected");
+  let mut channel = TestChannel::connect(proxy, &tls, DEADLINE).expect("connected");
   channel.send(&Request::hello("test")).expect("the hello");
   assert!(matches!(channel.recv::<Reply>().expect("the hello reply"), Reply::Hello { .. }));
   let before = records.load(Ordering::SeqCst);

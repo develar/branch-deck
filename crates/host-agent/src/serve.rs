@@ -1,5 +1,7 @@
-//! `brd-host serve`: the listener of the agent (openspec/specs/cli/host/spec.md, "serve"). A thread per connection. Each
-//! connection: the TLS handshake within a total deadline, then `Request::Hello`, then one request. At most
+//! `brd-host serve`: the listener of the agent (openspec/specs/cli/host/spec.md, "serve"), on a multi-thread tokio runtime
+//! of its own. A task per connection. Each connection: the TLS handshake within a total deadline, then
+//! `Request::Hello`, then one request. The work that blocks, git and the walks of the disk, runs on the blocking pool of
+//! the runtime, and the task sends the heartbeats meanwhile. At most
 //! [`MAX_HANDSHAKES`] handshakes go on at a time, and at most [`MAX_HANDSHAKES_PER_PEER`] of one address, so one host of
 //! the network cannot hold all of them. A socket over a cap is closed at once. The sockets over a cap and the failed
 //! handshakes write one log line per minute with their count (`tally`). A request that waits for git sends a heartbeat
@@ -30,17 +32,20 @@ use host_link::proto::{MAX_BINARY, PackTarget, Reply, RepositorySlots, Request, 
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_slots::read_host_slots;
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::{self, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::span::in_current_span;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::Instrument as _;
 
-/// The deadline of each read of the handshake and of a request
+/// The deadline of each read and write of a request after the handshake, at most the deadline of the handshake
 const READ_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The most handshakes that go on at a time
@@ -61,6 +66,9 @@ const CLEANUP_EVERY: Duration = Duration::from_hours(1);
 
 /// How often an upgraded agent looks at its other requests before it exits
 const DRAIN_EVERY: Duration = Duration::from_millis(100);
+
+/// How many chunks of a pack wait for the write into the pipe of the ingest
+const PACK_CHUNKS: usize = 16;
 
 /// What `serve` takes
 #[derive(Clone, Debug)]
@@ -185,7 +193,14 @@ pub fn serve(options: ServeOptions, out: &mut dyn Write) -> Result<(), Refusal> 
     private_dir(&dir).map_err(|error| Refusal::new(Code::AgentError, format!("cannot make {}: {error}", dir.display())))?;
   }
   let exe = std::env::current_exe().map_err(|error| Refusal::new(Code::AgentError, format!("cannot find the agent binary: {error}")))?;
-  let listener = TcpListener::bind(SocketAddr::new(bind, port)).map_err(|error| Refusal::new(Code::AgentError, format!("cannot listen on {bind}:{port}: {error}")))?;
+  let runtime = tokio::runtime::Builder::new_multi_thread()
+    .enable_all()
+    .thread_name("brd-host-serve")
+    .build()
+    .map_err(|error| Refusal::new(Code::AgentError, format!("cannot start the runtime of serve: {error}")))?;
+  let listener = std::net::TcpListener::bind(SocketAddr::new(bind, port))
+    .and_then(|listener| listener.set_nonblocking(true).map(|()| listener))
+    .map_err(|error| Refusal::new(Code::AgentError, format!("cannot listen on {bind}:{port}: {error}")))?;
   let address = listener.local_addr().map_err(|error| Refusal::new(Code::AgentError, error.to_string()))?;
   let line = ListeningLine {
     listening: address,
@@ -237,28 +252,32 @@ pub fn serve(options: ServeOptions, out: &mut dyn Write) -> Result<(), Refusal> 
   {
     log(&format!("cannot write {}: {error}", agent.home.listening_file().display()));
   }
+  runtime.block_on(accept_all(listener, agent))
+}
+
+/// Accepts each connection, and serves it on a task of its own. It answers only when it cannot listen
+async fn accept_all(listener: std::net::TcpListener, agent: Arc<Agent>) -> Result<(), Refusal> {
+  let listener = TcpListener::from_std(listener).map_err(|error| Refusal::new(Code::AgentError, format!("cannot listen: {error}")))?;
   let handshakes = Arc::new(Handshakes::default());
-  for socket in listener.incoming() {
-    match socket {
-      Ok(socket) => {
-        let peer = socket.peer_addr().map_or_else(|_| IpAddr::from([0, 0, 0, 0]), |address| address.ip());
-        let Some(admitted) = Handshakes::admit(&handshakes, peer) else {
-          if let Some(line) = agent.over_cap.note(Instant::now(), format!("from {peer}")) {
+  loop {
+    match listener.accept().await {
+      Ok((socket, peer)) => {
+        let Some(admitted) = Handshakes::admit(&handshakes, peer.ip()) else {
+          if let Some(line) = agent.over_cap.note(Instant::now(), format!("from {}", peer.ip())) {
             log(&line);
           }
           drop(socket);
           continue;
         };
         let agent = Arc::clone(&agent);
-        thread::spawn(in_current_span(move || agent.connection(socket, admitted)));
+        tokio::spawn(async move { agent.connection(socket, peer, admitted).await }.in_current_span());
       }
       Err(error) => {
         log(&format!("cannot accept a connection: {error}"));
-        thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
       }
     }
   }
-  Ok(())
 }
 
 /// The handshakes that go on, in all and per peer address
@@ -354,10 +373,9 @@ impl Agent {
     Runs::new(self.home.runs_dir())
   }
 
-  /// Serves one connection. `admitted` counts this one until its handshake ends
-  fn connection(&self, socket: TcpStream, admitted: Admitted) {
-    let address = socket.peer_addr().map_or_else(|_| "an unknown address".to_owned(), |address| address.to_string());
-    let accepted = handshake(socket, &self.tls);
+  /// Serves one connection from `address`. `admitted` counts this one until its handshake ends
+  async fn connection(&self, socket: TcpStream, address: SocketAddr, admitted: Admitted) {
+    let accepted = handshake(socket, &self.tls).await;
     drop(admitted);
     let mut channel = match accepted {
       Ok(channel) => channel,
@@ -368,77 +386,79 @@ impl Agent {
         return;
       }
     };
-    let upgraded = self.converse(&mut channel).unwrap_or_else(|error| {
+    let upgraded = self.converse(&mut channel).await.unwrap_or_else(|error| {
       log(&format!("the connection of {} from {address} failed: {error}", channel.peer().short()));
       false
     });
-    channel.close();
+    channel.close().await;
     if upgraded {
-      self.exit_after_upgrade();
+      self.exit_after_upgrade().await;
     }
   }
 
   /// Serves the hello and the request of one connection. Answers whether the request upgraded the binary
-  fn converse(&self, channel: &mut Channel) -> Result<bool, LinkError> {
-    match channel.recv::<Request>()? {
+  async fn converse(&self, channel: &mut Channel) -> Result<bool, LinkError> {
+    match channel.recv::<Request>().await? {
       Request::Hello { schema_version, .. } if schema_version == SCHEMA_VERSION => {
-        channel.send(&Reply::hello(&self.version, self.sha256.clone()))?;
+        channel.send(&Reply::hello(&self.version, self.sha256.clone())).await?;
       }
       Request::Hello { schema_version, .. } => {
         return channel
           .send(&Reply::refused(Code::Schema, format!("the agent speaks the schema {SCHEMA_VERSION}, not {schema_version}")))
+          .await
           .map(|()| false);
       }
       _ => {
         return channel
           .send(&Reply::refused(Code::BadRequest, "the first request of a connection is a hello"))
+          .await
           .map(|()| false);
       }
     }
     // a client after its hello: the host stays awake until its request ends, the follow of a long run included
     let _awake = self.awake.hold();
-    let request = channel.recv::<Request>()?;
+    let request = channel.recv::<Request>().await?;
     if let Request::Upgrade { size, sha256, force } = &request {
-      return self.upgrade(channel, *size, sha256, *force);
+      return self.upgrade(channel, *size, sha256, *force).await;
     }
     let _busy = (!matches!(request, Request::Follow { .. })).then(|| Busy::new(&self.busy));
-    self.answer_request(channel, request).map(|()| false)
+    self.answer_request(channel, request).await.map(|()| false)
   }
 
-  fn answer_request(&self, channel: &mut Channel, request: Request) -> Result<(), LinkError> {
+  async fn answer_request(&self, channel: &mut Channel, request: Request) -> Result<(), LinkError> {
     match request {
-      Request::Hello { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "a connection carries one hello"))),
+      Request::Hello { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "a connection carries one hello"))).await,
       Request::Have { repo, commits } => match self.repo(&repo) {
         Ok(repo) => {
-          let result = with_heartbeats(channel, &mut || {}, move || have(&repo, &commits))?;
-          answer(channel, result)
+          let result = with_heartbeats(channel, &mut || {}, blocking(move || have(&repo, &commits))).await?;
+          answer(channel, result).await
         }
-        Err(refusal) => answer(channel, Err(refusal)),
+        Err(refusal) => answer(channel, Err(refusal)).await,
       },
-      Request::Pack { repo, commit, target } => self.pack(channel, &repo, &commit, target),
-      Request::Start(spec) => answer(channel, self.start(&spec)),
-      Request::Follow { run, offset } => self.follow(channel, &run, offset),
-      Request::Cancel { run } => answer(channel, self.cancel(&run)),
-      Request::Fetch { run } => self.fetch(channel, &run),
+      Request::Pack { repo, commit, target } => self.pack(channel, &repo, &commit, target).await,
+      Request::Start(spec) => answer(channel, self.start(&spec)).await,
+      Request::Follow { run, offset } => self.follow(channel, &run, offset).await,
+      Request::Cancel { run } => answer(channel, self.cancel(&run)).await,
+      Request::Fetch { run } => self.fetch(channel, &run).await,
       Request::Forget { run } => {
         // who removed a run, for a client that finds it gone (`unknown_run`)
         log(&format!("{} forgets the run {run}", channel.peer().short()));
-        answer(channel, self.forget(&run))
+        answer(channel, self.forget(&run)).await
       }
-      Request::Runs => answer(channel, Ok(self.list_runs())),
-      Request::Slots => answer(channel, Ok(self.slots())),
+      Request::Runs => answer(channel, Ok(self.list_runs())).await,
+      Request::Slots => answer(channel, Ok(self.slots())).await,
       Request::Disk { fresh } => {
         let home = self.home.clone();
-        let result = with_heartbeats(channel, &mut || {}, move || disk(&home, fresh))?;
-        answer(channel, result)
+        let result = with_heartbeats(channel, &mut || {}, blocking(move || disk(&home, fresh))).await?;
+        answer(channel, result).await
       }
       Request::Trim { max, plan } => {
         let home = self.home.clone();
         let peer = channel.peer().short();
-        let result = with_heartbeats(channel, &mut || {}, move || trim(&home, max, plan, &peer))?;
-        answer(channel, result)
+        let result = with_heartbeats(channel, &mut || {}, blocking(move || trim(&home, max, plan, &peer))).await?;
+        answer(channel, result).await
       }
-      Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))),
+      Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))).await,
     }
   }
 
@@ -476,8 +496,8 @@ impl Agent {
   /// Stages the binary of the byte stream beside the binary of the `LaunchAgent`, checks it, installs it, and starts the
   /// watchdog. Heartbeats go out while the binary runs its check. Answers whether the binary changed: the connection
   /// then exits the agent
-  fn upgrade(&self, channel: &mut Channel, size: u64, sha256: &str, force: bool) -> Result<bool, LinkError> {
-    channel.set_read_deadline(PACK_READ_DEADLINE)?;
+  async fn upgrade(&self, channel: &mut Channel, size: u64, sha256: &str, force: bool) -> Result<bool, LinkError> {
+    channel.set_read_deadline(PACK_READ_DEADLINE);
     let checked = upgrade::check_launchd()
       .and_then(|()| {
         if size > MAX_BINARY || !is_sha256(sha256) {
@@ -497,15 +517,15 @@ impl Agent {
     let target = match checked {
       Ok(target) => target,
       Err(refusal) => {
-        drain(channel)?;
-        return channel.send(&Reply::of_refusal(&refusal)).map(|()| false);
+        drain(channel).await?;
+        return channel.send(&Reply::of_refusal(&refusal)).await.map(|()| false);
       }
     };
-    let upgraded = match self.receive_and_install(channel, target, size, sha256, force) {
+    let upgraded = match self.receive_and_install(channel, target, size, sha256, force).await {
       Ok(Ok(upgraded)) => upgraded,
       Ok(Err(refusal)) => {
         self.upgrading.store(false, Ordering::SeqCst);
-        return channel.send(&Reply::of_refusal(&refusal)).map(|()| false);
+        return channel.send(&Reply::of_refusal(&refusal)).await.map(|()| false);
       }
       Err(error) => {
         self.upgrading.store(false, Ordering::SeqCst);
@@ -517,11 +537,13 @@ impl Agent {
       upgraded.sha256, upgraded.version, upgraded.previous_sha256
     ));
     // the new binary is in place, so the agent exits even when the client is gone
-    let answered = channel.send(&Reply::Upgraded {
-      previous_sha256: upgraded.previous_sha256,
-      sha256: upgraded.sha256,
-      version: upgraded.version,
-    });
+    let answered = channel
+      .send(&Reply::Upgraded {
+        previous_sha256: upgraded.previous_sha256,
+        sha256: upgraded.sha256,
+        version: upgraded.version,
+      })
+      .await;
     if let Err(error) = answered {
       log(&format!("cannot answer the upgrade: {error}"));
     }
@@ -530,22 +552,22 @@ impl Agent {
 
   /// Reads the byte stream into a staged file of `target`, and installs it. A refused binary is read to its end too, so
   /// the client gets the refusal and not a broken connection
-  fn receive_and_install(&self, channel: &mut Channel, target: PathBuf, size: u64, sha256: &str, force: bool) -> Result<Result<upgrade::Upgraded, Refusal>, LinkError> {
+  async fn receive_and_install(&self, channel: &mut Channel, target: PathBuf, size: u64, sha256: &str, force: bool) -> Result<Result<upgrade::Upgraded, Refusal>, LinkError> {
     let mut staging = match Staging::create(&target, size) {
       Ok(staging) => staging,
       Err(refusal) => {
-        drain(channel)?;
+        drain(channel).await?;
         return Ok(Err(refusal));
       }
     };
-    channel.recv_stream(&mut staging)?;
+    channel.recv_stream(&mut staging).await?;
     let staged = match staging.finish().and_then(|staged| staged.check(size, sha256).map(|()| staged)) {
       Ok(staged) => staged,
       Err(refusal) => return Ok(Err(refusal)),
     };
     let (home, launchctl) = (self.home.clone(), self.launchctl.clone());
     let wait = tuning::upgrade_drain() + tuning::upgrade_wait();
-    with_heartbeats(channel, &mut || {}, move || {
+    let install = blocking(move || {
       Install {
         home: &home,
         target: &target,
@@ -554,16 +576,17 @@ impl Agent {
         force,
       }
       .run(staged)
-    })
+    });
+    with_heartbeats(channel, &mut || {}, install).await
   }
 
   /// Waits up to the drain time for the other requests, then exits, so that launchd starts the new binary. A run goes
   /// on: its supervisor has a session of its own
-  fn exit_after_upgrade(&self) -> ! {
+  async fn exit_after_upgrade(&self) -> ! {
     let drain = tuning::upgrade_drain();
     let started = Instant::now();
     while self.busy.load(Ordering::SeqCst) > 0 && started.elapsed() < drain {
-      thread::sleep(DRAIN_EVERY);
+      tokio::time::sleep(DRAIN_EVERY).await;
     }
     log(&format!(
       "exits after the upgrade, with {} requests still open, so that launchd starts the new binary",
@@ -587,15 +610,16 @@ impl Agent {
   }
 
   /// Reads the pack that follows into the repository, which lands its objects and points the ref of `target` at
-  /// `commit`, in process (`lease_pool::host_refs::ingest`): a thread ingests from a pipe that the frames of the pack
-  /// fill, so a pack that git refuses early is read to its end too, and the client gets the refusal and not a broken
-  /// connection. Heartbeats go out while the ingest finishes.
+  /// `commit`, in process (`lease_pool::host_refs::ingest`): a blocking task ingests from a pipe, and another one writes
+  /// the chunks of the pack into the pipe as they come, so a slow ingest never holds the task of the connection. A pack
+  /// that git refuses early is read to its end too, and the client gets the refusal and not a broken connection.
+  /// Heartbeats go out while the ingest finishes.
   ///
   /// The pack of a kept run tells its supervisor how far it is: each chunk and each heartbeat writes `packing`, at most
   /// once a second, and the landed pack writes `packed`, unless the run has ended. The give-back of the run deletes its
   /// ref, and the keeper deletes the ref of a pack that no run lends a slot for
-  fn pack(&self, channel: &mut Channel, repo: &str, commit: &str, target: PackTarget) -> Result<(), LinkError> {
-    channel.set_read_deadline(PACK_READ_DEADLINE)?;
+  async fn pack(&self, channel: &mut Channel, repo: &str, commit: &str, target: PackTarget) -> Result<(), LinkError> {
+    channel.set_read_deadline(PACK_READ_DEADLINE);
     let checked = self.repo(repo).and_then(|repo| {
       if !is_object_id(commit) {
         return Err(Refusal::new(Code::BadRequest, format!("{commit:?} is not a full commit id")));
@@ -608,8 +632,8 @@ impl Agent {
     let repo = match checked {
       Ok(repo) => repo,
       Err(refusal) => {
-        drain(channel)?;
-        return channel.send(&Reply::of_refusal(&refusal));
+        drain(channel).await?;
+        return channel.send(&Reply::of_refusal(&refusal)).await;
       }
     };
     let run = match &target {
@@ -620,23 +644,34 @@ impl Agent {
     let (reader, writer) = match io::pipe() {
       Ok(pipe) => pipe,
       Err(error) => {
-        drain(channel)?;
-        return channel.send(&Reply::refused(Code::PackFailed, format!("cannot make the pipe of the pack: {error}")));
+        drain(channel).await?;
+        return channel.send(&Reply::refused(Code::PackFailed, format!("cannot make the pipe of the pack: {error}"))).await;
       }
     };
     let (ingest_repo, ingest_commit) = (Arc::clone(&repo), commit.to_owned());
-    let ingesting = thread::spawn(in_current_span(move || {
+    let ingesting = tokio::task::spawn_blocking(in_current_span(move || {
       let mut reader = reader;
       ingest_repo.ingest(&target, &ingest_commit, &mut reader)
     }));
-    let mut writer = Some(writer);
+    let (chunks, mut taken) = tokio::sync::mpsc::channel::<Vec<u8>>(PACK_CHUNKS);
+    // the ingest can end early on a bad pack: the writer stops then, and the rest of the stream is read and dropped
+    let writing = tokio::task::spawn_blocking(in_current_span(move || {
+      let mut writer = writer;
+      while let Some(chunk) = taken.blocking_recv() {
+        if writer.write_all(&chunk).is_err() {
+          return;
+        }
+      }
+    }));
+    let mut chunks = Some(chunks);
     let received = loop {
-      match channel.recv_frame() {
+      match channel.recv_frame().await {
         Ok(Frame::Bytes(chunk)) => {
           progress.note();
-          // the ingest can end early on a bad pack; the rest of the stream is read and dropped
-          if writer.as_mut().is_some_and(|pipe| pipe.write_all(&chunk).is_err()) {
-            writer = None;
+          if let Some(sender) = &chunks
+            && sender.send(chunk).await.is_err()
+          {
+            chunks = None;
           }
         }
         Ok(Frame::End) => break Ok(()),
@@ -644,12 +679,14 @@ impl Agent {
         Err(error) => break Err(error),
       }
     };
-    drop(writer);
+    // the end of the chunks ends the writer, whose pipe then ends the ingest
+    drop(chunks);
     let home = self.home.clone();
     let beat = Arc::clone(&progress);
-    let ingested = with_heartbeats(channel, &mut || beat.note(), move || {
+    let ingested = async move {
+      let _ = writing.await;
       let ingested = ingesting
-        .join()
+        .await
         .unwrap_or_else(|_| Err(Refusal::new(Code::PackFailed, "the ingest of the pack failed inside the agent")));
       received?;
       if ingested.is_ok() {
@@ -663,10 +700,10 @@ impl Agent {
         }
       }
       Ok(ingested)
-    })?;
-    match ingested? {
-      Ok(_) => channel.send(&Reply::Packed),
-      Err(refusal) => channel.send(&Reply::of_refusal(&refusal)),
+    };
+    match with_heartbeats(channel, &mut || beat.note(), ingested).await? {
+      Ok(_) => channel.send(&Reply::Packed).await,
+      Err(refusal) => channel.send(&Reply::of_refusal(&refusal)).await,
     }
   }
 }
@@ -680,20 +717,14 @@ fn have(repo: &Repository, commits: &[String]) -> Result<Reply, Refusal> {
   repo.have(commits).map(|commits| Reply::Have { commits })
 }
 
-/// The TLS handshake of `socket` within the total deadline of [`tuning::handshake`]. A timer thread shuts the socket down
-/// at the deadline, so a client that sends a byte at a time cannot hold the handshake longer
-fn handshake(socket: TcpStream, tls: &ServerTls) -> Result<Channel, LinkError> {
+/// The TLS handshake of `socket` within the total deadline of [`tuning::handshake`], so a client that sends a byte at a
+/// time cannot hold the handshake longer. Each later read and write has [`READ_DEADLINE`], at most that deadline
+async fn handshake(socket: TcpStream, tls: &ServerTls) -> Result<Channel, LinkError> {
   let deadline = tuning::handshake();
-  let cut = socket.try_clone().map_err(LinkError::Io)?;
-  let (done, ended) = mpsc::channel::<()>();
-  thread::spawn(in_current_span(move || {
-    if ended.recv_timeout(deadline) == Err(RecvTimeoutError::Timeout) {
-      let _ = cut.shutdown(Shutdown::Both);
-    }
-  }));
-  let accepted = Channel::accept(socket, tls, READ_DEADLINE.min(deadline));
-  let _ = done.send(());
-  accepted
+  let mut channel = Channel::accept(socket, tls, deadline).await?;
+  channel.set_read_deadline(READ_DEADLINE.min(deadline));
+  channel.set_write_deadline(READ_DEADLINE.min(deadline));
+  Ok(channel)
 }
 
 /// The progress notes of the pack of a run, at most one per [`tuning::pack_progress_every`]
@@ -722,27 +753,31 @@ impl PackProgress {
   }
 }
 
-/// Runs `work` on a thread, and sends a heartbeat every [`tuning::heartbeat`] until it answers. `beat` runs at each
-/// heartbeat
-fn with_heartbeats<T: Send + 'static>(channel: &mut Channel, beat: &mut dyn FnMut(), work: impl FnOnce() -> T + Send + 'static) -> Result<T, LinkError> {
-  let (sender, receiver) = mpsc::channel();
-  thread::spawn(in_current_span(move || {
-    let _ = sender.send(work());
-  }));
+/// Waits for `work`, and sends a heartbeat every [`tuning::heartbeat`] until it answers. `beat` runs at each heartbeat
+pub(crate) async fn with_heartbeats<T>(channel: &mut Channel, beat: &mut (dyn FnMut() + Send), work: impl Future<Output = Result<T, LinkError>>) -> Result<T, LinkError> {
+  let mut work = std::pin::pin!(work);
   let started = Instant::now();
   let heartbeat = tuning::heartbeat();
   loop {
-    match receiver.recv_timeout(heartbeat) {
-      Ok(result) => return Ok(result),
-      Err(RecvTimeoutError::Timeout) => {
+    tokio::select! {
+      done = &mut work => return done,
+      () = tokio::time::sleep(heartbeat) => {
         beat();
-        channel.send(&Reply::Heartbeat {
-          elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        })?;
+        channel
+          .send(&Reply::Heartbeat {
+            elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+          })
+          .await?;
       }
-      Err(RecvTimeoutError::Disconnected) => return Err(LinkError::Protocol("the request failed inside the agent".to_owned())),
     }
   }
+}
+
+/// `work` on the blocking pool of the runtime, in the span of the caller
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, LinkError> {
+  tokio::task::spawn_blocking(in_current_span(work))
+    .await
+    .map_err(|error| LinkError::Protocol(format!("the request failed inside the agent: {error}")))
 }
 
 /// One request that goes on, counted in [`Agent::busy`] until it drops
@@ -771,10 +806,10 @@ pub(crate) fn check_affinity(affinity: &str) -> Result<(), Refusal> {
 }
 
 /// Sends the reply, or the refusal
-fn answer(channel: &mut Channel, result: Result<Reply, Refusal>) -> Result<(), LinkError> {
+async fn answer(channel: &mut Channel, result: Result<Reply, Refusal>) -> Result<(), LinkError> {
   match result {
-    Ok(answer) => channel.send(&answer),
-    Err(refusal) => channel.send(&Reply::of_refusal(&refusal)),
+    Ok(answer) => channel.send(&answer).await,
+    Err(refusal) => channel.send(&Reply::of_refusal(&refusal)).await,
   }
 }
 
@@ -813,8 +848,8 @@ fn trim(home: &Home, max: Option<usize>, plan: bool, peer: &str) -> Result<Reply
 }
 
 /// Reads a byte stream to its end and drops it
-fn drain(channel: &mut Channel) -> Result<(), LinkError> {
-  channel.recv_stream(&mut io::sink()).map(drop)
+async fn drain(channel: &mut Channel) -> Result<(), LinkError> {
+  channel.recv_stream(&mut io::sink()).await.map(drop)
 }
 
 #[cfg(test)]

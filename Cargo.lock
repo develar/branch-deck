@@ -704,6 +704,7 @@ dependencies = [
  "sync-utils",
  "tempfile",
  "test-utils",
+ "tokio",
 ]
 
 [[package]]
@@ -3188,6 +3189,8 @@ dependencies = [
  "sync-utils",
  "tempfile",
  "test-utils",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3208,6 +3211,9 @@ dependencies = [
  "sync-utils",
  "tempfile",
  "test-utils",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -3215,6 +3221,7 @@ name = "host-link"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "futures-util",
  "libc",
  "pretty_assertions",
  "rcgen",
@@ -3226,7 +3233,11 @@ dependencies = [
  "sync-utils",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
  "toml 1.2.1+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]

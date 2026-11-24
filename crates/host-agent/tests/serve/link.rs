@@ -1,8 +1,8 @@
 //! The link of the agent: the deadline of a handshake and the cap of handshakes of one peer, the heartbeats of a follow
 //! whose thread is held, and the push of a new event to a follow
 
-use super::{World, events, eventually, wait_for};
-use host_link::channel::{Channel, ClientTls};
+use super::{TestChannel, World, events, eventually, wait_for};
+use host_link::channel::ClientTls;
 use host_link::proto::{Reply, Request, Stream};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -43,7 +43,7 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
   );
   drop(idle);
   let tls = ClientTls::new(agent.fingerprint, &world.client).expect("the TLS setup");
-  eventually("a handshake gets in again", || Channel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok());
+  eventually("a handshake gets in again", || TestChannel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok());
 
   // a client that sends a TLS record a byte at a time loses the connection at the total deadline, not before. A byte
   // every 20 ms keeps each read of the handshake alive, so a deadline of each read alone would let it go on as long as
@@ -70,7 +70,7 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
   // the agent still serves; the deadline of 1.5 s holds for each handshake, so a load that holds a client back that
   // long is a cut, and the next connection gets in
   eventually("the agent serves a request", || {
-    Channel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok_and(|mut channel| {
+    TestChannel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok_and(|mut channel| {
       channel.send(&Request::hello("test")).is_ok()
         && matches!(channel.recv::<Reply>(), Ok(Reply::Hello { .. }))
         && channel.send(&Request::Runs).is_ok()
@@ -131,7 +131,7 @@ fn a_new_event_is_pushed_to_the_follow_on_macos_and_polled_elsewhere() {
     run: "24-1".to_owned(),
     offset: fs::metadata(&events).expect("the log").len(),
   });
-  channel.set_read_deadline(Duration::from_secs(10)).expect("a deadline");
+  channel.set_read_deadline(Duration::from_secs(10));
   // the command waits for its gate, so the log is quiet; the test appends an event as the supervisor would, and the next
   // one after the follow sent the last: a change during a read ends the next wait too
   let mut log = fs::OpenOptions::new().append(true).open(&events).expect("the log");

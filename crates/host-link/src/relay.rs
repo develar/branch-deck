@@ -4,23 +4,27 @@
 //! no Local Network permission. An app without a team ID, such as a local build of the IDE, gets no permission even
 //! when its switch is on. A process that is responsible for itself, such as a `launchd` job, gets none either, unless it
 //! is a binary of the system. So the client starts the system `nc` responsible for itself (see the `disclaim` module),
-//! connects it to the agent, and talks TLS through a loopback socket whose other end copies to and from `nc`. TLS and
-//! the pinned certificates stay end to end: `nc` carries only the encrypted bytes.
+//! connects it to the agent, and talks TLS over its stdin and stdout, which the client reads and writes as one tokio
+//! stream. TLS and the pinned certificates stay end to end: `nc` carries only the encrypted bytes.
 //!
 //! The process remembers each address whose direct connect got the refusal, so each later connect to it goes through
 //! the relay at once. A run opens several connections, and each of them would fail a direct connect first.
 
 use crate::channel::LinkError;
 use std::collections::BTreeSet;
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::io;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
-use std::process::{Child, Stdio};
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
-use std::thread;
+use std::pin::Pin;
+use std::process::Stdio;
+use std::sync::{Mutex, PoisonError};
+use std::task::{Context, Poll};
 use std::time::Duration;
 use sync_utils::child_process::windowless_command;
-use sync_utils::span::in_current_span;
+use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, BufReader, Lines, ReadBuf};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
+use tokio::time::timeout;
+use tracing::Instrument as _;
 
 /// The system `nc`.
 pub(crate) const NC: &str = "/usr/bin/nc";
@@ -83,19 +87,20 @@ const fn is_local(ip: IpAddr) -> bool {
   }
 }
 
-/// A loopback socket whose other end is `nc` connected to `address`. Answers when `nc` has connected, or the error that
-/// `nc` gave. `deadline` bounds the connect of `nc`.
-pub(crate) fn connect(address: SocketAddr, deadline: Duration) -> io::Result<TcpStream> {
-  connect_with(NC, address, deadline)
+/// The pipes of `nc` connected to `address`, as one stream: its stdout is what the agent sends, its stdin what it gets.
+/// Answers when `nc` has connected, or the error that `nc` gave. `deadline` bounds the connect of `nc`. The drop of the
+/// stream ends `nc`
+pub(crate) async fn connect(address: SocketAddr, deadline: Duration) -> io::Result<Relay> {
+  connect_with(NC, address, deadline).await
 }
 
-pub(crate) fn connect_with(nc: &str, address: SocketAddr, deadline: Duration) -> io::Result<TcpStream> {
+pub(crate) async fn connect_with(nc: &str, address: SocketAddr, deadline: Duration) -> io::Result<Relay> {
   let host = match address {
     SocketAddr::V6(v6) if v6.scope_id() != 0 => format!("{}%{}", v6.ip(), v6.scope_id()),
     _ => address.ip().to_string(),
   };
   let seconds = deadline.as_secs().max(1).to_string();
-  let mut command = windowless_command(nc);
+  let mut command = windowless_command(nc).into_command();
   command
     .args(["-v", "-G", &seconds, &host, &address.port().to_string()])
     .stdin(Stdio::piped())
@@ -104,109 +109,68 @@ pub(crate) fn connect_with(nc: &str, address: SocketAddr, deadline: Duration) ->
   // Without the disclaim, `nc` keeps the responsible process of the client, and `local_network_cause` names why.
   #[cfg(target_os = "macos")]
   let _ = crate::disclaim::disclaim(&mut command);
+  let mut command = tokio::process::Command::from(command);
+  command.kill_on_drop(true);
   let mut child = command.spawn().map_err(|error| io::Error::new(error.kind(), format!("cannot start {nc}: {error}")))?;
   let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
-    let _ = child.kill();
-    let _ = child.wait();
     return Err(io::Error::other(format!("{nc} has no pipes")));
   };
-  let child = Arc::new(Mutex::new(child));
-  if let Err(error) = wait_for_connect(stderr, deadline) {
-    end(&child);
-    return Err(error);
-  }
-  let pair = loopback_pair();
-  let (outer, inner) = match pair {
-    Ok(pair) => pair,
-    Err(error) => {
-      end(&child);
-      return Err(error);
-    }
-  };
-  let up = match inner.try_clone() {
-    Ok(up) => up,
-    Err(error) => {
-      end(&child);
-      return Err(error);
-    }
-  };
-  let up_child = Arc::clone(&child);
-  thread::spawn(in_current_span(move || copy_then_end(up, stdin, &up_child)));
-  thread::spawn(in_current_span(move || copy_then_end(stdout, inner, &child)));
-  Ok(outer)
+  // `nc -G` ends its own connect at the deadline; one more second lets it say so.
+  let mut lines = BufReader::new(stderr).lines();
+  let said = timeout(deadline + Duration::from_secs(1), connect_line(&mut lines))
+    .await
+    .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "nc did not connect in time")));
+  said?;
+  // the rest of the stderr is read and dropped, so `nc` never blocks on a full pipe
+  tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} }.in_current_span());
+  Ok(Relay { stdin, stdout, _child: child })
 }
 
-/// Reads the stderr of `nc -v` up to its connect line. The rest of the stderr is read and dropped, so `nc` never blocks
-/// on a full pipe.
-fn wait_for_connect(stderr: impl Read + Send + 'static, deadline: Duration) -> io::Result<()> {
-  let (said, heard) = mpsc::channel::<io::Result<()>>();
-  thread::spawn(in_current_span(move || {
-    let mut lines = BufReader::new(stderr).lines();
-    let mut first = String::new();
-    let verdict = loop {
-      match lines.next() {
-        Some(Ok(line)) if line.contains("succeeded") => break Ok(()),
-        Some(Ok(line)) => {
-          if first.is_empty() {
-            first = line;
-          }
-        }
-        Some(Err(error)) => break Err(error),
-        None => {
-          break Err(io::Error::new(io::ErrorKind::HostUnreachable, format!("nc: {}", first.trim().trim_start_matches("nc: "))));
+/// Reads the stderr of `nc -v` up to its connect line
+async fn connect_line(lines: &mut Lines<BufReader<ChildStderr>>) -> io::Result<()> {
+  let mut first = String::new();
+  loop {
+    match lines.next_line().await? {
+      Some(line) if line.contains("succeeded") => return Ok(()),
+      Some(line) => {
+        if first.is_empty() {
+          first = line;
         }
       }
-    };
-    let _ = said.send(verdict);
-    for _ in lines {}
-  }));
-  // `nc -G` ends its own connect at the deadline; one more second lets it say so.
-  heard
-    .recv_timeout(deadline + Duration::from_secs(1))
-    .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "nc did not connect in time")))
-}
-
-/// Two ends of one loopback connection.
-fn loopback_pair() -> io::Result<(TcpStream, TcpStream)> {
-  let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-  let outer = TcpStream::connect(listener.local_addr()?)?;
-  loop {
-    let (inner, from) = listener.accept()?;
-    // Another local process can connect to the port between bind and accept; only our own end counts.
-    if from == outer.local_addr()? {
-      return Ok((outer, inner));
+      None => {
+        return Err(io::Error::new(io::ErrorKind::HostUnreachable, format!("nc: {}", first.trim().trim_start_matches("nc: "))));
+      }
     }
   }
 }
 
-/// Copies until one side ends, then ends the relay: the loopback socket and `nc`.
-fn copy_then_end(mut from: impl Read, mut to: impl Write + EndOfCopy, child: &Mutex<Child>) {
-  let _ = io::copy(&mut from, &mut to);
-  to.end();
-  end(child);
+/// The connection through `nc`: the bytes from the agent come on its stdout, the bytes to it go on its stdin. The drop
+/// kills `nc`, which ends its connection
+#[derive(Debug)]
+pub struct Relay {
+  stdin: ChildStdin,
+  stdout: ChildStdout,
+  _child: Child,
 }
 
-fn end(child: &Mutex<Child>) {
-  if let Ok(mut child) = child.lock() {
-    let _ = child.kill();
-    let _ = child.wait();
+impl AsyncRead for Relay {
+  fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    Pin::new(&mut self.stdout).poll_read(cx, buf)
   }
 }
 
-/// The end of one direction of the relay.
-trait EndOfCopy {
-  fn end(&mut self);
-}
-
-impl EndOfCopy for TcpStream {
-  fn end(&mut self) {
-    let _ = self.shutdown(Shutdown::Both);
+impl AsyncWrite for Relay {
+  fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    Pin::new(&mut self.stdin).poll_write(cx, buf)
   }
-}
 
-impl EndOfCopy for std::process::ChildStdin {
-  fn end(&mut self) {
-    let _ = self.flush();
+  fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    Pin::new(&mut self.stdin).poll_flush(cx)
+  }
+
+  /// Closes the stdin of `nc`, which ends the half of the connection to the agent
+  fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    Pin::new(&mut self.stdin).poll_shutdown(cx)
   }
 }
 

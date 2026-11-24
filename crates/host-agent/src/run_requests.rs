@@ -1,9 +1,11 @@
 //! The requests of a run: Start, Follow, Cancel, Fetch, Forget and Runs, which carries the heavy turn of the host too. The run itself belongs to its supervisor; these
 //! requests only start it, write its cancel request and read its directory. No request signals a pid.
 //!
-//! A follow reads the run files on its own thread, and a second thread sends its heartbeats. The two share the channel
-//! through a mutex, so a slow read of the disk holds no heartbeat back, and a heartbeat never comes between the frames of
-//! one reply. Between two reads the follow waits for a change of the run files through [`Watch`]
+//! A follow reads the run files on a blocking task, which hands each batch of replies to the task of the connection
+//! through a channel. That task sends each batch in one write, and a heartbeat when nothing went out for a while, so a
+//! slow read of the disk holds no heartbeat back, and a heartbeat never comes between the frames of one batch. Between
+//! two reads the reader waits for a change of the run files through [`Watch`], and it ends at its next look once the
+//! connection is gone
 
 use crate::files::append_private;
 use crate::log::log;
@@ -22,12 +24,13 @@ use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use sync_utils::child_process::windowless_command;
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
+use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 /// How often a held follow looks at its hold file, see [`tuning::follow_hold`]
 const HOLD_POLL: Duration = Duration::from_millis(10);
@@ -37,6 +40,9 @@ const FOLLOW_READ: usize = 1024 * 1024;
 
 /// The deadline of each write to a client that follows or fetches
 const WRITE_DEADLINE: Duration = Duration::from_secs(60);
+
+/// How many batches of a follow wait for their send
+const FOLLOW_BATCHES: usize = 4;
 
 impl Agent {
   /// Makes the run directory, starts `brd-host supervise` in a session of its own, and answers at once. The ref that the
@@ -100,10 +106,10 @@ impl Agent {
   /// exit code or the refusal. The follow reads the log that it opened: a forget that cuts the log meanwhile renames
   /// another file over it. Offsets are those of the log before a cut, so a client that follows again goes on where it
   /// was: a follow of the cut log maps `offset` into it and each end out of it (`LogCut`)
-  pub(crate) fn follow(&self, channel: &mut Channel, run: &str, offset: u64) -> Result<(), LinkError> {
+  pub(crate) async fn follow(&self, channel: &mut Channel, run: &str, offset: u64) -> Result<(), LinkError> {
     let run = match self.runs().get(run) {
       Ok(run) => run,
-      Err(refusal) => return channel.send(&Reply::of_refusal(&refusal)),
+      Err(refusal) => return channel.send(&Reply::of_refusal(&refusal)).await,
     };
     let opened = File::open(run.events_path()).and_then(|file| {
       let ino = file.metadata()?.ino();
@@ -116,26 +122,50 @@ impl Agent {
     });
     let (mut log, cut) = match opened {
       Ok(opened) => opened,
-      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))),
+      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))).await,
     };
     let offset = cut.map_or(offset, |cut| cut.into_cut(offset));
     match is_line_start(&mut log, offset) {
       Ok(true) => {}
-      Ok(false) => return channel.send(&Reply::refused(Code::BadRequest, format!("the offset {offset} is not the start of a line of the log"))),
-      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))),
+      Ok(false) => {
+        return channel
+          .send(&Reply::refused(Code::BadRequest, format!("the offset {offset} is not the start of a line of the log")))
+          .await;
+      }
+      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))).await,
     }
-    channel.set_write_deadline(WRITE_DEADLINE)?;
-    // the watch comes before the first read, so no change between a read and a wait is lost
-    let events_path = run.events_path();
-    let mut watch = Watch::new(&[&events_path, run.path()]);
+    channel.set_write_deadline(WRITE_DEADLINE);
     let started_ms = run.started_ms();
-    let shared = FollowChannel::new(channel);
-    thread::scope(|scope| {
-      scope.spawn(in_current_span(|| shared.beat(tuning::heartbeat(), started_ms)));
-      // the heartbeat thread ends on every way out of the follow, a panic too, so the scope never waits for it
-      let _finish = Finish(&shared);
-      follow_to_end(&run, LogReader { file: log, cut }, offset, &shared, &mut watch)
-    })
+    let (batches, mut received) = mpsc::channel::<Vec<Reply>>(FOLLOW_BATCHES);
+    let reader = tokio::task::spawn_blocking(in_current_span(move || {
+      // the watch comes before the first read, so no change between a read and a wait is lost
+      let events_path = run.events_path();
+      let mut watch = Watch::new(&[&events_path, run.path()]);
+      follow_to_end(&run, LogReader { file: log, cut }, offset, &batches, &mut watch);
+    }));
+    let heartbeat = tuning::heartbeat();
+    let mut sent = Instant::now();
+    // a failed send drops `received`, and the reader ends at its next look
+    loop {
+      tokio::select! {
+        batch = received.recv() => match batch {
+          Some(replies) => {
+            channel.send_all(&replies).await?;
+            sent = Instant::now();
+          }
+          None => break,
+        },
+        () = tokio::time::sleep_until(sent + heartbeat) => {
+          let heartbeat = Reply::Heartbeat {
+            elapsed_ms: epoch_ms(SystemTime::now()).saturating_sub(started_ms),
+          };
+          channel.send(&heartbeat).await?;
+          sent = Instant::now();
+        }
+      }
+    }
+    let _ = reader.await;
+    Ok(())
   }
 
   /// Writes the cancel request of the run, which its supervisor polls, and answers at once. A run without a supervisor
@@ -166,47 +196,61 @@ impl Agent {
 
   /// Sends each staged file of an ended run, then the counts. The files go into the buffer of the channel, and only the
   /// counts flush it, so many small files share a few TLS records
-  pub(crate) fn fetch(&self, channel: &mut Channel, run_id: &str) -> Result<(), LinkError> {
+  pub(crate) async fn fetch(&self, channel: &mut Channel, run_id: &str) -> Result<(), LinkError> {
     let run = match self.runs().get(run_id) {
       Ok(run) => run,
-      Err(refusal) => return channel.send(&Reply::of_refusal(&refusal)),
+      Err(refusal) => return channel.send(&Reply::of_refusal(&refusal)).await,
     };
     match run.exit() {
       Ok(Some(_)) => {}
-      Ok(None) => return channel.send(&Reply::refused(Code::BadRequest, format!("the run {run_id} goes on; fetch its files after its end"))),
-      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))),
+      Ok(None) => {
+        return channel
+          .send(&Reply::refused(Code::BadRequest, format!("the run {run_id} goes on; fetch its files after its end")))
+          .await;
+      }
+      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))).await,
     }
     if run.is_forgotten() {
-      return channel.send(&Reply::refused(Code::BadRequest, format!("the run {run_id} was forgotten: its files are gone")));
+      return channel
+        .send(&Reply::refused(Code::BadRequest, format!("the run {run_id} was forgotten: its files are gone")))
+        .await;
     }
     let files = match run_files(&run) {
       Ok(files) => files,
-      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the stage: {error}"))),
+      Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read the stage: {error}"))).await,
     };
-    channel.set_write_deadline(WRITE_DEADLINE)?;
+    channel.set_write_deadline(WRITE_DEADLINE);
     let (mut count, mut bytes) = (0u64, 0u64);
     for staged in files {
       let (file, size) = match open_regular(&staged.path) {
         Ok(opened) => opened,
-        Err(error) => return channel.send(&Reply::refused(Code::AgentError, format!("cannot read {}: {error}", staged.path.display()))),
+        Err(error) => {
+          return channel
+            .send(&Reply::refused(Code::AgentError, format!("cannot read {}: {error}", staged.path.display())))
+            .await;
+        }
       };
-      channel.queue(&Reply::File {
-        path: staged.relative,
-        size,
-        executable: staged.executable,
-        kind: staged.kind,
-      })?;
-      let sent = channel.queue_stream(&mut file.take(size), &mut |_| {})?;
+      channel
+        .queue(&Reply::File {
+          path: staged.relative,
+          size,
+          executable: staged.executable,
+          kind: staged.kind,
+        })
+        .await?;
+      let sent = channel.queue_stream(&mut file.take(size), &mut |_| {}).await?;
       if sent != size {
-        return channel.send(&Reply::refused(
-          Code::AgentError,
-          format!("{} shrank from {size} to {sent} bytes while it was sent", staged.path.display()),
-        ));
+        return channel
+          .send(&Reply::refused(
+            Code::AgentError,
+            format!("{} shrank from {size} to {sent} bytes while it was sent", staged.path.display()),
+          ))
+          .await;
       }
       bytes += sent;
       count += 1;
     }
-    channel.send(&Reply::Fetched { files: count, bytes })
+    channel.send(&Reply::Fetched { files: count, bytes }).await
   }
 
   /// Forgets an ended run (`RunDir::forget`): its files go, and its end and the tail of its log stay, among the last
@@ -263,26 +307,36 @@ struct LogReader {
   cut: Option<LogCut>,
 }
 
-/// The loop of a follow: it reads the run files and sends what is new, until the end of the run. `offset` is one of
-/// `log`, each end that it sends one of the log before a cut
-fn follow_to_end(run: &RunDir, mut log: LogReader, offset: u64, channel: &FollowChannel<'_>, watch: &mut Watch) -> Result<(), LinkError> {
+/// The loop of a follow: it reads the run files and hands what is new to `batches`, until the end of the run or until
+/// the connection is gone (`batches` closed). `offset` is one of `log`, each end that it sends one of the log before a
+/// cut
+fn follow_to_end(run: &RunDir, mut log: LogReader, offset: u64, batches: &mpsc::Sender<Vec<Reply>>, watch: &mut Watch) {
   let hold = tuning::follow_hold();
+  let send = |replies: Vec<Reply>| batches.blocking_send(replies).is_ok();
   let mut offset = offset;
   loop {
     if let Some(hold) = &hold {
-      while hold.exists() {
+      while hold.exists() && !batches.is_closed() {
         thread::sleep(HOLD_POLL);
       }
     }
-    channel.check()?;
+    if batches.is_closed() {
+      return;
+    }
     // the end is read before the log: the supervisor writes the last event before `exit.json`
     let ended = match run.exit_with_phases() {
       Ok(ended) => ended,
-      Err(error) => return channel.send(&[Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))]),
+      Err(error) => {
+        send(vec![Reply::refused(Code::AgentError, format!("cannot read the end of the run: {error}"))]);
+        return;
+      }
     };
     let events = match read_events_in(&mut log.file, &run.events_path(), offset, FOLLOW_READ) {
       Ok(events) => events,
-      Err(error) => return channel.send(&[Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))]),
+      Err(error) => {
+        send(vec![Reply::refused(Code::AgentError, format!("cannot read the log: {error}"))]);
+        return;
+      }
     };
     if let Some((_, end)) = events.last() {
       offset = *end;
@@ -294,7 +348,9 @@ fn follow_to_end(run: &RunDir, mut log: LogReader, offset: u64, channel: &Follow
           end: log.cut.map_or(end, |cut| cut.out_of_cut(end)),
         })
         .collect();
-      channel.send(&replies)?;
+      if !send(replies) {
+        return;
+      }
       continue;
     }
     if let Some((ended, phases)) = ended {
@@ -306,98 +362,13 @@ fn follow_to_end(run: &RunDir, mut log: LogReader, offset: u64, channel: &Follow
           message: refused.message,
         },
       };
-      return channel.send(&[Reply::Phases { phases }, last]);
+      send(vec![Reply::Phases { phases }, last]);
+      return;
     }
     if run.end_if_lost() {
       continue;
     }
     watch.wait(tuning::follow_recheck());
-  }
-}
-
-/// Ends the heartbeat thread of a follow when it drops
-struct Finish<'f, 'c>(&'f FollowChannel<'c>);
-
-impl Drop for Finish<'_, '_> {
-  fn drop(&mut self) {
-    self.0.finish();
-  }
-}
-
-/// The channel of a follow, which its follow thread and its heartbeat thread share
-struct FollowChannel<'c> {
-  state: Mutex<FollowState<'c>>,
-  /// Wakes the heartbeat thread at the end of the follow
-  wake: Condvar,
-}
-
-struct FollowState<'c> {
-  channel: &'c mut Channel,
-  /// When the last reply went out
-  sent: Instant,
-  /// Set at the end of the follow, which ends the heartbeat thread
-  finished: bool,
-  /// Why a heartbeat failed. The follow thread ends with it
-  failed: Option<LinkError>,
-}
-
-impl<'c> FollowChannel<'c> {
-  fn new(channel: &'c mut Channel) -> Self {
-    Self {
-      state: Mutex::new(FollowState {
-        channel,
-        sent: Instant::now(),
-        finished: false,
-        failed: None,
-      }),
-      wake: Condvar::new(),
-    }
-  }
-
-  fn lock(&self) -> MutexGuard<'_, FollowState<'c>> {
-    self.state.lock().unwrap_or_else(PoisonError::into_inner)
-  }
-
-  /// Sends `replies` in one write, with no heartbeat between them
-  fn send(&self, replies: &[Reply]) -> Result<(), LinkError> {
-    let mut state = self.lock();
-    if let Some(error) = state.failed.take() {
-      return Err(error);
-    }
-    state.channel.send_all(replies)?;
-    state.sent = Instant::now();
-    Ok(())
-  }
-
-  /// The failure of a heartbeat, if one failed
-  fn check(&self) -> Result<(), LinkError> {
-    self.lock().failed.take().map_or(Ok(()), Err)
-  }
-
-  fn finish(&self) {
-    self.lock().finished = true;
-    self.wake.notify_all();
-  }
-
-  /// Sends a heartbeat each time no reply went out for `every`, until [`FollowChannel::finish`] or a failed send
-  fn beat(&self, every: Duration, started_ms: u64) {
-    let mut state = self.lock();
-    while !state.finished {
-      let due = state.sent + every;
-      let now = Instant::now();
-      if now < due {
-        state = self.wake.wait_timeout(state, due - now).unwrap_or_else(PoisonError::into_inner).0;
-        continue;
-      }
-      let heartbeat = Reply::Heartbeat {
-        elapsed_ms: epoch_ms(SystemTime::now()).saturating_sub(started_ms),
-      };
-      if let Err(error) = state.channel.send(&heartbeat) {
-        state.failed = Some(error);
-        return;
-      }
-      state.sent = Instant::now();
-    }
   }
 }
 

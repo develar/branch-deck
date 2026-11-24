@@ -50,9 +50,10 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
 }
 
 /// The end of a run reads back as it was written, and one process at a time holds the lock of the end of a run: a second
-/// one waits up to its deadline, or until its stop, and gets none; the lock goes with the drop
-#[test]
-fn the_end_of_a_run_reads_back_and_one_process_at_a_time_holds_its_lock() {
+/// one waits up to its deadline, or until its stop, and gets none; the lock goes with the drop. On paused time, so the
+/// deadline of the wait is the one of the test
+#[tokio::test(start_paused = true)]
+async fn the_end_of_a_run_reads_back_and_one_process_at_a_time_holds_its_lock() {
   let base = tempfile::tempdir().unwrap();
   let files = RunFiles::new(&base.path().join("runs")).unwrap();
   assert_eq!(files.read_end("1-1").unwrap(), None);
@@ -73,12 +74,14 @@ fn the_end_of_a_run_reads_back_and_one_process_at_a_time_holds_its_lock() {
   assert_eq!(files.log("1-1"), files.dir().join("1-1.log"));
 
   let poll = Duration::from_millis(1);
-  let held = files.lock("1-1", None, poll, &|| false).unwrap().expect("a free lock");
-  let deadline = Some(Instant::now() + Duration::from_millis(20));
+  let held = files.lock("1-1", None, poll, &|| false).await.unwrap().expect("a free lock");
+  let started = Instant::now();
+  let deadline = Some(started + Duration::from_millis(20));
   // a second open file of the same process stands for another process: the lock is of the open file
-  assert!(files.lock("1-1", deadline, poll, &|| false).unwrap().is_none(), "held until the deadline");
-  assert!(files.lock("1-1", None, poll, &|| true).unwrap().is_none(), "the stop ends the wait");
-  assert!(files.lock("2-2", None, poll, &|| false).unwrap().is_some(), "each run has a lock of its own");
+  assert!(files.lock("1-1", deadline, poll, &|| false).await.unwrap().is_none(), "held until the deadline");
+  assert_eq!(started.elapsed(), Duration::from_millis(20));
+  assert!(files.lock("1-1", None, poll, &|| true).await.unwrap().is_none(), "the stop ends the wait");
+  assert!(files.lock("2-2", None, poll, &|| false).await.unwrap().is_some(), "each run has a lock of its own");
   drop(held);
-  assert!(files.lock("1-1", deadline, poll, &|| false).unwrap().is_some());
+  assert!(files.lock("1-1", deadline, poll, &|| false).await.unwrap().is_some());
 }

@@ -21,8 +21,13 @@
 //! Each failure is a `host_link::refusal::Refusal` with a code of the table of the spec. The exit of a run follows how
 //! far it came (`RunFailure`); the exit of another request is `request_exit`.
 //!
-//! Only on Unix, as the agent: the app bundles brd-host on macOS only, and a `Closer` ends a blocked read only where
-//! `shutdown` wakes it (openspec/specs/cli/host/spec.md, "Non-goals")
+//! The client runs on tokio, as its channel does (`host_link::channel`): each request of the client is an `async fn`, the
+//! caller owns the runtime (`brd-host` a current-thread one per command), the steps that go on beside each other, such as
+//! the follow and the pack of a run, are futures of one task, and the git of a step runs on the blocking pool. A step
+//! stops another one by a `CancellationToken` or by the drop of its future, which ends its connection. Every wait is a
+//! wait of tokio time, so a test runs on paused time.
+//!
+//! Only on Unix, as the agent: the app bundles brd-host on macOS only (openspec/specs/cli/host/spec.md, "Non-goals")
 #![cfg(unix)]
 
 mod base;
@@ -51,11 +56,14 @@ mod lib_test;
 use config::Config;
 use git_executor::git_command_executor::GitCommandExecutor;
 use host::Host;
+use host_link::channel::{Link, LinkError, link_to};
 use host_link::proto::{HEARTBEAT_SECONDS, Stream, UPGRADE_DRAIN_SECONDS, UPGRADE_WATCHDOG_SECONDS};
 use host_link::refusal::{Code, Exit, Refusal};
 use process::Processes;
+use std::net::SocketAddr;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// The exit of `brd-host` for a refusal of a request that is no run: `follow`, `cancel`, `fetch`, `forget`, `runs`,
 /// `hello`, `slots`, `setup` and `upgrade` exit 2 for `usage`, 130 for `interrupted`, 124 for `still_running` of a
@@ -138,6 +146,28 @@ impl Timing {
 /// The sink of the bytes of the output of a run: each piece of a stream, with its line end when it has one
 pub type OutputSink<'a> = &'a (dyn Fn(Stream, &[u8]) + Sync);
 
+/// How the client reaches an address of a host: over TCP, or the relay where Local Network privacy refuses TCP
+/// (`host_link::channel::link_to`); a test reaches its agent over pipes in memory (`testkit::MemoryNet`), which a paused
+/// clock never runs past
+#[derive(Clone, Debug, Default)]
+pub(crate) enum Net {
+  #[default]
+  Tcp,
+  #[cfg(test)]
+  Memory(std::sync::Arc<testkit::MemoryNet>),
+}
+
+impl Net {
+  /// The connection to `address` within `deadline`, before its handshake
+  pub(crate) async fn dial(&self, address: SocketAddr, deadline: Duration) -> Result<Link, LinkError> {
+    match self {
+      Self::Tcp => link_to(address, deadline).await,
+      #[cfg(test)]
+      Self::Memory(net) => net.dial(address),
+    }
+  }
+}
+
 /// The client of one process: its configuration, its build, its git, its seam for ssh, the sink of its lines, the sink
 /// of the output of a run, and the count of the Ctrl+C presses
 pub struct Client<'a> {
@@ -151,6 +181,8 @@ pub struct Client<'a> {
   output: Option<OutputSink<'a>>,
   presses: &'a (dyn Fn() -> u32 + Sync),
   timing: Timing,
+  /// How the client reaches the addresses of a host
+  net: Net,
   /// How long the build of a pack waits before git starts, so a test can press Ctrl+C or count keepalives meanwhile;
   /// zero outside the tests
   hold_pack: Duration,
@@ -177,6 +209,7 @@ impl<'a> Client<'a> {
       output: None,
       presses,
       timing: Timing::DEFAULT,
+      net: Net::Tcp,
       hold_pack: Duration::ZERO,
       past_max: None,
       step_time: None,
@@ -215,7 +248,13 @@ impl<'a> Client<'a> {
 
   /// The host of an alias, from its host file
   pub fn host(&self, alias: &str) -> Result<Host, Refusal> {
-    Host::open(&self.config, alias, &self.build.version, self.timing)
+    Host::open(&self.config, alias, &self.build.version, self.timing, self.net.clone())
+  }
+
+  #[cfg(test)]
+  pub(crate) fn with_net(mut self, net: Net) -> Self {
+    self.net = net;
+    self
   }
 
   #[cfg(test)]

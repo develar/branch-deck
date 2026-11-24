@@ -9,6 +9,16 @@ publish = false
 [dependencies]
 # TLS 1.3 with pinned certificates on the provider of the app (`tls`, `channel`)
 rustls.workspace = true
+# the channel on tokio: the TCP connect, the deadlines, the pipes of the relay (`channel`, `relay`)
+tokio = { workspace = true, features = ["time", "io-util"] }
+# TLS over a tokio stream (`channel`)
+tokio-rustls.workspace = true
+# the frames: `LengthDelimitedCodec` in a `Framed` (`channel`)
+tokio-util.workspace = true
+# the `Sink` and the `Stream` of the `Framed` (`channel`)
+futures-util.workspace = true
+# the span of the task that drains the stderr of the relay (`relay`)
+tracing.workspace = true
 # the self-signed certificate of each end (`tls`)
 rcgen.workspace = true
 # the fingerprint of a certificate and the build id of a binary (`digest`, `identity`)
@@ -35,6 +45,8 @@ libc = "0.2.191"
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile.workspace = true
+# the tests of the deadlines on paused time
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

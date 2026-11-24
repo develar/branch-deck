@@ -207,8 +207,8 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "host-link",
-    forbidden: &["git-ops", "git-executor", "lease-pool", "github", "patronus", "youtrack", "reqwest", "tokio", TAURI],
-    why: "the link of the remote runs is a channel and a protocol: no git, no pool, no remote service, no runtime",
+    forbidden: &["git-ops", "git-executor", "lease-pool", "github", "patronus", "youtrack", "reqwest", TAURI],
+    why: "the link of the remote runs is a channel on tokio and a protocol: no git, no pool, no remote service; the runtime is the one of its caller",
   },
   Unreachable {
     from: "host-client",

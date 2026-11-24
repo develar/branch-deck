@@ -6,20 +6,19 @@
 //! address that answers goes first in the host file. A cached address that failed goes after the ones that did not, so
 //! the next connection tries it last. When only an address of the host name answers, every cached address failed, and
 //! the host file keeps the new address alone. No step waits without a deadline, so a `.local` name that does not
-//! resolve costs 5 s. When macOS Local Network privacy can be what refused an address, the refusal names it once
+//! resolve costs 5 s. When macOS Local Network privacy can be what refused an address, the refusal names it once.
+//!
+//! A caller that stops the work of a host drops the future that uses its connection, which ends the connection
 
 use crate::config::{Config, HostFile};
-use crate::{Timing, setup_hint};
-use host_link::channel::{Channel, ClientTls, Closer, LinkError};
+use crate::{Net, Timing, setup_hint};
+use host_link::channel::{Channel, ClientTls, LinkError};
 use host_link::proto::{Reply, Request, SCHEMA_VERSION};
 use host_link::refusal::{Code, Refusal, on_host};
 use host_link::relay::local_network_cause;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
-use std::thread;
+use std::net::SocketAddr;
 use std::time::Duration;
-use sync_utils::span::in_current_span;
+use tokio::time::timeout;
 
 /// How many addresses the host file keeps
 const KEPT_ADDRESSES: usize = 4;
@@ -49,33 +48,8 @@ pub struct Host {
   /// The TLS configuration of the pin of the host and the identity of the client, built once for all connections
   tls: ClientTls,
   timing: Timing,
-  /// Where each new connection leaves its closer, for a thread that ends the work of this host
-  latest: Option<Arc<Latest>>,
-}
-
-/// The latest connection of a `Host`, which another thread can close, see `Host::watched`
-#[derive(Debug, Default)]
-pub(crate) struct Latest {
-  closer: Mutex<Option<Closer>>,
-  closed: AtomicBool,
-}
-
-impl Latest {
-  /// Closes the latest connection, and each later one at once
-  pub(crate) fn close(&self) {
-    self.closed.store(true, Ordering::SeqCst);
-    let closer = self.closer.lock().unwrap_or_else(PoisonError::into_inner).take();
-    if let Some(closer) = closer {
-      closer.close();
-    }
-  }
-
-  fn keep(&self, channel: &Channel) {
-    *self.closer.lock().unwrap_or_else(PoisonError::into_inner) = channel.closer().ok();
-    if self.closed.load(Ordering::SeqCst) {
-      self.close();
-    }
-  }
+  /// How the connections reach the addresses
+  net: Net,
 }
 
 /// The failures of the addresses that one connection tried
@@ -101,7 +75,7 @@ enum Attempt {
 }
 
 impl Host {
-  pub(crate) fn open(config: &Config, alias: &str, version: &str, timing: Timing) -> Result<Self, Refusal> {
+  pub(crate) fn open(config: &Config, alias: &str, version: &str, timing: Timing, net: Net) -> Result<Self, Refusal> {
     let file = config.read_host(alias)?;
     let identity = config.identity()?;
     let tls = ClientTls::new(file.fingerprint, &identity).map_err(|error| Refusal::new(Code::Config, format!("cannot set up TLS with the client identity: {error}")))?;
@@ -111,16 +85,8 @@ impl Host {
       version: version.to_owned(),
       tls,
       timing,
-      latest: None,
+      net,
     })
-  }
-
-  /// A copy whose connections leave their closer in `latest`, so another thread can end its work at once
-  pub(crate) fn watched(&self, latest: Arc<Latest>) -> Self {
-    Self {
-      latest: Some(latest),
-      ..self.clone()
-    }
   }
 
   pub fn alias(&self) -> &str {
@@ -132,20 +98,12 @@ impl Host {
   }
 
   /// A new connection after its hello
-  pub fn connect(&mut self) -> Result<(Channel, AgentInfo), Refusal> {
-    let connected = self.connect_once()?;
-    if let Some(latest) = &self.latest {
-      latest.keep(&connected.0);
-    }
-    Ok(connected)
-  }
-
-  fn connect_once(&mut self) -> Result<(Channel, AgentInfo), Refusal> {
+  pub async fn connect(&mut self) -> Result<(Channel, AgentInfo), Refusal> {
     let mut tries = Tries::default();
-    if let Some(answered) = self.try_each(self.file.addresses.clone(), &mut tries) {
+    if let Some(answered) = self.try_each(self.file.addresses.clone(), &mut tries).await {
       return answered;
     }
-    let resolved = resolve(&self.file.hostname, self.file.port, self.timing.resolve);
+    let resolved = resolve(&self.file.hostname, self.file.port, self.timing.resolve).await;
     let lookup = match &resolved {
       Ok(addresses) if addresses.is_empty() => format!("{} resolved to no address", self.file.hostname),
       Ok(addresses) => format!(
@@ -156,7 +114,7 @@ impl Host {
       Err(said) => format!("{} did not resolve: {said}", self.file.hostname),
     };
     let fresh: Vec<SocketAddr> = resolved.unwrap_or_default().into_iter().filter(|address| !self.file.addresses.contains(address)).collect();
-    if let Some(answered) = self.try_each(fresh, &mut tries) {
+    if let Some(answered) = self.try_each(fresh, &mut tries).await {
       return answered;
     }
     let Tries {
@@ -185,24 +143,24 @@ impl Host {
   }
 
   /// One request on a new connection, and its first reply. `deadline` bounds the wait for each frame of the reply
-  pub(crate) fn request(&mut self, request: &Request, deadline: Duration) -> Result<(Channel, Reply), Refusal> {
-    let (mut channel, _) = self.connect()?;
-    channel.send(request).map_err(|error| self.link_refusal(&error))?;
-    let reply = self.recv(&mut channel, deadline)?;
+  pub(crate) async fn request(&mut self, request: &Request, deadline: Duration) -> Result<(Channel, Reply), Refusal> {
+    let (mut channel, _) = self.connect().await?;
+    channel.send(request).await.map_err(|error| self.link_refusal(&error))?;
+    let reply = self.recv(&mut channel, deadline).await?;
     Ok((channel, reply))
   }
 
   /// The next reply on `channel` that is not a heartbeat. `deadline` bounds the wait for each frame, so each heartbeat
   /// starts the deadline again
-  pub(crate) fn recv(&self, channel: &mut Channel, deadline: Duration) -> Result<Reply, Refusal> {
-    self.recv_beating(channel, deadline, &mut || {})
+  pub(crate) async fn recv(&self, channel: &mut Channel, deadline: Duration) -> Result<Reply, Refusal> {
+    self.recv_beating(channel, deadline, &mut || {}).await
   }
 
   /// `recv` that calls `heartbeat` at each heartbeat it skips
-  pub(crate) fn recv_beating(&self, channel: &mut Channel, deadline: Duration, heartbeat: &mut dyn FnMut()) -> Result<Reply, Refusal> {
-    channel.set_read_deadline(deadline).map_err(|error| self.link_refusal(&error))?;
+  pub(crate) async fn recv_beating(&self, channel: &mut Channel, deadline: Duration, heartbeat: &mut (dyn FnMut() + Send)) -> Result<Reply, Refusal> {
+    channel.set_read_deadline(deadline);
     loop {
-      match channel.recv::<Reply>().map_err(|error| self.link_refusal(&error))? {
+      match channel.recv::<Reply>().await.map_err(|error| self.link_refusal(&error))? {
         Reply::Heartbeat { .. } => heartbeat(),
         reply => return Ok(reply),
       }
@@ -235,9 +193,9 @@ impl Host {
 
   /// Tries each of `addresses` in turn, and notes each failure in `tries`. Answers the first channel, the refusal of
   /// an agent that answered and refused, or `None` when no address answered
-  fn try_each(&mut self, addresses: Vec<SocketAddr>, tries: &mut Tries) -> Option<Result<(Channel, AgentInfo), Refusal>> {
+  async fn try_each(&mut self, addresses: Vec<SocketAddr>, tries: &mut Tries) -> Option<Result<(Channel, AgentInfo), Refusal>> {
     for address in addresses {
-      match self.attempt(address) {
+      match self.attempt(address).await {
         Ok(connected) => {
           self.remember(address, &tries.failed);
           return Some(Ok(connected));
@@ -257,8 +215,12 @@ impl Host {
     None
   }
 
-  fn attempt(&self, address: SocketAddr) -> Result<(Channel, AgentInfo), Attempt> {
-    let mut channel = match Channel::connect(address, &self.tls, self.timing.connect) {
+  async fn attempt(&self, address: SocketAddr) -> Result<(Channel, AgentInfo), Attempt> {
+    let connected = match self.net.dial(address, self.timing.connect).await {
+      Ok(link) => Channel::connect_over(link, &self.tls, self.timing.connect).await,
+      Err(error) => Err(error),
+    };
+    let mut channel = match connected {
       Ok(channel) => channel,
       Err(LinkError::Untrusted(said)) => return Err(Attempt::Untrusted(said)),
       Err(error) => {
@@ -266,10 +228,10 @@ impl Host {
         return Err(Attempt::Failed(error.to_string(), local_network));
       }
     };
-    let hello = channel.exchange::<_, Reply>(&Request::hello(&self.version));
+    let hello = channel.exchange::<_, Reply>(&Request::hello(&self.version)).await;
     // The connect deadline is short, for a dead address. A write of a large pack to a slow link takes longer, so each
     // later write has the read deadline of a reply
-    let hello = hello.and_then(|reply| channel.set_write_deadline(self.timing.read).map(|()| reply));
+    channel.set_write_deadline(self.timing.read);
     match hello {
       Ok(Reply::Hello {
         schema_version,
@@ -330,22 +292,13 @@ impl Host {
   }
 }
 
-/// The addresses of a host name, IPv4 first, under a deadline. The lookup runs on a thread of its own, because the
-/// resolver of the system has no deadline. A lookup that ends late finds the receiver gone, and its thread ends
-pub(crate) fn resolve(hostname: &str, port: u16, deadline: Duration) -> Result<Vec<SocketAddr>, String> {
-  let (sender, receiver) = mpsc::channel();
-  let name = hostname.to_owned();
-  thread::Builder::new()
-    .name("brd-host-resolve".to_owned())
-    .spawn(in_current_span(move || {
-      let found = (name.as_str(), port).to_socket_addrs().map(Iterator::collect::<Vec<_>>).map_err(|error| error.to_string());
-      let _ = sender.send(found);
-    }))
-    .map_err(|error| format!("cannot start the lookup: {error}"))?;
-  let Ok(found) = receiver.recv_timeout(deadline) else {
+/// The addresses of a host name, IPv4 first, under a deadline. The lookup of tokio runs on the blocking pool, because
+/// the resolver of the system has no deadline. A lookup that ends late ends on its own
+pub(crate) async fn resolve(hostname: &str, port: u16, deadline: Duration) -> Result<Vec<SocketAddr>, String> {
+  let Ok(found) = timeout(deadline, tokio::net::lookup_host((hostname, port))).await else {
     return Err(format!("no answer in {} s", deadline.as_secs()));
   };
-  let mut found = found?;
+  let mut found: Vec<SocketAddr> = found.map_err(|error| error.to_string())?.collect();
   found.sort_by_key(SocketAddr::is_ipv6);
   let mut addresses = Vec::with_capacity(found.len());
   for address in found {

@@ -2,7 +2,8 @@
 //! tree with the candidates that the host may have (`git_ops::host_client::snapshot`), `[host]` of the shipped commit
 //! (`git_ops::host_objects::show_commit`), the thin pack into a private file (`pack_commit_until`), and the apply of the
 //! changes of a command to the working tree (`apply_patch`). A git that fails refuses with `git_failed` and its words,
-//! and a patch that does not apply with `apply_failed`
+//! and a patch that does not apply with `apply_failed`. A step whose git is long while a connection goes on beside it,
+//! such as the status of a checkout or the build of a pack, runs it on the blocking pool (`blocking`)
 
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
 use git_ops::host_client::{Scan, apply_patch, pack_commit_until, repository_name, snapshot};
@@ -12,6 +13,7 @@ use git_ops::revs::{commit_count, repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};
+use sync_utils::span::in_current_span;
 
 /// The directory of the files of the runs in `STATE_DIR` of the git directory of a checkout
 const HOST_DIR: &str = "host";
@@ -153,6 +155,13 @@ impl Checkout {
   pub(crate) fn apply(&self, patch: &Path) -> Result<usize, Refusal> {
     apply_patch(&self.git, &self.top_level, patch).map_err(|error| Refusal::new(Code::ApplyFailed, format!("{error:#}")))
   }
+}
+
+/// Runs the git of a step on the blocking pool, so the connections of the steps beside it go on meanwhile
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, Refusal> + Send + 'static) -> Result<T, Refusal> {
+  tokio::task::spawn_blocking(in_current_span(work))
+    .await
+    .unwrap_or_else(|_| Err(Refusal::new(Code::GitFailed, "the git of the client failed inside the client")))
 }
 
 /// The refusal of a git that failed: `git_failed` with what the client did and the words of git

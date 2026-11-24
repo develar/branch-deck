@@ -245,15 +245,24 @@ there.
 
 A connection that fails MUST be `unreachable`, `untrusted`, `timed_out` or `link`.
 
-#### Scenario: No agent on the port, or a silent agent
-- **WHEN** no agent listens on the port, or the agent does not answer
-- **THEN** the connection is `unreachable`, or `timed_out`
-  [@test] crates/host-link/src/channel_test.rs (`a_port_without_an_agent_is_unreachable_and_a_silent_agent_times_out`)
+#### Scenario: No agent on the port
+- **WHEN** no agent listens on the port
+- **THEN** the connection is `unreachable`
+  [@test] crates/host-link/src/channel_test.rs (`a_port_without_an_agent_is_unreachable`)
+
+#### Scenario: A silent agent
+- **WHEN** the agent does not answer the handshake, or says nothing after it
+- **THEN** the connection is `unreachable` at the deadline of the handshake, or the read is `timed_out` at its own
+  deadline
+  [@test] crates/host-link/src/channel_test.rs (`a_silent_agent_cuts_the_handshake_at_its_deadline`, `a_read_of_a_silent_agent_ends_at_its_deadline`)
 
 ### Requirement: The link: Every read and every write has a deadline
 
-Every read and every write MUST have a deadline. A request that waits MUST get `Reply::Heartbeat` every 15 s, and
-the client resets its read deadline at each one.
+Every read and every write MUST have a deadline. The deadline MUST be a timeout of the channel (`tokio::time::timeout`),
+not one of the socket, so it holds through the relay too. A request that waits MUST get `Reply::Heartbeat` every 15 s,
+and the client resets its read deadline at each one. A heartbeat MUST be a message of the protocol, not a keepalive of
+TCP: the relay through `nc` carries no keepalive of the socket, and a run that is quiet must differ from a link that is
+dead.
 
 #### Scenario: A request that waits
 - **WHEN** a request waits on the agent, such as a follow whose thread is held in a file read or a `Have` while git
@@ -261,6 +270,7 @@ the client resets its read deadline at each one.
 - **THEN** it gets `Reply::Heartbeat` every 15 s, and the client resets its read deadline at each one
   [@test] crates/host-agent/tests/serve/link.rs (`heartbeats_go_on_while_the_follow_thread_is_held_in_a_file_read`)
   [@test] crates/host-agent/tests/serve/lend.rs (`a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git`)
+  [@test] crates/host-client/src/run_test.rs (`heartbeats_keep_a_waiting_request_alive`)
 
 ### Requirement: The link: The handshakes of the agent have a deadline and a cap
 
@@ -285,12 +295,13 @@ at the short connect deadline.
 ### Requirement: The link: A connection that Local Network privacy refuses goes through nc
 
 On macOS a connection that Local Network privacy refuses (`EHOSTUNREACH`) MUST go again through `/usr/bin/nc`, which
-the client starts responsible for itself. TLS stays end to end.
+the client starts responsible for itself. The client MUST read the stdout and write the stdin of `nc` as the connection,
+and the end of the connection MUST end `nc`. TLS stays end to end.
 
 #### Scenario: A refused connection
 - **WHEN** a connection on macOS fails with `EHOSTUNREACH`
 - **THEN** it goes again through `/usr/bin/nc`, which the client starts responsible for itself
-- **AND** the relay carries the handshake and the frames, so TLS stays end to end
+- **AND** the relay carries the handshake and the frames over the pipes of `nc`, so TLS stays end to end
   [@test] crates/host-link/src/channel_test.rs (`a_relayed_connection_carries_the_handshake_and_the_frames`)
   [@test] crates/host-link/src/relay_test.rs (`the_relay_carries_bytes_both_ways_and_ends_with_the_peer`, `local_network_privacy_is_a_cause_only_of_host_unreachable_on_a_local_address_that_the_relay_cannot_pass`)
   [@test] crates/host-link/src/disclaim_test.rs (`a_disclaimed_child_gets_its_arguments_and_its_pipes`, `a_command_that_changes_the_environment_is_refused`)
@@ -480,7 +491,7 @@ commit count of the history.
 
 ### Requirement: run: The steps of a run come in their order
 
-The order of a run MUST be: the commit and `Have`; the run record; `Start`; `Follow` on a thread of its own; the pack
+The order of a run MUST be: the commit and `Have`; the run record; `Start`; `Follow` beside the other steps; the pack
 on a connection of its own, with an empty chunk every 15 s while it builds; the base sync; `Fetch` and `Forget`; with
 `--apply`, the apply of the patch. Up to `Start`, nothing runs on the host.
 
@@ -493,6 +504,7 @@ on a connection of its own, with an empty chunk every 15 s while it builds; the 
 #### Scenario: A pack that takes long to build
 - **WHEN** the pack builds for longer than 15 s
 - **THEN** its connection gets an empty chunk every 15 s
+  [@test] crates/host-client/src/run_test.rs (`the_pack_builds_after_the_start_and_keeps_its_connection_alive`)
 
 ### Requirement: run: The base syncs once per run after the pack
 

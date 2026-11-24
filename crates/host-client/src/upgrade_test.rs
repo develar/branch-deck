@@ -20,21 +20,26 @@ fn upgradable(restarts: bool) -> Setup {
     ..Hello::default()
   };
   Setup::with_hello(hello, move |request, channel| {
-    let Request::Upgrade { size, sha256, .. } = request else {
-      let _ = channel.send(&Reply::refused(Code::BadRequest, "not in this script"));
-      return;
-    };
-    let mut bytes = Vec::new();
-    channel.recv_stream(&mut bytes).unwrap();
-    assert_eq!((bytes.len() as u64, sha256_hex(&bytes)), (*size, sha256.clone()));
-    if restarts {
-      *build.lock().unwrap_or_else(PoisonError::into_inner) = Some(sha256.clone());
-    }
-    let _ = channel.send(&Reply::Upgraded {
-      previous_sha256: OLD.to_owned(),
-      sha256: sha256.clone(),
-      version: "0.37.0".to_owned(),
-    });
+    let build = Arc::clone(&build);
+    Box::pin(async move {
+      let Request::Upgrade { size, sha256, .. } = request else {
+        let _ = channel.send(&Reply::refused(Code::BadRequest, "not in this script")).await;
+        return;
+      };
+      let mut bytes = Vec::new();
+      channel.recv_stream(&mut bytes).await.unwrap();
+      assert_eq!((bytes.len() as u64, sha256_hex(&bytes)), (*size, sha256.clone()));
+      if restarts {
+        *build.lock().unwrap_or_else(PoisonError::into_inner) = Some(sha256.clone());
+      }
+      let _ = channel
+        .send(&Reply::Upgraded {
+          previous_sha256: OLD.to_owned(),
+          sha256: sha256.clone(),
+          version: "0.37.0".to_owned(),
+        })
+        .await;
+    })
   })
 }
 
@@ -54,14 +59,14 @@ fn request(binary: &Path) -> UpgradeRequest<'_> {
 
 /// The binary goes once to an agent with the feature, and the upgrade ends at the hello of the new build; the build
 /// that the agent runs already does not go without `--force`; a binary of another platform never goes
-#[test]
-fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
+#[tokio::test(start_paused = true)]
+async fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
   let setup = upgradable(true);
   let binary = binary_file(&setup, MACHO_ARM64);
   let said = Said::default();
   let say = |line: &str| said.push(line);
   let processes = FakeProcesses::default();
-  let upgraded = setup.client(&processes, &say, &calm).upgrade(&request(&binary)).unwrap();
+  let upgraded = setup.client(&processes, &say, &calm).upgrade(&request(&binary)).await.unwrap();
   let sha256 = sha256_hex(MACHO_ARM64);
   assert_eq!(upgraded.way, UpgradeWay::Request);
   assert_eq!(upgraded.previous_sha256.as_deref(), Some(OLD));
@@ -82,7 +87,7 @@ fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
     ]
   );
 
-  let current = setup.client(&processes, &|_| {}, &calm).upgrade(&request(&binary)).unwrap();
+  let current = setup.client(&processes, &|_| {}, &calm).upgrade(&request(&binary)).await.unwrap();
   assert_eq!(current.way, UpgradeWay::Current);
   assert_eq!(setup.agent.requests().len(), 1, "the build that the agent runs does not go again");
 
@@ -90,7 +95,7 @@ fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
   elf.resize(18, 0);
   elf.extend_from_slice(&0xb7_u16.to_le_bytes());
   let linux = binary_file(&setup, &elf);
-  let refusal = setup.client(&processes, &|_| {}, &calm).upgrade(&request(&linux)).unwrap_err();
+  let refusal = setup.client(&processes, &|_| {}, &calm).upgrade(&request(&linux)).await.unwrap_err();
   assert_eq!(refusal.code, Code::AgentFailed);
   assert!(
     refusal.message.ends_with("is a binary of linux aarch64, and the host runs macos aarch64"),
@@ -100,8 +105,8 @@ fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
   assert_eq!(setup.agent.requests().len(), 1);
 }
 
-#[test]
-fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
+#[tokio::test(start_paused = true)]
+async fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
   let setup = upgradable(false);
   let binary = binary_file(&setup, MACHO_ARM64);
   // the end of the wait for the new build is the subject
@@ -113,6 +118,7 @@ fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
     .client(&FakeProcesses::default(), &|_| {}, &calm)
     .with_timing(timing)
     .upgrade(&request(&binary))
+    .await
     .unwrap_err();
   assert_eq!(refusal.code, Code::RolledBack);
   assert!(refusal.message.contains(&OLD[..12]), "{}", refusal.message);
@@ -120,15 +126,15 @@ fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
 }
 
 /// An agent without the feature cannot read an upgrade request, so the client refuses before the binary goes
-#[test]
-fn an_agent_without_the_feature_is_refused_before_the_binary_goes() {
+#[tokio::test(start_paused = true)]
+async fn an_agent_without_the_feature_is_refused_before_the_binary_goes() {
   let hello = Hello {
     features: Vec::new(),
     ..Hello::default()
   };
-  let setup = Setup::with_hello(hello, |_, _| {});
+  let setup = Setup::with_hello(hello, |_, _| Box::pin(async {}));
   let binary = binary_file(&setup, MACHO_ARM64);
-  let refusal = setup.client(&FakeProcesses::default(), &|_| {}, &calm).upgrade(&request(&binary)).unwrap_err();
+  let refusal = setup.client(&FakeProcesses::default(), &|_| {}, &calm).upgrade(&request(&binary)).await.unwrap_err();
   assert_eq!(refusal.code, Code::AgentFailed);
   assert_eq!(
     refusal.message,

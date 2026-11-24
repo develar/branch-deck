@@ -1,10 +1,13 @@
 //! The link of the remote runs (openspec/specs/cli/host/spec.md, "The link"; docs/design/host-runs.md): what the client and the
-//! agent of `brd-host` share. No git and no runtime: the lease pool and git stay with the agent and the client.
+//! agent of `brd-host` share. No git: the lease pool and git stay with the agent and the client. The link runs on tokio,
+//! whose runtime the client and the agent own.
 //!
 //! - `identity`: the self-signed certificate of one end and its fingerprint
 //! - `allow`: the fingerprints of the clients that an agent accepts
-//! - `channel`: TLS 1.3 over TCP, each end pinned by its fingerprint, and the frames on it
-//! - `relay`: the connection through `/usr/bin/nc` that Local Network privacy of macOS lets pass (`disclaim`)
+//! - `channel`: TLS 1.3 over TCP, each end pinned by its fingerprint, and the frames on it, with a deadline on each read
+//!   and write
+//! - `relay`: the connection through `/usr/bin/nc` that Local Network privacy of macOS lets pass (`disclaim`), its pipes
+//!   as one stream
 //! - `proto`: the protocol host-link, its schema, its port, its requests and replies, and the features of an agent
 //! - `refusal`: the refusal codes of brd-host and their exit codes
 //! - `config`: `[host]` of `.branchdeck.toml` of a commit, which both ends parse
