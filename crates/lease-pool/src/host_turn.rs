@@ -555,7 +555,7 @@ pub enum HeadDrain {
 
 /// A sample of the busy cores of the whole host, by the agent
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-struct HostSample {
+pub(crate) struct HostSample {
   busy: Cores,
   at_ms: u64,
   /// The most busy cores of the samples of the last 30 s, and the time from the first of them to the last; none from an
@@ -616,7 +616,7 @@ pub fn note_host_window(dir: &Path, window: &HostWindow) -> Result<()> {
 }
 
 /// The sample of the whole host at most 10 s old at `now_ms`; `None` without one
-fn host_sample(dir: &Path, now_ms: u64) -> Option<HostSample> {
+pub(crate) fn host_sample(dir: &Path, now_ms: u64) -> Option<HostSample> {
   let sample: HostSample = serde_json::from_slice(&std::fs::read(dir.join(HOST_FILE)).ok()?).ok()?;
   (now_ms.saturating_sub(sample.at_ms) <= HOST_FRESH_MS).then_some(sample)
 }
@@ -628,7 +628,7 @@ fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
 
 /// The most busy cores of the whole host over the last 30 s at `now_ms`, when its samples span them; `None` without
 /// such a window
-fn host_window(dir: &Path, now_ms: u64) -> Option<Cores> {
+pub(crate) fn host_window(dir: &Path, now_ms: u64) -> Option<Cores> {
   host_sample(dir, now_ms)
     .filter(|sample| sample.window_ms >= QUIET_WINDOW_MIN_MS)
     .and_then(|sample| sample.window_max)
@@ -647,7 +647,7 @@ pub fn quiet(cores: u32) -> Cores {
 
 /// The busy cores outside the heavy holders: the larger of the live use of the runs that are not heavy and the busy
 /// cores `busy` of the host less the live use of the holders
-fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<Cores> {
+pub(crate) fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<Cores> {
   let live: Cores = holders.iter().filter_map(|holder| holder.live).sum();
   busy.map(|busy| Cores(busy.0.saturating_sub(live.0)).max(light))
 }
@@ -658,7 +658,7 @@ fn outside(holders: &[TurnEntry], light: Cores, busy: Option<Cores>) -> Option<C
 /// queue ([`LOAD_BOUND`]); a run that takes the whole host to no holder; a run of a measure beside holders that do not
 /// take the whole host, while their needs, `outside` and its own fit. An exclusive run, a measurement, waits for its
 /// quiet host and its quiet window, whatever its wait
-fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32, waited_out: bool) -> bool {
+pub(crate) fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, cores: u32, waited_out: bool) -> bool {
   let need = entry.need(cores);
   let whole = Cores::whole(cores);
   let outside = load.outside;
@@ -697,15 +697,15 @@ fn passes(queue: &[TurnEntry], position: usize, seen: &Seen, load: &Load<'_>, co
 }
 
 /// What an admission reads of the load of the host beside the holders
-struct Load<'a> {
+pub(crate) struct Load<'a> {
   /// The busy cores outside the holders (`light` without a sample of the host)
-  outside: Cores,
+  pub(crate) outside: Cores,
   /// The most busy cores of the host over its last 30 s, when its samples span them
-  window: Option<Cores>,
+  pub(crate) window: Option<Cores>,
   /// Whether the agent noted a sample of the host at all: without one an exclusive run reads `outside`
-  sampled: bool,
+  pub(crate) sampled: bool,
   /// The runs that are not heavy in their command
-  light: &'a [LightEntry],
+  pub(crate) light: &'a [LightEntry],
 }
 
 impl Load<'_> {

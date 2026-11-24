@@ -189,7 +189,7 @@ async fn the_frames_go_to_tls_in_one_write_per_full_buffer_and_at_a_flush() {
     assert_eq!(channel.recv_stream(&mut received).await.expect("the big stream"), 200_000);
     channel.send(&Reply::Fetched { files, bytes: 0 }).await.expect("the counts");
     let asked: Request = channel.recv().await.expect("a request after the counts");
-    assert_eq!(asked, Request::Runs);
+    assert_eq!(asked, Request::Runs { run: None });
     channel.send(&Reply::Packed).await.expect("the answer");
     channel
   });
@@ -224,7 +224,7 @@ async fn the_frames_go_to_tls_in_one_write_per_full_buffer_and_at_a_flush() {
   );
   assert_eq!(channel.recv::<Reply>().await.expect("the counts"), Reply::Fetched { files: 200, bytes: 0 });
 
-  channel.queue(&Request::Runs).await.expect("queued");
+  channel.queue(&Request::Runs { run: None }).await.expect("queued");
   assert_eq!(channel.recv::<Reply>().await.expect("the answer"), Reply::Packed, "the read sent the queued request");
   assert_eq!(served.await.expect("the agent task"), Ok(client.fingerprint()));
 }

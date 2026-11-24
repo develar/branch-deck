@@ -8,8 +8,8 @@
 //!    `still_running`.
 //! 2. Answers from the end file of the run when an earlier call finished it, and forgets the run on the host when that
 //!    call could not.
-//! 3. Asks the agent for its runs every `Timing::state_poll`, each time on a new connection, so a lost link costs one
-//!    poll. Each change of the state of the run (`RunState`) is one line with the local time. Past `max` it ends with
+//! 3. Asks the agent for the run every `Timing::state_poll` (`Request::Runs` of the run, which an older agent answers
+//!    with every run), each time on a new connection, so a lost link costs one poll. Each change of the state of the run (`RunState`) is one line with the local time. Past `max` it ends with
 //!    `still_running` (124) when the host answered in this call, else with `timed_out` (255): the run goes on, and
 //!    nothing is cancelled.
 //! 4. At the end of the run it finishes it as `run` does: the output into `<run>.log` by one `Follow` from its first
@@ -145,7 +145,9 @@ impl Client<'_> {
     loop {
       // a poll never holds the call past its max by more than a second
       let deadline = self.timing.read.min(max.saturating_sub(started.elapsed())).max(Duration::from_secs(1));
-      let asked = ask_within(host, &Request::Runs, deadline, |reply| match reply {
+      // an agent of this build answers the run alone, an older one every run: the run is found in either list
+      let one = Request::Runs { run: Some(run.to_owned()) };
+      let asked = ask_within(host, &one, deadline, |reply| match reply {
         Reply::Runs { runs, heavy } => Taken::Answer(HostRuns { runs, heavy }),
         reply => Taken::Other(reply),
       })

@@ -1,6 +1,6 @@
 //! The local files of the runs of a checkout, in `branch-deck/host/runs/` of its git directory (openspec/specs/cli/host/spec.md,
-//! "The files"): `<run>.json`, the record of what the client asked of the run, `<run>.patch`, the patch of its
-//! changes, and for the end of a run `<run>.log`, its output, `<run>.end.json`, how it ended here, and `<run>.lock`,
+//! "The files"): `<run>.json`, the record of what the client asked of the run, `<run>.host`, the alias of the host that
+//! runs it, by which a request to the name of a set goes to that host, `<run>.patch`, the patch of its changes, and for the end of a run `<run>.log`, its output, `<run>.end.json`, how it ended here, and `<run>.lock`,
 //! which one process of the checkout holds while it finishes the run (`RunFiles::lock`). The files older than `KEEP` go
 //! at the next run, wait or fetch of the checkout.
 //!
@@ -107,7 +107,7 @@ impl RunFiles {
           .ok()
           .and_then(|modified| modified.elapsed().ok())
           .is_some_and(|age| age >= KEEP);
-        if old && [".patch", ".json", ".log", ".lock"].iter().any(|suffix| name.ends_with(suffix)) {
+        if old && [".patch", ".json", ".log", ".lock", ".host"].iter().any(|suffix| name.ends_with(suffix)) {
           let _ = sync_utils::fs_retry::remove_file(entry.path());
         }
       }
@@ -170,6 +170,22 @@ impl RunFiles {
 
   pub(crate) fn write(&self, run: &str, record: &RunRecord) -> Result<(), Refusal> {
     write_json(&self.record(run), record)
+  }
+
+  /// Writes the alias of the host of `run`, beside its record: `RunRecord` refuses a field that it does not know, so a
+  /// client of the build before in the same checkout reads the record still
+  pub(crate) fn write_host(&self, run: &str, alias: &str) -> Result<(), Refusal> {
+    write_private(&self.0.join(format!("{run}.host")), &format!("{alias}\n"))
+  }
+
+  /// The alias of the host of `run`, or `None` when this checkout has none
+  pub(crate) fn read_host(&self, run: &str) -> Result<Option<String>, Refusal> {
+    let path = self.0.join(format!("{run}.host"));
+    match std::fs::read_to_string(&path) {
+      Ok(text) => Ok(Some(text.trim().to_owned()).filter(|alias| !alias.is_empty())),
+      Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+      Err(error) => Err(Refusal::new(Code::Config, format!("cannot read {}: {error}", path.display()))),
+    }
   }
 
   /// The record of `run`, or `None` when this checkout has none

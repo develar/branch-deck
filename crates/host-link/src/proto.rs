@@ -76,12 +76,15 @@ pub mod feature {
   pub const EXCLUSIVE: &str = "exclusive";
   /// `Request::Stats`: the summary of the history of the ended runs of the host
   pub const STATS: &str = "stats";
+  /// `Request::Estimate`, `RunSpec::admit_now` and the run of `Request::Runs`: the hint of a host for the choice of a set
+  /// of hosts, and the start of a member that takes a run only at once
+  pub const ESTIMATE: &str = "estimate";
 }
 
-/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive` and `stats` everywhere,
-/// `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats` and
+/// `estimate` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
-  let mut features = vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS];
+  let mut features = vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS, feature::ESTIMATE];
   if cfg!(target_os = "macos") {
     features.insert(0, feature::UPGRADE);
   }
@@ -122,8 +125,12 @@ pub enum Request {
   /// Forgets an ended run: its stage, its outputs and its changes go, and the agent keeps its end and the tail of its log
   /// for `Request::Runs` and `Request::Follow`. Reply: `Reply::Done`
   Forget { run: String },
-  /// The runs that the agent keeps, the forgotten ones too. Reply: `Reply::Runs`
-  Runs,
+  /// The runs that the agent keeps, the forgotten ones too; with `run`, only that one (feature `feature::ESTIMATE`; an
+  /// older agent ignores the field and answers every run). Reply: `Reply::Runs`
+  Runs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    run: Option<String>,
+  },
   /// The lend table of each repository that the agent served. Reply: `Reply::Slots`
   Slots,
   /// What the pools of the host hold on disk (`pool_disk`, as `brd lease disk --all` reports it), `fresh`: every slot
@@ -160,6 +167,48 @@ pub enum Request {
     #[serde(default, skip_serializing_if = "is_false")]
     force: bool,
   },
+  /// What a run of `EstimateAsk` would meet on the host now, a hint for the choice of a member of a set of hosts: read
+  /// without a lock, and nothing changes. Reply: `Reply::Estimate`. Feature `feature::ESTIMATE`
+  Estimate(EstimateAsk),
+}
+
+/// The run that `Request::Estimate` asks about
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EstimateAsk {
+  /// The main repository on the host, as `RunSpec::repo`
+  pub repo: String,
+  /// The affinity of the run, as `RunSpec::affinity`
+  pub affinity: String,
+  /// The commit that the run would ship, or HEAD of the checkout
+  pub commit: String,
+  pub command: Vec<String>,
+  pub fetch: Vec<String>,
+  /// The run is heavy: it waits for the heavy turn of the host
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub heavy: bool,
+}
+
+/// What the host tells of a run of `Request::Estimate`
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Estimate {
+  /// The repository has the commit, so no pack travels
+  pub has_commit: bool,
+  /// A host slot served this affinity last, and keeps the outputs of its last run
+  pub warm: bool,
+  /// The cores of the host that the heavy runs share (`branchdeck.hostCores`)
+  pub cores: u32,
+  /// The cores that the last runs of the command used; `None` without a measure of it on this host
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected_cores: Option<Cores>,
+  /// How long the command ran in its last runs; `None` without a measure of it on this host
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected_wall_ms: Option<u64>,
+  /// When the run would take the heavy turn, by the runs that hold it or wait before it whose length is known
+  pub start_in_ms: u64,
+  /// The runs that hold the turn or wait before it whose length is unknown
+  pub unknown_ahead: u32,
+  /// `std::env::consts::OS` of the agent
+  pub os: String,
 }
 
 /// The ref of the host that a pack moves: the ref of a run, or a base of a client. Its JSON is `{"run": "<id>"}` or
@@ -231,6 +280,11 @@ pub struct RunSpec {
   /// (feature `feature::EXCLUSIVE`; the client refuses the run on an older agent)
   #[serde(default, skip_serializing_if = "is_false")]
   pub exclusive: bool,
+  /// Admit the run at once or refuse it: a member of a set that takes runs only at once (`idle_only`). The supervisor
+  /// takes the heavy turn in one look under its lock, or the run ends with `busy` before its lend, and the start answers
+  /// `busy` then (feature `feature::ESTIMATE`; the client sends it to no older agent)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub admit_now: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,6 +381,8 @@ pub enum Reply {
     sha256: String,
     version: String,
   },
+  /// The answer of `Request::Estimate`
+  Estimate(Estimate),
   /// The agent refuses or the run failed. `code` is a name of `refusal::Code`; a client reads it with
   /// `Refusal::of_agent`, so a code of a newer build is no protocol error
   Refused {

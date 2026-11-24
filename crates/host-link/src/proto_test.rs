@@ -1,6 +1,6 @@
 use crate::proto::{
-  DEFAULT_PORT, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSpec, SCHEMA_VERSION, Stream, VersionLine, feature, features,
-  is_run_id,
+  DEFAULT_PORT, Estimate, EstimateAsk, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSpec, SCHEMA_VERSION, Stream, VersionLine,
+  feature, features, is_run_id,
 };
 use crate::refusal::Code;
 use pretty_assertions::assert_eq;
@@ -10,10 +10,21 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
   if cfg!(target_os = "macos") {
     assert_eq!(
       features(),
-      [feature::UPGRADE, feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS]
+      [
+        feature::UPGRADE,
+        feature::DISK,
+        feature::TRIM,
+        feature::HEAVY,
+        feature::EXCLUSIVE,
+        feature::STATS,
+        feature::ESTIMATE
+      ]
     );
   } else {
-    assert_eq!(features(), [feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS]);
+    assert_eq!(
+      features(),
+      [feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS, feature::ESTIMATE]
+    );
   }
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
 }
@@ -25,7 +36,7 @@ fn a_request_and_a_reply_have_a_tagged_json_shape() {
   let json = serde_json::to_string(&request).expect("json");
   assert_eq!(json, r#"{"request":"follow","run":"1-2","offset":7}"#);
   assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), request);
-  assert_eq!(serde_json::to_string(&Request::Runs).expect("json"), r#"{"request":"runs"}"#);
+  assert_eq!(serde_json::to_string(&Request::Runs { run: None }).expect("json"), r#"{"request":"runs"}"#);
   assert_eq!(serde_json::to_string(&Request::Slots).expect("json"), r#"{"request":"slots"}"#);
   assert_eq!(serde_json::to_string(&Request::Disk { fresh: false }).expect("json"), r#"{"request":"disk"}"#);
   assert_eq!(
@@ -317,9 +328,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim","heavy","exclusive","stats"]"#
+    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate"]"#
   } else {
-    r#"["disk","trim","heavy","exclusive","stats"]"#
+    r#"["disk","trim","heavy","exclusive","stats","estimate"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
@@ -380,4 +391,84 @@ fn a_heavy_run_and_the_heavy_turn_are_optional_fields_within_the_schema() {
   let json = serde_json::to_string(&reply).expect("json");
   assert_eq!(json, r#"{"reply":"runs","runs":[],"heavy":{"queue":[]}}"#);
   assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), reply);
+}
+
+/// The request of the runs of an agent of the build before `estimate`: a unit variant, which reads a request of this
+/// build with `run` as its own and ignores the field
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "request", rename_all = "snake_case")]
+enum OlderRequest {
+  Runs,
+}
+
+/// `Request::Runs` of one run is an optional field within the schema: an older agent reads it as the request of every
+/// run and answers them all, so the client finds its run in the list; the request of every run has the shape of before
+#[test]
+fn the_runs_of_one_run_are_an_optional_field_that_an_older_agent_ignores() {
+  let one = Request::Runs { run: Some("1-2".to_owned()) };
+  let json = serde_json::to_string(&one).expect("json");
+  assert_eq!(json, r#"{"request":"runs","run":"1-2"}"#);
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), one);
+  assert_eq!(serde_json::from_str::<OlderRequest>(&json).expect("an older agent reads it"), OlderRequest::Runs);
+  assert_eq!(
+    serde_json::from_str::<Request>(r#"{"request":"runs"}"#).expect("the request of an older client"),
+    Request::Runs { run: None }
+  );
+}
+
+/// The estimate of a run and its answer are a request and a reply of their own, behind the feature `estimate`; the
+/// fields of a measure are left out without one, and `admit_now` of a start stays out of its JSON when it is off
+#[test]
+fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
+  let ask = Request::Estimate(EstimateAsk {
+    repo: "~/projects/idea-1".to_owned(),
+    affinity: "checkout-0123456789ab".to_owned(),
+    commit: "abc".to_owned(),
+    command: vec!["pnpm".to_owned(), "e2e".to_owned()],
+    fetch: Vec::new(),
+    heavy: true,
+  });
+  let json = serde_json::to_string(&ask).expect("json");
+  assert_eq!(
+    json,
+    r#"{"request":"estimate","repo":"~/projects/idea-1","affinity":"checkout-0123456789ab","commit":"abc","command":["pnpm","e2e"],"fetch":[],"heavy":true}"#
+  );
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
+
+  let unmeasured = Reply::Estimate(Estimate {
+    has_commit: false,
+    warm: true,
+    cores: 20,
+    expected_cores: None,
+    expected_wall_ms: None,
+    start_in_ms: 720_000,
+    unknown_ahead: 2,
+    os: "macos".to_owned(),
+  });
+  let json = serde_json::to_string(&unmeasured).expect("json");
+  assert_eq!(
+    json,
+    r#"{"reply":"estimate","has_commit":false,"warm":true,"cores":20,"start_in_ms":720000,"unknown_ahead":2,"os":"macos"}"#
+  );
+  assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), unmeasured);
+  let measured = Reply::Estimate(Estimate {
+    expected_cores: Some(sync_utils::cores::Cores(90)),
+    expected_wall_ms: Some(240_000),
+    ..match unmeasured {
+      Reply::Estimate(estimate) => estimate,
+      _ => unreachable!("an estimate"),
+    }
+  });
+  let json = serde_json::to_string(&measured).expect("json");
+  assert!(json.contains(r#""cores":20,"expected_cores":9.0,"expected_wall_ms":240000,"#), "{json}");
+  assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), measured);
+
+  let admitting = RunSpec {
+    run: "1-2".to_owned(),
+    admit_now: true,
+    ..RunSpec::default()
+  };
+  let json = serde_json::to_string(&Request::Start(admitting.clone())).expect("json");
+  assert!(json.ends_with(r#","admit_now":true}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(admitting));
 }

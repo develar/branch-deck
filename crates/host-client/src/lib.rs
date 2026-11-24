@@ -3,11 +3,12 @@
 //! the host files, `setup <alias>` over ssh and the upgrade over the link. Its git runs in process through
 //! `git_ops::host_client`, `git_ops::host_objects` and `git_ops::worktree_snapshot`: no `brd` child.
 //!
-//! - `config`: the identity of the client, one host file per alias, and the last base of each affinity, under
-//!   `~/.config/brd-host/`
+//! - `config`: the identity of the client, one host file per alias, the sets of hosts, and the last base of each
+//!   affinity, under `~/.config/brd-host/`
 //! - `host`: the address choice and the hello of each connection to an agent
 //! - `git`: the git of the checkout of a run: the snapshot, the thin pack, `[host]` of the commit and the apply
 //! - `run`: a run, its follow, the requests of one reply, and the end of a run as `RunOutcome` or `RunFailure`
+//! - `choose`: a run to a set of hosts: the estimates of its members, their rank, and the next member after `busy`
 //! - `pack`, `base`: the thin pack of a run, and the base of the later packs
 //! - `fetch`, `record`: the files that come back, and the record of a run that says which ones may come, its log and
 //!   its end
@@ -31,6 +32,7 @@
 #![cfg(unix)]
 
 mod base;
+pub mod choose;
 pub mod config;
 mod fetch;
 mod git;

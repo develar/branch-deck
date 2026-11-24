@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-23
+**Updated:** 2026-11-24
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -55,7 +55,7 @@ flowchart LR
 | Crate | Content | Depends on |
 |---|---|---|
 | `host-link` | The identity files, TLS 1.3 with pinned certificates, the frames, the protocol, the allow list, the relay through `/usr/bin/nc`, the refusal codes, `[host]` of `.branchdeck.toml` | rustls, rcgen, tokio, tokio-rustls, tokio-util, `sync-utils` |
-| `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the upgrade | `host-link`, `git-ops`, `git-executor`, tokio |
+| `host-client` | The run, the commit of the working tree, the thin pack, the follow, the cancel, the fetch, the base sync, the host files, the sets of hosts and the choice of a member, the upgrade | `host-link`, `git-ops`, `git-executor`, tokio |
 | `host-agent` | `serve`, the supervisor, the run directories, the login environment, the prepare steps, the keeper, the power assertions, the upgrade | `host-link`, `lease-pool`, `git-ops`, `git-executor` |
 | `brd-host` | The CLI of both ends | `host-agent`, `host-client`, `host-link` |
 
@@ -244,8 +244,9 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   admitted, and such a look changes nothing. A process that is gone holds no lock, as the system frees a `flock` with
   its process; a live holder that hangs is not broken, as the record of the lock names it in the line. It gives the turn back after its give-back, so the
   processes that it left are gone first. A killed supervisor holds nothing: the next run takes the turn of a gone
-  holder at its next look. A wait past 2 h ends with `heavy_timeout`, and the run then goes nowhere else: a local run
-  is the run under load that the turn keeps from failing. The line of the wait says that it is a wait, not a hang,
+  holder at its next look. A wait past 2 h ends with `heavy_timeout`. A plain run of the command on the client is still
+  the run under load that the turn keeps from failing; a run to a set of hosts goes to another member only by its
+  estimate, and to a laptop only when its agent admits the run at once ([Sets of hosts](#sets-of-hosts)). The line of the wait says that it is a wait, not a hang,
   since an agent reads only the output and cancelled runs that only waited.
 - **A later run supersedes a waiting one of its checkout and command.** On 2026-11-18 one session queued the same
   hour-long A/B batch of `pnpm e2e` on every new commit, and each queued run would have run in its turn. A heavy run new
@@ -429,6 +430,52 @@ session, which starts cold.
 - **One agent per machine.** The `LaunchAgent` has one label. A later `setup --agent` of another client on the same
   machine writes the plist without the bind, and the agent then listens on every address again.
 
+### Sets of hosts
+
+A run names one host, and on 2026-11-23 the heavy queue of the Studio held runs for a median of 37 min while a
+laptop beside it was free. A set of hosts lets a run go to the member where it ends first, by what each member says of
+it at the start; the run never moves after that.
+
+- **The set.** `~/.config/brd-host/sets/<name>.json` names its members in the order of the fallback (`brd-host set any
+  studio local --idle-only local`). A name of a host file is never the name of a set, and a host file comes first, so
+  `run studio` is as before. `--exclusive` refuses with `usage` for a set: a measurement needs the quiet host that it
+  measures. `idle_only` is a field of the set, not of the host file: `write_host` writes the host file whole, and a
+  client of an older build in the same checkout would drop a field there.
+- **The estimate is a hint.** `Request::Estimate` (feature `estimate`) answers `has_commit`, `warm`, `cores`,
+  `expected_cores`, `expected_wall_ms`, `start_in_ms`, `unknown_ahead` and `os`, read without a lock
+  (`lease_pool::host_estimate`). The run takes its place in the heavy queue as a new run would, by the one function of
+  the place (`host_turn::place`: a short run ahead of the runs that it may pass); the holders end after the walls of
+  their commands (of their passed runs, else of every measure), which the specs of their run directories name, and
+  the queue before the run is admitted in its order by the rule of the turn (`host_turn::admits`). The load outside the
+  heavy runs is the most of the last 30 s: one sample of 2 s had misled a choice. A run of an unknown wall takes no
+  time there and counts in `unknown_ahead`. The client reads the feature from the hello of the connection of the
+  estimate: `featured_host` costs two TLS handshakes, and a member gets 3 s.
+- **The choice** (`host_client::choose`): every member is asked at once, 3 s each. The rank is `start_in_ms +
+  unknown_ahead × 10 min + expected_wall_ms`, a tie by the order of the set, and one line says it: `brd-host: studio:
+  starts in ~12 min, runs ~4 min; local: starts now, runs ~6 min, only at once; chose local`. The first member may
+  take any run. A heavy run goes to another member only with its own measure of the command there, so a new command
+  (the scripts of a measurement of accio) stays on the Studio, and what a laptop may take is what ran there once. A
+  wall that a member does not know is the longest that another member knows; a member without an estimate ranks last.
+- **A laptop keeps no queue.** A member of `idle_only` gets the start with `RunSpec::admit_now`: its supervisor takes
+  the heavy turn in one look under the lock of the table, or a run that is not heavy finds no measurement, and writes
+  `admitted`; else its run ends with `busy` before its lend, its ticket out of the queue at once. The start answers
+  once the supervisor decided (up to 30 s), so the client goes to the next member by the rank before any pack. The
+  admission decides, not the estimate, so several clients never meet on one free laptop: one is admitted, the others
+  get `busy` (exit 75 before the start) and stay on the Studio. A run that every member refused ends with the `busy` of
+  the first member: nothing ran anywhere, and it goes to the set again later, never to the client as a plain command.
+- **Cores of a laptop.** `branchdeck.hostCores` bounds only the admission. `branchdeck.hostJobs` of the host gives each
+  command `CARGO_BUILD_JOBS`, `NEXTEST_TEST_THREADS` and `BRD_HOST_JOBS` (before `[host.env]`, which still decides). It
+  stays below `hostCores`: a command that uses every core measures the whole host and waits for a quiet one.
+- **The host of a run.** `RunReport.alias` is the member that ran it. `<run>.host` beside the run record names it,
+  since `RunRecord`, `RunEnd` and `RunReport` refuse a field that they do not know, and a client of the build before in
+  the same checkout would refuse a record with one. A `wait`, `cancel`, `follow`, `fetch` or `forget` to the name of a
+  set goes to that member; without the file it refuses with `usage` and names the members. `Request::Runs` takes the
+  run (`run`) a wait asks about, which an older agent ignores and answers with every run: the client finds its run in
+  either list.
+- **The risk** is the load of a laptop after the start: the sessions of its person come later, and a test can fail by a
+  timeout. The statistics of the runs name the failures of a command by host; a command that fails there leaves the
+  laptop by a new set without it.
+
 ### The output of a run
 
 The supervisor reads the stdout and the stderr of the command and writes them to `events.log` of the run as pieces
@@ -551,6 +598,14 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     frames kept their bytes, so the upgrade of each host went over the link. ssh as the transport was rejected by the
     user: the agent keeps its own pins and allow list, and a host needs no ssh after its setup.
 
+13. **Decision**: A run to a set of hosts chooses its member once at the start by the estimates of the members, and a
+    member of `idle_only` admits it at once or refuses it with `busy` (2026-11-24).
+    **Rationale**: The heavy queue of the Studio held runs for a median of 37 min while a laptop was free. A run that
+    moves between queues later needs a withdraw with a definite answer and an intent in the checkout; the choice at the
+    start needs neither, and the statistics show first whether it errs often. The admission, not the estimate, decides
+    for a laptop, so two clients that read the same free laptop never both run there. No key of `[host]` names a set:
+    an older end refuses the whole file for an unknown key.
+
 ## Alternatives Considered
 
 - **Borrow only** (revision 3): brd gets `brd lease borrow`, and yonder stays as it is.
@@ -567,6 +622,8 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
 
 ## Risks
 
+- A run that a set sends to a laptop meets the load that the person of the laptop starts after it: its tests can fail
+  by a timeout ([Sets of hosts](#sets-of-hosts)).
 - A run that is not heavy still runs beside a heavy one: a `cargo nextest run -p <crate>` compiles beside a full suite.
 - An exclusive run gets one drain. On a host of runs that are not heavy and last longer than it, it may never find a
   quiet host and end with `heavy_timeout`, while the heavy runs behind it pass it.

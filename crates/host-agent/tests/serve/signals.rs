@@ -146,7 +146,7 @@ fn a_killed_supervisor_ends_its_run_in_the_list_of_the_runs() {
   eventually("the end of the supervisor", || !process_alive(&pid));
   let lock = world.run_dir("4-2").join("lock");
   eventually("the release of the run lock", || fs::File::open(&lock).is_ok_and(|file| file.try_lock_shared().is_ok()));
-  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no list of the runs; {}", agent.dump("4-2"));
   };
   let run = runs.iter().find(|run| run.run == "4-2").expect("the run in the list");

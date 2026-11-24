@@ -73,7 +73,7 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
     TestChannel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok_and(|mut channel| {
       channel.send(&Request::hello("test")).is_ok()
         && matches!(channel.recv::<Reply>(), Ok(Reply::Hello { .. }))
-        && channel.send(&Request::Runs).is_ok()
+        && channel.send(&Request::Runs { run: None }).is_ok()
         && matches!(channel.recv::<Reply>(), Ok(Reply::Runs { .. }))
     })
   });

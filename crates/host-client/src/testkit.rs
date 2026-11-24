@@ -195,12 +195,16 @@ impl FakeAgent {
   /// An agent that accepts `client`, says `hello`, and answers each request with `script`. It needs the runtime of the
   /// test, which runs its tasks
   pub(crate) fn start(client: &Identity, hello: Hello, script: Arc<Script>) -> Self {
+    Self::start_on(Arc::new(MemoryNet::default()), client, hello, script)
+  }
+
+  /// `start` on the net `net` of another agent, so one client reaches both, as the members of a set of hosts
+  pub(crate) fn start_on(net: Arc<MemoryNet>, client: &Identity, hello: Hello, script: Arc<Script>) -> Self {
     let dir = tempfile::tempdir().unwrap();
     let allow = dir.path().join("clients");
     let mut list = AllowList::default();
     list.add(client.fingerprint(), "test").unwrap();
     std::fs::write(&allow, list.text()).unwrap();
-    let net = Arc::new(MemoryNet::default());
     let address = SocketAddr::from(([127, 0, 0, 1], NEXT_PORT.fetch_add(1, Ordering::SeqCst)));
     let mut connections = net.listen(address);
     let identity = Identity::generate().unwrap();
@@ -339,8 +343,13 @@ impl Setup {
 /// The host file of `ALIAS` for `agent`, with `addresses` cached. The host name resolves to the loopback address, whose
 /// port is the one of the agent on its net
 pub(crate) fn host_file(agent: &FakeAgent, addresses: Vec<SocketAddr>) -> HostFile {
+  host_file_of(ALIAS, agent, addresses)
+}
+
+/// `host_file` of the alias `alias`
+pub(crate) fn host_file_of(alias: &str, agent: &FakeAgent, addresses: Vec<SocketAddr>) -> HostFile {
   HostFile {
-    alias: ALIAS.to_owned(),
+    alias: alias.to_owned(),
     fingerprint: agent.identity.fingerprint(),
     port: agent.address.port(),
     hostname: "127.0.0.1".to_owned(),

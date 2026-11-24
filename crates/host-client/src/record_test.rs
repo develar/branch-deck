@@ -4,7 +4,8 @@ use pretty_assertions::assert_eq;
 use std::time::SystemTime;
 
 /// A record names what a fetch of its run takes and reads back as it was written; a record of another shape refuses
-/// with `config`; the records, the patches, the logs, the ends and the locks of a week ago go, and the other files stay
+/// with `config`; the host of a run reads back beside its record; the records, the patches, the logs, the ends, the locks
+/// and the hosts of a week ago go, and the other files stay
 #[test]
 fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   let base = tempfile::tempdir().unwrap();
@@ -24,7 +25,7 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   assert!(record.asks_for_files());
   assert!(!RunRecord::default().asks_for_files());
   files.write("1-1", &record).unwrap();
-  assert_eq!(files.read("1-1").unwrap(), Some(record));
+  assert_eq!(files.read("1-1").unwrap(), Some(record.clone()));
   assert_eq!(files.patch("1-1"), files.dir().join("1-1.patch"));
   {
     use std::os::unix::fs::PermissionsExt;
@@ -36,8 +37,15 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
   assert_eq!(refusal.code, Code::Config);
   assert!(refusal.message.contains("is not a run record"), "{}", refusal.message);
 
+  // the host of a run is a file of its own, as the record refuses a field that it does not know
+  assert_eq!(files.read_host("1-1").unwrap(), None);
+  files.write_host("1-1", "studio").unwrap();
+  assert_eq!(files.read_host("1-1").unwrap().as_deref(), Some("studio"));
+  assert_eq!(std::fs::read_to_string(files.dir().join("1-1.host")).unwrap(), "studio\n");
+  assert_eq!(files.read("1-1").unwrap(), Some(record), "the record stays of its shape");
+
   let week_ago = SystemTime::now() - KEEP - Duration::from_secs(60);
-  for name in ["3-3.json", "3-3.patch", "3-3.log", "3-3.end.json", "3-3.lock", "note.txt"] {
+  for name in ["3-3.json", "3-3.patch", "3-3.log", "3-3.end.json", "3-3.lock", "3-3.host", "note.txt"] {
     File::create(files.dir().join(name)).unwrap().set_modified(week_ago).unwrap();
   }
   RunFiles::new(files.dir()).unwrap();
@@ -46,7 +54,7 @@ fn a_run_record_names_what_a_fetch_takes_and_old_records_go() {
     .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
     .collect();
   left.sort();
-  assert_eq!(left, ["1-1.json", "2-2.json", "note.txt"]);
+  assert_eq!(left, ["1-1.host", "1-1.json", "2-2.json", "note.txt"]);
 }
 
 /// The end of a run reads back as it was written, and one process at a time holds the lock of the end of a run: a second

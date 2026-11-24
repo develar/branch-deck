@@ -3221,6 +3221,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ctrlc",
+ "futures-util",
  "git-executor",
  "git-ops",
  "host-link",

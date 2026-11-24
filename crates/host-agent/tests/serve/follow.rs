@@ -101,7 +101,7 @@ fn a_follow_from_an_offset_in_the_middle_of_a_run_goes_on_from_there() {
   let seen = agent.lines_until("3-1", 0, "second");
   let after_first = seen.iter().find(|(_, text, _)| text == "first").expect("the first line").2;
   // The command goes on, so the steps before it have ended
-  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("not runs");
   };
   let names: Vec<&str> = runs[0].phases.iter().map(|phase| phase.name.as_str()).collect();

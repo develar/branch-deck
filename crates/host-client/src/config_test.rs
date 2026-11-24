@@ -34,6 +34,11 @@ fn a_missing_host_file_names_the_setup_command() {
   let refusal = Config::new(dir.path().to_path_buf()).read_host("studio").unwrap_err();
   assert_eq!(refusal.code, Code::NoHost);
   assert!(refusal.message.contains("`brd-host setup studio`"), "{}", refusal.message);
+  assert!(
+    refusal.message.contains("`brd-host set studio <alias>…` makes a set of hosts"),
+    "a name of no set names the set too: {}",
+    refusal.message
+  );
 }
 
 #[test]
@@ -95,4 +100,63 @@ fn concurrent_writers_leave_one_whole_host_file() {
     .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
     .collect();
   assert_eq!(names, ["studio.json"]);
+}
+
+/// A set of hosts reads back as it was written, beside the host files: its name is no alias of a host file, each member
+/// has one, once, and a name with a host file names that host first
+#[test]
+fn a_set_of_hosts_names_its_members_and_never_an_alias() {
+  let dir = tempfile::tempdir().unwrap();
+  let config = Config::new(dir.path().join("brd-host"));
+  config.write_host(&host()).unwrap();
+  config
+    .write_host(&HostFile {
+      alias: "local".to_owned(),
+      ..host()
+    })
+    .unwrap();
+  let member = |alias: &str, idle_only| SetMember {
+    alias: alias.to_owned(),
+    idle_only,
+  };
+  let set = HostSet {
+    name: "any".to_owned(),
+    members: vec![member("studio", false), member("local", true)],
+  };
+  config.write_set(&set).unwrap();
+  assert_eq!(config.read_set("any").unwrap(), Some(set.clone()));
+  assert_eq!(config.set_of("any").unwrap(), Some(set.clone()));
+  assert_eq!(
+    (config.set_of("studio").unwrap(), config.set_of("other").unwrap()),
+    (None, None),
+    "a host file first, and no set"
+  );
+  let text = std::fs::read_to_string(config.set_path("any")).unwrap();
+  assert_eq!(
+    text,
+    "{\n  \"name\": \"any\",\n  \"members\": [\n    {\n      \"alias\": \"studio\"\n    },\n    {\n      \"alias\": \"local\",\n      \"idle_only\": true\n    }\n  ]\n}\n"
+  );
+  assert_eq!(config.aliases(), ["local", "studio"], "a set is no host");
+
+  let refused = |set: HostSet| config.write_set(&set).unwrap_err();
+  let named_as_host = refused(HostSet {
+    name: "studio".to_owned(),
+    ..set.clone()
+  });
+  assert_eq!(named_as_host.code, Code::Usage);
+  assert!(named_as_host.message.starts_with("studio is the alias of a host file"), "{}", named_as_host.message);
+  let twice = refused(HostSet {
+    members: vec![member("studio", false), member("studio", true)],
+    ..set.clone()
+  });
+  assert_eq!((twice.code, twice.message.as_str()), (Code::Usage, "the set any names studio twice"));
+  let unknown = refused(HostSet {
+    members: vec![member("mini", false)],
+    ..set.clone()
+  });
+  assert_eq!(unknown.code, Code::NoHost);
+  let empty = refused(HostSet { members: Vec::new(), ..set });
+  assert_eq!((empty.code, empty.message.as_str()), (Code::Usage, "the set any needs a member"));
+  std::fs::write(config.set_path("broken"), "{\"name\": \"other\", \"members\": []}").unwrap();
+  assert_eq!(config.read_set("broken").unwrap_err().code, Code::BadHostFile);
 }

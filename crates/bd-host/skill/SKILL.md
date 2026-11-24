@@ -20,7 +20,7 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 |---|---|
 | `brd-host run`, `wait`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
 | `brd-host upgrade <host>`, `brd-host trim <host>` | An agent, only after the user agrees: the one deploys a new agent, the other deletes worktrees, on a machine that the user shares. |
-| `brd-host setup …`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
+| `brd-host setup …`, `brd-host set`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
 
 A run needs no ssh: each end pins the certificate of the other end, so a run works from a background session too.
 Never install, configure or restart the agent by hand. Tell the user what a refusal names.
@@ -98,8 +98,18 @@ a run says `brd-host: the command used 7.5 cores on average and 14.0 at its peak
 next runs of that command are expected to use. Never cancel and rerun it locally for it, and never
 treat a test that failed on a timeout beside another heavy run as a flake to fix. `brd-host runs <host>` names the
 holder and each waiting run with their times. After 2 h the run refuses with `heavy_timeout` (exit 75): never run it
-locally then, as under the load of this machine its tests fail on timeouts; read `brd-host runs <host>` and run it
-again later. A run that is not heavy runs at once.
+locally as a plain command then, as under the load of this machine its tests fail on timeouts; read `brd-host runs
+<host>` and run it again later, or through a set of hosts. A run that is not heavy runs at once.
+
+### A set of hosts
+
+`<host>` of `run`, `wait`, `follow`, `cancel`, `fetch` and `forget` can be the name of a set of hosts that the user made
+(`brd-host set any studio local --idle-only local`). A run to it asks each member within 3 s what it would meet there and
+says one line, `brd-host: studio: starts in ~12 min, runs ~4 min; local: starts now, runs ~6 min, only at once; chose
+local`, then runs on that member; its report names the member. A heavy run goes to a member other than the first only
+when that member ran the command before. A member `only at once` refuses a run it has no room for with `busy`, nothing
+runs there, and the run goes on to the next member by itself: no action. `wait <set> <run>` goes to the member that took
+the run. A set takes no `--exclusive`: a measurement names its host. Making or changing a set is the user's.
 
 ### Exclusive runs
 
@@ -197,6 +207,7 @@ feature `stats` names `brd-host upgrade <host>`: ask the user for it.
 | 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Never locally: `brd-host runs <host>`, then run it again later. |
 | 75 with `superseded` | A later run of your checkout and command took its place before it started: nothing ran. | Never run it again: `brd-host wait <host> <later run>`, for the later run that the message names. |
+| 75 with `busy` | Every member of the set that it tried took runs only at once and had no room: nothing ran anywhere. A single `busy` line is no end: the set goes on to its next member by itself. | Run it to the set again later; never as a plain command here. |
 | 124 with `still_running` | `brd-host wait` or `run --max` passed its `--max`; the run goes on, and nothing was cancelled. | `brd-host wait <host> <run>` again. A command that itself exits 124 has no `still_running` line. |
 | 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
@@ -307,6 +318,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
 | `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: wait for the later run that the message names. |
+| `busy` | A member of a set that takes runs only at once had no room: nothing ran there, and the run went to the next member. |
 | `local_changes` | `--head` with uncommitted or untracked changes. Commit first, or run without `--head`. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
 | `old_git` | The git of the host is below the floor of Branch Deck, and Homebrew cannot upgrade it. Exit 75. Give the message to the user. |
@@ -339,7 +351,8 @@ from another build. An edited copy stays: `brd-host skill install --force` repla
 
 ## The files
 
-- Here: `~/.config/brd-host/identity.crt` and `identity.key`, and one host file per alias in `hosts/<alias>.json`.
+- Here: `~/.config/brd-host/identity.crt` and `identity.key`, one host file per alias in `hosts/<alias>.json`, and one
+  set of hosts per name in `sets/<name>.json`.
 - On the host: `~/.cache/brd-host/runs/<run>/` (`events.log`, `exit.json`, `supervisor.log`), the history of the ended
   runs in `~/.cache/brd-host/history/` and, on macOS,
   `~/Library/Logs/brd-host.log`. Read them only through the user or a run, never over ssh on your own.

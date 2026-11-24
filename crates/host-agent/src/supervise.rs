@@ -62,7 +62,7 @@ use crate::login_env::LoginEnv;
 use crate::prepare::Prepared;
 use crate::repo::Repository;
 use crate::run::{EventLog, ExitRecord, MAX_EVENT_BYTES, RunDir, char_cut, epoch_ms};
-use crate::{awake, login_env, prepare, run_env, run_git, slots, sys, tuning, turn};
+use crate::{admit, awake, login_env, prepare, run_env, run_git, slots, sys, tuning, turn};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::proto::{Phase, RunSpec, Stream};
 use host_link::refusal::{Code, Refusal};
@@ -302,6 +302,12 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   if !spec.heavy && !wait_for_measurement(context, &mut phases, stop)? {
     return Ok(INTERRUPTED);
   }
+  // the start of a run of a member that takes runs only at once answers once it reads this
+  if spec.admit_now
+    && let Err(error) = admit::mark_admitted(run)
+  {
+    supervisor(&format!("cannot mark the run {} admitted: {error}", spec.run));
+  }
   let Some(lent) = take_slot(context, &mut phases, stop)? else {
     return Ok(INTERRUPTED);
   };
@@ -419,6 +425,9 @@ fn wait_for_measurement(context: &Context<'_>, phases: &mut Phases<'_>, stop: &d
   if lease_pool::host_turn::bar(&context.home.heavy_dir(), lease_pool::host_slots::now_ms(), tuning::drain_bar()).is_none() {
     return Ok(true);
   }
+  if context.spec.admit_now {
+    return Err(admit::busy("a measurement holds or drains it"));
+  }
   let started = Instant::now();
   let waited = phases.time("exclusive", || {
     turn::wait_for_measurement(context.home, &context.spec.run, SLOT_WAIT, stop, &mut |line| context.say(line))
@@ -457,7 +466,7 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
 
 /// The cores of the host that the heavy runs share: `BD_HOST_TEST_CORES`, else `branchdeck.hostCores` of the config of
 /// the repository (its global config, as a host is one machine), else the cores that the system counts
-fn host_cores(repo: &Repository) -> u32 {
+pub(crate) fn host_cores(repo: &Repository) -> u32 {
   if let Some(cores) = tuning::cores() {
     return cores;
   }
@@ -469,14 +478,25 @@ fn host_cores(repo: &Repository) -> u32 {
   configured.unwrap_or_else(|| thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)))
 }
 
+/// The jobs of each command of the host: `branchdeck.hostJobs` of the config of the repository (its global config, as a
+/// host is one machine), `None` when it names no count above 0
+fn host_jobs(repo: &Repository) -> Option<u32> {
+  git_ops::lease_slot::lease_config(&repo.git, &repo.dirs.top_level)
+    .ok()
+    .and_then(|config| config.host_jobs)
+    .and_then(|jobs| jobs.trim().parse::<u32>().ok())
+    .filter(|jobs| *jobs > 0)
+}
+
 /// Takes the heavy turn of the host for a heavy run, in the phase `heavy`: at once when no other heavy run holds it or
 /// waits before it, else after a wait of up to `tuning::heavy_wait` (2 h) whose line goes to the log at once and once
 /// a minute, with the time left. A wait that ends in the queue refuses with `heavy_timeout`, one that a later run of the
-/// same checkout and command superseded with `superseded`. Answers `false` when a cancel ended the wait; the end of the
-/// run takes it out of the queue then
+/// same checkout and command superseded with `superseded`. A run of `RunSpec::admit_now` takes it in one look, without
+/// a wait and its lines, or refuses with `busy`, its ticket out of the queue at once. Answers `false` when a cancel
+/// ended the wait; the end of the run takes it out of the queue then
 fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> bool) -> Result<bool, Refusal> {
   let spec = context.spec;
-  let wait = tuning::heavy_wait();
+  let wait = if spec.admit_now { Duration::ZERO } else { tuning::heavy_wait() };
   let started = Instant::now();
   let repo = context.repo.path.display().to_string();
   let of = turn_run(context, &repo);
@@ -486,9 +506,25 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
     queue.borrow_mut().look();
     stop()
   };
-  let taken = phases.time("heavy", || turn::take(context.home, &of, wait, &stop_and_look, &mut |line| context.say(line)));
+  let taken = phases.time("heavy", || {
+    turn::take(context.home, &of, wait, &stop_and_look, &mut |line| {
+      if !spec.admit_now {
+        context.say(line);
+      }
+    })
+  });
   queue.into_inner().finish(context.run);
   let waited = started.elapsed();
+  if spec.admit_now
+    && let Some(why) = match &taken {
+      Ok(Some(TurnAnswer::Queued(queue))) => Some(format!("its heavy turn has no room for it now: {}", turn::timeout_line(&spec.run, queue, waited))),
+      Err(refusal) => Some(refusal.message.clone()),
+      _ => None,
+    }
+  {
+    leave_turn(context.home, &spec.run);
+    return Err(admit::busy(&why));
+  }
   match taken {
     Err(_) | Ok(None) if stop() => Ok(false),
     Ok(None) => Ok(false),
@@ -506,7 +542,7 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
     Ok(Some(TurnAnswer::Queued(queue))) => Err(Refusal::new(
       Code::HeavyTimeout,
       format!(
-        "no heavy turn for {} s; giving up: {}. Run it on this host again later, not on the client, whose load fails the tests of a heavy run: `brd-host runs` names the heavy runs",
+        "no heavy turn for {} s; giving up: {}. Run it on this host again later, or through a set of hosts whose other members can take it (`brd-host set`), never as a plain command on the client, whose load fails the tests of a heavy run: `brd-host runs` names the heavy runs",
         wait.as_secs(),
         turn::timeout_line(&spec.run, &queue, waited)
       ),
@@ -610,7 +646,7 @@ fn prepare_slot(context: &Context<'_>, slot: &Path, stop: &dyn Fn() -> bool, hel
     let path = base.get(std::ffi::OsStr::new("PATH")).cloned().unwrap_or_default();
     base.insert(OsString::from("PATH"), with_first(&path, dir));
   }
-  let env = run_env::run_env(base, &config.env, context.home, spec, slot)?;
+  let env = run_env::run_env(base, &config.env, context.home, spec, slot, host_jobs(context.repo))?;
   let launch = Launch {
     env,
     nice: spec.nice,

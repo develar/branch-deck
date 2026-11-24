@@ -172,14 +172,15 @@ fn of_this_schema(dir: &Path, name: &str, schema: u32) -> Result<()> {
 /// The cores that the last runs of `command_key` in `repo` lead to expect: the 80th percentile of their means, by the
 /// nearest rank (of 5 the second largest, of up to 4 the largest); `None` without a measure
 pub fn expected(dir: &Path, repo: &str, command_key: &str) -> Result<Option<Cores>> {
+  of_measures(dir, repo, command_key, |measure| measure.mean)
+}
+
+/// The 80th percentile of `value` of the last measures of `command_key` in `repo`, by the nearest rank; `None` without a
+/// measure
+fn of_measures<T: Ord + Copy>(dir: &Path, repo: &str, command_key: &str, value: impl Fn(&Measure) -> T) -> Result<Option<T>> {
   let table: CommandCores = table(dir).read()?;
   of_this_schema(dir, STATE_FILE, table.schema)?;
-  Ok(
-    table
-      .commands
-      .get(&key(repo, command_key))
-      .and_then(|measures| percentile_80(measures.iter().map(|measure| measure.mean))),
-  )
+  Ok(table.commands.get(&key(repo, command_key)).and_then(|measures| percentile_80(measures.iter().map(&value))))
 }
 
 /// The wall that the last passed runs of `command_key` in `repo` lead to expect: the 80th percentile of their walls, by
@@ -195,6 +196,13 @@ pub fn passed_wall(dir: &Path, repo: &str, command_key: &str) -> Result<Option<D
       .and_then(|walls| percentile_80(walls.iter().map(|wall| wall.wall_ms)))
       .map(Duration::from_millis),
   )
+}
+
+/// The wall that the last measures of `command_key` in `repo` lead to expect, of failed and cancelled runs too: the 80th
+/// percentile of their walls, by the nearest rank; `None` without a measure. An estimate reads it where
+/// [`passed_wall`] has too few passed runs
+pub fn measured_wall(dir: &Path, repo: &str, command_key: &str) -> Result<Option<Duration>> {
+  Ok(of_measures(dir, repo, command_key, |measure| measure.wall_ms)?.map(Duration::from_millis))
 }
 
 /// The 80th percentile of `values` by the nearest rank

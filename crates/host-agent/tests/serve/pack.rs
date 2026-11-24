@@ -33,7 +33,7 @@ fn a_start_whose_pack_never_comes_ends_with_pack_missing() {
     "a wait under a second says nothing: {followed:?}"
   );
   assert!(!ran.exists(), "the command never ran");
-  match agent.reply(&Request::Runs) {
+  match agent.reply(&Request::Runs { run: None }) {
     Reply::Runs { runs, .. } => {
       assert_eq!(runs.len(), 1, "{runs:?}");
       assert_eq!(runs[0].exit, Some(255), "a refused run exits with 255");

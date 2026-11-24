@@ -104,6 +104,7 @@ pub enum Code {
   SlotTimeout,
   HeavyTimeout,
   Superseded,
+  Busy,
   StillRunning,
   LeaseFailed,
   OldGit,
@@ -127,7 +128,7 @@ pub enum Code {
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 42] = [
+  pub const ALL: [Self; 43] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -151,6 +152,7 @@ impl Code {
     Self::SlotTimeout,
     Self::HeavyTimeout,
     Self::Superseded,
+    Self::Busy,
     Self::StillRunning,
     Self::LeaseFailed,
     Self::OldGit,
@@ -193,7 +195,7 @@ impl Code {
       Self::NoHost => (
         "no_host",
         ExitRule::Always(Exit::NotRun),
-        "No host file for the alias. The message names `brd-host setup <alias>`.",
+        "No host file and no set of hosts for the name. The message names `brd-host setup <alias>` and `brd-host set <name> <alias>…`.",
       ),
       Self::BadHostFile => (
         "bad_host_file",
@@ -251,12 +253,17 @@ impl Code {
       Self::HeavyTimeout => (
         "heavy_timeout",
         ExitRule::Always(Exit::NotRun),
-        "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, not where the client runs.",
+        "The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, or through a set of hosts whose other members can take it; never as a plain command where the client runs.",
       ),
       Self::Superseded => (
         "superseded",
         ExitRule::Always(Exit::NotRun),
         "A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`.",
+      ),
+      Self::Busy => (
+        "busy",
+        ExitRule::Always(Exit::NotRun),
+        "A member of a set that takes runs only at once (`idle_only`) had no room for the run now: nothing ran, and the client goes to the next member.",
       ),
       Self::StillRunning => (
         "still_running",

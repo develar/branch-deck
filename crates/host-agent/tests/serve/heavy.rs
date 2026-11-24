@@ -13,7 +13,7 @@ use test_utils::time_shape::contains_shape;
 
 /// The heavy turn of the host as `Request::Runs` answers it: the holder and the runs of the queue
 fn heavy_turn(agent: &super::Agent<'_>) -> (Option<String>, Vec<String>) {
-  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no heavy turn");
   };
   (
@@ -257,7 +257,7 @@ fn a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one
     heavy_turn(&agent) == (Some("12-1".to_owned()), vec!["12-3".to_owned(), "12-4".to_owned()])
   });
   assert!(!events(&world, "12-4").contains("replaces run"), "{}", agent.dump("12-4"));
-  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no runs");
   };
   let refused = runs
@@ -276,7 +276,7 @@ fn a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one
 
 /// The holders of the heavy turn as `Request::Runs` answers it
 fn turn_holders(agent: &super::Agent<'_>) -> Vec<String> {
-  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no heavy turn");
   };
   heavy["holders"]
@@ -299,7 +299,7 @@ fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_w
   agent.start(shared("13-1"));
   assert_eq!(agent.follow("13-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("13-1"));
   assert!(events(&world, "13-1").contains("brd-host: the command used "), "{}", agent.dump("13-1"));
-  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no runs");
   };
   assert!(runs.iter().find(|run| run.run == "13-1").is_some_and(|run| run.cores.is_some()), "{runs:?}");
@@ -519,7 +519,7 @@ fn a_short_heavy_run_goes_ahead_of_a_run_that_waits_for_the_whole_host() {
       "brd-host: a short run, ~<time> by its last passed runs: goes ahead of 1 run(s) that wait for the heavy turn, each passed at most 4 times: run 18-5 of ",
     )
   });
-  let Reply::Runs { heavy: Some(turn), .. } = agent.reply(&Request::Runs) else {
+  let Reply::Runs { heavy: Some(turn), .. } = agent.reply(&Request::Runs { run: None }) else {
     panic!("no heavy turn");
   };
   assert_eq!(

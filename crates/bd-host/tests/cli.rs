@@ -835,12 +835,12 @@ fn schema_and_version_answer_one_json_object() {
 }
 
 /// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary, and the
-/// disk report, the trim and the heavy turn everywhere
+/// disk report, the trim, the heavy turn and the estimate everywhere
 fn features_of_this_platform() -> Value {
   if cfg!(target_os = "macos") {
-    json!(["upgrade", "disk", "trim", "heavy", "exclusive", "stats"])
+    json!(["upgrade", "disk", "trim", "heavy", "exclusive", "stats", "estimate"])
   } else {
-    json!(["disk", "trim", "heavy", "exclusive", "stats"])
+    json!(["disk", "trim", "heavy", "exclusive", "stats", "estimate"])
   }
 }
 
@@ -913,4 +913,64 @@ fn run_max_leaves_a_run_going_and_a_wait_ends_it() {
   let waited = world.bd_host(&["wait", ALIAS, &id]);
   assert_eq!(waited.status.code(), Some(4), "{}\nserve: {}", text(&waited.stderr), world.serve_log());
   assert!(text(&waited.stderr).contains("\nstarted\n"), "{}", text(&waited.stderr));
+}
+
+/// A set of hosts: `set` writes it, prints it, and refuses the alias of a host file as its name; a run to its name says
+/// its plan, goes to the member that ranks first and names it in its report; a wait to the name of the set goes to the
+/// member that took the run by `<run>.host` of the checkout; `--exclusive` names one host and refuses with a set
+#[test]
+fn a_run_to_a_set_of_hosts_says_its_plan_and_a_wait_to_the_set_goes_to_its_member() {
+  let world = World::new();
+  let _agent = world.serve();
+  let named_as_host = world.bd_host(&["set", ALIAS, ALIAS]);
+  assert_eq!(named_as_host.status.code(), Some(2), "{}", text(&named_as_host.stderr));
+  assert!(
+    text(&named_as_host.stderr).contains("brd-host: usage: local is the alias of a host file"),
+    "{}",
+    text(&named_as_host.stderr)
+  );
+  let set = world.bd_host(&["set", "any", ALIAS]);
+  assert_eq!(set.status.code(), Some(0), "{}", text(&set.stderr));
+  let path = world.home.path().join(".config/brd-host/sets/any.json");
+  assert_eq!(text(&set.stdout), format!("set any: local; {}\n", path.display()));
+  let printed = world.bd_host(&["set", "any", "--json"]);
+  assert_eq!(
+    serde_json::from_slice::<Value>(&printed.stdout).expect("JSON"),
+    json!({"name": "any", "members": [{"alias": "local"}]})
+  );
+
+  let report = world.home.path().join("report.json");
+  let ran = run_with_report(
+    &world,
+    world.repo.path(),
+    &report,
+    &["run", "any", "--head", "--report-fd", "3", "--", "/bin/sh", "-c", "echo done"],
+  );
+  assert_eq!(ran.status.code(), Some(0), "{}\nserve: {}", text(&ran.stderr), world.serve_log());
+  assert_eq!(text(&ran.stdout), "done\n");
+  assert!(
+    text(&ran.stderr).starts_with("brd-host: local: starts now, no measure of this command; chose local\n"),
+    "{}",
+    text(&ran.stderr)
+  );
+  let report = report_of(&report);
+  assert_eq!(report["alias"].as_str(), Some(ALIAS), "{report}");
+  let run = report["run"].as_str().expect("the run").to_owned();
+  let wait = world.bd_host(&["wait", "any", &run]);
+  assert_eq!(wait.status.code(), Some(0), "{}", text(&wait.stderr));
+  assert!(
+    text(&wait.stderr).contains(&format!("brd-host: run {run} on local exited with 0 ")),
+    "{}",
+    text(&wait.stderr)
+  );
+  let unknown = world.bd_host(&["wait", "any", "1-1"]);
+  assert_eq!(unknown.status.code(), Some(2), "{}", text(&unknown.stderr));
+
+  let exclusive = world.bd_host(&["run", "any", "--exclusive", "--", "true"]);
+  assert_eq!(exclusive.status.code(), Some(2), "{}", text(&exclusive.stderr));
+  assert!(
+    text(&exclusive.stderr).contains("brd-host: usage: --exclusive names one host, not the set any"),
+    "{}",
+    text(&exclusive.stderr)
+  );
 }

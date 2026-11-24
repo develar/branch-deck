@@ -72,6 +72,11 @@ fn the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least() {
     add(run, 12_000, false);
   }
   assert_eq!(passed_wall(dir.path(), REPO, "lint").unwrap(), None, "a failed run adds no wall");
+  assert_eq!(
+    measured_wall(dir.path(), REPO, "lint").unwrap(),
+    Some(Duration::from_secs(12)),
+    "the measures tell a wall of every run, the failed ones too: the last 5 are the failed runs of 12 s"
+  );
   assert_eq!(expected(dir.path(), REPO, "lint").unwrap(), Some(Cores(60)), "a failed run measures its cores still");
   add("short", 9_000, true);
   assert_eq!(passed_wall(dir.path(), REPO, "lint").unwrap(), None, "a run of seconds adds no wall");
@@ -89,4 +94,5 @@ fn the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least() {
   let runs: Vec<&str> = walls.commands[&key(REPO, "lint")].iter().map(|wall| wall.run.as_str()).collect();
   assert_eq!(runs, ["p3", "p4", "p5", "p6", "p7"]);
   assert_eq!(passed_wall(dir.path(), REPO, "e2e").unwrap(), None, "another command");
+  assert_eq!(measured_wall(dir.path(), REPO, "e2e").unwrap(), None, "no measure of another command");
 }

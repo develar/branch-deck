@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`brd-host run studio`)
 
 **Status:** Active  
-**Updated:** 2026-11-23  
+**Updated:** 2026-11-24  
 **Tags:** [tests, e2e, nextest, studio, brd-host]
 
 ## Summary
@@ -77,8 +77,14 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   measured), …; a wait, not a hang: …` at once
   and once a minute. `brd-host runs studio` names the holder and the waiting runs, and `brd-host stats studio --days 1`
   how long the heavy runs of the last day waited, by command. A wait past 2 h exits 75
-  (`heavy_timeout`): never run it here then, as this Mac's load is what fails its tests; run it on the Studio again
-  later. A run that is not heavy goes at once. Start a run that can take minutes as `brd-host run studio --max 9m -- <command>`
+  (`heavy_timeout`): never run it here as a plain command then, as this Mac's load is what fails its tests; run it on
+  the Studio again later, or through a set of hosts.
+- **A set of hosts** (`brd-host set any studio local --idle-only local`, [Sets of hosts](../design/host-runs.md#sets-of-hosts)):
+  `brd-host run any --max 9m -- <command>` asks each member what the run would meet there and says its choice in one
+  line; a heavy run goes to this Mac only with a measure of the command here, and only when its agent admits it at
+  once, else `busy` sends it to the Studio. A `busy` line is no end; a run that every member refused exits 75 with
+  `busy`: nothing ran, so run it to the set again later, never here. `brd-host wait any <run>` goes to the member that
+  took it. A run that is not heavy goes at once. Start a run that can take minutes as `brd-host run studio --max 9m -- <command>`
   and, while it exits 124 (`still_running`), `brd-host wait studio <run>`: each call says only the changes of the state
   of the run and ends before the 10 min of a tool call, the run goes on past it, and the end gives a summary with the
   path of the log of the whole output. SIGTERM and SIGHUP of `brd-host run` cancel the run there, as Ctrl+C does, so

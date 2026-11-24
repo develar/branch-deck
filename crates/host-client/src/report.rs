@@ -19,6 +19,8 @@ pub const REPORT_SCHEMA: u32 = 1;
 #[serde(deny_unknown_fields)]
 pub struct RunReport {
   pub schema: u32,
+  /// The alias of the host that took the run: of a run to a set of hosts, the member that ran it, or the first member
+  /// when the run refused before it chose one
   pub alias: String,
   /// The id of the run; `null` before the client chose it
   pub run: Option<String>,

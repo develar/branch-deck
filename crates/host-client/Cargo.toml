@@ -20,6 +20,8 @@ host-link = { path = "../host-link" }
 tokio = { workspace = true, features = ["time"] }
 # the stop of a follow, of a base sync and of the question to the host while the status of the checkout runs (`run`)
 tokio-util.workspace = true
+# the estimates of the members of a set of hosts, asked at once (`choose`)
+futures-util.workspace = true
 # the git of the client in process: the snapshot, the thin pack, the blob of `[host]` and the apply (`git`)
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }

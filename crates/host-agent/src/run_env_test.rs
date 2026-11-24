@@ -64,7 +64,7 @@ fn the_variables_of_the_run_and_of_the_config_go_on_top_of_the_base() {
     ("TEXT".to_owned(), EnvValue::Text("~/not/expanded".to_owned())),
   ];
   let slot = Path::new("/pool/x/12/repo");
-  let env = run_env(base, &config, &home, &spec(), slot).expect("the env");
+  let env = run_env(base, &config, &home, &spec(), slot, None).expect("the env");
   assert_eq!(var(&env, "PATH"), Some("/home/u/.cargo/bin:/usr/bin:/bin:/opt/last"));
   assert_eq!(var(&env, "NEW_LIST"), Some("/a:/pool/x/12/repo/tools.local/bin"));
   assert_eq!(var(&env, "CI"), None);
@@ -75,6 +75,22 @@ fn the_variables_of_the_run_and_of_the_config_go_on_top_of_the_base() {
   assert_eq!(var(&env, "BD_HOST_SLOT"), Some("12"));
   let port: u16 = var(&env, "PORT").expect("a port").parse().expect("a number");
   assert!((23_012..23_012 + PORT_TRIES).contains(&port), "{port}");
+  for name in JOBS_VARIABLES {
+    assert_eq!(var(&env, name), None, "a host without branchdeck.hostJobs sets no {name}");
+  }
+}
+
+/// `branchdeck.hostJobs` of a host gives each command its count of jobs, and `[host.env]` of the commit still decides
+#[test]
+fn the_jobs_of_the_host_go_to_the_command_under_the_config_of_the_commit() {
+  let home = Home::new(PathBuf::from("/home/u"));
+  let config = vec![("NEXTEST_TEST_THREADS".to_owned(), EnvValue::Text("2".to_owned()))];
+  let env = run_env(BTreeMap::new(), &config, &home, &spec(), Path::new("/pool/x/3/repo"), Some(6)).expect("the env");
+  assert_eq!(
+    JOBS_VARIABLES.map(|name| var(&env, name)),
+    [Some("6"), Some("2"), Some("6")],
+    "CARGO_BUILD_JOBS, NEXTEST_TEST_THREADS of [host.env], BRD_HOST_JOBS"
+  );
 }
 
 #[test]

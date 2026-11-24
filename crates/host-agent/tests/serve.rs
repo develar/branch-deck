@@ -31,6 +31,9 @@ mod follow;
 #[path = "serve/heavy.rs"]
 mod heavy;
 
+#[path = "serve/admit.rs"]
+mod admit;
+
 use host_agent::serve::spawn_on_loopback;
 use host_agent::teardown::settle_runs;
 use host_link::allow::AllowList;
@@ -137,7 +140,7 @@ impl World {
       fingerprint: listening.fingerprint,
       world: self,
     };
-    assert!(matches!(agent.reply(&Request::Runs), Reply::Runs { .. }), "{}", self.serve_log());
+    assert!(matches!(agent.reply(&Request::Runs { run: None }), Reply::Runs { .. }), "{}", self.serve_log());
     agent
   }
 
@@ -500,7 +503,7 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
   assert_eq!(table["slots"].as_array().map(Vec::len), Some(1), "{table}");
   // the give-back follows `exit.json` in the supervisor
   eventually("the slot is idle again", || agent.slots()["slots"][0]["state"]["kind"] == "idle");
-  match agent.reply(&Request::Runs) {
+  match agent.reply(&Request::Runs { run: None }) {
     Reply::Runs { runs, .. } => {
       assert_eq!(runs.len(), 1);
       assert_eq!((runs[0].run.as_str(), runs[0].affinity.as_str(), runs[0].exit), ("1-1", AFFINITY, Some(3)));
@@ -515,7 +518,7 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
 /// A forgotten run stays in the runs, finished with its end, a follow answers its output and its exit, a fetch refuses
 /// (its files are gone), and a second forget answers that it was forgotten already
 fn forgotten_run_answers_its_end(agent: &Agent<'_>, run: &str, code: i32, stdout: &[&str]) {
-  match agent.reply(&Request::Runs) {
+  match agent.reply(&Request::Runs { run: None }) {
     Reply::Runs { runs, .. } => {
       let kept = runs
         .iter()

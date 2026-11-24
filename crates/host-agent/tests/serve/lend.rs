@@ -79,7 +79,7 @@ impl Agent<'_> {
 
   /// The exit code of each run, as `Request::Runs` answers it
   fn exits(&self) -> Vec<(String, Option<i32>)> {
-    let Reply::Runs { runs, .. } = self.reply(&Request::Runs) else {
+    let Reply::Runs { runs, .. } = self.reply(&Request::Runs { run: None }) else {
       panic!("no runs");
     };
     runs.into_iter().map(|run| (run.run, run.exit)).collect()

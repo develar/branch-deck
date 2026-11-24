@@ -1,4 +1,5 @@
-//! The requests of a run: Start, Follow, Cancel, Fetch, Forget and Runs, which carries the heavy turn of the host too. The run itself belongs to its supervisor; these
+//! The requests of a run: Start, Follow, Cancel, Fetch, Forget and Runs, which carries the heavy turn of the host too, or
+//! answers one run. A start of `RunSpec::admit_now` answers once its supervisor decided (`admit`). The run itself belongs to its supervisor; these
 //! requests only start it, write its cancel request and read its directory. No request signals a pid.
 //!
 //! A follow reads the run files on a blocking task, which hands each batch of replies to the task of the connection
@@ -10,9 +11,9 @@
 use crate::files::append_private;
 use crate::log::log;
 use crate::run::{ExitRecord, KEPT_FORGOTTEN, KeptLog, LogCut, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events_in};
-use crate::serve::{Agent, check_affinity};
+use crate::serve::{Agent, blocking, check_affinity, with_heartbeats};
 use crate::watch::Watch;
-use crate::{cleanup, sys, tuning};
+use crate::{admit, cleanup, sys, tuning};
 use git_ops::revs::is_object_id;
 use host_link::channel::{Channel, LinkError};
 use host_link::config::is_inner_path;
@@ -73,6 +74,25 @@ impl Agent {
     }
     self.wake_keeper(repo.path.clone());
     Ok(Reply::Started { run: spec.run.clone() })
+  }
+
+  /// Answers `Request::Start`: the start, and for a run of `RunSpec::admit_now` the decision of its supervisor, with
+  /// heartbeats while it comes (`admit::wait_for_decision`)
+  pub(crate) async fn start_request(&self, channel: &mut Channel, spec: &RunSpec) -> Result<(), LinkError> {
+    let started = match self.start(spec) {
+      Ok(reply) if spec.admit_now => match self.runs().get(&spec.run) {
+        Ok(run) => {
+          let decided = with_heartbeats(channel, &mut || {}, blocking(move || admit::wait_for_decision(&run, admit::DECIDE_WAIT))).await?;
+          decided.map(|()| reply)
+        }
+        Err(refusal) => Err(refusal),
+      },
+      started => started,
+    };
+    match started {
+      Ok(reply) => channel.send(&reply).await,
+      Err(refusal) => channel.send(&Reply::of_refusal(&refusal)).await,
+    }
   }
 
   /// Starts the supervisor with the descriptor of the flock of the run. The supervisor keeps the flock after this process
@@ -289,10 +309,14 @@ impl Agent {
     })
   }
 
-  /// The kept runs, and the heavy turn of the host without the gone runs. A heavy turn that cannot be read is left out,
-  /// and the log says why. A run that lost its supervisor ends first, as for a follow: it never reads as going on
-  pub(crate) fn list_runs(&self) -> Reply {
-    let runs = self.runs().list();
+  /// The kept runs, or only the run `only` (none when the agent keeps no such run), and the heavy turn of the host
+  /// without the gone runs. A heavy turn that cannot be read is left out, and the log says why. A run that lost its
+  /// supervisor ends first, as for a follow: it never reads as going on
+  pub(crate) fn list_runs(&self, only: Option<&str>) -> Reply {
+    let runs = match only {
+      Some(run) => self.runs().get(run).into_iter().collect(),
+      None => self.runs().list(),
+    };
     for run in runs.iter().filter(|run| run.end_if_lost()) {
       log(&format!("ended the run {}, which lost its supervisor", run.path().display()));
     }

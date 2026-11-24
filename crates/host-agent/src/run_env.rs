@@ -3,7 +3,9 @@
 //!
 //! The environment is the one of the agent, then the login environment of the user on top, then the directory of the
 //! git of the host before `/usr/bin` in `PATH`, then the variables of the run (`BD_HOST_RUN`, `BD_HOST_AFFINITY`,
-//! `BD_HOST_COMMIT`, `BD_HOST_SLOT`), then `[host.env]`. The open-files limit goes up to [`OPEN_FILES`], because
+//! `BD_HOST_COMMIT`, `BD_HOST_SLOT`), then the jobs of `branchdeck.hostJobs` of the host (`CARGO_BUILD_JOBS`,
+//! `NEXTEST_TEST_THREADS`, `BRD_HOST_JOBS`: a host that a person works on keeps cores for that work), then
+//! `[host.env]`. The open-files limit goes up to [`OPEN_FILES`], because
 //! launchd starts a job with 256: too few for a parallel test run
 
 use crate::home::Home;
@@ -26,13 +28,18 @@ const PORT_TRIES: u16 = 100;
 /// How long a probe of a port waits for a connection
 const PORT_PROBE: Duration = Duration::from_millis(200);
 
-/// The variables of a run on top of `env`: the variables of the run, then `[host.env]` in the order of the names
+/// The variables that `branchdeck.hostJobs` of the host sets for each command, to its count of jobs
+pub(crate) const JOBS_VARIABLES: [&str; 3] = ["CARGO_BUILD_JOBS", "NEXTEST_TEST_THREADS", "BRD_HOST_JOBS"];
+
+/// The variables of a run on top of `env`: the variables of the run, then the jobs of the host (`jobs`, of
+/// `branchdeck.hostJobs`), then `[host.env]` in the order of the names
 pub(crate) fn run_env(
   mut env: BTreeMap<OsString, OsString>,
   config: &[(String, EnvValue)],
   home: &Home,
   spec: &RunSpec,
   slot: &Path,
+  jobs: Option<u32>,
 ) -> Result<BTreeMap<OsString, OsString>, Refusal> {
   let number = slot_number(slot);
   for (name, value) in [
@@ -42,6 +49,11 @@ pub(crate) fn run_env(
     ("BD_HOST_SLOT", &number.to_string()),
   ] {
     env.insert(OsString::from(name), OsString::from(value));
+  }
+  if let Some(jobs) = jobs {
+    for name in JOBS_VARIABLES {
+      env.insert(OsString::from(name), OsString::from(jobs.to_string()));
+    }
   }
   for (name, value) in config {
     let key = OsString::from(name);

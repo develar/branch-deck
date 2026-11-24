@@ -126,6 +126,9 @@ pub struct RunOptions {
   /// Wait for the end of the run at most this long from the start of the call, as `brd-host wait` does, and leave the
   /// run going past it (`--max`). The output goes to the log of the run, not to the output sink
   pub max: Option<Duration>,
+  /// Admit the run at once or refuse it with `busy` (`RunSpec::admit_now`): the start on a member of a set that takes
+  /// runs only at once (`crate::choose`)
+  pub admit_now: bool,
 }
 
 /// The runs that an agent keeps, and the heavy turn of its host
@@ -179,7 +182,7 @@ pub struct RunFailure {
 }
 
 impl RunFailure {
-  fn at(refusal: Refusal, reached: Reached, facts: &RunFacts) -> Self {
+  pub(crate) fn at(refusal: Refusal, reached: Reached, facts: &RunFacts) -> Self {
     Self {
       exit: refusal.code.exit(reached),
       refusal,
@@ -320,8 +323,11 @@ impl Client<'_> {
       changes: options.apply,
       heavy: heavy.is_some(),
       exclusive: options.exclusive,
+      admit_now: options.admit_now,
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
+    // the host of the run, by which a wait, a cancel or a fetch to the name of a set goes to it
+    files.write_host(&run, alias).map_err(|refusal| before(refusal, &facts))?;
     facts.run = Some(run.clone());
     // A start whose reply did not come is cancelled, and the checkout of the run waits for a pack that never comes
     self.start(&mut host, spec, &needs).await.map_err(|refusal| before(refusal, &facts))?;
@@ -646,6 +652,15 @@ impl Client<'_> {
         ),
       ));
     }
+    if spec.admit_now && !agent.features.iter().any(|known| known == feature::ESTIMATE) {
+      return Err(Refusal::new(
+        Code::Busy,
+        format!(
+          "the agent on {alias} predates the start that admits at once or refuses, so it would queue the run: `brd-host upgrade {alias}` sends this build",
+          alias = host.alias()
+        ),
+      ));
+    }
     if spec.heavy && !agent.features.iter().any(|known| known == feature::HEAVY) {
       (self.say)(&format!(
         "brd-host: the agent on {alias} predates heavy runs, so this one runs beside the others: `brd-host upgrade {alias}` sends this build",
@@ -908,7 +923,7 @@ impl Client<'_> {
   /// The runs that the agent keeps, and the heavy turn of its host
   pub async fn runs(&self, alias: &str) -> Result<HostRuns, Refusal> {
     self
-      .ask(&mut self.host(alias)?, &Request::Runs, |reply| match reply {
+      .ask(&mut self.host(alias)?, &Request::Runs { run: None }, |reply| match reply {
         Reply::Runs { runs, heavy } => Taken::Answer(HostRuns { runs, heavy }),
         reply => Taken::Other(reply),
       })
@@ -1403,7 +1418,7 @@ fn run_line(run: &str, alias: &str, snapshot: &Snapshot, repo: &str, default_rep
 }
 
 /// The repository `name` beside `repo` on the host: `~/projects/branch-deck` beside `~/projects/idea-1`
-fn sibling(repo: &str, name: &str) -> Option<String> {
+pub(crate) fn sibling(repo: &str, name: &str) -> Option<String> {
   let parent = repo.trim_end_matches('/').rsplit_once('/')?.0;
   (!parent.is_empty()).then(|| format!("{parent}/{name}"))
 }

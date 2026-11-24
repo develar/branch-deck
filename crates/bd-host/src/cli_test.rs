@@ -32,6 +32,7 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
       heavy: false,
       exclusive: false,
       max: None,
+      admit_now: false,
     }
   );
   assert_eq!(
@@ -45,6 +46,7 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
       heavy: false,
       exclusive: false,
       max: None,
+      admit_now: false,
     }
   );
   assert!(options_of(&["brd-host", "run", "studio", "--heavy", "--", "make"]).heavy, "--heavy");

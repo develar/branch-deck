@@ -15,6 +15,8 @@
 //!   `Request::Stats`
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
 //! - `turn`: the heavy turn of the host, whose cores the heavy runs of every repository there share by their measure
+//! - `estimate`, `admit`: the hint of a set of hosts (`Request::Estimate`), and the start of a member that takes runs
+//!   only at once (`RunSpec::admit_now`)
 //! - `cores`: the samples of the cores that the command of a run uses, and its measure
 //! - `table`: the lend table for `brd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
 //! - `setup`: `setup --agent` and the `LaunchAgent`
@@ -27,11 +29,13 @@
 
 #![cfg(unix)]
 
+mod admit;
 mod awake;
 mod child;
 mod cleanup;
 pub mod command;
 mod cores;
+mod estimate;
 mod files;
 pub mod history;
 pub mod home;

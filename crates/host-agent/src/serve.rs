@@ -436,7 +436,7 @@ impl Agent {
         Err(refusal) => answer(channel, Err(refusal)).await,
       },
       Request::Pack { repo, commit, target } => self.pack(channel, &repo, &commit, target).await,
-      Request::Start(spec) => answer(channel, self.start(&spec)).await,
+      Request::Start(spec) => self.start_request(channel, &spec).await,
       Request::Follow { run, offset } => self.follow(channel, &run, offset).await,
       Request::Cancel { run } => answer(channel, self.cancel(&run)).await,
       Request::Fetch { run } => self.fetch(channel, &run).await,
@@ -445,7 +445,7 @@ impl Agent {
         log(&format!("{} forgets the run {run}", channel.peer().short()));
         answer(channel, self.forget(&run)).await
       }
-      Request::Runs => answer(channel, Ok(self.list_runs())).await,
+      Request::Runs { run } => answer(channel, Ok(self.list_runs(run.as_deref()))).await,
       Request::Slots => answer(channel, Ok(self.slots())).await,
       Request::Disk { fresh } => {
         let home = self.home.clone();
@@ -464,6 +464,14 @@ impl Agent {
         answer(channel, result).await
       }
       Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))).await,
+      Request::Estimate(ask) => match self.repo(&ask.repo) {
+        Ok(repo) => {
+          let home = self.home.clone();
+          let reply = with_heartbeats(channel, &mut || {}, blocking(move || crate::estimate::of_run(&home, &repo, &ask))).await?;
+          answer(channel, Ok(reply)).await
+        }
+        Err(refusal) => answer(channel, Err(refusal)).await,
+      },
     }
   }
 

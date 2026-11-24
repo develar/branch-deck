@@ -151,7 +151,7 @@ async fn a_local_setup_pins_the_agent_of_this_machine_on_the_loopback_without_ss
   client.runs(LOCAL_ALIAS).await.unwrap();
   assert_eq!(
     setup.agent.requests().last(),
-    Some(&Request::Runs),
+    Some(&Request::Runs { run: None }),
     "a request over the loopback with the pins of the setup"
   );
 }

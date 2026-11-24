@@ -170,6 +170,23 @@ enum Command {
   /// The machine contract as one JSON object: the protocol, the exit codes, every refusal code, and the JSON schemas
   /// of the report of a run and of the hello
   Schema,
+  /// Writes a set of hosts, `~/.config/brd-host/sets/<name>.json`: a run to its name goes to the member that the
+  /// estimates of the members rank first, and a wait, cancel, follow, fetch or forget of that run to the member that
+  /// took it. The first member takes any run; a heavy run goes to another one only with its measure of the command.
+  /// Without aliases it prints the set
+  Set {
+    /// The name of the set, which no host file may have
+    name: String,
+    /// The aliases of the members in the order of the fallback: a tie of the rank goes to the earlier one
+    aliases: Vec<String>,
+    /// A member that takes a run only at once, or refuses it with `busy` and the run goes to the next member: a machine
+    /// that a person works on, which keeps no queue. Repeatable
+    #[arg(long = "idle-only", value_name = "ALIAS")]
+    idle_only: Vec<String>,
+    /// One JSON object on stdout: the set as its file holds it
+    #[arg(long)]
+    json: bool,
+  },
   /// The agent skill of brd-host of this build, for an agent harness such as Claude Code
   Skill {
     #[command(subcommand)]
@@ -182,7 +199,7 @@ enum Command {
 #[derive(Debug, Args)]
 #[expect(clippy::struct_excessive_bools, reason = "each bool is one flag of the command line, as each one of `RunOptions` is")]
 struct RunArgs {
-  /// The alias of the host file, which `brd-host setup` writes
+  /// The alias of the host file, which `brd-host setup` writes, or the name of a set of hosts (`brd-host set`)
   alias: String,
   /// Run the committed HEAD only, and refuse a checkout with local changes
   #[arg(long)]
@@ -443,6 +460,7 @@ const fn run_options(args: &RunArgs) -> RunOptions {
     heavy: args.heavy,
     exclusive: args.exclusive,
     max: args.max,
+    admit_now: false,
   }
 }
 
@@ -488,11 +506,17 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     command: &args.command,
     fetch: &args.fetch,
   };
-  let report = match block_on(client.run(&args.alias, &request, run_options(args))) {
+  // a name of a set goes to the member that its estimates rank first, and the report names that member
+  let ran = match client.config().set_of(&args.alias) {
+    Ok(Some(set)) => block_on(client.run_on_set(&set, &request, run_options(args))),
+    Ok(None) => block_on(client.run(&args.alias, &request, run_options(args))).map(|ran| (args.alias.clone(), ran)),
+    Err(refusal) => Err(refusal),
+  };
+  let report = match ran {
     Err(refusal) => refused(&refusal),
-    Ok(outcome) => match outcome {
+    Ok((alias, outcome)) => match outcome {
       // a bounded run said its summary
-      Ok(outcome) if args.max.is_some() => RunReport::of_outcome(&args.alias, &outcome),
+      Ok(outcome) if args.max.is_some() => RunReport::of_outcome(&alias, &outcome),
       Ok(outcome) => {
         let facts = &outcome.facts;
         if !facts.fetched.is_empty() {
@@ -504,14 +528,14 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
           ));
         }
         say(&phases_line(&facts.phases));
-        RunReport::of_outcome(&args.alias, &outcome)
+        RunReport::of_outcome(&alias, &outcome)
       }
       Err(failure) => {
         refuse(&failure.refusal);
         if !failure.facts.phases.is_empty() && args.max.is_none() {
           say(&phases_line(&failure.facts.phases));
         }
-        RunReport::of_failure(&args.alias, &failure)
+        RunReport::of_failure(&alias, &failure)
       }
     },
   };
@@ -531,9 +555,17 @@ fn wait_command(alias: &str, run: &str, max: Duration, out: &Out) -> u8 {
     }
   };
   install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
+  // the name of a set: the member that took the run, by `<run>.host` of the checkout
+  let alias = match client.host_of_run(alias, run, Some(&checkout)) {
+    Ok(alias) => alias,
+    Err(refusal) => {
+      refuse(&refusal);
+      return request_exit(&refusal).code();
+    }
+  };
   let waited = match block_on(client.wait(&WaitRequest {
     checkout: &checkout,
-    alias,
+    alias: &alias,
     run,
     max,
   })) {
@@ -594,24 +626,32 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     Command::Agent(_) => unreachable!("host_agent::command takes an agent command"),
     Command::Follow { alias, run } => {
       install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
-      let followed = block_on(client(&output, &say)?.follow_run(&alias, &run))??;
+      let client = client(&output, &say)?;
+      let alias = client.host_of_run(&alias, &run, working_checkout().as_deref())?;
+      let followed = block_on(client.follow_run(&alias, &run))??;
       if !followed.phases.is_empty() {
         say(&phases_line(&followed.phases));
       }
       Ok(command_exit_code(followed.code))
     }
     Command::Cancel { alias, run } => {
-      out.line(&block_on(client(&output, &say)?.cancel(&alias, &run))??);
+      let client = client(&output, &say)?;
+      let alias = client.host_of_run(&alias, &run, working_checkout().as_deref())?;
+      out.line(&block_on(client.cancel(&alias, &run))??);
       Ok(0)
     }
     Command::Fetch { alias, run, fetch } => {
       let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
-      let fetched = block_on(client_with_git(&output, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch))??;
+      let client = client_with_git(&output, &say, unhashed_build())?;
+      let alias = client.host_of_run(&alias, &run, Some(&checkout))?;
+      let fetched = block_on(client.fetch(&alias, &run, &checkout, &fetch))??;
       out.line(&format!("copied {} files of the run {run} into {}", fetched.len(), checkout.display()));
       Ok(0)
     }
     Command::Forget { alias, run } => {
-      out.line(&block_on(client(&output, &say)?.forget(&alias, &run))??);
+      let client = client(&output, &say)?;
+      let alias = client.host_of_run(&alias, &run, working_checkout().as_deref())?;
+      out.line(&block_on(client.forget(&alias, &run))??);
       Ok(0)
     }
     Command::Runs { alias, json } => {
@@ -640,6 +680,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       Ok(0)
     }
     Command::Hello { alias, json } => hello(&alias, json, out),
+    Command::Set { name, aliases, idle_only, json } => set(&name, &aliases, &idle_only, json, out),
     Command::Slots(args) => slots(&args, out),
     Command::Disk { alias, fresh, json } => disk(alias.as_deref(), fresh, json, out),
     Command::Trim { alias, max, plan, json } => trim(alias.as_deref(), max, plan, json, out),
@@ -704,6 +745,61 @@ struct RunsOutput<'a> {
   /// without the feature `heavy`
   #[serde(skip_serializing_if = "Option::is_none")]
   heavy: Option<&'a serde_json::Value>,
+}
+
+/// `brd-host set`: writes the set of `aliases`, or prints the set without them
+fn set(name: &str, aliases: &[String], idle_only: &[String], json: bool, out: &Out) -> Result<u8, Refusal> {
+  use host_client::config::{Config, HostSet, SetMember};
+  let config = Config::of_user()?;
+  let set = if aliases.is_empty() {
+    if !idle_only.is_empty() {
+      return Err(Refusal::new(Code::Usage, "--idle-only names a member of the aliases that the set gets"));
+    }
+    config.read_set(name)?.ok_or_else(|| {
+      Refusal::new(
+        Code::NoHost,
+        format!("no set of hosts {}: `brd-host set {name} <alias>…` writes it", config.set_path(name).display()),
+      )
+    })?
+  } else {
+    if let Some(stray) = idle_only.iter().find(|alias| !aliases.contains(alias)) {
+      return Err(Refusal::new(Code::Usage, format!("--idle-only {stray} names no member of the set {name}")));
+    }
+    let set = HostSet {
+      name: name.to_owned(),
+      members: aliases
+        .iter()
+        .map(|alias| SetMember {
+          alias: alias.clone(),
+          idle_only: idle_only.contains(alias),
+        })
+        .collect(),
+    };
+    config.write_set(&set)?;
+    set
+  };
+  if json {
+    out.json(&set);
+  } else {
+    let members: Vec<String> = set
+      .members
+      .iter()
+      .map(|member| {
+        if member.idle_only {
+          format!("{} (only at once)", member.alias)
+        } else {
+          member.alias.clone()
+        }
+      })
+      .collect();
+    out.line(&format!("set {}: {}; {}", set.name, members.join(", "), config.set_path(&set.name).display()));
+  }
+  Ok(0)
+}
+
+/// The checkout of the working directory, for the `<run>.host` of a request to the name of a set; `None` outside one
+fn working_checkout() -> Option<PathBuf> {
+  checkout_root(&std::env::current_dir().ok()?).ok()
 }
 
 /// `brd-host hello`

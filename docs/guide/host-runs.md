@@ -151,6 +151,33 @@ brd-host run local -- cargo nextest run -p git-ops
 - The keeper works here as on any host: it keeps `branchdeck.hostSlots` warm slots per repository (4 by default), frees
   the disk below `branchdeck.leaseMinFree`, and upgrades the git of Homebrew when Branch Deck raises its floor.
 
+### A set of hosts
+
+A set lets a run go to the host where it ends first, such as this Mac while the Studio has a long queue. Make this Mac
+a host first, give its runs fewer cores than it has, and run each command that it may take there once, so it has a
+measure of it:
+
+```sh
+brd-host setup --local --repo ~/projects/branch-deck
+git config --global branchdeck.hostCores 8     # the cores that the heavy runs of this Mac share
+git config --global branchdeck.hostJobs 6      # CARGO_BUILD_JOBS, NEXTEST_TEST_THREADS and BRD_HOST_JOBS of each command
+brd-host run local --heavy -- pnpm lint:backend # once per command that this Mac may take, for its measure
+brd-host set any studio local --idle-only local
+brd-host run any --max 9m -- pnpm lint:backend
+```
+
+- Each member answers what the run would meet there within 3 s, and one line says the choice: `brd-host: studio:
+  starts in ~12 min, runs ~4 min; local: starts now, runs ~6 min, only at once; chose local`.
+- The first member takes any run. A heavy run goes to another member only when that member ran the command before, so
+  a new command stays on the first one.
+- `--idle-only` marks a member that takes a run only at once: when it has no room, it answers `busy`, nothing runs
+  there, and the run goes to the next member. Two clients never meet on it.
+- `wait`, `cancel`, `follow`, `fetch` and `forget` take the name of the set too, and go to the member that took the run.
+- `hostJobs` stays below `hostCores`: a command that uses every core counts as one of the whole host and waits for a
+  quiet one.
+- A set takes no `--exclusive`: a measurement names the host it measures.
+- `brd-host set any` prints the set, and `brd-host set any studio` writes it again with one member.
+
 ## Tell the host what a repository needs
 
 A repository asks the host for more in the `[host]` table of `.branchdeck.toml` in its root. The host reads it from
@@ -340,12 +367,13 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 |---|---|---|
 | `unreachable` | No address of the host answered. | Wake the host or turn it on. When the message names macOS Local Network privacy, give the app that runs brd-host (the terminal, the IDE) the permission in System Settings → Privacy & Security → Local Network. |
 | `untrusted` | The host has another identity, or does not know this Mac. | `brd-host setup studio` again. |
-| `no_host` | This Mac has no host file for the alias. | `brd-host setup studio`. |
+| `no_host` | This Mac has no host file and no set of that name. | `brd-host setup studio`, or `brd-host set any studio …` for a set. |
 | `behind` | The host has none of the commits near your HEAD. | `git fetch` in the clone of the repository on the host. |
 | `schema` | The agent speaks another protocol. | `brd-host upgrade studio`, or setup again. |
 | `old_git` | The git of the host is too old and Homebrew cannot upgrade it. | Install or repair Homebrew on the host. |
 | `slot_timeout` | Every slot stayed busy for an hour. | `brd-host slots studio`, then try again. |
-| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then run it again later, not here. |
+| `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then run it again later or through a set, not as a plain command here. |
+| `busy` | A member of a set that takes runs only at once had no room. | Nothing ran; the run went to the next member. |
 | `superseded` | A later heavy run of the same checkout and command replaced it while it waited. | Nothing ran: follow the later run that the message names. |
 | `bad_config` | `[host]` of the commit does not parse, or has a key of a later Branch Deck. | Fix the key, or update brd-host on both ends. |
 | `local_changes` | `--head` with uncommitted changes. | Commit, or drop `--head`. |
@@ -356,7 +384,8 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 |---|---|---|
 | This Mac | `~/.config/brd-host/identity.crt`, `identity.key` | The identity of this client |
 | This Mac | `~/.config/brd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
-| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run, the patch of `--apply`, and the output, the end and the lock of a run that a wait or a run finished, for 7 days; in a lease the output and the patch are in `notes.local/brd-host/`, kept as the notes |
+| This Mac | `~/.config/brd-host/sets/<name>.json` | The members of a set of hosts, and which of them take runs only at once |
+| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run, the host that took it (`<run>.host`), the patch of `--apply`, and the output, the end and the lock of a run that a wait or a run finished, for 7 days; in a lease the output and the patch are in `notes.local/brd-host/`, kept as the notes |
 | Host | `~/.local/bin/brd-host`, on a local host `~/.local/share/brd-host/agent/brd-host` | The binary that launchd runs |
 | Host | `~/.config/brd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
 | Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |

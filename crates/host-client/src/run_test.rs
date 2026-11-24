@@ -186,12 +186,13 @@ fn kind(request: &Request) -> &'static str {
     Request::Cancel { .. } => "cancel",
     Request::Fetch { .. } => "fetch",
     Request::Forget { .. } => "forget",
-    Request::Runs => "runs",
+    Request::Runs { .. } => "runs",
     Request::Slots => "slots",
     Request::Disk { .. } => "disk",
     Request::Trim { .. } => "trim",
     Request::Stats { .. } => "stats",
     Request::Upgrade { .. } => "upgrade",
+    Request::Estimate(_) => "estimate",
   }
 }
 
@@ -814,6 +815,7 @@ const APPLY: RunOptions = RunOptions {
   heavy: false,
   exclusive: false,
   max: None,
+  admit_now: false,
 };
 
 /// The patch of the changes of a command applies to the files of the working tree, not to the index, and stays in the
@@ -1341,7 +1343,7 @@ async fn runs_cancel_slots_disk_trim_and_stats_answer_the_replies_of_the_agent()
   let setup = Setup::with_hello(hello, |request, channel| {
     Box::pin(async move {
       let replies = match request {
-        Request::Runs => vec![Reply::Runs { runs: Vec::new(), heavy: None }],
+        Request::Runs { .. } => vec![Reply::Runs { runs: Vec::new(), heavy: None }],
         Request::Disk { fresh: true } => vec![
           Reply::Heartbeat { elapsed_ms: 100 },
           Reply::Disk {
@@ -1429,7 +1431,7 @@ async fn the_steps_of_a_run_outside_a_follow_are_out_of_turn() {
 async fn heartbeats_keep_a_waiting_request_alive() {
   const READ: Duration = Duration::from_secs(1);
   let setup = Setup::new(|request, channel| {
-    let runs = matches!(request, Request::Runs);
+    let runs = matches!(request, Request::Runs { .. });
     Box::pin(async move {
       if !runs {
         return;
@@ -1740,7 +1742,7 @@ fn agent_polled(phases: &'static [&'static str], exit: Option<i32>) -> Setup {
     seen.lock().unwrap_or_else(PoisonError::into_inner).push(request.clone());
     Box::pin(async move {
       match request {
-        Request::Runs => {
+        Request::Runs { .. } => {
           let _ = channel.send(&runs_reply(seen, phases, exit)).await;
           true
         }

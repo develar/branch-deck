@@ -81,7 +81,7 @@ fn answer<'c>(request: &'c Request, channel: &'c mut Channel, states: &'static S
 
 async fn answer_async(request: &Request, channel: &mut Channel, states: &States, end: End, counts: &Agent) {
   let kind = match request {
-    Request::Runs => "runs",
+    Request::Runs { .. } => "runs",
     Request::Follow { .. } => "follow",
     Request::Fetch { .. } => "fetch",
     Request::Forget { .. } => "forget",
@@ -90,7 +90,7 @@ async fn answer_async(request: &Request, channel: &mut Channel, states: &States,
   };
   counts.kinds.lock().unwrap_or_else(PoisonError::into_inner).push(kind);
   let _ = match request {
-    Request::Runs => {
+    Request::Runs { .. } => {
       let poll = counts.polls.fetch_add(1, Ordering::SeqCst);
       let index = if counts.held.load(Ordering::SeqCst) { 0 } else { poll.min(states.len() - 1) };
       let (info, heavy) = states[index].clone();
