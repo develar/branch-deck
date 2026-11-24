@@ -108,7 +108,7 @@ const APP_FILE: &str = include_str!("../../../docs/design/ide-embedding/protocol
 fn every_tool_is_only_for_the_app_and_each_action_of_the_app_file_has_its_tool() {
   let tools = tools();
   let names: Vec<_> = tools.as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect();
-  assert_eq!(names, ["bd_invoke", "bd_bootstrap", "sync", "open_command_palette", "reveal_branch"]);
+  assert_eq!(names, ["bd_invoke", "bd_bootstrap", "sync", "open_command_palette", "reveal_branch", "open_login_items"]);
   assert!(tools.as_array().unwrap().iter().all(|tool| tool["_meta"]["ui"]["visibility"] == serde_json::json!(["app"])));
   let run: Vec<_> = APP_FILE.lines().filter_map(|line| line.trim().strip_prefix("run: { tool: ")?.strip_suffix(" }")).collect();
   assert_eq!(run, ["sync", "open_command_palette"], "the actions of the app file that run a tool");
@@ -127,12 +127,17 @@ struct Bridged {
 impl Bridged {
   /// The bridge with the main view of the IDE hidden
   fn new() -> Self {
+    Self::with_notice(None)
+  }
+
+  /// The bridge with the main view of the IDE hidden, whose start left `notice` for the IDE (`Connection::notice_slot`)
+  fn with_notice(notice: Option<Value>) -> Self {
     let (link, to_ide) = Link::new();
     let (backend, to_backend) = BackendLink::new();
     let instances = Arc::new(Instances::default());
     instances.shown("main:1", json!({}));
     instances.hidden("main:1");
-    let server = Server::new(Arc::clone(&backend), Arc::new(link), instances, Arc::default());
+    let server = Server::new(Arc::clone(&backend), Arc::new(link), instances, Arc::default(), Arc::new(std::sync::Mutex::new(notice)));
     Self {
       server,
       backend,
@@ -342,4 +347,23 @@ fn the_progress_of_the_dock_is_set_progress_of_the_main_view_with_the_text_of_wh
     json!({ "view": "main", "fraction": null })
   );
   assert_eq!(progress_of(&json!({ "status": "none", "text": "Safe Push" })), json!({ "view": "main", "fraction": null }));
+}
+
+/// The notification the start of the bridge left (the system stopped the app in the background) reaches the IDE once it
+/// initialized, once, with the action that opens Login Items & Extensions
+#[tokio::test]
+async fn the_notice_of_the_start_of_the_bridge_reaches_the_ide_once_it_initialized() {
+  let mut bridged = Bridged::with_notice(Some(crate::notices::background_kill_notice()));
+  assert!(bridged.ide().iter().all(|message| message["method"] != "x-air-app/notify"), "nothing before initialized");
+  bridged.server.notification("notifications/initialized", &json!({}));
+  let told: Vec<_> = bridged.ide().into_iter().filter(|message| message["method"] == "x-air-app/notify").collect();
+  assert_eq!(told.len(), 1, "{told:#?}");
+  assert_eq!(told[0]["params"]["title"], "Cannot keep Branch Deck running in the background");
+  assert_eq!(told[0]["params"]["kind"], "warning");
+  assert_eq!(
+    told[0]["params"]["actions"][0],
+    json!({ "text": "Open Login Items", "run": { "tool": "open_login_items", "arguments": {} } })
+  );
+  bridged.server.notification("notifications/initialized", &json!({}));
+  assert!(bridged.ide().iter().all(|message| message["method"] != "x-air-app/notify"), "told once");
 }

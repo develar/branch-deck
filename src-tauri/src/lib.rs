@@ -261,6 +261,9 @@ pub fn run() {
       // page is its subscription (`startup-read` of `pnpm lint:arch`)
       app.manage(backend_host::page::Pages::new(&host));
       life.watch();
+      // a SIGTERM quits as Quit does, and one without a window is recorded as the system's kill
+      #[cfg(unix)]
+      life.watch_terminate();
       // without a window the app checks for its updates itself, as the page of the main window does
       auto_update::check_while_windowless(app.handle());
       if background {
@@ -289,6 +292,8 @@ pub fn run() {
       app_handle.state::<Arc<AppLife>>().exit_requested(code, &api);
     }
     tauri::RunEvent::Exit => {
+      // first: a bridge that the end of the app's connection restarts reads it
+      app_handle.state::<Arc<AppLife>>().exited();
       flush_settings(app_handle);
       app_handle.state::<Arc<AppLife>>().run_restart();
     }

@@ -181,6 +181,21 @@ sequenceDiagram
   does not listen within 15 s, `BRANCH_DECK_IDE_BACKEND=in-process` (the tests). Every 5 s it looks for a backend of its
   build (`backend.lock` held, the socket answers `initialize`), asking another build once while it lives, and ends the
   bridge with 1 once one answers: the IDE starts it again, and it joins.
+- **The system stops the app in the background** (`backend_host::background_kill`): on macOS, Background Task
+  Management quits an app that runs with no window (an Accessory app, `--background` or after its last window closed)
+  about 30 s after it went windowless when Login Items & Extensions → Allow in the Background is off for it, whatever
+  connects to it: loginwindow sends it the Quit Apple event and a SIGTERM (seen 2026-11-24: "exited due to SIGTERM |
+  sent by loginwindow", 30.9 and 35.2 s after the start, two bridges connected). Without a record the bridge would start
+  the app, lose it 30 s later, end with 1, and the IDE would start it again, a loop. So the app records an end it did
+  not ask for while it had no window (`backend-killed.json` in its data directory, the time and the build; from
+  `RunEvent::Exit` of AppKit's `terminate:`, and from a SIGTERM, which otherwise quits it as Quit does), and a bridge of
+  the same build serves its IDE itself for a day after such a kill instead of starting the app; it still joins an app
+  that runs (the user opened it), and its fallback goes back to the app once one answers. The bridge whose app was
+  killed under it ends with 1 as for any end of its backend: the IDE starts it again once, and the new bridge reads the
+  record. The first bridge that serves for a record tells the IDE once ("Cannot keep Branch Deck running in the
+  background", Open Login Items, the tool `open_login_items`), claimed in `backend-killed.told`, so a second IDE does not
+  tell it again. A switch of a live connection to the fallback was not chosen: the views, the mirrors and the windows
+  of the connection belong to its backend, and the existing way between backends is the restart of the bridge.
 - **The ends**: the end of the stdin ends the connection to the backend and the bridge with 0; an end of the backend
   first ends it with 1, after which the IDE starts it again.
 - **The places** are the windows of the connection of the bridge: `viewShown`, `viewHidden` and `viewClosed` are

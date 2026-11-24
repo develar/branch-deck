@@ -36,7 +36,7 @@ use crate::backend::{BackendLink, BackendSource, Reply};
 use crate::hosts::{Instances, MAIN_VIEW, label_of, open_view_of, view_of};
 use crate::link::{INTERNAL_ERROR, INVALID_PARAMS, Link, METHOD_NOT_FOUND, NO_CONSENT};
 use crate::mirror::MirrorView;
-use crate::notices::{Notices, REVEAL_BRANCH_EVENT, REVEAL_BRANCH_TOOL};
+use crate::notices::{LOGIN_ITEMS_URL, Notices, OPEN_LOGIN_ITEMS_TOOL, REVEAL_BRANCH_EVENT, REVEAL_BRANCH_TOOL};
 use crate::projects::{Projects, RECENT_PROJECTS_KEY, merged};
 use crate::resources;
 use crate::settings::SettingsMirror;
@@ -57,6 +57,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+use sync_utils::span::in_current_span;
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
@@ -93,6 +94,8 @@ pub struct Connection {
   link: Arc<Link>,
   instances: Arc<Instances>,
   projects: Arc<Projects>,
+  /// A notification of the bridge itself that the IDE gets once it initialized (`notice_slot`)
+  notice: Arc<Mutex<Option<Value>>>,
 }
 
 /// The methods the bridge answers before its backend is ready: they need none
@@ -111,8 +114,15 @@ impl Connection {
       link: Arc::new(link),
       instances: Arc::default(),
       projects: Arc::default(),
+      notice: Arc::default(),
     };
     (connection, out)
+  }
+
+  /// Where the start of the bridge puts a notification of its own (the system stopped the app in the background), which
+  /// the IDE gets once it sent `notifications/initialized`
+  pub fn notice_slot(&self) -> Arc<Mutex<Option<Value>>> {
+    Arc::clone(&self.notice)
   }
 
   /// Serves the messages of `incoming`, each one JSON-RPC message, with the backend `backend` gives, until either ends:
@@ -141,7 +151,7 @@ impl Connection {
       }
     };
     let Backend { link: backend, source } = backend;
-    let server = Server::new(Arc::clone(&backend), self.link, self.instances, self.projects);
+    let server = Server::new(Arc::clone(&backend), self.link, self.instances, self.projects, self.notice);
     let mut reader = {
       let server = Arc::clone(&server);
       tokio::spawn(
@@ -309,10 +319,12 @@ struct Server {
   streams: Mutex<HashMap<u64, (Value, Arc<AtomicBool>)>>,
   /// The mirrors, by the path of their repository
   mirrors: Mutex<HashMap<String, Mirror>>,
+  /// The notification of the start of the bridge, told once the IDE initialized (`Connection::notice_slot`)
+  notice: Arc<Mutex<Option<Value>>>,
 }
 
 impl Server {
-  fn new(backend: Arc<BackendLink>, link: Arc<Link>, instances: Arc<Instances>, projects: Arc<Projects>) -> Arc<Self> {
+  fn new(backend: Arc<BackendLink>, link: Arc<Link>, instances: Arc<Instances>, projects: Arc<Projects>, notice: Arc<Mutex<Option<Value>>>) -> Arc<Self> {
     let settings = Arc::new(SettingsMirror::default());
     let notices = Arc::new(Notices::new(Arc::clone(&link), Arc::clone(&backend), Arc::clone(&instances), Arc::clone(&settings)));
     Arc::new(Self {
@@ -326,6 +338,7 @@ impl Server {
       calls: Mutex::default(),
       streams: Mutex::default(),
       mirrors: Mutex::default(),
+      notice,
     })
   }
 }
@@ -389,7 +402,14 @@ impl Server {
   fn notification(self: &Arc<Self>, method: &str, params: &Value) {
     let instance = params["instance"].as_str().unwrap_or_default();
     match method {
-      "notifications/initialized" | "notifications/roots/list_changed" => self.read_roots(),
+      "notifications/initialized" => {
+        let notice = locked(&self.notice).take();
+        if let Some(notice) = notice {
+          self.link.ask("x-air-app/notify", notice);
+        }
+        self.read_roots();
+      }
+      "notifications/roots/list_changed" => self.read_roots(),
       "notifications/cancelled" => self.cancel(&params["requestId"]),
       "x-air-app/viewShown" => {
         let shown = params.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -648,6 +668,19 @@ impl Server {
         let payload = json!({ "repositoryPath": arguments["repositoryPath"], "branchName": arguments["branchName"] });
         self.show_view(MAIN_VIEW, Some((REVEAL_BRANCH_EVENT.to_owned(), payload)));
         self.link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } }));
+      }
+      // Open Login Items of the notification of a kill in the background: the pane of System Settings
+      Some(OPEN_LOGIN_ITEMS_TOOL) => {
+        let link = Arc::clone(&self.link);
+        tokio::task::spawn_blocking(in_current_span(move || {
+          let mut open = sync_utils::child_process::windowless_command("/usr/bin/open");
+          open.arg(LOGIN_ITEMS_URL);
+          match open.status() {
+            Ok(status) if status.success() => link.respond(&id, json!({ "content": [], "structuredContent": { "value": null } })),
+            Ok(status) => link.fail(&id, INTERNAL_ERROR, &format!("Cannot open System Settings: open exited with {status}"), "internal"),
+            Err(error) => link.fail(&id, INTERNAL_ERROR, &format!("Cannot open System Settings: {error}"), "internal"),
+          }
+        }));
       }
       name => self
         .link
@@ -1208,7 +1241,7 @@ const fn row_height(points: f64) -> u32 {
 
 /// The tools of Branch Deck, each only for the app (`_meta.ui.visibility`), so no agent sees one: `bd_invoke` and
 /// `bd_bootstrap` for the page, the tool of each action of the app file for the IDE, and the tool of the action of a
-/// notification of the bridge
+/// notification of the bridge (Show in Branch Deck, Open Login Items)
 fn tools() -> Value {
   let app_only = json!({ "ui": { "visibility": ["app"] } });
   let no_arguments = json!({ "type": "object", "properties": {} });
@@ -1245,6 +1278,12 @@ fn tools() -> Value {
         "properties": { "repositoryPath": { "type": "string" }, "branchName": { "type": "string" } },
         "required": ["repositoryPath", "branchName"],
       },
+      "_meta": app_only,
+    },
+    {
+      "name": OPEN_LOGIN_ITEMS_TOOL,
+      "description": "Opens Login Items & Extensions of System Settings, where Branch Deck is allowed in the background (Open Login Items of a notification).",
+      "inputSchema": no_arguments,
       "_meta": app_only,
     },
   ])

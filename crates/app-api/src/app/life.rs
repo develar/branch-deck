@@ -71,6 +71,13 @@ pub fn exit_deadline(windowless_since: Option<Instant>, connections: usize, last
   Some(last_disconnect.map_or(since, |end| end.max(since)) + WINDOWLESS_GRACE)
 }
 
+/// Whether an end of the process is the system's kill of an app without a window: the app asked for no exit itself
+/// (`exit_asked`: Quit, the deadline, a restart, the last window without a bridge) and no window is open. An end with a
+/// window is an ordinary quit (Quit of the Dock, a logout)
+pub const fn is_background_kill(exit_asked: bool, window_open: bool) -> bool {
+  !exit_asked && !window_open
+}
+
 /// The count of the bridges connected to the process now and a notification of its change. The host of the socket
 /// holds the sender (`BridgeConnections::channel`); a process without the host has none connected ever
 /// (`BridgeConnections::none`)

@@ -3,6 +3,8 @@
 //! in-process transport, the bridge of the IDE (`branch-deck ide`) over a local socket, and later brd. It reaches no
 //! Tauri (`architecture_test.rs` of `bd-cli`).
 //!
+//! - `background_kill`: the record of the kill of the app without a window by the system, and the rule of a bridge that
+//!   reads it: no start of an app the system stops in the background, the user told once.
 //! - `host`: the host over the `AppContext` of the process: the connections, the global `serverSeq` and its publish
 //!   lock, the channels of the repositories, the news claimed, the hooks of the app.
 //! - `connection`: a connection: its lines, `initialize`, the life of its windows, its host requests, its end.
@@ -17,6 +19,7 @@
 //! - `socket`: the local socket of a key (a named pipe on Windows), its owner-only directory, `backend.lock`, the check
 //!   of the user of the peer, and `showMain` of a second start.
 
+pub mod background_kill;
 pub mod call;
 pub mod channel;
 pub mod client;

@@ -1,5 +1,6 @@
 use crate::app::life::{
-  BUILD_REPLACED_EVENT, BridgeConnections, BuildReplaced, WINDOWLESS_GRACE, WindowsClosed, exit_deadline, is_background_start, restart_args, shows_main, when_windows_close,
+  BUILD_REPLACED_EVENT, BridgeConnections, BuildReplaced, WINDOWLESS_GRACE, WindowsClosed, exit_deadline, is_background_kill, is_background_start, restart_args, shows_main,
+  when_windows_close,
 };
 use std::ffi::OsString;
 use std::time::{Duration, Instant};
@@ -108,4 +109,12 @@ fn a_replaced_binary_is_told_to_the_main_window_once() {
   assert!(replaced.tell(&heard));
   assert!(!replaced.tell(&heard), "a second bridge of the new build");
   assert_eq!(*heard.0.lock().unwrap(), [(Some("main".to_owned()), BUILD_REPLACED_EVENT.to_owned())]);
+}
+
+#[test]
+fn an_end_the_app_did_not_ask_for_without_a_window_is_the_systems_kill() {
+  // (the app asked for its exit, a window is open, a kill by the system)
+  for (exit_asked, window_open, expected) in [(false, false, true), (true, false, false), (false, true, false), (true, true, false)] {
+    assert_eq!(is_background_kill(exit_asked, window_open), expected, "{exit_asked} {window_open}");
+  }
 }

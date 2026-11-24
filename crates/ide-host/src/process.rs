@@ -8,8 +8,10 @@
 //! backend ended it first or the fallback found a backend of its build to join: the IDE starts the bridge again.
 
 use crate::fallback::{Fallback, watch_for_own_backend};
+use crate::notices::background_kill_notice;
 use crate::server::{Backend, Connection, Ended};
-use crate::start::{Reach, reach};
+use crate::start::{Reach, Why, reach};
+use backend_host::background_kill;
 use backend_host::identity::build_id;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -82,6 +84,7 @@ pub async fn serve(input: impl AsyncRead + Unpin + Send + 'static, output: impl 
   // the backend of the process, when the bridge serves alone: it lives while the bridge serves
   let fallback: Arc<Mutex<Option<Fallback>>> = Arc::default();
   let (watch, watched) = oneshot::channel::<PathBuf>();
+  let notice = connection.notice_slot();
   let backend = {
     let (fallback, build) = (Arc::clone(&fallback), build.clone());
     async move {
@@ -93,6 +96,13 @@ pub async fn serve(input: impl AsyncRead + Unpin + Send + 'static, output: impl 
         }
         Reach::Fallback { why, dir } => {
           tracing::info!(?why, "the bridge serves the IDE with a backend of its own");
+          // the system stopped the app in the background: the user hears it once per stop, from the first bridge
+          if why == Why::KilledInBackground
+            && let Some(kill) = background_kill::read(&data_dir)
+            && background_kill::claim_notice(&data_dir, &kill)
+          {
+            *notice.lock().unwrap_or_else(PoisonError::into_inner) = Some(background_kill_notice());
+          }
           let own = match Fallback::open(app_data_dir) {
             Ok(own) => own,
             Err(error) => {

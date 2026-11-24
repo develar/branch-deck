@@ -29,6 +29,24 @@ pub const REVEAL_BRANCH_TOOL: &str = "reveal_branch";
 /// The event the main view reveals a branch on, `{repositoryPath, branchName}`
 pub const REVEAL_BRANCH_EVENT: &str = "reveal-branch";
 
+/// The tool of the action of the notification of a kill in the background: System Settings → Login Items & Extensions
+pub const OPEN_LOGIN_ITEMS_TOOL: &str = "open_login_items";
+
+/// The pane of System Settings that allows an app in the background
+pub const LOGIN_ITEMS_URL: &str = "x-apple.systempreferences:com.apple.LoginItems-Settings.extension";
+
+/// The notification of the IDE that the system stopped the app without a window, which the bridge tells once per record
+/// (`backend_host::background_kill::claim_notice`) when it serves the IDE itself for it, with the action that opens the
+/// pane where the user allows the app in the background
+pub fn background_kill_notice() -> Value {
+  json!({
+    "title": "Cannot keep Branch Deck running in the background",
+    "body": "macOS stopped it while no window was open, so this project runs its own backend. Allow Branch Deck in the background in Login Items & Extensions.",
+    "kind": "warning",
+    "actions": [{ "text": "Open Login Items", "run": { "tool": OPEN_LOGIN_ITEMS_TOOL, "arguments": {} } }],
+  })
+}
+
 /// The switch of Settings → Notifications of the failures of robots, on by default
 const FAILURES_SWITCH: &str = "notifyPatronusFailures";
 

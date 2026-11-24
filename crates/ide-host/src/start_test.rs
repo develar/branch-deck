@@ -9,6 +9,7 @@ const NOTHING: StartFacts = StartFacts {
   lock_held: false,
   display: true,
   app: true,
+  killed: false,
 };
 
 /// The start of the bridge by what it finds: it joins a backend of its build, waits for one that starts, starts the app
@@ -70,6 +71,30 @@ fn the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds() {
     ),
     ("no binary of the app", StartFacts { app: false, ..NOTHING }, Step::Fallback(Why::NoApp)),
     (
+      "the system stopped the app in the background lately",
+      StartFacts { killed: true, ..NOTHING },
+      Step::Fallback(Why::KilledInBackground),
+    ),
+    (
+      "an app that runs is joined after a kill too",
+      StartFacts {
+        reached: Reached::Joined,
+        lock_held: true,
+        killed: true,
+        ..NOTHING
+      },
+      Step::Join,
+    ),
+    (
+      "an app the user starts after a kill is waited for",
+      StartFacts {
+        lock_held: true,
+        killed: true,
+        ..NOTHING
+      },
+      Step::AwaitSocket,
+    ),
+    (
       "the tests ask for it",
       StartFacts {
         in_process: true,
@@ -83,6 +108,7 @@ fn the_bridge_joins_waits_starts_the_app_or_serves_alone_by_what_it_finds() {
     assert_eq!(decide(&facts), step, "{case}");
   }
   assert!(Why::BreakawayDenied.may_come_back(), "the app started later is joined at the next start of the bridge");
+  assert!(Why::KilledInBackground.may_come_back(), "the app the user opens after a kill is joined");
   assert!(!Why::Asked.may_come_back());
 }
 

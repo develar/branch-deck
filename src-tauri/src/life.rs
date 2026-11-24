@@ -4,9 +4,16 @@
 //! process while a bridge of an IDE is connected (on macOS without its Dock icon, `ActivationPolicy::Accessory`), and a
 //! process with no window and no connection exits `WINDOWLESS_GRACE` after it became windowless or its last connection
 //! ended. The main window comes back by Reopen of macOS and by `x-branch-deck/showMain` (`MainWindowHost`).
+//!
+//! An end the app did not ask for while it had no window is the system's (`is_background_kill`; on macOS Background Task
+//! Management quits an app not allowed in the background about 30 s after it went windowless): the app records it in
+//! its data directory (`backend_host::background_kill`), from the exit of `terminate:` of `AppKit` (`exited`) or from a
+//! SIGTERM (`watch_terminate`), so its bridges serve their IDEs themselves instead of starting it again and again.
 
-use app_api::app::life::{BridgeConnections, MainWindowHost, WindowsClosed, exit_deadline, restart_args, when_windows_close};
+use app_api::app::life::{BridgeConnections, MainWindowHost, WindowsClosed, exit_deadline, is_background_kill, restart_args, when_windows_close};
+use backend_host::background_kill::{BackgroundKill, now_ms, record};
 use std::ffi::OsString;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
@@ -22,6 +29,11 @@ pub struct AppLife {
   changed: Notify,
   /// The arguments of the restart under way, which the exit runs with (`run_restart`)
   restart: Mutex<Option<Vec<OsString>>>,
+  /// The app asked for its exit itself (Quit, the deadline, a restart, the last window without a bridge, a stale
+  /// backend): an exit without it is the system's
+  exit_asked: AtomicBool,
+  /// The kill by the system is recorded already (a SIGTERM, then the exit it asks for)
+  kill_recorded: AtomicBool,
 }
 
 struct LifeState {
@@ -44,6 +56,8 @@ impl AppLife {
       }),
       changed: Notify::new(),
       restart: Mutex::new(None),
+      exit_asked: AtomicBool::new(false),
+      kill_recorded: AtomicBool::new(false),
     })
   }
 
@@ -97,10 +111,11 @@ impl AppLife {
   /// without a window; an exit the app asked for itself (Quit, the deadline, a restart) is never held
   pub fn exit_requested(&self, code: Option<i32>, api: &tauri::ExitRequestApi) {
     if code.is_some() {
+      self.exit_asked.store(true, Ordering::Relaxed);
       return;
     }
     match when_windows_close(self.connections.now()) {
-      WindowsClosed::Exit => {}
+      WindowsClosed::Exit => self.exit_asked.store(true, Ordering::Relaxed),
       WindowsClosed::StayWindowless => {
         api.prevent_exit();
         info!(connections = self.connections.now(), "the last window closed, the app stays for the IDE");
@@ -138,6 +153,61 @@ impl AppLife {
     let args = restart_args(&self.app.env().args_os, self.has_window());
     *self.restart.lock().unwrap_or_else(PoisonError::into_inner) = Some(args);
     self.app.restart()
+  }
+
+  /// `RunEvent::Exit`: an exit the app did not ask for while it has no window is the system's kill, recorded before the
+  /// process ends (`terminate:` of `AppKit`: the Quit Apple event of `loginwindow`)
+  pub fn exited(&self) {
+    if is_background_kill(self.exit_asked.load(Ordering::Relaxed), self.has_window()) {
+      self.record_kill("the app ends");
+    }
+  }
+
+  /// Unix: a SIGTERM quits the app as Quit does, after it recorded the kill when it has no window and asked for no exit
+  #[cfg(unix)]
+  pub fn watch_terminate(self: &Arc<Self>) {
+    let life = Arc::clone(self);
+    tauri::async_runtime::spawn(
+      async move {
+        let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+          Ok(terminate) => terminate,
+          Err(e) => {
+            warn!(error = %e, "cannot watch SIGTERM: it ends the app at once");
+            return;
+          }
+        };
+        if terminate.recv().await.is_some() {
+          if is_background_kill(life.exit_asked.load(Ordering::Relaxed), life.has_window()) {
+            life.record_kill("SIGTERM");
+          }
+          info!("SIGTERM: the app quits");
+          life.app.exit(0);
+        }
+      }
+      .in_current_span(),
+    );
+  }
+
+  /// Records the kill by the system (macOS only: elsewhere a stop of the session ends the app, and the system lets it run
+  /// in the background), once
+  fn record_kill(&self, by: &str) {
+    if !cfg!(target_os = "macos") || self.kill_recorded.swap(true, Ordering::Relaxed) {
+      return;
+    }
+    let Some(data_dir) = app_settings::identity::app_data_dir() else {
+      return;
+    };
+    let kill = BackgroundKill {
+      at_ms: now_ms(),
+      build: backend_host::identity::build_id(),
+    };
+    match record(&data_dir, &kill) {
+      Ok(()) => warn!(
+        by,
+        "the system stopped the app while no window was open (Login Items & Extensions → Allow in the Background is off): its IDEs serve themselves for a day"
+      ),
+      Err(e) => warn!(by, error = %e, "the system stopped the app while no window was open, and the record of it cannot be written"),
+    }
   }
 
   /// `RunEvent::Exit`: a restart under way starts the new process with its arguments and ends this one

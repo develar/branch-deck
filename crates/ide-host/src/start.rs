@@ -5,6 +5,10 @@
 //!
 //! - **A backend of its build answers**: the bridge joins it.
 //! - **`backend.lock` of the key is held** (an app starts, or one answers no more): the bridge waits for its socket.
+//! - **The system stopped the app in the background** (`backend_host::background_kill`: a kill of the bridge's build
+//!   within a day, macOS Background Task Management while Allow in the Background is off): the bridge starts no app
+//!   and serves the IDE with its own backend, so the IDE does not start the bridge again and again; a running app is
+//!   still joined.
 //! - **No backend**: the bridge starts the app under `backend.launch.lock`, so two bridges start one app, and waits up to
 //!   `START_WAIT` for its socket. macOS: `/usr/bin/open -g -j -a <bundle> --args --background`, through launchd, with
 //!   none of the environment of the IDE. Linux: a double fork (`/bin/sh` starts the app in the background and exits),
@@ -17,6 +21,7 @@
 //! - **`BRANCH_DECK_IDE_BACKEND=in-process`** (the tests): the fallback.
 
 use crate::backend::{BackendLink, BackendSource, Refusal, Transport, handshake};
+use backend_host::background_kill;
 use backend_host::socket::{app_key, connect, dir_of, lock_held, prepare_dir};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -67,6 +72,8 @@ pub struct StartFacts {
   pub display: bool,
   /// The bridge knows the binary of the app to start
   pub app: bool,
+  /// The system stopped the app of the bridge's build without a window lately (`background_kill::starts_app`)
+  pub killed: bool,
 }
 
 /// What the bridge does next
@@ -100,6 +107,8 @@ pub enum Why {
   BreakawayDenied,
   /// The app did not listen within `START_WAIT`
   NotStarted,
+  /// The system stopped the app without a window lately: it would stop the app the bridge starts too
+  KilledInBackground,
 }
 
 impl Why {
@@ -123,6 +132,7 @@ pub const fn decide(facts: &StartFacts) -> Step {
     Reached::Nothing if facts.lock_held => Step::AwaitSocket,
     Reached::Nothing if !facts.display => Step::Fallback(Why::NoDisplay),
     Reached::Nothing if !facts.app => Step::Fallback(Why::NoApp),
+    Reached::Nothing if facts.killed => Step::Fallback(Why::KilledInBackground),
     Reached::Nothing => Step::StartApp,
   }
 }
@@ -218,6 +228,7 @@ pub async fn reach(data_dir: &Path, app: Option<&Path>, build: &str) -> Reach {
     return Reach::Fallback { why, dir: None };
   };
   let display = has_display();
+  let killed = !background_kill::starts_app(background_kill::read(data_dir).as_ref(), background_kill::now_ms(), build);
   for _ in 0..3 {
     let (reached, joined) = try_join(&dir, build).await;
     let facts = StartFacts {
@@ -226,6 +237,7 @@ pub async fn reach(data_dir: &Path, app: Option<&Path>, build: &str) -> Reach {
       lock_held: lock_held(&dir),
       display,
       app: app.is_some(),
+      killed,
     };
     let step = decide(&facts);
     tracing::info!(?facts, ?step, "the start of the bridge");
