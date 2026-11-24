@@ -16,6 +16,7 @@ import {
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { submitInlineForm } from "../helpers/inline-form-helpers"
+import { updateIntoLandedIsland } from "../helpers/landed-helpers"
 import { confirmForcePush, expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -443,11 +444,7 @@ test.describe("Activity of updates", () => {
     { page, setupRepo, syncAndWaitForBranches, testStore }: Pick<Parameters<Parameters<typeof test>[2]>[0], "page" | "setupRepo" | "syncAndWaitForBranches" | "testStore">,
     surface: "window" | "panel",
   ) => {
-    const repo = await setupRepo("landed_upstream")
-    await syncAndWaitForBranches()
-    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
-    const card = page.getByTestId("landed-card")
-    await expect(card).toBeVisible()
+    const { repo, card } = await updateIntoLandedIsland(page, setupRepo, syncAndWaitForBranches)
 
     // the user saw the island for less than 10 s: a sync keeps it
     await syncAndWaitForBranches()
