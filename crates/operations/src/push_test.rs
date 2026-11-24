@@ -32,6 +32,7 @@ use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionHost, SessionKey, Sessions};
 use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
@@ -391,7 +392,10 @@ impl Fixture {
       fingerprint,
       confirmations: accepted,
     };
-    execute_push(&self.registry, &self.key, push.clone(), accepted, services, events).await
+    // a `dyn Future`, where the `Send` check of the tests that join it stops (else past the recursion limit of the trait
+    // solver with every feature on)
+    let run: Pin<Box<dyn Future<Output = Result<Outcome, ApiError>> + Send + '_>> = Box::pin(execute_push(&self.registry, &self.key, push.clone(), accepted, services, events));
+    run.await
   }
 }
 

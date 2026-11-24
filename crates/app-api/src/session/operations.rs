@@ -15,6 +15,7 @@ use operations::engine::Hosts;
 use operations::events::EventSink;
 use operations::land_execute::Accepted;
 use repository_model::session::SessionKey;
+use std::pin::Pin;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -72,8 +73,11 @@ pub async fn execute(ctx: &AppContext, call: &Call, key: SessionKey, params: Exe
     services: &*ctx.services,
     rewrites: &*ctx.rewrites,
   };
-  // the run of a start is a large future: on the heap
-  Box::pin(operations::engine::execute(&ctx.registry, &key, params.intent, accepted, hosts, events)).await
+  // the run of a start is a large future: on the heap, as a `dyn Future`, where the `Send` check of the command stops
+  // (else it walks the engine past the recursion limit of the trait solver with every feature on)
+  let run: Pin<Box<dyn Future<Output = Result<Outcome, ApiError>> + Send + '_>> =
+    Box::pin(operations::engine::execute(&ctx.registry, &key, params.intent, accepted, hosts, events));
+  run.await
 }
 
 /// `Registry::cancel`: false for an operation that ended
