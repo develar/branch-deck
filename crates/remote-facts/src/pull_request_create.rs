@@ -58,7 +58,8 @@ pub struct CreatePullRequestParams {
   /// The branch (or its base) was just pushed: GitHub may not know it for a moment (a Space mirror copies it), so a
   /// creation GitHub refuses for a missing head or base is asked again until `MIRROR_WAIT` (`create_pull_request`)
   pub wait_for_mirror: bool,
-  /// A draft: nobody is asked to review it until it is marked ready (a shown review before its branch landed)
+  /// A draft: nobody is asked to review it until it is marked ready (a shown review before its branch landed); only a
+  /// draft names `draft` in the body of `POST pulls`
   pub draft: bool,
 }
 
@@ -315,7 +316,11 @@ async fn open_pull_request_of_head(github: &GitHubService, repository: &GitHubRe
 
 /// `GET /user`, `POST pulls`, then the assignee and the reviewers of the pull request it created (`create_pull_request`)
 async fn post_pull_request(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams, title: &str) -> Result<Creation, GitHubFailure> {
-  let request = serde_json::json!({"title": title, "body": params.body, "head": params.head, "base": params.base, "draft": params.draft});
+  let mut request = serde_json::json!({"title": title, "body": params.body, "head": params.head, "base": params.base});
+  // only a draft names it: an ordinary pull request sends the body it always sent
+  if params.draft {
+    request["draft"] = serde_json::Value::Bool(true);
+  }
   let (owner, name, request) = (repository.owner.as_str(), repository.name.as_str(), &request);
   github
     .ask(&params.repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {

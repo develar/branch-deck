@@ -61,7 +61,7 @@ head, and closes once every reviewer it asked approved.
 A Safe Push of a branch with a review after landing (`brd safe-push --request-review`) MUST push the branch, then push
 the head and the base of its shown review, then open the draft pull request between them (or take the open one of its
 head), then start the robot through the API; the draft MUST ask nobody and record in its body the reviewers its open
-asks.
+asks. Only a draft names `draft` in the body of its `POST pulls`; an ordinary pull request sends none.
 
 #### Scenario: The draft before the start
 - **WHEN** `brd safe-push auth --request-review` starts
@@ -70,6 +70,7 @@ asks.
 - **AND** the robot starts through the API
   [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_lands_only_the_branch`)
   [@test] crates/bd-remote/src/shown_review_test.rs (`the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_it_closes_once_they_approved`)
+  [@test] crates/remote-facts/src/pull_request_create_test.rs (`only_a_draft_names_draft_in_the_body_of_its_creation`)
 
 ### Requirement: Start: A review after landing is refused where it can't review what lands
 

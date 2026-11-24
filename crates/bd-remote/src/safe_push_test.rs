@@ -629,7 +629,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
   // the text of its one commit: its subject
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
-    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master", "draft": false})
+    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})
   );
 
   // not approved yet: the error names the pull request
@@ -874,7 +874,7 @@ fn a_pull_request_that_already_exists_is_found_instead() {
   // the text of its two commits: titled by the first, an item for each
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
-    json!({"title": "Add auth", "body": "1. **Add auth**\n\n2. **Test auth**", "head": AUTH, "base": "master", "draft": false})
+    json!({"title": "Add auth", "body": "1. **Add auth**\n\n2. **Test auth**", "head": AUTH, "base": "master"})
   );
 }
 
@@ -887,7 +887,7 @@ fn the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_witho
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
-    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master", "draft": false})
+    json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})
   );
 }
 

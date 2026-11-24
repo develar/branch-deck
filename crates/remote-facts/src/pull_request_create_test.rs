@@ -92,7 +92,7 @@ async fn creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except
       (
         "POST".to_string(),
         PULLS.to_string(),
-        json!({"title": "Add auth", "body": "- **Add login**", "head": "me/virtual/auth", "base": "master", "draft": false})
+        json!({"title": "Add auth", "body": "- **Add login**", "head": "me/virtual/auth", "base": "master"})
       ),
       ("POST".to_string(), ASSIGNEES.to_string(), json!({"assignees": ["me"]})),
       ("POST".to_string(), REVIEWERS.to_string(), json!({"reviewers": ["alice", "bob"]})),
@@ -119,6 +119,23 @@ async fn without_the_assignee_and_reviewers_only_the_pull_request_is_created() {
   assert_eq!(paths, ["/user", PULLS]);
   assert_eq!(result.assignees, Vec::<String>::new());
   assert_eq!(result.pull_request.reviewers, Vec::<Reviewer>::new());
+}
+
+#[test(tokio::test)]
+async fn only_a_draft_names_draft_in_the_body_of_its_creation() {
+  let (fake, github) = start_fake_service("t").await;
+  answer_user(&fake);
+  fake.answer("POST", PULLS, created(&[]));
+  let draft = CreatePullRequestParams {
+    draft: true,
+    ..params(&[], false)
+  };
+  create_pull_request(&github, &repository(), &draft).await.unwrap();
+  let bodies: Vec<Value> = fake.requests_to("POST", PULLS).iter().map(github::fake_github::FakeRequest::json).collect();
+  assert_eq!(
+    bodies,
+    [json!({"title": "Add auth", "body": "- **Add login**", "head": "me/virtual/auth", "base": "master", "draft": true})]
+  );
 }
 
 #[test(tokio::test)]
