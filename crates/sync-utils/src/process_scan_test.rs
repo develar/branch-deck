@@ -418,13 +418,16 @@ fn the_uptime_reads_in_clock_ticks() {
 
 /// A process that starts after a reading of the start clock has a start of that reading or later, in the unit of
 /// `process_started`: the clock carries no rounding of the boot to its second, which `started_at` of Linux has. No
-/// clock where the system tells no start to compare
+/// clock where the system tells no start to compare. The child sleeps until its start is read: one that exits first is
+/// a zombie, which has no start (`an_exited_child_that_is_not_reaped_yet_has_no_start`), and a loaded host lets a
+/// `true` end before the read (126 of 150 runs at twice as many busy loops as cores)
 #[test]
 fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() {
   if cfg!(any(target_os = "macos", target_os = "linux")) {
     let clock = start_clock().expect("the start clock");
-    let mut child = crate::child_process::windowless_command("true").spawn().expect("a child");
+    let mut child = crate::child_process::windowless_command("sleep").arg("60").spawn().expect("a child");
     let started = process_started(child.id());
+    child.kill().expect("the child killed");
     child.wait().expect("the child ended");
     let started = started.expect("the start of the child");
     assert!(started >= clock.now, "{started} < {clock:?}");
@@ -432,6 +435,25 @@ fn a_process_started_after_a_reading_of_the_start_clock_starts_at_it_or_later() 
   } else {
     assert_eq!(start_clock(), None);
   }
+}
+
+/// A child that exited is a zombie until its parent reaps it, and a zombie has no start: it is no process that runs, so
+/// a pid of it never counts as running (`process_started` answers `None` for one that exited). The state, not a time:
+/// the loop waits until the child exited, on Linux while `/proc` still lists the zombie
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn an_exited_child_that_is_not_reaped_yet_has_no_start() {
+  let mut child = crate::child_process::windowless_command("true").spawn().expect("a child");
+  let pid = child.id();
+  let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+  while process_started(pid).is_some() {
+    assert!(std::time::Instant::now() < deadline, "the child did not exit");
+    std::thread::sleep(std::time::Duration::from_millis(1));
+  }
+  #[cfg(target_os = "linux")]
+  assert!(std::path::Path::new(&format!("/proc/{pid}/stat")).exists(), "the zombie is listed until it is reaped");
+  child.wait().expect("the child reaped");
+  assert_eq!(process_started(pid), None);
 }
 
 /// Computes until this process used `cpu` more of CPU time, the state an assertion needs, not a time; answers its CPU
