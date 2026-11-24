@@ -84,7 +84,8 @@ last runs fits beside the holders and the busy cores of the host outside them (t
 processes of no run: the agent samples the whole host every 2 s); a command without a measure (its first runs, any new
 command) takes the whole host and waits for a quiet one (at most a fifth of its cores busy), and so does one that
 measured the whole host. The queue is first come first, and a head of the queue that waited 15 min starts on a free
-turn whatever the load. The measures of a command do not depend on the paths of its `--fetch` directories, so give
+turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
+each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. A line `the heavy turn of the host is locked by …; this run
 keeps its place in the queue and looks again` is a wait too, never a reason to cancel. A run is heavy when a pattern of `heavy` of `[host]` of the
 commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository

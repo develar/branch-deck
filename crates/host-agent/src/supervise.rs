@@ -377,7 +377,8 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   }
   let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
   let measure_ended = Instant::now();
-  measure_end(context, &of, &mut sampler, sampled_group);
+  // a run passed only by an exit 0 of its command that no cancel ended: the walls of the passed runs tell a short command
+  measure_end(context, &of, &mut sampler, sampled_group, matches!(ran, Ok(0)) && !stop());
   if !spec.heavy
     && let Err(refusal) = turn::leave(context.home, &spec.run)
   {
@@ -391,9 +392,10 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   Ok(code)
 }
 
-/// The measure of the command of the run `of`, which ended: `cores.json` of the run, its line in the log, and the
-/// measures of the command, which the admissions of the heavy turn read
-fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Sampler, group: u32) {
+/// The measure of the command of the run `of`, which ended and `passed` or not: `cores.json` of the run, its line in the
+/// log, and the measures of the command, which the admissions of the heavy turn read, with its wall among the walls of
+/// the passed runs of the command when it passed, which the place of a short run in the heavy queue reads
+fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Sampler, group: u32, passed: bool) {
   let file = sampler.finish(group).clone();
   if let Err(error) = context.run.write_cores(&file) {
     supervisor(&format!("cannot write the cores of the run {}: {error}", of.run));
@@ -402,7 +404,7 @@ fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Samp
     "the command used {} cores on average and {} at its peak, of the {} of the host",
     file.mean, file.peak, of.cores
   ));
-  if let Err(refusal) = turn::record(context.home, of, file.mean, file.peak, Duration::from_millis(file.wall_ms)) {
+  if let Err(refusal) = turn::record(context.home, of, file.mean, file.peak, Duration::from_millis(file.wall_ms), passed) {
     supervisor(&format!("run {}: {refusal}", of.run));
   }
 }

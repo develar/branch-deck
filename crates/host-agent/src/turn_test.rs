@@ -407,7 +407,7 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
   // before its first look the other run of the command ends with its measure, and the second look stops
   let stop = || match looks.fetch_add(1, Ordering::SeqCst) {
     0 => {
-      record(&home, &run("earlier", &light1, &fetch1), Cores(15), Cores(136), Duration::from_mins(1)).unwrap();
+      record(&home, &run("earlier", &light1, &fetch1), Cores(15), Cores(136), Duration::from_mins(1), true).unwrap();
       false
     }
     _ => true,
@@ -423,5 +423,95 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
     (table["queue"][0]["run"].as_str(), table["queue"][0]["expected"].as_f64()),
     (Some("waiting"), Some(1.5)),
     "the look after the measure expects it"
+  );
+}
+
+/// A run whose command passed 3 times in at most 2 min is short: its first ask says which runs it went ahead of and
+/// how often each was passed, and the lines of `brd-host runs` mark it short with its wall and the run it passed with
+/// its passes; a failed run adds no wall, so a command with 2 passed runs is not short yet
+#[test]
+fn a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let (e2e, lint) = (vec!["pnpm".to_owned(), "e2e".to_owned()], vec!["pnpm".to_owned(), "lint:backend".to_owned()]);
+  let run = |run, command| TurnRun {
+    run,
+    repo: "/r/branch-deck",
+    affinity: run,
+    command,
+    cores: 20,
+    exclusive: false,
+    fetch: &[],
+  };
+  let never = || false;
+  let at_once = || true;
+  let mut quiet = |_: &str| {};
+  for (earlier, passed) in [("lint-1", true), ("lint-2", true), ("lint-failed", false)] {
+    record(&home, &run(earlier, &lint), Cores(60), Cores(90), Duration::from_secs(50), passed).unwrap();
+  }
+  assert_eq!(take(&home, &run("holder", &e2e), Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
+  assert_eq!(take(&home, &run("long", &e2e), Duration::from_mins(1), &at_once, &mut quiet).unwrap(), None, "it waits");
+  let mut said = Vec::new();
+  assert_eq!(
+    take(&home, &run("not-yet", &lint), Duration::from_mins(1), &at_once, &mut |line| said.push(line.to_owned())).unwrap(),
+    None,
+    "2 passed runs: it waits behind"
+  );
+  assert!(!said.iter().any(|line| line.starts_with("a short run")), "{said:?}");
+  assert!(!leave(&home, "not-yet").unwrap(), "it leaves the queue");
+  record(&home, &run("lint-3", &lint), Cores(60), Cores(90), Duration::from_secs(40), true).unwrap();
+  let mut said = Vec::new();
+  assert_eq!(
+    take(&home, &run("lint", &lint), Duration::from_mins(1), &at_once, &mut |line| said.push(line.to_owned())).unwrap(),
+    None,
+    "no run joins the whole host"
+  );
+  assert_eq!(
+    said[0],
+    "a short run, ~50 s by its last passed runs: goes ahead of 1 run(s) that wait for the heavy turn, each passed at most 4 times: run long of branch-deck (passed 1 time)",
+    "{said:?}"
+  );
+  let lines = lines(&live(&home).unwrap()).unwrap();
+  assert!(
+    is_shape(&lines[2], "  run lint of branch-deck waits <time> for 6.0 (measured, short: ~50 s): pnpm lint:backend"),
+    "{lines:?}"
+  );
+  assert!(
+    is_shape(
+      &lines[3],
+      "  run long of branch-deck waits <time> for the whole host (no measure), passed by 1 short run (at most 4): pnpm e2e"
+    ),
+    "{lines:?}"
+  );
+}
+
+/// The lines of `brd-host runs` of a reply with marks: a short run with its wall and its own join, a run passed by short
+/// runs with how often; a reply of an agent before the short runs has none and says as before
+#[test]
+fn the_lines_of_the_heavy_turn_mark_a_short_run_and_the_runs_it_passed() {
+  let now = 1_000_000_000;
+  let table = serde_json::json!({
+    "schema": 2,
+    "cores": 20,
+    "holders": [{ "run": "1788-12", "pid": 1, "repo": "/Users/u/projects/idea-1", "command": "bt --lane fast", "since_ms": now - 600_000 }],
+    "queue": [
+      { "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/branch-deck", "command": "pnpm lint:backend", "since_ms": now - 1_800_000, "expected": 9.0 },
+      { "run": "1790-03", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane fast", "since_ms": now - 1_800_000 },
+    ],
+    "marks": { "1790-05": { "short_ms": 50_000, "passes": 0, "joined_ms": now - 180_000 }, "1790-03": { "passes": 2 } },
+  });
+  assert_eq!(
+    lines_at(&table, now).unwrap()[2..],
+    [
+      "  run 1790-05 of branch-deck waits 3 min for 9.0 (measured, short: ~50 s): pnpm lint:backend",
+      "  run 1790-03 of idea-1 waits 30 min for the whole host (no measure), passed by 2 short runs (at most 4): ./community/tools/bt.cmd --lane fast",
+    ]
+  );
+  let mut before = table;
+  before.as_object_mut().unwrap().remove("marks");
+  assert_eq!(
+    lines_at(&before, now).unwrap()[2],
+    "  run 1790-05 of branch-deck waits 30 min for 9.0 (measured): pnpm lint:backend",
+    "an agent before the short runs"
   );
 }

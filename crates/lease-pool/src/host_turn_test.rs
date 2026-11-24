@@ -35,6 +35,7 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
     command_key: if command == ["pnpm", "e2e"] { "key-of-e2e" } else { "key-of-nextest" },
     expected: None,
     exclusive: false,
+    passed_wall: None,
   }
 }
 
@@ -913,4 +914,230 @@ fn a_look_behind_the_head_of_the_queue_takes_no_lock() {
   held.unlock().unwrap();
   assert_eq!(queued(&look(&short, &measured("run-3", &command, 40)).unwrap()), (Some("run-1"), vec!["run-2"]));
   assert_eq!(read_live(dir.path()).unwrap().queue[1].expected, Some(Cores(40)));
+}
+
+/// A request as `measured` whose last passed runs took 50 s: a short run
+fn short<'a>(run: &'a str, command: &'a [String], tenths: u32) -> TurnRequest<'a> {
+  TurnRequest {
+    passed_wall: Some(Duration::from_secs(50)),
+    ..measured(run, command, tenths)
+  }
+}
+
+/// How often short runs passed the run `run` of the queue in `dir`
+fn passes(dir: &Path, run: &str) -> u32 {
+  read_marks(dir).of(run).passes
+}
+
+/// The runs that a short run passed, as its first ask says, each with its passes
+fn passed_runs(joined: &Joined) -> Vec<(&str, u32)> {
+  joined.passed.iter().map(|(entry, passes)| (entry.ticket.run.as_str(), *passes)).collect()
+}
+
+/// A short run goes ahead of the runs that wait for more, and runs beside the holder at once while it fits: a lint of a
+/// minute waits for no run of the whole host. The join leaves the holder as it was, its first ask names the runs it
+/// passed, and `passes.json` counts a pass of each
+#[test]
+fn a_short_run_goes_ahead_of_the_runs_that_wait_for_more_and_runs_beside_the_holder() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &measured("holder", &command, 80)).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &request("whole", &command)).unwrap()), (Some("holder"), vec![]));
+  assert_eq!(queued(&take(&params, &measured("big", &command, 150)).unwrap()), (Some("holder"), vec!["whole"]));
+  let before = read_live(dir.path()).unwrap().holders;
+  let joined = join(&params, &short("lint", &command, 60)).unwrap();
+  assert_eq!(joined.answer, TurnAnswer::Taken, "8 and 6 of 20, ahead of the run of the whole host");
+  assert_eq!((joined.short, passed_runs(&joined)), (Some(Duration::from_secs(50)), vec![("whole", 1), ("big", 1)]));
+  let table = read_live(dir.path()).unwrap();
+  assert_eq!(table.holders[..1], before[..], "the join leaves the holder as it was");
+  assert_eq!(runs(&table), (Some("holder"), vec!["whole", "big"]));
+  assert_eq!(holders(&table), ["holder", "lint"]);
+  assert_eq!((passes(dir.path(), "whole"), passes(dir.path(), "big")), (1, 1));
+}
+
+/// A run is passed at most `PASS_BUDGET` (4) times: the fifth short run goes to the end, behind it. The short runs keep
+/// their order among themselves, the others too, and a short run never goes ahead of another short run
+#[test]
+fn a_run_is_passed_at_most_four_times_and_each_class_keeps_its_order() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &request("holder", &command)).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &request("long-1", &command)).unwrap()), (Some("holder"), vec![]));
+  assert_eq!(queued(&take(&params, &measured("long-2", &command, 120)).unwrap()), (Some("holder"), vec!["long-1"]));
+  for (n, run) in ["s1", "s2", "s3", "s4"].into_iter().enumerate() {
+    let joined = join(&params, &short(run, &command, 40)).unwrap();
+    let pass = u32::try_from(n).unwrap() + 1;
+    assert_eq!(passed_runs(&joined), [("long-1", pass), ("long-2", pass)], "{run}");
+  }
+  assert_eq!(
+    runs(&read_live(dir.path()).unwrap()).1,
+    ["s1", "s2", "s3", "s4", "long-1", "long-2"],
+    "no run of the whole host joins the holder, and the short runs wait in their order"
+  );
+  let fifth = join(&params, &short("s5", &command, 40)).unwrap();
+  assert_eq!(passed_runs(&fifth), [], "the runs behind were passed 4 times");
+  assert_eq!(queued(&take(&params, &request("long-3", &command)).unwrap()).1.len(), 7);
+  let sixth = join(&params, &short("s6", &command, 40)).unwrap();
+  assert_eq!(passed_runs(&sixth), [("long-3", 1)], "it goes ahead of the run new to the queue only, behind s5");
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["s1", "s2", "s3", "s4", "long-1", "long-2", "s5", "s6", "long-3"]);
+  assert_eq!((passes(dir.path(), "long-1"), passes(dir.path(), "long-2")), (4, 4));
+}
+
+/// A run that supersedes a waiting one takes its counter of passes with its place: no run is passed more than 4 times
+/// through a later run of its checkout and command either
+#[test]
+fn the_passes_of_a_superseded_run_go_to_the_run_that_takes_its_place() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let (nextest, e2e) = (command(), vec!["pnpm".to_owned(), "e2e".to_owned()]);
+  assert_eq!(take(&params, &request("holder", &nextest)).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &of_checkout("old", &e2e)).unwrap()), (Some("holder"), vec![]));
+  for (pass, run) in [(1, "s1"), (2, "s2"), (3, "s3")] {
+    assert_eq!(passed_runs(&join(&params, &short(run, &nextest, 40)).unwrap()), [("old", pass)]);
+  }
+  let joined = join(&params, &of_checkout("new", &e2e)).unwrap();
+  assert_eq!(joined.replaced.iter().map(|entry| entry.ticket.run.as_str()).collect::<Vec<_>>(), ["old"]);
+  assert_eq!(passes(dir.path(), "new"), 3, "the later run takes the passes of the superseded one");
+  assert_eq!(passed_runs(&join(&params, &short("s4", &nextest, 40)).unwrap()), [("new", 4)]);
+  assert_eq!(passed_runs(&join(&params, &short("s5", &nextest, 40)).unwrap()), [], "4 passes through the supersede");
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["s1", "s2", "s3", "s4", "new", "s5"]);
+  assert_eq!(read_marks(dir.path()).runs.get("old"), None, "the superseded run leaves the marks");
+}
+
+/// A run is short only with a measure below the whole host, not exclusive, and with 3 passed runs at least that took
+/// at most `SHORT_WALL` (2 min): a run without a measure, one that measured the whole host, an exclusive one and one
+/// without the walls of 3 passed runs go to the end
+#[test]
+fn a_run_without_a_measure_an_exclusive_one_or_one_without_three_passed_walls_is_not_short() {
+  let minute = Some(Duration::from_mins(1));
+  assert_eq!(short_wall(false, Some(Cores(60)), minute, 20), minute);
+  assert_eq!(short_wall(false, Some(Cores(60)), Some(SHORT_WALL), 20), Some(SHORT_WALL), "2 min is short");
+  assert_eq!(short_wall(false, Some(Cores(60)), Some(SHORT_WALL + Duration::from_secs(1)), 20), None);
+  assert_eq!(short_wall(false, Some(Cores(60)), None, 20), None, "fewer than 3 passed runs tell no wall");
+  assert_eq!(short_wall(false, None, minute, 20), None, "a run without a measure takes the whole host");
+  assert_eq!(short_wall(false, Some(Cores(200)), minute, 20), None, "a measure of the whole host");
+  assert_eq!(short_wall(true, Some(Cores(60)), minute, 20), None, "an exclusive run");
+
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &request("holder", &command)).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &request("long", &command)).unwrap()), (Some("holder"), vec![]));
+  let unmeasured = TurnRequest {
+    expected: None,
+    ..short("unmeasured", &command, 40)
+  };
+  let exclusive = TurnRequest {
+    exclusive: true,
+    ..short("exclusive", &command, 40)
+  };
+  let unwalled = measured("unwalled", &command, 40);
+  for request in [unmeasured, exclusive, unwalled] {
+    let joined = join(&params, &request).unwrap();
+    assert_eq!((joined.short, passed_runs(&joined)), (None, vec![]), "{}", request.run);
+  }
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["long", "unmeasured", "exclusive", "unwalled"]);
+  assert_eq!(read_marks(dir.path()), QueueMarks::default(), "no run is marked");
+}
+
+/// A short run that passed the head of the queue on a busy free turn takes the earliest join of the runs it passed: the
+/// head that waited out the load bound waits no new bound behind it, the short run takes the free turn at once, and the
+/// join of the head is as it was
+#[test]
+fn a_short_run_takes_the_earliest_join_of_the_runs_it_passed_for_the_load_bound() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  note_host(dir.path(), Cores(100)).unwrap();
+  assert!(
+    matches!(take(&params, &request("head", &command)).unwrap(), TurnAnswer::Queued(_)),
+    "10 busy is no quiet host"
+  );
+  let mut table = read_live(dir.path()).unwrap();
+  let joined_ms = now_ms() - millis(LOAD_BOUND) + 60_000;
+  table.queue[0].since_ms = joined_ms;
+  write_table(dir.path(), &serde_json::to_value(&table).unwrap());
+  let joined = join(&params, &short("lint", &command, 150)).unwrap();
+  assert!(matches!(joined.answer, TurnAnswer::Queued(_)), "10 busy and 15 do not fit 20, and 14 min waited");
+  let table = read_live(dir.path()).unwrap();
+  assert_eq!(runs(&table).1, ["lint", "head"]);
+  assert_eq!((table.queue[0].since_ms, table.queue[1].since_ms), (joined_ms, joined_ms), "the head keeps its join");
+  assert!(read_marks(dir.path()).of("lint").joined_ms.is_some_and(|at| at > joined_ms), "its own join, for the lines");
+
+  let mut table = read_live(dir.path()).unwrap();
+  let waited_out = now_ms() - millis(LOAD_BOUND) - 1_000;
+  table.queue[0].since_ms = waited_out;
+  table.queue[1].since_ms = waited_out;
+  write_table(dir.path(), &serde_json::to_value(&table).unwrap());
+  assert_eq!(
+    take(&params, &short("lint", &command, 150)).unwrap(),
+    TurnAnswer::Taken,
+    "the bound of the head, whatever the load"
+  );
+  let TurnAnswer::Queued(head) = take(&params, &request("head", &command)).unwrap() else {
+    panic!("the head waits for the short run");
+  };
+  assert_eq!(head.holders.iter().map(|holder| holder.ticket.run.as_str()).collect::<Vec<_>>(), ["lint"]);
+  assert!(leave(&params, "lint").unwrap());
+  assert_eq!(take(&params, &request("head", &command)).unwrap(), TurnAnswer::Taken, "its bound is over: no new one");
+}
+
+/// A supervisor of an older build rewrites `turn.json` without the fields it does not know: the classes and the passes
+/// are in `passes.json`, which it does not touch, so a run passed 4 times is passed no more
+#[test]
+fn a_table_that_an_older_build_rewrote_keeps_the_passes() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &request("holder", &command)).unwrap(), TurnAnswer::Taken);
+  assert!(matches!(take(&params, &request("long", &command)).unwrap(), TurnAnswer::Queued(_)));
+  for run in ["s1", "s2", "s3", "s4"] {
+    join(&params, &short(run, &command, 40)).unwrap();
+  }
+  let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
+  for list in ["holders", "queue"] {
+    for entry in table[list].as_array_mut().unwrap() {
+      let entry = entry.as_object_mut().unwrap();
+      entry.retain(|field, _| ["run", "pid", "process_started", "repo", "command", "since_ms", "expected", "live"].contains(&field.as_str()));
+    }
+  }
+  write_table(dir.path(), &table);
+  assert_eq!(passed_runs(&join(&params, &short("s5", &command, 40)).unwrap()), []);
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["s1", "s2", "s3", "s4", "long", "s5"]);
+}
+
+/// A short run never goes ahead of an exclusive head whose drain began, the one window of the host for its measurement:
+/// it waits behind it, and once that drain has ended without a quiet host, it is the first run that is not exclusive
+/// behind the head and starts past it as before. An exclusive head behind a holder, whose drain has not begun, is passed
+#[test]
+fn a_short_run_waits_behind_an_exclusive_head_that_drains_and_passes_it_as_before_once_the_drain_ended() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let exclusive = measurement("ab", &command);
+  bench(&params, "bench");
+  assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)), "a run in its command holds it back");
+  assert!(matches!(take(&params, &request("long", &command)).unwrap(), TurnAnswer::Queued(_)));
+  let joined = join(&params, &short("lint", &command, 40)).unwrap();
+  assert_eq!(passed_runs(&joined), [("long", 1)], "behind the exclusive head that drains");
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["ab", "lint", "long"]);
+  drain_began_ago(dir.path(), DRAIN_BAR + Duration::from_mins(1));
+  let TurnAnswer::Passed { exclusive: passed } = look(&params, &short("lint", &command, 40)).unwrap() else {
+    panic!("4 of 20 fit beside the runs that are not heavy");
+  };
+  assert_eq!(passed.ticket.run, "ab");
+  assert!(leave(&params, "lint").unwrap());
+  assert!(!leave(&params, "bench").unwrap());
+  assert!(!leave(&params, "long").unwrap());
+  assert!(!leave(&params, "ab").unwrap());
+
+  assert_eq!(take(&params, &measured("holder", &command, 40)).unwrap(), TurnAnswer::Taken);
+  let TurnAnswer::Queued(head) = take(&params, &exclusive).unwrap() else {
+    panic!("an exclusive run waits for every holder");
+  };
+  assert_eq!(head.head_drain, Some(HeadDrain::Pending));
+  assert_eq!(join(&params, &short("next", &command, 40)).unwrap().answer, TurnAnswer::Taken, "4 and 4 of 20");
+  assert_eq!(passes(dir.path(), "ab"), 1, "a head whose drain has not begun is passed");
 }

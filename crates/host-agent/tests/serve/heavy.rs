@@ -456,3 +456,62 @@ fn a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound(
   fs::write(&gate, "").expect("the gate opens");
   assert_eq!(agent.follow("17-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("17-2"));
 }
+
+/// A heavy command that passed 3 times within 2 min is short: its run goes ahead of a run that waits for the whole host
+/// behind the holder, says so, and `Request::Runs` names the pass; a failed run adds no wall, so only the passed runs
+/// are in `walls.json`, and both waiting runs run once the holder ends
+#[test]
+fn a_short_heavy_run_goes_ahead_of_a_run_that_waits_for_the_whole_host() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20"), ("BD_HOST_TEST_SAMPLE_MS", "100"), ("BD_HOST_TEST_MIN_WALL_MS", "0")]);
+  let (gate, marks) = gate_and_marks(&world);
+  let failing = world.home.path().join("failing");
+  // one command for every lint: it fails while `failing` exists
+  let script = format!(": > '{}/lint-'$$; [ ! -e '{}' ]", marks.display(), failing.display());
+  let lint = |run: &str| RunSpec {
+    heavy: true,
+    ..world.spec(run, &script)
+  };
+  fs::write(&failing, "").expect("the lint fails");
+  agent.start(lint("18-0"));
+  assert_eq!(agent.follow("18-0").end, Reply::Exit { code: 1 }, "{}", agent.dump("18-0"));
+  fs::remove_file(&failing).expect("the lint passes");
+  for run in ["18-1", "18-2", "18-3"] {
+    agent.start(lint(run));
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+  let walls: serde_json::Value = serde_json::from_str(&fs::read_to_string(world.home.path().join(".cache/brd-host/heavy/walls.json")).expect("the walls")).expect("JSON");
+  let passed: Vec<&str> = walls["commands"]
+    .as_object()
+    .and_then(|commands| commands.values().next())
+    .and_then(serde_json::Value::as_array)
+    .map_or_else(Vec::new, |walls| walls.iter().filter_map(|wall| wall["run"].as_str()).collect());
+  assert_eq!(passed, ["18-1", "18-2", "18-3"], "the failed run adds no wall");
+  eventually("the last lint left the turn", || turn_holders(&agent).is_empty());
+
+  agent.start(heavy(&world, "18-4", &marks, &gate));
+  eventually("the holder holds the turn", || started(&marks).contains(&"18-4".to_owned()));
+  agent.start(heavy(&world, "18-5", &marks, &gate));
+  eventually("a run of the whole host waits", || heavy_turn(&agent).1 == ["18-5"]);
+  agent.start(lint("18-6"));
+  eventually("the short run goes ahead of it", || heavy_turn(&agent).1 == ["18-6", "18-5"]);
+  eventually("the short run says so", || {
+    contains_shape(
+      &events(&world, "18-6"),
+      "brd-host: a short run, ~<time> by its last passed runs: goes ahead of 1 run(s) that wait for the heavy turn, each passed at most 4 times: run 18-5 of ",
+    )
+  });
+  let Reply::Runs { heavy: Some(turn), .. } = agent.reply(&Request::Runs) else {
+    panic!("no heavy turn");
+  };
+  assert_eq!(
+    (turn["marks"]["18-5"]["passes"].as_u64(), turn["marks"]["18-6"]["short_ms"].is_u64()),
+    (Some(1), true),
+    "{turn}"
+  );
+  assert_eq!(turn_holders(&agent), ["18-4"], "the join leaves the holder");
+  fs::write(&gate, "").expect("the gate opens");
+  for run in ["18-4", "18-6", "18-5"] {
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+}

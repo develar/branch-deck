@@ -138,9 +138,9 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   not heavy keep every slot.
 - **The admission**: the head of the queue is admitted while the expected cores of the holders, the live cores of the
   runs that are not heavy and its own expected cores fit the cores of the host (`branchdeck.hostCores` of the global
-  git config of the host, else what the system counts). Only the head: a small run never overtakes one that waits for
-  more, so none waits forever, and a host that frees cores gives them to the oldest waiting run. The one exception is
-  an exclusive head whose drain ended (below). A run without a
+  git config of the host, else what the system counts). Only the head: a run of the queue never overtakes one that
+  waits for more, so a host that frees cores gives them to the run at the head; the one exception is an exclusive head
+  whose drain ended (below). The place in the queue is first come first but for a short run (below). A run without a
   measure, or whose command measured the whole host, takes the whole host: it waits for every holder and for a quiet
   host, and no heavy run joins it. The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
   load of 61 to 84, `top` saying 0 % idle, while the turn counted 8.9 of its 20 cores held), so `serve` samples the busy
@@ -159,6 +159,26 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   no run never drain. A default measure was not taken either: a first `bt --lane fast` uses every core, and a guess
   below that runs it beside another heavy run. The bound costs the head a slower run on a loaded host, never a wait of
   hours, and an exclusive run, a measurement, still waits for its quiet host.
+- **A short run** (`host_turn::place`): first come first ran one heavy run at a time on the Studio, as nextest and
+  E2E take about 12 of its 20 cores and a lint about 9. In 22.6 h before 2026-11-24 the heavy runs waited 3189
+  min and ran 346, and `pnpm lint:backend` (30 to 58 s) waited 50 to 70 min behind runs of 10 min. So a run that is
+  not exclusive, whose command has a measure below the whole host, and whose last passed runs took at most 2 min
+  (`SHORT_WALL`; the 80th percentile of the walls of the last 5 runs of the command whose exit was 0, of 3 at least)
+  joins the queue before the first entry from which every entry to the end may be passed: a run that is not short,
+  that short runs passed fewer than 4 times (`PASS_BUDGET`), and no exclusive head whose drain began, the one window
+  of its measurement. A long run so waits at most 4 short runs longer, about 8 min. The walls are of passed runs only
+  (`walls.json` beside `cores.json`): a lint that fails by its purpose in seconds would push its passing runs out of
+  the last 5, as the measures of the cores count every run. The rule of the admission does not change, only the place
+  of a new run in `turn.json`: a supervisor of the build before admits its head and reads the new order right, as no
+  field of the table is new. The classes and the passes are in `passes.json` beside the table, by the id of the run
+  (a supervisor of the build before rewrites `turn.json` and `cores.json` without the fields it does not know, as it
+  did to `exclusive`), and a run that supersedes a waiting one takes its passes, so a run of a checkout that an agent
+  starts again is not passed 4 more times. A short run counts the earliest join of the runs it went ahead of for its
+  15 min in the queue: a head that it passed on a busy free turn would else wait a new bound behind it. A run without
+  a measure is never short: an accio measurement of a new command takes the whole host, and nothing goes beside it. A
+  measure of the whole host is never short either: it waits for every holder and would hold back a run behind it that
+  fits beside them. The two rejected ways above stay rejected: no core is kept back for the light runs, and no command
+  is guessed short without its runs.
 - **An exclusive run** (`brd-host run --exclusive`): a measurement such as the A/B pair of a fast lane needs a quiet
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
   is admitted only without a holder, with no run that is not heavy in its command (a run is in `light` of the turn for

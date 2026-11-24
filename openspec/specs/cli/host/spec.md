@@ -2087,11 +2087,11 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 ### Requirement: serve: Heavy runs share the cores of the host by their measure
 
-Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, waiting up to 2 h first come
-first, and give them back after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive
-head: while the cores of the holders, the busy cores outside them and its own fit the host, or on a free turn of a quiet
-host or after 15 min in the queue. A run without a measure MUST take the whole host. A held lock MUST cost a look, never
-the run.
+Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, waiting up to 2 h, and give
+them back after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive head: while it
+fits beside the holders and the load of the host, or on a free turn of a quiet host or after 15 min. A new run MUST
+join at the end, a short one ahead of the runs it may pass. A run without a measure MUST take the whole host; a held
+lock MUST cost a look.
 
 #### Scenario: Two heavy runs and one that is not heavy
 - **WHEN** a heavy run without a measure holds the turn, a second heavy run starts, and a run that is not heavy starts
@@ -2114,10 +2114,33 @@ the run.
 #### Scenario: A run that takes the whole host
 - **WHEN** a heavy run whose command has no measure, or measured `<cores>` or more, comes to the head of the queue
 - **THEN** it waits until no heavy run holds cores, and no heavy run is admitted beside it
-- **AND** the runs after it wait behind it, even one that would fit: none overtakes the head of the queue, so none waits
-  forever
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_whole_host_and_the_head_of_the_queue_goes_first`, `a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_later_smaller_runs`)
+- **AND** the runs after it wait behind it, even one that would fit: no run of the queue overtakes its head; only a short
+  run new to the queue goes ahead of it, at most 4 times, so none waits forever
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_whole_host_and_the_head_of_the_queue_goes_first`, `a_run_without_a_measure_takes_a_busy_free_turn_after_the_load_bound_ahead_of_later_smaller_runs`, `a_run_is_passed_at_most_four_times_and_each_class_keeps_its_order`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
+
+#### Scenario: A short run
+- **WHEN** a heavy run joins the queue that is not exclusive, whose command has a measure below `<cores>`, and whose
+  last passed runs took at most 2 min: the 80th percentile of the walls of the last 5 runs of the command whose exit
+  was 0, of 3 at least (`walls.json` of the heavy turn)
+- **THEN** it joins before the first entry from which every entry to the end may be passed: a run that is not short,
+  that short runs passed fewer than 4 times, and no exclusive head whose drain began; else at the end; and it is
+  admitted as the head of the queue is, beside the holders while it fits
+- **AND** each run that it went ahead of counts a pass in `passes.json` of the heavy turn, which an older build does
+  not rewrite; a run that supersedes a waiting one takes its passes; the short runs keep their order among themselves,
+  and so do the others; the join leaves the holders as they are
+- **AND** it counts the earliest join of the runs it went ahead of for its 15 min in the queue, so a head that it
+  passed on a busy free turn waits no new bound
+- **AND** a failed or cancelled run adds no wall; a run without a measure, one that measured `<cores>` or more, and an
+  exclusive run are never short; a short run behind an exclusive head whose drain ended starts past it as before
+- **AND** its log says `a short run, ~<time> by its last passed runs: goes ahead of <n> run(s) that wait for the heavy
+  turn, each passed at most 4 times: run <id> of <repository> (passed <n> time(s)), …`, and `brd-host runs` says
+  `run <id> of <repository> waits <time> for <cores> (measured, short: ~<time>)` of it and `, passed by <n> short
+  run(s) (at most 4)` of a run that it passed
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_short_run_goes_ahead_of_the_runs_that_wait_for_more_and_runs_beside_the_holder`, `a_run_is_passed_at_most_four_times_and_each_class_keeps_its_order`, `the_passes_of_a_superseded_run_go_to_the_run_that_takes_its_place`, `a_run_without_a_measure_an_exclusive_one_or_one_without_three_passed_walls_is_not_short`, `a_short_run_takes_the_earliest_join_of_the_runs_it_passed_for_the_load_bound`, `a_table_that_an_older_build_rewrote_keeps_the_passes`, `a_short_run_waits_behind_an_exclusive_head_that_drains_and_passes_it_as_before_once_the_drain_ended`)
+  [@test] crates/lease-pool/src/host_cores_test.rs (`the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both`, `the_lines_of_the_heavy_turn_mark_a_short_run_and_the_runs_it_passed`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`a_short_heavy_run_goes_ahead_of_a_run_that_waits_for_the_whole_host`)
 
 #### Scenario: The busy cores of the host
 - **WHEN** the host is busy with cores that no holder uses: runs that are not heavy, processes of no run

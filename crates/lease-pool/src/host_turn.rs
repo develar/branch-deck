@@ -7,8 +7,21 @@
 //! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
 //! without a measure of its command (`TurnEntry::expected` is `None`), or one whose command measured the whole host,
 //! takes the whole host: it waits for no holder, and no heavy run joins it. Only the head of the queue is admitted, so a
-//! small run never overtakes one that waits for more, and none waits forever; the one exception is an exclusive run at
-//! the head whose drain ended (below). A holder counts the larger of its
+//! run that is admitted later never takes the cores that a run before it waits for; the one exception is an exclusive
+//! run at the head whose drain ended (below).
+//!
+//! The order of the queue is first come first, but for short runs ([`place`]): a run whose command has a measure below
+//! the whole host, is not exclusive, and whose last passed runs took at most [`SHORT_WALL`] (2 min; the 80th percentile
+//! of the walls of its last 5 passed runs, of 3 at least: `host_cores::passed_wall`) joins the queue before the first
+//! entry from which every entry to the end can be passed: one that is not short and that short runs passed fewer than
+//! [`PASS_BUDGET`] (4) times, not an exclusive head whose drain began. So a lint of a minute waits for the holders, not
+//! for an hour of runs of the whole host, and none of those waits more than 4 short runs longer; the short runs keep
+//! their order among themselves, and so do the others. The queue changes in the table itself, never by a rule of the
+//! admission, so a supervisor of the build before, which admits its head, reads it right. A short run that passed
+//! entries takes the earliest join of them for its [`LOAD_BOUND`], so a head that it passed on a busy free turn waits
+//! no new bound. The pass counters and the classes are in `passes.json` beside the table, by the id of the run, which a
+//! supervisor of an older build does not rewrite; a run that supersedes a waiting one takes its counter. A run without
+//! a measure is never short: it takes the whole host. A holder counts the larger of its
 //! expectation and its live use (`live`, which its supervisor notes at each sample), so a command that got heavier
 //! holds more at once; the runs that are not heavy note theirs into `light`.
 //!
@@ -57,6 +70,7 @@ use crate::host_slots::{TableWake, Ticket, WAIT_RECHECK, now_ms};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use sync_utils::cores::Cores;
@@ -73,6 +87,13 @@ const LEGACY_FILE: &str = "heavy.json";
 const EXCLUSIVE_FILE: &str = "exclusive.json";
 /// The exclusive run that drains the host: at the head of the queue, with no holder, since when
 const DRAIN_FILE: &str = "drain.json";
+/// The classes of the runs of the queue and how often short runs passed each, beside the table that an older build
+/// rewrites without them
+const PASSES_FILE: &str = "passes.json";
+/// The longest wall of the last passed runs of a short command ([`short_wall`])
+pub const SHORT_WALL: Duration = Duration::from_mins(2);
+/// How often short runs pass a run of the queue at most ([`place`]): a run waits at most 4 short runs longer
+pub const PASS_BUDGET: u32 = 4;
 /// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain
 pub const DRAIN_BAR: Duration = Duration::from_mins(15);
 /// How long the head of the queue waits in the queue for a quiet host, or for room beside the load of the host outside
@@ -380,6 +401,9 @@ pub struct TurnRequest<'a> {
   pub expected: Option<Cores>,
   /// A measurement that needs a quiet host (`brd-host run --exclusive`)
   pub exclusive: bool,
+  /// The wall that the last passed runs of the command lead to expect (`host_cores::passed_wall`), `None` with fewer
+  /// than 3: whether the run is short ([`short_wall`])
+  pub passed_wall: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -404,6 +428,91 @@ pub struct Joined {
   pub replaced: Vec<TurnEntry>,
   /// The other runs of the same checkout that wait for the turn, with another command
   pub beside: Vec<TurnEntry>,
+  /// The wall of the last passed runs of a short run ([`short_wall`]); `None` for a run that is not short, or one that
+  /// was in the queue already
+  pub short: Option<Duration>,
+  /// The runs of the queue that this short run went ahead of, with the passes counted so far, its own among them
+  pub passed: Vec<(TurnEntry, u32)>,
+}
+
+/// What the queue knows of its runs beyond `turn.json`, by the id of the run: `passes.json` beside the table, which no
+/// older build rewrites. A run that it does not name is not short and was never passed
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueMarks {
+  #[serde(default)]
+  pub runs: BTreeMap<String, RunMark>,
+}
+
+/// The class of a run of the queue and how often short runs passed it
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunMark {
+  /// The wall of the last passed runs of a short run ([`short_wall`]), in milliseconds; `None`: not short
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub short_ms: Option<u64>,
+  /// How often short runs went ahead of it ([`PASS_BUDGET`] at most)
+  #[serde(default)]
+  pub passes: u32,
+  /// When a short run that passed runs joined the queue, as its `since_ms` is the earliest join of them
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub joined_ms: Option<u64>,
+}
+
+impl QueueMarks {
+  /// The mark of the run `run`: the default for a run that the file does not name
+  pub fn of(&self, run: &str) -> RunMark {
+    self.runs.get(run).copied().unwrap_or_default()
+  }
+}
+
+/// The marks of the runs of the queue in `dir`, read without the lock: a file replaced by a rename. A file that is
+/// missing or cannot be read marks no run, so every run is as first come first
+pub fn read_marks(dir: &Path) -> QueueMarks {
+  std::fs::read(dir.join(PASSES_FILE))
+    .ok()
+    .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    .unwrap_or_default()
+}
+
+/// Writes `marks` into `passes.json` of `dir`, under the lock of the table
+fn write_marks(dir: &Path, marks: &QueueMarks) -> Result<()> {
+  sync_utils::atomic_file::write_atomically(
+    &dir.join(PASSES_FILE),
+    &serde_json::to_vec(marks)?,
+    sync_utils::atomic_file::AtomicWrite { private: true, durable: false },
+  )?;
+  Ok(())
+}
+
+/// The wall of a short run, `None` for a run that is not short: a run that is not `exclusive`, whose command has a
+/// measure (`expected`) below the whole host of `cores`, and whose last passed runs took at most [`SHORT_WALL`]
+/// (`passed_wall`, of 3 at least). A run without a measure is never short: it takes the whole host
+pub fn short_wall(exclusive: bool, expected: Option<Cores>, passed_wall: Option<Duration>, cores: u32) -> Option<Duration> {
+  let measured = expected.is_some_and(|expected| expected < Cores::whole(cores));
+  passed_wall.filter(|&wall| !exclusive && measured && wall <= SHORT_WALL)
+}
+
+/// The place of a new run in `queue`, whose runs `marks` marks, with `head_drain` the drain of an exclusive head
+/// ([`head_drain`]): a `short` run goes before the first entry from which every entry to the end can be passed
+/// ([`passable`]), else it, like every run that is not short, goes to the end. The entries from the place to the end
+/// are the runs it passes. A pure function of the queue: an estimate of a start reads the same place
+pub fn place(queue: &[TurnEntry], marks: &QueueMarks, head_drain: Option<HeadDrain>, short: bool) -> usize {
+  if !short {
+    return queue.len();
+  }
+  let mut position = queue.len();
+  while position > 0 && passable(&queue[position - 1], position - 1, marks, head_drain) {
+    position -= 1;
+  }
+  position
+}
+
+/// Whether a short run may go ahead of `entry` at `position` of the queue: an entry that is not short, passed fewer
+/// than [`PASS_BUDGET`] times, and not an exclusive head whose drain began, the one window of the host for its
+/// measurement
+fn passable(entry: &TurnEntry, position: usize, marks: &QueueMarks, head_drain: Option<HeadDrain>) -> bool {
+  let mark = marks.of(&entry.ticket.run);
+  let drains = position == 0 && entry.exclusive && matches!(head_drain, Some(HeadDrain::Draining { .. } | HeadDrain::Ended { .. }));
+  mark.short_ms.is_none() && mark.passes < PASS_BUDGET && !drains
 }
 
 /// No turn for the run yet, for the line of the wait
@@ -619,7 +728,8 @@ pub fn take(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 /// Give the run of `request` its cores of the turn, or put it in the queue, and say what its first ask did. Under the
 /// lock of the table: the entries of gone processes leave it; a superseded run gets the later run and leaves
 /// `superseded`; a holder holds still (a repeat is safe); a run new to the queue supersedes the runs of the queue of
-/// its checkout and command and takes the place of the first of them, else joins the end; the head of the queue is
+/// its checkout and command and takes the place of the first of them, else joins the end, a short run ahead of the runs
+/// it may pass ([`place`]); the head of the queue is
 /// admitted while it fits ([`admits`]), beside the holder of `heavy.json` of the build before too, and so is the first
 /// run behind an exclusive head whose drain ended, past it ([`passes`])
 pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined> {
@@ -632,6 +742,8 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       answer: TurnAnswer::Taken,
       replaced: Vec::new(),
       beside: Vec::new(),
+      short: None,
+      passed: Vec::new(),
     };
     if let Some(at) = table.superseded.iter().position(|entry| entry.ticket.run == request.run) {
       joined.answer = TurnAnswer::Superseded {
@@ -648,7 +760,10 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       return Ok(joined);
     }
     let queued = table.queue.iter().position(|entry| entry.ticket.run == request.run);
-    let position = queued.unwrap_or_else(|| enqueue(table, request, &mut joined));
+    let position = match queued {
+      Some(position) => position,
+      None => enqueue(table, params, request, &mut joined)?,
+    };
     // the expectation of a run that waits follows the measures that came while it waited
     table.queue[position].expected = request.expected;
     table.queue[position].exclusive |= request.exclusive;
@@ -767,9 +882,11 @@ pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 
 /// Puts the run of `request`, new to the queue, in its place, and answers it: the runs of the queue of its checkout and
 /// command go to `superseded` with it as the later run (`joined.replaced`), and it takes the place of the first of
-/// them, else the end; `joined.beside` gets the runs of its checkout with another command
-fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined) -> usize {
-  let place = table.queue.iter().position(|entry| entry.is_of(request, true));
+/// them, with the most passes of them, else the end; a short run goes ahead of the runs before that place that it may
+/// pass ([`place`]), counts a pass of each in `passes.json` and takes the earliest join of them (`joined.short`,
+/// `joined.passed`); `joined.beside` gets the runs of its checkout with another command
+fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest<'_>, joined: &mut Joined) -> Result<usize> {
+  let superseded_at = table.queue.iter().position(|entry| entry.is_of(request, true));
   let (replaced, kept): (Vec<TurnEntry>, Vec<TurnEntry>) = std::mem::take(&mut table.queue).into_iter().partition(|entry| entry.is_of(request, true));
   table.queue = kept;
   table.superseded.extend(replaced.iter().map(|entry| SupersededEntry {
@@ -777,7 +894,35 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     by: request.run.to_owned(),
   }));
   joined.beside = table.queue.iter().filter(|entry| entry.is_of(request, false)).cloned().collect();
+  let now = now_ms();
+  // the place of the first superseded run: the runs before it are before it still
+  let end = superseded_at.unwrap_or(table.queue.len()).min(table.queue.len());
+  let short = short_wall(request.exclusive, request.expected, request.passed_wall, params.cores);
+  let mut marks = read_marks(params.dir);
+  let before = marks.clone();
+  let drain = head_drain(params.dir, &table.queue, now, params.drain_bar);
+  let position = place(&table.queue[..end], &marks, drain, short.is_some());
+  let carried = replaced.iter().map(|entry| marks.of(&entry.ticket.run).passes).max().unwrap_or(0);
+  for entry in &table.queue[position..end] {
+    let mark = marks.runs.entry(entry.ticket.run.clone()).or_default();
+    mark.passes += 1;
+    joined.passed.push((entry.clone(), mark.passes));
+  }
+  let mark = RunMark {
+    short_ms: short.map(millis),
+    passes: carried,
+    joined_ms: (!joined.passed.is_empty()).then_some(now),
+  };
+  if mark != RunMark::default() {
+    marks.runs.insert(request.run.to_owned(), mark);
+  }
+  let queue = &table.queue;
+  marks.runs.retain(|run, _| run == request.run || queue.iter().any(|entry| entry.ticket.run == *run));
+  if marks != before {
+    write_marks(params.dir, &marks)?;
+  }
   joined.replaced = replaced;
+  joined.short = short;
   let entry = TurnEntry {
     ticket: Ticket {
       run: request.run.to_owned(),
@@ -786,7 +931,8 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     },
     repo: request.repo.to_owned(),
     command: one_line(request.command),
-    since_ms: now_ms(),
+    // the earliest join of the runs it passed: a head that it passed on a busy free turn waits no new load bound
+    since_ms: joined.passed.iter().map(|(entry, _)| entry.since_ms).fold(now, u64::min),
     affinity: Some(request.affinity.to_owned()),
     command_key: Some(request.command_key.to_owned()),
     expected: request.expected,
@@ -794,10 +940,8 @@ fn enqueue(table: &mut HeavyTurn, request: &TurnRequest<'_>, joined: &mut Joined
     exclusive: request.exclusive,
     passed: None,
   };
-  // the place of the first superseded run: the runs before it are before it still
-  let position = place.unwrap_or(table.queue.len()).min(table.queue.len());
   table.queue.insert(position, entry);
-  position
+  Ok(position)
 }
 
 /// Give the turn to the run of `request` (`take`), waiting up to `timeout` while it is queued, woken by `watch`, which

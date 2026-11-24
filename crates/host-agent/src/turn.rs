@@ -13,9 +13,12 @@
 //! - A run new to the queue supersedes the runs that wait there with its checkout and its command
 //!   (`lease_pool::host_turn::join`, the key `host_link::heavy::run_key`) and says so, and names the other runs of its
 //!   checkout that wait ([`joined_lines`]); a superseded run learns the later one at its next look, and its supervisor
-//!   ends it with `superseded` ([`superseded_message`]).
+//!   ends it with `superseded` ([`superseded_message`]). A short run, by the walls of the last passed runs of its
+//!   command (`lease_pool::host_cores::passed_wall`, read once before its first ask), joins ahead of the runs it may
+//!   pass (`lease_pool::host_turn::place`) and names them.
 //! - Each sample of the command of a run, heavy or not, notes its live cores in the table ([`note_use`]), and the end
-//!   of its command adds its measure to the measures of the command ([`record`]).
+//!   of its command adds its measure to the measures of the command, and its wall to the walls of the passed runs when
+//!   its exit was 0 ([`record`]).
 //! - On every way out, after the give-back of its slot, the supervisor of every run leaves the turn ([`leave`]): it
 //!   gives its cores back, or its entry leaves the queue or the runs that are not heavy.
 //! - `Reply::Runs` carries the table without the gone runs ([`live`]), and `brd-host runs` says it ([`lines`])
@@ -29,12 +32,14 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use host_link::heavy::{measure_key, run_key};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
-use lease_pool::host_runs::{holds_text, passed_text, run_of_repo, span_since, turn_line};
+use lease_pool::host_runs::{holds_text, passed_text, passes_text, run_of_repo, span, span_since, turn_line};
 use lease_pool::host_turn::{
-  Bar, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, RECHECK, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live, take_waiting, watch,
+  Bar, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live,
+  take_waiting, watch,
 };
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::cores::Cores;
@@ -68,7 +73,7 @@ fn now_ms() -> u64 {
 fn heavy_dir(home: &Home) -> std::path::PathBuf {
   let dir = home.heavy_dir();
   let made = private_dir(&dir).and_then(|()| {
-    for lock in [lease_pool::host_turn::LOCK_FILE, lease_pool::host_cores::LOCK_FILE] {
+    for lock in [lease_pool::host_turn::LOCK_FILE, lease_pool::host_cores::LOCK_FILE, lease_pool::host_cores::WALLS_LOCK_FILE] {
       open_private(&dir.join(lock))?;
     }
     Ok(())
@@ -129,6 +134,12 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
       None
     })
   };
+  // whether the run is short is decided once, as it joins the queue: a wall that cannot be read is none, and the run
+  // goes first come first
+  let passed_wall = lease_pool::host_cores::passed_wall(&dir, of.repo, &cores_key).unwrap_or_else(|error| {
+    crate::log::supervisor(&format!("cannot read the walls of the passed runs of the commands: {error:#}"));
+    None
+  });
   let process_started = process_started(pid);
   let request = |expected| TurnRequest {
     run: of.run,
@@ -140,6 +151,7 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     command_key: &command_key,
     expected,
     exclusive: of.exclusive,
+    passed_wall,
   };
   let params = TurnParams {
     lock_timeout,
@@ -278,7 +290,7 @@ pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop:
 const MEASUREMENT_LOOK: Duration = Duration::from_millis(500);
 
 /// The lines of what the first ask of a run did to the queue at `now_ms`: each run of the same checkout and command that
-/// it superseded, and each run of the checkout that waits with another command
+/// it superseded, each run of the checkout that waits with another command, and the runs that a short run went ahead of
 pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
   let replaced = joined.replaced.iter().map(|entry| {
     format!(
@@ -296,7 +308,20 @@ pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
       entry.ticket.run
     )
   });
-  replaced.chain(beside).collect()
+  let ahead = joined.short.filter(|_| !joined.passed.is_empty()).map(|wall| {
+    let passed: Vec<String> = joined
+      .passed
+      .iter()
+      .map(|(entry, passes)| format!("run {} ({})", run_of_repo(entry), passes_text(*passes)))
+      .collect();
+    format!(
+      "a short run, ~{} by its last passed runs: goes ahead of {} run(s) that wait for the heavy turn, each passed at most {PASS_BUDGET} times: {}",
+      span(wall),
+      passed.len(),
+      passed.join(", ")
+    )
+  });
+  replaced.chain(beside).chain(ahead).collect()
 }
 
 /// The message of the refusal `superseded` of the run `run`, which the later run `by` superseded: what happened, that
@@ -323,9 +348,10 @@ pub(crate) fn note_use(home: &Home, of: &TurnRun<'_>, live: Cores) -> Result<(),
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot note the cores of the run in the heavy turn: {error:#}")))
 }
 
-/// Adds the measure `mean` and `peak` of the command of the run `of`, which ran `wall`, to the measures of its command
-/// (`lease_pool::host_cores::record`): a command shorter than `tuning::min_wall` adds none
-pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wall: Duration) -> Result<(), Refusal> {
+/// Adds the measure `mean` and `peak` of the command of the run `of`, which ran `wall`, to the measures of its command,
+/// and the wall to the walls of its passed runs when it `passed` (`lease_pool::host_cores::record`): a command shorter
+/// than `tuning::min_wall` adds none
+pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wall: Duration, passed: bool) -> Result<(), Refusal> {
   let measure = Measure {
     run: of.run.to_owned(),
     mean,
@@ -333,8 +359,16 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wa
     wall_ms: u64::try_from(wall.as_millis()).unwrap_or(u64::MAX),
     at_ms: now_ms(),
   };
-  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &measure_key(of.command, of.fetch), measure)
-    .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
+  lease_pool::host_cores::record(
+    &heavy_dir(home),
+    LOCK_TIMEOUT,
+    tuning::min_wall(),
+    of.repo,
+    &measure_key(of.command, of.fetch),
+    measure,
+    passed,
+  )
+  .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
 }
 
 /// Samples the busy cores of the whole host every `every` into `host.json` of the heavy turn, for the admissions
@@ -395,13 +429,17 @@ pub(crate) fn leave(home: &Home, run: &str) -> Result<bool, Refusal> {
 }
 
 /// The heavy turn of the host without the runs whose process is gone, as JSON for `Reply::Runs`, with its first holder
-/// as `holder` too, which a client of the build before reads, and the drain of an exclusive head of the queue as
-/// `head_drain` (`lease_pool::host_turn::head_drain`). A table that cannot be read is none, and the log says why
+/// as `holder` too, which a client of the build before reads, the drain of an exclusive head of the queue as
+/// `head_drain` (`lease_pool::host_turn::head_drain`), and the marks of the runs of the queue as `marks`: the short runs
+/// and how often short runs passed each (`lease_pool::host_turn::read_marks`). A table that cannot be read is none, and
+/// the log says why
 pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
   let dir = heavy_dir(home);
   let table = read_live(&dir).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
   let holder = table.holders.first().cloned();
   let head_drain = lease_pool::host_turn::head_drain(&dir, &table.queue, now_ms(), tuning::drain_bar());
+  let mut marks = lease_pool::host_turn::read_marks(&dir).runs;
+  marks.retain(|run, _| table.queue.iter().any(|entry| entry.ticket.run == *run));
   let mut value = serde_json::to_value(table).map_err(|error| Refusal::new(Code::AgentError, format!("cannot write the heavy turn of the host: {error}")))?;
   if let Some(object) = value.as_object_mut() {
     if let Some(holder) = holder {
@@ -409,6 +447,9 @@ pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
     }
     if let Some(head_drain) = head_drain {
       object.insert("head_drain".to_owned(), serde_json::to_value(head_drain).unwrap_or_default());
+    }
+    if !marks.is_empty() {
+      object.insert("marks".to_owned(), serde_json::to_value(marks).unwrap_or_default());
     }
   }
   Ok(value)
@@ -432,6 +473,10 @@ struct TurnView {
   /// The drain of an exclusive head of the queue; none from an agent of a build before the pass
   #[serde(default)]
   head_drain: Option<HeadDrain>,
+  /// The short runs of the queue and how often short runs passed each, by the id of the run; none from an agent of a
+  /// build before the short runs
+  #[serde(default)]
+  marks: BTreeMap<String, RunMark>,
 }
 
 /// The lines of the heavy turn of a reply of the agent (`Reply::Runs`) now, for `brd-host runs` ([`lines_at`])
@@ -441,7 +486,8 @@ pub fn lines(table: &serde_json::Value) -> Result<Vec<String>, Refusal> {
 
 /// The lines of the heavy turn of a reply of the agent at `now_ms`: the cores held of the cores of the host, each holder
 /// with what it holds, why, for how long and the exclusive run it started past, each run that waits with what it waits
-/// for, an exclusive head with its drain, and each run that is not heavy with its live cores. A reply of the build
+/// for, a short run with its wall, a run that short runs passed with how often, an exclusive head with its drain, and
+/// each run that is not heavy with its live cores. A reply of the build
 /// before (schema 1) has one holder and no cores, and its lines say who holds the turn and who waits. A table of another
 /// shape refuses with `link`, because the agent sent it
 fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refusal> {
@@ -472,8 +518,12 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
     ));
   }
   for (position, waiting) in table.queue.iter().enumerate() {
+    let mark = table.marks.get(&waiting.ticket.run).copied().unwrap_or_default();
     let need = match waiting.need(cores) {
-      Need::Cores { cores, .. } => format!("{cores} (measured)"),
+      Need::Cores { cores, .. } => match mark.short_ms {
+        Some(wall) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
+        None => format!("{cores} (measured)"),
+      },
       Need::Unmeasured => "the whole host (no measure)".to_owned(),
       Need::Measured(measured) => format!("the whole host (measured {measured})"),
       Need::Exclusive => match table.head_drain.filter(|_| position == 0) {
@@ -489,10 +539,15 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
         ),
       },
     };
+    let passed = match mark.passes {
+      0 => String::new(),
+      1 => format!(", passed by 1 short run (at most {PASS_BUDGET})"),
+      passes => format!(", passed by {passes} short runs (at most {PASS_BUDGET})"),
+    };
     lines.push(format!(
-      "  run {} waits {} for {need}: {}",
+      "  run {} waits {} for {need}{passed}: {}",
       run_of_repo(waiting),
-      span_since(waiting.since_ms, now_ms),
+      span_since(mark.joined_ms.unwrap_or(waiting.since_ms), now_ms),
       waiting.command
     ));
   }

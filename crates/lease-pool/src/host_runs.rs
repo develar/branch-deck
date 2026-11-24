@@ -87,6 +87,14 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
   )
 }
 
+/// How often short runs passed a run of the queue: `passed 1 time`, `passed 3 times`
+pub fn passes_text(passes: u32) -> String {
+  match passes {
+    1 => "passed 1 time".to_owned(),
+    passes => format!("passed {passes} times"),
+  }
+}
+
 /// `, past the exclusive run 1788-12` for a holder that started past an exclusive run, else nothing
 pub fn passed_text(holder: &TurnEntry) -> String {
   holder.passed.as_ref().map_or_else(String::new, |exclusive| format!(", past the exclusive run {exclusive}"))
@@ -207,7 +215,7 @@ pub fn span_since(since_ms: u64, now_ms: u64) -> String {
 }
 
 /// A wait for a line: `45 s` up to two minutes, then `4 min`
-fn span(duration: Duration) -> String {
+pub fn span(duration: Duration) -> String {
   match duration.as_secs() {
     seconds @ 0..120 => format!("{seconds} s"),
     seconds => format!("{} min", seconds / 60),
