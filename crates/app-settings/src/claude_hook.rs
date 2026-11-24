@@ -13,11 +13,15 @@
 //! The file is the user's: an edit changes only the hook of Branch Deck. Every other key, hook and value stays as it was
 //! written, in its order, its text kept as it is (`RawValue`); only the objects on the way to the hook (the file,
 //! `hooks`) are read as objects, and only the entries of `PermissionRequest` that held a hook of Branch Deck are written
-//! anew; a `PermissionRequest` and a `hooks` the removal empties go, so the file comes back to what it was. A hook of
-//! Branch Deck is a command hook whose `args` end with `hook permission-request`, or one of the shell form whose command
-//! ends with it (as the first installs wrote it), so an edit finds the hook of an earlier one wherever brd was then, and
-//! keeps one: the command of this brd, in one entry of its own. A file that is no JSON object, or whose `hooks` is no
-//! object, is refused and stays as it is.
+//! anew. The hook is always an entry of its own, never beside a hook of the user, so its removal takes the whole entry
+//! and writes no entry of the user anew. A `PermissionRequest` and a `hooks` the removal empties go, but those the file
+//! had empty before the add (`EmptyBefore`, which the caller keeps until the removal), so the file comes back to what it
+//! was. The file is written in its own layout: the indent of its first key (spaces or a tab), on one line when it was
+//! one, with a final line break when it had one; a missing or blank file as Claude Code writes it, two spaces and a final
+//! line break. A hook of Branch Deck is a command hook whose `args` end with `hook permission-request`, or one of the
+//! shell form whose command ends with it (as the first installs wrote it), so an edit finds the hook of an earlier one
+//! wherever brd was then, and keeps one: the command of this brd, in one entry of its own. A file that is no JSON
+//! object, or whose `hooks` is no object, is refused and stays as it is.
 //!
 //! The file is written whole and renamed over the old one, so Claude Code never reads a cut file; a settings file that
 //! is a symlink (stow, chezmoi) is written where it points and stays a link. Claude Code writes the file too: just
@@ -25,11 +29,14 @@
 //! and merges again, so a write of Claude Code during the edit is kept.
 
 use indexmap::IndexMap;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use sync_utils::atomic_file::{AtomicWrite, replace_if_unchanged};
+use sync_utils::child_process::{run_child, windowless_command};
+use tracing::debug;
 
 /// The user settings of Claude Code, under the home directory
 pub const CLAUDE_SETTINGS: &str = ".claude/settings.json";
@@ -43,6 +50,33 @@ pub const ON_FAILURE: &str = "continue";
 const EDIT_ATTEMPTS: usize = 5;
 /// How many symlinks the settings file may go through
 const MAX_LINKS: usize = 40;
+
+/// The oldest Claude Code that runs the entry as written: the exec form (`args`) came with 2.1.139, `onFailure` with
+/// 2.1.295. An older one runs `command` alone in a shell, brd without its arguments, which denies nothing
+pub const MIN_CLAUDE_CODE: [u32; 3] = [2, 1, 295];
+/// How long `claude --version` may take
+const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The version `claude` says it is (`claude --version`, `2.1.331 (Claude Code)`); none when it cannot run or says
+/// something else
+#[must_use]
+pub fn claude_code_version(claude: &Path) -> Option<[u32; 3]> {
+  let mut command = windowless_command(claude);
+  command.arg("--version").env("DISABLE_AUTOUPDATER", "1").env("NO_COLOR", "1");
+  let output = run_child(&mut command, None, VERSION_TIMEOUT, &|| false)
+    .inspect_err(|error| debug!(claude = %claude.display(), ?error, "cannot read the version of Claude Code"))
+    .ok()?;
+  parse_claude_code_version(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The version of the output of `claude --version`: its first word, three numbers
+#[must_use]
+pub fn parse_claude_code_version(output: &str) -> Option<[u32; 3]> {
+  let word = output.split_whitespace().next()?;
+  let mut parts = word.split('.').map(|part| part.parse::<u32>().ok());
+  let version = [parts.next()??, parts.next()??, parts.next()??];
+  parts.next().is_none().then_some(version)
+}
 
 /// The settings file of Claude Code under `home`
 #[must_use]
@@ -75,6 +109,27 @@ impl HookExec {
 pub struct HookTarget {
   pub file: PathBuf,
   pub command: HookExec,
+  /// The `claude` of the host, whose version a switch on reads (`claude_code_version`); none when none is found
+  pub claude: Option<PathBuf>,
+}
+
+/// The containers of the hook that the file had empty before an add: `"hooks": {}`, `"PermissionRequest": []`, which
+/// the removal keeps; the others the add made, and the removal takes them when they are empty again
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EmptyBefore {
+  pub hooks: bool,
+  pub permission_request: bool,
+}
+
+/// What an add did
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HookAdd {
+  /// The file was written
+  pub written: bool,
+  /// The file had no hook of Branch Deck before: the containers it had empty, for the removal. None when a hook of
+  /// Branch Deck was there, of this brd or of another, whose add found them first
+  pub first: Option<EmptyBefore>,
 }
 
 /// Why the settings file could not take the edit: it names the file and says why
@@ -225,13 +280,13 @@ fn without_ours(entries: Vec<Entry>) -> (Vec<Node>, bool) {
 }
 
 /// The file with `hooks` set to `hooks`, or without the key when `hooks` is empty and the file had a `hooks` that the
-/// edit emptied, every other key as it was, in its order
-fn with_hooks(root: RawObject, hooks: IndexMap<String, Node>) -> IndexMap<String, Node> {
+/// edit emptied, unless `keep` (the file had it empty before the add); every other key as it was, in its order
+fn with_hooks(root: RawObject, hooks: IndexMap<String, Node>, keep: bool) -> IndexMap<String, Node> {
   let mut result: IndexMap<String, Node> = IndexMap::new();
   let mut hooks = Some(hooks);
   for (key, raw) in root {
     if key == "hooks" {
-      if let Some(hooks) = hooks.take().filter(|hooks| !hooks.is_empty()) {
+      if let Some(hooks) = hooks.take().filter(|hooks| keep || !hooks.is_empty()) {
         result.insert(key, Node::Object(hooks));
       }
     } else {
@@ -244,13 +299,14 @@ fn with_hooks(root: RawObject, hooks: IndexMap<String, Node>) -> IndexMap<String
   result
 }
 
-/// `hooks` with `entries` as `PermissionRequest` (gone when empty), every other event as it was
-fn with_entries(hooks: RawObject, entries: Vec<Node>) -> IndexMap<String, Node> {
+/// `hooks` with `entries` as `PermissionRequest`, gone when empty unless `keep` (the file had it empty before the add),
+/// every other event as it was
+fn with_entries(hooks: RawObject, entries: Vec<Node>, keep: bool) -> IndexMap<String, Node> {
   let mut result: IndexMap<String, Node> = IndexMap::new();
   let mut entries = Some(entries);
   for (event, raw) in hooks {
     if event == HOOK_EVENT {
-      if let Some(entries) = entries.take().filter(|entries| !entries.is_empty()) {
+      if let Some(entries) = entries.take().filter(|entries| keep || !entries.is_empty()) {
         result.insert(event, Node::Array(entries));
       }
     } else {
@@ -302,14 +358,34 @@ fn link_target(file: &Path) -> std::io::Result<PathBuf> {
 }
 
 /// Adds the hook of `command` to the settings file `file`, creating it, unless it is there (`is_installed`): one hook
-/// of Branch Deck, of `command`, in an entry for every tool. Else every hook of Branch Deck goes, and the hook of
-/// `command` comes in an entry of its own at the end. Answers whether the file was written
+/// of Branch Deck, of `command`, alone in an entry for every tool. Else every hook of Branch Deck goes, and the hook of
+/// `command` comes in an entry of its own at the end. Answers whether the file was written and, when it held no hook of
+/// Branch Deck, the containers it had empty, which the removal keeps
 ///
 /// # Errors
 /// The file is no JSON object, its `hooks` no object or `hooks.PermissionRequest` no array; it cannot be read or
 /// written, or kept changing
-pub fn add_hook(file: &Path, command: &HookExec) -> Result<bool, HookFileError> {
-  edit(file, |root| with_our_hook(file, root, command))
+pub fn add_hook(file: &Path, command: &HookExec) -> Result<HookAdd, HookFileError> {
+  let mut first = None;
+  let written = edit(file, |root| {
+    first = empty_before(file, &root)?;
+    with_our_hook(file, root, command)
+  })?;
+  Ok(HookAdd { written, first })
+}
+
+/// The containers of the hook that `root` has empty, none when it holds a hook of Branch Deck
+fn empty_before(file: &Path, root: &RawObject) -> Result<Option<EmptyBefore>, HookFileError> {
+  let (hooks, entries) = read_hooks(file, root)?;
+  let values: Vec<Value> = entries.into_iter().map(|(_, value)| value).collect();
+  if !our_hooks(&values).is_empty() {
+    return Ok(None);
+  }
+  let permission_request = hooks.contains_key(HOOK_EVENT) && values.is_empty();
+  Ok(Some(EmptyBefore {
+    hooks: root.contains_key("hooks") && (hooks.is_empty() || (hooks.len() == 1 && permission_request)),
+    permission_request,
+  }))
 }
 
 /// The file `root` with the hook of `command`, `None` when it is there
@@ -323,24 +399,26 @@ pub(crate) fn with_our_hook(file: &Path, root: RawObject, command: &HookExec) ->
   }
   let (mut kept, _) = without_ours(entries);
   kept.push(Node::Value(our_entry(command)));
-  Ok(Some(with_hooks(root, with_entries(hooks, kept))))
+  Ok(Some(with_hooks(root, with_entries(hooks, kept, false), false)))
 }
 
-/// Removes the hooks of Branch Deck from the settings file `file`, and an entry or a `hooks` that it leaves empty.
-/// Answers whether there was one; a file without one is not written
+/// Removes the hooks of Branch Deck from the settings file `file`, and an entry, a `PermissionRequest` or a `hooks` that
+/// it leaves empty, but those of `keep`, which the file had empty before the add. Answers whether there was one; a file
+/// without one is not written
 ///
 /// # Errors
 /// As `add_hook`
-pub fn remove_hook(file: &Path) -> Result<bool, HookFileError> {
+pub fn remove_hook(file: &Path, keep: EmptyBefore) -> Result<bool, HookFileError> {
   edit(file, |root| {
     let (hooks, entries) = read_hooks(file, &root)?;
     let (kept, found) = without_ours(entries);
-    Ok(found.then(|| with_hooks(root, with_entries(hooks, kept))))
+    Ok(found.then(|| with_hooks(root, with_entries(hooks, kept, keep.permission_request), keep.hooks)))
   })
 }
 
-/// Whether `entries` hold one hook of Branch Deck, of `command`, in an entry for every tool; what else the user put
-/// into its entry or its hook (a `timeout`, another `onFailure`) stays
+/// Whether `entries` hold one hook of Branch Deck, of `command`, alone in an entry for every tool; what else the user
+/// put into its entry or its hook (a `timeout`, another `onFailure`) stays. A hook of the user in its entry makes the
+/// add move the hook of Branch Deck into an entry of its own
 fn is_installed<'a>(entries: impl Iterator<Item = &'a Value>, command: &HookExec) -> bool {
   let ours: Vec<(&Value, &Value)> = entries
     .flat_map(|entry| {
@@ -348,7 +426,9 @@ fn is_installed<'a>(entries: impl Iterator<Item = &'a Value>, command: &HookExec
       hooks.iter().filter(|hook| is_ours(hook)).map(move |hook| (entry, hook))
     })
     .collect();
-  matches!(ours.as_slice(), [(entry, hook)] if runs(hook, command) && entry.get("matcher").and_then(Value::as_str) == Some("*"))
+  matches!(ours.as_slice(), [(entry, hook)] if runs(hook, command)
+    && entry.get("matcher").and_then(Value::as_str) == Some("*")
+    && entry.get("hooks").and_then(Value::as_array).is_some_and(|hooks| hooks.len() == 1))
 }
 
 /// The entry of the hook of `command`: every tool, one command hook of the exec form, which never blocks when it fails
@@ -359,11 +439,67 @@ pub(crate) fn our_entry(command: &HookExec) -> Value {
   })
 }
 
-/// Writes `root` into `target` as Claude Code writes it, two spaces of indent, while it still holds `read`; the file
+/// The layout of a settings file, which an edit keeps
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Layout {
+  /// The indent of a level, spaces or a tab; none for a file on one line
+  pub(crate) indent: Option<String>,
+  /// The file ends with a line break
+  pub(crate) final_newline: bool,
+}
+
+/// As Claude Code writes the file: two spaces, a final line break
+fn claude_code_layout() -> Layout {
+  Layout {
+    indent: Some("  ".to_owned()),
+    final_newline: true,
+  }
+}
+
+/// The layout of the text `read`: the indent of the line of its first key, one line when the object has no line break
+/// inside, the final line break; Claude Code's for a missing or blank file and for an empty object
+pub(crate) fn layout_of(read: Option<&[u8]>) -> Layout {
+  let Some(text) = read.and_then(|bytes| std::str::from_utf8(bytes).ok()).filter(|text| !text.trim().is_empty()) else {
+    return claude_code_layout();
+  };
+  let final_newline = text.ends_with('\n');
+  let body = text.trim();
+  let Some((_, rest)) = body.split_once('\n') else {
+    return Layout { indent: None, final_newline };
+  };
+  let indent: String = rest.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+  if indent.is_empty() || rest.trim_start().starts_with('}') {
+    return Layout {
+      final_newline,
+      ..claude_code_layout()
+    };
+  }
+  Layout {
+    indent: Some(indent),
+    final_newline,
+  }
+}
+
+/// `root` as text of `layout`
+fn text_of(root: &IndexMap<String, Node>, layout: &Layout) -> serde_json::Result<Vec<u8>> {
+  let mut text = Vec::new();
+  match &layout.indent {
+    Some(indent) => {
+      let mut serializer = serde_json::Serializer::with_formatter(&mut text, serde_json::ser::PrettyFormatter::with_indent(indent.as_bytes()));
+      root.serialize(&mut serializer)?;
+    }
+    None => serde_json::to_writer(&mut text, root)?,
+  }
+  if layout.final_newline {
+    text.push(b'\n');
+  }
+  Ok(text)
+}
+
+/// Writes `root` into `target` in the layout of the file it read (`layout_of`), while it still holds `read`; the file
 /// keeps whether only its owner reads it. Answers whether it was written
 fn write(target: &Path, root: &IndexMap<String, Node>, read: Option<&[u8]>) -> Result<bool, HookFileError> {
-  let mut text = serde_json::to_string_pretty(root).map_err(|e| HookFileError::new(target, e.to_string()))?;
-  text.push('\n');
+  let text = text_of(root, &layout_of(read)).map_err(|e| HookFileError::new(target, e.to_string()))?;
   if let Some(dir) = target.parent() {
     std::fs::create_dir_all(dir).map_err(|e| HookFileError::new(dir, e.to_string()))?;
   }
@@ -371,7 +507,7 @@ fn write(target: &Path, root: &IndexMap<String, Node>, read: Option<&[u8]>) -> R
     private: is_private(target),
     durable: true,
   };
-  replace_if_unchanged(target, text.as_bytes(), read, options).map_err(|e| HookFileError::new(target, e.to_string()))
+  replace_if_unchanged(target, &text, read, options).map_err(|e| HookFileError::new(target, e.to_string()))
 }
 
 /// Whether only the owner may read `file` (0600 and the like), which the new file keeps

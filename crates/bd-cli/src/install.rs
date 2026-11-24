@@ -2,7 +2,9 @@
 //! app binary, which runs the CLI under that name) and a skill into the user skill directories of the agents, which says
 //! when to use brd and to start with `brd help agent`. The `PermissionRequest` hook of Unattended Mode is in the user
 //! settings of Claude Code only while the mode is on (`app_settings::claude_hook`): an install while it is off removes
-//! the hook an earlier install wrote, one while it is on writes it anew for this brd, and `--uninstall` removes it. On
+//! the hook an earlier install wrote, one while it is on writes it anew for this brd, each deciding by the mode under the
+//! lock of a switch (`app_settings::unattended::refresh_hook`), and `--uninstall` turns the mode off through the switch
+//! of `brd unattended off` (`set_unattended`), which removes it, so no mode stays on without its hook. On
 //! macOS it also links
 //! `~/.local/bin/brd-host` to the `brd-host` that the app bundle carries (`BranchDeck.app/Contents/MacOS/brd-host`,
 //! docs/design/host-runs.md). The app's Help menu runs the same install.
@@ -12,8 +14,11 @@
 //! as `brd mcp` for each project and shows the page in its tool window; Remove deletes the file (`install_ide_app`).
 
 use crate::agent_help::skill_text;
-use crate::unattended::hook_command;
-use app_settings::claude_hook::{add_hook, claude_settings_file, remove_hook};
+use crate::unattended::{ORIGIN, hook_command};
+use app_settings::claude_hook::{HookTarget, claude_settings_file, has_hook};
+use app_settings::file::SETTINGS_FILE_NAME;
+use app_settings::service::SettingsService;
+use app_settings::unattended::{UnattendedError, denials_file, refresh_hook, set_unattended};
 use bd_core::bd_command::{BdCommand, CLI_NAME, app_binary, bd_command, display, io_error, running_binary};
 #[cfg(unix)]
 use bd_core::bd_command::{LINK_DIR, links_to};
@@ -70,6 +75,9 @@ pub struct InstallOutput {
   /// is installed; omitted when it could
   #[serde(skip_serializing_if = "Option::is_none")]
   pub hook_error: Option<String>,
+  /// `--uninstall` turned Unattended Mode off, as `brd unattended off` does: it was on, and no mode stays on without
+  /// its hook
+  pub unattended_off: bool,
   /// How agents work in a repository without its own value, by the global git config (`brd workspace`, Settings →
   /// Agents); omitted with --uninstall
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,10 +103,17 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     let brd = uninstall_command(home, &target)?;
     let removed_legacy = remove_legacy_links(home, &target)?;
     let bd_host = uninstall_bd_host(home, &target)?;
-    let (hook_removed, hook_error) = match remove_hook(&hook_file) {
-      Ok(removed) => (removed, None),
-      Err(e) => (false, Some(format!("Cannot remove the hook of Unattended Mode from {e}"))),
+    let had_hook = has_hook(&hook_file);
+    let hook = HookTarget {
+      file: hook_file.clone(),
+      command: hook_command(&BdCommand {
+        program: target,
+        subcommand: None,
+      }),
+      claude: None,
     };
+    let (unattended_off, hook_error) = turn_off(environment, &hook);
+    let hook_removed = had_hook && !has_hook(&hook_file);
     return Ok(InstallOutput {
       schema: SchemaVersion,
       on_path: false,
@@ -109,6 +124,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
       bd_host: bd_host.as_deref().map(display),
       hook_file: hook_removed.then(|| display(&hook_file)),
       hook_error,
+      unattended_off,
       agents: None,
     });
   }
@@ -129,7 +145,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     std::fs::create_dir_all(dir).map_err(|e| io_error(dir, &e))?;
     std::fs::write(file, &text).map_err(|e| io_error(file, &e))?;
   }
-  let (hook_changed, hook_error) = refresh_hook(environment, &hook_file, &brd);
+  let (hook_changed, hook_error) = refresh(environment, &hook_file, &brd);
   Ok(InstallOutput {
     schema: SchemaVersion,
     on_path: on_path(environment, &brd),
@@ -140,24 +156,58 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     bd_host: bd_host.as_deref().map(display),
     hook_file: hook_changed.then(|| display(&hook_file)),
     hook_error,
+    unattended_off: false,
     agents: Some(agent_defaults(counted_git(environment).ok().as_ref())),
   })
 }
 
-/// The hook of Unattended Mode in the settings of Claude Code `file` as the mode has it: removed while it is off (an
-/// earlier install wrote it), written for `brd` while it is on. Answers whether the file changed, and why it could not;
-/// a settings file that cannot be changed stays as it is and the rest is installed all the same
-fn refresh_hook(environment: &Environment, file: &Path, brd: &Path) -> (bool, Option<String>) {
-  let on = environment.settings.unattended;
-  let command = hook_command(&BdCommand {
-    program: brd.to_path_buf(),
-    subcommand: None,
-  });
-  let changed = if on { add_hook(file, &command) } else { remove_hook(file) };
-  match changed {
-    Ok(changed) => (changed, None),
-    Err(e) if on => (false, Some(format!("Cannot add the hook of Unattended Mode to {e}"))),
-    Err(e) => (false, Some(format!("Cannot remove the hook of Unattended Mode from {e}"))),
+/// The hook of Unattended Mode in the settings of Claude Code `file` as the mode has it, read under the lock of a switch
+/// (`refresh_hook`): removed while it is off (an earlier install wrote it), written for `brd` while it is on. Answers
+/// whether the file changed, and why it could not; a settings file that cannot be changed stays as it is and the rest
+/// is installed all the same
+fn refresh(environment: &Environment, file: &Path, brd: &Path) -> (bool, Option<String>) {
+  let hook = HookTarget {
+    file: file.to_path_buf(),
+    command: hook_command(&BdCommand {
+      program: brd.to_path_buf(),
+      subcommand: None,
+    }),
+    claude: None,
+  };
+  match refresh_hook(app_data_of(environment), &hook) {
+    Ok(refresh) => (refresh.changed, None),
+    Err(e) => (false, Some(hook_error(&e))),
+  }
+}
+
+/// The app data directory of the environment when it exists: without it the mode is off, and nothing creates it
+fn app_data_of(environment: &Environment) -> Option<&Path> {
+  environment.app_data.as_deref().filter(|app_data| app_data.is_dir())
+}
+
+/// `--uninstall`: the mode off through the switch of `brd unattended off`, which removes `hook` after the setting, when
+/// the app has a settings file; else the hook removed as the mode is off. Answers whether the mode was on, and why the
+/// hook or the mode stayed
+fn turn_off(environment: &Environment, hook: &HookTarget) -> (bool, Option<String>) {
+  let Some(app_data) = app_data_of(environment).filter(|app_data| app_data.join(SETTINGS_FILE_NAME).is_file()) else {
+    return (false, refresh_hook(app_data_of(environment), hook).err().map(|e| hook_error(&e)));
+  };
+  let settings = match SettingsService::open(app_data.to_path_buf()) {
+    Ok(settings) => settings,
+    Err(e) => return (false, Some(format!("Cannot open the settings of Branch Deck to turn off Unattended Mode: {e}"))),
+  };
+  match set_unattended(&settings, &denials_file(app_data), false, ORIGIN, Some(hook)) {
+    Ok(switch) => (switch.changed, switch.warning),
+    Err(e) => (false, Some(format!("Cannot turn off Unattended Mode: {e}"))),
+  }
+}
+
+/// The words of `hook_error`
+fn hook_error(error: &UnattendedError) -> String {
+  match error {
+    UnattendedError::Hook(e) => format!("Cannot add the hook of Unattended Mode to {e}"),
+    UnattendedError::Unhook(e) => format!("Cannot remove the hook of Unattended Mode from {e}"),
+    other => format!("Cannot change the hook of Unattended Mode: {other}"),
   }
 }
 

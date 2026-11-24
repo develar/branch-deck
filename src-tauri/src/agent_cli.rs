@@ -10,7 +10,8 @@ use bd_cli::unattended::hook_target;
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
 use domain_types::error::ApiError;
-use sync_utils::child_process::login_shell_path;
+use sync_utils::child_process::{find_tool, login_shell_path};
+use sync_utils::known_tools::CLAUDE;
 
 /// The `brd` of this app
 pub struct AppAgentCli;
@@ -59,9 +60,13 @@ impl AgentCliHost for AppAgentCli {
   }
 
   /// The settings of Claude Code of the user and the `brd` of the prompts (`bd_command`): the symlink once it points
-  /// here, on Windows `brd.exe` beside the app
+  /// here, on Windows `brd.exe` beside the app; the `claude` of the user's login shell too, as an app started from the
+  /// Finder has a minimal `PATH`
   fn unattended_hook(&self) -> Option<HookTarget> {
-    hook_target(&Environment::from_process())
+    hook_target(&Environment::from_process()).map(|target| HookTarget {
+      claude: find_tool(&CLAUDE),
+      ..target
+    })
   }
 
   fn remove_ide_app(&self) -> Result<(), ApiError> {

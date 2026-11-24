@@ -1,4 +1,4 @@
-use crate::claude_hook::{HookExec, add_hook, edit, has_hook, our_entry, remove_hook, with_our_hook};
+use crate::claude_hook::{EmptyBefore, HookExec, MIN_CLAUDE_CODE, add_hook, edit, has_hook, our_entry, parse_claude_code_version, remove_hook, with_our_hook};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -60,6 +60,14 @@ fn read(file: &Path) -> Value {
   serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap()
 }
 
+/// The entry of a hook of the user for every tool, then the hook of this brd in an entry of its own
+fn with_the_hook_of_the_user() -> Value {
+  json!({ "hooks": { "PermissionRequest": [
+    { "matcher": "*", "hooks": [{ "type": "command", "command": "log.sh" }] },
+    our_entry(&command()),
+  ] } })
+}
+
 /// The hook of Branch Deck as the first installs wrote it: a command line of the shell form
 fn shell_entry(command: &str) -> Value {
   json!({ "matcher": "*", "hooks": [{ "type": "command", "command": command }] })
@@ -93,7 +101,7 @@ fn an_add_writes_the_hook_once_and_keeps_every_other_key_and_hook_as_written() {
   std::fs::write(&file, USER_SETTINGS).unwrap();
   assert!(!has_hook(&file));
 
-  assert!(add_hook(&file, &command()).unwrap(), "written");
+  assert!(add_hook(&file, &command()).unwrap().written, "written");
   let text = std::fs::read_to_string(&file).unwrap();
   // the text of the user as it was: the order of the keys, the escape, the other hooks
   let (before, after) = USER_SETTINGS
@@ -109,7 +117,7 @@ fn an_add_writes_the_hook_once_and_keeps_every_other_key_and_hook_as_written() {
   assert_eq!(read(&file)["hooks"]["PermissionRequest"][1], exec_entry(PROGRAM, &["hook", "permission-request"]));
   assert!(has_hook(&file));
 
-  assert!(!add_hook(&file, &command()).unwrap(), "an add again writes nothing");
+  assert!(!add_hook(&file, &command()).unwrap().written, "an add again writes nothing");
   assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
 }
 
@@ -118,7 +126,7 @@ fn an_add_of_a_moved_brd_replaces_the_command_of_the_old_one() {
   let home = tempfile::tempdir().unwrap();
   let file = home.path().join(".claude/settings.json");
   let old = moved_app();
-  assert!(add_hook(&file, &old).unwrap(), "a missing file is created");
+  assert!(add_hook(&file, &old).unwrap().written, "a missing file is created");
   assert_eq!(read(&file), json!({ "hooks": { "PermissionRequest": [our_entry(&old)] } }));
   assert!(has_hook(&file), "a hook of Branch Deck all the same");
 
@@ -131,15 +139,8 @@ fn an_add_of_a_moved_brd_replaces_the_command_of_the_old_one() {
     .push(json!({ "type": "command", "command": "log.sh" }));
   std::fs::write(&file, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
 
-  assert!(add_hook(&file, &command()).unwrap());
-  assert_eq!(
-    read(&file),
-    json!({ "hooks": { "PermissionRequest": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "log.sh" }] },
-      our_entry(&command()),
-    ] } }),
-    "one hook of Branch Deck, of this brd; the hook of the user stays"
-  );
+  assert!(add_hook(&file, &command()).unwrap().written);
+  assert_eq!(read(&file), with_the_hook_of_the_user(), "one hook of Branch Deck, of this brd; the hook of the user stays");
   assert!(has_hook(&file));
 
   // what the user changed of the installed hook stays
@@ -148,7 +149,7 @@ fn an_add_of_a_moved_brd_replaces_the_command_of_the_old_one() {
   settings["hooks"]["PermissionRequest"][1]["hooks"][0]["onFailure"] = json!("block");
   let text = serde_json::to_string_pretty(&settings).unwrap();
   std::fs::write(&file, &text).unwrap();
-  assert!(!add_hook(&file, &command()).unwrap());
+  assert!(!add_hook(&file, &command()).unwrap().written);
   assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
 }
 
@@ -161,11 +162,11 @@ fn a_hook_of_the_shell_form_is_replaced_by_the_exec_form() {
   let shell = json!({ "hooks": { "PermissionRequest": [shell_entry(&format!("{PROGRAM} hook permission-request"))] } });
   std::fs::write(&file, shell.to_string()).unwrap();
   assert!(has_hook(&file), "a hook of Branch Deck all the same");
-  assert!(add_hook(&file, &command()).unwrap());
+  assert!(add_hook(&file, &command()).unwrap().written);
   assert_eq!(read(&file), json!({ "hooks": { "PermissionRequest": [our_entry(&command())] } }));
 
   std::fs::write(&file, shell.to_string()).unwrap();
-  assert!(remove_hook(&file).unwrap());
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
   assert_eq!(read(&file), json!({}));
 }
 
@@ -173,14 +174,14 @@ fn a_hook_of_the_shell_form_is_replaced_by_the_exec_form() {
 fn a_removal_takes_only_the_hook_of_branch_deck_and_gives_the_file_back() {
   let home = tempfile::tempdir().unwrap();
   let file = home.path().join(".claude/settings.json");
-  assert!(!remove_hook(&file).unwrap(), "no file, nothing to remove");
+  assert!(!remove_hook(&file, EmptyBefore::default()).unwrap(), "no file, nothing to remove");
   std::fs::create_dir_all(file.parent().unwrap()).unwrap();
   std::fs::write(&file, USER_SETTINGS).unwrap();
-  assert!(!remove_hook(&file).unwrap(), "no hook of Branch Deck");
+  assert!(!remove_hook(&file, EmptyBefore::default()).unwrap(), "no hook of Branch Deck");
   assert_eq!(std::fs::read_to_string(&file).unwrap(), USER_SETTINGS, "and the file stays as it was");
 
   add_hook(&file, &command()).unwrap();
-  assert!(remove_hook(&file).unwrap());
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
   assert_eq!(std::fs::read_to_string(&file).unwrap(), USER_SETTINGS, "the text of the user, byte for byte");
   assert!(!has_hook(&file));
 
@@ -188,7 +189,7 @@ fn a_removal_takes_only_the_hook_of_branch_deck_and_gives_the_file_back() {
   let plain = "{\n  \"model\": \"opus\"\n}\n";
   std::fs::write(&file, plain).unwrap();
   add_hook(&file, &command()).unwrap();
-  assert!(remove_hook(&file).unwrap());
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
   assert_eq!(std::fs::read_to_string(&file).unwrap(), plain);
 }
 
@@ -201,12 +202,12 @@ fn a_file_that_is_no_object_is_refused_and_stays() {
     let error = add_hook(&file, &command()).unwrap_err();
     assert_eq!(error.file, file, "{text}");
     assert!(error.to_string().starts_with(&format!("{}: ", file.display())), "{error}");
-    assert_eq!(remove_hook(&file).unwrap_err(), error, "a removal is refused alike");
+    assert_eq!(remove_hook(&file, EmptyBefore::default()).unwrap_err(), error, "a removal is refused alike");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), text, "the file stays as it was");
     assert!(!has_hook(&file), "{text}");
   }
   std::fs::write(&file, "\n").unwrap();
-  assert!(add_hook(&file, &command()).unwrap(), "a blank file is an empty one");
+  assert!(add_hook(&file, &command()).unwrap().written, "a blank file is an empty one");
   assert_eq!(read(&file), json!({ "hooks": { "PermissionRequest": [our_entry(&command())] } }));
 }
 
@@ -260,7 +261,7 @@ fn a_settings_file_that_is_a_symlink_stays_one() {
   std::fs::create_dir_all(file.parent().unwrap()).unwrap();
   std::os::unix::fs::symlink("../dotfiles/claude/settings.json", &file).unwrap();
 
-  assert!(add_hook(&file, &command()).unwrap());
+  assert!(add_hook(&file, &command()).unwrap().written);
   assert!(std::fs::symlink_metadata(&file).unwrap().file_type().is_symlink(), "still a link");
   assert_eq!(
     read(&dotfiles.join("settings.json")),
@@ -268,7 +269,7 @@ fn a_settings_file_that_is_a_symlink_stays_one() {
   );
   assert!(has_hook(&file));
 
-  assert!(remove_hook(&file).unwrap());
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
   assert!(std::fs::symlink_metadata(&file).unwrap().file_type().is_symlink());
   assert_eq!(read(&dotfiles.join("settings.json")), json!({ "model": "opus" }));
 }
@@ -283,4 +284,117 @@ fn a_private_file_stays_private() {
   std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
   add_hook(&file, &command()).unwrap();
   assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+/// An edit writes the file in its own layout, the indent of its first key, one line, its final line break or none, so
+/// an add and a removal give it back byte for byte; a missing file is written as Claude Code writes one
+#[test]
+fn an_edit_keeps_the_layout_of_the_file() {
+  let home = tempfile::tempdir().unwrap();
+  let file = home.path().join("settings.json");
+  let four = "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\n            \"Bash(ls:*)\"\n        ]\n    }\n}\n";
+  let tab = "{\n\t\"model\": \"opus\",\n\t\"hooks\": {\n\t\t\"PreToolUse\": []\n\t}\n}";
+  let line = r#"{"model":"opus","hooks":{"PreToolUse":[]}}"#;
+  for (text, indent) in [(four, "    "), (tab, "\t")] {
+    std::fs::write(&file, text).unwrap();
+    assert!(add_hook(&file, &command()).unwrap().written);
+    let added = std::fs::read_to_string(&file).unwrap();
+    assert!(added.contains(&format!("\n{indent}\"model\": \"opus\",\n")), "{added}");
+    assert!(added.contains(&format!("\n{indent}{indent}\"PermissionRequest\": [\n")), "{added}");
+    assert_eq!(added.ends_with('\n'), text.ends_with('\n'), "{added}");
+    assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text, "byte for byte");
+  }
+  std::fs::write(&file, line).unwrap();
+  assert!(add_hook(&file, &command()).unwrap().written);
+  let added = std::fs::read_to_string(&file).unwrap();
+  assert!(!added.contains('\n'), "one line stays one line: {added}");
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
+  assert_eq!(std::fs::read_to_string(&file).unwrap(), line);
+
+  std::fs::remove_file(&file).unwrap();
+  add_hook(&file, &command()).unwrap();
+  let created = std::fs::read_to_string(&file).unwrap();
+  assert!(
+    created.starts_with("{\n  \"hooks\": {\n    \"PermissionRequest\": [\n") && created.ends_with("}\n"),
+    "{created}"
+  );
+}
+
+/// The containers of the hook a file had empty stay after the removal, which knows them by the first add of the run;
+/// an add over a hook of Branch Deck found them first
+#[test]
+fn the_containers_the_file_had_empty_stay_after_the_removal() {
+  let home = tempfile::tempdir().unwrap();
+  let file = home.path().join("settings.json");
+  for (text, expected) in [
+    (
+      "{\n  \"model\": \"opus\",\n  \"hooks\": {}\n}\n",
+      EmptyBefore {
+        hooks: true,
+        permission_request: false,
+      },
+    ),
+    (
+      "{\n  \"hooks\": {\n    \"PermissionRequest\": []\n  }\n}\n",
+      EmptyBefore {
+        hooks: true,
+        permission_request: true,
+      },
+    ),
+    (
+      "{\n  \"hooks\": {\n    \"PreToolUse\": [],\n    \"PermissionRequest\": []\n  }\n}\n",
+      EmptyBefore {
+        hooks: false,
+        permission_request: true,
+      },
+    ),
+    ("{\n  \"model\": \"opus\"\n}\n", EmptyBefore::default()),
+  ] {
+    std::fs::write(&file, text).unwrap();
+    let added = add_hook(&file, &command()).unwrap();
+    assert_eq!(added.first, Some(expected), "{text}");
+    assert_eq!(add_hook(&file, &moved_app()).unwrap().first, None, "a hook of Branch Deck was there: {text}");
+    assert!(remove_hook(&file, expected).unwrap());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text, "byte for byte");
+  }
+  // without what the add found, an emptied container goes, as the add would have made it
+  std::fs::write(&file, "{\n  \"hooks\": {}\n}\n").unwrap();
+  add_hook(&file, &command()).unwrap();
+  remove_hook(&file, EmptyBefore::default()).unwrap();
+  assert_eq!(std::fs::read_to_string(&file).unwrap(), "{}\n");
+}
+
+/// The hook of Branch Deck is always an entry of its own: one the user put a hook of their own into is no installed
+/// hook, the add moves ours out, and the removal then takes our entry alone, the user's entry as written
+#[test]
+fn the_hook_of_branch_deck_never_shares_an_entry_with_a_hook_of_the_user() {
+  let home = tempfile::tempdir().unwrap();
+  let file = home.path().join("settings.json");
+  let shared = json!({ "hooks": { "PermissionRequest": [
+    { "matcher": "*", "hooks": [our_entry(&command())["hooks"][0].clone(), { "type": "command", "command": "log.sh" }] },
+  ] } });
+  std::fs::write(&file, serde_json::to_string_pretty(&shared).unwrap()).unwrap();
+  assert!(add_hook(&file, &command()).unwrap().written, "a shared entry is no installed hook");
+  assert_eq!(read(&file), with_the_hook_of_the_user());
+  let added = std::fs::read_to_string(&file).unwrap();
+  assert!(remove_hook(&file, EmptyBefore::default()).unwrap());
+  assert_eq!(
+    read(&file),
+    json!({ "hooks": { "PermissionRequest": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "log.sh" }] }] } })
+  );
+  let removed = std::fs::read_to_string(&file).unwrap();
+  let start = removed.find("\"PermissionRequest\": [\n").unwrap();
+  let users = &removed[start..removed.rfind("\n    ]").unwrap()];
+  assert!(added.contains(&format!("{users},\n")), "the entry of the user as the add wrote it: {removed}");
+}
+
+#[test]
+fn the_version_of_claude_code_is_the_first_word_of_its_answer() {
+  assert_eq!(parse_claude_code_version("2.1.331 (Claude Code)\n"), Some([2, 1, 331]));
+  assert_eq!(parse_claude_code_version("2.1.295"), Some([2, 1, 295]));
+  for output in ["", "Claude Code", "2.1", "2.1.x (Claude Code)", "2.1.3.4"] {
+    assert_eq!(parse_claude_code_version(output), None, "{output}");
+  }
+  assert!([2, 1, 294] < MIN_CLAUDE_CODE && [2, 1, 295] >= MIN_CLAUDE_CODE && [3, 0, 0] > MIN_CLAUDE_CODE);
 }

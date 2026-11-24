@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::path::Path;
+use sync_utils::child_process::find_tool_in;
+use sync_utils::known_tools::CLAUDE;
 
 /// What the hook tells an agent whose request it denied
 pub const DENY_MESSAGE: &str = "Branch Deck is in Unattended Mode: nobody can approve this. Do it without new access (a path inside the working \
@@ -137,22 +139,25 @@ pub fn unattended(environment: &Environment, args: &UnattendedArgs) -> Result<Un
 }
 
 /// The error of a switch that changed nothing: `install_refused` when the hook cannot go into the settings of Claude Code
+/// or the Claude Code of the host would not run it
 fn switch_error(on: bool, error: &UnattendedError) -> CliError {
   let code = match error {
-    UnattendedError::NoHookFile | UnattendedError::Hook(_) => ErrorCode::InstallRefused,
-    UnattendedError::Journal(_) | UnattendedError::Settings(_) => ErrorCode::Internal,
+    UnattendedError::NoHookFile | UnattendedError::OldClaudeCode(_) | UnattendedError::Hook(_) => ErrorCode::InstallRefused,
+    UnattendedError::Unhook(_) | UnattendedError::Journal(_) | UnattendedError::Lock(_) | UnattendedError::Settings(_) => ErrorCode::Internal,
   };
   CliError::new(code, format!("Cannot turn {} Unattended Mode: {error}", if on { "on" } else { "off" }))
 }
 
 /// Where the hook of this brd goes: the settings of Claude Code under the home directory, the command of the `brd`
-/// symlink once it points here (`bd_command`); `None` without a home directory or a brd
+/// symlink once it points here (`bd_command`), and the `claude` of the environment (`known_tools::CLAUDE` in its home
+/// and `PATH`), whose version a switch on reads; `None` without a home directory or a brd
 pub fn hook_target(environment: &Environment) -> Option<HookTarget> {
   let home = environment.home.as_deref()?;
   let brd = bd_command(environment).ok()?;
   Some(HookTarget {
     file: claude_settings_file(home),
     command: hook_command(&brd),
+    claude: find_tool_in(&CLAUDE, Some(home), environment.path.as_deref()),
   })
 }
 

@@ -44,11 +44,19 @@ fn install_linked(home: &Path, app: &Path) -> Value {
   output
 }
 
-/// `run_install` with Unattended Mode `unattended`
+/// `run_install` with Unattended Mode `unattended` in the settings file of the app data directory `app-data` of the
+/// home (none while it is off), which brd reads under the lock of a switch
 #[cfg(unix)]
 fn run_install_with(home: &Path, app: &Path, args: &[&str], unattended: bool) -> (i32, Value) {
+  let app_data = home.join("app-data");
+  if unattended {
+    std::fs::create_dir_all(&app_data).unwrap();
+    std::fs::write(app_data.join("settings.json"), r#"{"appSettings":{"unattended":true}}"#).unwrap();
+  } else {
+    let _ = std::fs::remove_file(app_data.join("settings.json"));
+  }
   let mut environment = environment(home);
-  environment.settings.unattended = unattended;
+  environment.app_data = Some(app_data);
   environment.home = Some(home.to_path_buf());
   environment.executable = Some(app.to_path_buf());
   environment.path = Some(std::env::join_paths([home.join(".local/bin"), PathBuf::from("/usr/bin")]).unwrap());
@@ -114,6 +122,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "uninstalled": false,
       "bd_host": null,
       "hook_file": null,
+      "unattended_off": false,
       "agents": { "lease": true, "subject_branch": true, "pull_request": false }
     })
   );
@@ -169,8 +178,8 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
 }
 
 /// The hook of Unattended Mode is in the settings of Claude Code only while the mode is on: an install while it is off
-/// removes the hook an earlier install wrote, one while it is on writes it anew for this brd, `--uninstall` removes it;
-/// a settings file that cannot be changed stays as it is and the rest is installed
+/// removes the hook an earlier install wrote, one while it is on writes it anew for this brd, `--uninstall` turns the
+/// mode off and removes it; a settings file that cannot be changed stays as it is and the rest is installed
 #[cfg(unix)]
 #[test_log::test]
 fn an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it() {
@@ -200,9 +209,14 @@ fn an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it() {
     read_json(&settings)["hooks"]["PermissionRequest"],
     json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": link.to_str().unwrap(), "args": ["hook", "permission-request"], "onFailure": "continue" }] }])
   );
-  let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
+  // the mode is on: the uninstall turns it off, as `brd unattended off`, and the hook goes with it
+  let (exit_code, output) = run_install_with(&home, &app, &["install", "--uninstall"], true);
   assert_eq!((exit_code, &output["hook_file"]), (0, &json!(settings.to_str().unwrap())), "{output}");
+  assert_eq!(output["unattended_off"], json!(true), "{output}");
   assert_eq!(read_json(&settings), json!({ "model": "opus" }));
+  assert_eq!(read_json(&home.join("app-data/settings.json")), json!({}), "the mode is off in the settings of the app");
+  let (_, output) = run_install(&home, &app, &["install", "--uninstall"]);
+  assert_eq!((&output["hook_file"], &output["unattended_off"]), (&json!(null), &json!(false)), "{output}");
 
   // a file that is no JSON object stays, and the rest is installed
   std::fs::write(&settings, "{ \"model\": ").unwrap();

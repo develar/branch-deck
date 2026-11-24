@@ -159,8 +159,8 @@ pub async fn remove_ide_app(ctx: &AppContext, call: &Call) -> Result<(), ApiErro
 }
 
 /// Where the hook of Unattended Mode of this process goes, for a host that knows no better brd (an IDE): the settings of
-/// Claude Code under the home directory, and this binary, with `cli` unless it is a `brd`; `None` without a home
-/// directory or a binary
+/// Claude Code under the home directory, and this binary, with `cli` unless it is a `brd`, and the `claude` of the
+/// process (`find_tool`, the login shell too); `None` without a home directory or a binary
 pub fn process_hook_target() -> Option<HookTarget> {
   let home = std::env::home_dir()?;
   let binary = std::env::current_exe().ok()?;
@@ -168,5 +168,6 @@ pub fn process_hook_target() -> Option<HookTarget> {
   Some(HookTarget {
     file: claude_settings_file(&home),
     command: HookExec::new(binary.to_string_lossy().into_owned(), subcommand),
+    claude: sync_utils::child_process::find_tool(&sync_utils::known_tools::CLAUDE),
   })
 }

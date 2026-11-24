@@ -1,7 +1,10 @@
 use crate::api::TauriEvents;
-use app_api::transport::{AppEvents, MenuHost, WindowId};
+use app_api::app::unattended::set_unattended_mode;
+use app_api::context::AppContext;
+use app_api::events::SETTINGS_CHANGED_EVENT;
+use app_api::transport::{AppEvents, Call, ConnectionId, MenuHost, WindowId};
 use domain_types::error::ApiError;
-use domain_types::settings::AppSettings;
+use domain_types::settings::{APP_SETTINGS_KEY, AppSettings};
 use std::error::Error;
 use tauri::menu::{CheckMenuItemBuilder, MenuItemBuilder};
 use tauri::{
@@ -11,7 +14,7 @@ use tauri::{
 
 #[cfg(not(target_os = "linux"))]
 use tauri::menu::PredefinedMenuItem;
-use tracing::instrument;
+use tracing::{Instrument, instrument};
 
 /// The menu of the app: the macOS app menu; the menu bar of each window on Windows and Linux where the system title bar
 /// stays. A custom title bar on Windows and Linux has none: the page's main menu (`src/lib/main-menu.ts`, ☰ in the
@@ -161,18 +164,61 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
 }
 
 /// Unattended Mode (openspec/specs/repository/unattended-mode/spec.md), checked as the mode is when the menu is built;
-/// then the main window checks it as the setting is (`set_unattended_menu_checked`), whichever surface or process
-/// switched it
+/// then as each change of the setting the app sends its windows says (`follow_settings_change`), whichever surface or
+/// process switched it, with no window too; the main window checks it as well (`set_unattended_menu_checked`)
 fn unattended_mode_item(app: &App, settings: &AppSettings) -> tauri::Result<tauri::menu::CheckMenuItem<tauri::Wry>> {
   CheckMenuItemBuilder::with_id(UNATTENDED_MODE, "Unattended Mode").checked(settings.unattended).build(app)
 }
 
+/// What a click of Unattended Mode does: the command of the main window, which switches the mode through the item of
+/// the palette with its toasts; with no main window (closed while an IDE keeps the app) the switch through the core
+/// itself, to the other state of the mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnattendedClick {
+  ToMainWindow(&'static str),
+  Switch { on: bool },
+}
+
 /// A click of Unattended Mode, whose item checked or unchecked itself (`checked_now`): the check it shows again, the
-/// mode's until the setting changes, so a switch on that fails leaves no check; and the command of the main window,
-/// which switches the mode through the core of the palette and the mark of the title bar
+/// mode's until the setting changes, so a switch on that fails leaves no check; and the switch, by the main window when
+/// there is one (`main_window`), else of the mode now (`mode_on`)
 #[must_use]
-pub const fn unattended_click(checked_now: bool) -> (bool, &'static str) {
-  (!checked_now, UNATTENDED_MODE)
+pub const fn unattended_click(checked_now: bool, main_window: bool, mode_on: bool) -> (bool, UnattendedClick) {
+  let click = if main_window {
+    UnattendedClick::ToMainWindow(UNATTENDED_MODE)
+  } else {
+    UnattendedClick::Switch { on: !mode_on }
+  };
+  (!checked_now, click)
+}
+
+/// The mode a change of the settings tells, when `event` and `payload` are the `settings_changed` of `appSettings`
+/// that the app sends its windows (`app_api::events::settings_changed`); none for any other
+#[must_use]
+pub fn unattended_of_event(event: &str, payload: &serde_json::Value) -> Option<bool> {
+  if event != SETTINGS_CHANGED_EVENT || payload.get("key")?.as_str()? != APP_SETTINGS_KEY {
+    return None;
+  }
+  payload.get("value")?.get("unattended")?.as_bool()
+}
+
+/// Checks Unattended Mode as the change of the settings the app sends its windows says, a switch of `brd unattended`
+/// (the writer takes it from the file) or of a window, from Rust: the item follows the mode with no main window too.
+/// The check is posted to the main thread, never waited for: the writer of the settings tells a change of another
+/// process on its own thread while a flush on the main thread may wait for it
+pub fn follow_settings_change(app: &AppHandle, event: &str, payload: &serde_json::Value) {
+  let Some(on) = unattended_of_event(event, payload) else {
+    return;
+  };
+  let handle = app.clone();
+  let posted = app.run_on_main_thread(move || {
+    if let Err(e) = TauriMenu(handle).set_unattended_checked(on) {
+      tracing::error!(error = %e.message, "cannot check Unattended Mode");
+    }
+  });
+  if let Err(e) = posted {
+    tracing::error!(error = ?e, "cannot check Unattended Mode");
+  }
 }
 
 const VIEW: &str = "View";
@@ -304,13 +350,28 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     UNATTENDED_MODE => {
       let checkbox = app.menu().and_then(|menu| menu.get(UNATTENDED_MODE)).and_then(|item| item.as_check_menuitem().cloned());
       let checked_now = checkbox.as_ref().and_then(|item| item.is_checked().ok()).unwrap_or_default();
-      let (check, command) = unattended_click(checked_now);
+      let ctx = std::sync::Arc::clone(app.state::<std::sync::Arc<AppContext>>().inner());
+      let main_window = app.get_webview_window(app_settings::windows::MAIN_WINDOW).is_some();
+      let (check, click) = unattended_click(checked_now, main_window, ctx.settings.app().unattended);
       if let Some(checkbox) = checkbox
         && let Err(e) = checkbox.set_checked(check)
       {
         tracing::error!(error = ?e, "cannot check Unattended Mode back");
       }
-      emit_to_main(app, command, ());
+      match click {
+        UnattendedClick::ToMainWindow(command) => emit_to_main(app, command, ()),
+        // no window to word a toast: the item follows the change of the setting (`follow_settings_change`)
+        UnattendedClick::Switch { on } => {
+          tauri::async_runtime::spawn(
+            async move {
+              if let Err(e) = set_unattended_mode(&ctx, &Call::of_connection(ConnectionId::APP), on).await {
+                tracing::error!(error = %e.message, on, "cannot switch Unattended Mode from the menu");
+              }
+            }
+            .in_current_span(),
+          );
+        }
+      }
     }
     _ => {}
   }

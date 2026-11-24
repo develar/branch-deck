@@ -1,3 +1,4 @@
+use crate::menu::{UnattendedClick, unattended_click, unattended_of_event};
 use app_settings::file::SettingsFile;
 
 /// The check of Auto-sync on Focus in the native menu: the settings as the writer loads the file (`SettingsFile`), the
@@ -34,9 +35,40 @@ fn unattended_mode_is_checked_as_the_stored_mode() {
 }
 
 /// A click of Unattended Mode checks the item back as the mode is, so a switch on that fails leaves no check, and sends
-/// `unattended_mode` to the main window, which switches the mode; the main window checks the item once the setting changes
+/// `unattended_mode` to the main window, which switches the mode; the item follows once the setting changes
 #[test]
 fn a_click_of_unattended_mode_shows_the_mode_again_and_sends_the_switch_to_the_main_window() {
-  assert_eq!(crate::menu::unattended_click(true), (false, "unattended_mode"));
-  assert_eq!(crate::menu::unattended_click(false), (true, "unattended_mode"));
+  assert_eq!(unattended_click(true, true, false), (false, UnattendedClick::ToMainWindow("unattended_mode")));
+  assert_eq!(unattended_click(false, true, true), (true, UnattendedClick::ToMainWindow("unattended_mode")));
+}
+
+/// With no main window (closed while an IDE keeps the app) a click switches the mode through the core itself, to the
+/// other state of the mode, not of the item
+#[test]
+fn a_click_of_unattended_mode_with_no_main_window_switches_the_mode_itself() {
+  assert_eq!(unattended_click(true, false, false), (false, UnattendedClick::Switch { on: true }));
+  assert_eq!(unattended_click(false, false, true), (true, UnattendedClick::Switch { on: false }));
+}
+
+/// The item follows each change of `appSettings` the app sends its windows, the switch of `brd unattended` too, and no
+/// other event or key
+#[test]
+fn unattended_mode_follows_each_change_of_the_setting_the_windows_get() {
+  let change = |key: &str, value: serde_json::Value| serde_json::json!({ "version": 3, "key": key, "value": value, "origin": "other-process" });
+  assert_eq!(
+    unattended_of_event("settings_changed", &change("appSettings", serde_json::json!({ "unattended": true }))),
+    Some(true)
+  );
+  assert_eq!(
+    unattended_of_event("settings_changed", &change("appSettings", serde_json::json!({ "unattended": false }))),
+    Some(false)
+  );
+  assert_eq!(
+    unattended_of_event("settings_changed", &change("recentProjects", serde_json::json!({ "unattended": true }))),
+    None
+  );
+  assert_eq!(
+    unattended_of_event("activity-changed", &change("appSettings", serde_json::json!({ "unattended": true }))),
+    None
+  );
 }

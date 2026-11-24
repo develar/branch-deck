@@ -38,13 +38,16 @@ pub fn sink<T: IpcResponse + Send + Sync + 'static>(channel: Channel<T>) -> Sink
 pub struct TauriEvents(pub AppHandle);
 
 impl AppEvents for TauriEvents {
+  /// Every change of the settings comes this way, so the native menu follows it here too (`follow_settings_change`)
   fn emit(&self, event: &str, payload: serde_json::Value) {
+    crate::menu::follow_settings_change(&self.0, event, &payload);
     if let Err(error) = self.0.emit(event, payload) {
       warn!(%error, event, "cannot send the event to the windows");
     }
   }
 
   fn emit_to(&self, window: &WindowId, event: &str, payload: serde_json::Value) {
+    crate::menu::follow_settings_change(&self.0, event, &payload);
     if let Err(error) = self.0.emit_to(window.as_str(), event, payload) {
       warn!(%error, event, %window, "cannot send the event to the window");
     }

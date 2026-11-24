@@ -521,6 +521,8 @@ impl AgentCliHost for TestAgentCli {
     Some(HookTarget {
       file: self.claude_settings.clone(),
       command: HookExec::new(AGENT_CLI.to_owned(), None),
+      // the claude of the machine is no test's: no version to refuse
+      claude: None,
     })
   }
 

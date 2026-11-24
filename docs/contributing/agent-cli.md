@@ -2335,16 +2335,19 @@ How an agent learns that brd exists. `brd install`, or Help → Install Agent CL
   `brd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt;
 - the `PermissionRequest` hook of Unattended Mode in the user settings of Claude Code as the mode has it (see `brd
   unattended`): an install while the mode is off removes the hook an earlier install wrote, one while it is on writes it
-  anew for this brd; a settings file that cannot be changed stays as it is, the rest is installed and `hook_error` says
-  why.
+  anew for this brd, deciding by the mode in the settings file of the app under the lock of a switch
+  (`app_settings::unattended::refresh_hook`); a settings file that cannot be changed stays as it is, the rest is
+  installed and `hook_error` says why.
 
 It prints `{"schema":2,"brd":"/Users/me/.local/bin/brd","on_path":true,"removed_legacy":[],"skills":[…],"uninstalled":false,
-"bd_host":null,"hook_file":null,"agents":{"lease":true,"subject_branch":true}}`, `hook_file` the settings of Claude Code
+"bd_host":null,"hook_file":null,"unattended_off":false,"agents":{"lease":true,"subject_branch":true}}`, `hook_file` the settings of Claude Code
 whose hook the install changed. `agents` is what `brd workspace` answers in a repository without its
 own value (one `git config --global`), which the app's toast tells the user. `on_path`
 says whether `brd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and current and legacy symlinks only when they point at this app (or at a removed
-`branch-deck`), and the hook of Branch Deck (`hook_file` names the file it went from, `null` when it had none). `brd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
+`branch-deck`), and turns Unattended Mode off as `brd unattended off` does, which removes the hook of Branch Deck
+(`unattended_off` when the mode was on, so no mode stays on without its hook; `hook_file` names the file the hook went
+from, `null` when it had none). `brd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
 symlink it names the app binary with `cli` (`'/Applications/Branch Deck.app/…/branch-deck' cli`), quoted for the shell
 and to be run as written: the bare app binary starts the app.
 
@@ -2367,16 +2370,25 @@ switch, never a switch the hook does not read.
 
 The hook is in `~/.claude/settings.json` only while the mode is on (`app_settings::claude_hook`), so the file of a user
 who never turns the mode on is never written; Claude Code reads a hook written into the file while its sessions run.
-`on` first adds `{"matcher": "*", "hooks": [{"type": "command", "command": "<brd>", "args": ["hook",
-"permission-request"], "onFailure": "continue"}]}` to `hooks.PermissionRequest`, `<brd>` the path of brd, then switches
-the mode; a file that cannot take it (no JSON object, `hooks` of another type) or no home directory refuses the switch
-with `install_refused`, the mode off. `off` switches the mode first, then removes the hook, and a `PermissionRequest`
-and a `hooks` it leaves empty, so the file is what it was; a removal that fails is the `warning` of the answer, off all
-the same, as the hook reads the mode and prints nothing while it is off. A crash or a quit while the mode is on leaves
+`on` reads `claude --version` (the `claude` of `known_tools::CLAUDE`, when the host finds one) and refuses a Claude Code
+older than 2.1.295 with `install_refused`: the exec form came with 2.1.139 and `onFailure` with 2.1.295, and an older one
+runs `<brd>` alone in a shell, which denies nothing. Then it adds `{"matcher": "*", "hooks": [{"type": "command",
+"command": "<brd>", "args": ["hook", "permission-request"], "onFailure": "continue"}]}` to `hooks.PermissionRequest`,
+an entry of its own, `<brd>` the path of brd, then switches the mode; a file that cannot take it (no JSON object,
+`hooks` of another type) or no home directory refuses the switch with `install_refused`, the mode off, and a journal of
+the run before that cannot be removed takes the hook away again. `off` switches the mode first, then removes the hook,
+and a `PermissionRequest` and a `hooks` it leaves empty, but those the file had empty before the first add of the run
+(`unattended-hook.json` beside the settings of the app keeps them until the removal), so the file is what it was; a
+removal that fails is the `warning` of the answer, off all the same, as the hook reads the mode and prints nothing
+while it is off. A save of the setting that fails puts it back and takes away a hook the switch on added. A switch,
+and the hook refresh of `brd install`, hold `unattended.lock` of the app data directory from the read of the mode to
+the last write of the pair, and read what another process saved first (`SettingsService::flush_and_reread`), so two
+processes that switch at once never leave the mode on without its hook. A crash or a quit while the mode is on leaves
 the hook and the mode on: the night goes on. The exec form (`args`) runs brd with no shell on every platform: a command
 line would run in PowerShell on Windows without Git Bash, where a quoted path does not parse and a hook that fails
 blocks the tool call; `onFailure` leaves the request to the prompt when the hook fails. The edit keeps every other key,
-hook and value as written, in its order; a command hook whose `args` end with `hook permission-request` (or a command
+hook and value as written, in its order, in the layout of the file (the indent of its first key, one line, its final
+line break or none); a command hook whose `args` end with `hook permission-request` (or a command
 line ending with it, as the first installs wrote it) is Branch Deck's and replaced by the hook of this brd. Just before
 its rename the edit reads the file again and, when Claude Code wrote it since, reads and merges again
 (`replace_if_unchanged`, five times at most); a settings file that is a symlink is written where it points.

@@ -656,10 +656,27 @@ impl SettingsService {
 
   /// Save every change made before now and wait for it; the error of that save when it failed
   pub fn flush(&self) -> Result<(), SettingsError> {
+    self.flush_reading(false)
+  }
+
+  /// `flush`, and both files read again in the same pass: what the writer of another process saved is in memory once
+  /// this answers (`on_external_change` told), not only once the watch tells it. A decision under a lock that both
+  /// processes take reads the files as they are (`unattended::set_unattended`)
+  ///
+  /// # Errors
+  /// As `flush`
+  pub fn flush_and_reread(&self) -> Result<(), SettingsError> {
+    self.flush_reading(true)
+  }
+
+  fn flush_reading(&self, reread: bool) -> Result<(), SettingsError> {
     let mut state = self.shared.lock();
     let needed = StoreFile::SAVE_ORDER.map(|file| (file, state.file(file).changed));
-    if needed.iter().all(|&(file, _)| !state.file(file).is_unsaved()) {
+    if !reread && needed.iter().all(|&(file, _)| !state.file(file).is_unsaved()) {
       return Ok(());
+    }
+    if reread {
+      state.reread = Changed::BOTH;
     }
     state.flush_requested = true;
     let started_before = state.passes_started;

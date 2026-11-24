@@ -45,7 +45,8 @@ pub fn set_auto_sync_menu_checked(ctx: &AppContext, call: &Call, checked: bool) 
 
 /// Checks Unattended Mode of the native menu as the mode is, whichever surface or process switched it: the main window
 /// calls it for every value of `appSettings.unattended` (`useMenuSync`), a switch of `brd unattended` included, which
-/// the window hears from the writer of the settings. Without a native menu there is nothing to check.
+/// the window hears from the writer of the settings; the shell checks it from each change it sends as well, with no main
+/// window too (`follow_settings_change` of `src-tauri/src/menu.rs`). Without a native menu there is nothing to check.
 #[instrument(skip_all, fields(checked = checked))]
 pub fn set_unattended_menu_checked(ctx: &AppContext, call: &Call, checked: bool) -> Result<(), ApiError> {
   operation_now(|| ctx.desktop(&call.window).menu.set_unattended_checked(checked))

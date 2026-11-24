@@ -42,11 +42,11 @@ pub async fn set_unattended_mode(ctx: &AppContext, call: &Call, on: bool) -> Res
 }
 
 /// The error of a switch that changed nothing: `install_refused` when the hook cannot go into the settings of Claude
-/// Code, which the toast says as it is
+/// Code or the Claude Code of the host would not run it, which the toast says as it is
 fn switch_error(on: bool, error: UnattendedError) -> ApiError {
   match error {
-    UnattendedError::NoHookFile | UnattendedError::Hook(_) => ApiError::new(ErrorCode::InstallRefused, upper_first(&error.to_string())),
-    UnattendedError::Journal(_) | UnattendedError::Settings(_) => {
+    UnattendedError::NoHookFile | UnattendedError::OldClaudeCode(_) | UnattendedError::Hook(_) => ApiError::new(ErrorCode::InstallRefused, upper_first(&error.to_string())),
+    UnattendedError::Unhook(_) | UnattendedError::Journal(_) | UnattendedError::Lock(_) | UnattendedError::Settings(_) => {
       api_error(anyhow::Error::new(error).context(if on { "Cannot turn on Unattended Mode" } else { "Cannot turn off Unattended Mode" }))
     }
   }

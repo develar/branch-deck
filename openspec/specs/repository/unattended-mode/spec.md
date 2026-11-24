@@ -30,6 +30,7 @@ targets:
   - src/lib/main-menu.ts
   - src/hooks/useMenuSync.ts
   - src-tauri/src/menu.rs
+  - src-tauri/src/api.rs
   - crates/app-api/src/app/desktop.rs
   - src/components/settings/GeneralPage.tsx
 ---
@@ -97,6 +98,30 @@ switch; a switch to the state the mode is in MUST change nothing.
 - **THEN** it answers `invalid_arguments` and switches nothing
   [@test] crates/bd-cli/src/unattended_test.rs (`unattended_without_a_data_directory_is_refused`)
 
+### Requirement: Setting: A save that fails puts the mode back
+
+A switch whose save fails MUST put the setting back as it was and take away the hook a switch on added, so the mode, the
+settings of Claude Code and the windows agree; the next switch MUST try again.
+
+#### Scenario: A save that fails
+- **GIVEN** a settings file of the app that no save can replace
+- **WHEN** the mode is turned on twice, the file is fixed and the mode turned on, then the file breaks again and the mode is turned off
+- **THEN** each on fails with the mode off and the settings of Claude Code as they were; the on after the fix changes the mode; the off fails with the mode on and its hook in place
+  [@test] crates/app-settings/src/unattended_test.rs (`a_switch_whose_save_fails_puts_the_mode_back`)
+
+### Requirement: Setting: One switch at a time across processes
+
+A switch of the app, of `brd unattended` and the hook refresh of `brd install` MUST run one at a time across processes,
+under `unattended.lock` of the app data directory, from the read of the mode to the last write of the hook and the
+setting, never across the network, and MUST decide by the mode as the settings file has it, not as the copy of its
+writer had it: the mode in the file always has its hook.
+
+#### Scenario: Two processes switch at once
+- **GIVEN** two writers of the settings of one app data directory, the second loaded before the first turns the mode on
+- **WHEN** the second turns it off, then both switch it ten times at once, then `brd install` refreshes the hook
+- **THEN** the off finds the mode on and removes the hook; after the switches the hook is in the settings of Claude Code exactly while the mode is on in the file, and the refresh keeps it so
+  [@test] crates/app-settings/src/unattended_test.rs (`switches_of_two_processes_take_turns_and_decide_by_the_file`)
+
 ### Requirement: Hook: In the mode every permission request is denied with a way on
 
 While the mode is on, `brd hook permission-request` MUST answer every permission request of Claude Code, of the main
@@ -138,9 +163,8 @@ no git and no network.
 
 Turning the mode on MUST first add the hook to `~/.claude/settings.json`, then switch the setting; a hook that cannot be
 written (no home directory or brd, a settings file that cannot take it, a failed write) MUST keep the mode off and
-answer `install_refused` with why. Turning it off MUST switch the setting first, then remove the hook; a removal that
-fails MUST be the `warning` of the answer, the mode off all the same. A crash or a quit while the mode is on MUST leave
-the hook and the mode on.
+answer `install_refused` with why. Turning it off MUST switch the setting first, then remove the hook; a removal that fails MUST be the `warning` of
+the answer, the mode off all the same. A crash or a quit while on MUST leave the hook and the mode on.
 
 #### Scenario: On adds, off gives the file back
 - **GIVEN** settings of Claude Code with a hook of the user
@@ -163,6 +187,20 @@ the hook and the mode on.
 - **WHEN** the mode is turned off
 - **THEN** it is off, and the answer warns that the hook stayed
   [@test] crates/app-settings/src/unattended_test.rs (`a_switch_on_whose_hook_cannot_be_written_stays_off`)
+
+### Requirement: Hook: An older Claude Code keeps the mode off
+
+Turning the mode on MUST read the version of the `claude` the host finds (`claude --version`) and, older than 2.1.295
+(the exec form came with 2.1.139, `onFailure` with 2.1.295), keep the mode off and answer `install_refused`, saying to
+update Claude Code: an older one runs brd without its arguments, which denies nothing. No `claude`, or no version in its
+answer, MUST refuse nothing.
+
+#### Scenario: An older Claude Code
+- **GIVEN** a `claude` that answers `2.1.294 (Claude Code)` to `--version`
+- **WHEN** the mode is turned on
+- **THEN** it stays off, the answer says to update Claude Code to 2.1.295 or later, and the settings of Claude Code are not written; with `2.1.295` it turns on
+  [@test] crates/app-settings/src/unattended_test.rs (`a_switch_on_with_an_older_claude_code_stays_off`)
+  [@test] crates/app-settings/src/claude_hook_test.rs (`the_version_of_claude_code_is_the_first_word_of_its_answer`)
 
 ### Requirement: Journal: Each denial is one line of what was asked, never of a file
 
@@ -189,7 +227,8 @@ and a reader MUST skip a line that does not parse.
 ### Requirement: Journal: Turning the mode on starts a new list, off keeps it
 
 Turning the mode on from off MUST remove the journal of the run before, so its list starts empty; turning it off MUST
-keep the journal, so the list of the night stays readable until the mode is turned on again.
+keep the journal, so the list of the night stays readable until the mode is turned on again. An on whose journal
+cannot be removed MUST stay off, without the hook it added.
 
 #### Scenario: A night and the next
 - **GIVEN** a journal of the night before
@@ -197,6 +236,12 @@ keep the journal, so the list of the night stays readable until the mode is turn
 - **THEN** the first on empties the list, the second keeps the denial, off keeps it, the last on empties the list
   [@test] crates/app-settings/src/unattended_test.rs (`turning_the_mode_on_starts_a_new_list_and_turning_it_off_keeps_it`)
   [@test] crates/bd-cli/src/unattended_test.rs (`unattended_turns_the_mode_on_and_off_and_lists_what_the_hook_denied_since_it_was_turned_on`)
+
+#### Scenario: A journal that cannot be removed
+- **GIVEN** a journal of the run before that no removal of a file takes
+- **WHEN** the mode is turned on
+- **THEN** it stays off, and the settings of Claude Code are as they were
+  [@test] crates/app-settings/src/unattended_test.rs (`a_switch_on_whose_journal_cannot_be_removed_takes_the_hook_away`)
 
 ### Requirement: `brd`: brd unattended status lists the mode, its hook and the denials
 
@@ -213,16 +258,22 @@ journal. `on` and `off` MUST print the same, `off` with the `warning` of a remov
 ### Requirement: Hook file: An edit adds the hook once and keeps the rest of the file
 
 An addition MUST add to `hooks.PermissionRequest` of `~/.claude/settings.json` the entry `{"matcher": "*", "hooks":
-[{"type": "command", "command": "<brd>", "args": ["hook", "permission-request"], "onFailure": "continue"}]}`, creating
-the file, keep every other key, hook and value as written, in its order, and write nothing when it is there. A
-file that is no JSON object, or of `hooks` of another type, MUST be refused and stay; a blank file is an empty one, and
-a private file stays private.
+[{"type": "command", "command": "<brd>", "args": ["hook", "permission-request"], "onFailure": "continue"}]}`, alone in
+its entry, creating the file, keep every other key, hook and value as written, in order, and write nothing when it is
+there. A file that is no JSON object, or of `hooks` of another
+type, MUST be refused and stay; a blank file is empty, a private file stays private.
 
 #### Scenario: A file of the user
 - **GIVEN** a settings file with other keys, a hook of another event and another hook of `PermissionRequest`
 - **WHEN** the hook is added, then again
 - **THEN** the first adds the entry at the end of `PermissionRequest` and keeps the text of the rest; the second writes nothing
   [@test] crates/app-settings/src/claude_hook_test.rs (`an_add_writes_the_hook_once_and_keeps_every_other_key_and_hook_as_written`)
+
+#### Scenario: A hook of the user in the entry of Branch Deck
+- **GIVEN** the hook of this brd and a hook of the user in one entry
+- **WHEN** the hook is added, then removed
+- **THEN** the add writes the hook of Branch Deck into an entry of its own, and the removal takes that entry alone, the entry of the user as the add wrote it
+  [@test] crates/app-settings/src/claude_hook_test.rs (`the_hook_of_branch_deck_never_shares_an_entry_with_a_hook_of_the_user`)
 
 #### Scenario: A broken file
 - **WHEN** an edit meets an array, a cut file, or `hooks` of the wrong type
@@ -233,6 +284,30 @@ a private file stays private.
 - **WHEN** the hook is added to a file of mode 0600
 - **THEN** the file stays 0600
   [@test] crates/app-settings/src/claude_hook_test.rs (`a_private_file_stays_private`)
+
+### Requirement: Hook file: An edit keeps the layout of the file
+
+An edit MUST write the file in its own layout: the indent of its first key (spaces or a tab), on one line when it was
+one, with a final line break when it had one; a missing or blank file as Claude Code writes it, two spaces and a final
+line break.
+
+#### Scenario: The layout of the file
+- **GIVEN** a settings file of four spaces, one of tabs without a final line break, one on one line
+- **WHEN** the hook is added and removed in each, and added to a missing file
+- **THEN** each added keeps its indent, its line or its final line break, each removal gives the file back byte for byte, and the missing file is written with two spaces and a final line break
+  [@test] crates/app-settings/src/claude_hook_test.rs (`an_edit_keeps_the_layout_of_the_file`)
+
+### Requirement: Hook file: A file the user left alone comes back byte for byte
+
+A file the user did not change while the mode was on MUST come back byte for byte after the removal; one with a hook of
+the user in the entry of Branch Deck, or in no layout of one indent (`{ "model": "opus" }`, line breaks of `\r\n`), MUST
+come back as the same JSON.
+
+#### Scenario: Off gives the file back
+- **GIVEN** settings of Claude Code in the layout of Claude Code, of four spaces, of tabs, on one line
+- **WHEN** the hook is added and removed
+- **THEN** each file is what it was, byte for byte
+  [@test] crates/app-settings/src/claude_hook_test.rs (`a_removal_takes_only_the_hook_of_branch_deck_and_gives_the_file_back`, `an_edit_keeps_the_layout_of_the_file`)
 
 ### Requirement: Hook file: The hook runs brd with no shell and never blocks
 
@@ -284,14 +359,14 @@ this brd, keep the other hooks of its entry, and keep what the user added to the
 ### Requirement: Install: brd install keeps the hook as the mode has it
 
 `brd install` MUST write no hook of its own: while the mode is off it MUST remove a hook of Branch Deck an earlier
-install wrote, while it is on it MUST write the hook anew for this brd, and name the file in `hook_file` when it changed
-it; a settings file it cannot change MUST stay as it is, the `brd` command and the skills installed all the same and
-`hook_error` saying why.
+install wrote, while it is on it MUST write the hook anew for this brd, deciding by the mode in the settings file of
+the app under the lock of a switch, and name the file in `hook_file` when it changed it; a settings file it cannot
+change MUST stay as it is, the `brd` command and the skills installed all the same and `hook_error` saying why.
 
 #### Scenario: The hook of an earlier install
 - **GIVEN** the hook of an earlier install, of the shell form, beside a value of the user
-- **WHEN** `brd install` runs with the mode off, then again; then with the mode on; then `brd install --uninstall`
-- **THEN** the first removes the hook and keeps the value, the second changes nothing, the install while on writes the hook of this brd, and the uninstall removes it
+- **WHEN** `brd install` runs with the mode off, then again; then with the mode on; then `brd install --uninstall` with the mode on, then again
+- **THEN** the first removes the hook and keeps the value, the second changes nothing, the install while on writes the hook of this brd, the uninstall turns the mode off with `unattended_off: true` and removes the hook, and the second uninstall changes nothing
   [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
 
 #### Scenario: A user who never turns the mode on
@@ -305,17 +380,36 @@ it; a settings file it cannot change MUST stay as it is, the `brd` command and t
 - **THEN** it installs the `brd` command and the skills, answers `hook_error`, which names the file, and leaves the file
   [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
 
+### Requirement: Install: brd install --uninstall turns the mode off
+
+`brd install --uninstall` MUST turn the mode off through the switch of `brd unattended off`, which removes the hook,
+and answer `unattended_off` when the mode was on, so no mode stays on without its hook.
+
+#### Scenario: Uninstall while the mode is on
+- **GIVEN** the mode is on, its hook in the settings of Claude Code beside a value of the user
+- **WHEN** `brd install --uninstall` runs, then again
+- **THEN** the first answers `unattended_off: true`, the mode is off in the settings of the app and the hook is gone; the second changes nothing
+  [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
+
 ### Requirement: Install: brd install --uninstall removes only the hook of Branch Deck
 
 A removal of the hook (a switch off, `brd install` while the mode is off, `brd install --uninstall`) MUST remove the
-hooks of Branch Deck, an entry they leave empty, a `PermissionRequest` and a `hooks` they leave empty, and keep
-everything else as written; a file without such a hook MUST stay unwritten.
+hooks of Branch Deck, an entry they leave empty, a `PermissionRequest` and a `hooks` they leave empty but those the file
+had empty before the first add of the run (kept in `unattended-hook.json` of the app data directory until the removal),
+and keep everything else as written; a file without such a hook MUST stay unwritten.
 
 #### Scenario: Uninstall
 - **WHEN** the hook is removed after it was added to a file of the user
 - **THEN** the file is what it was before, byte for byte
   [@test] crates/app-settings/src/claude_hook_test.rs (`a_removal_takes_only_the_hook_of_branch_deck_and_gives_the_file_back`)
   [@test] crates/bd-cli/src/install_test.rs (`an_install_keeps_the_hook_of_unattended_mode_as_the_mode_has_it`)
+
+#### Scenario: Containers the file had empty
+- **GIVEN** settings of Claude Code with `"hooks": {}`, or `"PermissionRequest": []` alone in `hooks` or beside another event
+- **WHEN** the mode is turned on, on again by a brd that moved, then off
+- **THEN** the file comes back byte for byte with its empty containers, and the memo of the run is gone; a removal that knows nothing of them takes an emptied container, as an add made it
+  [@test] crates/app-settings/src/claude_hook_test.rs (`the_containers_the_file_had_empty_stay_after_the_removal`)
+  [@test] crates/app-settings/src/unattended_test.rs (`the_containers_the_settings_had_empty_stay_after_the_mode`)
 
 ### Requirement: App: The title bar marks the mode while it is on, and the mark turns it off
 
@@ -396,8 +490,8 @@ working directory; Escape MUST close it.
 
 The menu bar MUST hold the check item "Unattended Mode", after Settings… (the app menu of macOS, File on Windows and
 Linux, File of ☰ under a custom title bar), checked while the mode is on. Choosing it MUST switch the mode through the
-item of the palette, with its toasts and errors; the main window MUST check it for every value of the setting, from
-any surface or `brd unattended`, and a switch on that fails MUST leave it unchecked.
+item of the palette, with its toasts and errors; the main window MUST check it for every value of the setting, from any
+surface or `brd unattended`, and a switch on that fails MUST leave it unchecked.
 
 #### Scenario: The item of the native menu
 - **GIVEN** the native menu, built with the item checked as the stored mode
@@ -416,6 +510,18 @@ any surface or `brd unattended`, and a switch on that fails MUST leave it unchec
 - **THEN** the mode turns on, the item reads checked, and the mode turns off
   [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should switch the mode from Unattended Mode of the main menu of a custom title bar, checked as the mode is`)
   [@test] src/lib/main-menu.test.ts (`disables Sync with the reason of the Sync button, checks Auto-sync and Unattended Mode, offers updates in a release build`)
+
+### Requirement: App: The menu item follows the mode with no main window
+
+The native item MUST follow every change of the setting the app sends its windows, from Rust, with no main window too
+(closed while an IDE keeps the app); choosing it with no main window MUST switch the mode through the core of the
+switch itself, to the other state of the mode.
+
+#### Scenario: No main window
+- **GIVEN** the app with no main window, an IDE keeping it
+- **WHEN** the user chooses Unattended Mode, or `brd unattended` switches the mode
+- **THEN** the click switches the mode to its other state through the core, and the item follows each change of the setting
+  [@test] src-tauri/src/menu_test.rs (`a_click_of_unattended_mode_with_no_main_window_switches_the_mode_itself`, `unattended_mode_follows_each_change_of_the_setting_the_windows_get`)
 
 ## User Experience
 

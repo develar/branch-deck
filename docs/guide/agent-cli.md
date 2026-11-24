@@ -46,7 +46,8 @@ Unattended Mode in the menu bar (after Settings…), Settings → General, or `b
 it is on, the title bar of the main window reads "Unattended", and every permission request of Claude Code, of a
 session or any of its subagents, is denied with a message that nobody can approve it: the agent does the step without
 new access, or skips it, names it in its report and goes on. When the settings file is no JSON Branch Deck can add the
-hook to, the mode stays off and says why. A quit or a crash of the app leaves the mode on: the night goes on.
+hook to, or Claude Code is older than 2.1.295, which would run the hook without its arguments, the mode stays off and
+says why. A quit or a crash of the app leaves the mode on: the night goes on; `brd install --uninstall` turns it off.
 
 When you are back, click that mark to turn it off, which takes the hook out of the settings of Claude Code again. Its
 toast says how many requests were denied, and Show Denied Requests… lists each:
