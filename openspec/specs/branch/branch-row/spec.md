@@ -866,9 +866,10 @@ lacks and the fix; a branch in master or parked MUST NOT, since it lands nothing
 #### Scenario: The fix
 - **WHEN** the branch of the commit the copy lacks is not built on what lands
 - **THEN** the fix restacks the root of what lands onto that branch
-- **AND** for an unassigned commit, or a branch built on what lands, it moves the commit into the branch whose copy
-  merged the file
-  [@test] crates/domain-policy/src/regenerate_test.rs (`the_fix_restacks_the_root_onto_the_branch_of_the_commit_the_copy_lacks_else_moves_the_commit`)
+- **AND** for a branch built on what lands it is the Safe Push of that branch, when it is built on the branch whose
+  copy merged the file, else of the whole stack: it lands both, never a move
+- **AND** for an unassigned commit it groups the commit into the branch whose copy merged the file
+  [@test] crates/domain-policy/src/regenerate_test.rs (`the_fix_restacks_the_root_onto_the_branch_of_the_commit_the_copy_lacks_else_starts_what_lands_both_or_groups_the_commit`)
 
 #### Scenario: A branch in master or parked
 - **WHEN** the branch is in master, by the baseline, a Safe Push of another branch or its own merged robot, or parked

@@ -1,5 +1,6 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
 import { useStore } from "zustand"
+import { moveCommits } from "@/hooks/useMoveCommits"
 import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { getRowOperation, useRowOperation } from "@/hooks/useRowOperation"
 import { requestLandingFix, requestSafePush } from "@/hooks/useSafePush"
@@ -101,9 +102,17 @@ export interface StepInputs {
   readonly words: OperationWords
 }
 
-/** The robot the step of a subject restarts (rows 2 and 3, or a restart disabled while Patronus didn't tell why it failed) */
+/**
+ * The robot the step of a subject restarts (rows 2 and 3, or a restart disabled while Patronus didn't tell why it
+ * failed; row 1′ the failed robot of the branch its first need is of)
+ */
 function restartedRobotOf(step: NextStep | undefined): string | null {
   const kind = step?.kind
+  if (kind?.kind === "needsBranch") {
+    // row 1′ of a branch whose needed branch's robot failed: "Restart util" restarts that robot
+    const [edge] = kind.edges
+    return edge?.state.kind === "neededFailed" ? edge.state.robot.robotId : null
+  }
   return kind?.kind === "restart" || kind?.kind === "unavailable" ? kind.robotId : null
 }
 
@@ -181,6 +190,13 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     },
     // the fix runs on fresh landing needs, while they still ask for it: the engine decides it (`RewriteIntent.fixes`)
     fixLanding: refusal => requestLandingFix(key, refusal),
+    startSubject: subject => void requestSafePush(subject.kind === "branch" ? subject.name : stackReadinessKey(subject.root), { mode: "rebaseAutosquash", via: "click" }),
+    groupCommit: (commitId, into) => {
+      const commit = branchSyncStore.getState().unassignedCommits.find(it => it.originalHash === commitId)
+      if (commit !== undefined) {
+        void moveCommits([commit], into)
+      }
+    },
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),

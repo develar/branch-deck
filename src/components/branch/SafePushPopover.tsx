@@ -19,6 +19,8 @@ import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { getSafePushRequestReviewItem } from "@/hooks/useBranchContextActions"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
@@ -33,7 +35,19 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { getWholeStackStartItems } from "@/hooks/useWholeStackActions"
-import type { Commit, Confirmation, GitHubUser, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit, Unchecked } from "@/lib/bindings"
+import type {
+  Commit,
+  Confirmation,
+  GitHubUser,
+  LandingEdge,
+  LandProfiles,
+  PatronusReviewRequirement,
+  Person,
+  PullRequest,
+  ReviewReadiness,
+  StackCommit,
+  Unchecked,
+} from "@/lib/bindings"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -44,6 +58,7 @@ import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
 import { describeStackLanding } from "@/lib/patronus-stack"
+import { sameJson } from "@/lib/record"
 import { toReviewGroups } from "@/lib/review-groups"
 import { openBranchReviewWindow, openWholeStackReviewWindow } from "@/lib/review-window"
 import { openSettings } from "@/lib/settings-window"
@@ -59,7 +74,7 @@ import {
 import { useRowPart } from "@/model/store"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { LandingRefused } from "@/presenters/landing"
-import { describeLandingRefusals, describeRegenerate, formatLandingFix } from "@/presenters/landing"
+import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
 import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
@@ -133,7 +148,11 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   useIndicatorClaim(surface)
   const busy = useRowBusy(branchName)
   const startRef = useRef<HTMLButtonElement>(null)
+  const fixRef = useRef<HTMLButtonElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  // the edges of its needs as the step of the row has them (`LandingEdge`): the headline of a refusal, and whether every
+  // one waits for a running Safe Push (`afterLanding`), whose start beside it fails: Start Anyway goes into "⋯" then
+  const needs = useRowPart(branchName, "landing", view => edgesOfStep(view?.step.kind), sameJson)
 
   // the stack graph shows what the start of a branch lands while the popover is open; the whole stack is all of it
   useEffect(() => {
@@ -146,6 +165,18 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
 
   const decision = read?.prompt ?? { kind: "wait" as const, what: `Reading ${subject}…` }
   const canStart = (decision.kind === "start" || decision.kind === "confirm") && busy === null
+  // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
+  // anyway
+  const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
+  const landingRefused = describeLandingRefusals(landingRefusals, subject)
+  const refused = landingRefused !== null
+  // Start Anyway of a start that waits for the landing of what it needs: in "⋯", as it fails beside that robot
+  const waits = refused && needs.waits
+  // a refused start focuses its fix, never Start Anyway: read when Base UI moves the focus in
+  const refusedRef = useRef(refused)
+  useEffect(() => {
+    refusedRef.current = refused
+  }, [refused])
   // a start enabled later (its facts loaded): Enter starts it, unless the user moved to a control of the popover; after
   // the frame in which Base UI moves the focus into the popup, which it does after the first effects
   const canStartRef = useRef(canStart)
@@ -158,11 +189,13 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
       const active = document.activeElement
       const popup = popupRef.current
       if (popup !== null && (active === popup || active === document.body || active === null || !popup.contains(active))) {
-        startRef.current?.focus()
+        // a refused start offers its fix first, never Start Anyway
+        const preferred = refused ? fixRef.current : startRef.current
+        preferred?.focus()
       }
     })
     return () => cancelAnimationFrame(frame)
-  }, [canStart])
+  }, [canStart, refused])
 
   const answered = independence.state.status === "loaded" ? independence.state.independence : null
   const neededCommits = answered?.kind === "needs" ? answered.parentCommits : []
@@ -175,10 +208,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // a merge of the pull request on GitHub (Merge #7, Auto-Merge #7): its words, not a push's
   const merge = read?.plan == null ? null : mergeOf(read.plan.effects)
   const modeName = merge !== null ? formatMergeLabel(merge.number, merge.auto) : byPush ? `Push to ${target}` : formatPushMode(mode)
-  // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
-  // anyway
-  const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
-  const landingRefused = describeLandingRefusals(landingRefusals, subject)
+
   const close = () => closeSafePushPopover(branchName)
   const start = () => {
     if (read?.plan == null || !canStart) {
@@ -235,15 +265,15 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         align="end"
         collisionPadding={16}
         className="w-[28rem] max-w-[calc(100vw-2rem)] gap-3 p-3"
-        // read when Base UI moves the focus in, which may be after the facts loaded
-        initialFocus={() => (canStartRef.current ? startRef.current : popupRef.current)}
+        // read when Base UI moves the focus in, which may be after the facts loaded; a refused start focuses its fix
+        initialFocus={() => (refusedRef.current ? (fixRef.current ?? popupRef.current) : canStartRef.current ? startRef.current : popupRef.current)}
         aria-label={merge !== null ? `${modeName} of ${subject}` : byPush ? `Push of ${subject} into ${target}` : `${modeName} of ${subject}`}
         data-testid="safe-push-popover"
         data-mode={mode}
         data-decision={decision.kind}
         onKeyDown={event => {
-          // Enter on the popup itself (not on a control) starts, as the focused start does
-          if (event.key === "Enter" && event.target === popupRef.current) {
+          // Enter on the popup itself (not on a control) starts, as the focused start does; never Start Anyway
+          if (event.key === "Enter" && event.target === popupRef.current && landingRefused === null) {
             event.preventDefault()
             start()
           }
@@ -253,7 +283,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         <h2 className="text-sm font-medium" data-testid="safe-push-lands">
           {merges ?? title}
         </h2>
-        {landingRefused !== null && <LandingNeedsLine refused={landingRefused} disabled={busy !== null} surface={surface} />}
+        {landingRefused !== null && <LandingNeedsLine refused={landingRefused} edge={needs.edge} waits={waits} disabled={busy !== null} surface={surface} fixRef={fixRef} />}
         {show && candidates !== null && (
           <ShowReviewersField branchName={branchName} target={target} candidates={candidates} reviewers={reviewers} onChange={setPicked} disabled={busy !== null} author={null} />
         )}
@@ -280,29 +310,105 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           <Button size="xs" variant="ghost" onClick={close}>
             Cancel
           </Button>
-          <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled onClick={start} data-testid="safe-push-start">
-            {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : byPush ? <GitMergeIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
-            {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : show ? "Safe Push and Request Review" : modeName}
-          </Button>
+          {waits ? (
+            <MoreActionsMenu
+              name={`the ${modeName} of ${subject}`}
+              // the items as they are now, never a snapshot of the open: the start is enabled once its plan loaded
+              menu={
+                <DropdownMenuItems
+                  groups={[
+                    [
+                      {
+                        id: "start-anyway",
+                        label: "Start Anyway",
+                        icon: ShieldCheckIcon,
+                        disabled: !canStart,
+                        description: `Starts beside the Safe Push of ${needs.edge?.needed ?? "what it needs"}, which fails without this start`,
+                        onSelect: start,
+                      },
+                    ],
+                  ]}
+                />
+              }
+            />
+          ) : (
+            <Button
+              ref={startRef}
+              size="xs"
+              variant={landingRefused !== null ? "outline" : "default"}
+              disabled={!canStart}
+              focusableWhenDisabled
+              onClick={start}
+              data-testid="safe-push-start"
+            >
+              {mode === "dryRun" ? (
+                <FlaskConicalIcon data-icon="inline-start" />
+              ) : byPush ? (
+                <GitMergeIcon data-icon="inline-start" />
+              ) : (
+                <ShieldCheckIcon data-icon="inline-start" />
+              )}
+              {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : show ? "Safe Push and Request Review" : modeName}
+            </Button>
+          )}
         </div>
       </PopoverContent>
     </Popover>
   )
 }
 
+/** The first edge of the needs of a step and whether every one waits (`afterLanding`); none of another step */
+function edgesOfStep(kind: { readonly kind: string; readonly edges?: readonly LandingEdge[] } | undefined): { readonly edge: LandingEdge | null; readonly waits: boolean } {
+  const edges = kind?.kind === "afterLanding" || kind?.kind === "needsBranch" ? (kind.edges ?? []) : []
+  return { edge: edges[0] ?? null, waits: kind?.kind === "afterLanding" }
+}
+
 /**
- * Why the build of what the start lands fails (`describeLandingRefusals` of the landing needs): the name a branch
- * outside it adds, with the fix as a button ("Stack lane-run on stills-codec"), which restacks and leaves the popover
- * open to read the start again; the start below is Start Anyway
+ * Why the build of what the start lands fails: a headline of one line, the first edge of the needs ("Uses 5 names of
+ * acp-load-replay in acp_load_replay.rs", "Lands after acp-load-replay" while it waits), then the detail, wrapped:
+ * the gate's sentence (`describeLandingRefusals`), of a wait the edge's; the fix as a button ("Stack lane-run on
+ * stills-codec"), which restacks and leaves the popover open to read the start again, and takes the focus; Start Anyway
+ * stays below, in "⋯" of a wait
  */
-function LandingNeedsLine({ refused, disabled, surface }: { refused: LandingRefused; disabled: boolean; surface: string }) {
+function LandingNeedsLine({
+  refused,
+  edge,
+  waits,
+  disabled,
+  surface,
+  fixRef,
+}: {
+  refused: LandingRefused
+  edge: LandingEdge | null
+  waits: boolean
+  disabled: boolean
+  surface: string
+  fixRef: RefObject<HTMLButtonElement | null>
+}) {
   const fix = refused.fix
   const label = formatLandingFix(fix)
+  const headline = edge === null ? null : waits ? formatLandsAfter(edge.needed, false) : describeEdgeEvidence(edge)
+  const detail = waits && edge !== null ? describeEdge(edge) : refused.reason
   return (
-    <div className="flex flex-col items-start gap-1.5" data-testid="safe-push-landing-needs">
-      <Line tone="warning">{refused.reason}</Line>
-      {fix?.kind === "restack" && label !== null && (
-        <Button size="xs" variant="outline" disabled={disabled} onClick={() => void restackBranch(fix.branch, fix.onto, { surface })} data-testid="safe-push-landing-fix">
+    <div className="flex flex-col gap-1.5" data-testid="safe-push-landing-needs" data-waits={waits ? "true" : undefined}>
+      {headline !== null && (
+        <Line tone={waits ? "info" : "warning"} testId="safe-push-landing-headline" oneLine>
+          {headline}
+        </Line>
+      )}
+      <Line tone={headline === null ? "warning" : "muted"} testId="safe-push-landing-detail">
+        {detail}
+      </Line>
+      {!waits && fix?.kind === "restack" && label !== null && (
+        <Button
+          ref={fixRef}
+          size="xs"
+          variant="outline"
+          className="self-start"
+          disabled={disabled}
+          onClick={() => void restackBranch(fix.branch, fix.onto, { surface })}
+          data-testid="safe-push-landing-fix"
+        >
           <Layers2Icon data-icon="inline-start" />
           {label}
         </Button>
@@ -311,8 +417,21 @@ function LandingNeedsLine({ refused, disabled, surface }: { refused: LandingRefu
   )
 }
 
-/** A line of the popover: muted by default, `warning` or `info` with its icon */
-function Line({ tone = "muted", testId, children }: { tone?: "muted" | "plain" | "warning" | "info" | "success"; testId?: string; children: ReactNode }) {
+/**
+ * A line of the popover: muted by default, `warning` or `info` with its icon; its text wraps anywhere (a long path, a
+ * branch name), never past the popover; `oneLine` cuts it to one line, its whole text in the hover
+ */
+function Line({
+  tone = "muted",
+  testId,
+  oneLine = false,
+  children,
+}: {
+  tone?: "muted" | "plain" | "warning" | "info" | "success"
+  testId?: string
+  oneLine?: boolean
+  children: ReactNode
+}) {
   const icon =
     tone === "warning" ? (
       <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
@@ -324,7 +443,9 @@ function Line({ tone = "muted", testId, children }: { tone?: "muted" | "plain" |
   return (
     <p className={cn("flex items-start gap-1.5", tone === "warning" ? "text-warning" : tone === "plain" ? "text-foreground" : "text-muted-foreground")} data-testid={testId}>
       {icon}
-      <span>{children}</span>
+      <span className={cn("min-w-0 [overflow-wrap:anywhere]", oneLine && "truncate")} title={oneLine && typeof children === "string" ? children : undefined}>
+        {children}
+      </span>
     </p>
   )
 }

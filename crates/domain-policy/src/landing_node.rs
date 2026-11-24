@@ -15,7 +15,7 @@
 //! (`merge_held`) a fix, the user's step or a wait.
 
 use crate::land::merges_on_github;
-use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, next_step, problems_failed, problems_pending};
+use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, after_landing, changes_requested_by, next_step, problems_failed, problems_pending};
 use crate::own_facts::{OwnFacts, own_facts};
 use crate::readiness::waiting_reviewers;
 use domain_types::conflict::RegenerateFile;
@@ -184,6 +184,16 @@ fn first_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> LandingNode {
     return without_patronus(facts);
   }
   let finished = matches!(slot, Slot::Finished(_)) && !step.landing_part;
+  // its start lands after the running Safe Push of what it needs: a failed robot of its own restarts after it too, and
+  // nothing is the user's move until then
+  if let Needs::Known(refusals) = step.needs
+    && after_landing(&step, refusals).is_some()
+  {
+    let step = next_step(&StepFacts { start: None, ..step });
+    if matches!(step.kind, StepKind::AfterLanding { .. }) {
+      return node(LandingNodeKind::Waiting, NodeLabel::Step { step: Box::new(step) });
+    }
+  }
   // why the robot failed decides whether a restart helps: the node waits for it, after the facts the step waits for
   // first (the pull requests, the landing needs)
   if problems_pending(step.robot) && !matches!(step.listing, Listing::Loading) && !matches!(step.needs, Needs::Computing) {
@@ -230,7 +240,9 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
       }
     }
     StepKind::ChangesRequested { .. } | StepKind::ChangesRequestedUnjudged { .. } => LandingNodeKind::NeedsFix,
-    StepKind::OtherBase { .. } | StepKind::Awaiting { .. } | StepKind::AwaitingUnjudged { .. } | StepKind::Settled | StepKind::Hidden => LandingNodeKind::Waiting,
+    StepKind::OtherBase { .. } | StepKind::Awaiting { .. } | StepKind::AwaitingUnjudged { .. } | StepKind::AfterLanding { .. } | StepKind::Settled | StepKind::Hidden => {
+      LandingNodeKind::Waiting
+    }
     // nobody knows yet whether it can land: never a node that a later answer turns into another
     StepKind::Pending { .. } | StepKind::Unavailable { .. } => return waits(NodeLabel::Step { step: Box::new(step) }),
   };

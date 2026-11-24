@@ -27,8 +27,8 @@ fn file(lacks: Option<StackCommit>) -> RegenerateFile {
 
 /// The table of the fix: the branch of the commit the copy lacks, and what it is built on
 #[test]
-fn the_fix_restacks_the_root_onto_the_branch_of_the_commit_the_copy_lacks_else_moves_the_commit() {
-  let parents: HashMap<&str, Vec<&str>> = HashMap::from([("core", vec![]), ("ui", vec!["feature"]), ("feature", vec!["base"])]);
+fn the_fix_restacks_the_root_onto_the_branch_of_the_commit_the_copy_lacks_else_starts_what_lands_both_or_groups_the_commit() {
+  let parents: HashMap<&str, Vec<&str>> = HashMap::from([("core", vec![]), ("ui", vec!["feature", "base"]), ("feature", vec!["base"]), ("side", vec!["base"])]);
   let ancestors = |branch: &str| parents.get(branch).cloned().unwrap_or_default();
   let lands = ["base", "feature"];
   let cases = [
@@ -40,15 +40,16 @@ fn the_fix_restacks_the_root_onto_the_branch_of_the_commit_the_copy_lacks_else_m
         onto: "core".to_string(),
       }),
     ),
-    // a branch built on what lands: a restack would close a cycle, the commit moves into the branch that needs it
+    // a branch built on the branch itself: a restack would close a cycle, its own Safe Push lands both
+    (Some(commit("a1", "ui")), Some(LandingFix::Start { subject: Subject::branch("ui") })),
+    // a branch built on the root only: the whole stack lands both
     (
-      Some(commit("a1", "ui")),
-      Some(LandingFix::MoveCommit {
-        commit: commit("a1", "ui"),
-        into: "feature".to_string(),
+      Some(commit("a1", "side")),
+      Some(LandingFix::Start {
+        subject: Subject::whole_stack("base"),
       }),
     ),
-    // an unassigned commit moves
+    // an unassigned commit is grouped into the branch that needs it
     (
       Some(commit("a1", "")),
       Some(LandingFix::MoveCommit {

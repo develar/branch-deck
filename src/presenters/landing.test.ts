@@ -54,7 +54,7 @@ describe("describeLandingRefusals", () => {
     const decision = describeLandingRefusals([unassigned, dangling, MISSING], "the whole air stack", { allowDangling: true })
     expect(decision).toEqual({
       reason:
-        "“IJAI-4382 lane-run shows each scenario” of lane-run uses StillEncoding (avl-guest/src/lane/build_log/tests.rs:7), which ecebf000 (“IJAI-4382 the bundle manifest names lossy stills”, unassigned) adds: git merges it, but the build of the whole air stack fails. Move ecebf000 into lane-run. 2 more names break it too: brd check lists them.",
+        "“IJAI-4382 lane-run shows each scenario” of lane-run uses StillEncoding (avl-guest/src/lane/build_log/tests.rs:7), which ecebf000 (“IJAI-4382 the bundle manifest names lossy stills”, unassigned) adds: git merges it, but the build of the whole air stack fails. Group ecebf000 into lane-run. 2 more names break it too.",
       fix: unassigned.fix,
       anyway: { allowDangling: true, allowMissing: true, allowUnlanded: false },
       refusals: [unassigned, dangling, MISSING],
@@ -119,7 +119,7 @@ describe("describeLandingRefusals", () => {
     const inherited: LandingRefusal = { ...DECLARED_DOCS, branch: "ui", inheritedFrom: "auth", fix: { kind: "unstack", branch: "ui", from: "auth" } }
     const decision = describeLandingRefusals([inherited, DECLARED_DOCS, MISSING], "ui")
     expect(decision?.reason).toBe(
-      "You declared that docs lands before auth: it is not in master yet, so a start of ui lands them out of order. ui is built on auth, which needs it: they land in one robot. Unstack ui from auth to land it alone. One more name breaks it too: brd check lists them. One more declared need holds it back too.",
+      "You declared that docs lands before auth: it is not in master yet, so a start of ui lands them out of order. ui is built on auth, which needs it: they land in one robot. Unstack ui from auth to land it alone. One more name breaks it too. One more declared need holds it back too.",
     )
     expect(decision?.fix).toEqual({ kind: "unstack", branch: "ui", from: "auth" })
     expect(decision?.anyway).toEqual({ allowDangling: false, allowMissing: true, allowUnlanded: true })

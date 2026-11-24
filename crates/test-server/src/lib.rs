@@ -620,6 +620,8 @@ pub enum RepositoryTemplate {
   UpdateLostBindings,
   #[serde(rename = "landed_upstream")]
   LandedUpstream,
+  #[serde(rename = "landed_need")]
+  LandedNeed,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "empty_git")]
@@ -697,6 +699,7 @@ impl RepositoryTemplate {
       Self::UpdateBlocked => "update_blocked",
       Self::UpdateLostBindings => "update_lost_bindings",
       Self::LandedUpstream => "landed_upstream",
+      Self::LandedNeed => "landed_need",
       Self::EmptyNonGit => "empty-non-git",
       Self::EmptyGit => "empty_git",
       Self::Bare => "bare",

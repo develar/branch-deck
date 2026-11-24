@@ -340,8 +340,10 @@ pub struct LandingNeed {
   pub inherited_from: Option<String>,
   /// Why it is refused, in one sentence
   pub reason: String,
-  /// What lands it with the branch: `brd restack <root> <branch>` (ask the user first), else `move <commit> into
-  /// <branch>`; of a declared need `brd unstack <branch>`, and nothing but its landing for a need of its own
+  /// What lands it with the branch: `brd restack <root> <branch>` (ask the user first); `move <commit> into <branch>` of
+  /// an unassigned commit; `brd safe-push <branch>` (`--whole-stack`) where the branch it needs is built on what lands,
+  /// whose start lands both; of a declared need `brd unstack <branch>`, and nothing but its landing for a need of its
+  /// own
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fix: Option<String>,
   /// The robot id of the running Safe Push that lands `needs_branch`: it tests that branch without this one, so a start
@@ -376,12 +378,18 @@ impl LandingNeed {
         LandingFix::Restack { branch, onto } => format!("{} restack {branch} {onto}", context.bd),
         LandingFix::MoveCommit { commit, into } => format!("move {} into {into}", short.get(&commit.id)),
         LandingFix::Unstack { branch, .. } => format!("{} unstack {branch}", context.bd),
+        LandingFix::Start { subject } => start_command(context, subject),
       }),
-      landing_in: match refusal {
-        LandingRefusal::MissingDeclaration { landing_in, .. } | LandingRefusal::UnlandedNeed { landing_in, .. } => landing_in.as_ref().map(|robot| robot.robot_id.clone()),
-        LandingRefusal::DanglingReference { .. } | LandingRefusal::LostBinding { .. } => None,
-      },
+      landing_in: refusal.landing_in().map(|robot| robot.robot_id.clone()),
     }
+  }
+}
+
+/// `brd safe-push <branch>`, `--whole-stack` of the whole stack of a root: the start of a cycle's fix (`LandingFix::Start`)
+fn start_command(context: &RepoContext, subject: &Subject) -> String {
+  match subject {
+    Subject::Branch { name } => format!("{} safe-push {name}", context.bd),
+    Subject::WholeStack { root } => format!("{} safe-push {root} --whole-stack", context.bd),
   }
 }
 

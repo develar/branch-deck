@@ -1,8 +1,9 @@
 use crate::facts::RemoteBranch;
+use crate::landing_edges::edges_of;
 use crate::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot, whole_stack_robot_of};
-use domain_types::landing::{Landed, LandedBy, LandingFix, LandingRefusal, NeedState, Subject};
+use domain_types::landing::{Landed, LandedBy, LandingEdge, LandingFix, LandingRefusal, NeedState, Subject};
 use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
@@ -13,7 +14,7 @@ use domain_types::pull_request::{
   MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
 };
 use domain_types::reason::Reason;
-use domain_types::repository_view::LandingNeeds;
+use domain_types::repository_view::{LandingNeeds, RobotOf};
 use domain_types::session::{Fact, FactState, Parked, RobotsHead, SubjectReadiness};
 use pretty_assertions::assert_eq;
 
@@ -56,6 +57,8 @@ pub(crate) struct Fixture {
   pub route: LandingRoute,
   /// The merge methods the repository allows
   pub merge_methods: Option<MergeMethods>,
+  /// The edges of `needs`, as the session derives them (`landing_edges::edges_of`): `with` derives them again
+  pub edges: Vec<LandingEdge>,
 }
 
 pub(crate) fn fresh<T>(value: T) -> Fact<T> {
@@ -127,6 +130,7 @@ impl Fixture {
       lands: 2,
       route: LandingRoute::Patronus { gate: RouteGate::Open },
       merge_methods: None,
+      edges: Vec::new(),
     }
   }
 
@@ -174,6 +178,7 @@ impl Fixture {
       target: "master",
       merge_methods: self.merge_methods,
       needs: Needs::of(self.needs.as_ref(), &self.needs_state),
+      edges: &self.edges,
       readiness: self.readiness.as_ref(),
       stack_pull_request: self.stack_pull_request.as_ref(),
       repository: self.repository,
@@ -189,6 +194,10 @@ impl Fixture {
 
   pub(crate) fn with(mut self, change: impl FnOnce(&mut Self)) -> Self {
     change(&mut self);
+    self.edges = match &self.needs {
+      Some(LandingNeeds::Known { refusals }) => edges_of(self.subject.name(), self.subject.name(), refusals, |_| None),
+      _ => Vec::new(),
+    };
     self
   }
 
@@ -687,8 +696,60 @@ fn row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_sta
   });
   let kind = StepKind::NeedsBranch {
     refusals: vec![missing_declaration()],
+    edges: edges_of("auth", "auth", &[missing_declaration()], |_| None),
   };
   assert_eq!(shape(&needs.step()), (StepRow::OnePrime, kind, None, None));
+}
+
+/// Row 1′ while every edge of the needs waits for a running Safe Push of what it needs: the start lands after it, a
+/// wait whose status says it ("Lands after codec"), the Safe Push enabled (its popover starts anyway from "⋯"); its own
+/// failed robot restarts after it too. An edge that doesn't wait, or a lost binding beside, keeps the need
+#[test]
+fn row_1_prime_waits_while_every_need_is_landing_in_a_running_safe_push() {
+  let codec = RobotOf {
+    branch: "codec".to_string(),
+    robot_id: "robot-codec".to_string(),
+    whole_stack: false,
+  };
+  let landing = |mut refusal: LandingRefusal| {
+    if let LandingRefusal::MissingDeclaration { landing_in, .. } = &mut refusal {
+      *landing_in = Some(codec.clone());
+    }
+    refusal
+  };
+  let refusals = vec![landing(missing_declaration())];
+  let waits = Fixture::branch().with(|it| it.needs = Some(LandingNeeds::Known { refusals: refusals.clone() }));
+  let after = |restart: Option<&str>| StepKind::AfterLanding {
+    needed: "codec".to_string(),
+    robot: codec.clone(),
+    edges: edges_of("auth", "auth", &refusals, |_| None),
+    restart: restart.map(str::to_string),
+  };
+  let step = waits.step();
+  assert_eq!(shape(&step), (StepRow::OnePrime, after(None), None, None));
+  assert!(step.wait, "a wait: the status says it, the slot shows none");
+  // its own robot failed: the restart waits for that landing too
+  let failed = waits.with(|it| it.robot = Some((robot_on_tip(PatronusRobotStatus::Failure), Some(false), None, true)));
+  assert_eq!(failed.step().kind, after(Some("r1")));
+  // a second need nothing lands: the need, not the wait
+  let open = Fixture::branch().with(|it| {
+    it.needs = Some(LandingNeeds::Known {
+      refusals: vec![landing(missing_declaration()), missing_declaration_of("other")],
+    });
+  });
+  assert!(matches!(open.step().kind, StepKind::NeedsBranch { .. }));
+}
+
+fn missing_declaration_of(branch: &str) -> LandingRefusal {
+  let mut refusal = missing_declaration();
+  if let LandingRefusal::MissingDeclaration { declared_by, fix, .. } = &mut refusal {
+    *declared_by = stack_commit("c8", "Add the other", branch);
+    *fix = LandingFix::Restack {
+      branch: "auth".to_string(),
+      onto: branch.to_string(),
+    };
+  }
+  refusal
 }
 
 /// The needs of tips that moved on the same baseline (`FactState::Stale` without a reason): the answer before stands for
@@ -725,7 +786,10 @@ fn row_1_prime_names_a_declared_need_before_any_answer_and_after_a_reason_of_the
     fix: None,
     landing_in: None,
   };
-  let kind = StepKind::NeedsBranch { refusals: vec![declared.clone()] };
+  let kind = StepKind::NeedsBranch {
+    refusals: vec![declared.clone()],
+    edges: edges_of("auth", "auth", std::slice::from_ref(&declared), |_| None),
+  };
   let with_need = |it: &mut Fixture| it.needs = Some(LandingNeeds::Known { refusals: vec![declared.clone()] });
 
   let before_patronus = Fixture::branch().with(with_need).with(|it| it.robots_head = Fact::default());

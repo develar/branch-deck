@@ -356,7 +356,8 @@ what they listed.
   `landing_in`, the robot of the running Safe Push that lands `needs_branch` (its robot tests that branch without this
   one). A branch built on one that needs a branch needs it too. `[]`: nothing; absent off Space, with `--brief` and
   when the check can't run, which is unknown, not nothing. Show the user the need and the fix; restack only after they
-  approve.
+  approve. While every need of a branch is landing in a running Safe Push, its `next_step.step` is `after_landing`
+  with `lands_after` (`branch`, `robot_id`, `restart`): it lands after that robot, as a start beside it fails.
 
   ```json
   "landing_needs":[{"code":"missing_declaration","identifier":"Stills","at":"lane/src/BuildLog.kt:3",
@@ -2043,7 +2044,8 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   the landing stack is none). The landing gate (`trial_check::landing_gate`, the same rule as the app's start) checks it
   in the trial session of the dangling references. The message names the use, the commit that adds the name with its
   branch, and the fix: `brd restack <root> <branch>` lands that branch too (after the user approves); with stacked
-  branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--dry-run` lists it in
+  branches off or an unassigned commit, the commit to move; where that branch is built on what lands, the start that
+  lands both (`brd safe-push <branch>`, `--whole-stack`). `--dry-run` lists it in
   `refusals`; `--allow-missing` starts anyway, when the user says it is a false alarm.
 - `generated_merged_by_words` (exit 4, nothing pushed or started, also in `refusals`): the copy that lands (of a
   branch, with the copies of the branches it is built on; of a whole stack, its stack branch) holds a generated file

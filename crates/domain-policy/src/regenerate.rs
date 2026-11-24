@@ -4,8 +4,9 @@
 //! asks first"; docs/design/git-operations.md, "Resolve by words"). A sync resolves a conflict in a generated file by
 //! words (`sync_core::regenerate`): the copy is clean as text, but its file is no output of its generator, which only
 //! the copy has (the user's tree has the commit the copy lacks). What clears it gives the copy that commit: a stack of
-//! the root of what lands onto its branch, or the move of the commit, unless it lands first; a later commit of the branch
-//! that writes the file also does.
+//! the root of what lands onto its branch, the start of what lands both where that branch is built on what lands, or
+//! the group of an unassigned commit, unless it lands first; a later commit of the branch that writes the file also
+//! does.
 //!
 //! - `row_fact`: what the Status cell says of it, none for a branch in master or parked, which lands nothing
 //! - `fix_of`: the fix of the first file whose copy lacks a commit (`LandingFix::for_need`)
@@ -27,15 +28,16 @@ pub fn row_fact(files: &[RegenerateFile], fix: Option<&LandingFix>, landed: bool
 
 /// How what lands from `root` (`lands`: the branches it lands, the root first) gives the copy the commit it lacks, of the
 /// first of `files` whose copy lacks one: a restack of the root onto the branch of that commit, unless that branch is
-/// built on what lands (`ancestors_of`: the branches a branch is built on), then the move of the commit into the branch
-/// whose copy merged the file. None when no copy lacks a known commit
+/// built on what lands (`ancestors_of`: the branches a branch is built on), then the start of that branch or of the
+/// whole stack, which lands both (`LandingFix::cycle_start`); the group of an unassigned commit into the branch whose
+/// copy merged the file. None when no copy lacks a known commit
 #[must_use]
 pub fn fix_of<'a>(files: &[RegenerateFile], root: &str, lands: &[&str], ancestors_of: impl Fn(&str) -> Vec<&'a str>) -> Option<LandingFix> {
   files.iter().find_map(|file| {
     let lacks = file.lacks.as_ref()?;
     let onto = lacks.branch.as_str();
-    let built_on_lands = !onto.is_empty() && ancestors_of(onto).iter().any(|ancestor| lands.contains(ancestor));
-    Some(LandingFix::for_need(lacks, &file.commit.branch, root, built_on_lands))
+    let cycle = LandingFix::cycle_start(onto, &ancestors_of(onto), lands);
+    Some(LandingFix::for_need(lacks, &file.commit.branch, root, cycle))
   })
 }
 

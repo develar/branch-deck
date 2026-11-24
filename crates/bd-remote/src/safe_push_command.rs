@@ -1295,6 +1295,11 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
     ),
     LandingFix::MoveCommit { commit, into } => format!("Move {} into {into}", short.get(&commit.id)),
     LandingFix::Unstack { branch, from } => format!("`{} unstack {branch}` lands it without {from}", context.bd),
+    LandingFix::Start { subject } => format!(
+      "{} is built on what lands: `{}` lands both",
+      declared_by.branch,
+      safe_push_again(context, subject.name(), subject.is_whole_stack())
+    ),
   };
   let more = match missing.len() - 1 {
     0 => String::new(),

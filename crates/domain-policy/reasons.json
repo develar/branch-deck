@@ -290,14 +290,13 @@
         "branch": "acp"
       },
       "fix": {
-        "kind": "moveCommit",
-        "commit": {
-          "id": "f1",
-          "subject": "Read the url",
-          "branch": "acp"
-        },
-        "into": "fake-agent"
-      }
+        "kind": "start",
+        "subject": {
+          "kind": "branch",
+          "name": "acp"
+        }
+      },
+      "landingIn": null
     }
   },
   {

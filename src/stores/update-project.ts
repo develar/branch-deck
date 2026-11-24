@@ -13,6 +13,7 @@ import { notifyError } from "@/lib/errors"
 import type { EventToastState } from "@/lib/event-toast"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { appliedUpdateToast } from "@/lib/landed"
+import { takeStartAfterMerge } from "@/lib/merge-dependents"
 import { showToast } from "@/lib/toast-message"
 import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
@@ -288,7 +289,9 @@ function tellUpdate(repositoryPath: string, result: UpdateProjectResult): void {
     case "clean":
       if (applied !== null) {
         setBaselineUpdate(repositoryPath, { ...check, head: applied.newHead, state: { status: "upToDate" } })
-        showUpdateToast(repositoryPath, { type: "success", ...appliedUpdateToast(check, applied, landed, keptLostBindings) })
+        // a start that waited for a merge this update landed: the toast of the merge, in place, offers it
+        const start = landed.length > 0 ? takeStartAfterMerge(repositoryPath) : null
+        showUpdateToast(repositoryPath, { type: "success", ...appliedUpdateToast(check, applied, landed, keptLostBindings), ...(start !== null && { action: start }) })
         // the island of what landed shows at once, the sync that follows confirms it
         addLandedUpdate(repositoryPath, landed, check.upstream)
       }

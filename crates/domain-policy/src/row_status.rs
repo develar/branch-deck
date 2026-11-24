@@ -12,13 +12,14 @@
 //!
 //! A wait is a state (`StepKind::is_wait`: the reviewers, a draft, changes requested, the merge of GitHub): where no own
 //! fact says more, the cell says the step, and the slot of the actions shows none ("Status says, Actions do",
-//! docs/contributing/ux-writing.md). It comes before a finished robot that covers nothing, never beside another fact.
+//! docs/contributing/ux-writing.md). It comes before a finished robot that covers nothing, never beside another fact; the
+//! landing of what its start needs (`StepKind::AfterLanding`) comes before its failed robot too, whose restart waits.
 
 use crate::landing_node::NodeFacts;
 use crate::next_step::{Chip, Slot, next_step};
 use crate::own_facts::own_facts;
 use crate::regenerate;
-use domain_types::next_step::{RowFact, RowStatus};
+use domain_types::next_step::{RowFact, RowStatus, StepKind};
 
 /// The Status cell of the branch of `facts`
 #[must_use]
@@ -60,7 +61,10 @@ pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
   // the state it waits in, where no fact of its own says more than a finished robot that covers nothing: the slot of its
   // actions shows none
   let covers_nothing = matches!(found.as_slice(), [] | [RowFact::Robot { running: false, failed: false }]) && !merged;
-  if covers_nothing && next_step(&facts.step).wait {
+  let step = next_step(&facts.step);
+  // the landing of what its start needs: before its failed robot too, whose restart waits for it ("Restart after util")
+  let after_landing = matches!(step.kind, StepKind::AfterLanding { .. }) && !merged && own.landed.is_none();
+  if (covers_nothing && step.wait) || after_landing {
     found.insert(0, RowFact::Wait);
   }
   // its review after landing: beside what landed it, never in its place

@@ -130,7 +130,7 @@ fakes; both sides read that.
 | `commits` | `(prefix) subject` strings, `(parent/child)` stacked [`["(auth) Add auth"]`]; `[]` only with `dangling` | `f<i>.txt` of each, as `commit_subjects`; stacks on with a parent |
 | `target` | `protected` · `unprotected` [`protected`] | `robot-start-supported` answers `supported: false` |
 | `remote` | `none` · `upToDate` · `behind` · `unpushed` · `rebuiltOnNewerBaseline` [`none`] | `brd push`; `unpushed` one commit after it; `behind` a commit of someone else on the remote branch, fetched; `rebuiltOnNewerBaseline` the baseline moved and the branch rebased onto it (the same commits, not a fast-forward) |
-| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·stack·olderStack, reason: approvals, fromPullRequest }`, or a list | the robot list, on the tips the sync built (`older`: `0000`, and a branch the sync never built, blocked by its parent; `olderStack`: a robot of the whole stack on `0000`, another commit than its stack branch); the i-th robot is `robot-<i>`, the one on an older commit `older`; the first started last (the newest), each next a minute earlier, the finishes in the order of the list; the problems of a robot say it failed for the approvals only with `reason: approvals` |
+| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·branch:<b>·stack·olderStack, reason: approvals, fromPullRequest }`, or a list | the robot list, on the tips the sync built (`older`: `0000`, and a branch the sync never built, blocked by its parent; `olderStack`: a robot of the whole stack on `0000`, another commit than its stack branch); the i-th robot is `robot-<i>`, the one on an older commit `older`; the first started last (the newest), each next a minute earlier, the finishes in the order of the list; the problems of a robot say it failed for the approvals only with `reason: approvals` |
 | `sync` | `running` | after the reads, a commit of the branch and the app's next sync past its grouping: its rows sync (`brd` syncs itself first) |
 | `conflicts` | a branch | its first commit changes `config.txt`, which only an unassigned commit creates |
 | `notOnSpace` | `true` | `origin` set to the bare repository |
@@ -154,7 +154,8 @@ A value the fixtures don't map fails the case with what it needs.
 
 A merged robot lands by the hashes of the tips the sync built: of the branch itself "Merged by Patronus", of a branch
 built on it (`child:<b>`) or of the stack branch (`stack`) "Landed in master with …"; a running one on `tip` holds the
-branch, on `child:<b>` lands it, on `ancestor:<b>` lands a part of it (a Dry Run doesn't wait for it).
+branch, on `child:<b>` lands it, on `ancestor:<b>` lands a part of it (a Dry Run doesn't wait for it); `branch:<b>` is
+a robot of another branch, as the one of `codec` that lands what `landingNeeds` needs.
 
 ### `readiness`, `profile` and `robot`
 

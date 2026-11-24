@@ -260,6 +260,29 @@
     }
   },
   {
+    "id": "row-1-prime-lands-after",
+    "group": "next-step-rows",
+    "title": "the branch uses a name only codec adds, and codec is landing in its Safe Push: the start lands after it, a wait; Start Anyway or --allow-missing starts beside it",
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1′", "openspec/specs/branch/landing-plan/spec.md#rows", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
+    "given": {
+      "landingNeeds": true,
+      "robot": {
+        "state": "running",
+        "on": "branch:codec"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "afterLanding"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "start": "api"
+      }
+    }
+  },
+  {
     "id": "row-2-failed-robot",
     "group": "next-step-rows",
     "title": "the robot of the tip failed, not for approvals: Restart Safe Push",

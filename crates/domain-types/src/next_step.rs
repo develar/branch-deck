@@ -5,7 +5,7 @@
 
 use crate::conflict::RegenerateFile;
 use crate::error::ApiError;
-use crate::landing::{Landed, LandingFix, LandingRefusal};
+use crate::landing::{Landed, LandingEdge, LandingFix, LandingRefusal};
 use crate::patronus::MissingReviewGroup;
 use crate::pull_request::{MergeMethod, PullRequestAvailability};
 use crate::reason::Reason;
@@ -196,8 +196,19 @@ pub enum StepKind {
     robot_id: Option<String>,
   },
   /// Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, as the landing gate refuses
-  /// the start
-  NeedsBranch { refusals: Vec<LandingRefusal> },
+  /// the start, or the user declared that another branch lands first; `edges` its refusals merged by the branch they
+  /// need (`domain_policy::landing_edges::edges_of`), whose first the row names. A lost binding is no edge: only its
+  /// commit fixes it
+  NeedsBranch { refusals: Vec<LandingRefusal>, edges: Vec<LandingEdge> },
+  /// Row 1′ while every edge of its needs waits (`EdgeState::Waits`): `needed`, the branch of the first, is landing in
+  /// `robot`, and the start lands after it ("Lands after util"), as a start beside it fails; `restart` its own failed
+  /// robot, whose restart waits for that landing too ("Restart after util")
+  AfterLanding {
+    needed: String,
+    robot: RobotOf,
+    edges: Vec<LandingEdge>,
+    restart: Option<String>,
+  },
   /// Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
   /// also the one before a start, drops them, so they come in first (Pick Remote Commits)
   PickRemoteCommits { count: u32 },
@@ -261,7 +272,7 @@ pub enum StepKind {
 impl StepKind {
   /// A state the subject waits in, no action of the app (openspec/specs/branch/next-step/spec.md, "A wait is a state"):
   /// the reviewers, a draft, changes requested, another base, the merge of GitHub, the pull request of the whole stack
-  /// or the one that collects the approvals of a failed robot. Its status says it; a slot of actions shows none, as a
+  /// or the one that collects the approvals of a failed robot, the landing of a branch its start needs. Its status says it; a slot of actions shows none, as a
   /// click on it would only open the pull request its status opens
   #[must_use]
   pub const fn is_wait(&self) -> bool {
@@ -273,7 +284,8 @@ impl StepKind {
       | Self::AwaitingUnjudged { .. }
       | Self::OtherBase { .. }
       | Self::AutoMerging { .. }
-      | Self::MergeHeld { .. } => true,
+      | Self::MergeHeld { .. }
+      | Self::AfterLanding { .. } => true,
       Self::CreatePullRequest { stack, .. } => stack.is_some(),
       Self::RobotPullRequest { number } => number.is_some(),
       Self::Hidden

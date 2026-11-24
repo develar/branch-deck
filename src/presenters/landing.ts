@@ -2,9 +2,10 @@
 // of the order of landing the user declared (`domain_policy::declared_needs`, `brd need`): the landing needs of a row
 // and the plan of a start (`Reason::LandingRefused`), the refusal `execute` answers of a whole stack
 // (`ErrorDetails::Landing`). The reason of the first, the count of the others, its fix and the overrides of Start
-// Anyway; and the generated files the words merged that a copy holds (`domain_policy::regenerate`), which its Status
+// Anyway; the edges of the landing plan Rust merges them into (`domain_policy::landing_edges`), one sentence each; and
+// the generated files the words merged that a copy holds (`domain_policy::regenerate`), which its Status
 // cell, its push and its start name. It decides nothing.
-import type { LandingAllowances, LandingFix, LandingRefusal, RegenerateFile, RobotOf, StackCommit } from "@/lib/bindings"
+import type { LandingAllowances, LandingEdge, LandingFix, LandingRefusal, RegenerateFile, RobotOf, StackCommit, Subject } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatGenerated } from "@/presenters/review-plan"
 
@@ -41,11 +42,11 @@ export function landingFixOf(refusal: LandingRefusal): LandingFix | null {
   return refusal.kind === "lostBinding" ? null : (refusal.fix ?? null)
 }
 
-/** " One more name breaks it too: brd check lists them.", " One more declared need holds it back too.": the refusals past the first */
+/** " One more name breaks it too.", " One more declared need holds it back too.": the refusals past the first */
 function describeMore(rest: readonly LandingRefusal[]): string {
   const declared = rest.filter(refusal => refusal.kind === "unlandedNeed").length
   const names = rest.length - declared
-  const namesBreak = names === 0 ? "" : ` ${names === 1 ? "One more name breaks" : `${names} more names break`} it too: brd check lists them.`
+  const namesBreak = names === 0 ? "" : ` ${names === 1 ? "One more name breaks" : `${names} more names break`} it too.`
   const needsHold = declared === 0 ? "" : ` ${declared === 1 ? "One more declared need holds" : `${declared} more declared needs hold`} it back too.`
   return `${namesBreak}${needsHold}`
 }
@@ -63,7 +64,8 @@ export function describeLandingRefusal(refusal: LandingRefusal, subject: string)
     }
     case "danglingReference": {
       const change = refusal.reference === "removed" ? "removes" : refusal.reference === "changed" ? "changes" : "declares again"
-      return `${describeCommit(refusal.removedBy)} ${change} ${refusal.identifier}, which ${refusal.file}:${refusal.line} still uses, and ${describeCommit(refusal.fixedBy)} changes that use: the build of ${subject} fails. Move that commit into ${refusal.branch}, or stack ${refusal.branch} on its branch.`
+      const landing = refusal.landingIn == null ? "" : ` ${describeLanding(refusal.fixedBy.branch, refusal.landingIn)}`
+      return `${describeCommit(refusal.removedBy)} ${change} ${refusal.identifier}, which ${refusal.file}:${refusal.line} still uses, and ${describeCommit(refusal.fixedBy)} changes that use: the build of ${subject} fails. ${describeFix(refusal.fix)}${landing}`
     }
     case "lostBinding": {
       const binding = refusal.binding === "import" ? "the import" : "the declaration"
@@ -145,15 +147,90 @@ export function formatLandingFix(fix: LandingFix | null): string | null {
   }
 }
 
+/**
+ * The label of the action of the fix of an edge of row 1′, every fix: "Stack lane-run on stills-codec", "Unstack ui from
+ * auth", "Group 1a2b3c4d into lane-run", "Safe Push Whole Stack"; null without a fix
+ */
+export function formatEdgeFix(fix: LandingFix | null): string | null {
+  switch (fix?.kind) {
+    case "moveCommit":
+      return `Group ${formatShortHash(fix.commit.id)} into ${fix.into}`
+    case "start":
+      return formatStartOf(fix.subject)
+    default:
+      return formatLandingFix(fix)
+  }
+}
+
+/** "Safe Push Whole Stack", "Safe Push ui": the start of a cycle's fix, which lands both */
+function formatStartOf(subject: Subject): string {
+  return subject.kind === "wholeStack" ? "Safe Push Whole Stack" : `Safe Push ${subject.name}`
+}
+
 function describeFix(fix: LandingFix): string {
   switch (fix.kind) {
     case "restack":
       return `Stack ${fix.branch} on ${fix.onto} to land it too.`
     case "moveCommit":
-      return `Move ${formatShortHash(fix.commit.id)} into ${fix.into}.`
+      return `Group ${formatShortHash(fix.commit.id)} into ${fix.into}.`
     case "unstack":
       return `Unstack ${fix.branch} from ${fix.from} to land it alone.`
+    case "start":
+      return `${fix.subject.kind === "wholeStack" ? `The Safe Push of the whole ${fix.subject.root} stack` : `The Safe Push of ${fix.subject.name}`} lands both.`
   }
+}
+
+/** The file of `path` by its name: "acp_load_replay.rs" */
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1)
+}
+
+/**
+ * What the start needs of the branch of `edge`, in one sentence: "Uses 5 names of acp-load-replay in acp_load_replay.rs
+ * (Effect, Input +3)", "Uses Codec of codec in Codec.kt", of an unassigned commit by its hash; of a declared need the
+ * order the user declared
+ */
+export function describeEdgeEvidence(edge: LandingEdge): string {
+  if (edge.kind !== "build") {
+    return `You declared that ${edge.needed} lands before ${edge.from}`
+  }
+  const [first, second] = edge.names
+  const of = edge.state.kind === "unassigned" ? `${formatShortHash(edge.needed)} (unassigned)` : edge.needed
+  const names =
+    edge.names.length === 1 && first !== undefined
+      ? first
+      : edge.names.length === 2 && first !== undefined && second !== undefined
+        ? `${first} and ${second}`
+        : `${edge.names.length} names`
+  const listed = edge.names.length > 2 && first !== undefined && second !== undefined ? ` (${first}, ${second} +${edge.names.length - 2})` : ""
+  const [file] = edge.files
+  const where = file === undefined ? "" : edge.files.length === 1 ? ` in ${fileName(file)}` : ` in ${fileName(file)} and ${edge.files.length - 1} more files`
+  return `Uses ${names} of ${of}${where}${listed}`
+}
+
+/**
+ * The edge in the words of its row: the evidence, then where the branch it needs stands and what clears it: "Uses 5
+ * names of acp-load-replay in acp_load_replay.rs (Effect, Input +3): acp-load-replay is landing in its Safe Push, which
+ * tests it without this start: a start beside it fails too."
+ */
+export function describeEdge(edge: LandingEdge): string {
+  const evidence = describeEdgeEvidence(edge)
+  switch (edge.state.kind) {
+    case "waits":
+      return `${evidence}: ${describeLanding(edge.needed, edge.state.robot)}`
+    case "neededFailed":
+      return `${evidence}: the Safe Push of ${edge.needed} failed. Restart it first: a start beside a failing piece fails too.`
+    case "cycle":
+      return `${evidence}: ${edge.needed} is built on what lands. ${edge.fix === null ? "" : describeFix(edge.fix)}`.trim()
+    case "unassigned":
+    case "open":
+      return edge.fix === null ? `${evidence}: it is not in master yet.` : `${evidence}. ${describeFix(edge.fix)}`
+  }
+}
+
+/** "Lands after acp-load-replay", "Restart after acp-load-replay": the wait of a start for the landing of what it needs, as a status says it */
+export function formatLandsAfter(needed: string, restart: boolean): string {
+  return `${restart ? "Restart" : "Lands"} after ${needed}`
 }
 
 /** "regenerate Cargo.lock", "regenerate 2 files": the Status cell of a copy that holds generated files the words merged */

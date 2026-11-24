@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 /// Struct variants, as an internally tagged enum can't serialize a newtype variant of a string; on the wire
 /// `{"kind":"branch","name":…}` and `{"kind":"wholeStack","root":…}` (`landing_test.rs`)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Subject {
@@ -125,6 +126,9 @@ pub enum LandingRefusal {
     fixed_by: StackCommit,
     /// How the commit that changes the use gets into what lands
     fix: LandingFix,
+    /// The running Safe Push that lands the branch of `fixed_by` (`MissingDeclaration::landing_in`)
+    #[serde(default)]
+    landing_in: Option<RobotOf>,
   },
   /// A commit of `branch` uses a name that a commit outside what lands adds
   MissingDeclaration {
@@ -222,32 +226,118 @@ pub enum ReferenceKind {
 pub enum LandingFix {
   /// Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too
   Restack { branch: String, onto: String },
-  /// Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
-  /// on what lands, so a restack would close a cycle
+  /// Group the commit it needs, an unassigned one, into `into`, the branch that needs it: no branch lands it otherwise.
+  /// The only move a fix offers: a commit of a branch stays in its branch
   MoveCommit { commit: StackCommit, into: String },
   /// Unstack `branch` from `from`, the branch whose declared need it inherits: it lands alone then, without the branch
   /// that is not allowed to land yet
   Unstack { branch: String, from: String },
+  /// Start `subject` instead: the branch of the commit it needs is built on what lands, so a restack would close a
+  /// cycle; the Safe Push of that branch (when it is built on the branch that needs it) or of the whole stack lands both
+  Start { subject: Subject },
 }
 
 impl LandingFix {
-  /// How what lands from `root` gets `needed`, a commit `into` needs: a restack of the root onto the branch of `needed`,
-  /// unless that branch is built on what lands (`onto_built_on_lands`: a cycle) or the commit is unassigned; then the
-  /// move of the commit into `into`
+  /// How what lands from `root` gets `needed`, a commit `into` needs: the group of an unassigned commit into `into`; the
+  /// start of `cycle` when the branch of `needed` is built on what lands (`cycle_start`); else a restack of the root
+  /// onto the branch of `needed`
   #[must_use]
-  pub fn for_need(needed: &StackCommit, into: &str, root: &str, onto_built_on_lands: bool) -> Self {
-    if !needed.branch.is_empty() && !onto_built_on_lands {
-      Self::Restack {
-        branch: root.to_string(),
-        onto: needed.branch.clone(),
-      }
-    } else {
+  pub fn for_need(needed: &StackCommit, into: &str, root: &str, cycle: Option<Subject>) -> Self {
+    if needed.branch.is_empty() {
       Self::MoveCommit {
         commit: needed.clone(),
         into: into.to_string(),
       }
+    } else if let Some(subject) = cycle {
+      Self::Start { subject }
+    } else {
+      Self::Restack {
+        branch: root.to_string(),
+        onto: needed.branch.clone(),
+      }
     }
   }
+
+  /// The start that lands both when `onto`, the branch a start of `lands` (root first, the branch itself last) needs, is
+  /// built on what lands (`onto_ancestors`: the branches it is built on): its own Safe Push when it is built on the
+  /// branch itself, else the whole stack of the root; none when it isn't built on what lands
+  #[must_use]
+  pub fn cycle_start(onto: &str, onto_ancestors: &[&str], lands: &[&str]) -> Option<Subject> {
+    if onto.is_empty() || !onto_ancestors.iter().any(|ancestor| lands.contains(ancestor)) {
+      return None;
+    }
+    let (Some(root), Some(last)) = (lands.first(), lands.last()) else {
+      return None;
+    };
+    Some(if onto_ancestors.contains(last) {
+      Subject::branch(onto)
+    } else {
+      Subject::whole_stack(root)
+    })
+  }
+}
+
+/// An edge of the landing plan (`domain_policy::landing_edges`, openspec/specs/branch/landing-plan/spec.md): what lands
+/// from `from` needs `needed` in master first. The refusals of one pair merge into it, their names its evidence
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandingEdge {
+  /// The branch whose landing waits: the root of what lands (of a branch of a stack its root, the edge lifted to it);
+  /// of a cycle the branch whose own start it refuses, as the whole stack meets it
+  pub from: String,
+  /// The branch it needs: of the commit that adds the name or changes the use, or the one the user declared
+  /// (`<companion>:<branch>` of a companion); of an unassigned commit the commit's id
+  pub needed: String,
+  pub kind: EdgeKind,
+  pub state: EdgeState,
+  /// The names the build needs of it, sorted, each once; none of a declared need
+  pub names: Vec<String>,
+  /// The files of their uses, each once, in the order of the refusals
+  pub files: Vec<String>,
+  /// How many refusals merged into it
+  pub refusals: u32,
+  /// The branches whose start it refuses, in the order they were given
+  pub refuses: Vec<String>,
+  /// What clears it: the fix of its first refusal of `from` (a restack of the root onto `needed`, the unstack of an
+  /// inherited declared need, the group of an unassigned commit, the start of a cycle); none of a declared need of its
+  /// own, which only the landing of `needed` clears
+  pub fix: Option<LandingFix>,
+}
+
+/// What kind of need an edge is
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeKind {
+  /// The build of what lands needs a name of it (a missing declaration, a dangling reference): the only kind that may
+  /// land in one robot with it
+  Build,
+  /// The user declared that it lands first (`brd need`): never in one robot with it, as the need is what keeps them apart
+  Declared,
+  /// A declared need of a branch of a companion repository, whose robots are its own
+  Companion,
+}
+
+/// Where the branch an edge needs stands, which decides what the user does
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum EdgeState {
+  /// It is landing in `robot` (`LandingRefusal::landing_in`): the start waits for it, as a start beside it fails
+  Waits { robot: RobotOf },
+  /// Its own robot `robot` failed: its restart comes first, never a start in one robot with a failing piece
+  NeededFailed { robot: RobotOf },
+  /// It is there and nothing lands it: the fix of the edge, or its landing first
+  Open,
+  /// The commit it needs is in no branch: its group into the branch that needs it is the only move (`LandingFix::MoveCommit`)
+  Unassigned,
+  /// It is built on what lands: the start of the branch built on both or of the whole stack lands both
+  /// (`LandingFix::Start`), never a move
+  Cycle,
 }
 
 impl LandingRefusal {
@@ -291,6 +381,7 @@ impl LandingRefusal {
       Some(LandingFix::Restack { branch, onto }) => names.extend([branch.as_str(), onto.as_str()]),
       Some(LandingFix::MoveCommit { commit, into }) => names.extend([commit.branch.as_str(), into.as_str()]),
       Some(LandingFix::Unstack { branch, from }) => names.extend([branch.as_str(), from.as_str()]),
+      Some(LandingFix::Start { subject }) => names.push(subject.name()),
       None => {}
     }
     names.retain(|name| !name.is_empty());
@@ -310,10 +401,18 @@ impl LandingRefusal {
   fn without_landing_in(&self) -> Self {
     let mut need = self.clone();
     match &mut need {
-      Self::MissingDeclaration { landing_in, .. } | Self::UnlandedNeed { landing_in, .. } => *landing_in = None,
-      Self::DanglingReference { .. } | Self::LostBinding { .. } => {}
+      Self::DanglingReference { landing_in, .. } | Self::MissingDeclaration { landing_in, .. } | Self::UnlandedNeed { landing_in, .. } => *landing_in = None,
+      Self::LostBinding { .. } => {}
     }
     need
+  }
+
+  /// The running Safe Push that lands the branch the start needs, as the view named it (`name_landing_robots`)
+  pub const fn landing_in(&self) -> Option<&RobotOf> {
+    match self {
+      Self::DanglingReference { landing_in, .. } | Self::MissingDeclaration { landing_in, .. } | Self::UnlandedNeed { landing_in, .. } => landing_in.as_ref(),
+      Self::LostBinding { .. } => None,
+    }
   }
 
   /// In a sentence: what breaks the build of what lands
@@ -332,6 +431,7 @@ impl LandingRefusal {
         removed_by,
         fixed_by,
         reference,
+        landing_in,
         ..
       } => {
         let change = match reference {
@@ -339,7 +439,12 @@ impl LandingRefusal {
           ReferenceKind::Changed => "changes",
           ReferenceKind::Duplicate => "declares again",
         };
-        format!("{} {change} {identifier}, which {file} still uses; {} changes that use", named(removed_by), named(fixed_by))
+        let landing = landing_words(&fixed_by.branch, landing_in.as_ref());
+        format!(
+          "{} {change} {identifier}, which {file} still uses; {} changes that use{landing}",
+          named(removed_by),
+          named(fixed_by)
+        )
       }
       Self::MissingDeclaration {
         identifier,
@@ -349,15 +454,7 @@ impl LandingRefusal {
         landing_in,
         ..
       } => {
-        let landing = landing_in.as_ref().map_or_default(|robot| {
-          let subject = robot.subject();
-          let of = if subject.is_branch(&declared_by.branch) {
-            "its Safe Push".to_string()
-          } else {
-            format!("the Safe Push of {}", subject.words())
-          };
-          format!("; {} is landing in {of}, which tests it without this start", declared_by.branch)
-        });
+        let landing = landing_words(&declared_by.branch, landing_in.as_ref());
         format!("{} uses {identifier} in {file}, which {} adds{landing}", named(used_by), named(declared_by))
       }
       Self::LostBinding {
@@ -392,19 +489,25 @@ impl LandingRefusal {
         let inherited = inherited_from
           .as_ref()
           .map_or_default(|parent| format!("; {branch} is built on {parent}, so they land in one robot"));
-        let landing = landing_in.as_ref().map_or_default(|robot| {
-          let subject = robot.subject();
-          let of = if subject.is_branch(needs) {
-            "its Safe Push"
-          } else {
-            &format!("the Safe Push of {}", subject.words())
-          };
-          format!("; {needs} is landing in {of}, which tests it without this start")
-        });
+        let landing = landing_words(needs, landing_in.as_ref());
         format!("you declared that {needs} lands before {owner}{state}{inherited}{landing}")
       }
     }
   }
+}
+
+/// "; util is landing in its Safe Push, which tests it without this start": the running Safe Push of `branch`, the branch
+/// a start needs (`LandingRefusal::landing_in`); empty without one
+fn landing_words(branch: &str, landing_in: Option<&RobotOf>) -> String {
+  landing_in.map_or_default(|robot| {
+    let subject = robot.subject();
+    let of = if subject.is_branch(branch) {
+      "its Safe Push".to_string()
+    } else {
+      format!("the Safe Push of {}", subject.words())
+    };
+    format!("; {branch} is landing in {of}, which tests it without this start")
+  })
 }
 
 /// The merge profile a start asks for

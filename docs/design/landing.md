@@ -579,6 +579,41 @@ The whole stack is an object of its own in the app, beside its branches, named "
   created while its root landed; once the root is no longer a branch (after the update that archives it) nothing in
   the app shows it.
 
+### Landing plan
+
+Agents cut work into logical branches, and the landing gate refuses a start once per name it misses
+(`trial_check::landing_gate`). On idea-1 of 2026-11-24 one need, the stack of `air-home-watch` (with `hosted-exit`
+and `claude-folds`) using five names of `acp-load-replay`, read as fifteen refusals: every row "Needs
+acp-load-replay" with a restack, a hover of nine lines, "brd check lists them", while `acp-load-replay` was landing in
+its own robot and a start beside it would fail. The plan says that need once, as an edge, and says what it waits for
+([Landing Plan](../../openspec/specs/branch/landing-plan/spec.md)).
+
+- **Edges.** `domain_policy::landing_edges` merges the refusals of a start into edges `from → needed`: one per branch
+  they need and kind, the names and the files their evidence. Of every branch the edge is lifted to the root of its
+  stack, so a stack has one edge where its branches had a refusal per name each; a need of a branch of the same stack
+  is dropped, as the whole stack lands both. The kinds: `build` (a missing declaration, a dangling reference), the only
+  one that may ever land in one robot with what it needs; `declared` and `companion` (`brd need`), never, since the
+  need is what keeps them apart; a lost binding is no edge, no branch helps it, only its own commit.
+- **States.** An edge waits while a running Safe Push lands the branch it needs (`Waits`, the refusal names it:
+  `landing_in`, of a dangling reference too), restarts first while that branch's robot failed (`NeededFailed`), is a
+  cycle while that branch is built on what lands (`Cycle`: the start of the branch built on both or of the whole
+  stack, never the move of a commit between the pieces of an agent), groups an unassigned commit (`Unassigned`, the
+  only move), else is `Open`. `LandingFix::for_need` decides the fix the same way for the gate and for a copy to
+  regenerate.
+- **A wait is a state.** A start whose every edge waits is `StepKind::AfterLanding`: the Status cell says "Lands after
+  acp-load-replay" (its own failed robot "Restart after acp-load-replay"), the slot is empty, the node waits; the
+  popover of its Safe Push offers Start Anyway only in its "⋯". Another need names its first edge in one sentence
+  ("Uses 5 names of acp-load-replay in acp_load_replay.rs (Effect, Input +3)") and runs its fix. On idea-1 the
+  fifteen yellow needs became one quiet status of the stack.
+- **After the merge.** The toast of the merge of the robot a start waited for offers that start ("Start flow") once its
+  Update Project landed the merge, in place; nothing starts by itself, as a declared order never starts by itself
+  either. The subject is noted from the view while the robot runs (`noteWaitingStarts`): by the time the merge is
+  told, its dependent's step already says ready. The press waits for that step to be decided again: right after the
+  update its needs are computed for the new tips, and a click then would only say "Checking what flow needs to land…".
+- **Next.** The units of the landing overview move into Rust, the edges get waves (what lands now, next, after what)
+  and offers to land together with their cost in checks of Patronus, and `brd plan` and a Plan view of Landing draw
+  them (stages 2 and 3 of the plan of 2026-11-24).
+
 ## Alternatives Considered
 
 - **Stacked pull requests into the parent's branch.** Each pull request shows only its own commits.

@@ -2695,6 +2695,34 @@ export type DroppedCommit = {
 	authorTime: number,
 };
 
+/**  What kind of need an edge is */
+export type EdgeKind = 
+/**
+ *  The build of what lands needs a name of it (a missing declaration, a dangling reference): the only kind that may
+ *  land in one robot with it
+ */
+"build" | 
+/**  The user declared that it lands first (`brd need`): never in one robot with it, as the need is what keeps them apart */
+"declared" | 
+/**  A declared need of a branch of a companion repository, whose robots are its own */
+"companion";
+
+/**  Where the branch an edge needs stands, which decides what the user does */
+export type EdgeState = 
+/**  It is landing in `robot` (`LandingRefusal::landing_in`): the start waits for it, as a start beside it fails */
+{ kind: "waits"; robot: RobotOf } | 
+/**  Its own robot `robot` failed: its restart comes first, never a start in one robot with a failing piece */
+{ kind: "neededFailed"; robot: RobotOf } | 
+/**  It is there and nothing lands it: the fix of the edge, or its landing first */
+{ kind: "open" } | 
+/**  The commit it needs is in no branch: its group into the branch that needs it is the only move (`LandingFix::MoveCommit`) */
+{ kind: "unassigned" } | 
+/**
+ *  It is built on what lands: the start of the branch built on both or of the whole stack lands both
+ *  (`LandingFix::Start`), never a move
+ */
+{ kind: "cycle" };
+
 /**  An effect of a plan and how it went */
 export type EffectRecord = {
 	effect: PlannedEffect,
@@ -4828,20 +4856,58 @@ export type LandingDefault = {
 	onSpace: boolean,
 };
 
+/**
+ *  An edge of the landing plan (`domain_policy::landing_edges`, openspec/specs/branch/landing-plan/spec.md): what lands
+ *  from `from` needs `needed` in master first. The refusals of one pair merge into it, their names its evidence
+ */
+export type LandingEdge = {
+	/**
+	 *  The branch whose landing waits: the root of what lands (of a branch of a stack its root, the edge lifted to it);
+	 *  of a cycle the branch whose own start it refuses, as the whole stack meets it
+	 */
+	from: string,
+	/**
+	 *  The branch it needs: of the commit that adds the name or changes the use, or the one the user declared
+	 *  (`<companion>:<branch>` of a companion); of an unassigned commit the commit's id
+	 */
+	needed: string,
+	kind: EdgeKind,
+	state: EdgeState,
+	/**  The names the build needs of it, sorted, each once; none of a declared need */
+	names: string[],
+	/**  The files of their uses, each once, in the order of the refusals */
+	files: string[],
+	/**  How many refusals merged into it */
+	refusals: number,
+	/**  The branches whose start it refuses, in the order they were given */
+	refuses: string[],
+	/**
+	 *  What clears it: the fix of its first refusal of `from` (a restack of the root onto `needed`, the unstack of an
+	 *  inherited declared need, the group of an unassigned commit, the start of a cycle); none of a declared need of its
+	 *  own, which only the landing of `needed` clears
+	 */
+	fix: LandingFix | null,
+};
+
 /**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
 export type LandingFix = 
 /**  Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too */
 { kind: "restack"; branch: string; onto: string } | 
 /**
- *  Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
- *  on what lands, so a restack would close a cycle
+ *  Group the commit it needs, an unassigned one, into `into`, the branch that needs it: no branch lands it otherwise.
+ *  The only move a fix offers: a commit of a branch stays in its branch
  */
 { kind: "moveCommit"; commit: StackCommit; into: string } | 
 /**
  *  Unstack `branch` from `from`, the branch whose declared need it inherits: it lands alone then, without the branch
  *  that is not allowed to land yet
  */
-{ kind: "unstack"; branch: string; from: string };
+{ kind: "unstack"; branch: string; from: string } | 
+/**
+ *  Start `subject` instead: the branch of the commit it needs is built on what lands, so a restack would close a
+ *  cycle; the Safe Push of that branch (when it is built on the branch that needs it) or of the whole stack lands both
+ */
+{ kind: "start"; subject: Subject };
 
 /**  The landing whose open pull requests a close of landed pull requests closes (`Intent::CloseLandedPullRequests`) */
 export type LandingKey = 
@@ -4914,7 +4980,9 @@ export type LandingRefusal =
 /**  Where the use is */
 file: string; line: number; removedBy: StackCommit; fixedBy: StackCommit; 
 /**  How the commit that changes the use gets into what lands */
-fix: LandingFix } | 
+fix: LandingFix; 
+/**  The running Safe Push that lands the branch of `fixed_by` (`MissingDeclaration::landing_in`) */
+landingIn?: RobotOf | null } | 
 /**  A commit of `branch` uses a name that a commit outside what lands adds */
 { kind: "missingDeclaration"; branch: string; identifier: string; 
 /**  Where the use is */
@@ -10310,9 +10378,17 @@ export type StepKind =
 { kind: "unavailable"; failure: StepFailure; help: StepHelp | null; robotId: string | null } | 
 /**
  *  Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, as the landing gate refuses
- *  the start
+ *  the start, or the user declared that another branch lands first; `edges` its refusals merged by the branch they
+ *  need (`domain_policy::landing_edges::edges_of`), whose first the row names. A lost binding is no edge: only its
+ *  commit fixes it
  */
-{ kind: "needsBranch"; refusals: LandingRefusal[] } | 
+{ kind: "needsBranch"; refusals: LandingRefusal[]; edges: LandingEdge[] } | 
+/**
+ *  Row 1′ while every edge of its needs waits (`EdgeState::Waits`): `needed`, the branch of the first, is landing in
+ *  `robot`, and the start lands after it ("Lands after util"), as a start beside it fails; `restart` its own failed
+ *  robot, whose restart waits for that landing too ("Restart after util")
+ */
+{ kind: "afterLanding"; needed: string; robot: RobotOf; edges: LandingEdge[]; restart: string | null } | 
 /**
  *  Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
  *  also the one before a start, drops them, so they come in first (Pick Remote Commits)

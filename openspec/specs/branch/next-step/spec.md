@@ -132,7 +132,7 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
   |---|---|---|---|
   | 0 | A fact the rows below decide on has no answer yet (`PendingFact`; [below](#facts-without-an-answer)): Patronus hasn't answered for the repository or its view of the robots it listed first isn't in, GitHub hasn't listed the pull requests, the check of what the branch needs to land is still running, Patronus hasn't told why the robot of the branch failed, the first answer of the readiness; never while a reason of row 1 or of the branch holds the start back, which it says instead. Or a read failed (`UnavailableFact`): the Safe Push CLI is not logged in, Patronus fails, Patronus didn't give why the robot failed | muted "Checking…" with its spinner, disabled, the fact on hover ("Waits for GitHub to list the pull requests"); after a failed read what helps: "Copy Login Command", "Refresh Patronus", or the restart disabled with the failure | disabled with the same words ("Waits for the answer of Patronus", "Waits for Patronus to check the approvals", "Run ./safePush.cmd once to log in to Patronus"); a Dry Run only while Patronus hasn't answered or can't be asked |
   | 1 | Syncing, failed to sync, no commits, blocked, held by a Safe Push, parked or built on a parked branch, landed, a robot runs, merged (by the robot, by the merged Safe Push of a branch built on it or of the whole stack, or the pull request of these commits; all of it, no commit added since) | nothing; the Status cell says it ("Landed with oauth", "Parked with auth"), a running robot first with what else holds the branch beside it ([Branch Row](../branch-row/spec.md#status-cell)), as `brd status` does (`next_step.status`) | disabled: "Wait for the sync to finish", "Parked: Unpark it to push", "Built on parked auth: Unpark auth to push", "Holds parked auth: land the stack in pieces" (the whole stack), "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is merged", … (a running robot of an older commit: enabled, the start replaces it) |
-  | 1′ | The build of what its Safe Push lands needs a commit of a branch outside it (`landingNeeds` of the repository view, [below](#what-the-safe-push-needs)), or the user declared that another branch lands first ([Declared Needs](../declared-needs/spec.md); before the waits of row 0) | "Needs stills-codec" (a commit not in a branch by its hash), "Needs docs", the reason on hover; a click runs the fix, "Stack lane-run on stills-codec", "Unstack ui from auth" | enabled: its popover says why before the start, with the fix and Start Anyway |
+  | 1′ | The build of what its Safe Push lands needs a commit of a branch outside it (`landingNeeds` of the repository view, [below](#what-the-safe-push-needs)), or the user declared that another branch lands first ([Declared Needs](../declared-needs/spec.md); before the waits of row 0) | "Needs stills-codec", "Needs docs", the first edge of the needs in one sentence on hover ([Landing Plan](../landing-plan/spec.md#rows)); a click runs the fix of the edge, "Stack lane-run on stills-codec", "Unstack ui from auth", "Restart stills-codec", "Group 1a2b3c4d into lane-run", "Safe Push Whole Stack"; while every edge waits for a running Safe Push a wait, "Lands after stills-codec" in the Status cell, nothing in the slot | enabled: its popover says why before the start, with the fix and Start Anyway (in its "⋯" while the start lands after) |
   | 1″ | Someone else pushed commits to its remote branch that it lacks (`othersBehind` of the remote status, [Outgoing](../../repository/outgoing/spec.md#remote-commits-of-others)): a push, also the one of a start or a restart, drops them | "Pick Remote Commits", the reason on hover ("The remote has 1 commit of someone else that auth doesn't: a push drops it"); a click opens the question of the push button, which lists the commits with the pick | enabled: its start asks before the push that drops them |
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
@@ -823,21 +823,22 @@ waits for it.
 
 ### Requirement: What the Safe Push needs: Row 1′ names the branch the build needs and runs the fix
 
-Row 1′ MUST map the needs to the step, no rule of its own (`domain_policy::next_step`): "Needs stills-codec", its
-hover the reason in the words of the gate's toast, and a click the fix: the restack of the root of what lands onto
-that branch (`LandingFix`, `formatLandingFix`); "⋯" MUST offer the same fix first ("Stack lane-run on stills-codec").
-A fix no action runs MUST open the Safe Push popover.
+Row 1′ MUST map the edges of the needs to the step, no rule of its own (`domain_policy::next_step`): "Needs
+stills-codec", its hover the first edge in one sentence, a click the fix of the edge: the restack of the root of what
+lands onto that branch (`LandingFix`, `formatEdgeFix`); "⋯" MUST offer the same fix first. A need no action runs
+MUST open the Safe Push popover.
 
 #### Scenario: The step, its hover and its fix
 - **WHEN** `lane-run` needs `stills-codec`
-- **THEN** the step is "Needs stills-codec", its hover the reason in the words of the gate's toast ("“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of lane-run fails. Stack lane-run on stills-codec to land it too."), and a click the fix: the restack of the root of what lands onto that branch (`LandingFix`, `formatLandingFix`); "⋯" offers the same fix first ("Stack lane-run on stills-codec")
+- **THEN** the step is "Needs stills-codec", its hover the edge in one sentence ("Uses Stills of stills-codec in BuildLog.kt. Stack lane-run on stills-codec to land it too."), and a click the fix: the restack of the root of what lands onto that branch (`LandingFix`, `formatEdgeFix`); "⋯" offers the same fix first ("Stack lane-run on stills-codec")
   [@test] crates/domain-policy/src/next_step_test.rs (`row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_start`)
   [@test] src/presenters/next-step.test.ts (`row 1′: names the branch the build needs and runs the fix, or opens the Safe Push`)
   [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
 
 #### Scenario: A fix no action runs
-- **WHEN** the fix is the move of an unassigned commit, or a restack that would close a cycle
+- **WHEN** the need is a declared order of the branch itself, or a lost binding
 - **THEN** a click opens the Safe Push popover
+  [@test] src/presenters/next-step.test.ts (`row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need`)
 
 ### Requirement: What the Safe Push needs: The fix runs on fresh needs
 

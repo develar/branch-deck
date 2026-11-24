@@ -1,9 +1,12 @@
+import { requestSafePush } from "@/hooks/useSafePush"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { EventToastAction } from "@/lib/event-toast"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { foundLandedNews } from "@/lib/landed"
+import { keepStartAfterMerge, takeWaitingStart } from "@/lib/merge-dependents"
 import { openRobot } from "@/lib/patronus"
 import { lastFetchTime } from "@/lib/update-state"
+import { getRowPart } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
 import { getSelectedProject, repositoryStore } from "@/stores/repository"
@@ -47,6 +50,29 @@ function landedSinceMerge(repositoryPath: string, robot: PatronusRobot, branches
 }
 
 /**
+ * Resolves once the step of `key` is decided: no sync runs and it waits for no fact (the needs of the tips the update
+ * moved), or the row is gone. The start that waited for a merge is pressed right after the update, while its needs are
+ * computed again: the press starts then, never tells the user to press again
+ */
+function whenStepDecided(key: string): Promise<void> {
+  const decided = () => {
+    const view = getRowPart(key, "landing")
+    return view === undefined || (view.step.kind.kind !== "pending" && !branchSyncStore.getState().isSyncing)
+  }
+  if (decided()) {
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    const unsubscribe = branchSyncStore.subscribe(() => {
+      if (decided()) {
+        unsubscribe()
+        resolve()
+      }
+    })
+  })
+}
+
+/**
  * The toast of a merge (docs/contributing/ux-writing.md#one-toast-per-event), one toast from the merge to the landing:
  * - "auth merged into master" / "Safe Push" with Update Project, which fetches the baseline and updates onto it, then
  *   "Open in Patronus"; in a repository the main window doesn't show Fetch instead (Update Project updates the shown
@@ -57,13 +83,26 @@ function landedSinceMerge(repositoryPath: string, robot: PatronusRobot, branches
  *   squashed" / "Updated master: rebased 104 commits"), or up to date; a run that ended otherwise closes it, its
  *   dialog or its error toast says why;
  * - a landing of its branches that a sync found after an update elsewhere: "auth landed in origin/master" / "Found by a
- *   sync", in place.
+ *   sync", in place;
+ * - once landed, of a subject whose start waited for this robot (`afterLanding`: "Lands after auth"): "Start ui", the
+ *   click of its Safe Push once its step is decided again (`whenStepDecided`), which opens its popover when it has
+ *   something to say; nothing starts by itself.
  * `landedBranches` are the branches the merge landed besides its own (the ancestors of a stacked branch, every branch of
  * the whole stack).
  */
 export function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: string, description: string, landedBranches: readonly string[]): void {
   const branches = new Set(robot.branchName === null ? landedBranches : [robot.branchName, ...landedBranches])
   const openInPatronus: EventToastAction = { label: "Open in Patronus", onClick: () => openRobot(robot) }
+  // the start that waited for this robot, once: the toast offers it after the update that lands the merge
+  const dependent = takeWaitingStart(robot.id)
+  const startDependent: EventToastAction | null =
+    dependent === null
+      ? null
+      : { label: `Start ${dependent}`, onClick: () => void whenStepDecided(dependent).then(() => requestSafePush(dependent, { mode: "rebaseAutosquash", via: "click" })) }
+  if (startDependent !== null) {
+    // the update that lands the merge says it in this toast's place (`showUpdateToast`), with the start
+    keepStartAfterMerge(repositoryPath, startDependent)
+  }
   showEventToast({
     key: toastKeys.robot(repositoryPath, robot.id),
     aliases: [toastKeys.merged(repositoryPath)],
@@ -72,7 +111,7 @@ export function showMergeToast(repositoryPath: string, robot: PatronusRobot, tit
     render: () => {
       const landed = landedSinceMerge(repositoryPath, robot, branches)
       if (landed !== null) {
-        return { type: "success", ...landed }
+        return startDependent === null ? { type: "success", ...landed } : { type: "success", ...landed, action: startDependent, secondaryAction: openInPatronus }
       }
       const running = selectRunningUpdate(updateProjectStore.getState(), repositoryPath)
       if (running !== undefined) {

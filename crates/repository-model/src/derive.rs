@@ -67,6 +67,7 @@ use domain_policy::land::{
   restart_refusal, standing, start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
+use domain_policy::landing_edges::edges_of;
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
@@ -1707,6 +1708,16 @@ impl StepSources<'_> {
   }
 
   /// The robot of a subject with what the session learned of it; `restart` whether its restart is offered
+  /// The failed Safe Push of `branch` itself, as the view names its robot: what an edge that needs the branch waits on
+  /// to restart (`EdgeState::NeededFailed`)
+  fn failed_robot_of(&self, branch: &str) -> Option<RobotOf> {
+    let id = self.view.branches.get(branch)?.robot_id.as_deref()?;
+    let robot = self
+      .robot(Some(id))
+      .filter(|robot| robot.status == PatronusRobotStatus::Failure && robot.push_mode == PatronusPushMode::RebaseAutosquash)?;
+    Some(Subject::branch(branch).robot_of(&robot.id))
+  }
+
   fn step_robot(&self, id: Option<&str>, restart: impl Fn(&PatronusRobot) -> bool) -> Option<StepRobot<'_>> {
     let robot = self.robot(id)?;
     let offered = self
@@ -1798,6 +1809,14 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       .and_then(|facts| facts.span.as_ref())
       .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(holds_pushes))
       .map(|span| &span.by);
+    let needs = match merged_needs.get(name.as_str()) {
+      Some(refusals) => Needs::Known(refusals),
+      None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
+    };
+    let edges = match needs {
+      Needs::Known(refusals) if !refusals.is_empty() => edges_of(name, ancestors.first().copied().unwrap_or(name), refusals, |needed| sources.failed_robot_of(needed)),
+      _ => Vec::new(),
+    };
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1825,10 +1844,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         base: sources.open_pull_requests.get(name.as_str()).map(|open| &open.base),
       }),
       target: sources.target,
-      needs: match merged_needs.get(name.as_str()) {
-        Some(refusals) => Needs::Known(refusals),
-        None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
-      },
+      needs,
+      edges: &edges,
       readiness: (sources.readiness)(name),
       stack_pull_request: stack_pull_request.as_ref(),
       repository,
@@ -1902,6 +1919,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     // none landed: every branch of it, as `whole_stack_rest` leaves them
     let lands = rest.members.len();
     let declared = whole_stack_declared(sources.declared, stack);
+    let edges = edges_of(&stack.root, &stack.root, &declared, |needed| sources.failed_robot_of(needed));
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1936,6 +1954,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       // the landing needs are of the branches: the gate of the start checks the whole stack; the order the user declared
       // of any branch it lands is known without a check
       needs: if declared.is_empty() { Needs::Unknown } else { Needs::Known(&declared) },
+      edges: &edges,
       readiness: (sources.readiness)(&key),
       stack_pull_request: None,
       repository,

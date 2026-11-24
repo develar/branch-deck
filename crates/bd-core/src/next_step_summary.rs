@@ -19,7 +19,8 @@ pub struct NextStepSummary {
   /// another base, `6` a draft, `7` to `10` the approvals that count are missing, `8′`/`10′` the wait GitHub tells while
   /// Patronus can't judge them, `11` a Safe Push; `no slot` off Space
   pub row: String,
-  /// `pending`, `unavailable`, `settled`, `needs_branch`, `restart`, `robot_pull_request`, `retarget`, `other_base`,
+  /// `pending`, `unavailable`, `settled`, `needs_branch`, `after_landing` (every need of its start is landing in a running
+  /// Safe Push: it starts after it, `lands_after`), `restart`, `robot_pull_request`, `retarget`, `other_base`,
   /// `draft`, `create_pull_request`, `changes_requested`, `request_review`, `awaiting`, `changes_requested_unjudged`,
   /// `awaiting_unjudged`, `safe_push` or `hidden`
   pub step: String,
@@ -31,6 +32,10 @@ pub struct NextStepSummary {
   /// The pull request the step is about: the open one, the one a robot failed in, of the whole stack the branch is in
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<u32>,
+  /// Of `after_landing`: the branch whose running Safe Push it waits for, and that robot's id; `restart` its own failed
+  /// robot restarts after it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub lands_after: Option<LandsAfter>,
   /// Why a Safe Push can't start now; `null` when it can
   pub safe_push_blocked: Option<String>,
   /// Why a Dry Run can't start now: never the approvals, a draft, another base or a robot that lands an ancestor
@@ -47,6 +52,16 @@ pub struct NextStepSummary {
   pub status: Vec<String>,
 }
 
+/// The running Safe Push a start lands after (`StepKind::AfterLanding`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct LandsAfter {
+  /// The branch its start needs, which the robot lands
+  pub branch: String,
+  pub robot_id: String,
+  /// Its own robot failed: the restart waits for that landing too
+  pub restart: bool,
+}
+
 impl NextStepSummary {
   /// `step` of the subject `what` ("auth", "the whole air stack"), the robots its reasons name among `robots`
   #[must_use]
@@ -57,6 +72,14 @@ impl NextStepSummary {
       step: kind_name(&step.kind).to_owned(),
       waits_for: waits_for(&step.kind).map(|fact| fact_name(fact).to_owned()),
       pull_request: pull_request_of(&step.kind),
+      lands_after: match &step.kind {
+        StepKind::AfterLanding { needed, robot, restart, .. } => Some(LandsAfter {
+          branch: needed.clone(),
+          robot_id: robot.robot_id.clone(),
+          restart: restart.is_some(),
+        }),
+        _ => None,
+      },
       safe_push_blocked: blocked(step.safe_push.as_ref()),
       dry_run_blocked: blocked(step.dry_run.as_ref()),
       status: Vec::new(),
@@ -117,6 +140,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::Pending { .. } => "pending",
     StepKind::Unavailable { .. } => "unavailable",
     StepKind::NeedsBranch { .. } => "needs_branch",
+    StepKind::AfterLanding { .. } => "after_landing",
     StepKind::PickRemoteCommits { .. } => "pick_remote_commits",
     StepKind::Restart { .. } => "restart",
     StepKind::RobotPullRequest { .. } => "robot_pull_request",
@@ -183,6 +207,7 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::Pending { .. }
     | StepKind::Unavailable { .. }
     | StepKind::NeedsBranch { .. }
+    | StepKind::AfterLanding { .. }
     | StepKind::PickRemoteCommits { .. }
     | StepKind::Restart { .. }
     | StepKind::SafePush
@@ -251,6 +276,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     StepKind::Hidden
     | StepKind::Settled
     | StepKind::NeedsBranch { .. }
+    | StepKind::AfterLanding { .. }
     | StepKind::Restart { .. }
     | StepKind::RobotPullRequest { .. }
     | StepKind::Retarget { .. }

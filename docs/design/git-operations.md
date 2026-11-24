@@ -3730,8 +3730,8 @@ Once per sync, after the builds and the stack branches (`held_merges` of `crates
   `RegenerateFile { commit, path, generated_by, lacks }`; `brd sync` prints `regenerate` and `regenerate_fix` per
   branch. The fix (`BranchTable::regenerate_fix`, `domain_policy::regenerate::fix_of`, `LandingFix::for_need` as the
   landing gate's): the restack of the root of what lands onto the branch of the lacking commit, unless that branch is
-  built on what lands or the commit is unassigned, then the move of the commit into the branch whose copy merged the
-  file. The row says "regenerate <file>" (`RowFact::Regenerate`, none for a branch in master or parked), and the push
+  built on what lands (then the start of what lands both) or the commit is unassigned (then its move into the branch
+  whose copy merged the file). The row says "regenerate <file>" (`RowFact::Regenerate`, none for a branch in master or parked), and the push
   and the start ask first ("Push and land", "Landing gate").
 - **The cost.** No process without a merge by words of a generated file, one `log` with one held, one
   `cat-file --batch-check` more with one below its tip (`process_budget_test.rs`:
@@ -5542,8 +5542,8 @@ the branches it is built on (`CheckSession::check_landing`), every branch for a 
   branch of the landing stack is none, a sibling's of a whole stack that forks too: one robot lands both.
 
 The result is typed (`LandingRefusal`, with `LandingFix`: the restack of the root of what lands onto the branch that
-adds the name, else, for an unassigned commit or a restack that would close a cycle, the move of
-the commit), and the overrides are the user's (`LandingAllowances`: `--allow-dangling`, `--allow-missing`, Start
+adds the name; where that branch is built on what lands, a restack would close a cycle, so the start of that branch
+or of the whole stack, which lands both; the move of an unassigned commit), and the overrides are the user's (`LandingAllowances`: `--allow-dangling`, `--allow-missing`, Start
 Anyway). It writes objects only, never a ref: the symbol graph costs one `log --raw` of the commit changes and one
 `cat-file --batch` of the source blobs whose summaries the cache lacks, once per session. `brd safe-push` runs it in the
 session of its dangling references (`session_of_sync`, no second `log` of the commits); the app opens a session of the
@@ -5569,8 +5569,8 @@ The same rule answers before any start, for every branch (`landing_needs`, the l
 of all of them), one search of the missing declarations, and per branch the refusals its start would get, filtered by
 the one predicate of the gate (`refuses`: a use by a commit of what lands of a name a commit outside it adds, which
 no merged Safe Push landed). The types are of `domain_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
-dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or its move),
-and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
+dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or the start
+of a cycle), and a refusal the running Safe Push that lands the branch it needs (`landing_in`,
 `domain_policy::landing_needs::name_landing_robots`, from the holds and spans of the view). The session of the
 repository computes it as a fact after a sync (`landing_needs_of` through its host, a session of the current grouping
 through the object cache, [Session facts](#session-facts)), keyed by its inputs: the baseline, the tips of the

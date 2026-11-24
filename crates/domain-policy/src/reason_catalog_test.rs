@@ -5,7 +5,7 @@
 
 use crate::catalog_test::assert_catalog;
 use domain_types::fixtures::{carried, robot_of, stack_commit as commit, whole_stack_robot_of};
-use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind};
+use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind, Subject};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RobotOf};
@@ -254,10 +254,8 @@ fn examples() -> Vec<Reason> {
         line: 7,
         removed_by: commit("r1", "Remove the env", "fake-agent"),
         fixed_by: commit("f1", "Read the url", "acp"),
-        fix: LandingFix::MoveCommit {
-          commit: commit("f1", "Read the url", "acp"),
-          into: s("fake-agent"),
-        },
+        fix: LandingFix::Start { subject: Subject::branch("acp") },
+        landing_in: None,
       }),
     },
     Reason::TargetConflict {

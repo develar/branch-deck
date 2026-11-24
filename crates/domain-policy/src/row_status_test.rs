@@ -1,6 +1,6 @@
 use crate::landing_node::{NodeFacts, landing_node};
 use crate::next_step::{StepRobot, next_step};
-use crate::next_step_test::{Fixture, failed, group, missing, open, readiness, robot_on_tip};
+use crate::next_step_test::{Fixture, failed, group, missing, missing_declaration, open, readiness, robot_on_tip};
 use crate::row_status::row_status;
 use domain_types::conflict::RegenerateFile;
 use domain_types::fixtures::robot_of;
@@ -8,6 +8,7 @@ use domain_types::landing::{Landed, LandedBy, LandingFix, StackCommit};
 use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, RowFact, RowStatus, StepKind};
 use domain_types::patronus::{MissingApprovalsReason, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
 use domain_types::pull_request::PullRequestBase;
+use domain_types::repository_view::{LandingNeeds, RobotOf};
 use domain_types::session::{BranchStatus, FactState, Parked};
 use generated_files::generated_by::GeneratedBy;
 use generated_files::names::GeneratedName;
@@ -554,6 +555,59 @@ fn a_wait_is_the_state_of_the_cell_where_nothing_of_its_own_says_more() {
   let (status, step) = cell_of(&Fixture::branch());
   assert!(!step.wait);
   assert_eq!(status, RowStatus::default());
+}
+
+/// The start lands after the running Safe Push of what it needs (`StepKind::AfterLanding`): the cell says the wait, also
+/// before its own failed robot, whose restart waits for that landing too, the robot beside it; the node waits, nothing is
+/// the user's move
+#[test]
+fn a_start_that_lands_after_what_it_needs_waits_in_the_cell_and_the_node_before_its_failed_robot() {
+  let mut refusal = missing_declaration();
+  if let domain_types::landing::LandingRefusal::MissingDeclaration { landing_in, .. } = &mut refusal {
+    *landing_in = Some(RobotOf {
+      branch: "codec".to_string(),
+      robot_id: "robot-codec".to_string(),
+      whole_stack: false,
+    });
+  }
+  let waits = Fixture::branch().with(|it| it.needs = Some(LandingNeeds::Known { refusals: vec![refusal] }));
+  let (status, step) = cell_of(&waits);
+  assert!(matches!(step.kind, StepKind::AfterLanding { restart: None, .. }) && step.wait);
+  assert_eq!(
+    status,
+    RowStatus {
+      main: Some(RowFact::Wait),
+      also: Vec::new()
+    }
+  );
+  assert_eq!(node_of(&waits).kind, LandingNodeKind::Waiting);
+  let failed_robot = waits.with(failed(Some(false), true));
+  let (status, step) = cell_of(&failed_robot);
+  assert!(matches!(step.kind, StepKind::AfterLanding { restart: Some(_), .. }));
+  assert_eq!(
+    status,
+    RowStatus {
+      main: Some(RowFact::Wait),
+      also: vec![RowFact::Robot { running: false, failed: true }],
+    }
+  );
+  assert_eq!(node_of(&failed_robot).kind, LandingNodeKind::Waiting);
+}
+
+fn node_of(fixture: &Fixture) -> LandingNode {
+  let standing = fixture.standing();
+  let step = fixture.facts(&standing);
+  landing_node(&NodeFacts {
+    step,
+    status: BranchStatus::Unchanged,
+    blocked_by: None,
+    lands_with: None,
+    lands_failing: false,
+    push_pending: false,
+    regenerate: &[],
+    regenerate_fix: None,
+    shown: None,
+  })
 }
 
 fn regenerate_file() -> RegenerateFile {

@@ -45,7 +45,10 @@
 //! - `landing_route`: the route of a repository into master (`route`: a robot of Patronus, a push into the target, a
 //!   merge of the pull request), named by `branchdeck.landing` or by the host, each with its gate of the write access
 //!   and the rules of the target; the branch whose rules the session reads for it (`rules_target`)
-//! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `landing_edges`: the landing needs as edges of the landing plan, `from → needed`: the refusals of one start merged
+//!   by the branch they need with their names as evidence, each with its kind and state (`edges_of`), and of every
+//!   branch lifted to the root of its stack (`landing_edges`)
+//! - `landing_needs`: the running Safe Push a refusal of the landing needs names (`name_landing_robots`)
 //! - `landing_node`: where a branch or a whole stack is on its way into master, the node of its row (`landing_node`)
 //! - `next_step`: the next step of a branch or a whole stack, the first row of the table of the next step that matches
 //!   (`next_step` over `StepFacts`), each fact of the remote as it stands (`PatronusStanding`, `Listing`, `Needs`): a
@@ -115,6 +118,7 @@ pub mod land;
 pub mod land_direct;
 pub mod landed;
 pub mod landed_island;
+pub mod landing_edges;
 pub mod landing_needs;
 pub mod landing_node;
 pub mod landing_route;

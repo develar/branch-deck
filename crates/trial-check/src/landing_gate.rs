@@ -230,6 +230,7 @@ impl Landing<'_> {
           removed_by: commit(&reference.removed_by),
           fix: self.fix_of(&fixed_by, branch),
           fixed_by,
+          landing_in: None,
         })
       });
     let missing = self.missing.iter().map(|missing| {
@@ -272,17 +273,17 @@ impl Landing<'_> {
   }
 
   /// A restack of the root onto the branch of `needed`, the commit the start needs, unless that branch is built on
-  /// what lands (a cycle) or the commit is unassigned: then the move of the commit into `into`, the branch that needs it
+  /// what lands (a cycle: the start of that branch or of the whole stack, `LandingFix::cycle_start`) or the commit is
+  /// unassigned (its group into `into`, the branch that needs it)
   fn fix_of(&self, needed: &StackCommit, into: &str) -> LandingFix {
-    let built_on_lands = |branch: &str| {
-      self
-        .chains
-        .iter()
-        .find(|(name, _)| name == branch)
-        .is_some_and(|(_, chain)| chain.iter().any(|parent| self.lands.contains(parent)))
-    };
     let onto = needed.branch.as_str();
-    LandingFix::for_need(needed, into, self.root, !onto.is_empty() && built_on_lands(onto))
+    let ancestors: Vec<&str> = self
+      .chains
+      .iter()
+      .find(|(name, _)| name == onto)
+      .map_or_default(|(_, chain)| chain.iter().map(String::as_str).collect());
+    let lands: Vec<&str> = self.lands.iter().map(String::as_str).collect();
+    LandingFix::for_need(needed, into, self.root, LandingFix::cycle_start(onto, &ancestors, &lands))
   }
 }
 

@@ -672,7 +672,8 @@ function revealStartRow(place: StartPlace): void {
  * slot of row 1′, its item in "⋯" or the toast of a refused start: a rewrite that names the refusal it fixes
  * (`RewriteIntent.fixes`), which the engine runs on fresh landing needs only, while they still refuse with it; refused
  * (`plan_changed`: the fresh needs ask for it no more, a second press after the first ran), the Safe Push popover opens
- * at the row with the needs as they are. A fix no action runs (the move of a commit) opens the popover at once. The
+ * at the row with the needs as they are. The start of a cycle's fix is a click of the Safe Push of what lands both; a
+ * fix no rewrite runs here (the group of an unassigned commit) opens the popover at once. The
  * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked
  */
 export function requestLandingFix(branchName: string, refusal: LandingRefusal): void {
@@ -686,6 +687,11 @@ export function requestLandingFix(branchName: string, refusal: LandingRefusal): 
       revealStartRow(place)
       openSafePushPopover({ branchName: place.subject, mode: "rebaseAutosquash", placement: place.placement })
     }
+  }
+  // a cycle: the start of what lands both, a click of its Safe Push
+  if (fix?.kind === "start") {
+    void requestSafePush(fix.subject.kind === "branch" ? fix.subject.name : stackReadinessKey(fix.subject.root), { mode: "rebaseAutosquash", via: "click" })
+    return
   }
   const fixes = stackRootOfReadinessKey(branchName) === null ? { fixes: refusal } : {}
   if (fix == null || !runLandingFix(fix, { ...fixes, onPlanChanged: popover })) {

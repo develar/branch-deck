@@ -1,6 +1,6 @@
 // Next steps as Rust gives them (`NextStep` of the view's `nextSteps`) and the context the page presents them in, for
 // the tests of the presenters: a step is data, so a test writes the one row it asks about
-import type { MissingReviewGroup, NextStep, NextStepView, StepFact, StepKind, StepRow } from "@/lib/bindings"
+import type { LandingEdge, LandingRefusal, MissingReviewGroup, NextStep, NextStepView, StepFact, StepKind, StepRow } from "@/lib/bindings"
 import { landingFixOf } from "@/presenters/landing"
 import type { NextStepActions, StepContext } from "@/presenters/next-step"
 import { branchSyncStore } from "@/stores/branch-sync"
@@ -12,6 +12,7 @@ const ROWS: Readonly<Record<StepKind["kind"], StepRow>> = {
   pending: "0",
   unavailable: "0",
   needsBranch: "1′",
+  afterLanding: "1′",
   pickRemoteCommits: "1″",
   updateProject: "push′",
   restart: "2",
@@ -32,6 +33,26 @@ const ROWS: Readonly<Record<StepKind["kind"], StepRow>> = {
   mergePullRequest: "merge",
   autoMerging: "merge′",
   mergeHeld: "merge″",
+}
+
+/**
+ * The edge Rust derives of one refusal of the start of its branch (`landing_edges::edges_of`), `extra` over it: of the
+ * branch it needs, open, its name and file the evidence
+ */
+export function testEdge(refusal: LandingRefusal, extra: Partial<LandingEdge> = {}): LandingEdge {
+  const needed = refusal.kind === "missingDeclaration" ? refusal.declaredBy : refusal.kind === "danglingReference" ? refusal.fixedBy : null
+  const evidence = refusal.kind === "missingDeclaration" || refusal.kind === "danglingReference" ? { names: [refusal.identifier], files: [refusal.file] } : { names: [], files: [] }
+  return {
+    from: refusal.branch,
+    needed: needed === null ? (refusal.kind === "unlandedNeed" ? refusal.needs : "") : needed.branch === "" ? needed.id : needed.branch,
+    kind: refusal.kind === "unlandedNeed" ? "declared" : "build",
+    state: { kind: "open" },
+    ...evidence,
+    refusals: 1,
+    refuses: [refusal.branch],
+    fix: refusal.kind === "lostBinding" ? null : (refusal.fix ?? null),
+    ...extra,
+  }
 }
 
 /** The step of `kind`, nothing against its starts, of a lone branch, `extra` over it */
@@ -64,6 +85,8 @@ export function testActions(calls: string[] = [], extra: Partial<NextStepActions
     linkStack: record("linkStack"),
     openStackPullRequest: root => calls.push(`openStackPullRequest ${root}`),
     fixLanding: refusal => calls.push(`fixLanding ${landingFixOf(refusal)?.kind ?? "none"}`),
+    startSubject: subject => calls.push(`startSubject ${subject.kind === "branch" ? subject.name : `stack:${subject.root}`}`),
+    groupCommit: (commitId, into) => calls.push(`groupCommit ${commitId} ${into}`),
     copyLoginCommand: record("copyLoginCommand"),
     refreshPatronus: record("refreshPatronus"),
     pickRemoteCommits: record("pickRemoteCommits"),

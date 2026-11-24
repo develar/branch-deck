@@ -324,9 +324,8 @@ test.describe("Landing needs", () => {
     await setupNeeds(page, setupRepo, syncAndWaitForBranches)
     const button = step(page, "lane-run").getByTestId("next-step")
     await button.hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText(
-      "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of lane-run fails. Stack lane-run on stills-codec to land it too.",
-    )
+    // the edge in one sentence: what it uses of the branch it needs, and the fix
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Uses Stills of stills-codec in BuildLog.kt. Stack lane-run on stills-codec to land it too.")
     await runAndWaitForSync(page, () => button.click())
     await expectStacked(page)
   })

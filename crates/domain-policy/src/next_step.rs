@@ -44,7 +44,7 @@ use crate::land_direct::{MergeAnswer, merge_of};
 use crate::pull_request::merged_elsewhere;
 use crate::readiness::waiting_reviewers;
 use domain_types::error::ErrorCode;
-use domain_types::landing::{Landed, LandedBy, LandingRefusal, Subject};
+use domain_types::landing::{EdgeState, Landed, LandedBy, LandingEdge, LandingRefusal, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute, LocalGitHub, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
@@ -265,6 +265,9 @@ pub struct StepFacts<'a> {
   /// The branch Patronus pushes into, as a pull request names its base ("master")
   pub target: &'a str,
   pub needs: Needs<'a>,
+  /// The edges of its known needs (`landing_edges::edges_of`): row 1′ names the first, and is a wait for the landing of
+  /// what they need while every one of them waits (`StepKind::AfterLanding`); empty without needs
+  pub edges: &'a [LandingEdge],
   /// The readiness of the subject; `None` while nobody asked
   pub readiness: Option<&'a Fact<SubjectReadiness>>,
   /// The open pull request of the whole stack the branch is in
@@ -550,7 +553,7 @@ fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_r
         settled(general, dry_run)
       } else if let Some(refusals) = declared_needs(facts) {
         // the order the user declared needs no answer: row 1′ says it before Patronus answers
-        step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, general, dry_run)
+        needs_step(facts, refusals, general, dry_run)
       } else {
         pending(StepFact::Patronus, general, dry_run)
       };
@@ -595,7 +598,7 @@ fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_r
   }
   if let Some(refusals) = needs {
     // row 1′: the Safe Push stays enabled, its popover says why before the start
-    return step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, general, dry_run);
+    return needs_step(facts, refusals, general, dry_run);
   }
   // row 1″: the work of someone else on the remote branch comes in before any push drops it; the Safe Push stays
   // enabled, its start asks before a push that drops it
@@ -665,14 +668,43 @@ fn gated(facts: &StepFacts<'_>, gate: &RouteGate, general: Option<StepBlocker>, 
   if let Needs::Known(refusals) = facts.needs
     && !refusals.is_empty()
   {
-    return Err(Box::new(step(
-      StepRow::OnePrime,
-      StepKind::NeedsBranch { refusals: refusals.to_vec() },
-      blocker,
-      dry_run.cloned(),
-    )));
+    return Err(Box::new(needs_step(facts, refusals, blocker, dry_run.cloned())));
   }
   Ok(blocker)
+}
+
+/// Row 1′ of `refusals`, the needs of the subject: a wait for the landing of what they need while every edge of them
+/// waits for a running Safe Push (`after_landing`), else the need, its edges for the words
+fn needs_step(facts: &StepFacts<'_>, refusals: &[LandingRefusal], general: Option<StepBlocker>, dry_run: Option<StepBlocker>) -> NextStep {
+  let kind = after_landing(facts, refusals).unwrap_or_else(|| StepKind::NeedsBranch {
+    refusals: refusals.to_vec(),
+    edges: facts.edges.to_vec(),
+  });
+  step(StepRow::OnePrime, kind, general, dry_run)
+}
+
+/// The wait of a subject whose every need is of an edge that waits for a running Safe Push (`EdgeState::Waits`): it
+/// lands after the branch of the first, as a start beside it fails; a lost binding is of no edge and keeps the need.
+/// Its own failed robot restarts after it too (`restart`)
+pub(crate) fn after_landing(facts: &StepFacts<'_>, refusals: &[LandingRefusal]) -> Option<StepKind> {
+  let first = facts.edges.first()?;
+  let EdgeState::Waits { robot } = &first.state else {
+    return None;
+  };
+  let waits = facts.edges.iter().all(|edge| matches!(edge.state, EdgeState::Waits { .. }));
+  if !waits || refusals.iter().any(|refusal| matches!(refusal, LandingRefusal::LostBinding { .. })) {
+    return None;
+  }
+  let restart = facts
+    .robot
+    .filter(|robot| robot.robot.status == PatronusRobotStatus::Failure && robot.restart)
+    .map(|robot| robot.robot.id.clone());
+  Some(StepKind::AfterLanding {
+    needed: first.needed.clone(),
+    robot: robot.clone(),
+    edges: facts.edges.to_vec(),
+    restart,
+  })
 }
 
 /// The needs of the subject while one of them is an order the user declared (`LandingRefusal::UnlandedNeed`): every

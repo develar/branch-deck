@@ -46,7 +46,7 @@ describe("formatReason", () => {
       "Patronus checks the approvals when the robot starts and fails without them",
       "The push dismisses the approvals of #7: push first, then ask for the review again",
       "“Use parseFlow” of flow uses parseFlow (flow/Flow.kt:3), which “Add parseFlow” of util adds: git merges it, but the build of flow fails. Stack flow on util to land it too.",
-      "“Remove the env” of fake-agent removes CONTROL_URL_ENV, which acp/Host.kt:7 still uses, and “Read the url” of acp changes that use: the build of fake-agent fails. Move that commit into fake-agent, or stack fake-agent on its branch.",
+      "“Remove the env” of fake-agent removes CONTROL_URL_ENV, which acp/Host.kt:7 still uses, and “Read the url” of acp changes that use: the build of fake-agent fails. The Safe Push of acp lands both.",
       "01234567 conflicts in a.kt with the newest target: Patronus would fail the robot at once",
       "Landed in origin/master",
       "Pull request #7 is merged",

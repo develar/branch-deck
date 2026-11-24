@@ -977,7 +977,7 @@ fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
 
 /// `session` uses a name its sibling `login` adds: the robot of the whole stack lands both, so it refuses nothing; the
 /// Safe Push of `session` alone lands `auth` and `session` without it, and a restack of `auth` on `login` would close a
-/// cycle, so the fix is the move of the commit
+/// cycle, so the fix is the Safe Push of the whole stack, never a move of the commit
 #[test_log::test]
 fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
   let space = Space::new(&["(auth) Add auth"]);
@@ -996,8 +996,9 @@ fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
     .and_then(|refusals| refusals.iter().find(|refusal| refusal["code"] == json!("missing_declaration")))
     .unwrap_or_else(|| panic!("{output}"));
   let message = refusal["message"].as_str().unwrap();
+  assert!(message.contains(&format!("which {} (Add controlUrl) of login adds", &declares[..8])), "{output}");
   assert!(
-    message.contains(&format!("Move {} into session; --allow-missing starts anyway, only when", &declares[..8])),
+    message.contains("login is built on what lands: `") && message.contains(" safe-push auth --whole-stack` lands both; --allow-missing starts anyway, only when"),
     "{output}"
   );
 }

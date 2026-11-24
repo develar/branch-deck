@@ -59,6 +59,7 @@ import type {
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { logError, logWarning } from "@/lib/errors"
+import { noteWaitingStarts } from "@/lib/merge-dependents"
 import { sameFields, withoutKeys } from "@/lib/record"
 import { toRemoteStatus } from "@/lib/remote-status"
 import type { SyncDeferral } from "@/lib/sync-deferred"
@@ -657,6 +658,8 @@ function projectView(
   }
   if (changes === null || Object.keys(changes.nextSteps ?? {}).length > 0 || (changes.removedNextSteps?.length ?? 0) > 0) {
     update.nextSteps = next.nextSteps
+    // the starts that wait for a running robot, which the toast of its merge offers (`showMergeToast`)
+    noteWaitingStarts(next.nextSteps)
   }
   if (changes === null || Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
     update.actions = next.actions

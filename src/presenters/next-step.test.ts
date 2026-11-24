@@ -4,7 +4,7 @@ import type { LandingRefusal, Reason, StepBlocker } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
 import { presentNextStep, startStepBlocker } from "@/presenters/next-step"
 import { DECLARED_DOCS } from "@/test-support/landing-refusal"
-import { missingGroup, testActions, testContext, testStep } from "@/test-support/next-step"
+import { missingGroup, testActions, testContext, testEdge, testStep } from "@/test-support/next-step"
 
 /** The reasons of the catalog Rust writes (`reason_catalog_test.rs`) */
 const CATALOG = Object.values(import.meta.glob<Reason[]>("/crates/domain-policy/reasons.json", { eager: true, import: "default" }))[0]!
@@ -87,39 +87,118 @@ describe("the words of the next step", () => {
   it("row 1′: names the branch the build needs and runs the fix, or opens the Safe Push", () => {
     const refused = reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>
     const calls: string[] = []
-    const step = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused.refusal] }), testContext({ actions: testActions(calls) }))
+    const needs = (refusal: LandingRefusal, extra = {}) => testStep({ kind: "needsBranch", refusals: [refusal], edges: [testEdge(refusal, extra)] })
+    const step = presentNextStep(needs(refused.refusal), testContext({ actions: testActions(calls) }))
     expect(step).toMatchObject({ kind: "needsBranch", safePushBlocker: null })
-    expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util" })
+    expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util", description: "Uses parseFlow of util in Flow.kt. Stack flow on util to land it too." })
     expect(step.landingFix).toMatchObject({ label: "Stack flow on util" })
     step.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["fixLanding restack"])
-    const move = (reasonOf("landingRefused", 1) as Extract<Reason, { code: "landingRefused" }>).refusal satisfies LandingRefusal
-    const opens = presentNextStep(testStep({ kind: "needsBranch", refusals: [move] }), testContext({ actions: testActions(calls) }))
-    expect(opens.item).toMatchObject({ id: "landing-needs", label: "Needs acp" })
+    // a branch built on what lands: the start of what lands both, never a move
+    const cycle = (reasonOf("landingRefused", 1) as Extract<Reason, { code: "landingRefused" }>).refusal satisfies LandingRefusal
+    const starts = presentNextStep(needs(cycle, { state: { kind: "cycle" } }), testContext({ actions: testActions(calls) }))
+    expect(starts.item).toMatchObject({
+      id: "landing-fix",
+      label: "Safe Push acp",
+      description: "Uses CONTROL_URL_ENV of acp in Host.kt: acp is built on what lands. The Safe Push of acp lands both.",
+    })
+    starts.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["fixLanding restack", "startSubject acp"])
+    // a lost binding is of no edge: the reason of the gate, the popover
+    const lost: LandingRefusal = {
+      kind: "lostBinding",
+      branch: "auth",
+      identifier: "Codec",
+      binding: "import",
+      file: "src/Use.kt",
+      line: 4,
+      removedBy: { id: "6a4e00db1", subject: "Drop the import", branch: "auth" },
+    }
+    const opens = presentNextStep(testStep({ kind: "needsBranch", refusals: [lost], edges: [] }), testContext({ actions: testActions(calls) }))
+    expect(opens.item).toMatchObject({ id: "landing-needs", label: "Needs fix of 6a4e00db" })
     expect(opens.landingFix).toBeNull()
+  })
+
+  it("row 1′: says one edge in one sentence, restarts a failed robot of the branch it needs and groups an unassigned commit", () => {
+    const refused = (reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>).refusal
+    const calls: string[] = []
+    // fifteen refusals of five names, one edge
+    const edge = testEdge(refused, { names: ["Effect", "Input", "ReplayRecord", "StepError", "step"], files: ["src/acp_load_replay.rs"], refusals: 15 })
+    const merged = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused, refused], edges: [edge] }), testContext({ actions: testActions(calls) }))
+    expect(merged.item?.description).toBe("Uses 5 names of util in acp_load_replay.rs (Effect, Input +3). Stack flow on util to land it too.")
+    expect(merged.item?.description).not.toContain("brd check")
+    // the robot of util failed: its restart, of that robot
+    const restart = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => calls.push("restart") }
+    const failed = testEdge(refused, { state: { kind: "neededFailed", robot: { branch: "util", robotId: "r9", wholeStack: false } } })
+    const restarts = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused], edges: [failed] }), testContext({ actions: testActions(calls, { restart }) }))
+    expect(restarts.item).toMatchObject({
+      id: "restart-robot",
+      label: "Restart util",
+      description: "Uses parseFlow of util in Flow.kt: the Safe Push of util failed. Restart it first: a start beside a failing piece fails too.",
+    })
+    restarts.item!.onSelect(FROM_MENU)
+    // an unassigned commit: its group into the branch that needs it, the only move
+    const unassigned: LandingRefusal = {
+      ...refused,
+      declaredBy: { id: "1a2b3c4d5", subject: "Add parseFlow", branch: "" },
+      fix: { kind: "moveCommit", commit: { id: "1a2b3c4d5", subject: "Add parseFlow", branch: "" }, into: "flow" },
+    } as LandingRefusal
+    const groups = presentNextStep(
+      testStep({ kind: "needsBranch", refusals: [unassigned], edges: [testEdge(unassigned, { state: { kind: "unassigned" } })] }),
+      testContext({ actions: testActions(calls) }),
+    )
+    expect(groups.item).toMatchObject({
+      id: "landing-fix",
+      label: "Group 1a2b3c4d into flow",
+      description: "Uses parseFlow of 1a2b3c4d (unassigned) in Flow.kt. Group 1a2b3c4d into flow.",
+    })
+    groups.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["restart", "groupCommit 1a2b3c4d5 flow"])
+  })
+
+  it("row 1′: lands after the running Safe Push of what every need is of, a wait its status says, the start in its popover", () => {
+    const refused = (reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>).refusal
+    const robot = { branch: "util", robotId: "r9", wholeStack: false }
+    const edge = testEdge(refused, { state: { kind: "waits", robot } })
+    const calls: string[] = []
+    const after = (restart: string | null) =>
+      presentNextStep(testStep({ kind: "afterLanding", needed: "util", robot, edges: [edge], restart }, { wait: true }), testContext({ actions: testActions(calls) }))
+    const waits = after(null)
+    expect(waits).toMatchObject({ kind: "landsAfter", tone: "quiet", safePushBlocker: null })
+    expect(waits.wait).toMatchObject({
+      label: "Lands after util",
+      description: "Uses parseFlow of util in Flow.kt: util is landing in its Safe Push, which tests it without this start: a start beside it fails too.",
+    })
+    waits.wait!.open(FROM_MENU)
+    expect(calls).toEqual(["openSafePush"])
+    expect(after("r1").wait?.label).toBe("Restart after util")
   })
 
   it("row 1′: while the fix runs on the row, or waits in the session for the fresh needs, its item of the slot and of ⋯ are disabled", () => {
     const refused = reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>
     const busy = { id: "rewrite", label: "Stacking flow on util" }
     const calls: string[] = []
-    const step = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused.refusal] }), testContext({ busy, actions: testActions(calls) }))
+    const needs = testStep({ kind: "needsBranch", refusals: [refused.refusal], edges: [testEdge(refused.refusal)] })
+    const step = presentNextStep(needs, testContext({ busy, actions: testActions(calls) }))
     expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util", disabled: true, description: "Stacking flow on util…" })
     expect(step.landingFix).toMatchObject({ label: "Stack flow on util", disabled: true, description: "Stacking flow on util…" })
     // the fix names the refusal it fixes, which the engine checks against the fresh needs
-    presentNextStep(testStep({ kind: "needsBranch", refusals: [refused.refusal] }), testContext({ actions: testActions(calls) })).item!.onSelect(FROM_MENU)
+    presentNextStep(needs, testContext({ actions: testActions(calls) })).item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["fixLanding restack"])
   })
 
   it("row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need", () => {
     const calls: string[] = []
-    const own = presentNextStep(testStep({ kind: "needsBranch", refusals: [DECLARED_DOCS] }), testContext({ actions: testActions(calls) }))
+    const own = presentNextStep(testStep({ kind: "needsBranch", refusals: [DECLARED_DOCS], edges: [testEdge(DECLARED_DOCS)] }), testContext({ actions: testActions(calls) }))
     expect(own).toMatchObject({ kind: "needsBranch", safePushBlocker: null, landingFix: null })
     expect(own.item).toMatchObject({ id: "landing-needs", label: "Needs docs" })
     own.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["openSafePush"])
     const inherited: LandingRefusal = { ...DECLARED_DOCS, branch: "ui", inheritedFrom: "auth", fix: { kind: "unstack", branch: "ui", from: "auth" } }
-    const unstacks = presentNextStep(testStep({ kind: "needsBranch", refusals: [inherited] }), testContext({ actions: testActions(calls) }))
+    const unstacks = presentNextStep(
+      testStep({ kind: "needsBranch", refusals: [inherited], edges: [testEdge(inherited, { from: "auth" })] }),
+      testContext({ actions: testActions(calls) }),
+    )
     expect(unstacks.item).toMatchObject({ id: "landing-fix", label: "Needs docs" })
     expect(unstacks.landingFix).toMatchObject({ label: "Unstack ui from auth" })
     unstacks.item!.onSelect(FROM_MENU)

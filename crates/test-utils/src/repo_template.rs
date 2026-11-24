@@ -1965,6 +1965,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     /// the prefix, with their author and author time and the committer `Patronus`; `ui` stays local. The `search` commit
     /// names `JIRA-42`, which the `.idea/vcs.xml` of the issue links template links
     Landed,
+    /// A robot pushed the commit of `codec` that adds `Codec`, which `flow` uses: the upstream has it, not yet fetched,
+    /// so the start of `flow` needs `codec` until an update fetches it (the landing needs; `docs/design/landing.md`,
+    /// "Landing plan")
+    LandedNeed,
   }
 
   /// A clone whose `master` tracks `origin/master` of an upstream that has moved on. The upstream is a bare repository
@@ -2010,6 +2014,16 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   pub const fn landed_upstream() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Landed)
   }
+
+  pub const fn landed_need() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::LandedNeed)
+  }
+
+  /// The file of `flow` of `landed_need` that uses `Codec`
+  pub const LANDED_NEED_USE: &str = "flow/src/main/kotlin/org/example/platform/landing/pipeline/codec/integration/FlowCodecIntegrationEntryPoint.kt";
+
+  /// The Kotlin file `codec` of `landed_need` adds, whose `Codec` `flow` uses
+  const CODEC_KT: (&str, &str) = ("bundle/src/Codec.kt", "package bundle\n\nclass Codec\n");
 
   pub const UPDATE_APP_FILE: &str = "src/app.txt";
 
@@ -2123,24 +2137,27 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
           )?;
         }
       }
-      if scenario == UpdateScenario::Landed {
-        // as a Safe Push robot pushes the local commits below, the morning after they were written
-        for (message, path, content, author_time) in [
+      // as a Safe Push robot pushes the local commits below, the morning after they were written
+      let robot_commits: &[(&str, &str, &str, i64)] = match scenario {
+        UpdateScenario::Landed => &[
           ("Add login", "src/auth.txt", "login\n", 1704118500),
           ("Add index for JIRA-42", "src/search.txt", "index\n", 1704118600),
-        ] {
-          write(path, content)?;
-          git(&["add", "--", path], None)?;
-          let output = git_command()
-            .args(["commit", "-q", "-m", message])
-            .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
-            .env("GIT_COMMITTER_DATE", "1704175800 +0000")
-            .env("GIT_COMMITTER_NAME", "Patronus")
-            .env("GIT_COMMITTER_EMAIL", "patronus@example.com")
-            .current_dir(output_path)
-            .output()?;
-          anyhow::ensure!(output.status.success(), "robot commit failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
+        ],
+        UpdateScenario::LandedNeed => &[("Add the codec", CODEC_KT.0, CODEC_KT.1, 1704118500)],
+        _ => &[],
+      };
+      for (message, path, content, author_time) in robot_commits {
+        write(path, content)?;
+        git(&["add", "--", path], None)?;
+        let output = git_command()
+          .args(["commit", "-q", "-m", message])
+          .env("GIT_AUTHOR_DATE", format!("{author_time} +0000"))
+          .env("GIT_COMMITTER_DATE", "1704175800 +0000")
+          .env("GIT_COMMITTER_NAME", "Patronus")
+          .env("GIT_COMMITTER_EMAIL", "patronus@example.com")
+          .current_dir(output_path)
+          .output()?;
+        anyhow::ensure!(output.status.success(), "robot commit failed: {}", String::from_utf8_lossy(&output.stderr));
       }
       git(&["push", "-q", BARE_ORIGIN, "HEAD:refs/heads/master"], None)?;
       git(&["checkout", "-q", "master"], None)?;
@@ -2163,12 +2180,27 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
         commit("(ui) Add button", &[("src/button.txt", "button\n")], 1704118800)?;
       }
-      git(&["fetch", "-q", "origin"], None)?;
+      if scenario == UpdateScenario::LandedNeed {
+        commit("(codec) Add the codec", &[CODEC_KT], 1704118500)?;
+        commit(
+          "(flow) Use the codec",
+          // a long path, as a monorepo has them: the popover wraps it
+          &[(LANDED_NEED_USE, "package flow\n\nimport bundle.Codec\n\nfun flow(codec: Codec) = 1\n")],
+          1704118600,
+        )?;
+      } else {
+        git(&["fetch", "-q", "origin"], None)?;
+      }
 
       match scenario {
         UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
         UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
-        UpdateScenario::Conflict | UpdateScenario::ResolvesByWords | UpdateScenario::WideConflict | UpdateScenario::Landed | UpdateScenario::LostBindings => {}
+        UpdateScenario::Conflict
+        | UpdateScenario::ResolvesByWords
+        | UpdateScenario::WideConflict
+        | UpdateScenario::Landed
+        | UpdateScenario::LandedNeed
+        | UpdateScenario::LostBindings => {}
       }
       Ok(())
     }

@@ -71,8 +71,8 @@ async function runStackOperation(
 /**
  * Runs the fix of what a start needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs,
  * or the unstack of a branch from the one whose declared need it inherits, with what it fixes (`options.fixes`: the
- * engine runs it on fresh landing needs while they still refuse with it); false for a fix no action runs (the move of
- * a commit), which the Safe Push popover says
+ * engine runs it on fresh landing needs while they still refuse with it); false for a fix no rewrite runs (the group of
+ * an unassigned commit, the start of a cycle), which the Safe Push popover says
  */
 export function runLandingFix(fix: LandingFix, options: LandingFixOptions = {}): boolean {
   switch (fix.kind) {
@@ -83,6 +83,7 @@ export function runLandingFix(fix: LandingFix, options: LandingFixOptions = {}):
       void restackBranch(fix.branch, null, options)
       return true
     case "moveCommit":
+    case "start":
       return false
   }
 }

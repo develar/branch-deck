@@ -47,6 +47,13 @@ pub(crate) fn regenerate_refusal(context: &RepoContext, lead: &str, what: &str, 
     }
     Some(LandingFix::MoveCommit { commit, into }) => (format!(". Move {} into {into}, after the user approves", short.get(&commit.id)), None),
     Some(LandingFix::Unstack { branch, from }) => (format!(". `{} unstack {branch}` lands it without {from}", context.bd), None),
+    Some(LandingFix::Start { subject }) => {
+      let whole_stack = if subject.is_whole_stack() { " --whole-stack" } else { "" };
+      (
+        format!(". `{} safe-push {}{whole_stack}` lands the copy with that commit", context.bd, shell_word(subject.name())),
+        None,
+      )
+    }
     None => (String::new(), None),
   };
   let more = match files.len() - 1 {

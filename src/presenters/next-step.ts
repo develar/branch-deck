@@ -19,16 +19,17 @@ import {
   LayersIcon,
 } from "lucide-react"
 import { getErrorDetails } from "@/lib/api-error"
-import type { LandingRefusal, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
+import type { LandingEdge, LandingFix, LandingRefusal, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind, Subject } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { MenuItem } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"
 import { formatAvailabilityHint } from "@/lib/pull-request"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
+import { sameJson } from "@/lib/record"
 import { joinNames } from "@/lib/text"
 import { formatWholeStack } from "@/lib/whole-stack"
-import { describeLandingRefusals, formatLandingFix, formatNeeded } from "@/presenters/landing"
+import { describeEdge, describeLandingRefusals, formatEdgeFix, formatLandsAfter, formatNeeded, landingFixOf } from "@/presenters/landing"
 import { formatLandedWhole, formatReason } from "@/presenters/reasons"
 
 /**
@@ -41,6 +42,7 @@ export type NextStepKind =
   | "none"
   | "pending"
   | "needsBranch"
+  | "landsAfter"
   | "pickRemoteCommits"
   | "updateProject"
   | "restart"
@@ -97,6 +99,10 @@ export interface NextStepActions {
   readonly openStackPullRequest: (root: string) => void
   /** Runs the fix of what the Safe Push needs, of `refusal` (`LandingFix`): the restack of the root of what it lands */
   readonly fixLanding: (refusal: LandingRefusal) => void
+  /** The start of `subject` instead (`LandingFix.start` of a cycle): its Safe Push, or its popover */
+  readonly startSubject: (subject: Subject) => void
+  /** Groups the unassigned commit `commitId` into the branch `into` (`LandingFix.moveCommit`), the only move a fix offers */
+  readonly groupCommit: (commitId: string, into: string) => void
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
@@ -411,25 +417,73 @@ function helpItem(help: Extract<StepKind, { kind: "unavailable" }>["help"], reas
 
 /**
  * Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, or the user declared that another
- * branch lands first: "Needs stills-codec", which runs the fix ("Stack lane-run on stills-codec", "Unstack ui from
- * auth"), the reason in its hover; a fix no action runs (the move of a commit), and a declared need of the branch itself,
- * open the Safe Push popover, which says it and starts anyway
+ * branch lands first, as Rust merged them into edges (`LandingEdge`): the first names the step, its sentence the hover
+ * ("Uses 5 names of stills-codec in Stills.kt"), and its fix the click: "Needs stills-codec" restacks ("Stack lane-run
+ * on stills-codec", "Unstack ui from auth"); "Restart stills-codec" of a branch whose robot failed restarts it; "Group
+ * 1a2b3c4d into lane-run" of an unassigned commit groups it; "Safe Push Whole Stack" of a branch built on what lands
+ * starts what lands both. A need nothing runs (a declared need of its own, a lost binding) opens the Safe Push popover,
+ * which says it and starts anyway
  */
 function needsBranch(kind: Extract<StepKind, { kind: "needsBranch" }>, context: StepContext): Shown {
+  const [edge] = kind.edges
+  // a lost binding is of no edge: the reason of the gate names it
   const decision = describeLandingRefusals(kind.refusals, context.subject)
-  const label = `Needs ${formatNeeded(kind.refusals[0]!)}`
-  const reason = decision?.reason ?? ""
-  const fix = decision?.fix ?? null
-  const fixLabel = formatLandingFix(fix)
-  const landingFix: MenuItem | null =
-    fix === null || fixLabel === null
-      ? null
-      : { id: "landing-fix", label: fixLabel, icon: Layers2Icon, description: reason, onSelect: () => context.actions.fixLanding(kind.refusals[0]!) }
-  const item: MenuItem =
-    landingFix === null
-      ? { id: "landing-needs", label, icon: TriangleAlertIcon, description: reason, onSelect: context.actions.openSafePush }
-      : { ...landingFix, label, icon: TriangleAlertIcon }
+  // an edge of the build in one sentence; a declared order in the words of the gate, which say what it holds back
+  const reason = edge === undefined || edge.kind !== "build" ? (decision?.reason ?? "") : describeEdge(edge)
+  const open: MenuItem = {
+    id: "landing-needs",
+    label: `Needs ${formatNeeded(kind.refusals[0]!)}`,
+    icon: TriangleAlertIcon,
+    description: reason,
+    onSelect: context.actions.openSafePush,
+  }
+  if (edge === undefined) {
+    return { kind: "needsBranch", item: open, landingFix: null }
+  }
+  const restart = context.actions.restart
+  if (edge.state.kind === "neededFailed" && restart !== null) {
+    const item: MenuItem = { ...restart, label: `Restart ${edge.needed}`, description: reason }
+    return { kind: "needsBranch", item, landingFix: null }
+  }
+  const landingFix = edgeFixItem(edge, kind.refusals, reason, context.actions)
+  // a restack or an unstack keeps the need as the label, the fix its click; a group or a start says itself
+  const restacks = edge.fix?.kind === "restack" || edge.fix?.kind === "unstack"
+  const label = landingFix === null || restacks ? `Needs ${edge.needed}` : landingFix.label
+  const item: MenuItem = landingFix === null ? { ...open, label } : { ...landingFix, label, icon: TriangleAlertIcon }
   return { kind: "needsBranch", item, landingFix }
+}
+
+/** The item that runs the fix of `edge` with a refusal of it (`refusals`, whose fix is the edge's); null without one */
+function edgeFixItem(edge: LandingEdge, refusals: readonly LandingRefusal[], reason: string, actions: NextStepActions): MenuItem | null {
+  const fix: LandingFix | null = edge.fix
+  const label = formatEdgeFix(fix)
+  if (fix === null || label === null) {
+    return null
+  }
+  switch (fix.kind) {
+    case "restack":
+    case "unstack": {
+      const refusal = refusals.find(it => sameJson(landingFixOf(it), fix))
+      return refusal === undefined ? null : { id: "landing-fix", label, icon: Layers2Icon, description: reason, onSelect: () => actions.fixLanding(refusal) }
+    }
+    case "moveCommit":
+      return { id: "landing-fix", label, icon: Layers2Icon, description: reason, onSelect: () => actions.groupCommit(fix.commit.id, fix.into) }
+    case "start":
+      return { id: "landing-fix", label, icon: ShieldCheckIcon, description: reason, onSelect: () => actions.startSubject(fix.subject) }
+  }
+}
+
+/**
+ * Row 1′ while every edge of its needs waits for a running Safe Push (`afterLanding`): a wait, "Lands after
+ * stills-codec" ("Restart after stills-codec" of its own failed robot), its hover the sentence of each edge; it opens
+ * the Safe Push popover, whose Start Anyway waits in its "⋯"
+ */
+function landsAfter(kind: Extract<StepKind, { kind: "afterLanding" }>, context: StepContext): Shown {
+  const status = formatLandsAfter(kind.needed, kind.restart !== null)
+  const reason = kind.edges.map(describeEdge).join("\n")
+  const item: MenuItem = { id: "lands-after", label: status, icon: ClockIcon, description: reason, onSelect: context.actions.openSafePush }
+  const notice = { title: `${context.subject} lands after ${kind.needed}`, description: reason }
+  return { kind: "landsAfter", item, tone: "quiet", own: reason, notice, status }
 }
 
 /** Row 7: the pull request that collects the approvals, or "In #12" of the whole stack whose own Safe Push they count for */
@@ -540,6 +594,8 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     }
     case "needsBranch":
       return needsBranch(kind, context)
+    case "afterLanding":
+      return landsAfter(kind, context)
     case "pickRemoteCommits": {
       // row 1″: a push, also the one before a start, would drop the work of someone else on the remote branch
       const commits = formatCommitCount(kind.count)
