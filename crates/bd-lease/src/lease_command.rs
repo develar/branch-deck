@@ -1314,7 +1314,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
     .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
   let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
   let trash_bytes = Pool::new(Path::new(&canonical_path(git_common_dir))).trash_bytes();
-  let notes_roots = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_roots(pool.as_deref());
+  let notes_roots = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_roots(pool.as_deref(), environment.home.as_deref());
   Ok(LeaseStatusOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),

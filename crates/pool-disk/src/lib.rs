@@ -900,7 +900,7 @@ fn disk_usage_core_inner(
         // the pool directory of the config only of the pool of the repository, whose config the report read; the
         // others by the slots of their state
         let pool_dir = (pool_index == 0).then(|| config_pool_dir(&config, &pool.git_common_dir, params.home).ok()).flatten();
-        let bytes = Pool::new(&pool.git_common_dir).notes_roots(pool_dir.as_deref()).bytes();
+        let bytes = Pool::new(&pool.git_common_dir).notes_roots(pool_dir.as_deref(), params.home).bytes();
         usage.pools[pool_index].notes_bytes = bytes;
         pool_files[pool_index].notes_bytes = Some(bytes);
       }

@@ -272,7 +272,7 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       .as_ref()
       .ok()
       .and_then(|config| config_pool_dir(config, &machine_pool.git_common_dir, params.home).ok());
-    let notes_roots = NotesRoots::of(&machine_pool.git_common_dir, &store, pool_dir.as_deref());
+    let notes_roots = NotesRoots::of(&machine_pool.git_common_dir, &store, pool_dir.as_deref(), params.home);
     let expired_notes = expire_notes(&notes_roots, &held_leases(&store), keep, crate::lease_notes::now_seconds(), !params.apply);
     let (present, free) = trim_order(&store.slots);
     let mut report = TrimmedPool {

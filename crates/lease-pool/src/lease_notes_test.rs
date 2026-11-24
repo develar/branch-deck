@@ -1,7 +1,8 @@
+use crate::lease::canonical_path;
 use crate::lease::{Lease, LeaseState, LeaseStore, Slot};
 use crate::lease_notes::{
-  NOTES_LINK, NotesRoots, all_notes, close_notes, expire_notes, expire_pool_notes, expires_at, new_notes_root, note_files, notes_dir, now_seconds, open_notes, read_notes,
-  record_path, seam, slot_notes_root,
+  NOTES_LINK, NOTES_MARKER, NotesRoots, all_notes, close_notes, expire_notes, expire_pool_notes, expires_at, new_notes_root, note_files, notes_dir, now_seconds, open_notes,
+  read_notes, record_path, seam, slot_notes_root,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{STATE_DIR, legacy_notes_root};
@@ -13,7 +14,7 @@ use std::time::Duration;
 /// A slot, the common dir of its repository and the root of the notes, each a directory of `dir`, the pool directory:
 /// the root is `notes` in it, as the slot `<dir>/1/repo` tells
 struct Pool {
-  _dir: tempfile::TempDir,
+  dir: tempfile::TempDir,
   slot: PathBuf,
   git_common_dir: PathBuf,
   root: PathBuf,
@@ -25,13 +26,10 @@ impl Pool {
     let (slot, git_common_dir) = (dir.path().join("1/repo"), dir.path().join("repo/.git"));
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::create_dir_all(&git_common_dir).unwrap();
-    let root = slot_notes_root(&slot).unwrap();
-    Self {
-      _dir: dir,
-      slot,
-      git_common_dir,
-      root,
-    }
+    let root = slot_notes_root(&slot, Some(dir.path()), None).unwrap();
+    // a root Branch Deck made, as a get makes it
+    write(&root.join(NOTES_MARKER), "");
+    Self { dir, slot, git_common_dir, root }
   }
 
   fn lease(holder: &str) -> Lease {
@@ -44,7 +42,7 @@ impl Pool {
 
   /// The places of the notes by the state that has the slot
   fn roots(&self) -> NotesRoots {
-    NotesRoots::of(&self.git_common_dir, &store_of(&self.slot, None), None)
+    NotesRoots::of(&self.git_common_dir, &store_of(&self.slot, None), None, None)
   }
 
   fn notes_local(&self) -> PathBuf {
@@ -68,6 +66,8 @@ fn store_of(slot: &Path, lease: Option<&Lease>) -> LeaseStore {
     ..LeaseStore::default()
   }
 }
+
+const DAY: u64 = 24 * 60 * 60;
 
 fn write(path: &Path, text: &str) {
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -125,12 +125,12 @@ fn assert_moved(before: Option<u64>, moved: &Path, across_volumes: bool) {
   }
 }
 
-/// The entries of the root of the notes without a record (the records themselves left out)
+/// The entries of the root of the notes without a record (the records and the marker of the root left out)
 fn unrecorded(pool: &Pool) -> Vec<String> {
   std::fs::read_dir(&pool.root)
     .unwrap()
     .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-    .filter(|name| Path::new(name).extension().is_none_or(|extension| extension != "json") && !pool.root.join(format!("{name}.json")).exists())
+    .filter(|name| name != NOTES_MARKER && Path::new(name).extension().is_none_or(|extension| extension != "json") && !pool.root.join(format!("{name}.json")).exists())
     .collect()
 }
 
@@ -306,15 +306,70 @@ fn the_files_of_the_notes_are_listed_by_path() {
   assert!(!more);
 }
 
-/// The root of the notes follows from the slot: `<pool dir>/notes` of a slot `<pool dir>/<n>/<name>`; a worktree
-/// elsewhere (an adopted one) takes `notes` of the pool directory of the get
+/// The root of the notes follows from the slot: `<pool dir>/notes` of a slot `<pool dir>/<n>/<name>` whose pool directory
+/// is the one of the config, one of `~/.branch-deck/pool`, or marked by Branch Deck; a worktree elsewhere (an adopted
+/// one, `~/work/2026/repo-wt`, whose `~/work/notes` is the user's) takes `notes` of the pool directory of the get
 #[test]
-fn the_root_of_the_notes_follows_from_the_slot() {
-  let pool_dir = Path::new("/pools/repo-12345678");
-  assert_eq!(slot_notes_root(&pool_dir.join("3/repo")), Some(pool_dir.join("notes")));
-  assert_eq!(slot_notes_root(Path::new("/work/adopted/repo")), None);
-  assert_eq!(new_notes_root(&pool_dir.join("3/repo"), Path::new("/elsewhere")), pool_dir.join("notes"));
-  assert_eq!(new_notes_root(Path::new("/work/adopted/repo"), pool_dir), pool_dir.join("notes"));
+fn the_root_of_the_notes_follows_from_a_slot_of_a_pool_directory_only() {
+  let dir = tempfile::tempdir().unwrap();
+  let (home, pool_dir) = (dir.path().join("home"), dir.path().join("pools/repo"));
+  let default_pool = home.join(".branch-deck/pool/repo-12345678");
+  assert_eq!(slot_notes_root(&pool_dir.join("3/repo"), Some(&pool_dir), None), Some(pool_dir.join("notes")));
+  assert_eq!(slot_notes_root(&default_pool.join("3/repo"), None, Some(&home)), Some(default_pool.join("notes")));
+  let adopted = dir.path().join("work/2026/repo-wt");
+  assert_eq!(slot_notes_root(&adopted, Some(&pool_dir), Some(&home)), None, "the user's ~/work/notes is no root");
+  assert_eq!(new_notes_root(&adopted, &pool_dir, Some(&home)), pool_dir.join("notes"));
+  // a pool directory of an earlier config counts by the marker of its root
+  let earlier = dir.path().join("old-pool");
+  assert_eq!(slot_notes_root(&earlier.join("1/repo"), Some(&pool_dir), Some(&home)), None);
+  write(&earlier.join("notes").join(NOTES_MARKER), "");
+  assert_eq!(slot_notes_root(&earlier.join("1/repo"), Some(&pool_dir), Some(&home)), Some(earlier.join("notes")));
+}
+
+/// `brd lease adopt` without `--move` keeps a worktree where it is, `~/work/2026/repo-wt`: its `~/work/notes` of the
+/// user, with a directory and a `.json` of the user older than the keep, is no place of the notes, and no expiry
+/// touches it
+#[test]
+fn the_notes_of_a_user_beside_an_adopted_worktree_are_never_read_nor_deleted() {
+  let dir = tempfile::tempdir().unwrap();
+  let adopted = dir.path().join("work/2026/repo-wt");
+  let git_common_dir = dir.path().join("repo/.git");
+  std::fs::create_dir_all(&git_common_dir).unwrap();
+  let users = dir.path().join("work/notes");
+  write(&users.join("ideas/todo.txt"), "mine\n");
+  write(&users.join("plan.json"), r#"{"lease_id":"plan","holder":"me","slot":"/x","leased_at":1,"linked":false}"#);
+  write(&users.join("plan/a.txt"), "mine too\n");
+  let roots = NotesRoots::of(&git_common_dir, &store_of(&adopted, None), None, Some(&dir.path().join("home")));
+  assert!(roots.places().all(|place| !place.starts_with(std::fs::canonicalize(&users).unwrap())), "{roots:?}");
+  let expired = expire_notes(&roots, &HashSet::new(), Duration::from_secs(1), now_seconds() + 60 * DAY, false);
+  assert_eq!(expired, Vec::new());
+  // and where such a root is a place by a mistake of a config, its unrecorded directories stay without the marker
+  let expired = expire_notes(&NotesRoots::at(&users), &HashSet::new(), Duration::from_secs(1), now_seconds() + 60 * DAY, false);
+  assert_eq!(expired.iter().map(|notes| notes.lease_id.as_str()).collect::<Vec<_>>(), ["plan"]);
+  assert!(users.join("ideas/todo.txt").exists());
+}
+
+/// Two repositories share one pool directory (an absolute `branchdeck.leasePool`): the expiry of one deletes only its own
+/// notes, never the held lease of the other, which its state does not name; a record of a brd before without
+/// `repository` is told by its slot
+#[test]
+fn a_shared_pool_directory_expires_only_the_notes_of_its_own_repository() {
+  let pool = Pool::new();
+  let other = pool.dir.path().join("other/.git");
+  std::fs::create_dir_all(&other).unwrap();
+  let (mine, theirs) = (Pool::lease("mine"), Pool::lease("theirs, held"));
+  let mine_dir = pool.open(&mine);
+  close_notes(&pool.roots(), &pool.slot, &mine.id).unwrap();
+  let their_slot = pool.dir.path().join("2/other");
+  std::fs::create_dir_all(&their_slot).unwrap();
+  let their_dir = open_notes(&pool.root, &their_slot, &other, &theirs).unwrap().dir;
+  assert_eq!(read_notes(&pool.root, &theirs.id).unwrap().record.repository, Some(canonical_path(&other)));
+
+  let roots = NotesRoots::of(&pool.git_common_dir, &store_of(&pool.slot, None), None, None);
+  let expired = expire_notes(&roots, &HashSet::new(), Duration::from_secs(1), now_seconds() + 60, false);
+  assert_eq!(expired.iter().map(|notes| notes.lease_id.as_str()).collect::<Vec<_>>(), [mine.id.as_str()]);
+  assert!(!mine_dir.exists() && their_dir.is_dir(), "the held lease of the other repository keeps its notes");
+  assert_eq!(roots.all(), Vec::new(), "nor lists them");
 }
 
 /// A reader finds the notes in the pool directory first, then those a brd before kept in the common dir, which stay
@@ -326,7 +381,7 @@ fn the_notes_of_a_brd_before_are_read_where_they_are_and_expire_there() {
   let (old, new) = (Pool::lease("old"), Pool::lease("new"));
   let old_dir = open_notes(&old_root, &pool.slot, &pool.git_common_dir, &old).unwrap().dir;
   write(&pool.notes_local().join("gate.log"), "green\n");
-  let roots = NotesRoots::of(&pool.git_common_dir, &store_of(&pool.slot, Some(&old)), None);
+  let roots = NotesRoots::of(&pool.git_common_dir, &store_of(&pool.slot, Some(&old)), None, None);
   assert_eq!(
     roots.places().map(Path::to_path_buf).collect::<Vec<_>>(),
     [

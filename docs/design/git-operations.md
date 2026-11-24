@@ -2815,8 +2815,10 @@ that lead agents may read the pool directory, and Claude Code matches a link by 
 `<repository>/.git` asked the user for every read of a lead (one such prompt stopped a team of agents for a night).
 `notes` is no number: no slot (`<pool dir>/<n>/<name>`), clone leftover, trim, disk report or list of the pools of the
 machine takes it for one, and the trim deletes the number directory of a slot, never more of the pool directory. The
-root follows from the slot, `<pool dir>/<n>/<name>` → `<pool dir>/notes` (a worktree that `brd lease adopt` kept
-elsewhere: `notes` of the pool directory of the get), so no file names it, and a reader (`lease_notes::NotesRoots`)
+root follows from the slot, `<pool dir>/<n>/<name>` → `<pool dir>/notes`, where that is a pool directory of Branch Deck
+(the one of the config, one of `~/.branch-deck/pool`, or one whose root has the marker `.branch-deck-notes` that every
+get writes): a worktree that `brd lease adopt` kept elsewhere, `~/work/2026/repo-wt`, takes `notes` of the pool
+directory of the get, never the user's `~/work/notes`. So no file names the root, and a reader (`lease_notes::NotesRoots`)
 looks in the root of each pool directory a slot of the state lives in and of the pool directory of the config where it
 knows it (`brd lease notes`, the trim, the status, the keeper of a host), then in `$GIT_COMMON_DIR/branch-deck/notes`,
 where a brd before kept them: those stay there, read and expired, never moved, and the read of that place goes once
@@ -2837,7 +2839,10 @@ source whole and no half directory of notes. A get whose notes fail removes the 
 and goes on without notes. The notes of a returned lease expire `branchdeck.leaseNotesKeep` after the return (`14d` by
 default, `0` for ever): `brd lease trim` (one `config` of each pool) and the keeper of a host delete them, never those
 of a lease the pool holds, and none where the state of the pool can't be read, since it names the held leases; a
-directory without a record (a get that stopped before it wrote one) expires by its modification time. `brd lease disk`
+directory without a record (a get that stopped before it wrote one) expires by its modification time, only in a marked
+root or the old place. A record names its repository (`repository`), and the expiry and `brd lease notes` take only
+the notes of their own (a record without it by its slot): two repositories may share one pool directory, and the
+state of one names none of the held leases of the other. `brd lease disk`
 counts them (`notes_bytes`), `brd lease status` names them for each lease.
 
 **The epoch of a worktree** (`lease_pool::epoch::worktree_epoch`, `domain_types::worktree_epoch::WorktreeEpoch`): the

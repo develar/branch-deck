@@ -70,6 +70,11 @@ pub struct NotesRecord {
   pub returned_at: Option<u64>,
   /// `notes.local` of the slot is a link to the directory; false: a directory of the worktree, which the return moves
   pub linked: bool,
+  /// `$GIT_COMMON_DIR` of the repository of the lease, canonical: a root that two repositories share
+  /// (`branchdeck.leasePool`) holds the notes of both, and each expires only its own. `None` in a record of a brd
+  /// before it, whose repository its slot tells (`expire_place`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub repository: Option<String>,
 }
 
 /// The notes of one lease
@@ -86,18 +91,34 @@ impl LeaseNotes {
   }
 }
 
+/// The file that marks a root of notes as one Branch Deck made (`open_notes`): only there a directory without a record
+/// expires (`expire_place`), and a root of a slot counts by it wherever its pool directory is
+pub const NOTES_MARKER: &str = ".branch-deck-notes";
+
 /// The root of the notes of the leases of the slot `slot`, `<pool dir>/<n>/<name>`: `<pool dir>/notes`, beside the
-/// number directories; `None` for a worktree elsewhere (`brd lease adopt` without `--move`)
-pub fn slot_notes_root(slot: &Path) -> Option<PathBuf> {
+/// number directories, where it is a root of Branch Deck (`is_pool_root`); `None` for a worktree elsewhere (`brd lease
+/// adopt` without `--move` keeps `~/work/2026/repo-wt`, whose `~/work/notes` is the user's)
+pub fn slot_notes_root(slot: &Path, pool_dir: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
   let number = slot.parent()?;
   number.file_name()?.to_str()?.parse::<u32>().ok()?;
-  Some(number.parent()?.join(LEASE_NOTES_DIR))
+  let root = number.parent()?.join(LEASE_NOTES_DIR);
+  is_pool_root(&root, pool_dir, home).then_some(root)
+}
+
+/// Whether `root`, `notes` of a directory, is a root of notes of Branch Deck: it has the marker of one (`NOTES_MARKER`),
+/// or its directory is `pool_dir` (the pool directory of the config) or a directory of `~/.branch-deck/pool` of `home`
+fn is_pool_root(root: &Path, pool_dir: Option<&Path>, home: Option<&Path>) -> bool {
+  let Some(dir) = root.parent() else { return false };
+  let same = |a: &Path, b: &Path| canonical_path(a) == canonical_path(b);
+  root.join(NOTES_MARKER).is_file()
+    || pool_dir.is_some_and(|pool_dir| same(dir, pool_dir))
+    || home.zip(dir.parent()).is_some_and(|(home, pools)| same(pools, &home.join(".branch-deck").join("pool")))
 }
 
 /// The root of the notes of a new lease in `slot`: `slot_notes_root`, else `notes` of `pool_dir`, the pool directory of
 /// the get
-pub(crate) fn new_notes_root(slot: &Path, pool_dir: &Path) -> PathBuf {
-  slot_notes_root(slot).unwrap_or_else(|| pool_dir.join(LEASE_NOTES_DIR))
+pub(crate) fn new_notes_root(slot: &Path, pool_dir: &Path, home: Option<&Path>) -> PathBuf {
+  slot_notes_root(slot, Some(pool_dir), home).unwrap_or_else(|| pool_dir.join(LEASE_NOTES_DIR))
 }
 
 /// The pool directory of the config of the pool of `git_common_dir` (`pool_dir`), a relative `branchdeck.leasePool`
@@ -107,22 +128,25 @@ pub fn config_pool_dir(config: &LeaseConfig, git_common_dir: &Path, home: Option
   pool_dir(config, &display_path(&repository), git_common_dir, home)
 }
 
-/// Every place the notes of a pool may be in, each read in its order: `notes` of each pool directory that a slot of
+/// Every place the notes of a pool may be in, each read in its order: the root of each pool directory that a slot of
 /// the state lives in (`slot_notes_root`) and of the pool directory of the config where the reader knows it, then
 /// `$GIT_COMMON_DIR/branch-deck/notes` (`legacy_notes_root`), where a brd before kept them, read and expired, never
 /// written. That last place goes once the last of the notes there expired
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotesRoots {
   places: Vec<PathBuf>,
+  /// The repository whose notes these are, canonical: the expiry leaves the records of another one alone; `None`: any
+  git_common_dir: Option<String>,
 }
 
 impl NotesRoots {
-  /// The places of the pool of `git_common_dir` whose state is `store`, with `notes` of `pool_dir`
-  pub fn of(git_common_dir: &Path, store: &LeaseStore, pool_dir: Option<&Path>) -> Self {
+  /// The places of the pool of `git_common_dir` whose state is `store`, with `notes` of `pool_dir` (the pool directory
+  /// of the config) and the pool directories of `home` (`is_pool_root`)
+  pub fn of(git_common_dir: &Path, store: &LeaseStore, pool_dir: Option<&Path>, home: Option<&Path>) -> Self {
     let candidates = store
       .slots
       .iter()
-      .filter_map(|slot| slot_notes_root(Path::new(&slot.path)))
+      .filter_map(|slot| slot_notes_root(Path::new(&slot.path), pool_dir, home))
       .chain(pool_dir.map(|dir| dir.join(LEASE_NOTES_DIR)))
       .chain(std::iter::once(legacy_notes_root(git_common_dir)));
     let mut places: Vec<PathBuf> = Vec::new();
@@ -132,12 +156,18 @@ impl NotesRoots {
         places.push(place);
       }
     }
-    Self { places }
+    Self {
+      places,
+      git_common_dir: Some(canonical_path(git_common_dir)),
+    }
   }
 
-  /// One place alone: notes of a test
+  /// One place alone, of any repository: notes of a test
   pub fn at(root: &Path) -> Self {
-    Self { places: vec![root.to_path_buf()] }
+    Self {
+      places: vec![root.to_path_buf()],
+      git_common_dir: None,
+    }
   }
 
   /// Each place, in its order
@@ -150,10 +180,15 @@ impl NotesRoots {
     self.places().find_map(|place| read_notes(place, lease_id))
   }
 
-  /// Every note of every place, each lease once (the first place wins), the lease got last first
+  /// Every note of the repository in every place (`of_repository`: a shared root holds the notes of others too), each
+  /// lease once (the first place wins), the lease got last first
   pub fn all(&self) -> Vec<LeaseNotes> {
     let mut seen = HashSet::new();
-    let mut notes: Vec<LeaseNotes> = self.places().flat_map(all_notes).filter(|notes| seen.insert(notes.record.lease_id.clone())).collect();
+    let mut notes: Vec<LeaseNotes> = self
+      .places()
+      .flat_map(all_notes)
+      .filter(|notes| of_repository(&notes.record, self.git_common_dir.as_deref()) && seen.insert(notes.record.lease_id.clone()))
+      .collect();
     sort_notes(&mut notes);
     notes
   }
@@ -228,10 +263,11 @@ pub(crate) fn open_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease:
 
 fn make_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease: &Lease, dir: &Path, link: &Path) -> std::io::Result<LeaseNotes> {
   std::fs::create_dir_all(dir)?;
+  mark_root(root)?;
   if let Err(error) = exclude_notes(git_common_dir) {
     warn!(error = %error, "cannot add {EXCLUDE_LINE} to info/exclude of the repository");
   }
-  set_aside(root, slot, link)?;
+  set_aside(root, slot, git_common_dir, link)?;
   let linked = match make_link(dir, link) {
     Ok(()) => true,
     Err(error) => {
@@ -248,9 +284,19 @@ fn make_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease: &Lease, di
     leased_at: lease.leased_at,
     returned_at: None,
     linked,
+    repository: Some(canonical_path(git_common_dir)),
   };
   write_record(root, &record)?;
   Ok(LeaseNotes { dir: dir.to_path_buf(), record })
+}
+
+/// `NOTES_MARKER` in `root`, once: the root is one Branch Deck made
+fn mark_root(root: &Path) -> std::io::Result<()> {
+  let marker = root.join(NOTES_MARKER);
+  if marker.is_file() {
+    return Ok(());
+  }
+  write_atomically(&marker, b"the notes of the leases of Branch Deck (brd lease notes)\n", AtomicWrite::default())
 }
 
 /// What a failed `make_notes` made: a link at `link` (never followed), an empty directory there, the directory `dir` if
@@ -308,7 +354,7 @@ pub(crate) fn close_notes(roots: &NotesRoots, slot: &Path, lease_id: &str) -> Op
 /// Move what is at `link` (a link of an earlier lease, a directory that a return could not move or a brd before the
 /// notes left) out of the slot: a link goes, anything else into notes of its own, `left-<uuid>`, returned now. The
 /// record comes first, so the directory is never one without a record, whose age is its old modification time
-fn set_aside(root: &Path, slot: &Path, link: &Path) -> std::io::Result<()> {
+fn set_aside(root: &Path, slot: &Path, git_common_dir: &Path, link: &Path) -> std::io::Result<()> {
   let Ok(metadata) = link.symlink_metadata() else { return Ok(()) };
   if metadata.file_type().is_symlink() {
     return fs_retry::remove_entry(link, &metadata.file_type());
@@ -326,6 +372,7 @@ fn set_aside(root: &Path, slot: &Path, link: &Path) -> std::io::Result<()> {
       leased_at: at,
       returned_at: Some(at),
       linked: false,
+      repository: Some(canonical_path(git_common_dir)),
     },
   )?;
   move_path(link, &dir).inspect_err(|_| {
@@ -430,17 +477,34 @@ pub fn held_leases(store: &LeaseStore) -> HashSet<String> {
 
 /// The notes of every place of `roots` that expired by `now` (`expire_place`)
 pub fn expire_notes(roots: &NotesRoots, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
-  roots.places().flat_map(|place| expire_place(place, held, keep, now, plan)).collect()
+  roots
+    .places()
+    .flat_map(|place| expire_place(place, roots.git_common_dir.as_deref(), held, keep, now, plan))
+    .collect()
+}
+
+/// Whether the notes of `record` are of the repository `git_common_dir` (canonical; `None`: any): its `repository`, else
+/// the repository of its slot while that is a linked worktree; a record that tells neither is this one's
+fn of_repository(record: &NotesRecord, git_common_dir: Option<&str>) -> bool {
+  let Some(git_common_dir) = git_common_dir else { return true };
+  match &record.repository {
+    Some(repository) => repository == git_common_dir,
+    None => git_ops::lease_slot::linked_worktree(Path::new(&record.slot)).is_none_or(|worktree| display_path(&worktree.git_common_dir) == git_common_dir),
+  }
 }
 
 /// The notes of `root` that expired by `now` (`expires_at`), deleted unless `plan`: their directories and records; then
 /// the directories without a record (a get that stopped before it wrote one, the copy of a move across volumes that
-/// stopped), `keep` after their modification time, never one named by `held` nor with `keep` 0. Only what is in
-/// `root`: the rest of the pool directory is never touched
-fn expire_place(root: &Path, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
+/// stopped), `keep` after their modification time, never one named by `held` nor with `keep` 0, and only in a root
+/// Branch Deck made (`NOTES_MARKER`, the old place in the common dir): a directory of a user's `notes` stays. Only what
+/// is in `root`, and only the notes of the repository `git_common_dir` (`of_repository`): a root that two repositories
+/// share holds the held leases of the other, which this state does not name
+fn expire_place(root: &Path, git_common_dir: Option<&str>, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
+  let made_by_branch_deck =
+    root.join(NOTES_MARKER).is_file() || git_common_dir.is_some_and(|git_common_dir| canonical_path(root) == canonical_path(&legacy_notes_root(Path::new(git_common_dir))));
   let recorded = all_notes(root)
     .into_iter()
-    .filter(|notes| expires_at(&notes.record, held, keep).is_some_and(|at| at <= now))
+    .filter(|notes| of_repository(&notes.record, git_common_dir) && expires_at(&notes.record, held, keep).is_some_and(|at| at <= now))
     .map(|notes| {
       let bytes = fs_walk::tree_size(&notes.dir);
       let error = (!plan).then(|| remove_notes(root, &notes)).and_then(Result::err).map(|error| error.to_string());
@@ -454,6 +518,7 @@ fn expire_place(root: &Path, held: &HashSet<String>, keep: Duration, now: u64, p
     });
   let unrecorded = unrecorded_dirs(root)
     .into_iter()
+    .filter(|_| made_by_branch_deck)
     .filter(|(name, _, modified_at)| !keep.is_zero() && !held.contains(name) && modified_at.saturating_add(keep.as_secs()) <= now)
     .map(|(name, dir, modified_at)| {
       let bytes = fs_walk::tree_size(&dir);
@@ -507,7 +572,7 @@ pub fn expire_pool_notes(git_executor: &GitCommandExecutor, git_common_dir: &Pat
   let pool = Pool::new(&git_common_dir);
   match pool.read() {
     Ok(store) => expire_notes(
-      &NotesRoots::of(&git_common_dir, &store, pool_dir.as_deref()),
+      &NotesRoots::of(&git_common_dir, &store, pool_dir.as_deref(), home),
       &held_leases(&store),
       keep,
       now_seconds(),

@@ -89,7 +89,7 @@ pub fn lease_notes(context: &LeaseContext, environment: &Environment, args: &Lea
   let pool_dir = config
     .as_ref()
     .and_then(|config| config_pool_dir(config, Path::new(&git_common_dir), environment.home.as_deref()).ok());
-  let roots = pool.notes_roots(pool_dir.as_deref());
+  let roots = pool.notes_roots(pool_dir.as_deref(), environment.home.as_deref());
   let own = if args.lease_id.is_none() && args.holder.is_none() {
     ready_slot_at(Path::new(&git_common_dir), &context.dirs.top_level)
       .map_err(lease_error)?

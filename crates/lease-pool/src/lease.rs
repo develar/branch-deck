@@ -1017,9 +1017,10 @@ impl Pool {
   }
 
   /// Every place the notes of the leases of the pool may be in (`lease_notes::NotesRoots`), by the slots of its state
-  /// (none where it can't be read) and `notes` of `pool_dir`, the pool directory of the config where it is known
-  pub fn notes_roots(&self, pool_dir: Option<&Path>) -> NotesRoots {
-    NotesRoots::of(&self.git_common_dir, &self.read().unwrap_or_default(), pool_dir)
+  /// (none where it can't be read), `notes` of `pool_dir` (the pool directory of the config) and the pool directories of
+  /// `home`, where each is known
+  pub fn notes_roots(&self, pool_dir: Option<&Path>, home: Option<&Path>) -> NotesRoots {
+    NotesRoots::of(&self.git_common_dir, &self.read().unwrap_or_default(), pool_dir, home)
   }
 
   /// The bytes on disk of what the trash holds: what a run killed before its delete left behind
@@ -1656,7 +1657,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           &old,
           None,
           (Some(CleanOverrides::default()), Duration::ZERO),
-          (&trash, &pool.notes_roots(Some(&pool_dir))),
+          (&trash, &pool.notes_roots(Some(&pool_dir), params.home)),
         )
         .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
@@ -1744,7 +1745,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     // the notes of an agent's lease, outside the worktree (`lease_notes`); a host slot has none. They never fail the get
     let notes = (!lease.holder.starts_with(HOST_HOLDER_PREFIX))
       .then(|| {
-        open_notes(&new_notes_root(Path::new(&path), &pool_dir), Path::new(&path), &git_common_dir, &lease)
+        open_notes(&new_notes_root(Path::new(&path), &pool_dir, params.home), Path::new(&path), &git_common_dir, &lease)
           .inspect_err(|error| warn!(slot = %path, error = %error, "cannot make the notes of the lease"))
           .ok()
       })
@@ -3700,7 +3701,7 @@ fn return_once(
     &lease,
     (!changes.is_empty()).then_some(config.untracked),
     (params.clean, params.cargo_lock_wait),
-    (trash, &pool.notes_roots(None)),
+    (trash, &pool.notes_roots(None, None)),
   );
   let FinishedReturn {
     removed,
@@ -4458,7 +4459,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
   let mut scan: Option<ProcessScan> = None;
   let mut untracked: Option<UntrackedFiles> = None;
   let trash = Trash::new(&pool.trash_dir());
-  let notes_roots = pool.notes_roots(None);
+  let notes_roots = pool.notes_roots(None, None);
   let now = now();
   let mut answer = LeaseReclaim::default();
   for slot in store.slots {
