@@ -897,7 +897,7 @@ pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
   }
   for (place, link) in input.links.iter().enumerate().filter(|(_, link)| link.new_between_modules) {
     let Ok(place) = u32::try_from(place) else { continue };
-    let (Some(from), Some(to)) = (input.modules.of_path(input.changed, &link.from), input.modules.of_path(input.changed, &link.to)) else {
+    let (Some(from), Some(to)) = (input.modules.of_path(&link.from), input.modules.of_path(&link.to)) else {
       continue;
     };
     let first = first_use(link);

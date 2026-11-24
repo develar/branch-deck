@@ -109,7 +109,7 @@ fn cut(input: &StepsInput<'_>, old: &[StepStop]) -> Option<(Vec<StepStop>, Vec<S
       } else if contract.contains(stop.path.as_str()) || is_prose(&stop.path) {
         Place::Contract
       } else {
-        Place::Module(input.modules.of_path(input.changed, &stop.path))
+        Place::Module(input.modules.of_path(&stop.path))
       }
     })
     .collect();

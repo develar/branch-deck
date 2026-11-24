@@ -668,7 +668,7 @@ pub fn review_plan_of(
       let mut stage_index = |plan: &ReviewPlan, modules: &Modules, inline_tests: &HashSet<String>| {
         let mut staged = plan.clone();
         (staged.files, staged.repeated_edits) = file_facts(&changed, &kinds, &staged.links, &story_api, inline_tests);
-        with_modules(&mut staged.files, &changed, modules);
+        with_modules(&mut staged.files, modules);
         staged.api.clone_from(&story_api);
         stage(&staged, PlanWait::Index);
       };
@@ -714,7 +714,6 @@ pub fn review_plan_of(
         repository_path,
         sides: sides.as_ref().map(|(base, head)| (base.as_str(), head.as_str())),
         files: &descriptors,
-        changed: &changed,
         modules: &modules,
       };
       // the tests of the steps, the descriptors of each side and what enters each new module, each one query of the
@@ -752,7 +751,7 @@ pub fn review_plan_of(
         order_by_entries(&mut plan.steps.steps, &plan.modules);
         plan.registrations = registrations;
         (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
-        with_modules(&mut plan.files, &changed, &modules);
+        with_modules(&mut plan.files, &modules);
         plan.verdict = verdict_of(&api);
         plan.api = api;
         // decided by the ask, not by the threads: a reading whose tests are no query of the index has no such stage,
@@ -775,7 +774,7 @@ pub fn review_plan_of(
           order_by_entries(&mut plan.steps.steps, &plan.modules);
           let (files, repeated_edits) = file_facts(&changed, &kinds, &plan.links, &plan.api, &inline_tests);
           (plan.files, plan.repeated_edits) = (files, repeated_edits);
-          with_modules(&mut plan.files, &changed, &modules);
+          with_modules(&mut plan.files, &modules);
         }
         pair_reading.mark_renamed_uses(&mut plan.units);
         let answer = tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked")))?;
@@ -818,10 +817,10 @@ fn modules_base(params: &ReviewPlanParams, base: &str, interdiff: Option<&Interd
 }
 
 /// `FileFacts::module` and `FileFacts::folder` of each file
-fn with_modules(files: &mut [FileFacts], changed: &[files::ChangedFile<'_>], modules: &Modules) {
+fn with_modules(files: &mut [FileFacts], modules: &Modules) {
   for facts in files {
-    facts.module = modules.of_path(changed, &facts.path);
-    facts.folder = modules.folder_of_path(changed, &facts.path);
+    facts.module = modules.of_path(&facts.path);
+    facts.folder = modules.folder_of_path(&facts.path);
   }
 }
 

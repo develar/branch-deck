@@ -130,21 +130,20 @@ pub(crate) struct Modules {
   /// By the place of each file of `changed`: its directory below the folders the files of its module share
   /// (`SharedFolders::below`)
   pub folder_of: Vec<String>,
+  /// The place in `changed` of each of its paths, the first where one repeats: a lookup of a path costs no walk of
+  /// the files, which a review of thousands of them asks per file and per stop
+  place_of_path: HashMap<String, usize>,
 }
 
 impl Modules {
   /// The module of `path`, a file of the review
-  pub(crate) fn of_path(&self, changed: &[ChangedFile<'_>], path: &str) -> Option<u32> {
-    changed.iter().position(|file| file.path == path).and_then(|index| self.of_file.get(index).copied())
+  pub(crate) fn of_path(&self, path: &str) -> Option<u32> {
+    self.place_of_path.get(path).and_then(|&index| self.of_file.get(index).copied())
   }
 
   /// The directory of `path`, a file of the review, below the folders the files of its module share
-  pub(crate) fn folder_of_path(&self, changed: &[ChangedFile<'_>], path: &str) -> String {
-    changed
-      .iter()
-      .position(|file| file.path == path)
-      .and_then(|index| self.folder_of.get(index).cloned())
-      .unwrap_or_default()
+  pub(crate) fn folder_of_path(&self, path: &str) -> String {
+    self.place_of_path.get(path).and_then(|&index| self.folder_of.get(index).cloned()).unwrap_or_default()
   }
 }
 
@@ -272,29 +271,41 @@ pub(crate) struct ModulesInput<'a> {
   pub added_manifests: &'a [AddedManifest],
 }
 
-/// The modules of the files of a review, in their order
+/// The modules of the files of a review, in their order. Each file is read once, then each module of its files: a
+/// review of thousands of modules (a commit of a generator that rewrites a build file in each) walks no file per module
 pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
   let changed = input.changed;
   let root_of = |path: &str| -> String { input.roots.root_of(path).0.to_string() };
+  let sides: Vec<(&str, bool)> = changed.iter().map(|file| input.roots.root_of(file.path)).collect();
   // the roots of the modules the commits delete: of the base alone
-  let deleted_roots: HashSet<&str> = changed
-    .iter()
-    .map(|file| input.roots.root_of(file.path))
-    .filter_map(|(root, deleted)| deleted.then_some(root))
-    .collect();
-  let roots: Vec<String> = changed.iter().map(|file| root_of(file.path)).collect();
+  let deleted_roots: HashSet<&str> = sides.iter().filter_map(|&(root, deleted)| deleted.then_some(root)).collect();
   // the roots in tree order, each once
-  let mut distinct: Vec<&str> = roots.iter().map(String::as_str).collect::<HashSet<_>>().into_iter().collect();
+  let mut distinct: Vec<&str> = sides.iter().map(|&(root, _)| root).collect::<HashSet<_>>().into_iter().collect();
   distinct.sort_by(|a, b| compare_tree_paths(a, b));
+  let place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();
+  let module_of: Vec<usize> = sides.iter().map(|&(root, _)| place[root]).collect();
+  // the files of each module, by their place in `changed`
+  let mut members: Vec<Vec<usize>> = vec![Vec::new(); distinct.len()];
+  for (index, &module) in module_of.iter().enumerate() {
+    members[module].push(index);
+  }
+  let manifests: HashSet<&str> = input.dependencies.iter().map(|change| change.manifest.as_str()).collect();
+  let roles: Vec<Role> = changed
+    .iter()
+    .enumerate()
+    .map(|(index, file)| role_of(file.path, input.mechanical.get(index).copied().flatten(), manifests.contains(file.path)))
+    .collect();
+  let lines: Vec<(u32, u32)> = changed.iter().enumerate().map(|(index, file)| line_counts(file, input.pairs.get(index))).collect();
   let labels = labels_of(&distinct);
   let mut shapes: Vec<ModuleShape> = distinct
     .iter()
     .zip(labels)
-    .map(|(&root, label)| ModuleShape {
+    .zip(&members)
+    .map(|((&root, label), files)| ModuleShape {
       root: root.to_string(),
       name: name_of(root, input),
       label,
-      state: state_of(root, changed, input.roots, &deleted_roots),
+      state: state_of(root, files.iter().map(|&index| changed[index].path), input.roots, &deleted_roots),
       files: ModuleFiles::default(),
       additions: 0,
       deletions: 0,
@@ -306,61 +317,42 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
       entries: None,
     })
     .collect();
-  let place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();
-  let mut directories: Vec<BTreeMap<String, u32>> = vec![BTreeMap::new(); shapes.len()];
-  for (index, file) in changed.iter().enumerate() {
-    let module = place[roots[index].as_str()];
+  for (index, &module) in module_of.iter().enumerate() {
     let shape = &mut shapes[module];
-    match role_of(file.path, input.mechanical.get(index).copied().flatten(), input.dependencies) {
+    match roles[index] {
       Role::Code => shape.files.code += 1,
       Role::Tests => shape.files.tests += 1,
       Role::Resources => shape.files.resources += 1,
       Role::Build => shape.files.build += 1,
       Role::Prose => shape.files.prose += 1,
     }
-    let (additions, deletions) = line_counts(file, input.pairs.get(index));
+    let (additions, deletions) = lines[index];
     shape.additions += additions;
     shape.deletions += deletions;
   }
   // the folders of each module below the packages its code and tests share (`com/example/player`), its resources apart
   let mut folder_of: Vec<String> = vec![String::new(); changed.len()];
-  for (module, root) in distinct.iter().enumerate() {
-    let files: Vec<(usize, &str)> = changed
-      .iter()
-      .enumerate()
-      .filter(|(index, _)| place[roots[*index].as_str()] == module)
-      .map(|(index, file)| (index, file.path))
-      .collect();
-    let paths: Vec<&str> = files.iter().map(|&(_, path)| path).collect();
+  for ((shape, root), files) in shapes.iter_mut().zip(&distinct).zip(&members) {
+    let paths: Vec<&str> = files.iter().map(|&index| changed[index].path).collect();
     let shared = SharedFolders::of(&paths, root);
-    for (index, path) in files {
-      *directories[module].entry(shared.directory(path)).or_default() += 1;
+    let mut directories: BTreeMap<String, u32> = BTreeMap::new();
+    for (&index, path) in files.iter().zip(paths) {
+      *directories.entry(shared.directory(path)).or_default() += 1;
       folder_of[index] = shared.below(path);
     }
-  }
-  for (shape, found) in shapes.iter_mut().zip(directories) {
-    let mut found: Vec<ModuleDirectory> = found.into_iter().map(|(path, files)| ModuleDirectory { path, files }).collect();
+    let mut found: Vec<ModuleDirectory> = directories.into_iter().map(|(path, files)| ModuleDirectory { path, files }).collect();
     found.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| compare_tree_paths(&a.path, &b.path)));
     shape.directories = found;
   }
   add_uses(&mut shapes, &place, input, &root_of);
   // the order: an added module first, then the most changed lines of code and tests, then tree order (`distinct`)
-  let weight: Vec<u32> = (0..shapes.len())
-    .map(|module| {
-      changed
+  let weight: Vec<u32> = members
+    .iter()
+    .map(|files| {
+      files
         .iter()
-        .enumerate()
-        .filter(|(index, file)| {
-          place[roots[*index].as_str()] == module
-            && matches!(
-              role_of(file.path, input.mechanical.get(*index).copied().flatten(), input.dependencies),
-              Role::Code | Role::Tests
-            )
-        })
-        .map(|(index, file)| {
-          let (additions, deletions) = line_counts(file, input.pairs.get(index));
-          additions + deletions
-        })
+        .filter(|&&index| matches!(roles[index], Role::Code | Role::Tests))
+        .map(|&index| lines[index].0 + lines[index].1)
         .sum()
     })
     .collect();
@@ -383,10 +375,15 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
     }
     shape.used_by.sort_unstable();
   }
+  let mut place_of_path: HashMap<String, usize> = HashMap::with_capacity(changed.len());
+  for (index, file) in changed.iter().enumerate() {
+    place_of_path.entry(file.path.to_string()).or_insert(index);
+  }
   Modules {
     shapes: ordered,
-    of_file: roots.iter().map(|root| new_place[place[root.as_str()]]).collect(),
+    of_file: module_of.iter().map(|&module| new_place[module]).collect(),
     folder_of,
+    place_of_path,
   }
 }
 
@@ -499,10 +496,10 @@ fn add_uses(shapes: &mut [ModuleShape], place: &HashMap<&str, usize>, input: &Mo
   }
 }
 
-/// The role of a changed file in its module
-fn role_of(path: &str, mechanical: Option<MechanicalKind>, dependencies: &[DependencyChange]) -> Role {
+/// The role of a changed file in its module; `changes_dependencies` when the commits change the dependency entries of it
+fn role_of(path: &str, mechanical: Option<MechanicalKind>, changes_dependencies: bool) -> Role {
   let name = file_name(path);
-  if matches!(mechanical, Some(MechanicalKind::BuildModel | MechanicalKind::ModuleList)) || is_module_file(name) || dependencies.iter().any(|change| change.manifest == path) {
+  if matches!(mechanical, Some(MechanicalKind::BuildModel | MechanicalKind::ModuleList)) || is_module_file(name) || changes_dependencies {
     Role::Build
   } else if is_prose(path) {
     Role::Prose
@@ -519,7 +516,7 @@ fn role_of(path: &str, mechanical: Option<MechanicalKind>, dependencies: &[Depen
 /// file of the build model or a manifest of dependencies a build file, whatever its entries did
 pub(crate) fn reading_role(path: &str) -> FileRole {
   let build = is_build_model(path) || is_manifest(path);
-  match role_of(path, build.then_some(MechanicalKind::BuildModel), &[]) {
+  match role_of(path, build.then_some(MechanicalKind::BuildModel), false) {
     Role::Code => FileRole::Code,
     Role::Tests => FileRole::Tests,
     Role::Resources => FileRole::Resources,
@@ -648,7 +645,19 @@ impl<'a> SharedFolders<'a> {
 /// or `_`; `(root)` for the root
 pub(crate) fn labels_of(roots: &[&str]) -> Vec<String> {
   let segments: Vec<Vec<&str>> = roots.iter().map(|root| root.split('/').filter(|segment| !segment.is_empty()).collect()).collect();
-  let suffix = |segments: &[&str], count: usize| segments[segments.len().saturating_sub(count)..].join("/");
+  // the roots of the review, each once, but the root of the repository
+  let distinct: HashSet<&[&str]> = segments.iter().filter(|own| !own.is_empty()).map(Vec::as_slice).collect();
+  // by a count of last directories: how many of `distinct` end with each suffix of that many, counted once for all of
+  // them, as a suffix compared with every other root would cost a walk of the roots per root and per count
+  let deepest = distinct.iter().map(|own| own.len()).max().unwrap_or(0);
+  let mut ending: Vec<HashMap<&[&str], usize>> = vec![HashMap::new(); deepest + 1];
+  for own in &distinct {
+    for (count, ends) in ending.iter_mut().enumerate().skip(1).take(own.len()) {
+      *ends.entry(&own[own.len() - count..]).or_default() += 1;
+    }
+  }
+  // another root ends with the same `count` directories as `own`, one of `distinct`
+  let shared = |own: &[&str], count: usize| ending[count].get(&own[own.len() - count..]).is_some_and(|&roots| roots > 1);
   segments
     .iter()
     .map(|own| {
@@ -657,16 +666,10 @@ pub(crate) fn labels_of(roots: &[&str]) -> Vec<String> {
       }
       let distinct = own.last().is_some_and(|last| last.contains(['.', '-', '_']));
       let mut count = if distinct { 1 } else { 2.min(own.len()) };
-      while count < own.len()
-        && segments
-          .iter()
-          .filter(|other| !other.is_empty())
-          .filter(|other| *other != own)
-          .any(|other| suffix(other, count) == suffix(own, count))
-      {
+      while count < own.len() && shared(own, count) {
         count += 1;
       }
-      suffix(own, count)
+      own[own.len() - count..].join("/")
     })
     .collect()
 }
@@ -691,13 +694,12 @@ fn name_of(root: &str, input: &ModulesInput<'_>) -> String {
     .unwrap_or_else(|| file_name(root).to_string())
 }
 
-/// `Deleted` when `root` is of the base alone, `Added` when the head declares a module there and no file of it has that
-/// root at the base
-fn state_of(root: &str, changed: &[ChangedFile<'_>], roots: &DeclaredRoots, deleted_roots: &HashSet<&str>) -> ModuleState {
-  let files = || changed.iter().filter(|file| roots.root_of(file.path).0 == root);
+/// `Deleted` when `root` is of the base alone, `Added` when the head declares a module there and no file of it, `files`,
+/// has that root at the base
+fn state_of<'a>(root: &str, mut files: impl Iterator<Item = &'a str>, roots: &DeclaredRoots, deleted_roots: &HashSet<&str>) -> ModuleState {
   if deleted_roots.contains(root) {
     ModuleState::Deleted
-  } else if files().all(|file| roots.of_head(file.path, root) && !roots.of_base(file.path, root)) {
+  } else if files.all(|path| roots.of_head(path, root) && !roots.of_base(path, root)) {
     ModuleState::Added
   } else {
     ModuleState::Changed

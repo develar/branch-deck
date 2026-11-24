@@ -277,7 +277,6 @@ pub(crate) struct RegistrationsInput<'a> {
   /// The revisions of the base and the head; `None` when no two revisions hold them
   pub sides: Option<(&'a str, &'a str)>,
   pub files: &'a [DescriptorFile],
-  pub changed: &'a [ChangedFile<'a>],
   pub modules: &'a Modules,
 }
 
@@ -315,7 +314,7 @@ pub(crate) fn registrations_of(index: Option<&dyn SymbolIndex>, input: &Registra
   for (place, file) in input.files.iter().enumerate() {
     let base_side = file.before.as_ref().and_then(|_| before.next());
     let head_side = file.after.as_ref().and_then(|_| after.next());
-    let module = input.modules.of_path(input.changed, &file.path);
+    let module = input.modules.of_path(&file.path);
     for registration in descriptor_registrations(file, base_side.as_ref(), head_side.as_ref(), module, input.modules) {
       found.push((place, registration));
     }
