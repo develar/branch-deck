@@ -52,9 +52,9 @@ export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder,
 /**
  * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll of the session
  * (`mergeRunningRobot`): returned as the poll answered them, their commits kept in every later answer. `others` stay in
- * every answer as they are (a robot that finished before). The page shows the robots running first (a
- * `landing-span`): the focus polls only the running robots the session knows, so a focus before the list of the robots
- * answered polls nothing
+ * every answer as they are (a robot that finished before). It waits first for the header to count the robots landing:
+ * the focus polls only the running robots the session knows and the clock of the session stands still, so a focus
+ * before the list of the robots was applied polls nothing, and no poll comes after it
  */
 export async function mergeRunningRobots(
   page: Page,
@@ -63,6 +63,7 @@ export async function mergeRunningRobots(
   finishTime = 1704142800,
   others: readonly PatronusRobot[] = [],
 ): Promise<PatronusRobot[]> {
+  await expect(page.getByTestId("landing-indicator")).toHaveAccessibleName(new RegExp(`\\b${robots.length} landing\\b`))
   await repo.setPatronus(availableRobots(...others, ...robots.map((robot, index) => ({ ...robot, status: "success" as const, finishTime: finishTime + index * 3600 }))))
   await emitTauriEvent(page, "tauri://focus")
   const answered = () => repo.getPatronusLog().then(log => robots.map(robot => log.robots[robot.id]))
