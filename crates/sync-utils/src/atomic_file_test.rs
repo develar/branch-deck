@@ -1,4 +1,4 @@
-use crate::atomic_file::{AtomicWrite, write_atomically};
+use crate::atomic_file::{AtomicWrite, replace_if_unchanged, write_atomically};
 use pretty_assertions::assert_eq;
 use std::io::Read;
 use std::path::Path;
@@ -38,6 +38,27 @@ fn a_write_replaces_the_file_whole_and_leaves_no_temporary_file() {
   let missing = dir.path().join("missing").join("state.json");
   assert_eq!(write_atomically(&missing, b"x", AtomicWrite::default()).unwrap_err().kind(), std::io::ErrorKind::NotFound);
   assert_eq!(names(dir.path()), ["state.json"]);
+}
+
+/// A file that another program wrote after the writer read it stays as that program wrote it, without the temporary
+/// file; one that is still what was read is replaced, a missing one only while it is missing
+#[test]
+fn a_replace_renames_only_over_the_bytes_it_read() {
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().join("settings.json");
+  let options = AtomicWrite { private: false, durable: true };
+  assert!(replace_if_unchanged(&path, b"first", None, options).unwrap(), "no file, as read");
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+  assert!(!replace_if_unchanged(&path, b"second", None, options).unwrap(), "a file came since the read");
+
+  std::fs::write(&path, b"theirs").unwrap();
+  assert!(!replace_if_unchanged(&path, b"mine", Some(b"first"), options).unwrap());
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs");
+  assert_eq!(names(dir.path()), ["settings.json"]);
+
+  assert!(replace_if_unchanged(&path, b"mine", Some(b"theirs"), options).unwrap());
+  assert_eq!(std::fs::read_to_string(&path).unwrap(), "mine");
+  assert_eq!(names(dir.path()), ["settings.json"]);
 }
 
 /// A reader that has the file open keeps reading what it opened, and the write goes on: on Windows the rename replaces

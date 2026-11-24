@@ -8,14 +8,16 @@ import { showToast } from "@/lib/toast-message"
 import { refreshAgentCliStatus } from "@/stores/agent-cli"
 
 /**
- * The toast text of an install: where agents find brd, how to run it in a terminal when it is not on PATH, and how agents
- * work from now on (Settings → Agents); paths under the home directory as `~`
+ * The toast text of an install: where agents find brd, how to run it in a terminal when it is not on PATH, how agents
+ * work from now on (Settings → Agents), and why the hook of Unattended Mode is missing when its file refused it; paths
+ * under the home directory as `~`
  */
-export function describeInstall({ bd: brd, on_path, skills, agents }: AgentCliInstall, homeDir: string): string {
+export function describeInstall({ bd: brd, on_path, skills, agents, hook_error }: AgentCliInstall, homeDir: string): string {
   const found = `Coding agents find brd through the skill${skills.length === 1 ? "" : "s"} in ${skills.map(it => tildePath(it, homeDir)).join(", ")}.`
   const directory = brd.slice(0, Math.max(brd.lastIndexOf("/"), brd.lastIndexOf("\\")))
   const terminal = on_path ? "In a terminal, run brd." : `In a terminal, run ${tildePath(brd, homeDir)}, or add ${tildePath(directory, homeDir)} to PATH to run brd.`
-  return `${found} ${terminal} ${describeAgentRules(agents)}`
+  const text = `${found} ${terminal} ${describeAgentRules(agents)}`
+  return hook_error === null ? text : `${text} ${hook_error}.`
 }
 
 /**
@@ -41,6 +43,8 @@ export async function installAgentCli(openAgentSettings = true): Promise<AgentCl
   refreshAgentCliStatus()
   const description = describeInstall(result.data, await resolveHomeDir())
   showToast({
+    // the hook of Unattended Mode stayed out: its file needs the user
+    ...(result.data.hook_error !== null && { type: "warning" as const }),
     title: "Agent CLI installed",
     description,
     ...(openAgentSettings && { action: { children: "Open Agent Settings", onClick: () => openSettings({ page: "agents" }) } }),

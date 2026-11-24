@@ -9,7 +9,7 @@
 //! with the mode off, a settings file it cannot read, or an input that is not a hook's, it prints nothing, and Claude
 //! Code asks the user as it would without the hook. It never allows anything.
 
-use crate::claude_hook::{claude_settings_file, hook_command, hook_state};
+use crate::claude_hook::{HookExec, claude_settings_file, hook_state};
 use app_settings::file::SETTINGS_FILE_NAME;
 use app_settings::service::SettingsService;
 use app_settings::unattended::{append_denial, denials_file, read_denials, set_unattended};
@@ -70,7 +70,8 @@ pub struct UnattendedOutput {
   pub on: bool,
   /// Whether this command turned it on or off; false for `status`, and for a switch to the state it was in
   pub changed: bool,
-  /// Whether `~/.claude/settings.json` has the hook of this brd: `missing` or `stale` deny nothing until `brd install`
+  /// Whether `~/.claude/settings.json` has the hook of this brd: `missing` or `stale` deny nothing until `brd install`,
+  /// `invalid` until the file is fixed and `brd install` runs
   pub hook: UnattendedHook,
   /// How many requests were denied since the mode was last turned on
   pub denied: usize,
@@ -99,12 +100,9 @@ pub fn unattended(environment: &Environment, args: &UnattendedArgs) -> Result<Un
       let on = matches!(args.command, UnattendedCommand::On);
       std::fs::create_dir_all(app_data).map_err(|e| CliError::new(ErrorCode::Internal, format!("{}: {e}", app_data.display())))?;
       let settings = SettingsService::open(app_data.to_path_buf()).map_err(|e| CliError::new(ErrorCode::Internal, format!("Cannot open the settings of Branch Deck: {e}")))?;
+      // saved once it answers: the hook reads the file
       let switch = set_unattended(&settings, &journal, on, ORIGIN)
         .map_err(|e| CliError::new(ErrorCode::Internal, format!("Cannot turn {} Unattended Mode: {e}", if on { "on" } else { "off" })))?;
-      // the hook reads the file: the mode is what it reads once the command answers
-      settings
-        .flush()
-        .map_err(|e| CliError::new(ErrorCode::Internal, format!("Cannot save the settings of Branch Deck: {e}")))?;
       (on, switch.changed)
     }
   };
@@ -136,12 +134,12 @@ pub fn installed_hook(environment: &Environment) -> UnattendedHook {
   let (Some(home), Ok(brd)) = (environment.home.as_deref(), bd_command(environment)) else {
     return UnattendedHook::Missing;
   };
-  hook_state(&claude_settings_file(home), &hook_command(&brd))
+  hook_state(&claude_settings_file(home), &HookExec::of(&brd))
 }
 
 /// The hook of `brd install` for `brd`, the command it writes
-pub fn hook_command_of(brd: &Path) -> String {
-  hook_command(&BdCommand {
+pub fn hook_command_of(brd: &Path) -> HookExec {
+  HookExec::of(&BdCommand {
     program: brd.to_path_buf(),
     subcommand: None,
   })

@@ -1,12 +1,19 @@
 use crate::service::SettingsService;
-use crate::unattended::{append_denial, denials_file, read_denials, set_unattended};
+use crate::unattended::{UNATTENDED_FIELD, append_denial, denials_file, read_denials, set_unattended};
+use domain_types::settings::APP_SETTINGS_KEY;
 use domain_types::unattended::UnattendedDenial;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::path::Path;
 use std::time::Duration;
 
 /// Longer than any test: a save happens only by a flush or a drop
 const NEVER: Duration = Duration::from_hours(1);
+
+/// The settings file of the app data directory `directory` as it is on the disk
+fn saved(directory: &Path) -> Value {
+  serde_json::from_slice(&std::fs::read(directory.join("settings.json")).unwrap()).unwrap()
+}
 
 fn denial(time: u32, tool_name: &str) -> UnattendedDenial {
   UnattendedDenial {
@@ -29,6 +36,8 @@ fn turning_the_mode_on_starts_a_new_list_and_turning_it_off_keeps_it() {
 
   let on = set_unattended(&service, &journal, true, "rust").unwrap();
   assert!(on.changed);
+  // saved once the switch answers, with no save of the writer due before an hour: the hook reads the file
+  assert_eq!(saved(directory.path())[APP_SETTINGS_KEY][UNATTENDED_FIELD], json!(true));
   let change = on.change.expect("the change the windows get");
   assert_eq!(change.value["unattended"], json!(true));
   assert!(service.app().unattended);
@@ -44,9 +53,7 @@ fn turning_the_mode_on_starts_a_new_list_and_turning_it_off_keeps_it() {
   assert!(!service.app().unattended);
   assert_eq!(read_denials(&journal), vec![denial(2, "Read")], "the morning reads the list of the night");
 
-  service.flush().unwrap();
-  let saved: Value = serde_json::from_slice(&std::fs::read(directory.path().join("settings.json")).unwrap()).unwrap();
-  assert_eq!(saved, json!({}), "off is the default: the file keeps no value");
+  assert_eq!(saved(directory.path()), json!({}), "saved at once; off is the default: the file keeps no value");
 }
 
 #[test]

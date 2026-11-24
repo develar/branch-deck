@@ -100,7 +100,8 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       "uninstalled": false,
       "bd_host": null,
       "hook_file": home.join(".claude/settings.json").to_str().unwrap(),
-      "hook_command": format!("{} hook permission-request", link.display()),
+      "hook_command": link.to_str().unwrap(),
+      "hook_args": ["hook", "permission-request"],
       "agents": { "lease": true, "subject_branch": true, "pull_request": false }
     })
   );
@@ -158,6 +159,41 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
     "the hook is gone, and the `hooks` it emptied"
   );
   assert_eq!(install_status(&status_environment).hook, UnattendedHook::Missing);
+}
+
+/// A settings file of Claude Code that the hook cannot go into stays as it is: the command and the skills are installed,
+/// the answer and Settings → Tools say why the hook is not
+#[cfg(unix)]
+#[test_log::test]
+fn a_settings_file_the_hook_cannot_go_into_stays_and_the_rest_is_installed() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let settings = home.join(".claude/settings.json");
+  std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+  std::fs::write(&settings, "{ \"model\": ").unwrap();
+
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let link = home.join(".local/bin/brd");
+  assert_eq!(std::fs::read_link(&link).unwrap(), app);
+  assert_eq!(output["skills"], json!(skill_files(&home)));
+  assert!(skill_files(&home).iter().all(|file| Path::new(file).is_file()));
+  let error = output["hook_error"].as_str().unwrap_or_default();
+  assert!(
+    error.starts_with(&format!("Cannot add the hook of Unattended Mode to {}: it is no JSON object", settings.display())),
+    "{output}"
+  );
+  assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ \"model\": ", "the file stays as it was");
+  let mut status_environment = environment(&home);
+  status_environment.home = Some(home.clone());
+  status_environment.executable = Some(app.clone());
+  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Invalid);
+
+  // fixed, the next install adds the hook and says nothing of it
+  std::fs::write(&settings, "{}").unwrap();
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!((exit_code, output.get("hook_error")), (0, None), "{output}");
+  assert_eq!(install_status(&status_environment).hook, UnattendedHook::Installed);
 }
 
 #[cfg(unix)]

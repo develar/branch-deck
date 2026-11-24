@@ -672,6 +672,11 @@ export type AgentCliInstall = {
 	skills: string[],
 	/**  How agents work where a repository has no value of its own (the global git config) */
 	agents: AgentRules,
+	/**
+	 *  Why the hook of Unattended Mode could not go into the settings of Claude Code, which stay as they were while the
+	 *  rest is installed; `null` when it is there
+	 */
+	hook_error: string | null,
 };
 
 /**  Whether the agent skill is installed (Settings → Agents), and Branch Deck in IntelliJ IDEA (Settings → Tools) */
@@ -10912,10 +10917,18 @@ export type UnattendedDenial = {
 export type UnattendedHook = 
 /**  The hook runs this brd */
 "installed" | 
-/**  A hook of Branch Deck runs another brd (the app moved, an older install): `brd install` writes it anew */
+/**
+ *  A hook of Branch Deck runs another brd (the app moved, an older install), or is a command line of the shell form,
+ *  as the first installs wrote it: `brd install` writes it anew
+ */
 "stale" | 
 /**  No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install` */
-"missing";
+"missing" | 
+/**
+ *  The settings file cannot hold the hook (no JSON object, its `hooks` of another type, or unreadable): `brd install`
+ *  installs the rest and leaves the file as it is until the user fixes it
+ */
+"invalid";
 
 /**
  *  The mode as `brd unattended` and the app answer it: on or off, whether the hook is there to deny, and the requests

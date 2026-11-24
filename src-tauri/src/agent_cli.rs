@@ -30,6 +30,7 @@ impl AgentCliHost for AppAgentCli {
         subject_branch: agents.subject_branch,
         pull_request: agents.pull_request,
       }),
+      hook_error: output.hook_error,
     })
   }
 

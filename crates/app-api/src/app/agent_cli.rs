@@ -25,6 +25,9 @@ pub struct AgentCliInstall {
   pub skills: Vec<String>,
   /// How agents work where a repository has no value of its own (the global git config)
   pub agents: AgentRules,
+  /// Why the hook of Unattended Mode could not go into the settings of Claude Code, which stay as they were while the
+  /// rest is installed; `null` when it is there
+  pub hook_error: Option<String>,
 }
 
 /// The three rules of `brd workspace` (Settings → Agents)
@@ -45,6 +48,8 @@ pub struct AgentCliInstalled {
   pub on_path: bool,
   pub skills: Vec<String>,
   pub agents: Option<AgentRules>,
+  /// Why the hook of Unattended Mode is not there (`brd install`'s `hook_error`)
+  pub hook_error: Option<String>,
 }
 
 /// How the prompts the app copies run this app's brd in a repository
@@ -127,6 +132,7 @@ pub async fn install_agent_cli(ctx: &AppContext, call: &Call) -> Result<AgentCli
       on_path: installed.on_path,
       skills: installed.skills,
       agents,
+      hook_error: installed.hook_error,
     })
   })
   .await

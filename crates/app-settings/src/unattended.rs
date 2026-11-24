@@ -60,10 +60,12 @@ pub struct UnattendedSwitch {
 
 /// Turns the mode on or off through the writer of the settings, `origin` the window or `brd` that asks. Turning it on
 /// from off first removes the journal of the run before, so its list starts empty; turning it off keeps the journal.
-/// A switch to the state the mode is in changes nothing
+/// The change is on the disk once this answers (`SettingsService::flush`): the hook reads the file, so after the switch
+/// off of the app or of `brd` no request is denied. A switch to the state the mode is in changes nothing
 ///
 /// # Errors
-/// The journal of the run before cannot be removed (the mode stays off), or the writer refused the change
+/// The journal of the run before cannot be removed (the mode stays off), the writer refused the change, or it could not
+/// save it (the writer saves it again later)
 pub fn set_unattended(settings: &SettingsService, journal: &Path, on: bool, origin: &str) -> Result<UnattendedSwitch, UnattendedError> {
   if settings.app().unattended == on {
     return Ok(UnattendedSwitch { changed: false, change: None });
@@ -83,6 +85,7 @@ pub fn set_unattended(settings: &SettingsService, journal: &Path, on: bool, orig
     },
     origin,
   )?;
+  settings.flush()?;
   Ok(UnattendedSwitch {
     changed: true,
     change: Some(change),

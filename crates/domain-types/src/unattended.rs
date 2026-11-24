@@ -47,10 +47,14 @@ pub const SUMMARY_LIMIT: usize = 200;
 pub enum UnattendedHook {
   /// The hook runs this brd
   Installed,
-  /// A hook of Branch Deck runs another brd (the app moved, an older install): `brd install` writes it anew
+  /// A hook of Branch Deck runs another brd (the app moved, an older install), or is a command line of the shell form,
+  /// as the first installs wrote it: `brd install` writes it anew
   Stale,
   /// No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install`
   Missing,
+  /// The settings file cannot hold the hook (no JSON object, its `hooks` of another type, or unreadable): `brd install`
+  /// installs the rest and leaves the file as it is until the user fixes it
+  Invalid,
 }
 
 /// The mode as `brd unattended` and the app answer it: on or off, whether the hook is there to deny, and the requests

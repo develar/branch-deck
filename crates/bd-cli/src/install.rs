@@ -1,16 +1,17 @@
 //! `brd install`: lets coding agents find it. It puts a `brd` command into `~/.local/bin` (macOS, Linux: a symlink to the
 //! app binary, which runs the CLI under that name) and a skill into the user skill directories of the agents, which says
 //! when to use brd and to start with `brd help agent`, and the `PermissionRequest` hook of Unattended Mode into the user
-//! settings of Claude Code (`claude_hook`), which runs `brd hook permission-request`. On macOS it also links `~/.local/bin/brd-host` to the `brd-host` that
-//! the app bundle carries (`BranchDeck.app/Contents/MacOS/brd-host`, docs/design/host-runs.md). The app's Help menu runs
-//! the same install.
+//! settings of Claude Code (`claude_hook`), which runs `brd hook permission-request`; a settings file the hook cannot go
+//! into stays as it is, the rest is installed and the answer says why (`hook_error`). On macOS it also links
+//! `~/.local/bin/brd-host` to the `brd-host` that the app bundle carries (`BranchDeck.app/Contents/MacOS/brd-host`,
+//! docs/design/host-runs.md). The app's Help menu runs the same install.
 //!
 //! Settings → Tools → IntelliJ IDEA writes the app file of an IDE with Air, `~/.air/apps/branch-deck.yaml`
 //! (docs/design/ide-embedding.md, `docs/design/ide-embedding/protocol/air-app.schema.json`): the IDE starts this binary
 //! as `brd mcp` for each project and shows the page in its tool window; Remove deletes the file (`install_ide_app`).
 
 use crate::agent_help::skill_text;
-use crate::claude_hook::{check_settings, claude_settings_file, install_hook, uninstall_hook};
+use crate::claude_hook::{claude_settings_file, install_hook, uninstall_hook};
 use crate::unattended::{hook_command_of, installed_hook};
 use bd_core::bd_command::{BdCommand, app_binary, bd_command, cli_subcommand, display, io_error};
 #[cfg(unix)]
@@ -65,9 +66,17 @@ pub struct InstallOutput {
   /// The settings of Claude Code that hold the `PermissionRequest` hook of Unattended Mode; with --uninstall the file it
   /// was removed from, `null` when it had none
   pub hook_file: Option<String>,
-  /// The command of that hook, `brd hook permission-request` of this `brd`; omitted with --uninstall
+  /// The program of that hook, this `brd`, which Claude Code starts with `hook_args` and no shell; omitted with
+  /// --uninstall
   #[serde(skip_serializing_if = "Option::is_none")]
   pub hook_command: Option<String>,
+  /// The arguments of that hook, `hook permission-request`; omitted with --uninstall
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub hook_args: Option<Vec<String>>,
+  /// Why the hook could not go into `hook_file` (no JSON object, `hooks` of another type), which stays as it was while
+  /// the rest is installed; omitted when the hook is there
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub hook_error: Option<String>,
   /// How agents work in a repository without its own value, by the global git config (`brd workspace`, Settings →
   /// Agents); omitted with --uninstall
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,13 +114,13 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
       bd_host: bd_host.as_deref().map(display),
       hook_file: hook_removed.then(|| display(&hook_file)),
       hook_command: None,
+      hook_args: None,
+      hook_error: None,
       agents: None,
     });
   }
 
   refuse_temporary_location(&target)?;
-  // a settings file of Claude Code the hook cannot go into stops the install before it writes anything
-  check_settings(&hook_file)?;
   let brd = install_command(home, &target)?;
   let removed_legacy = remove_legacy_links(home, &target)?;
   let bd_host = install_bd_host(home, &target)?;
@@ -128,7 +137,8 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     std::fs::write(file, &text).map_err(|e| io_error(file, &e))?;
   }
   let hook_command = hook_command_of(&brd);
-  install_hook(&hook_file, &hook_command)?;
+  // a settings file of Claude Code the hook cannot go into stays as it is, and the rest is installed all the same
+  let hook_error = install_hook(&hook_file, &hook_command).err().map(|e| e.message);
   Ok(InstallOutput {
     schema: SchemaVersion,
     on_path: on_path(environment, &brd),
@@ -138,7 +148,9 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     uninstalled: false,
     bd_host: bd_host.as_deref().map(display),
     hook_file: Some(display(&hook_file)),
-    hook_command: Some(hook_command),
+    hook_command: Some(hook_command.program),
+    hook_args: Some(hook_command.args),
+    hook_error,
     agents: Some(agent_defaults(counted_git(environment).ok().as_ref())),
   })
 }

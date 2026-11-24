@@ -7,6 +7,11 @@
 //! under the open handles of readers that share delete, as every `std::fs` open does. A program that opened the file
 //! without `FILE_SHARE_DELETE` (an antivirus, an indexer, an editor) blocks the rename until it closes it, so a
 //! rename that fails with a sharing error is tried again for about a second (`fs_retry::rename`).
+//!
+//! A file that another program edits too (the settings of Claude Code) is replaced only while it is still what the
+//! writer read (`replace_if_unchanged`): the bytes are compared again just before the rename, so a write of the other
+//! program after the read is kept, and the writer reads and merges again; only a write in the moment between that
+//! compare and the rename is not seen.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -29,6 +34,27 @@ static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
 /// Replace the file `path` with `content` through a temporary file in its directory (which must exist) and a rename.
 /// A failed write deletes its temporary file
 pub fn write_atomically(path: &Path, content: &[u8], options: AtomicWrite) -> std::io::Result<()> {
+  write_then_rename(path, content, options, || Ok(true)).map(drop)
+}
+
+/// Replace the file `path` with `content` as `write_atomically` does, but only while it still holds `read`, the bytes
+/// the content was made from (`None`: there was no file): they are read again after the temporary file is written,
+/// just before the rename. Answers whether the file was replaced; a file that changed stays as it is, without the
+/// temporary file
+pub fn replace_if_unchanged(path: &Path, content: &[u8], read: Option<&[u8]>, options: AtomicWrite) -> std::io::Result<bool> {
+  write_then_rename(path, content, options, || {
+    let now = match std::fs::read(path) {
+      Ok(bytes) => Some(bytes),
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+      Err(error) => return Err(error),
+    };
+    Ok(now.as_deref() == read)
+  })
+}
+
+/// The temporary file with `content`, then the rename over `path` when `still` answers true just before it; a write
+/// that fails or is not renamed deletes its temporary file
+fn write_then_rename(path: &Path, content: &[u8], options: AtomicWrite, still: impl FnOnce() -> std::io::Result<bool>) -> std::io::Result<bool> {
   let mut open = std::fs::OpenOptions::new();
   open.write(true).create_new(true);
   #[cfg(unix)]
@@ -40,11 +66,22 @@ pub fn write_atomically(path: &Path, content: &[u8], options: AtomicWrite) -> st
   let written = file.write_all(content).and_then(|()| if options.durable { file.sync_all() } else { Ok(()) });
   // closed before the rename: Windows renames an open file only when it was opened to share delete
   drop(file);
-  if let Err(error) = written.and_then(|()| crate::fs_retry::rename(&temporary, path)) {
+  match written.and_then(|()| still()) {
+    Ok(true) => {}
+    Ok(false) => {
+      crate::fs_retry::remove_file(&temporary)?;
+      return Ok(false);
+    }
+    Err(error) => {
+      let _ = crate::fs_retry::remove_file(&temporary);
+      return Err(error);
+    }
+  }
+  if let Err(error) = crate::fs_retry::rename(&temporary, path) {
     let _ = crate::fs_retry::remove_file(&temporary);
     return Err(error);
   }
-  Ok(())
+  Ok(true)
 }
 
 /// A new file `.<name>.<pid>.<n>.tmp` beside `path`; a name that exists (a symlink included, which `create_new` never

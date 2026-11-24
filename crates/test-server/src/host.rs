@@ -457,6 +457,7 @@ impl AgentCliHost for TestAgentCli {
       on_path: true,
       skills: AGENT_SKILLS.map(str::to_owned).to_vec(),
       agents: None,
+      hook_error: None,
     })
   }
 

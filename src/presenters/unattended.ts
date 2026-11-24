@@ -29,7 +29,7 @@ export function deniedCount(count: number): string {
   return count === 1 ? "1 permission request was denied" : `${count} permission requests were denied`
 }
 
-/** Why the switch on denies nothing yet: no hook of Branch Deck, or one of another Branch Deck */
+/** Why the switch on denies nothing yet: no hook of Branch Deck, one of another Branch Deck, or a settings file of Claude Code it cannot go into */
 function hookWarning(hook: UnattendedHook): string | null {
   switch (hook) {
     case "installed":
@@ -38,14 +38,25 @@ function hookWarning(hook: UnattendedHook): string | null {
       return "Claude Code has no hook of Unattended Mode, so its permission requests still wait for you: Install Agent CLI adds it"
     case "stale":
       return "The hook of Unattended Mode runs another Branch Deck, so it denies nothing: Install Agent CLI puts this one in its place"
+    case "invalid":
+      return `${INVALID_SETTINGS}, so its permission requests still wait for you: fix the file, then Install Agent CLI`
   }
 }
 
+/** The settings file of Claude Code is no JSON object the hook can go into */
+const INVALID_SETTINGS = "The hook of Unattended Mode cannot go into ~/.claude/settings.json, which is no JSON object of Claude Code's settings"
+
 /** The line of Settings → Tools under brd while the hook is not this brd's */
 export function unattendedHookLine(hook: UnattendedHook): string {
-  return hook === "stale"
-    ? "The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place"
-    : "The hook of Unattended Mode is not installed: Install Agent CLI adds it"
+  switch (hook) {
+    case "stale":
+      return "The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place"
+    case "invalid":
+      return `${INVALID_SETTINGS}: fix the file, then Install Agent CLI`
+    case "installed":
+    case "missing":
+      return "The hook of Unattended Mode is not installed: Install Agent CLI adds it"
+  }
 }
 
 /**

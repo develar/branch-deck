@@ -28,6 +28,9 @@ describe("unattended", () => {
     expect(unattendedToast(mode({ hook: "stale" }))?.description).toBe(
       "The hook of Unattended Mode runs another Branch Deck, so it denies nothing: Install Agent CLI puts this one in its place",
     )
+    expect(unattendedToast(mode({ hook: "invalid" }))?.description).toBe(
+      "The hook of Unattended Mode cannot go into ~/.claude/settings.json, which is no JSON object of Claude Code's settings, so its permission requests still wait for you: fix the file, then Install Agent CLI",
+    )
     expect([offersInstall(mode({ hook: "missing" })), offersInstall(mode({ hook: "missing", installable: false })), offersInstall(mode())]).toEqual([true, false, false])
   })
 
@@ -54,5 +57,8 @@ describe("unattended", () => {
   it("says in Settings → Tools why the hook denies nothing", () => {
     expect(unattendedHookLine("missing")).toBe("The hook of Unattended Mode is not installed: Install Agent CLI adds it")
     expect(unattendedHookLine("stale")).toBe("The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place")
+    expect(unattendedHookLine("invalid")).toBe(
+      "The hook of Unattended Mode cannot go into ~/.claude/settings.json, which is no JSON object of Claude Code's settings: fix the file, then Install Agent CLI",
+    )
   })
 })
