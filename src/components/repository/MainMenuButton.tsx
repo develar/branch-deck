@@ -26,7 +26,8 @@ const MAIN_MENU_KBD = formatKbds(["alt", "\\"])
 export function MainMenuButton() {
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
-  const menus = mainMenus({ sync, autoSyncOnFocus, updates: updatesItself })
+  const unattended = useAppSettings(state => state.unattended)
+  const menus = mainMenus({ sync, autoSyncOnFocus, unattended, updates: updatesItself })
   // the open menu; `highlighted`: expanded without an open menu (the Alt tap), File focused
   const [open, setOpen] = useState<MainMenuId | null>(null)
   const [highlighted, setHighlighted] = useState(false)

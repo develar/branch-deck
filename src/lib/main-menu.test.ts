@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import { mainMenus, matchMainMenuKey, matchMainMenuOpenKey } from "@/lib/main-menu"
 
-const ready = { sync: { canSync: true, reason: null }, autoSyncOnFocus: true, updates: false }
+const ready = { sync: { canSync: true, reason: null }, autoSyncOnFocus: true, unattended: false, updates: false }
 
 function key(init: Partial<KeyboardEvent>) {
   return { key: "", code: "", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init }
@@ -10,17 +10,23 @@ function key(init: Partial<KeyboardEvent>) {
 describe("mainMenus", () => {
   it("holds the items of the native menu, File, View and Help", () => {
     expect(mainMenus(ready).map(menu => [menu.label, menu.groups.flat().map(item => item.label)])).toEqual([
-      ["File", ["Sync Branches", "Update Project", "Auto-sync on Focus", "Settings…"]],
+      ["File", ["Sync Branches", "Update Project", "Auto-sync on Focus", "Settings…", "Unattended Mode"]],
       ["View", ["Command Palette…", "Branches", "Reviews", "Landing", "Actual Size", "Zoom In", "Zoom Out", "Activity"]],
       ["Help", ["Getting Started", "Install Agent CLI…", "GitHub Repository"]],
     ])
   })
 
-  it("disables Sync with the reason of the Sync button, checks Auto-sync, offers updates in a release build", () => {
-    const menus = mainMenus({ sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: false, updates: true })
+  it("disables Sync with the reason of the Sync button, checks Auto-sync and Unattended Mode, offers updates in a release build", () => {
+    const menus = mainMenus({ sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: false, unattended: true, updates: true })
     const items = menus.flatMap(menu => menu.groups.flat())
     expect(items.find(item => item.id === "sync_branches")).toMatchObject({ disabled: true, description: "Set the branch prefix first" })
     expect(items.find(item => item.id === "auto_sync_on_focus")?.checked).toBe(false)
+    expect(items.find(item => item.id === "unattended_mode")?.checked).toBe(true)
+    expect(
+      mainMenus(ready)
+        .flatMap(menu => menu.groups.flat())
+        .find(item => item.id === "unattended_mode")?.checked,
+    ).toBe(false)
     expect(items.some(item => item.id === "check_for_updates")).toBe(true)
   })
 })

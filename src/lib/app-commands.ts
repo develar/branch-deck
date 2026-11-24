@@ -19,6 +19,8 @@ export type AppCommand =
   | "zoom"
   | "install_agent_cli"
   | "check_for_updates"
+  // Unattended Mode of the app menu: the main window switches it (`useMenuSync`)
+  | "unattended_mode"
   // a save of a field the close of Settings could not finish, which the main window tells (`settings-close.ts`)
   | "settings_not_saved"
 

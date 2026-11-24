@@ -301,6 +301,12 @@ pub trait MenuHost: Send + Sync {
   /// The menu cannot take it
   fn set_auto_sync_checked(&self, checked: bool) -> Result<(), ApiError>;
 
+  /// Checks Unattended Mode of the native menu as the mode is; nothing where the window has no native menu
+  ///
+  /// # Errors
+  /// The menu cannot take it
+  fn set_unattended_checked(&self, checked: bool) -> Result<(), ApiError>;
+
   /// Opens the window manager's menu of `window` at the pointer (Move, Resize, Always on Top, Close…), on the thread of
   /// the window; nothing where the system has none (macOS)
   ///

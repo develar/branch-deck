@@ -27,6 +27,10 @@ targets:
   - src/components/repository/ConfigurationHeader.tsx
   - src/components/unattended/DeniedRequestsDialog.tsx
   - src/lib/command-palette.ts
+  - src/lib/main-menu.ts
+  - src/hooks/useMenuSync.ts
+  - src-tauri/src/menu.rs
+  - crates/app-api/src/app/desktop.rs
   - src/components/settings/GeneralPage.tsx
 ---
 
@@ -43,7 +47,7 @@ Unattended Mode on, a `PermissionRequest` hook of Claude Code, which the switch 
 again, answers every such prompt with a denial whose message tells the agent to go on without the access, and records
 what was denied; the user reads that
 list in the morning and decides what to allow. While the mode is off, the prompts are as they were. The user switches it
-in the command palette, in Settings → General or with `brd unattended`; the title bar marks it while it is on and its
+in the command palette, in Settings → General, in the menu bar or with `brd unattended`; the title bar marks it while it is on and its
 mark turns it off, and the switch off says how many requests the night denied and lists them.
 
 ## Goals
@@ -388,6 +392,31 @@ working directory; Escape MUST close it.
   [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should tell on a switch off how many requests the night denied and list them`)
   [@test] src/presenters/unattended.test.ts (`words who asked and where`)
 
+### Requirement: App: The app menu holds Unattended Mode, checked while it is on
+
+The menu bar MUST hold the check item "Unattended Mode", after Settings… (the app menu of macOS, File on Windows and
+Linux, File of ☰ under a custom title bar), checked while the mode is on. Choosing it MUST switch the mode through the
+item of the palette, with its toasts and errors; the main window MUST check it for every value of the setting, from
+any surface or `brd unattended`, and a switch on that fails MUST leave it unchecked.
+
+#### Scenario: The item of the native menu
+- **GIVEN** the native menu, built with the item checked as the stored mode
+- **WHEN** the user chooses Unattended Mode, then again
+- **THEN** the item checks itself back, the main window gets `unattended_mode` and turns the mode on, then off with the toast of a switch off, and checks the item each time
+  [@test] src-tauri/src/menu_test.rs (`unattended_mode_is_checked_as_the_stored_mode`, `a_click_of_unattended_mode_shows_the_mode_again_and_sends_the_switch_to_the_main_window`)
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should switch the mode from Unattended Mode of the app menu, with the toasts of the mode, and check the item as the mode is, whichever surface switched it`)
+
+#### Scenario: Another surface, a failed switch
+- **WHEN** the palette turns the mode on, Settings → General turns it off, then a switch on from the menu fails
+- **THEN** the item is checked, then unchecked, and stays unchecked after the error toast
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should switch the mode from Unattended Mode of the app menu, with the toasts of the mode, and check the item as the mode is, whichever surface switched it`)
+
+#### Scenario: The main menu of a custom title bar
+- **WHEN** the user chooses Unattended Mode in File of ☰, then again
+- **THEN** the mode turns on, the item reads checked, and the mode turns off
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should switch the mode from Unattended Mode of the main menu of a custom title bar, checked as the mode is`)
+  [@test] src/lib/main-menu.test.ts (`disables Sync with the reason of the Sync button, checks Auto-sync and Unattended Mode, offers updates in a release build`)
+
 ## User Experience
 
 - The message of a denial: "Branch Deck is in Unattended Mode: nobody can approve this. Do it without new access (a path
@@ -399,7 +428,8 @@ working directory; Escape MUST close it.
   "Turn Off Unattended Mode" with "While it is on, coding agents' permission requests are
   denied with a way on instead of waiting for you".
 - The palette: "Turn On Unattended Mode" (`MoonIcon`), "Turn Off Unattended Mode"; Settings → General: "Coding agents",
-  "While you leave them alone", the switch "Unattended Mode".
+  "While you leave them alone", the switch "Unattended Mode"; the menu bar: the check item "Unattended Mode" after
+  Settings….
 - The toasts: "Turned off Unattended Mode" with "2 permission requests were denied while it was on" and Show Denied
   Requests…, a warning with ". Cannot remove the hook of Unattended Mode from …; it denies nothing while the mode is
   off" when the hook stayed; "Cannot turn on Unattended Mode" with "Cannot add the hook of Unattended Mode to …: it is

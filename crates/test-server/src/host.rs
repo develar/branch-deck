@@ -420,6 +420,12 @@ impl MenuHost for TestDesktop {
     Ok(())
   }
 
+  /// No native menu: the check is the request, which a test reads
+  fn set_unattended_checked(&self, checked: bool) -> Result<(), ApiError> {
+    tracing::debug!(checked, "Unattended Mode checked");
+    Ok(())
+  }
+
   fn show_window_menu(&self, window: &WindowId) -> Result<(), ApiError> {
     self.windows().menus.push(window.as_str().to_owned());
     Ok(())

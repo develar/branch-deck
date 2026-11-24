@@ -358,6 +358,10 @@ macro_rules! for_each_command {
       /// Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
       app(TheApp) main set_auto_sync_menu_checked(checked: bool) -> () = $crate::app::desktop::set_auto_sync_menu_checked;
 
+      /// Checks Unattended Mode of the native menu as the mode is, whichever surface or process switched it: the main
+      /// window calls it for every value of `appSettings.unattended` (`useMenuSync`).
+      app(TheApp) main set_unattended_menu_checked(checked: bool) -> () = $crate::app::desktop::set_unattended_menu_checked;
+
       /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
       /// (`init_title_bar`). The value goes through the writer of the settings, which saves it now, before the restart: the
       /// new process reads the file.

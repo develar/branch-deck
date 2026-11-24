@@ -41,7 +41,7 @@ It writes two things:
 
 An agent team left running for the night stops at the first permission prompt of any of its agents: the prompt waits
 for you until morning. Before you leave, turn on Unattended Mode: Turn On Unattended Mode in the command palette,
-Settings → General, or `brd unattended on`. It adds its hook to the settings of Claude Code, `~/.claude/settings.json`
+Unattended Mode in the menu bar (after Settings…), Settings → General, or `brd unattended on`. It adds its hook to the settings of Claude Code, `~/.claude/settings.json`
 (every other setting and hook there stays as you wrote it), and the sessions that run pick it up within seconds. While
 it is on, the title bar of the main window reads "Unattended", and every permission request of Claude Code, of a
 session or any of its subagents, is denied with a message that nobody can approve it: the agent does the step without

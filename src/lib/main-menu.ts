@@ -42,6 +42,8 @@ export interface MainMenuState {
   /** Whether Sync can run, and why not (`useSyncAvailability`) */
   readonly sync: { readonly canSync: boolean; readonly reason: string | null }
   readonly autoSyncOnFocus: boolean
+  /** Unattended Mode is on: its item is checked */
+  readonly unattended: boolean
   /** The build updates itself (the backend says it, `titleBar.checkForUpdates`) */
   readonly updates: boolean
 }
@@ -72,7 +74,11 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
           { id: "update_project", label: "Update Project", icon: GitBranchIcon, kbds: ["mod", "t"], onSelect: () => runAppCommand("update_project") },
         ],
         [{ id: "auto_sync_on_focus", label: "Auto-sync on Focus", checked: state.autoSyncOnFocus, onSelect: () => setAutoSyncOnFocus(!state.autoSyncOnFocus) }],
-        [{ id: "open_settings", label: "Settings…", icon: SettingsIcon, kbds: ["mod", ","], onSelect: () => openSettings() }],
+        [
+          { id: "open_settings", label: "Settings…", icon: SettingsIcon, kbds: ["mod", ","], onSelect: () => openSettings() },
+          // the main window switches it, with the toasts of the mode (`useMenuSync`)
+          { id: "unattended_mode", label: "Unattended Mode", checked: state.unattended, onSelect: () => runAppCommand("unattended_mode") },
+        ],
       ],
     },
     {

@@ -10,7 +10,7 @@ Branch Deck opens sub-windows (the reviews, the conflict windows, Settings, Acti
 window renders settings (theme, diff view options, AI settings, recent projects) and some can change them. Each window
 must have the settings synchronously on its first render, and a change made in any window must reach all others
 without loops or lost updates. Rust reads some of them too: the zoom and the title bar when it builds a window, the
-check of Auto-sync on Focus in the native menu, and `brd` the branch prefix of the app.
+checks of Auto-sync on Focus and Unattended Mode in the native menu, and `brd` the branch prefix of the app.
 
 `settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
 write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and

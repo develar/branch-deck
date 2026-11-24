@@ -106,7 +106,7 @@ export function CommandPalette() {
     ? paletteCommands({
         views: MAIN_VIEWS,
         showView: entry => showMainView(entry.view),
-        menu: { sync, autoSyncOnFocus, updates: updatesItself },
+        menu: { sync, autoSyncOnFocus, unattended, updates: updatesItself },
         branches,
         toggleActivityPanel: () => openActivity(),
         openActivityWindow: () => openActivityInWindow(null),

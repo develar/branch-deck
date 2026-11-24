@@ -405,6 +405,11 @@
     "transport": "json"
   },
   {
+    "name": "set_unattended_menu_checked",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "restart_app",
     "class": "app",
     "transport": "json"

@@ -43,6 +43,14 @@ pub fn set_auto_sync_menu_checked(ctx: &AppContext, call: &Call, checked: bool) 
   operation_now(|| ctx.desktop(&call.window).menu.set_auto_sync_checked(checked))
 }
 
+/// Checks Unattended Mode of the native menu as the mode is, whichever surface or process switched it: the main window
+/// calls it for every value of `appSettings.unattended` (`useMenuSync`), a switch of `brd unattended` included, which
+/// the window hears from the writer of the settings. Without a native menu there is nothing to check.
+#[instrument(skip_all, fields(checked = checked))]
+pub fn set_unattended_menu_checked(ctx: &AppContext, call: &Call, checked: bool) -> Result<(), ApiError> {
+  operation_now(|| ctx.desktop(&call.window).menu.set_unattended_checked(checked))
+}
+
 /// Restarts the app with "Use the system title bar" at `system_title_bar`: the title bar is decided once per process
 /// (`init_title_bar` of the app). The value goes through the writer of the settings, which saves it now, before the
 /// restart: the new process reads the file.

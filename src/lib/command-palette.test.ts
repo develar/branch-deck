@@ -13,7 +13,7 @@ function sources(overrides: Partial<PaletteSources> = {}): PaletteSources {
   return {
     views: [{ view: "branches", label: "Branches", icon: ListTreeIcon }],
     showView: vi.fn(),
-    menu: { sync: { canSync: true, reason: null }, autoSyncOnFocus: true, updates: false },
+    menu: { sync: { canSync: true, reason: null }, autoSyncOnFocus: true, unattended: false, updates: false },
     branches: ["auth", "IJPL-1"],
     toggleActivityPanel: vi.fn(),
     openActivityWindow: vi.fn(),
@@ -55,7 +55,7 @@ describe("paletteCommands", () => {
   it("hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself", () => {
     const commands = paletteCommands(
       sources({
-        menu: { sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: true, updates: true },
+        menu: { sync: { canSync: false, reason: "Set the branch prefix first" }, autoSyncOnFocus: true, unattended: false, updates: true },
         openRepository: { reason: "Wait for the sync to finish", run: vi.fn() },
       }),
     )

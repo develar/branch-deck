@@ -458,7 +458,8 @@ menu: the webview's Ctrl+C/V/X/A stay.
 #### Scenario: File
 - **WHEN** the user opens File
 - **THEN** it holds Sync Branches (Ctrl+R, disabled with the reason of the Sync button), Update Project (Ctrl+T),
-  Auto-sync on Focus (checked), Settings… (Ctrl+,)
+  Auto-sync on Focus (checked), Settings… (Ctrl+,), Unattended Mode (checked while the mode is on,
+  [Unattended Mode](../unattended-mode/spec.md))
 
 #### Scenario: View
 - **WHEN** the user opens View
@@ -487,8 +488,9 @@ Each item MUST run the command the native item runs (`runAppCommand`, registered
 ### Requirement: Main menu: The native menu sends its commands to the main window
 
 The native menu MUST send a command to the main window as an event named as it (`sync_branches`, `update_project`,
-`check_for_updates`, `install_agent_cli`, `zoom` with its step, `open_settings`): the main window opens Settings
-([Settings](../settings/spec.md)), as it has the current settings to start it from.
+`check_for_updates`, `install_agent_cli`, `zoom` with its step, `open_settings`, `unattended_mode`): the main window
+opens Settings ([Settings](../settings/spec.md)), as it has the current settings to start it from, and switches
+Unattended Mode with its toasts.
 
 #### Scenario: Settings… of the native menu
 - **WHEN** the user chooses Settings… in the native menu

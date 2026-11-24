@@ -282,6 +282,7 @@ export const APP_COMMAND_CALLERS = {
   show_window_menu: "src/lib/title-bar-mouse.ts",
   browse_repository: "src/stores/repository.ts",
   set_auto_sync_menu_checked: "src/hooks/useMenuSync.ts",
+  set_unattended_menu_checked: "src/hooks/useMenuSync.ts",
   restart_app: "src/components/settings/AppearancePage.tsx",
   check_for_updates: "src/hooks/useAutoUpdate.ts",
   install_update: "src/hooks/useAutoUpdate.ts",

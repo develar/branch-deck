@@ -4,7 +4,8 @@ import { expect, expectErrorLog, test } from "../fixtures/test-fixtures"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { header } from "../helpers/header-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
-import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { closeToast, openToast } from "../helpers/toast-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
 
@@ -86,6 +87,66 @@ test.describe("Unattended Mode", () => {
     await expect(error).toContainText("it is no JSON object")
     await expect(mark(page)).toHaveCount(0)
     expect(await repo.claudeSettings()).toBe('{ "model": ')
+  })
+
+  test("should switch the mode from Unattended Mode of the app menu, with the toasts of the mode, and check the item as the mode is, whichever surface switched it", async ({
+    page,
+    setupRepo,
+  }) => {
+    // what the main window checks in the native menu, in the order it asked
+    const checks: boolean[] = []
+    page.on("request", request => {
+      if (request.url().endsWith("/invoke/set_unattended_menu_checked")) {
+        checks.push((request.postDataJSON() as { checked: boolean }).checked)
+      }
+    })
+    const repo = await setupRepo("simple")
+    await repo.setClaudeSettings(CLAUDE_SETTINGS)
+    await expect.poll(() => checks.at(-1)).toBe(false)
+
+    // the item of the app menu sends `unattended_mode` to the main window, which turns the mode on as the palette does
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => emitTauriEvent(page, "unattended_mode"))
+    await expect(mark(page)).toBeVisible()
+    await expect.poll(() => checks.at(-1)).toBe(true)
+    expect(await repo.claudeSettings()).toContain('"permission-request"')
+
+    // again: off, with the toast of a switch off
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => emitTauriEvent(page, "unattended_mode"))
+    await expect(mark(page)).toHaveCount(0)
+    await expect(openToast(page, "Turned off Unattended Mode")).toContainText("No permission request was denied while it was on")
+    await expect.poll(() => checks.at(-1)).toBe(false)
+
+    // the palette and the switch of Settings check it too
+    await turnOnFromPalette(page)
+    await expect.poll(() => checks.at(-1)).toBe(true)
+    const settings = await openSettingsWindow(page, { page: "general" })
+    await runAndWaitForAnswer(settings, "set_unattended_mode", () => settings.getByTestId("setting-unattended").getByRole("switch").click())
+    await expect.poll(() => checks.at(-1)).toBe(false)
+    await settings.close()
+
+    // a switch on that fails leaves the item unchecked
+    await repo.setClaudeSettings('{ "model": ')
+    expectErrorLog(page, /^Cannot turn on Unattended Mode: Cannot add the hook of Unattended Mode to .*: it is no JSON object/)
+    const count = checks.length
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => emitTauriEvent(page, "unattended_mode"))
+    await expect(openToast(page, "Cannot turn on Unattended Mode")).toBeVisible()
+    await expect(mark(page)).toHaveCount(0)
+    expect(checks.slice(count)).not.toContain(true)
+  })
+
+  test("should switch the mode from Unattended Mode of the main menu of a custom title bar, checked as the mode is", async ({ page, setupRepo }) => {
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await setupRepo("simple")
+    await page.getByTestId("main-menu-button").click()
+    const item = page.getByRole("menuitemcheckbox", { name: "Unattended Mode" })
+    await expect(item).toHaveAttribute("aria-checked", "false")
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => item.click())
+    await expect(mark(page)).toBeVisible()
+    await page.getByTestId("main-menu-button").click()
+    await expect(item).toHaveAttribute("aria-checked", "true")
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => item.click())
+    await expect(mark(page)).toHaveCount(0)
+    await expect(openToast(page, "Turned off Unattended Mode")).toBeVisible()
   })
 
   test("should turn the mode on and off from Settings → General, the mark of the main window following it", async ({ page, setupRepo }) => {

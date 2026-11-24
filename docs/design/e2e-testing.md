@@ -267,7 +267,7 @@ Mock implementation:
 - **Desktop**: what the app does on the desktop runs on the server as the app runs it, its host the desktop of the
   test repository (`Desktop` of app-api; `TestDesktop`, `TestUpdater` and `TestAgentCli` of `host.rs` and `updater.rs`): the windows
   (**Sub-windows**) and the window menu, recorded (`GET /repositories/{id}/windows`: `opens`, `menus`;
-  `getOpenedSubWindows`, `getWindowMenus`); Auto-sync on Focus of the native menu, a request a test reads; the folder
+  `getOpenedSubWindows`, `getWindowMenus`); Auto-sync on Focus and Unattended Mode of the native menu, requests a test reads; the folder
   dialog (`browse_repository`), which picks the folder of `POST /repositories/{id}/dialog-pick` (`{ path }`, null
   cancels; `setDialogPick`), else the test repository; the updater, whose `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to

@@ -33,8 +33,8 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
   let mac_menu = {
     let submenu = SubmenuBuilder::new(app, &app_name).about(None).separator();
     // the macOS place of the settings of an app, ⌘,
-    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
-    let submenu = submenu.item(&settings).separator();
+    let settings_item = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    let submenu = submenu.item(&settings_item).item(&unattended_mode_item(app, settings)?).separator();
 
     // Only add update menu item when auto-update feature is enabled
     #[cfg(feature = "auto-update")]
@@ -63,11 +63,11 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
     .separator()
     .item(&auto_sync_checkbox);
 
-  // Windows and Linux: File → Settings…, Ctrl+,
+  // Windows and Linux: File → Settings…, Ctrl+, and Unattended Mode under it, as the app menu of macOS has them
   #[cfg(not(target_os = "macos"))]
   let file_menu_builder = {
-    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
-    file_menu_builder.separator().item(&settings)
+    let settings_item = MenuItemBuilder::with_id(OPEN_SETTINGS, "Settings…").accelerator("CmdOrCtrl+,").build(app)?;
+    file_menu_builder.separator().item(&settings_item).item(&unattended_mode_item(app, settings)?)
   };
 
   let file_menu = &file_menu_builder.build()?;
@@ -160,6 +160,21 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
   Ok(())
 }
 
+/// Unattended Mode (openspec/specs/repository/unattended-mode/spec.md), checked as the mode is when the menu is built;
+/// then the main window checks it as the setting is (`set_unattended_menu_checked`), whichever surface or process
+/// switched it
+fn unattended_mode_item(app: &App, settings: &AppSettings) -> tauri::Result<tauri::menu::CheckMenuItem<tauri::Wry>> {
+  CheckMenuItemBuilder::with_id(UNATTENDED_MODE, "Unattended Mode").checked(settings.unattended).build(app)
+}
+
+/// A click of Unattended Mode, whose item checked or unchecked itself (`checked_now`): the check it shows again, the
+/// mode's until the setting changes, so a switch on that fails leaves no check; and the command of the main window,
+/// which switches the mode through the core of the palette and the mark of the title bar
+#[must_use]
+pub const fn unattended_click(checked_now: bool) -> (bool, &'static str) {
+  (!checked_now, UNATTENDED_MODE)
+}
+
 const VIEW: &str = "View";
 const ZOOM_IN: &str = "Zoom In";
 // the items whose event is their id: the command of the main window; the main window opens the Settings window, as
@@ -175,11 +190,13 @@ const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
 const CHECK_FOR_UPDATES: &str = "check_for_updates";
 const AUTO_SYNC_ON_FOCUS: &str = "auto_sync_on_focus";
+/// The check item of Unattended Mode, and the command of the main window it sends
+pub const UNATTENDED_MODE: &str = "unattended_mode";
 /// Quit of the app menu of macOS: the app exits, or only its windows close while an IDE is connected
 #[cfg(target_os = "macos")]
 const QUIT: &str = "quit";
 
-/// The native menus of the app (`MenuHost` of app-api): Auto-sync on Focus of the main menu, and the window manager's
+/// The native menus of the app (`MenuHost` of app-api): Auto-sync on Focus and Unattended Mode of the main menu, and the window manager's
 /// menu of a window, on the main thread, where GDK and Win32 menus live (the commands that call them are synchronous)
 pub struct TauriMenu(pub AppHandle);
 
@@ -198,6 +215,15 @@ impl MenuHost for TauriMenu {
     checkbox
       .set_checked(checked)
       .map_err(|e| ApiError::internal(format!("Cannot check Auto-sync on Focus: {e}")))
+  }
+
+  /// Without a native menu (a custom title bar on Windows and Linux, whose main menu reads the setting itself) there is
+  /// nothing to check
+  fn set_unattended_checked(&self, checked: bool) -> Result<(), ApiError> {
+    let Some(checkbox) = self.0.menu().and_then(|menu| menu.get(UNATTENDED_MODE)).and_then(|item| item.as_check_menuitem().cloned()) else {
+      return Ok(());
+    };
+    checkbox.set_checked(checked).map_err(|e| ApiError::internal(format!("Cannot check Unattended Mode: {e}")))
   }
 
   fn show_window_menu(&self, window: &WindowId) -> Result<(), ApiError> {
@@ -274,6 +300,17 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
       } else {
         tracing::error!("cannot read the state of Auto-sync on Focus");
       }
+    }
+    UNATTENDED_MODE => {
+      let checkbox = app.menu().and_then(|menu| menu.get(UNATTENDED_MODE)).and_then(|item| item.as_check_menuitem().cloned());
+      let checked_now = checkbox.as_ref().and_then(|item| item.is_checked().ok()).unwrap_or_default();
+      let (check, command) = unattended_click(checked_now);
+      if let Some(checkbox) = checkbox
+        && let Err(e) = checkbox.set_checked(check)
+      {
+        tracing::error!(error = ?e, "cannot check Unattended Mode back");
+      }
+      emit_to_main(app, command, ());
     }
     _ => {}
   }

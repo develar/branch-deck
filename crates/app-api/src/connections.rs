@@ -155,6 +155,10 @@ pub mod without {
       Ok(())
     }
 
+    fn set_unattended_checked(&self, _checked: bool) -> Result<(), ApiError> {
+      Ok(())
+    }
+
     fn show_window_menu(&self, _window: &WindowId) -> Result<(), ApiError> {
       Ok(())
     }
