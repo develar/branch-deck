@@ -225,7 +225,17 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   as one word: an agent writes the outputs of each run to a directory of its own (`--fetch out/air/light1` and `mkdir
   -p out/air/light1 && … > out/air/light1/run.json`, then `light5`), and on 2026-11-21 the measure of one lane did not
   count for the next. Only the fetched directories go: no word of a command tells an output from an input, and a path
-  that the run does not fetch may name what it checks. A run that waits reads the measures again at each look, so a
+  that the run does not fetch may name what it checks. A command whose text changes every run still has a new key each
+  time: an accio gate runs as `bash -c "$(cat gate.sh)" … <base> <tip>` with its commits and paths in its words, so it
+  never got a measure and waited for an empty Studio, 26 min for a run of 35 min that used 3.6 to 7.7 of its 20 cores;
+  over 7 days such commands waited 7.7 h. `brd-host run --measure-as <class>` (`RunSpec::measure_as`, feature
+  `measure_as`, heavy too) names the class instead: the key is the SHA-256 of `<measure-as>` and the class, whatever the
+  command, its environment and its fetch, and the same function gives it to the admission, the record, the estimate,
+  the queue record and the history, so they never disagree. Its first run takes the whole host and is measured, as any
+  new command. The client names the class, not the agent: no rule of the words tells two runs of one work from two
+  works, and a guess that joins them would let a heavy run in beside others on a light one's measure. The line of a wait
+  without a measure names the flag, and `brd-host runs` and `brd-host stats` name the class (`TurnEntry::measure_as`,
+  `HistoryLine::measure_as`). A run that waits reads the measures again at each look, so a
   run of its command that ends meanwhile counts. So the stats follow the changes, never a calibration of once: a command that got heavier is
   expected heavier at its next run, one that got lighter (a faster fast lane) frees its cores within a few runs, and a
   cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use, so a run that
@@ -312,7 +322,8 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   reads both.
 - **A line**: the run, the repository, the affinity, the commit, the command as the heavy turn names it (one line of
   200 characters: never the whole text, since a command can hold `env TOKEN=…`), the key of its measures
-  (`measure_key`, with the repository the key of `cores.json`), `heavy`, `exclusive`, the start, the end (none for a
+  (`measure_key`, with the repository the key of `cores.json`), the class of `--measure-as` (the summary names a
+  command of a class by it), `heavy`, `exclusive`, the start, the end (none for a
   lost run), the exit, the code of the refusal, `lost`, the phases, the cores (mean, peak, CPU and wall time of the
   command) and the bytes.
 - **The bytes**: nothing counted them before. A pack adds what came to `pack.json` of its run, a fetch what it sent to
@@ -453,7 +464,8 @@ it at the start; the run never moves after that.
 - **The choice** (`host_client::choose`): every member is asked at once, 3 s each. The rank is `start_in_ms +
   unknown_ahead × 10 min + expected_wall_ms`, a tie by the order of the set, and one line says it: `brd-host: studio:
   starts in ~12 min, runs ~4 min; local: starts now, runs ~6 min, only at once; chose local`. The first member may
-  take any run. A heavy run goes to another member only with its own measure of the command there, so a new command
+  take any run. A heavy run goes to another member only with its own measure of the command there (of its class with
+  `--measure-as`; a member whose agent lacks `measure_as` has no estimate of such a run), so a new command
   (the scripts of a measurement of accio) stays on the Studio, and what a laptop may take is what ran there once. A
   wall that a member does not know is the longest that another member knows; a member without an estimate ranks last.
 - **A laptop keeps no queue.** A member of `idle_only` gets the start with `RunSpec::admit_now`: its supervisor takes

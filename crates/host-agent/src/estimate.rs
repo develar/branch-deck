@@ -27,7 +27,7 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
   let dir = home.heavy_dir();
   let path = repo.path.display().to_string();
   let cores = crate::supervise::host_cores(repo);
-  let key = measure_key(&ask.command, &ask.fetch);
+  let key = measure_key(&ask.command, &ask.fetch, ask.measure_as.as_deref());
   // a table of the measures that cannot be read has none: the run takes the whole host, as before any measure
   let expected_cores = lease_pool::host_cores::expected(&dir, &path, &key).unwrap_or_else(|error| {
     log(&format!("cannot read the cores of the commands for an estimate: {error:#}"));
@@ -36,7 +36,7 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
   let runs = Runs::new(home.runs_dir());
   let wall_of_entry = |entry: &TurnEntry| {
     let spec = runs.get(&entry.ticket.run).ok()?.spec().ok()?;
-    wall(&dir, &entry.repo, &measure_key(&spec.command, &spec.fetch))
+    wall(&dir, &entry.repo, &measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()))
   };
   let now = epoch_ms(SystemTime::now());
   let start = if ask.heavy {

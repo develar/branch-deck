@@ -209,7 +209,7 @@ pub struct Lent {
 }
 
 /// A run that waits for a slot; the ticket of a gone process leaves the queue
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ticket {
   pub run: String,
   pub pid: u32,

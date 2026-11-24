@@ -45,7 +45,8 @@ fn the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waitin
 }
 
 /// The lines of `brd-host runs` say the cores held of the cores of the host, each holder with what it holds, why and
-/// for how long, each waiting run with what it waits for, and each run that is not heavy with its live cores
+/// for how long, each waiting run with what it waits for, a run without a measure what gives one, a run of a class of
+/// measures without one its class, and each run that is not heavy with its live cores
 #[test]
 fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_light_run() {
   let now = 1_000_000_000;
@@ -60,6 +61,7 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
       { "run": "1790-03", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane fast", "since_ms": now - 60_000 },
       { "run": "1790-04", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane slow", "since_ms": now - 10_000, "expected": 20.0 },
       { "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/branch-deck", "command": "pnpm e2e", "since_ms": now - 5_000, "expected": 9.0 },
+      { "run": "1790-06", "pid": 2, "repo": "/Users/u/projects/accio", "command": "bash -c ./gate.sh 1a2b 3c4d", "since_ms": now - 2_000, "measure_as": "accio-gate" },
     ],
     "light": [{ "run": "1791-01", "pid": 3, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --module x", "live": 2.0 }],
   });
@@ -69,9 +71,10 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
       "heavy turn: 14.0 of 20 cores held",
       "  run 1788-12 of branch-deck holds 6.5 for 4 min (measured): pnpm lint:backend",
       "  run 1789-40 of accio holds 7.5 for 30 s (live, above its measure): scripts/check.sh --smoke",
-      "  run 1790-03 of idea-1 waits 60 s for the whole host (no measure): ./community/tools/bt.cmd --lane fast",
+      "  run 1790-03 of idea-1 waits 60 s for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one): ./community/tools/bt.cmd --lane fast",
       "  run 1790-04 of idea-1 waits 10 s for the whole host (measured 20.0): ./community/tools/bt.cmd --lane slow",
       "  run 1790-05 of branch-deck waits 5 s for 9.0 (measured): pnpm e2e",
+      "  run 1790-06 of accio waits 2 s for the whole host (no measure of the class accio-gate yet): bash -c ./gate.sh 1a2b 3c4d",
       "  run 1791-01 of idea-1, not heavy, uses 2.0: ./community/tools/bt.cmd --module x",
     ]
   );
@@ -138,6 +141,7 @@ fn the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed() {
     live: None,
     exclusive: true,
     passed: None,
+    measure_as: None,
   };
   assert_eq!(took_line(Duration::from_millis(300), Some(Cores(50)), 20, None), None);
   assert_eq!(
@@ -166,8 +170,7 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
     affinity: "checkout-0123456789ab",
     command: &command,
     cores: 20,
-    exclusive: false,
-    fetch: &[],
+    ..TurnRun::default()
   };
   let first = take(&home, &run("run-1", "/r/branch-deck"), Duration::from_mins(1), &never, &mut quiet).unwrap();
   assert_eq!(first, Some(TurnAnswer::Taken));
@@ -185,7 +188,7 @@ fn a_heavy_run_says_its_wait_at_once_and_a_stop_ends_it() {
   assert!(
     starts_with_shape(
       &said[0],
-      "run run-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 60 s left: run run-1 of branch-deck holds the whole host for <time> (pnpm e2e, no measure), no run ahead; a wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn"
+      "run run-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 60 s left: run run-1 of branch-deck holds the whole host for <time> (pnpm e2e, no measure), no run ahead; a wait, not a hang: do not cancel it and do not run it on the client; `brd-host runs <host>` shows the heavy turn"
     ),
     "{said:?}"
   );
@@ -215,8 +218,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
     affinity: "checkout-0123456789ab",
     command,
     cores: 20,
-    exclusive: false,
-    fetch: &[],
+    ..TurnRun::default()
   };
   let never = || false;
   let at_once = || true;
@@ -248,7 +250,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
   );
   assert!(
     said[2].starts_with(
-      "run new waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 60 s left: run holder of branch-deck holds the whole host for "
+      "run new waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 60 s left: run holder of branch-deck holds the whole host for "
     ),
     "{said:?}"
   );
@@ -279,6 +281,7 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
     cores: 20,
     exclusive: true,
     fetch: &[],
+    measure_as: None,
   };
   assert_eq!(take(&home, &exclusive, Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
   let shown = lines(&live(&home).unwrap()).unwrap();
@@ -327,8 +330,7 @@ fn a_held_lock_of_the_table_retries_and_the_run_keeps_its_place_in_the_queue() {
     affinity: run,
     command: &command,
     cores: 20,
-    exclusive: false,
-    fetch: &[],
+    ..TurnRun::default()
   };
   let never = || false;
   let mut quiet = |_: &str| {};
@@ -395,6 +397,7 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
     cores: 20,
     exclusive: false,
     fetch,
+    measure_as: None,
   };
   let never = || false;
   let mut quiet = |_: &str| {};
@@ -417,7 +420,10 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
   })
   .unwrap();
   assert_eq!(waited, None, "the stop ended the wait");
-  assert!(said[0].contains(", all its 20 cores, as the command has no measure yet, "), "{said:?}");
+  assert!(
+    said[0].contains(", all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), "),
+    "{said:?}"
+  );
   let table = live(&home).unwrap();
   assert_eq!(
     (table["queue"][0]["run"].as_str(), table["queue"][0]["expected"].as_f64()),
@@ -440,8 +446,7 @@ fn a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both() {
     affinity: run,
     command,
     cores: 20,
-    exclusive: false,
-    fetch: &[],
+    ..TurnRun::default()
   };
   let never = || false;
   let at_once = || true;
@@ -479,7 +484,7 @@ fn a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both() {
   assert!(
     is_shape(
       &lines[3],
-      "  run long of branch-deck waits <time> for the whole host (no measure), passed by 1 short run (at most 4): pnpm e2e"
+      "  run long of branch-deck waits <time> for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one), passed by 1 short run (at most 4): pnpm e2e"
     ),
     "{lines:?}"
   );
@@ -504,7 +509,7 @@ fn the_lines_of_the_heavy_turn_mark_a_short_run_and_the_runs_it_passed() {
     lines_at(&table, now).unwrap()[2..],
     [
       "  run 1790-05 of branch-deck waits 3 min for 9.0 (measured, short: ~50 s): pnpm lint:backend",
-      "  run 1790-03 of idea-1 waits 30 min for the whole host (no measure), passed by 2 short runs (at most 4): ./community/tools/bt.cmd --lane fast",
+      "  run 1790-03 of idea-1 waits 30 min for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one), passed by 2 short runs (at most 4): ./community/tools/bt.cmd --lane fast",
     ]
   );
   let mut before = table;

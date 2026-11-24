@@ -591,7 +591,8 @@ fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
     "{listed}"
   );
   assert!(
-    lines[2].starts_with(&format!("  run {waits} of {repo} waits ")) && lines[2].ends_with(" s for the whole host (no measure): true"),
+    lines[2].starts_with(&format!("  run {waits} of {repo} waits "))
+      && lines[2].ends_with(" s for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one): true"),
     "{listed}"
   );
 
@@ -610,7 +611,7 @@ fn runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long() {
   assert!(
     stderr.contains(&format!("brd-host: run {waits} waits 0 s for the heavy turn of the host, all its "))
       && stderr.contains(&format!(
-        " cores, as the command has no measure yet, 120 min left: run {held_by} of {repo} holds the whole host for "
+        " cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 120 min left: run {held_by} of {repo} holds the whole host for "
       )),
     "{stderr}"
   );
@@ -838,9 +839,9 @@ fn schema_and_version_answer_one_json_object() {
 /// disk report, the trim, the heavy turn and the estimate everywhere
 fn features_of_this_platform() -> Value {
   if cfg!(target_os = "macos") {
-    json!(["upgrade", "disk", "trim", "heavy", "exclusive", "stats", "estimate"])
+    json!(["upgrade", "disk", "trim", "heavy", "exclusive", "stats", "estimate", "measure_as"])
   } else {
-    json!(["disk", "trim", "heavy", "exclusive", "stats", "estimate"])
+    json!(["disk", "trim", "heavy", "exclusive", "stats", "estimate", "measure_as"])
   }
 }
 

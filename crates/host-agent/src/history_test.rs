@@ -116,7 +116,7 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
       "1-1",
       dir.path().join("repo").display().to_string(),
       "pnpm e2e --output=out/e2e",
-      measure_key(&spec("1-1").command, &["out/e2e".to_owned()]).as_str()
+      measure_key(&spec("1-1").command, &["out/e2e".to_owned()], None).as_str()
     )
   );
   assert_eq!((line.heavy, line.exit, line.ended_ms, line.lost), (true, 1, Some(ended_ms), false));
@@ -242,13 +242,7 @@ fn entry(run: &str) -> TurnEntry {
     },
     repo: "/r".to_owned(),
     command: "pnpm e2e".to_owned(),
-    since_ms: 0,
-    affinity: None,
-    command_key: None,
-    expected: None,
-    live: None,
-    exclusive: false,
-    passed: None,
+    ..TurnEntry::default()
   }
 }
 
@@ -278,6 +272,7 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
     cores: 20,
     exclusive: false,
     fetch: &[],
+    measure_as: None,
   };
   let mut watch = QueueWatch::start(&home, &of);
   table(vec![entry("first"), entry("1-9")]);

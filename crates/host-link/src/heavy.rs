@@ -344,12 +344,29 @@ pub fn run_key(command: &[String]) -> String {
 /// The word that stands for a directory that the run fetches in [`measure_key`]
 const FETCH_WORD: &str = "<fetch>";
 
-/// The key of the measures of `command` (`lease_pool::host_cores`), a run that fetches the directories `fetch`: the
-/// [`run_key`] of its words with each path of a fetched directory, in a word or in the script of a shell (`zsh -lc
-/// "mkdir -p out/air/light1 && … > out/air/light1/run.json"`), put as `<fetch>`. So a run that writes its outputs to
-/// another directory of its own measures for the same command; a path that the run does not fetch stays, as no word
-/// tells an output from an input. A command that names no fetched directory has the key of [`run_key`]
-pub fn measure_key(command: &[String], fetch: &[String]) -> String {
+/// The word before the class of `brd-host run --measure-as` in [`measure_key`]: no command has this name, so a class
+/// never has the key of a command
+const CLASS_WORD: &str = "<measure-as>";
+
+/// Whether `class` may name the measures of `brd-host run --measure-as`: the rule of a host ref name, 1 to 128
+/// characters of `A-Z a-z 0-9 . _ -`, the first a letter or a digit
+pub fn is_measure_class(class: &str) -> bool {
+  sync_utils::host_ref_name::is_host_ref_name(class)
+}
+
+/// The key of the measures of `command` (`lease_pool::host_cores`), a run that fetches the directories `fetch`, of the
+/// class `measure_as` (`RunSpec::measure_as`). With a class, the [`run_key`] of `<measure-as> <class>`, whatever the
+/// command and its environment: a command whose text changes every run, such as a script with the commits of the run
+/// in it, measures for its class. Without one, the [`run_key`] of its words with each path of a fetched directory, in
+/// a word or in the script of a shell (`zsh -lc "mkdir -p out/air/light1 && … > out/air/light1/run.json"`), put as
+/// `<fetch>`. So a run that writes its outputs to another directory of its own measures for the same command; a path
+/// that the run does not fetch stays, as no word tells an output from an input. A command that names no fetched
+/// directory has the key of [`run_key`]. The one key of the measures: the admission, the record of a measure, the
+/// estimate and the history all take it here
+pub fn measure_key(command: &[String], fetch: &[String], measure_as: Option<&str>) -> String {
+  if let Some(class) = measure_as {
+    return run_key(&[CLASS_WORD.to_owned(), class.to_owned()]);
+  }
   let mut dirs: Vec<&str> = fetch.iter().map(|dir| trimmed_dir(dir)).filter(|dir| !dir.is_empty() && *dir != ".").collect();
   // the longer first, so a directory inside another one is put as one
   dirs.sort_by_key(|dir| std::cmp::Reverse(dir.len()));

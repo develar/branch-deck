@@ -17,13 +17,22 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
         feature::HEAVY,
         feature::EXCLUSIVE,
         feature::STATS,
-        feature::ESTIMATE
+        feature::ESTIMATE,
+        feature::MEASURE_AS
       ]
     );
   } else {
     assert_eq!(
       features(),
-      [feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS, feature::ESTIMATE]
+      [
+        feature::DISK,
+        feature::TRIM,
+        feature::HEAVY,
+        feature::EXCLUSIVE,
+        feature::STATS,
+        feature::ESTIMATE,
+        feature::MEASURE_AS
+      ]
     );
   }
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
@@ -328,9 +337,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate"]"#
+    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate","measure_as"]"#
   } else {
-    r#"["disk","trim","heavy","exclusive","stats","estimate"]"#
+    r#"["disk","trim","heavy","exclusive","stats","estimate","measure_as"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
@@ -427,6 +436,7 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
     command: vec!["pnpm".to_owned(), "e2e".to_owned()],
     fetch: Vec::new(),
     heavy: true,
+    measure_as: None,
   });
   let json = serde_json::to_string(&ask).expect("json");
   assert_eq!(
@@ -471,4 +481,31 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
   let json = serde_json::to_string(&Request::Start(admitting.clone())).expect("json");
   assert!(json.ends_with(r#","admit_now":true}"#), "{json}");
   assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(admitting));
+}
+
+/// The class of the measures of a run (`--measure-as`) is an optional field of a start and of an estimate, behind the
+/// feature `measure_as`: it stays out of the JSON without a class, so an older agent reads the start as before
+#[test]
+fn the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate() {
+  assert!(features().contains(&feature::MEASURE_AS));
+  let classed = RunSpec {
+    run: "1-2".to_owned(),
+    heavy: true,
+    measure_as: Some("accio-typing-gate".to_owned()),
+    ..RunSpec::default()
+  };
+  let json = serde_json::to_string(&Request::Start(classed.clone())).expect("json");
+  assert!(json.ends_with(r#","heavy":true,"measure_as":"accio-typing-gate"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(classed));
+  let plain = serde_json::to_string(&Request::Start(RunSpec::default())).expect("json");
+  assert!(!plain.contains("measure_as"), "{plain}");
+
+  let ask = Request::Estimate(EstimateAsk {
+    heavy: true,
+    measure_as: Some("accio-typing-gate".to_owned()),
+    ..EstimateAsk::default()
+  });
+  let json = serde_json::to_string(&ask).expect("json");
+  assert!(json.ends_with(r#""heavy":true,"measure_as":"accio-typing-gate"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
 }

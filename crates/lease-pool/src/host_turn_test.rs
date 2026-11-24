@@ -36,6 +36,7 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
     expected: None,
     exclusive: false,
     passed_wall: None,
+    measure_as: None,
   }
 }
 
@@ -109,6 +110,29 @@ fn heavy_runs_take_the_turn_one_at_a_time_first_come_first() {
   assert_eq!(take(&params, &request("run-2", &command)).unwrap(), TurnAnswer::Taken);
   assert!(leave(&params, "run-2").unwrap());
   assert_eq!(take(&params, &request("run-3", &command)).unwrap(), TurnAnswer::Taken);
+}
+
+/// A run of a class of measures (`brd-host run --measure-as`) names its class on its entry, as a holder and in the
+/// queue, for the lines of the turn; a table of an older build has no class and reads as before
+#[test]
+fn a_run_of_a_class_names_its_class_on_its_entry() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  let classed = |run| TurnRequest {
+    measure_as: Some("accio-gate"),
+    ..request(run, &command)
+  };
+  assert_eq!(take(&params, &classed("run-1")).unwrap(), TurnAnswer::Taken);
+  assert_eq!(queued(&take(&params, &classed("run-2")).unwrap()), (Some("run-1"), vec![]));
+  assert_eq!(queued(&take(&params, &request("run-3", &command)).unwrap()), (Some("run-1"), vec!["run-2"]));
+  let table = read_live(dir.path()).unwrap();
+  let classes = |entries: &[TurnEntry]| entries.iter().map(|entry| entry.measure_as.clone()).collect::<Vec<_>>();
+  assert_eq!(classes(&table.holders), [Some("accio-gate".to_owned())]);
+  assert_eq!(classes(&table.queue), [Some("accio-gate".to_owned()), None]);
+  let old: TurnEntry = serde_json::from_str(r#"{"run":"1-2","pid":1,"repo":"/r","command":"pnpm e2e","since_ms":5}"#).unwrap();
+  assert_eq!(old.measure_as, None);
+  assert!(!serde_json::to_string(&old).unwrap().contains("measure_as"));
 }
 
 /// A run whose process is gone, or whose pid another process took, holds no turn and waits in no queue: the next run
@@ -237,6 +261,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     live: None,
     exclusive: false,
     passed: None,
+    measure_as: None,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 2, "queue": [joined] }));
   let before = now_ms();

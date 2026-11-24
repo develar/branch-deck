@@ -172,6 +172,7 @@ async fn run_by(client: &Client<'_>, setup: &Setup, fetch: &[String], options: R
     affinity: AFFINITY,
     command: &command,
     fetch,
+    measure_as: None,
   };
   client.run(ALIAS, &request, options).await
 }
@@ -1135,6 +1136,7 @@ async fn a_refusal_of_the_agent_exits_by_how_far_the_run_came() {
     affinity: AFFINITY,
     command: &command,
     fetch: &[],
+    measure_as: None,
   };
   let no_host = Client::new(crate::config::Config::new(dir.path().join("config")), crate::testkit::build(), &processes, &|_| {}, &calm)
     .run(ALIAS, &request, RunOptions::default())
@@ -1257,13 +1259,7 @@ async fn an_exclusive_run_is_a_heavy_one_and_an_agent_before_it_refuses_before_t
     exclusive: true,
     ..RunOptions::default()
   };
-  let agent = Hello {
-    features: vec!["upgrade".to_owned(), "heavy".to_owned(), "exclusive".to_owned()],
-    ..Hello::default()
-  };
-  let repo = TestRepo::new();
-  repo.create_commit("Add a", "a.txt", "a\n");
-  let setup = fetching_agent_with(repo, agent, Vec::new());
+  let setup = agent_of(&["upgrade", "heavy", "exclusive"]);
   let said = Said::default();
   run_in(&setup, &|line: &str| said.push(line), &calm, &[], exclusive).await.unwrap();
   let spec = start_spec(&setup);
@@ -1276,13 +1272,7 @@ async fn an_exclusive_run_is_a_heavy_one_and_an_agent_before_it_refuses_before_t
     said.lines()
   );
 
-  let repo = TestRepo::new();
-  repo.create_commit("Add a", "a.txt", "a\n");
-  let older = Hello {
-    features: vec!["upgrade".to_owned(), "heavy".to_owned()],
-    ..Hello::default()
-  };
-  let setup = fetching_agent_with(repo, older, Vec::new());
+  let setup = agent_of(&["upgrade", "heavy"]);
   let failure = run_in(&setup, &|_| {}, &calm, &[], exclusive).await.unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun));
   assert_eq!(
@@ -1290,6 +1280,74 @@ async fn an_exclusive_run_is_a_heavy_one_and_an_agent_before_it_refuses_before_t
     format!("the agent on {ALIAS} predates exclusive runs, so it would run this measurement beside the others: `brd-host upgrade {ALIAS}` sends this build")
   );
   assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+}
+
+/// A fetching agent whose hello names `features`, for a checkout of one commit
+fn agent_of(features: &[&str]) -> Setup {
+  let repo = TestRepo::new();
+  repo.create_commit("Add a", "a.txt", "a\n");
+  let hello = Hello {
+    features: features.iter().map(|feature| (*feature).to_owned()).collect(),
+    ..Hello::default()
+  };
+  fetching_agent_with(repo, hello, Vec::new())
+}
+
+/// A run of `--measure-as` with the command of the tests in the checkout of `setup`, and the lines it said
+async fn run_of_class(setup: &Setup, class: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  let processes = FakeProcesses::default();
+  let command = command();
+  let request = RunRequest {
+    checkout: setup.repo.path(),
+    repo: None,
+    affinity: AFFINITY,
+    command: &command,
+    fetch: &[],
+    measure_as: Some(class),
+  };
+  let ran = setup.client(&processes, &say, &calm).run(ALIAS, &request, RunOptions::default()).await;
+  (ran, said.lines())
+}
+
+/// `--measure-as` starts a heavy run with its class and says that the cores of the runs of the class count; an agent
+/// without the feature `measure_as` would measure the run by its command, so the client refuses before the start with
+/// `bad_config` (exit 75) and names the upgrade; a class that no name may be refuses with `usage` before the agent
+#[tokio::test(start_paused = true)]
+async fn a_run_of_a_class_is_heavy_and_an_agent_before_it_refuses_before_the_start() {
+  let setup = agent_of(&["heavy", "exclusive", "measure_as"]);
+  let (ran, said) = run_of_class(&setup, "accio-typing-gate").await;
+  ran.unwrap();
+  let spec = start_spec(&setup);
+  assert_eq!((spec.heavy, spec.measure_as.as_deref()), (true, Some("accio-typing-gate")));
+  assert!(
+    said.contains(&format!(
+      "brd-host: a heavy run by --measure-as: on {ALIAS} it waits until the cores that the runs of the class accio-typing-gate used before are free beside the other heavy runs, or the whole host without a measure"
+    )),
+    "{said:?}"
+  );
+
+  let setup = agent_of(&["heavy", "exclusive"]);
+  let failure = run_of_class(&setup, "accio-typing-gate").await.0.unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun));
+  assert_eq!(
+    failure.refusal.message,
+    format!(
+      "the agent on {ALIAS} predates --measure-as, so it would measure this run by its command and give it the whole host every time: `brd-host upgrade {ALIAS}` sends this build"
+    )
+  );
+  assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+
+  let setup = agent_of(&["heavy", "exclusive", "measure_as"]);
+  let failure = run_of_class(&setup, "gate/2").await.0.unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::Usage, Exit::Usage));
+  assert!(
+    failure.refusal.message.starts_with(r#"--measure-as "gate/2" cannot name a class of measures"#),
+    "{}",
+    failure.refusal.message
+  );
+  assert_eq!(kinds(&setup), Vec::<&str>::new());
 }
 
 /// An agent without the feature `heavy` refuses every run of a commit whose `[host]` has the key, a light one too, so

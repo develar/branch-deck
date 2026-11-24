@@ -461,6 +461,7 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
     cores: host_cores(context.repo),
     exclusive: spec.exclusive,
     fetch: &spec.fetch,
+    measure_as: spec.measure_as.as_deref(),
   }
 }
 
@@ -517,7 +518,7 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
   let waited = started.elapsed();
   if spec.admit_now
     && let Some(why) = match &taken {
-      Ok(Some(TurnAnswer::Queued(queue))) => Some(format!("its heavy turn has no room for it now: {}", turn::timeout_line(&spec.run, queue, waited))),
+      Ok(Some(TurnAnswer::Queued(queue))) => Some(format!("its heavy turn has no room for it now: {}", turn::timeout_line(spec, queue, waited))),
       Err(refusal) => Some(refusal.message.clone()),
       _ => None,
     }
@@ -544,7 +545,7 @@ fn take_turn(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> 
       format!(
         "no heavy turn for {} s; giving up: {}. Run it on this host again later, or through a set of hosts whose other members can take it (`brd-host set`), never as a plain command on the client, whose load fails the tests of a heavy run: `brd-host runs` names the heavy runs",
         wait.as_secs(),
-        turn::timeout_line(&spec.run, &queue, waited)
+        turn::timeout_line(spec, &queue, waited)
       ),
     )),
     Ok(Some(TurnAnswer::Superseded { by })) => Err(Refusal::new(Code::Superseded, turn::superseded_message(&spec.run, &by))),

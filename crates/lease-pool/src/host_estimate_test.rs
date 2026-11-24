@@ -22,6 +22,7 @@ fn entry(run: &str, since_ms: u64, tenths: Option<u32>) -> TurnEntry {
     live: None,
     exclusive: false,
     passed: None,
+    measure_as: None,
   }
 }
 

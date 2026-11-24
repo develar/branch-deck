@@ -191,6 +191,7 @@ fn entry_of(asked: &Asked<'_>, now_ms: u64) -> TurnEntry {
     live: None,
     exclusive: false,
     passed: None,
+    measure_as: None,
   }
 }
 

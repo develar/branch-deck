@@ -54,6 +54,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     live: None,
     exclusive: false,
     passed: None,
+    measure_as: None,
   };
   let now_ms = 1_000_000_000;
   let live = TurnEntry {
@@ -72,7 +73,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     head_drain: None,
   };
   assert_eq!(
-    turn_line("1792-81", &queue, Duration::from_mins(3), Duration::from_mins(117), now_ms),
+    turn_line("1792-81", &queue, None, Duration::from_mins(3), Duration::from_mins(117), now_ms),
     "run 1792-81 waits 3 min for the heavy turn of the host, 7.5 of its 20 cores, 117 min left: run 1788-12 of branch-deck holds 12.0 for 4 min (pnpm e2e, measured), run 1789-40 of accio holds 6.0 for 30 s (scripts/check.sh --smoke, live, above its measure), runs that are not heavy use 2.0, 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"
   );
   let whole = TurnQueue {
@@ -87,8 +88,13 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     head_drain: None,
   };
   assert_eq!(
-    turn_line("c", &whole, Duration::ZERO, Duration::from_hours(2), now_ms),
-    "run c waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 120 min left: run h of one holds the whole host for 0 s (bt --lane fast, measured 21.0), no run ahead"
+    turn_line("c", &whole, None, Duration::ZERO, Duration::from_hours(2), now_ms),
+    "run c waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 120 min left: run h of one holds the whole host for 0 s (bt --lane fast, measured 21.0), no run ahead"
+  );
+  assert_eq!(
+    turn_line("c", &whole, Some("accio-gate"), Duration::ZERO, Duration::from_hours(2), now_ms),
+    "run c waits 0 s for the heavy turn of the host, all its 20 cores, as the class accio-gate has no measure yet, 120 min left: run h of one holds the whole host for 0 s (bt --lane fast, measured 21.0), no run ahead",
+    "a run of a class of measures names its class"
   );
   let free = TurnQueue {
     cores: 20,
@@ -102,7 +108,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     head_drain: None,
   };
   assert_eq!(
-    turn_line("c", &free, Duration::from_secs(5), Duration::from_secs(119), now_ms),
+    turn_line("c", &free, None, Duration::from_secs(5), Duration::from_secs(119), now_ms),
     "run c waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
   );
   let busy = TurnQueue {
@@ -110,7 +116,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     ..free
   };
   assert_eq!(
-    turn_line("c", &busy, Duration::from_secs(5), Duration::from_secs(119), now_ms),
+    turn_line("c", &busy, None, Duration::from_secs(5), Duration::from_secs(119), now_ms),
     "run c waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, the host is busy with 18.3 of 20 cores outside the heavy runs, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
   );
 }
@@ -119,7 +125,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
 /// not heavy says what it waits for
 #[test]
 fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
-  assert_eq!(need_text(Need::Exclusive, 20), "all its 20 cores of a quiet host, as an exclusive run");
+  assert_eq!(need_text(Need::Exclusive, 20, None), "all its 20 cores of a quiet host, as an exclusive run");
   assert_eq!(holds_text(Need::Exclusive), ("holds the whole host for a measurement".to_owned(), "exclusive".to_owned()));
   let now_ms = 1_000_000_000;
   let holder = TurnEntry {
@@ -137,6 +143,7 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
     live: None,
     exclusive: true,
     passed: None,
+    measure_as: None,
   };
   assert_eq!(
     drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 780_000, now_ms),
@@ -174,7 +181,7 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
     head_drain: None,
   };
   assert_eq!(
-    turn_line("ab", &queue, Duration::from_secs(5), Duration::from_secs(119), 1_000_000_000),
+    turn_line("ab", &queue, None, Duration::from_secs(5), Duration::from_secs(119), 1_000_000_000),
     "run ab waits 5 s for the heavy turn of the host, all its 20 cores of a quiet host, as an exclusive run, 119 s left: no heavy run holds cores, the host is busy with 1.2 of 20 cores outside the heavy runs, waits for run 1790-03 of accio to end: scripts/bench ab-run, the host was busy with up to 11.2 of 20 cores in the last 30 s, no run ahead"
   );
   let two = TurnQueue {
@@ -183,10 +190,10 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
     ..queue
   };
   assert!(
-    turn_line("ab", &two, Duration::ZERO, Duration::ZERO, 1_000_000_000)
+    turn_line("ab", &two, None, Duration::ZERO, Duration::ZERO, 1_000_000_000)
       .contains(", waits for 2 runs to end: run 1790-03 of accio (scripts/bench ab-run), run 1791-04 of idea-1 (bt --lane fast), no run ahead"),
     "{}",
-    turn_line("ab", &two, Duration::ZERO, Duration::ZERO, 1_000_000_000)
+    turn_line("ab", &two, None, Duration::ZERO, Duration::ZERO, 1_000_000_000)
   );
 }
 
@@ -211,6 +218,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     live: None,
     exclusive,
     passed: None,
+    measure_as: None,
   };
   let passer = TurnEntry {
     passed: Some("1788-12".to_owned()),
@@ -228,7 +236,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     head_drain: Some(HeadDrain::Ended { ended_ms: now_ms - 240_000 }),
   };
   assert_eq!(
-    turn_line("1792-81", &behind, Duration::from_mins(20), Duration::from_mins(100), now_ms),
+    turn_line("1792-81", &behind, None, Duration::from_mins(20), Duration::from_mins(100), now_ms),
     "run 1792-81 waits 20 min for the heavy turn of the host, 8.0 of its 20 cores, 100 min left: run 1789-40 of idea-1 holds 4.0 for 3 min (cargo nextest run -p git-ops, measured, past the exclusive run 1788-12), the host is busy with 12.0 of 20 cores outside the heavy runs, 1 run ahead: 1788-12 of idea-1 (zsh ./measure-ab.sh, exclusive); the drain of run 1788-12 ended 4 min ago without a quiet host: the heavy runs behind it start past it in their order while they fit"
   );
   let draining = TurnQueue {
@@ -237,16 +245,16 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     ..behind.clone()
   };
   assert!(
-    turn_line("1792-81", &draining, Duration::ZERO, Duration::ZERO, now_ms).ends_with("; run 1788-12 drains the host for 9 min more, and no run starts past it before then"),
+    turn_line("1792-81", &draining, None, Duration::ZERO, Duration::ZERO, now_ms).ends_with("; run 1788-12 drains the host for 9 min more, and no run starts past it before then"),
     "{}",
-    turn_line("1792-81", &draining, Duration::ZERO, Duration::ZERO, now_ms)
+    turn_line("1792-81", &draining, None, Duration::ZERO, Duration::ZERO, now_ms)
   );
   let pending = TurnQueue {
     head_drain: Some(HeadDrain::Pending),
     ..behind.clone()
   };
   assert!(
-    turn_line("1792-81", &pending, Duration::ZERO, Duration::ZERO, now_ms)
+    turn_line("1792-81", &pending, None, Duration::ZERO, Duration::ZERO, now_ms)
       .ends_with("; run 1788-12 drains the host once no heavy run holds cores, and no run starts past it before its drain ends")
   );
 
@@ -256,7 +264,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     head_drain: Some(head_drain),
     ..behind.clone()
   };
-  let line = |head_drain| turn_line("1788-12", &head(head_drain), Duration::ZERO, Duration::ZERO, now_ms);
+  let line = |head_drain| turn_line("1788-12", &head(head_drain), None, Duration::ZERO, Duration::ZERO, now_ms);
   assert!(
     line(HeadDrain::Ended { ended_ms: now_ms - 240_000 })
       .ends_with(", no run ahead; its drain ended 4 min ago without a quiet host: the heavy runs behind it that fit start past it, and it starts once the host is quiet"),

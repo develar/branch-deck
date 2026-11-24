@@ -10,12 +10,13 @@
 //!    commit of the working tree instead, and asks the host after it. With `RunOptions::repo_by_name` the first `Have`
 //!    goes to the repository of the same name as the local one beside the repository of the host file, and to the one
 //!    of the host file when the host lacks it.
-//! 2. Reads `[host]` of the commit: the outputs to take back, and whether the run is heavy (`--heavy`, else the first
-//!    pattern of `heavy` that matches the command). Writes the run record (`record`) and starts the run (`Start`), a
-//!    heavy one with `RunSpec::heavy` and its line. An agent without a feature that `[host]` needs
-//!    (`RepoConfig::needs_features`: `heavy` needs `heavy`) would refuse every run of the commit, so the start refuses
-//!    with `bad_config` before it sends anything; a `--heavy` run of a commit without the key runs on such an agent with
-//!    a line that names the upgrade. The run lives on the agent, not on the connection. Ctrl+C before this step stops the local work, and
+//! 2. Reads `[host]` of the commit: the outputs to take back, and whether the run is heavy (`--exclusive`, `--heavy` or
+//!    `--measure-as`, else the first pattern of `heavy` that matches the command). Writes the run record (`record`) and
+//!    starts the run (`Start`), a heavy one with `RunSpec::heavy` and its line, a run of a class of measures with
+//!    `RunSpec::measure_as`, which an agent without the feature `measure_as` never gets. An agent without a feature that
+//!    `[host]` needs (`RepoConfig::needs_features`: `heavy` needs `heavy`) would refuse every run of the commit, so the
+//!    start refuses with `bad_config` before it sends anything; a `--heavy` run of a commit without the key runs on such
+//!    an agent with a line that names the upgrade. The run lives on the agent, not on the connection. Ctrl+C before this step stops the local work, and
 //!    nothing runs on the host. A start whose reply does not come is cancelled, so the host does not wait for its pack.
 //! 3. Follows the output (`Follow`) beside the other steps from the start on, so the steps of the host show while the
 //!    pack builds. The bytes of each piece of output, with its line end when it has one, go to the output sink as they
@@ -60,7 +61,7 @@ use crate::phases::{phase, phases_line};
 use crate::record::{RunEnd, RunFiles, RunLock, RunRecord};
 use crate::{Client, short};
 use git_ops::host_client::{FARTHEST, Scan};
-use host_link::heavy::script_in;
+use host_link::heavy::{is_measure_class, script_in};
 use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
@@ -96,6 +97,39 @@ pub struct RunRequest<'a> {
   pub command: &'a [String],
   /// Directories relative to the slot root, such as `out/bt-runs`, whose new entries come back
   pub fetch: &'a [String],
+  /// The class of the measures of the run (`--measure-as`), heavy too: the host reads and keeps the measures of the
+  /// class, not of the command, so a command whose text changes every run gets a measure (`RunSpec::measure_as`)
+  pub measure_as: Option<&'a str>,
+}
+
+impl RunRequest<'_> {
+  /// Refuses with `usage` a run without a command or a class of `--measure-as` that is no name of
+  /// `host_link::heavy::is_measure_class`
+  pub(crate) fn check(&self) -> Result<(), Refusal> {
+    if self.command.is_empty() {
+      return Err(Refusal::new(Code::Usage, "a run needs a command"));
+    }
+    match self.measure_as {
+      Some(class) if !is_measure_class(class) => Err(Refusal::new(
+        Code::Usage,
+        format!("--measure-as {class:?} cannot name a class of measures: 1 to 128 letters, digits, `.`, `_` and `-`, the first a letter or a digit"),
+      )),
+      _ => Ok(()),
+    }
+  }
+
+  /// Why the run is heavy beside `heavy` of `[host]`: `--exclusive`, `--heavy` or `--measure-as`
+  pub(crate) const fn heavy_flag(&self, options: RunOptions) -> Option<&'static str> {
+    if options.exclusive {
+      Some("--exclusive")
+    } else if options.heavy {
+      Some("--heavy")
+    } else if self.measure_as.is_some() {
+      Some("--measure-as")
+    } else {
+      None
+    }
+  }
 }
 
 /// What a run adds to a `RunRequest`. The default is the committed HEAD of a checkout without local changes, the
@@ -270,8 +304,8 @@ impl Client<'_> {
       working_tree: options.working_tree,
       ..RunFacts::default()
     };
-    if request.command.is_empty() {
-      return Err(RunFailure::at(Refusal::new(Code::Usage, "a run needs a command"), Reached::Nothing, &facts));
+    if let Err(refusal) = request.check() {
+      return Err(RunFailure::at(refusal, Reached::Nothing, &facts));
     }
     let before = |refusal: Refusal, facts: &RunFacts| RunFailure::at(refusal, Reached::Nothing, facts);
     let mut host = self.host(alias).map_err(|refusal| before(refusal, &facts))?;
@@ -288,14 +322,10 @@ impl Client<'_> {
     let commit = snapshot.commit.clone();
     let files = RunFiles::of(&checkout).map_err(|refusal| before(refusal, &facts))?;
     let config = checkout.host_config(&commit).map_err(|refusal| before(refusal, &facts))?;
-    let heavy = if options.exclusive {
-      Some("--exclusive".to_owned())
-    } else if options.heavy {
-      Some("--heavy".to_owned())
-    } else {
+    let heavy = request.heavy_flag(options).map(str::to_owned).or_else(|| {
       // a shell may run a heavy command in its script, or in a script file of the working tree that the run ships
       config.heavy_reason(request.command, &|path| script_in(checkout.root(), path))
-    };
+    });
     let needs = config.needs_features();
     let outputs = if options.outputs { config.outputs } else { Vec::new() };
     let record = RunRecord {
@@ -324,6 +354,7 @@ impl Client<'_> {
       heavy: heavy.is_some(),
       exclusive: options.exclusive,
       admit_now: options.admit_now,
+      measure_as: request.measure_as.map(str::to_owned),
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     // the host of the run, by which a wait, a cancel or a fetch to the name of a set goes to it
@@ -344,8 +375,11 @@ impl Client<'_> {
         "brd-host: an exclusive run by --exclusive: on {alias} it waits for a quiet host without another heavy run, and while it runs no heavy run is admitted and each new run that is not heavy waits for its end"
       ));
     } else if let Some(why) = &heavy {
+      let used = request
+        .measure_as
+        .map_or_else(|| "its command".to_owned(), |class| format!("the runs of the class {class}"));
       (self.say)(&format!(
-        "brd-host: a heavy run by {why}: on {alias} it waits until the cores that its command used before are free beside the other heavy runs, or the whole host without a measure"
+        "brd-host: a heavy run by {why}: on {alias} it waits until the cores that {used} used before are free beside the other heavy runs, or the whole host without a measure"
       ));
     }
 
@@ -648,6 +682,15 @@ impl Client<'_> {
         Code::BadConfig,
         format!(
           "the agent on {alias} predates exclusive runs, so it would run this measurement beside the others: `brd-host upgrade {alias}` sends this build",
+          alias = host.alias()
+        ),
+      ));
+    }
+    if spec.measure_as.is_some() && !agent.features.iter().any(|known| known == feature::MEASURE_AS) {
+      return Err(Refusal::new(
+        Code::BadConfig,
+        format!(
+          "the agent on {alias} predates --measure-as, so it would measure this run by its command and give it the whole host every time: `brd-host upgrade {alias}` sends this build",
           alias = host.alias()
         ),
       ));

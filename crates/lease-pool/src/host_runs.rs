@@ -39,8 +39,9 @@ pub fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
 /// branch-deck holds 12.0 for 4 min (pnpm e2e, measured), the host is busy with 18.3 of 20 cores outside the heavy runs,
 /// 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"; without a sample of the host, the use of the runs
 /// that are not heavy instead: "runs that are not heavy use 2.0". A holder that started past an exclusive run says so,
-/// an exclusive run ahead is marked, and the end names the drain of an exclusive head of the queue ([`head_drain_text`])
-pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration, now_ms: u64) -> String {
+/// an exclusive run ahead is marked, and the end names the drain of an exclusive head of the queue ([`head_drain_text`]).
+/// `measure_as` is the class of the measures of the run (`brd-host run --measure-as`), which its need names
+pub fn turn_line(run: &str, queue: &TurnQueue, measure_as: Option<&str>, waited: Duration, left: Duration, now_ms: u64) -> String {
   let holders = if queue.holders.is_empty() {
     "no heavy run holds cores".to_owned()
   } else {
@@ -81,7 +82,7 @@ pub fn turn_line(run: &str, queue: &TurnQueue, waited: Duration, left: Duration,
   format!(
     "run {run} waits {} for the heavy turn of the host, {}, {} left: {holders}{light}, {ahead}{}",
     span(waited),
-    need_text(queue.need, queue.cores),
+    need_text(queue.need, queue.cores, measure_as),
     span(left),
     head_drain_text(queue, now_ms)
   )
@@ -164,11 +165,20 @@ fn exclusive_wait_text(queue: &TurnQueue) -> String {
   format!("{ends}{window}")
 }
 
-/// What a run waits for: `7.5 of its 20 cores`, `all its 20 cores, as the command has no measure yet`
-pub fn need_text(need: Need, cores: u32) -> String {
+/// What a command that never gets a measure can do, after `no measure`: a command whose text changes every run has a
+/// new key of its measures each time
+pub const NEVER_MEASURED: &str = "a command whose text changes every run never gets one: `--measure-as <class>` gives it one";
+
+/// What a run of the class `measure_as` (`brd-host run --measure-as`), or of none, waits for: `7.5 of its 20 cores`,
+/// `all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: …)`,
+/// `all its 20 cores, as the class accio-gate has no measure yet`
+pub fn need_text(need: Need, cores: u32, measure_as: Option<&str>) -> String {
   match need {
     Need::Cores { cores: need, .. } => format!("{need} of its {cores} cores"),
-    Need::Unmeasured => format!("all its {cores} cores, as the command has no measure yet"),
+    Need::Unmeasured => match measure_as {
+      Some(class) => format!("all its {cores} cores, as the class {class} has no measure yet"),
+      None => format!("all its {cores} cores, as the command has no measure yet ({NEVER_MEASURED})"),
+    },
     Need::Measured(measured) => format!("all its {cores} cores, as the command measured {measured}"),
     Need::Exclusive => format!("all its {cores} cores of a quiet host, as an exclusive run"),
   }

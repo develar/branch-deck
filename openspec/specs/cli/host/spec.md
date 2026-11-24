@@ -457,8 +457,9 @@ it.
 - **THEN** it takes this command line
 
 ```sh
-brd-host run <alias|set> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--heavy] [--exclusive] [--nice <0-19>]
-                  [--repo <path>] [--affinity <key>] [--max <duration>] [--report-fd <n>] -- <command> <args>
+brd-host run <alias|set> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--heavy] [--exclusive]
+                  [--measure-as <class>] [--nice <0-19>] [--repo <path>] [--affinity <key>] [--max <duration>]
+                  [--report-fd <n>] -- <command> <args>
 ```
 
 ### Requirement: run: The working tree ships as one commit
@@ -663,6 +664,45 @@ agent without the feature `exclusive` would run it beside the others, so the cli
 - **THEN** the client refuses before `Start` with `bad_config` (exit 75): `the agent on <alias> predates exclusive runs,
   so it would run this measurement beside the others: `brd-host upgrade <alias>` sends this build`
   [@test] crates/host-client/src/run_test.rs (`an_exclusive_run_is_a_heavy_one_and_an_agent_before_it_refuses_before_the_start`)
+
+### Requirement: run: --measure-as gives a run the measures of a class
+
+`--measure-as <class>` MUST make a run heavy whose measures the host reads and keeps by the class, not by the command,
+so a command whose text changes every run gets a measure. Its `Start` MUST carry `heavy` and `measure_as`. An agent
+without the feature `measure_as` would measure the run by its command, so the client MUST refuse before the start.
+
+#### Scenario: A run of a class
+- **WHEN** a run starts with `--measure-as <class>`
+- **THEN** its `Start` has `"heavy": true` and `"measure_as": "<class>"`, and after the line of the run comes `brd-host: a
+  heavy run by --measure-as: on <alias> it waits until the cores that the runs of the class <class> used before are free
+  beside the other heavy runs, or the whole host without a measure`
+- **AND** a run without it has no `measure_as`, and its measures are those of its command
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_class_is_heavy_and_an_agent_before_it_refuses_before_the_start`)
+  [@test] crates/bd-host/src/cli_test.rs (`measure_as_names_the_class_of_the_measures`)
+  [@test] crates/host-link/src/proto_test.rs (`the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate`)
+
+#### Scenario: The key of the measures of a class
+- **WHEN** the host keeps or reads the measures of a run of a class
+- **THEN** their key is the SHA-256 of the words `<measure-as>` and `<class>` (`host_link::heavy::measure_key`), whatever
+  the command, its environment and its fetch directories, so no command has the key of a class
+- **AND** the admission, the record of a measure, the estimate, the queue record and the history of the run all take
+  that key
+  [@test] crates/host-link/src/heavy_test.rs (`the_measure_key_of_a_class_is_of_the_class_alone`)
+
+#### Scenario: An agent without the feature measure_as
+- **WHEN** a run of `--measure-as` starts on an agent whose hello has no feature `measure_as`
+- **THEN** the client refuses before `Start` with `bad_config` (exit 75): `the agent on <alias> predates --measure-as,
+  so it would measure this run by its command and give it the whole host every time: `brd-host upgrade <alias>` sends
+  this build`
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_class_is_heavy_and_an_agent_before_it_refuses_before_the_start`)
+
+#### Scenario: A class that no name may be
+- **WHEN** `--measure-as` names a class of other than 1 to 128 letters, digits, `.`, `_` and `-`, the first a letter or
+  a digit, such as `gate/2`
+- **THEN** the client refuses with `usage` (exit 2) before it asks the host anything, and an agent refuses such a start
+  or estimate with `bad_request`
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_class_is_heavy_and_an_agent_before_it_refuses_before_the_start`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`runs_of_a_class_share_its_measure_whatever_their_command`)
 
 ### Requirement: run: Ctrl+C before the start runs nothing on the host
 
@@ -888,13 +928,21 @@ the earlier member, after one line of the plan on the stderr. Its report MUST na
 ### Requirement: run: A heavy run goes to a member only with its measure there
 
 The first member of a set MUST be eligible for every run. For a heavy run, another member MUST be eligible only with its
-own measure of the command; for a run that is not heavy, every member that answered.
+own measure of the command, or of its class with `--measure-as`; for a run that is not heavy, every member that
+answered. A member whose agent lacks the feature `measure_as` MUST have no estimate of a run of a class.
 
 #### Scenario: A new heavy command
 - **WHEN** a heavy run goes to a set whose other members have no measure of its command
 - **THEN** it runs on the first member, and the line of the plan says that a heavy run does not go to the others
 - **AND** an exclusive run to a set refuses with `usage` (2)
   [@test] crates/host-client/src/choose_test.rs (`a_heavy_run_without_a_measure_stays_on_the_first_member_and_an_exclusive_one_refuses`)
+
+#### Scenario: A run of a class to a set
+- **WHEN** a run of `--measure-as <class>` goes to a set
+- **THEN** each member is asked by the class, and its measure of the class decides
+- **AND** a member whose agent lacks the feature `measure_as` gets no request and has no estimate: `no estimate: its
+  agent predates --measure-as, so it knows no measure of the class (`brd-host upgrade <alias>`)`
+  [@test] crates/host-client/src/choose_test.rs (`a_run_of_a_class_asks_by_its_class_and_a_member_before_classes_has_no_estimate`)
 
 ### Requirement: run: A busy member of a set sends the run to the next one
 
@@ -1324,7 +1372,9 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
   holder of the build before holds it), then `  run <id> of <repository> holds <cores> for <time> (measured): <command>` for each holder, with
   `(live, above its measure)` when it uses more, and `holds the whole host for <time> (no measure)` or `(measured
   <cores>)` for one that takes the whole host; `  run <id> of <repository> waits <time> for <cores> (measured):
-  <command>` or `for the whole host (no measure)` for each run that waits; and `  run <id> of <repository>, not heavy,
+  <command>` or `for the whole host (no measure; a command whose text changes every run never gets one:
+  `--measure-as <class>` gives it one)`, of a run of a class `for the whole host (no measure of the class <class>
+  yet)`, for each run that waits; and `  run <id> of <repository>, not heavy,
   uses <cores>: <command>` for each run that is not heavy whose command runs
 - **AND** `--json` has the turn as `heavy`: the `cores`, the `holders`, the `queue` and the `light` runs, without the
   runs whose process is gone, and the first holder as `holder` too, which a client of the build before reads
@@ -1332,6 +1382,7 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
   <repository> holds it <time>: <command>`, then `  run <id> of <repository> waits <time>: <command>`
   [@test] crates/bd-host/tests/cli.rs (`runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long`, `follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
   [@test] crates/host-agent/src/turn_test.rs (`the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_light_run`, `the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waiting_run`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_of_a_class_names_its_class_on_its_entry`)
 
 ### Requirement: follow, cancel, fetch, forget, runs: A fetch or a forget of a running run refuses
 
@@ -1966,6 +2017,12 @@ entry, and the bytes by day.
   commands that waited longest come one by one
   [@test] crates/lease-pool/src/host_history_test.rs (`the_summary_splits_the_waits_from_the_work_and_groups_the_commands`, `the_commands_past_the_thirty_that_waited_longest_are_one_entry`, `a_day_is_its_utc_date`)
 
+#### Scenario: The runs of a class
+- **WHEN** the summary counts runs of `--measure-as <class>` with other command lines
+- **THEN** they are one command, with the class as `measure_as` and the command line of the last run, and its line ends
+  with `: --measure-as <class>` instead of the command line
+  [@test] crates/lease-pool/src/host_history_test.rs (`the_runs_of_a_class_are_one_command_named_by_the_class`)
+
 ### Requirement: stats: An agent without the feature gets no request
 
 A client MUST check the feature `stats` in the hello first: an agent without it gets no request, and its host names
@@ -2355,6 +2412,14 @@ lock MUST cost a look.
   [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_of_a_measure_share_the_cores_while_they_fit`, `the_live_use_of_a_holder_and_of_the_runs_that_are_not_heavy_count`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
 
+#### Scenario: Runs of a class
+- **WHEN** a run of `--measure-as <class>` ended with a measure, and later runs of the class with other commands wait
+- **THEN** they are admitted by the measure of the class, beside each other while they fit
+- **AND** a run of a class without a measure takes the whole host, says `all its <cores of the host> cores, as the class
+  <class> has no measure yet` in the line of its wait, and its entry of the turn names its class (`measure_as`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`runs_of_a_class_share_its_measure_whatever_their_command`)
+  [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead`)
+
 #### Scenario: A run that takes the whole host
 - **WHEN** a heavy run whose command has no measure, or measured `<cores>` or more, comes to the head of the queue
 - **THEN** it waits until no heavy run holds cores, and no heavy run is admitted beside it
@@ -2432,7 +2497,9 @@ lock MUST cost a look.
   ahead: <id> of <repository> (<command>), …; a wait, not a hang: do not cancel it and do not run it on the client;
   `brd-host runs <host>` shows the heavy turn`
 - **AND** `<need>` is `<cores> of its <cores of the host> cores`, `all its <cores of the host> cores, as the command
-  has no measure yet` or `all its <cores of the host> cores, as the command measured <cores>`; each holder is `run <id>
+  has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one)`,
+  of a run of a class `all its <cores of the host> cores, as the class <class> has no measure yet`, or `all its <cores
+  of the host> cores, as the command measured <cores>`; each holder is `run <id>
   of <repository> holds <cores> for <time> (<command>, measured)`, `(<command>, live, above its measure)`, or `holds
   the whole host for <time> (<command>, no measure)`; without a holder `no heavy run holds cores`; without a fresh
   sample of the host, `runs that are not heavy use <cores>` instead of the busy cores, and only when they use cores
@@ -2850,8 +2917,9 @@ turn, the load outside the heavy runs the most of the last 30 s.
 #### Scenario: The shapes of an estimate
 - **WHEN** a client asks an agent for an estimate
 - **THEN** the request and the reply are `{"request": "estimate", "repo", "affinity", "commit", "command", "fetch",
-  "heavy"}` and `{"reply": "estimate", …}`, the fields of a measure left out without one
-  [@test] crates/host-link/src/proto_test.rs (`an_estimate_and_its_reply_have_a_tagged_json_shape`)
+  "heavy", "measure_as"}` and `{"reply": "estimate", …}`, `measure_as` left out without a class (feature
+  `measure_as`) and the fields of a measure without one; the measures of a class count for a run of it
+  [@test] crates/host-link/src/proto_test.rs (`an_estimate_and_its_reply_have_a_tagged_json_shape`, `the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate`)
 
 #### Scenario: The queue played forward
 - **WHEN** a heavy run would wait for holders and for runs of the queue

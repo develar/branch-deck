@@ -227,6 +227,16 @@ brd-host: a heavy run by `pnpm e2e*` of [host]: on studio it waits until the cor
 brd-host: run 01M63T… waits 0 s for the heavy turn of the host, 9.5 of its 20 cores, 120 min left: run 01M63R… of idea-1 holds the whole host for 4 min (./community/tools/bt.cmd --lane fast, measured 20.0), no run ahead; a wait, not a hang: …
 ```
 
+A command whose text changes every run, such as a script with the commits of the run in it, never gets a measure: each
+run is a new command and waits for the whole host. Name what it does with `--measure-as`, and its runs share one
+measure, after the first that takes the whole host:
+
+```sh
+brd-host run studio --measure-as accio-typing-gate -- bash -c "$(cat gate.sh)" gate "$BASE" "$TIP"
+```
+
+One class is one kind of work of about one weight; a new kind of work gets a class of its own.
+
 `brd-host runs studio` shows who holds the heavy turn and who waits, each with its time. Both ends of a run refuse a
 key of `[host]` that their build does not know, so add `heavy` only once this Mac and the host run a Branch Deck that
 knows it: `brd install` here, `brd-host upgrade studio` there.

@@ -59,7 +59,8 @@ impl History {
       schema: SCHEMA,
       repo: self.home.expand(&spec.repo).display().to_string(),
       command: command_line(&spec.command),
-      command_key: measure_key(&spec.command, &spec.fetch),
+      command_key: measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()),
+      measure_as: spec.measure_as,
       heavy: spec.heavy,
       exclusive: spec.exclusive,
       run: spec.run,
@@ -234,7 +235,7 @@ impl QueueWatch {
   /// The watch of the heavy run `of`, before it joins the queue
   pub(crate) fn start(home: &Home, of: &crate::turn::TurnRun<'_>) -> Self {
     let dir = home.heavy_dir();
-    let expected = lease_pool::host_cores::expected(&dir, of.repo, &measure_key(of.command, of.fetch)).ok().flatten();
+    let expected = lease_pool::host_cores::expected(&dir, of.repo, &of.measure_key()).ok().flatten();
     let table = lease_pool::host_turn::read_live(&dir).ok();
     Self {
       run: of.run.to_owned(),

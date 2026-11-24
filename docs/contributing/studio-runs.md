@@ -61,7 +61,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
   load of the runs that are not heavy. A short run (its last 3 to 5 passed runs took at most 2 min, as `pnpm
   lint:backend`) joins the queue ahead of the long ones, each of which it may pass at most 4 times: `brd-host runs
   studio` says `(measured, short: ~50 s)` of it and `passed by 2 short runs (at most 4)` of a long one. The paths of the `--fetch` directories are no part of the key of the measures, so a run that
-  writes to `out/air/light5` counts the measure of `out/air/light1`. The end of a run says `brd-host: the command used <mean> cores on average and
+  writes to `out/air/light5` counts the measure of `out/air/light1`. A command whose other words change every run (a
+  gate script with the commits of the run in it) never gets a measure and runs alone each time: `--measure-as <class>`
+  gives its runs the measures of the class. The end of a run says `brd-host: the command used <mean> cores on average and
   <peak> at its peak, of the 20 of the host`, and `brd-host runs studio` shows both for each run. A pattern
   matches what a command runs, not how it is written: `playwright test*` every run of it (`npx`, `pnpm exec`,
   `npx -y`, `npx -p @playwright/test`, `pnpm playwright`, a runner or the binary by its path), `pnpm e2e*` also

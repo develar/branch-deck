@@ -224,13 +224,7 @@ fn entry(run: &str) -> TurnEntry {
     },
     repo: "/r".to_owned(),
     command: "pnpm e2e".to_owned(),
-    since_ms: 0,
-    affinity: None,
-    command_key: None,
-    expected: None,
-    live: None,
-    exclusive: false,
-    passed: None,
+    ..TurnEntry::default()
   }
 }
 
@@ -300,4 +294,32 @@ fn the_lines_of_a_summary() {
   );
   assert_eq!(hours(53 * 3_600_000 + 9 * MIN), "53 h 09 min");
   assert_eq!(size(3_565_158), "3.3 MiB");
+}
+
+/// The runs of a class of measures (`brd-host run --measure-as`) are one command of the summary, whatever their command
+/// lines, and its line names the class instead of the command of the last run
+#[test]
+fn the_runs_of_a_class_are_one_command_named_by_the_class() {
+  let classed = |run: &str, command: &str, started_ms: u64| HistoryLine {
+    command_key: "key-of-accio-gate".to_owned(),
+    measure_as: Some("accio-gate".to_owned()),
+    ..line(run, command, started_ms, 0, &[("command", 4 * MIN)])
+  };
+  let lines = [
+    classed("1", "bash -c ./gate.sh 1a2b 3c4d", NOV_24),
+    classed("2", "bash -c ./gate.sh 5e6f 7a8b", NOV_24 + MIN),
+  ];
+  let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
+  let [command] = report.commands.as_slice() else {
+    panic!("one command: {:?}", report.commands)
+  };
+  assert_eq!(
+    (command.runs, command.command.as_str(), command.measure_as.as_deref()),
+    (2, "bash -c ./gate.sh 5e6f 7a8b", Some("accio-gate"))
+  );
+  let text = report.lines("studio");
+  assert!(
+    text.contains(&"    2 run(s), wait p50 0 s p90 0 s, command p50 4 min p90 4 min: --measure-as accio-gate".to_owned()),
+    "{text:?}"
+  );
 }

@@ -44,6 +44,10 @@ pub struct HistoryLine {
   pub command: String,
   /// The key of the measures of the command (`host_link::heavy::measure_key`), with `repo` the key of its measures
   pub command_key: String,
+  /// The class of its measures (`brd-host run --measure-as`), whose key `command_key` is; `None` without one and from
+  /// an older build
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
   #[serde(default, skip_serializing_if = "is_false")]
   pub heavy: bool,
   #[serde(default, skip_serializing_if = "is_false")]
@@ -360,6 +364,10 @@ pub struct CommandStats {
   pub command_key: String,
   /// The command line of its last run
   pub command: String,
+  /// The class of the measures of its last run (`brd-host run --measure-as`), which the line of the text names instead
+  /// of the command, as the runs of a class have commands of their own
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
   pub runs: u32,
   /// Its runs whose command exited with a code other than 0 and that of a cancel
   pub failed: u32,
@@ -515,6 +523,7 @@ fn commands(lines: &[&HistoryLine]) -> (Vec<CommandStats>, Option<OtherCommands>
         repo: repo.to_owned(),
         command_key: command_key.to_owned(),
         command: runs.last().map_or_default(|line| line.command.clone()),
+        measure_as: runs.last().and_then(|line| line.measure_as.clone()),
         runs: count(runs.len()),
         failed: count(runs.iter().filter(|line| line.failed()).count()),
         wait_ms: runs.iter().map(|line| line.wait_ms()).sum(),
@@ -659,7 +668,14 @@ impl StatsReport {
       if let Some(cores) = command.cores {
         let _ = write!(line, ", {cores} cores");
       }
-      let _ = write!(line, ": {}", command.command);
+      match &command.measure_as {
+        Some(class) => {
+          let _ = write!(line, ": --measure-as {class}");
+        }
+        None => {
+          let _ = write!(line, ": {}", command.command);
+        }
+      }
       lines.push(line);
     }
     if let Some(other) = &self.other {

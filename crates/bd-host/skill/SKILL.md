@@ -31,8 +31,9 @@ of this machine instead of the checkout of the session, and no pack travels.
 ## Run a command
 
 ```sh
-brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--exclusive] [--nice <0-19>]
-               [--repo <path>] [--affinity <key>] [--max <duration>] [--report-fd <n>] -- <command> <args>
+brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--exclusive]
+               [--measure-as <class>] [--nice <0-19>] [--repo <path>] [--affinity <key>] [--max <duration>]
+               [--report-fd <n>] -- <command> <args>
 ```
 
 An agent starts every run that can take minutes as `brd-host run <host> --max 9m -- <command>`, in the foreground, and
@@ -60,6 +61,8 @@ a run"). Never a `timeout` wrapper, a run in the background with a poll of a mar
 - `--heavy` makes a heavy run of a command that `heavy` of `[host]` does not name (see "Heavy runs").
 - `--exclusive` makes a measurement that needs a quiet host, an A/B or a benchmark (see "Exclusive runs"). Never for
   an ordinary check: it stops every other run of the host while it runs.
+- `--measure-as <class>` makes a heavy run whose measures are those of the class, not of its command (see "Heavy
+  runs"). Pass it to every heavy command whose text changes from run to run.
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
@@ -86,7 +89,12 @@ command) takes the whole host and waits for a quiet one (at most a fifth of its 
 measured the whole host. The queue is first come first, and a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
-each run an output directory of its own and fetch it. A line `the heavy turn of the host is locked by …; this run
+each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with
+the commits or paths of the run in it (`bash -c "$(cat gate.sh)" … <base> <tip>`) never gets a measure and waits for
+the whole host each time, which its line of the wait says (`a command whose text changes every run never gets one`).
+Give such a command `--measure-as <class>`, one class per kind of work of about one weight (`accio-typing-gate`, of
+letters, digits, `.`, `_` and `-`): its first run takes the whole host and is measured, and the next ones share the
+cores by the measure of the class. Never put two works of other weights into one class. A line `the heavy turn of the host is locked by …; this run
 keeps its place in the queue and looks again` is a wait too, never a reason to cancel. A run is heavy when a pattern of `heavy` of `[host]` of the
 commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository
 names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says

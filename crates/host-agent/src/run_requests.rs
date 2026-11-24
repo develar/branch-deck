@@ -11,7 +11,7 @@
 use crate::files::append_private;
 use crate::log::log;
 use crate::run::{ExitRecord, KEPT_FORGOTTEN, KeptLog, LogCut, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events_in};
-use crate::serve::{Agent, blocking, check_affinity, with_heartbeats};
+use crate::serve::{Agent, blocking, check_affinity, check_measure_class, with_heartbeats};
 use crate::watch::Watch;
 use crate::{admit, cleanup, sys, tuning};
 use git_ops::revs::is_object_id;
@@ -62,6 +62,7 @@ impl Agent {
     if let Some(bad) = spec.fetch.iter().find(|dir| !is_inner_path(dir)) {
       return Err(Refusal::new(Code::BadRequest, format!("the fetch directory {bad:?} is not a path inside the slot")));
     }
+    check_measure_class(spec.measure_as.as_deref())?;
     let repo = self.repo(&spec.repo)?;
     let (run, lock) = self.runs().create(spec)?;
     if let Err(refusal) = self.spawn_supervisor(&run, &lock) {

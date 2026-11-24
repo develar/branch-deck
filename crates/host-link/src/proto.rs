@@ -79,12 +79,23 @@ pub mod feature {
   /// `Request::Estimate`, `RunSpec::admit_now` and the run of `Request::Runs`: the hint of a host for the choice of a set
   /// of hosts, and the start of a member that takes a run only at once
   pub const ESTIMATE: &str = "estimate";
+  /// `RunSpec::measure_as` and `EstimateAsk::measure_as`: the measures of a run are those of a class that the client
+  /// names, not of its command
+  pub const MEASURE_AS: &str = "measure_as";
 }
 
-/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats` and
-/// `estimate` everywhere, `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats`, `estimate`
+/// and `measure_as` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
-  let mut features = vec![feature::DISK, feature::TRIM, feature::HEAVY, feature::EXCLUSIVE, feature::STATS, feature::ESTIMATE];
+  let mut features = vec![
+    feature::DISK,
+    feature::TRIM,
+    feature::HEAVY,
+    feature::EXCLUSIVE,
+    feature::STATS,
+    feature::ESTIMATE,
+    feature::MEASURE_AS,
+  ];
   if cfg!(target_os = "macos") {
     features.insert(0, feature::UPGRADE);
   }
@@ -186,6 +197,10 @@ pub struct EstimateAsk {
   /// The run is heavy: it waits for the heavy turn of the host
   #[serde(default, skip_serializing_if = "is_false")]
   pub heavy: bool,
+  /// The class of the measures of the run, as `RunSpec::measure_as` (feature `feature::MEASURE_AS`; the client asks no
+  /// older agent with it)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
 }
 
 /// What the host tells of a run of `Request::Estimate`
@@ -285,6 +300,12 @@ pub struct RunSpec {
   /// `busy` then (feature `feature::ESTIMATE`; the client sends it to no older agent)
   #[serde(default, skip_serializing_if = "is_false")]
   pub admit_now: bool,
+  /// The class of the measures of a heavy run (`brd-host run --measure-as`, heavy too): the heavy turn reads and keeps
+  /// the measures of the class, not of the command (`heavy::measure_key`), so a command whose text changes every run
+  /// gets a measure. A name of `heavy::is_measure_class` (feature `feature::MEASURE_AS`; the client refuses the run on an
+  /// older agent)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

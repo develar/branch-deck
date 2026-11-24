@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, measure_key, run_key, run_words, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, is_measure_class, measure_key, run_key, run_words, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -454,12 +454,12 @@ fn the_measure_key_of_a_command_puts_its_fetched_directories_as_one_word() {
   };
   let fetch = |out: &str| vec![format!("./{out}/"), "out/air/vm-export".to_owned()];
   assert_eq!(
-    measure_key(&lane("out/air/light1"), &fetch("out/air/light1")),
-    measure_key(&lane("out/air/light5"), &fetch("out/air/light5")),
+    measure_key(&lane("out/air/light1"), &fetch("out/air/light1"), None),
+    measure_key(&lane("out/air/light5"), &fetch("out/air/light5"), None),
     "only the fetched output directory differs"
   );
   assert_eq!(
-    measure_key(&lane("out/air/light1"), &fetch("out/air/light1")),
+    measure_key(&lane("out/air/light1"), &fetch("out/air/light1"), None),
     run_key(&words(&[
       "zsh",
       "-lc",
@@ -468,19 +468,56 @@ fn the_measure_key_of_a_command_puts_its_fetched_directories_as_one_word() {
     "the directory itself, a path in it, and one with ./ before it"
   );
   assert_ne!(
-    measure_key(&lane("out/air/light1"), &[]),
-    measure_key(&lane("out/air/light5"), &[]),
+    measure_key(&lane("out/air/light1"), &[], None),
+    measure_key(&lane("out/air/light5"), &[], None),
     "a path that the run does not fetch stays"
   );
   assert_eq!(
-    measure_key(&lane("out/air/light10"), &fetch("out/air/light1")),
+    measure_key(&lane("out/air/light10"), &fetch("out/air/light1"), None),
     run_key(&lane("out/air/light10")),
     "a longer name is another directory"
   );
   let e2e = words(&["pnpm", "e2e", "--output=out/e2e"]);
-  assert_eq!(measure_key(&e2e, &["out/e2e".to_owned()]), run_key(&words(&["pnpm", "e2e", "--output=<fetch>"])));
+  assert_eq!(measure_key(&e2e, &["out/e2e".to_owned()], None), run_key(&words(&["pnpm", "e2e", "--output=<fetch>"])));
   assert_eq!(
-    measure_key(&words(&["pnpm", "e2e"]), &["out/e2e".to_owned(), ".".to_owned()]),
+    measure_key(&words(&["pnpm", "e2e"]), &["out/e2e".to_owned(), ".".to_owned()], None),
     run_key(&words(&["pnpm", "e2e"]))
   );
+}
+
+/// A run of `--measure-as` measures for its class: two scripts with other commits and paths in them and another
+/// environment have one key, another class has another, and no command has the key of a class
+#[test]
+fn the_measure_key_of_a_class_is_of_the_class_alone() {
+  let gate = |base: &str, tip: &str| words(&["env", &format!("TIP={tip}"), "bash", "-c", &format!("./gate.sh {base} {tip} > out/gate-{tip}/log")]);
+  let fetch = |tip: &str| vec![format!("out/gate-{tip}")];
+  let class = Some("accio-typing-gate");
+  assert_eq!(
+    measure_key(&gate("1a2b", "3c4d"), &fetch("3c4d"), class),
+    measure_key(&gate("5e6f", "7a8b"), &[], class),
+    "the command, its environment and its fetch are no part of the key of a class"
+  );
+  assert_ne!(
+    measure_key(&gate("1a2b", "3c4d"), &[], None),
+    measure_key(&gate("5e6f", "7a8b"), &[], None),
+    "without a class each script is a command of its own"
+  );
+  assert_ne!(measure_key(&gate("1a2b", "3c4d"), &[], class), measure_key(&gate("1a2b", "3c4d"), &[], Some("accio-lint")));
+  assert_ne!(
+    measure_key(&gate("1a2b", "3c4d"), &[], class),
+    measure_key(&words(&["accio-typing-gate"]), &[], None),
+    "a command named as the class"
+  );
+  assert_ne!(
+    measure_key(&gate("1a2b", "3c4d"), &[], class),
+    measure_key(&words(&["measure-as", "accio-typing-gate"]), &[], None),
+    "a command of the word before the class"
+  );
+  assert_eq!(measure_key(&[], &[], class).len(), 64);
+  for name in ["accio-typing-gate", "gate.v2", "Lint_1"] {
+    assert!(is_measure_class(name), "{name}");
+  }
+  for name in ["", "-gate", "a/b", "a b", "gate..2", "x.lock", &"a".repeat(129)] {
+    assert!(!is_measure_class(name), "{name:?}");
+  }
 }

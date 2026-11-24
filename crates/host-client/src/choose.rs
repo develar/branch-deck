@@ -213,16 +213,14 @@ impl Client<'_> {
     (candidates[position].alias.clone(), Err(failure))
   }
 
-  /// What the members are asked of the run: its command and fetch, its affinity, HEAD of the checkout, and whether it is
-  /// heavy by `--heavy` or by `heavy` of `[host]` of HEAD
+  /// What the members are asked of the run: its command and fetch, the class of its measures, its affinity, HEAD of the
+  /// checkout, and whether it is heavy by `--heavy` or `--measure-as`, or by `heavy` of `[host]` of HEAD
   fn ask_of(&self, request: &RunRequest<'_>, options: RunOptions) -> Result<(EstimateAsk, bool), Refusal> {
-    if request.command.is_empty() {
-      return Err(Refusal::new(Code::Usage, "a run needs a command"));
-    }
+    request.check()?;
     let checkout = Checkout::open(&self.git, request.checkout)?;
     let head = checkout.snapshot(Scan::Head, 1)?.head;
     let config = checkout.host_config(&head)?;
-    let heavy = options.heavy || config.heavy_reason(request.command, &|path| script_in(checkout.root(), path)).is_some();
+    let heavy = request.heavy_flag(options).is_some() || config.heavy_reason(request.command, &|path| script_in(checkout.root(), path)).is_some();
     let ask = EstimateAsk {
       repo: String::new(),
       affinity: request.affinity.to_owned(),
@@ -230,6 +228,7 @@ impl Client<'_> {
       command: request.command.to_vec(),
       fetch: request.fetch.to_vec(),
       heavy,
+      measure_as: request.measure_as.map(str::to_owned),
     };
     Ok((ask, heavy))
   }
@@ -283,6 +282,13 @@ impl Client<'_> {
       if !agent.features.iter().any(|known| known == feature::ESTIMATE) {
         channel.close().await;
         return Answer::Predates;
+      }
+      if ask.measure_as.is_some() && !agent.features.iter().any(|known| known == feature::MEASURE_AS) {
+        channel.close().await;
+        return Answer::Missing(format!(
+          "its agent predates --measure-as, so it knows no measure of the class (`brd-host upgrade {}`)",
+          host.alias()
+        ));
       }
       let request = Request::Estimate(EstimateAsk {
         repo: repo.clone(),

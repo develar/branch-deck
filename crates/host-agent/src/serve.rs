@@ -27,6 +27,7 @@ use crate::{cleanup, keeper, login_env, run_env, tuning, upgrade};
 use git_ops::revs::is_object_id;
 use host_link::channel::{Channel, Frame, LinkError, ServerTls};
 use host_link::digest::{is_sha256, sha256_file};
+use host_link::heavy::is_measure_class;
 use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::{MAX_BINARY, PackTarget, Reply, RepositorySlots, Request, SCHEMA_VERSION, is_run_id};
 use host_link::refusal::{Code, Refusal};
@@ -464,7 +465,7 @@ impl Agent {
         answer(channel, result).await
       }
       Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))).await,
-      Request::Estimate(ask) => match self.repo(&ask.repo) {
+      Request::Estimate(ask) => match check_measure_class(ask.measure_as.as_deref()).and_then(|()| self.repo(&ask.repo)) {
         Ok(repo) => {
           let home = self.home.clone();
           let reply = with_heartbeats(channel, &mut || {}, blocking(move || crate::estimate::of_run(&home, &repo, &ask))).await?;
@@ -831,6 +832,15 @@ pub(crate) fn check_affinity(affinity: &str) -> Result<(), Refusal> {
     Ok(())
   } else {
     Err(Refusal::new(Code::BadRequest, format!("{affinity:?} cannot name an affinity")))
+  }
+}
+
+/// Refuses with `bad_request` a class of the measures (`RunSpec::measure_as`) that is no name of
+/// `host_link::heavy::is_measure_class`
+pub(crate) fn check_measure_class(class: Option<&str>) -> Result<(), Refusal> {
+  match class {
+    Some(class) if !is_measure_class(class) => Err(Refusal::new(Code::BadRequest, format!("{class:?} cannot name a class of measures"))),
+    _ => Ok(()),
   }
 }
 

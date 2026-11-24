@@ -164,10 +164,10 @@ fn script(member: Member) -> impl for<'c> Fn(&'c Request, &'c mut Channel) -> cr
   }
 }
 
-/// The hello of an agent with estimates
+/// The hello of an agent with estimates and classes of measures
 fn estimating() -> Hello {
   Hello {
-    features: ["estimate", "heavy"].map(str::to_owned).to_vec(),
+    features: ["estimate", "heavy", "measure_as"].map(str::to_owned).to_vec(),
     ..Hello::default()
   }
 }
@@ -225,6 +225,7 @@ fn request_of<'a>(checkout: &'a std::path::Path, command: &'a [String]) -> RunRe
     affinity: AFFINITY,
     command,
     fetch: &[],
+    measure_as: None,
   }
 }
 
@@ -256,6 +257,19 @@ fn starts(requests: &[Request]) -> Vec<bool> {
     .collect()
 }
 
+/// What each member told, by its alias
+fn answers(candidates: &[Candidate]) -> Vec<(&str, Answer)> {
+  candidates.iter().map(|candidate| (candidate.alias.as_str(), candidate.answer.clone())).collect()
+}
+
+/// The first request of the agent of the setup, an estimate
+fn first_ask(hosts: &Hosts) -> EstimateAsk {
+  let Some(Request::Estimate(asked)) = hosts.setup.agent.requests().first().cloned() else {
+    panic!("no estimate: {:?}", hosts.setup.agent.requests());
+  };
+  asked
+}
+
 /// The client asks every member at once, each within 3 s, and reads the feature from the hello of the same connection:
 /// an agent without estimates gets no request it would close the connection on, and a silent one costs 3 s
 #[tokio::test(start_paused = true)]
@@ -277,18 +291,54 @@ async fn the_members_are_asked_at_once_and_one_without_estimates_or_an_answer_ha
   let candidates = client.estimates(&hosts.set, &ask, &request, RunOptions::default()).await;
   assert_eq!(started.elapsed(), ESTIMATE_WAIT, "the members are asked at once");
   assert_eq!(
-    candidates.iter().map(|candidate| (candidate.alias.as_str(), candidate.answer.clone())).collect::<Vec<_>>(),
+    answers(&candidates),
     [
       ("studio", Answer::Estimate(estimate(12, 0, Some(4)))),
       ("local", Answer::Predates),
       ("mini", Answer::Missing("no answer in 3 s".to_owned())),
     ]
   );
-  let Some(Request::Estimate(asked)) = hosts.setup.agent.requests().first().cloned() else {
-    panic!("no estimate: {:?}", hosts.setup.agent.requests());
-  };
+  let asked = first_ask(&hosts);
   assert_eq!((asked.repo.as_str(), asked.affinity.as_str(), asked.command), ("~/projects/idea-1", AFFINITY, command));
   assert_eq!(hosts.others[0].requests(), Vec::<Request>::new(), "an agent without estimates gets no request");
+}
+
+/// A run of `--measure-as` is heavy and asks each member by its class, whose measure there decides; a member whose
+/// agent predates classes knows no measure of one, so it has no estimate and names the upgrade
+#[tokio::test(start_paused = true)]
+async fn a_run_of_a_class_asks_by_its_class_and_a_member_before_classes_has_no_estimate() {
+  let before = Hello {
+    features: ["estimate", "heavy"].map(str::to_owned).to_vec(),
+    ..Hello::default()
+  };
+  let hosts = hosts(
+    member(Some(estimate(12, 0, Some(4))), false),
+    vec![("local", true, before, member(Some(estimate(0, 0, Some(6))), false))],
+  );
+  let processes = FakeProcesses::default();
+  let client = hosts.setup.client(&processes, &|_| {}, &calm);
+  let command = command();
+  let request = RunRequest {
+    measure_as: Some("accio-gate"),
+    ..request_of(hosts.setup.repo.path(), &command)
+  };
+  let (ask, heavy) = client.ask_of(&request, RunOptions::default()).expect("the ask");
+  assert!(heavy, "--measure-as makes the run heavy");
+  assert_eq!(ask.measure_as.as_deref(), Some("accio-gate"));
+  let candidates = client.estimates(&hosts.set, &ask, &request, RunOptions::default()).await;
+  assert_eq!(
+    answers(&candidates),
+    [
+      ("studio", Answer::Estimate(estimate(12, 0, Some(4)))),
+      (
+        "local",
+        Answer::Missing("its agent predates --measure-as, so it knows no measure of the class (`brd-host upgrade local`)".to_owned())
+      ),
+    ]
+  );
+  assert_eq!(first_ask(&hosts).measure_as.as_deref(), Some("accio-gate"));
+  assert_eq!(hosts.others[0].requests(), Vec::<Request>::new(), "an agent before classes gets no request");
+  assert_eq!(rank(&candidates, heavy), [0], "the member without an estimate may not take a heavy run");
 }
 
 /// A member that takes runs only at once gets the start of `admit_now`; its `busy` sends the run to the next member by

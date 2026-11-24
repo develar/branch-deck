@@ -220,6 +220,11 @@ struct RunArgs {
   /// for a quiet host without another heavy run, and while it runs no heavy run starts and each new run waits for its end
   #[arg(long)]
   exclusive: bool,
+  /// A heavy run whose measures are those of this class, not of its command: for a command whose text changes every
+  /// run, such as a script with the commits of the run in it, which would never get a measure and take the whole host
+  /// every time. One class per kind of work, of letters, digits, `.`, `_` and `-`
+  #[arg(long, value_name = "CLASS")]
+  measure_as: Option<String>,
   /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
@@ -505,6 +510,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     affinity: &affinity,
     command: &args.command,
     fetch: &args.fetch,
+    measure_as: args.measure_as.as_deref(),
   };
   // a name of a set goes to the member that its estimates rank first, and the report names that member
   let ran = match client.config().set_of(&args.alias) {

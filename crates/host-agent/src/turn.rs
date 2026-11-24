@@ -30,9 +30,10 @@ use crate::slots::{self, Look};
 use crate::tuning;
 use history_rewrite::repository_lock::RepositoryLocked;
 use host_link::heavy::{measure_key, run_key};
+use host_link::proto::RunSpec;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
-use lease_pool::host_runs::{holds_text, passed_text, passes_text, run_of_repo, span, span_since, turn_line};
+use lease_pool::host_runs::{NEVER_MEASURED, holds_text, passed_text, passes_text, run_of_repo, span, span_since, turn_line};
 use lease_pool::host_turn::{
   Bar, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live,
   take_waiting, watch,
@@ -86,6 +87,7 @@ fn heavy_dir(home: &Home) -> std::path::PathBuf {
 
 /// What a run is to the heavy turn: its id, its main repository on the host, the checkout of its client
 /// (`RunSpec::affinity`), its command, and the cores of the host that the heavy runs share
+#[cfg_attr(test, derive(Default))]
 pub(crate) struct TurnRun<'a> {
   pub(crate) run: &'a str,
   pub(crate) repo: &'a str,
@@ -97,6 +99,16 @@ pub(crate) struct TurnRun<'a> {
   /// The directories that the run fetches (`RunSpec::fetch`): their paths in the command are no part of the key of its
   /// measures (`host_link::heavy::measure_key`)
   pub(crate) fetch: &'a [String],
+  /// The class of its measures (`RunSpec::measure_as`): with one, the key of its measures is of the class, not of the
+  /// command
+  pub(crate) measure_as: Option<&'a str>,
+}
+
+impl TurnRun<'_> {
+  /// The key of the measures of the run (`host_link::heavy::measure_key`)
+  pub(crate) fn measure_key(&self) -> String {
+    measure_key(self.command, self.fetch, self.measure_as)
+  }
 }
 
 /// What an agent tells a run that waits, after the line of its wait: the wait goes on by itself, and a cancel or a run
@@ -122,7 +134,7 @@ pub(crate) fn take(home: &Home, of: &TurnRun<'_>, wait: Duration, stop: &dyn Fn(
 fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Result<Option<TurnAnswer>, Refusal> {
   let pid = std::process::id();
   let command_key = run_key(of.command);
-  let cores_key = measure_key(of.command, of.fetch);
+  let cores_key = of.measure_key();
   let dir = heavy_dir(home);
   let unread = Cell::new(false);
   // a measure that cannot be read is none: the run takes the whole host, as before any measure
@@ -152,6 +164,7 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     expected,
     exclusive: of.exclusive,
     passed_wall,
+    measure_as: of.measure_as,
   };
   let params = TurnParams {
     lock_timeout,
@@ -162,7 +175,7 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
   let refused = |error: anyhow::Error| Refusal::new(Code::AgentError, format!("cannot take the heavy turn of the host: {error:#}"));
   let started = Instant::now();
   let run = of.run;
-  let line = |queue: &TurnQueue, waited: Duration| format!("{}; {NOT_A_HANG}", turn_line(run, queue, waited, wait.saturating_sub(waited), now_ms()));
+  let line = |queue: &TurnQueue, waited: Duration| format!("{}; {NOT_A_HANG}", turn_line(run, queue, of.measure_as, waited, wait.saturating_sub(waited), now_ms()));
   let mut lock_line = LockLine::default();
   // the first ask, until the run has its place in the queue
   let joined = loop {
@@ -359,16 +372,8 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wa
     wall_ms: u64::try_from(wall.as_millis()).unwrap_or(u64::MAX),
     at_ms: now_ms(),
   };
-  lease_pool::host_cores::record(
-    &heavy_dir(home),
-    LOCK_TIMEOUT,
-    tuning::min_wall(),
-    of.repo,
-    &measure_key(of.command, of.fetch),
-    measure,
-    passed,
-  )
-  .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
+  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &of.measure_key(), measure, passed)
+    .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
 }
 
 /// Samples the busy cores of the whole host every `every` into `host.json` of the heavy turn, for the admissions
@@ -416,9 +421,10 @@ pub(crate) fn took_line(waited: Duration, busy: Option<Cores>, cores: u32, past:
   Some(format!("took the heavy turn of the host after {} s{past}{busy}", waited.as_secs()))
 }
 
-/// The line of a wait for the turn that ended in the queue after `waited`, for the refusal `heavy_timeout`
-pub(crate) fn timeout_line(run: &str, queue: &TurnQueue, waited: Duration) -> String {
-  turn_line(run, queue, waited, Duration::ZERO, now_ms())
+/// The line of a wait for the turn of the run `spec` that ended in the queue after `waited`, for the refusal
+/// `heavy_timeout`
+pub(crate) fn timeout_line(spec: &RunSpec, queue: &TurnQueue, waited: Duration) -> String {
+  turn_line(&spec.run, queue, spec.measure_as.as_deref(), waited, Duration::ZERO, now_ms())
 }
 
 /// The run `run` leaves the heavy turn of the host: it gives the turn back, or its ticket leaves the queue. Answers
@@ -524,7 +530,10 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
         Some(wall) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
         None => format!("{cores} (measured)"),
       },
-      Need::Unmeasured => "the whole host (no measure)".to_owned(),
+      Need::Unmeasured => match &waiting.measure_as {
+        Some(class) => format!("the whole host (no measure of the class {class} yet)"),
+        None => format!("the whole host (no measure; {NEVER_MEASURED})"),
+      },
       Need::Measured(measured) => format!("the whole host (measured {measured})"),
       Need::Exclusive => match table.head_drain.filter(|_| position == 0) {
         None => "a quiet host (exclusive)".to_owned(),

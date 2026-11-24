@@ -155,7 +155,7 @@ pub struct LightEntry {
 }
 
 /// A heavy run that holds cores of the turn or waits for them
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnEntry {
   /// The run and its process, as a ticket of the host slots names them
   #[serde(flatten)]
@@ -188,6 +188,10 @@ pub struct TurnEntry {
   /// ([`passes`]); a supervisor of an older build that rewrites the table drops it, and only the lines lose it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub passed: Option<String>,
+  /// The class of the measures of the run (`brd-host run --measure-as`), whose measures `expected` are; a supervisor
+  /// of an older build that rewrites the table drops it, and only the lines lose it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
@@ -378,6 +382,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     live: None,
     exclusive: false,
     passed: None,
+    measure_as: None,
   })
 }
 
@@ -404,6 +409,8 @@ pub struct TurnRequest<'a> {
   /// The wall that the last passed runs of the command lead to expect (`host_cores::passed_wall`), `None` with fewer
   /// than 3: whether the run is short ([`short_wall`])
   pub passed_wall: Option<Duration>,
+  /// The class of the measures of the run (`brd-host run --measure-as`), of which `expected` and `passed_wall` are
+  pub measure_as: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -939,6 +946,7 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
     live: None,
     exclusive: request.exclusive,
     passed: None,
+    measure_as: request.measure_as.map(str::to_owned),
   };
   table.queue.insert(position, entry);
   Ok(position)

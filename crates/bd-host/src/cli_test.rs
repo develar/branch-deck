@@ -53,6 +53,22 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
   assert!(options_of(&["brd-host", "run", "studio", "--exclusive", "--", "make"]).exclusive, "--exclusive");
 }
 
+/// `--measure-as <class>` names the class of the measures of a run, which the client sends with it; it takes a value
+#[test]
+fn measure_as_names_the_class_of_the_measures() {
+  let class_of = |argv: &[&str]| match Cli::try_parse_from(argv).map(|cli| cli.command) {
+    Ok(Command::Run(args)) => Ok(args.measure_as),
+    Ok(command) => panic!("not a run: {command:?}"),
+    Err(error) => Err(error.kind()),
+  };
+  assert_eq!(
+    class_of(&["brd-host", "run", "studio", "--measure-as", "accio-gate", "--", "bash", "-c", "./gate.sh 1a2b"]),
+    Ok(Some("accio-gate".to_owned()))
+  );
+  assert_eq!(class_of(&["brd-host", "run", "studio", "--", "make"]), Ok(None));
+  assert!(class_of(&["brd-host", "run", "studio", "--measure-as", "--", "make"]).is_err(), "a class is a value");
+}
+
 /// The setup of the command line `argv`, or the error of clap
 fn setup_of(argv: &[&str]) -> Result<SetupArgs, clap::Error> {
   Cli::try_parse_from(argv).map(|cli| match cli.command {

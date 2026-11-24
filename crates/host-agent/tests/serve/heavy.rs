@@ -4,7 +4,7 @@
 //! same checkout and command supersedes the one that waits, and the heavy runs of a measure share the cores of the host
 
 use super::{ALL_PHASES, World, events, eventually, gate_and_marks, process_alive, wait_for};
-use host_link::proto::{Reply, Request, RunSpec};
+use host_link::proto::{EstimateAsk, Reply, Request, RunSpec};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::path::Path;
@@ -62,7 +62,7 @@ fn heavy_runs_of_the_host_run_one_at_a_time_and_a_run_that_is_not_heavy_goes_bes
   eventually("the run that is not heavy goes beside the heavy one", || started(&marks) == ["7-1", "7-3"]);
   assert_eq!(heavy_turn(&agent), (Some("7-1".to_owned()), vec!["7-2".to_owned()]));
   assert!(
-    events(&world, "7-2").contains("brd-host: run 7-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 120 min left: run 7-1 of "),
+    events(&world, "7-2").contains("brd-host: run 7-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 120 min left: run 7-1 of "),
     "{}",
     agent.dump("7-2")
   );
@@ -162,7 +162,7 @@ fn a_heavy_run_that_waits_past_its_time_ends_with_heavy_timeout() {
   agent.start(heavy(&world, "10-2", &marks, &gate));
   let timed_out = agent.follow("10-2");
   assert!(
-    matches!(&timed_out.end, Reply::Refused { code, message } if code == "heavy_timeout" && message.starts_with("no heavy turn for 1 s; giving up: run 10-2 waits ") && message.contains(" for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 0 s left: run 10-1 of ")),
+    matches!(&timed_out.end, Reply::Refused { code, message } if code == "heavy_timeout" && message.starts_with("no heavy turn for 1 s; giving up: run 10-2 waits ") && message.contains(" for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 0 s left: run 10-1 of ")),
     "{timed_out:?}"
   );
   assert_eq!(timed_out.phase_names(), ["heavy"]);
@@ -196,7 +196,7 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
   eventually("a second line of the wait", || lines().len() >= 2);
   let lines = lines();
   assert!(
-    lines[0].contains("run 11-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, 10 min left: run 11-1 of "),
+    lines[0].contains("run 11-2 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), 10 min left: run 11-1 of "),
     "{lines:?}"
   );
   let waited: u64 = lines[1]
@@ -208,7 +208,7 @@ fn the_line_of_a_heavy_wait_comes_again_with_the_time_waited_and_the_time_left()
   // the line says the whole seconds waited, and the time left is of the exact wait: one of two whole minutes
   let left = |seconds: u64| {
     format!(
-      "waits {waited} s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, {} left: run 11-1 of ",
+      "waits {waited} s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), {} left: run 11-1 of ",
       span(seconds)
     )
   };
@@ -324,13 +324,75 @@ fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_w
   eventually("the run without a measure waits", || heavy_turn(&agent).1 == ["13-4"]);
   // the ticket goes into the queue before the line of the wait goes into the events of the run
   eventually("the run without a measure says its wait", || {
-    events(&world, "13-4").contains("brd-host: run 13-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet, ")
+    events(&world, "13-4").contains("brd-host: run 13-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: `--measure-as <class>` gives it one), ")
   });
   fs::write(&gate, "").expect("the gate opens");
   for run in ["13-2", "13-3", "13-4"] {
     assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
   }
   assert!(started(&marks).contains(&"13-4".to_owned()));
+}
+
+/// Runs of one class of measures (`--measure-as`) share the measure of the class, whatever their command: a script
+/// whose text changes every run is measured once and then runs beside another run of its class, and a run of a class
+/// without a measure waits for the whole host and says that its class has none
+#[test]
+fn runs_of_a_class_share_its_measure_whatever_their_command() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20"), ("BD_HOST_TEST_SAMPLE_MS", "100"), ("BD_HOST_TEST_MIN_WALL_MS", "0")]);
+  let (gate, marks) = gate_and_marks(&world);
+  // each run has a script of its own, as a gate with the commits of the run in it: no two commands are the same
+  let classed = |run: &str, class: &str| RunSpec {
+    heavy: true,
+    measure_as: Some(class.to_owned()),
+    ..world.spec(run, &format!(": tip-{run}; : > '{}/{run}'; {}", marks.display(), wait_for(&gate)))
+  };
+  fs::write(&gate, "").expect("the gate opens");
+  agent.start(classed("14-1", "gate"));
+  assert_eq!(agent.follow("14-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("14-1"));
+  assert!(events(&world, "14-1").contains("brd-host: the command used "), "{}", agent.dump("14-1"));
+  fs::remove_file(&gate).expect("the gate closes");
+  fs::remove_file(marks.join("14-1")).expect("the mark of the first run");
+  eventually("the first run left the turn", || turn_holders(&agent).is_empty());
+
+  // two runs of the class with other scripts hold cores at once by the measure of the class; the second of another
+  // checkout, so it supersedes nothing
+  agent.start(classed("14-2", "gate"));
+  agent.start(RunSpec {
+    affinity: "checkout-ba9876543210".to_owned(),
+    ..classed("14-3", "gate")
+  });
+  eventually("two heavy runs of a class run at once", || fs::read_dir(&marks).map_or(0, Iterator::count) == 2);
+  let mut holders = turn_holders(&agent);
+  holders.sort();
+  assert_eq!(holders, ["14-2", "14-3"]);
+  // a run of another class has no measure: it waits for the whole host and names its class
+  agent.start(classed("14-4", "other-gate"));
+  eventually("the run of a class without a measure waits", || heavy_turn(&agent).1 == ["14-4"]);
+  eventually("the run of a class without a measure says its wait", || {
+    events(&world, "14-4").contains("brd-host: run 14-4 waits 0 s for the heavy turn of the host, all its 20 cores, as the class other-gate has no measure yet, ")
+  });
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs { run: None }) else {
+    panic!("no heavy turn");
+  };
+  assert_eq!(heavy["queue"][0]["measure_as"], "other-gate", "{heavy}");
+  fs::write(&gate, "").expect("the gate opens");
+  for run in ["14-2", "14-3", "14-4"] {
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+  assert!(started(&marks).contains(&"14-4".to_owned()));
+
+  // a class that no name may be is no class: the agent refuses the start and the estimate
+  let refused = agent.reply(&Request::Start(classed("14-5", "gate/2")));
+  assert!(matches!(&refused, Reply::Refused { code, .. } if code == "bad_request"), "{refused:?}");
+  let refused = agent.reply(&Request::Estimate(EstimateAsk {
+    repo: world.repo.path_str().to_owned(),
+    command: vec!["true".to_owned()],
+    heavy: true,
+    measure_as: Some("a b".to_owned()),
+    ..EstimateAsk::default()
+  }));
+  assert!(matches!(&refused, Reply::Refused { code, .. } if code == "bad_request"), "{refused:?}");
 }
 
 /// `serve` samples the busy cores of the whole host into `host.json` of the heavy turn every 2 s, for the admissions:
