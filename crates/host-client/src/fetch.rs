@@ -47,7 +47,7 @@ impl Client<'_> {
       return Err(Refusal::new(Code::Usage, format!("{run:?} cannot name a run")));
     }
     let checkout = Checkout::open(&self.git, dir)?;
-    let files = RunFiles::new(&checkout.runs_dir())?;
+    let files = RunFiles::of(&checkout)?;
     let record = match files.read(run)? {
       Some(record) if fetch.is_empty() => record,
       Some(record) => RunRecord { fetch: fetch.to_vec(), ..record },

@@ -54,7 +54,7 @@ a run"). Never a `timeout` wrapper, a run in the background with a poll of a mar
   the notes of the lease: `notes.local` is the one link a fetch writes through.
 - `--apply` brings back the changes that the command made to tracked files, such as `cargo fmt` or new snapshots, and
   applies them to the working tree, not to the index. A patch that does not apply refuses with `apply_failed` and keeps
-  the patch in `<git dir>/branch-deck/host/runs/<run>.patch`.
+  the patch in `<git dir>/branch-deck/host/runs/<run>.patch`, in a lease in `notes.local/brd-host/<run>.patch`.
 - `--nice` is 10 by default, so the runs of `bt --host` go first. bt passes `--nice 0 --no-outputs`. A niceness below
   the one of the agent runs at the agent's, and the `running in` line names the niceness that the command got.
 - `--heavy` makes a heavy run of a command that `heavy` of `[host]` does not name (see "Heavy runs").
@@ -205,8 +205,9 @@ default, `90s`, `9m`, `1h30m`), under the timeout of your tool. Run it in the ch
   waits for the heavy turn of studio, 1 run ahead: …`, `… checks out its commit and prepares on studio`, `… runs its
   command on studio`. Never filter its output, and never poll `brd-host runs` or a marker file beside it.
 - At the end it copies the files of the run, applies its changes and forgets it, as `run` does, puts the whole output
-  into `<git dir>/branch-deck/host/runs/<run>.log`, and says a summary: the exit, the phases, the copied files, the
-  path of the log with its line count, and its last 30 lines. Read the log with your tools for more. It exits with the
+  into `<git dir>/branch-deck/host/runs/<run>.log` (in a lease of Branch Deck `notes.local/brd-host/<run>.log`), and
+  says a summary: the exit, the phases, the copied files, the path of the log with its line count, and its last 30
+  lines. Read the log with your tools for more, at the path the summary names. It exits with the
   exit code of the command.
 - Past `--max` it exits 124 with `still_running` and the state, and the run goes on: run the same `wait` again. Never
   wrap it in `timeout`. A host that did not answer the whole time is `timed_out` (255): the run can go on there.

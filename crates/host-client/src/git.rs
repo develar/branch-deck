@@ -8,7 +8,7 @@
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
 use git_ops::host_client::{Scan, apply_patch, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
-use git_ops::lease_slot::state_dir;
+use git_ops::lease_slot::{NOTES_LINK, links_to_lease_notes, state_dir};
 use git_ops::revs::{commit_count, repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
@@ -21,6 +21,8 @@ const HOST_DIR: &str = "host";
 const RUNS_DIR: &str = "runs";
 /// The directory of the pack files, in `HOST_DIR`
 const PACKS_DIR: &str = "packs";
+/// The directory of the logs and the patches of the runs in the notes of a lease (`Checkout::notes_dir`)
+const NOTES_DIR: &str = "brd-host";
 
 /// The commit that a run ships, and what the client asks the host about
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -87,6 +89,14 @@ impl Checkout {
   /// `branch-deck/host/runs` of the git directory: the run records and the patches
   pub(crate) fn runs_dir(&self) -> PathBuf {
     self.host_dir().join(RUNS_DIR)
+  }
+
+  /// `notes.local/brd-host` of the root, while the checkout is a slot of the lease pool whose `notes.local` links to the
+  /// notes of its lease (`links_to_lease_notes`): the logs and the patches of its runs go there, which an agent reads,
+  /// in the pool directory; `None` for any other checkout, whose logs and patches stay in `runs_dir`
+  pub(crate) fn notes_dir(&self) -> Option<PathBuf> {
+    let link = self.root().join(NOTES_LINK);
+    links_to_lease_notes(&link, &self.git_common_dir).then(|| link.join(NOTES_DIR))
   }
 
   /// `branch-deck/host` of the git directory

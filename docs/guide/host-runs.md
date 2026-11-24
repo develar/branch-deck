@@ -247,7 +247,8 @@ The first Ctrl+C cancels the run on the host and shows the output to its end. `b
 `brd-host run studio --max 9m -- <command>` starts a run and waits for it in the same way, its output into the log
 instead of the terminal. `brd-host wait studio <run> [--max 9m]`, in the checkout of the run, waits for its end in one call of at most `--max`
 (9 min by default): it says only each change of the state of the run, then copies its files as `run` does, puts its
-output into `<git dir>/branch-deck/host/runs/<run>.log`, and ends with a summary and the last 30 lines of the output.
+output into `<git dir>/branch-deck/host/runs/<run>.log` (in a lease of Branch Deck `notes.local/brd-host/<run>.log`,
+in the pool directory), and ends with a summary and the last 30 lines of the output.
 Past `--max` it exits 124 and the run goes on; the next `wait` goes on waiting. A `wait` after the end answers again
 from what the first one wrote.
 
@@ -344,7 +345,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 |---|---|---|
 | This Mac | `~/.config/brd-host/identity.crt`, `identity.key` | The identity of this client |
 | This Mac | `~/.config/brd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
-| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run, the patch of `--apply`, and the output, the end and the lock of a run that a wait or a run finished, for 7 days |
+| This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run, the patch of `--apply`, and the output, the end and the lock of a run that a wait or a run finished, for 7 days; in a lease the output and the patch are in `notes.local/brd-host/`, kept as the notes |
 | Host | `~/.local/bin/brd-host`, on a local host `~/.local/share/brd-host/agent/brd-host` | The binary that launchd runs |
 | Host | `~/.config/brd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
 | Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |

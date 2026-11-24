@@ -283,7 +283,7 @@ impl Client<'_> {
     facts.head = Some(snapshot.head.clone());
     facts.repository = Some(repo.clone());
     let commit = snapshot.commit.clone();
-    let files = RunFiles::new(&checkout.runs_dir()).map_err(|refusal| before(refusal, &facts))?;
+    let files = RunFiles::of(&checkout).map_err(|refusal| before(refusal, &facts))?;
     let config = checkout.host_config(&commit).map_err(|refusal| before(refusal, &facts))?;
     let heavy = if options.exclusive {
       Some("--exclusive".to_owned())

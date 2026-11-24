@@ -245,6 +245,32 @@ async fn a_wait_says_each_state_of_the_run_then_takes_its_log_fetches_and_forget
   );
 }
 
+/// In a lease of the pool, whose `notes.local` links to the notes of the lease, the log of the run goes into
+/// `notes.local/brd-host/`, by that path in the summary: in the pool directory, not in `.git`, which a lead reads without
+/// a prompt. The record and the end stay in the git directory
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_wait_in_a_lease_puts_the_log_into_the_notes_of_the_lease() {
+  let states = vec![(info(&["slot", "command", "stage"], Some(0)), None)];
+  let (setup, _agent) = agent(states, End::Exit(0));
+  let notes = git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git")).join("lease-1");
+  std::fs::create_dir_all(&notes).unwrap();
+  // the record of the notes names the checkout as the slot of the lease (`links_to_lease_notes`)
+  let notes_record = json!({ "lease_id": "lease-1", "holder": "agent", "slot": setup.repo.path(), "leased_at": 1, "linked": true });
+  std::fs::write(notes.with_extension("json"), serde_json::to_vec(&notes_record).unwrap()).unwrap();
+  std::os::unix::fs::symlink(&notes, setup.repo.path().join("notes.local")).unwrap();
+  record(&setup);
+  let said = Said::default();
+  let say = |line: &str| said.push(line);
+  assert_eq!(wait(&setup, &say, &calm, &never).await, Waited { exit: 0, refusal: None });
+  assert_eq!(std::fs::read_to_string(notes.join("brd-host/1-2.log")).unwrap(), "test a ... ok\ntest result: FAILED\n");
+  let root = setup.repo.path().canonicalize().unwrap();
+  let output_line = format!("brd-host: the output of the run: {} (2 lines)", root.join("notes.local/brd-host/1-2.log").display());
+  assert!(said.lines().contains(&output_line), "{:#?}", said.lines());
+  assert!(!root.join(".git/branch-deck/host/runs/1-2.log").exists());
+  assert!(files(&setup).read_end(RUN).unwrap().is_some(), "the end stays in the git directory");
+}
+
 /// Past its `--max` a wait leaves the run going with `still_running` (124) and the state it saw; it sends no cancel and
 /// finishes nothing. The next wait says the state at once and ends the run
 #[tokio::test(start_paused = true)]

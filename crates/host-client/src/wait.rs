@@ -81,7 +81,7 @@ impl Client<'_> {
     let started = Instant::now();
     let past_max = || self.past_max.map_or_else(|| started.elapsed() >= max, |past| past());
     let checkout = Checkout::open(&self.git, request.checkout)?;
-    let files = RunFiles::new(&checkout.runs_dir())?;
+    let files = RunFiles::of(&checkout)?;
     let record = files.read(run)?;
     let left = || {
       Refusal::new(

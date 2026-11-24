@@ -4,6 +4,10 @@
 //! which one process of the checkout holds while it finishes the run (`RunFiles::lock`). The files older than `KEEP` go
 //! at the next run, wait or fetch of the checkout.
 //!
+//! The log and the patch are what an agent reads, so in a lease of the pool they go to `notes.local/brd-host/`
+//! (`Checkout::notes_dir`): in the pool directory, which the sessions that lead agents may read, while the git
+//! directory of a slot is in `.git` of the main checkout; they outlive the return there and expire with the notes.
+//!
 //! The client writes the record before the start of the run. A fetch takes only what the record asked for: the staged
 //! files below its fetch directories, the files of its outputs, and the changes when it asked for them. So the host
 //! cannot choose which local paths it replaces. The outputs come from `[host]` of the shipped commit, through the
@@ -71,14 +75,28 @@ pub(crate) struct RunEnd {
 #[derive(Debug)]
 pub(crate) struct RunLock(#[expect(dead_code, reason = "the open file holds the lock until the drop")] File);
 
-/// The directory of the run files of a checkout
-pub(crate) struct RunFiles(PathBuf);
+/// The directory of the run files of a checkout, and the one of its logs and patches
+pub(crate) struct RunFiles(PathBuf, PathBuf);
 
 impl RunFiles {
   /// The directory `dir`, made private when it is missing. Its records and patches older than `KEEP` go
+  #[cfg(test)]
   pub(crate) fn new(dir: &Path) -> Result<Self, Refusal> {
+    Self::with_outputs(dir, None)
+  }
+
+  /// The run files of `checkout`: its `runs_dir`, the logs and the patches in its `notes_dir` when it has one
+  pub(crate) fn of(checkout: &crate::git::Checkout) -> Result<Self, Refusal> {
+    Self::with_outputs(&checkout.runs_dir(), checkout.notes_dir().as_deref())
+  }
+
+  /// `new` with the logs and the patches in `outputs`, made private when it is missing; `None`: in `dir`
+  fn with_outputs(dir: &Path, outputs: Option<&Path>) -> Result<Self, Refusal> {
     let dir = dir.to_path_buf();
-    create_private_dir(&dir).map_err(|error| Refusal::new(Code::Config, format!("cannot make {}: {error}", dir.display())))?;
+    let make = |dir: &Path| create_private_dir(dir).map_err(|error| Refusal::new(Code::Config, format!("cannot make {}: {error}", dir.display())));
+    make(&dir)?;
+    let outputs = outputs.map_or_else(|| dir.clone(), Path::to_path_buf);
+    make(&outputs)?;
     if let Ok(entries) = std::fs::read_dir(&dir) {
       for entry in entries.filter_map(Result::ok) {
         let name = entry.file_name();
@@ -94,12 +112,12 @@ impl RunFiles {
         }
       }
     }
-    Ok(Self(dir))
+    Ok(Self(dir, outputs))
   }
 
   /// The file of the patch of the changes of `run`
   pub(crate) fn patch(&self, run: &str) -> PathBuf {
-    self.0.join(format!("{run}.patch"))
+    self.1.join(format!("{run}.patch"))
   }
 
   fn record(&self, run: &str) -> PathBuf {
@@ -108,7 +126,7 @@ impl RunFiles {
 
   /// The file of the output of `run`, which its end writes
   pub(crate) fn log(&self, run: &str) -> PathBuf {
-    self.0.join(format!("{run}.log"))
+    self.1.join(format!("{run}.log"))
   }
 
   fn end(&self, run: &str) -> PathBuf {
