@@ -7,6 +7,7 @@ use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
+#[cfg(unix)]
 use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
 use domain_types::worktree_epoch::WorktreeEpoch;

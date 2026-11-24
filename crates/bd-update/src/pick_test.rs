@@ -1,8 +1,8 @@
 use crate::pick_command::{PickArgs, pick_reporting};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, bd_in, beside_a_held_sync, subcommand};
-use bd_cli::fixture_test::{PREFIX, assert_error, environment, git, hold_the_lock, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
+use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, subcommand};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, environment, git, hold_the_lock, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::progress::{CommandSteps, DEFAULT_LOCK_WAIT, progress_line};
