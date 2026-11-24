@@ -52,6 +52,8 @@ fn queue(place: u32, need: NeedKind, behind_ms: u64, load_ms: u64) -> QueueRecor
     need,
     behind_ms,
     load_ms,
+    short_ms: None,
+    passes: 0,
   }
 }
 
@@ -78,7 +80,10 @@ fn the_summary_splits_the_waits_from_the_work_and_groups_the_commands() {
   ];
   let mut timed_out = heavy(
     line("4", "pnpm e2e", NOV_24 + 30 * MIN, 255, &[("heavy", 120 * MIN)]),
-    queue(3, NeedKind::Cores, 120 * MIN, 0),
+    QueueRecord {
+      passes: 4,
+      ..queue(3, NeedKind::Cores, 120 * MIN, 0)
+    },
   );
   timed_out.refused = Some("heavy_timeout".to_owned());
   lines.push(timed_out);
@@ -131,6 +136,8 @@ fn the_summary_splits_the_waits_from_the_work_and_groups_the_commands() {
       load_ms: 20 * MIN,
       place: Some(Spread { p50: 2, p90: 3 }),
       whole_host: 1,
+      short: 0,
+      passes: 4,
     }
   );
   let outcomes: Vec<(i32, Option<&str>, u32)> = report.outcomes.iter().map(|outcome| (outcome.exit, outcome.refused.as_deref(), outcome.runs)).collect();
@@ -268,7 +275,10 @@ fn the_lines_of_a_summary() {
   let lines = [
     heavy(
       line("1", "pnpm e2e", NOV_24, 1, &[("heavy", 90 * MIN), ("command", 3 * MIN)]),
-      queue(1, NeedKind::Cores, 80 * MIN, 10 * MIN),
+      QueueRecord {
+        short_ms: Some(50_000),
+        ..queue(1, NeedKind::Cores, 80 * MIN, 10 * MIN)
+      },
     ),
     line("2", "pnpm lint", NOV_24 + MIN, 0, &[("slot", 2000), ("command", 45_000)]),
   ];
@@ -279,7 +289,7 @@ fn the_lines_of_a_summary() {
       "studio: 2 run(s) in the last 1 day(s), 1 heavy, 0 exclusive: waited 90 min, worked 3 min",
       "  waits: heavy 90 min in 1, slot 2 s in 1",
       "  work: command 3 min in 2",
-      "  heavy queue of 1 run(s): 80 min behind holders or runs before them, 10 min at the head of a free turn for the load of the host, joined at place 1 (p90 1), 0 for the whole host",
+      "  heavy queue of 1 run(s): 80 min behind holders or runs before them, 10 min at the head of a free turn for the load of the host, joined at place 1 (p90 1), 0 for the whole host, 1 short, passed 0 time(s)",
       "  outcomes: exit 0 1, exit 1 1",
       "  cores: 0 s of CPU in 0 s of commands, 0.0 on average over the window, peak 0.0",
       "  commands by their wait:",

@@ -1799,8 +1799,8 @@ the output of a run MUST count its log with what a forget cut of it; a pack of a
 ### Requirement: stats: A heavy run writes its place and its wait in the queue
 
 The supervisor of a heavy run MUST write `queue.json` after its wait for the heavy turn, whatever its end: its place
-as it joined, the holders then, the cores of the host, its expected cores, its need, and its wait split into the wait
-behind holders or runs before it and the wait at the head of a free turn for the load of the host.
+as the rule of the queue gave it, the holders then, the cores of the host, its expected cores, its need, whether it was
+short and how often short runs passed it (`passes.json`), and its wait behind others and for the load of the host.
 
 #### Scenario: Two heavy runs
 - **GIVEN** a heavy run that holds the turn
@@ -1813,8 +1813,8 @@ behind holders or runs before it and the wait at the head of a free turn for the
 
 #### Scenario: What a look of the wait finds
 - **WHEN** a look finds the run behind a holder or a run before it, or at the head of the queue with no holder
-- **THEN** the span until the next look counts behind the others, or for the load of the host, and the need follows
-  the measure as the heavy turn counts it
+- **THEN** the span until the next look counts behind the others, or for the load of the host, the need follows the
+  measure as the heavy turn counts it, and the mark of the run in the queue names its class and its passes
   [@test] crates/lease-pool/src/host_history_test.rs (`a_run_in_the_queue_waits_behind_others_or_for_the_load_of_the_host`, `the_clock_of_the_queue_splits_the_wait_by_the_spot_of_each_look`, `the_need_of_a_heavy_run_follows_its_measure`)
 
 ### Requirement: stats: stats asks the agent for the summary of its runs

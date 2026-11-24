@@ -221,6 +221,9 @@ pub(crate) struct QueueWatch {
   /// The runs that waited as the run joined, until a look finds its place
   waiting: u32,
   place: Option<u32>,
+  /// The mark of the run in the queue (`passes.json`) at the last look that found one: whether it was short, and how
+  /// often short runs passed it
+  mark: lease_pool::host_turn::RunMark,
   holders: u32,
   cores: u32,
   expected: Option<Cores>,
@@ -240,6 +243,7 @@ impl QueueWatch {
       clock: QueueClock::default(),
       waiting: table.as_ref().map_or(0, |table| count(table.queue.len())),
       place: None,
+      mark: lease_pool::host_turn::RunMark::default(),
       holders: table.as_ref().map_or(0, |table| count(table.holders.len())),
       cores: of.cores,
       expected,
@@ -258,7 +262,13 @@ impl QueueWatch {
     let Ok(table) = lease_pool::host_turn::read_live(&self.dir) else { return };
     let found = spot(&table, &self.run);
     if let Some((position, _)) = found {
+      // the place that the rule of the queue gave the run as it joined: a short run joins ahead of the long ones
       self.place.get_or_insert_with(|| count(position));
+      // the mark goes with the run as it leaves the queue, so the last one of the queue stays
+      let mark = lease_pool::host_turn::read_marks(&self.dir).of(&self.run);
+      if mark != lease_pool::host_turn::RunMark::default() {
+        self.mark = mark;
+      }
     }
     self.clock.note(self.ms(now), found.map(|(_, spot)| spot));
   }
@@ -274,6 +284,8 @@ impl QueueWatch {
       need: self.need,
       behind_ms: self.clock.behind_ms,
       load_ms: self.clock.load_ms,
+      short_ms: self.mark.short_ms,
+      passes: self.mark.passes,
     };
     if let Err(error) = run.write_queue(&record) {
       crate::log::supervisor(&format!("cannot write the queue of the run {}: {error}", self.run));

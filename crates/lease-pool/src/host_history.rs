@@ -186,6 +186,13 @@ pub struct QueueRecord {
   /// The wait at the head of the queue on a free turn, for a quiet host or for room beside the load of the host outside
   /// the heavy runs
   pub load_ms: u64,
+  /// A short run of the queue (`host_turn::short_wall`): the wall of the last passed runs of its command that made it
+  /// short, by the marks of the queue (`passes.json`); `None` for a run that was not short, and from a build before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub short_ms: Option<u64>,
+  /// How often short runs went ahead of it in the queue, by the marks of the queue
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub passes: u32,
 }
 
 /// What a heavy run in the queue waits for at one look
@@ -316,6 +323,12 @@ pub struct QueueTotals {
   pub place: Option<Spread>,
   /// The runs that needed the whole host: without a measure, measured past the host, or exclusive
   pub whole_host: u32,
+  /// The short runs, which joined the queue ahead of the long ones
+  #[serde(default)]
+  pub short: u32,
+  /// How often short runs went ahead of a run, over every run
+  #[serde(default)]
+  pub passes: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -462,6 +475,8 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
     load_ms: queues.iter().map(|queue| queue.load_ms).sum(),
     place: Spread::of(queues.iter().map(|queue| u64::from(queue.place)).collect()),
     whole_host: count(queues.iter().filter(|queue| queue.need != NeedKind::Cores).count()),
+    short: count(queues.iter().filter(|queue| queue.short_ms.is_some()).count()),
+    passes: queues.iter().map(|queue| queue.passes).sum(),
   }
 }
 
@@ -596,11 +611,13 @@ impl StatsReport {
     if queue.runs > 0 {
       let place = queue.place.map_or_else(String::new, |place| format!(", joined at place {} (p90 {})", place.p50, place.p90));
       lines.push(format!(
-        "  heavy queue of {} run(s): {} behind holders or runs before them, {} at the head of a free turn for the load of the host{place}, {} for the whole host",
+        "  heavy queue of {} run(s): {} behind holders or runs before them, {} at the head of a free turn for the load of the host{place}, {} for the whole host, {} short, passed {} time(s)",
         queue.runs,
         hours(queue.behind_ms),
         hours(queue.load_ms),
-        queue.whole_host
+        queue.whole_host,
+        queue.short,
+        queue.passes
       ));
     }
     let outcomes: Vec<String> = self
@@ -693,6 +710,11 @@ fn size(bytes: u64) -> String {
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
 const fn is_false(value: &bool) -> bool {
   !*value
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+const fn is_zero(value: &u32) -> bool {
+  *value == 0
 }
 
 #[cfg(test)]

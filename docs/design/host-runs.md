@@ -318,9 +318,11 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   `fetched.json` (each fetch of the run, as each crossed the link), and the output is `events.log` with what a forget
   cut of it. They tell whether the output and the files or the packs hold the link, before anything of the link is
   compressed.
-- **The queue of a heavy run** (`queue.json`, `QueueRecord`): its place as it joined, the holders then, the cores of
-  the host, what its measures led to expect and what it needed (`NeedKind`: the cores of its measure, or the whole host
-  without one, past one or for a measurement), and its wait split in two: behind the holders or the runs before it,
+- **The queue of a heavy run** (`queue.json`, `QueueRecord`): its place as the rule of the queue gave it (a short run
+  joins ahead of the long ones), the holders then, the cores of the host, what its measures led to expect and what it
+  needed (`NeedKind`: the cores of its measure, or the whole host without one, past one or for a measurement), whether
+  it was short and how often short runs passed it (its mark in `passes.json`, which leaves with the run, so the watch
+  keeps the last one it read), and its wait split in two: behind the holders or the runs before it,
   and at the head of a free turn for the load of the host (a quiet host, or room beside the runs that are not heavy).
   Without the split a summary cannot tell a first-come queue from a wait for a quiet host. The supervisor writes it
   after the phase `heavy`, whatever its end; a watch of the wait reads the table without its lock at most once a

@@ -97,6 +97,8 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     need: NeedKind::Cores,
     behind_ms: 1000,
     load_ms: 200,
+    short_ms: Some(50_000),
+    passes: 0,
   };
   run.write_queue(&queue).expect("the queue");
   let output = "{\"stream\":\"stdout\",\"text\":\"ok\"}\n";
@@ -251,7 +253,7 @@ fn entry(run: &str) -> TurnEntry {
 }
 
 /// The watch of a heavy run counts the holders as it joins, finds its place at its first look in the queue, and writes
-/// what it needed and how long it waited behind the others
+/// what it needed, how long it waited behind the others, its class and how often short runs passed it
 #[test]
 fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
   let dir = tempfile::tempdir().expect("a temporary home");
@@ -279,6 +281,18 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
   };
   let mut watch = QueueWatch::start(&home, &of);
   table(vec![entry("first"), entry("1-9")]);
+  // a short run passed it twice, by the marks of the queue
+  let marks = lease_pool::host_turn::QueueMarks {
+    runs: [(
+      "1-9".to_owned(),
+      lease_pool::host_turn::RunMark {
+        passes: 2,
+        ..lease_pool::host_turn::RunMark::default()
+      },
+    )]
+    .into(),
+  };
+  fs::write(home.heavy_dir().join("passes.json"), serde_json::to_vec(&marks).expect("JSON")).expect("the marks");
   watch.look();
   let runs = Runs::new(home.runs_dir());
   let (run, _lock) = runs.create(&spec("1-9")).expect("a run");
@@ -286,7 +300,16 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
 
   let queue = run.queue().expect("queue.json");
   assert_eq!(
-    (queue.place, queue.holders, queue.cores, queue.expected, queue.need, queue.load_ms),
-    (1, 1, 20, None, NeedKind::Unmeasured, 0)
+    (
+      queue.place,
+      queue.holders,
+      queue.cores,
+      queue.expected,
+      queue.need,
+      queue.load_ms,
+      queue.short_ms,
+      queue.passes
+    ),
+    (1, 1, 20, None, NeedKind::Unmeasured, 0, None, 2)
   );
 }
