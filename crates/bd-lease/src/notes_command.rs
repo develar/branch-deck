@@ -2,11 +2,12 @@
 //! (openspec/specs/cli/lease/spec.md, "Notes"; the core is `lease_pool::lease_notes`). Read only
 
 use crate::lease_command::{LeaseContext, lease_error};
+use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
-use git_ops::lease_slot::lease_config;
+use git_ops::lease_slot::{LEASE_NOTES_DIR, lease_config};
 use lease_pool::lease::{Pool, canonical_path, ready_slot_at};
-use lease_pool::lease_notes::{DEFAULT_NOTES_KEEP, LeaseNotes, all_notes, expires_at, held_leases, note_files, notes_keep, read_notes};
+use lease_pool::lease_notes::{DEFAULT_NOTES_KEEP, LeaseNotes, config_pool_dir, expires_at, held_leases, note_files, notes_keep};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -31,7 +32,8 @@ pub struct LeaseNotesArgs {
 pub struct LeaseNotesOutput {
   pub schema: SchemaVersion,
   pub repository: String,
-  /// The directory of the notes of every lease of the pool, beside its state
+  /// The directory of the notes of the leases of the pool, `notes` in its pool directory; the notes a brd before kept in
+  /// the common dir stay there, and `path` of each names where it is
   pub root: String,
   /// How long the notes of a returned lease stay, in seconds (`branchdeck.leaseNotesKeep`, 14 days by default); 0: for
   /// ever
@@ -78,12 +80,16 @@ pub struct NoteFileOutput {
 
 /// The notes of `--lease-id`, of `--holder`, without either of the lease of the worktree of -C (when it is a leased slot),
 /// else of every lease of the pool
-pub fn lease_notes(context: &LeaseContext, args: &LeaseNotesArgs) -> Result<LeaseNotesOutput, CliError> {
+pub fn lease_notes(context: &LeaseContext, environment: &Environment, args: &LeaseNotesArgs) -> Result<LeaseNotesOutput, CliError> {
   let git_common_dir = canonical_path(Path::new(&context.dirs.git_common_dir));
   let pool = Pool::new(Path::new(&git_common_dir));
-  let root = pool.notes_root();
-  let keep = lease_config(&context.git, &context.dirs.top_level).map_or(DEFAULT_NOTES_KEEP, |config| notes_keep(&config).0);
+  let config = lease_config(&context.git, &context.dirs.top_level).ok();
+  let keep = config.as_ref().map_or(DEFAULT_NOTES_KEEP, |config| notes_keep(config).0);
   let held = held_leases(&pool.read().map_err(lease_error)?);
+  let pool_dir = config
+    .as_ref()
+    .and_then(|config| config_pool_dir(config, Path::new(&git_common_dir), environment.home.as_deref()).ok());
+  let roots = pool.notes_roots(pool_dir.as_deref());
   let own = if args.lease_id.is_none() && args.holder.is_none() {
     ready_slot_at(Path::new(&git_common_dir), &context.dirs.top_level)
       .map_err(lease_error)?
@@ -92,14 +98,19 @@ pub fn lease_notes(context: &LeaseContext, args: &LeaseNotesArgs) -> Result<Leas
     None
   };
   let notes: Vec<LeaseNotes> = match (args.lease_id.as_deref().or(own.as_deref()), &args.holder) {
-    (Some(lease_id), _) => read_notes(&root, lease_id).into_iter().collect(),
-    (None, Some(holder)) => all_notes(&root).into_iter().filter(|notes| notes.record.holder == *holder).collect(),
-    (None, None) => all_notes(&root),
+    (Some(lease_id), _) => roots.find(lease_id).into_iter().collect(),
+    (None, Some(holder)) => roots.all().into_iter().filter(|notes| notes.record.holder == *holder).collect(),
+    (None, None) => roots.all(),
   };
   Ok(LeaseNotesOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
-    root: root.to_string_lossy().into_owned(),
+    root: pool_dir
+      .map(|dir| dir.join(LEASE_NOTES_DIR))
+      .or_else(|| roots.places().next().map(Path::to_path_buf))
+      .unwrap_or_default()
+      .to_string_lossy()
+      .into_owned(),
     keep_seconds: keep.as_secs(),
     notes: notes.iter().map(|notes| notes_output(notes, &held, keep, args.list)).collect(),
   })

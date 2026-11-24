@@ -65,12 +65,15 @@ Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<
   `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
   Playwright reuses whatever listens on the port.
 - **Notes**: `notes.local` of a leased worktree links to the notes of the lease, a directory outside the worktree
-  that git ignores (`notes` of `brd lease get`): logs, probes, patches and the outputs of a gate go there. The return
+  that git ignores, in the pool directory (`<pool>/notes/<lease id>`, `notes` of `brd lease get`): logs, probes,
+  patches and the outputs of a gate go there, and a lead reads them where the lease is, without a prompt for
+  `.git`. The return
   removes the link and keeps the notes, so the next holder of the slot starts with empty notes, and a reviewer or the
   lead finds them with `brd lease notes --lease-id <id>` or `--holder <name>` (`--list` lists the files); nothing
   needs copying to `/tmp`. The notes of a returned lease expire after `branchdeck.leaseNotesKeep` (14 days) through
-  `brd lease trim` and the keeper of a host. The notes may be on another volume than the slot (`branchdeck.leasePool`
-  on another disk): the moves copy there, so nothing changes for the agent.
+  `brd lease trim` and the keeper of a host. Notes that a brd before kept in `.git/branch-deck/notes` stay there until
+  they expire; `brd lease notes` names them where they are. The notes may be on another volume than the slot (an
+  adopted worktree on another disk): the moves copy there, so nothing changes for the agent.
 - **Release**: `brd lease return --workspace <path>` refuses local changes, a commit that no branch holds and that
   `master` lacks by content, or a process inside. A background command of your own session there is `kind: holder`:
   stop it, or pass `--stop-own` once you no longer need its output; a process of another session (`other`) never. `--confirm-preserved` discards the changes and commits it reports, so

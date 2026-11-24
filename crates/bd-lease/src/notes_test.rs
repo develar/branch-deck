@@ -1,9 +1,8 @@
 //! The notes of a lease (openspec/specs/cli/lease/spec.md, "Notes"): `notes.local` of a leased worktree links to a directory
-//! of the lease beside the state of the pool, which outlives the return and expires after `branchdeck.leaseNotesKeep`
+//! of the lease in the pool directory, which outlives the return and expires after `branchdeck.leaseNotesKeep`
 
 use crate::lease_test::{Fixture, path_of, slot_path};
 use bd_cli::fixture_test::canonical;
-use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -22,9 +21,10 @@ fn notes(fixture: &Fixture, cwd: &Path, args: &[&str]) -> Vec<Value> {
   output["notes"].as_array().unwrap().clone()
 }
 
-/// The record of the notes of `lease_id`, beside their directory
-fn record_file(fixture: &Fixture, lease_id: &str) -> PathBuf {
-  fixture.repo.path().join(".git").join(STATE_DIR).join("notes").join(format!("{lease_id}.json"))
+/// The record of the notes that the answer of a get names, beside their directory
+fn record_file(got: &Value) -> PathBuf {
+  let dir = notes_of(got);
+  dir.with_file_name(format!("{}.json", dir.file_name().unwrap().to_string_lossy()))
 }
 
 /// The get links `notes.local` of its worktree to the notes of the lease, outside the worktree, and names them; the
@@ -37,7 +37,11 @@ fn the_notes_of_a_lease_outlive_its_return_and_the_next_holder_of_the_slot_start
   let got = fixture.get(&["--holder", "lane-1"]);
   let (slot, lease_id) = (path_of(&got), got["lease_id"].as_str().unwrap().to_string());
   let dir = notes_of(&got);
-  assert_eq!(dir, canonical(&fixture.repo.path().join(".git").join(STATE_DIR).join("notes").join(&lease_id)));
+  // in the pool directory, beside the slots, and so is what the link of the worktree resolves to
+  let pool_dir = PathBuf::from(got["pool"].as_str().unwrap_or_else(|| panic!("no pool: {got}")));
+  assert!(pool_dir.starts_with(canonical(fixture.home.path()).join(".branch-deck/pool")), "{got}");
+  assert_eq!(dir, pool_dir.join("notes").join(&lease_id));
+  assert_eq!(std::fs::canonicalize(Path::new(&slot).join("notes.local")).unwrap(), dir);
   assert!(got["next"].as_array().unwrap().contains(&json!(format!("brd lease notes --lease-id {lease_id}"))), "{got}");
   std::fs::create_dir_all(Path::new(&slot).join("notes.local/logs")).unwrap();
   std::fs::write(Path::new(&slot).join("notes.local/logs/gate.log"), "green\n").unwrap();
@@ -85,17 +89,17 @@ fn the_notes_of_a_returned_lease_expire_through_the_trim_and_never_while_held() 
   let fixture = Fixture::new();
   let old = fixture.get(&["--holder", "old"]);
   let held = fixture.get(&["--holder", "held"]);
-  let (old_id, held_id) = (old["lease_id"].as_str().unwrap().to_string(), held["lease_id"].as_str().unwrap().to_string());
+  let old_id = old["lease_id"].as_str().unwrap().to_string();
   std::fs::write(notes_of(&old).join("old.log"), "old\n").unwrap();
   fixture.give_back(&path_of(&old));
   // returned 15 days ago
-  let file = record_file(&fixture, &old_id);
+  let file = record_file(&old);
   let mut record: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
   let returned_at = record["returned_at"].as_u64().unwrap() - 15 * DAY;
   record["returned_at"] = json!(returned_at);
   std::fs::write(&file, serde_json::to_vec(&record).unwrap()).unwrap();
   // and the held lease got 15 days ago: held, it never expires
-  let held_file = record_file(&fixture, &held_id);
+  let held_file = record_file(&held);
   let mut held_record: Value = serde_json::from_slice(&std::fs::read(&held_file).unwrap()).unwrap();
   held_record["leased_at"] = json!(held_record["leased_at"].as_u64().unwrap() - 15 * DAY);
   std::fs::write(&held_file, serde_json::to_vec(&held_record).unwrap()).unwrap();
@@ -122,7 +126,7 @@ fn the_notes_of_a_returned_lease_expire_through_the_trim_and_never_while_held() 
   assert!(expired[0]["bytes"].as_u64().unwrap() >= 4, "{expired}");
   assert!(!notes_of(&old).exists() && !file.exists());
   assert_eq!(notes(&fixture, fixture.repo.path(), &["--lease-id", &old_id]), Vec::<Value>::new());
-  assert!(notes_of(&held).is_dir() && record_file(&fixture, &held_id).exists(), "the held lease keeps its notes");
+  assert!(notes_of(&held).is_dir() && record_file(&held).exists(), "the held lease keeps its notes");
 }
 
 fn git_unset(fixture: &Fixture, key: &str) {
@@ -178,4 +182,65 @@ fn the_disk_report_counts_the_notes_of_the_pool() {
   let (exit_code, output) = fixture.run(&["lease", "disk", "--fresh"]);
   assert_eq!(exit_code, 0, "{output}");
   assert!(output["pools"][0]["notes_bytes"].as_u64().unwrap() >= 64 * 1024, "{output}");
+}
+
+/// The notes of a returned lease as a brd before kept them, in `$GIT_COMMON_DIR/branch-deck/notes`, and later returned
+/// past their keep: `brd lease notes --lease-id` names them where they are, nothing moves them, and the trim deletes
+/// them there
+#[test_log::test]
+fn the_notes_of_a_brd_before_are_named_where_they_are_and_expire_there() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&["--holder", "old"]);
+  std::fs::write(notes_of(&got).join("old.log"), "old\n").unwrap();
+  fixture.give_back(&path_of(&got));
+  let lease_id = got["lease_id"].as_str().unwrap();
+  let old_root = fixture.repo.path().join(".git").join(git_ops::lease_slot::STATE_DIR).join("notes");
+  std::fs::create_dir_all(&old_root).unwrap();
+  let old = canonical(&old_root).join(lease_id);
+  std::fs::rename(notes_of(&got), &old).unwrap();
+  std::fs::rename(record_file(&got), old_root.join(format!("{lease_id}.json"))).unwrap();
+
+  let found = notes(&fixture, fixture.repo.path(), &["--lease-id", lease_id, "--list"]);
+  assert_eq!(found.len(), 1, "{found:?}");
+  assert_eq!(found[0]["path"], json!(old.to_string_lossy()), "{found:?}");
+  assert_eq!(found[0]["files"], json!([{ "path": "old.log", "bytes": 4 }]));
+  assert!(old.is_dir() && !notes_of(&got).exists(), "nothing moves them");
+
+  let record = old_root.join(format!("{lease_id}.json"));
+  let mut value: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+  value["returned_at"] = json!(value["returned_at"].as_u64().unwrap() - 15 * DAY);
+  std::fs::write(&record, serde_json::to_vec(&value).unwrap()).unwrap();
+  let (exit_code, trimmed) = fixture.run(&["lease", "trim"]);
+  assert_eq!(exit_code, 0, "{trimmed}");
+  assert_eq!(trimmed["pools"][0]["expired_notes"][0]["lease_id"], json!(lease_id), "{trimmed}");
+  assert!(!old.exists() && !record.exists());
+}
+
+/// A trim that deletes every free slot of the pool leaves the notes beside them, and no status or trim names them as
+/// a slot: `notes` of the pool directory is no number
+#[test_log::test]
+fn a_trim_of_every_slot_keeps_the_notes_in_the_pool_directory() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&["--holder", "lane-1"]);
+  std::fs::write(notes_of(&got).join("kept.log"), "kept\n").unwrap();
+  fixture.give_back(&path_of(&got));
+  let (exit_code, trimmed) = fixture.run(&["lease", "trim", "--max", "0"]);
+  assert_eq!(exit_code, 0, "{trimmed}");
+  let removed = trimmed["pools"][0]["removed"].as_array().unwrap();
+  assert_eq!(removed.len(), 1, "{trimmed}");
+  assert!(!Path::new(&path_of(&got)).exists(), "the slot went");
+  assert_eq!(std::fs::read_to_string(notes_of(&got).join("kept.log")).unwrap(), "kept\n");
+  assert!(record_file(&got).exists());
+  let status = fixture.status();
+  let notes_root = notes_of(&got).parent().unwrap().to_path_buf();
+  assert!(
+    status["slots"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .all(|slot| !Path::new(slot["path"].as_str().unwrap()).starts_with(&notes_root)),
+    "{status}"
+  );
+  let listed = notes(&fixture, fixture.repo.path(), &["--holder", "lane-1"]);
+  assert_eq!(listed.len(), 1, "{listed:?}");
 }

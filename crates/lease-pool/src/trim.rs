@@ -22,12 +22,12 @@ use crate::lease::{
   stop_servers,
 };
 use crate::lease_clean::{Trash, remove_measured, remove_measured_until};
-use crate::lease_notes::{DEFAULT_NOTES_KEEP, ExpiredNotes, expire_notes, held_leases, notes_keep};
+use crate::lease_notes::{DEFAULT_NOTES_KEEP, ExpiredNotes, NotesRoots, config_pool_dir, expire_notes, held_leases, notes_keep};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
 use crate::shrink::{next_free, shrink_order};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LeaseConfig, forget_slot, lease_config};
+use git_ops::lease_slot::{LEASE_NOTES_DIR, LeaseConfig, forget_slot, lease_config};
 use git_ops::revs::RepositoryDirs;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -267,7 +267,13 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       warn!(pool = %machine_pool.git_common_dir.display(), error = %error, "the notes of the pool keep the default");
     }
     let store = pool.read()?;
-    let expired_notes = expire_notes(&pool.notes_root(), &held_leases(&store), keep, crate::lease_notes::now_seconds(), !params.apply);
+    // every place of the notes (`lease_notes::NotesRoots`), the old place of a brd before too
+    let pool_dir = config
+      .as_ref()
+      .ok()
+      .and_then(|config| config_pool_dir(config, &machine_pool.git_common_dir, params.home).ok());
+    let notes_roots = NotesRoots::of(&machine_pool.git_common_dir, &store, pool_dir.as_deref());
+    let expired_notes = expire_notes(&notes_roots, &held_leases(&store), keep, crate::lease_notes::now_seconds(), !params.apply);
     let (present, free) = trim_order(&store.slots);
     let mut report = TrimmedPool {
       git_common_dir: display_path(&machine_pool.git_common_dir),
@@ -679,9 +685,11 @@ pub(crate) fn machine_pools(repository: &RepositoryDirs, home: Option<&Path>) ->
   for pool_dir in child_dirs(&root) {
     // a pool names one repository: the first slot that tells it is enough; its common dir in the form of
     // `canonical_path`, as the pool of the repository above: the canonical path of Windows is verbatim (`\\?\C:\`), and
-    // the pool of the repository would come twice, each free slot shrunk twice
+    // the pool of the repository would come twice, each free slot shrunk twice. The notes of the leases beside the
+    // slots are none (`lease_notes`): a repository an agent made in them names no pool
     let common = child_dirs(&pool_dir)
       .into_iter()
+      .filter(|number| number.file_name().is_none_or(|name| name != LEASE_NOTES_DIR))
       .flat_map(|number| child_dirs(&number))
       .find_map(|slot| git_ops::lease_slot::linked_worktree(&slot).map(|worktree| PathBuf::from(display_path(&worktree.git_common_dir))));
     if let Some(git_common_dir) = common

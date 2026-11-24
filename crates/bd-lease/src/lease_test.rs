@@ -930,12 +930,15 @@ fn the_status_of_a_slot_leaves_its_untracked_cache_warm() {
   assert!(cold.0 > 40 && cold.1 > 40, "a cold status opened {cold:?} directories");
 }
 
-/// The entries of the pool directory of `got`, without the slot names: what a clone may leave behind
+/// The entries of the number directories of the pool directory of `got`, the notes of the leases beside them left out:
+/// what a clone may leave behind
 #[cfg(unix)]
 fn pool_entries(got: &Value) -> Vec<String> {
   let mut entries: Vec<String> = std::fs::read_dir(got["pool"].as_str().unwrap())
     .unwrap()
     .flatten()
+    // the notes of the leases beside the slots (`lease_notes`)
+    .filter(|number| number.file_name() != "notes")
     .flat_map(|number| {
       std::fs::read_dir(number.path())
         .unwrap()

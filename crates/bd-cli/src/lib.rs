@@ -688,7 +688,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Notes(args),
     }) => lease_context(None)
-      .and_then(|context| bd_lease::notes_command::lease_notes(&context, args))
+      .and_then(|context| bd_lease::notes_command::lease_notes(&context, environment, args))
       .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),

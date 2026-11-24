@@ -97,9 +97,10 @@ impl UntrackedFiles {
 /// status of the pool counts as a change, also where `info/exclude` lost the line that ignores it
 pub const NOTES_LINK: &str = "notes.local";
 
-/// The directory of the state of Branch Deck in `$GIT_COMMON_DIR`: the pool, its locks, the notes of the leases, the
-/// object cache, the operations registry; and in the git directory of a worktree, the files of its lease and the copies
-/// of its resolve sessions. The one name of it: every path of the state is built from this
+/// The directory of the state of Branch Deck in `$GIT_COMMON_DIR`: the pool, its locks, the notes of the leases of a brd
+/// before the notes in the pool directory, the object cache, the operations registry; and in the git directory of a
+/// worktree, the files of its lease and the copies of its resolve sessions. The one name of it: every path of the state
+/// is built from this
 pub const STATE_DIR: &str = "branch-deck";
 
 /// The directory of the object cache in `STATE_DIR` of `$GIT_COMMON_DIR`, shared by every worktree of the repository
@@ -115,17 +116,22 @@ pub fn object_cache_dir(git_common_dir: &Path) -> PathBuf {
   state_dir(git_common_dir).join(OBJECT_CACHE_DIR)
 }
 
-/// The directory of the notes of the leases in `STATE_DIR`, one directory per lease named by its id
+/// The directory of the notes of the leases (`lease_pool::lease_notes`), one directory per lease named by its id, with
+/// its record `<lease id>.json` beside it: in the pool directory, `<pool dir>/notes`; of a brd before that, in
+/// `STATE_DIR` (`legacy_notes_root`)
 pub const LEASE_NOTES_DIR: &str = "notes";
 
-/// The notes of the leases of the repository of `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/notes`
-pub fn lease_notes_root(git_common_dir: &Path) -> PathBuf {
+/// Where a brd before the notes in the pool directory kept the notes of the leases of the repository of
+/// `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/notes`, read and expired there, never written
+pub fn legacy_notes_root(git_common_dir: &Path) -> PathBuf {
   state_dir(git_common_dir).join(LEASE_NOTES_DIR)
 }
 
-/// Whether `link` is a link to the notes of a lease of the repository of `git_common_dir`, as `NOTES_LINK` of a slot is:
-/// its target is absolute, has no `.` or `..`, and names a directory, no link itself, right in `lease_notes_root`. A
-/// fetch of brd-host writes through such a link, and through no other one
+/// Whether `link`, `NOTES_LINK` at the root of a checkout, links to the notes of the lease of that very checkout: its
+/// target is absolute, has no `.` or `..`, and names a directory, no link itself, in a `LEASE_NOTES_DIR` directory,
+/// whose record beside it (`<name>.json`) names the checkout as its slot. A fetch of brd-host writes through such a
+/// link, and through no other one. `git_common_dir`: the repository of the checkout, whose old place of the notes
+/// (`legacy_notes_root`) counts too
 pub fn links_to_lease_notes(link: &Path, git_common_dir: &Path) -> bool {
   let Ok(target) = std::fs::read_link(link) else {
     return false;
@@ -134,13 +140,19 @@ pub fn links_to_lease_notes(link: &Path, git_common_dir: &Path) -> bool {
     && target
       .components()
       .all(|part| matches!(part, Component::RootDir | Component::Prefix(_) | Component::Normal(_)));
-  let in_root = target
-    .parent()
-    .is_some_and(|parent| match (std::fs::canonicalize(parent), std::fs::canonicalize(lease_notes_root(git_common_dir))) {
-      (Ok(parent), Ok(root)) => parent == root,
-      _ => false,
-    });
-  plain && in_root && std::fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_dir())
+  if !plain || !std::fs::symlink_metadata(&target).is_ok_and(|metadata| metadata.is_dir()) {
+    return false;
+  }
+  let (Some(parent), Some(name), Some(root)) = (target.parent(), target.file_name(), link.parent()) else {
+    return false;
+  };
+  let in_notes = parent.file_name().is_some_and(|dir| dir == LEASE_NOTES_DIR) || parent == legacy_notes_root(git_common_dir);
+  let record = parent.join(format!("{}.json", name.to_string_lossy()));
+  let slot = std::fs::read(record)
+    .ok()
+    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    .and_then(|record| record.get("slot")?.as_str().map(PathBuf::from));
+  in_notes && slot.is_some_and(|slot| matches!((std::fs::canonicalize(slot), std::fs::canonicalize(root)), (Ok(slot), Ok(root)) if slot == root))
 }
 
 /// Whether `path` of a `status` is the notes of a lease: the link, or the directory where the system makes no link, a

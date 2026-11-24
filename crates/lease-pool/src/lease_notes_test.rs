@@ -1,15 +1,17 @@
-use crate::lease::{Lease, LeaseState};
+use crate::lease::{Lease, LeaseState, LeaseStore, Slot};
 use crate::lease_notes::{
-  NOTES_LINK, all_notes, close_notes, expire_notes, expire_pool_notes, expires_at, note_files, notes_dir, now_seconds, open_notes, read_notes, record_path, seam,
+  NOTES_LINK, NotesRoots, all_notes, close_notes, expire_notes, expire_pool_notes, expires_at, new_notes_root, note_files, notes_dir, now_seconds, open_notes, read_notes,
+  record_path, seam, slot_notes_root,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::STATE_DIR;
+use git_ops::lease_slot::{STATE_DIR, legacy_notes_root};
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// A slot, the common dir of its repository and the root of the notes, each a directory of `dir`
+/// A slot, the common dir of its repository and the root of the notes, each a directory of `dir`, the pool directory:
+/// the root is `notes` in it, as the slot `<dir>/1/repo` tells
 struct Pool {
   _dir: tempfile::TempDir,
   slot: PathBuf,
@@ -23,7 +25,7 @@ impl Pool {
     let (slot, git_common_dir) = (dir.path().join("1/repo"), dir.path().join("repo/.git"));
     std::fs::create_dir_all(&slot).unwrap();
     std::fs::create_dir_all(&git_common_dir).unwrap();
-    let root = git_common_dir.join(STATE_DIR).join("notes");
+    let root = slot_notes_root(&slot).unwrap();
     Self {
       _dir: dir,
       slot,
@@ -40,8 +42,30 @@ impl Pool {
     open_notes(&self.root, &self.slot, &self.git_common_dir, lease).unwrap().dir
   }
 
+  /// The places of the notes by the state that has the slot
+  fn roots(&self) -> NotesRoots {
+    NotesRoots::of(&self.git_common_dir, &store_of(&self.slot, None), None)
+  }
+
   fn notes_local(&self) -> PathBuf {
     self.slot.join(NOTES_LINK)
+  }
+}
+
+/// A state of a pool with `slot`, leased to `lease` or free
+fn store_of(slot: &Path, lease: Option<&Lease>) -> LeaseStore {
+  LeaseStore {
+    slots: vec![Slot {
+      name: "repo1".to_string(),
+      path: slot.to_string_lossy().into_owned(),
+      dirty: false,
+      dirty_check: None,
+      returned: None,
+      returned_at: None,
+      lease: lease.cloned(),
+      reclaimed: None,
+    }],
+    ..LeaseStore::default()
   }
 }
 
@@ -62,7 +86,7 @@ fn the_notes_of_a_lease_outlive_its_return_and_the_next_lease_starts_empty() {
   write(&pool.notes_local().join("logs/gate.log"), "green\n");
   assert_eq!(std::fs::read_to_string(dir.join("logs/gate.log")).unwrap(), "green\n");
 
-  let closed = close_notes(&pool.root, &pool.slot, &first.id).expect("the notes of the lease");
+  let closed = close_notes(&pool.roots(), &pool.slot, &first.id).expect("the notes of the lease");
   assert!(pool.notes_local().symlink_metadata().is_err(), "the return removes the link");
   assert!(closed.record.returned_at.is_some(), "{closed:?}");
   assert_eq!(std::fs::read_to_string(dir.join("logs/gate.log")).unwrap(), "green\n");
@@ -126,7 +150,7 @@ fn without_a_link_the_return_moves_the_notes_out_of_the_worktree() {
     write(&pool.notes_local().join("b.log"), "b\n");
     let before = file_id(&pool.notes_local().join("probe/a.txt"));
 
-    close_notes(&pool.root, &pool.slot, &lease.id).expect("the notes of the lease");
+    close_notes(&pool.roots(), &pool.slot, &lease.id).expect("the notes of the lease");
     assert_moved(before, &dir.join("probe/a.txt"), across_volumes);
     assert!(
       pool.notes_local().symlink_metadata().is_err(),
@@ -190,38 +214,40 @@ fn a_directory_without_a_record_expires_by_its_age() {
   let keep = Duration::from_hours(24);
   let later = now_seconds() + keep.as_secs() + 60;
 
-  assert!(expire_notes(&pool.root, &holding, keep, now_seconds(), false).is_empty(), "not yet");
-  assert!(expire_notes(&pool.root, &holding, Duration::ZERO, later, false).is_empty(), "keep 0");
-  let planned = expire_notes(&pool.root, &holding, keep, later, true);
+  assert!(expire_notes(&pool.roots(), &holding, keep, now_seconds(), false).is_empty(), "not yet");
+  assert!(expire_notes(&pool.roots(), &holding, Duration::ZERO, later, false).is_empty(), "keep 0");
+  let planned = expire_notes(&pool.roots(), &holding, keep, later, true);
   assert_eq!(
     planned.iter().map(|notes| (notes.lease_id.as_str(), notes.holder.as_deref())).collect::<Vec<_>>(),
     [("orphan", None)]
   );
   assert!(orphan.is_dir(), "a plan deletes nothing");
 
-  let expired = expire_notes(&pool.root, &holding, keep, later, false);
+  let expired = expire_notes(&pool.roots(), &holding, keep, later, false);
   assert_eq!(expired.len(), 1, "{expired:?}");
   assert!(expired[0].bytes > 0 && expired[0].error.is_none(), "{expired:?}");
   assert!(!orphan.exists() && held.is_dir());
 }
 
-/// The keeper deletes nothing where the state of the pool can't be read: without it no lease is known to be held
+/// The keeper deletes nothing where the state of the pool can't be read: without it no lease is known to be held. Here
+/// the notes are in the old place of a brd before, which the keeper expires too
 #[test]
 fn no_notes_expire_where_the_state_of_the_pool_cannot_be_read() {
   let pool = Pool::new();
+  let old_root = legacy_notes_root(&pool.git_common_dir);
   let lease = Pool::lease("held long");
-  let dir = pool.open(&lease);
-  let mut record = read_notes(&pool.root, &lease.id).unwrap().record;
+  let dir = open_notes(&old_root, &pool.slot, &pool.git_common_dir, &lease).unwrap().dir;
+  let mut record = read_notes(&old_root, &lease.id).unwrap().record;
   record.leased_at = 1;
-  std::fs::write(record_path(&pool.root, &lease.id), serde_json::to_vec(&record).unwrap()).unwrap();
+  std::fs::write(record_path(&old_root, &lease.id), serde_json::to_vec(&record).unwrap()).unwrap();
   std::fs::write(pool.git_common_dir.join(STATE_DIR).join("leases.json"), "not the state").unwrap();
 
-  assert_eq!(expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir), Vec::new());
+  assert_eq!(expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir, None), Vec::new());
 
-  assert!(dir.is_dir() && read_notes(&pool.root, &lease.id).is_some(), "the notes stay");
+  assert!(dir.is_dir() && read_notes(&old_root, &lease.id).is_some(), "the notes stay");
   std::fs::remove_file(pool.git_common_dir.join(STATE_DIR).join("leases.json")).unwrap();
   assert_eq!(
-    expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir).len(),
+    expire_pool_notes(&GitCommandExecutor::new(), &pool.git_common_dir, None).len(),
     1,
     "without the state file no lease is held"
   );
@@ -248,19 +274,19 @@ fn the_notes_expire_after_the_return_and_never_while_the_lease_is_held() {
   let returned_dir = pool.open(&returned);
   write(&returned_dir.join("old.log"), "old\n");
   let held_dir = pool.open(&held);
-  close_notes(&pool.root, &pool.slot, &returned.id);
+  close_notes(&pool.roots(), &pool.slot, &returned.id);
   let returned_at = read_notes(&pool.root, &returned.id).unwrap().record.returned_at.unwrap();
   let holding: HashSet<String> = [held.id.clone()].into();
   let keep = Duration::from_hours(14 * 24);
   assert_eq!(expires_at(&read_notes(&pool.root, &held.id).unwrap().record, &holding, keep), None);
   assert_eq!(expires_at(&read_notes(&pool.root, &returned.id).unwrap().record, &holding, Duration::ZERO), None);
 
-  assert!(expire_notes(&pool.root, &holding, keep, returned_at + keep.as_secs() - 1, false).is_empty(), "not yet");
-  let planned = expire_notes(&pool.root, &holding, keep, returned_at + keep.as_secs(), true);
+  assert!(expire_notes(&pool.roots(), &holding, keep, returned_at + keep.as_secs() - 1, false).is_empty(), "not yet");
+  let planned = expire_notes(&pool.roots(), &holding, keep, returned_at + keep.as_secs(), true);
   assert_eq!(planned.iter().map(|notes| notes.lease_id.as_str()).collect::<Vec<_>>(), [returned.id.as_str()]);
   assert!(returned_dir.is_dir(), "a plan deletes nothing");
 
-  let expired = expire_notes(&pool.root, &holding, keep, returned_at + keep.as_secs(), false);
+  let expired = expire_notes(&pool.roots(), &holding, keep, returned_at + keep.as_secs(), false);
   assert_eq!(expired.len(), 1, "{expired:?}");
   assert!(expired[0].bytes > 0 && expired[0].error.is_none(), "{expired:?}");
   assert!(!returned_dir.exists() && read_notes(&pool.root, &returned.id).is_none());
@@ -278,4 +304,66 @@ fn the_files_of_the_notes_are_listed_by_path() {
   let listed: Vec<(&str, u64)> = files.iter().map(|file| (file.path.as_str(), file.bytes)).collect();
   assert_eq!(listed, [("a.log", 2), ("b/c.txt", 3)]);
   assert!(!more);
+}
+
+/// The root of the notes follows from the slot: `<pool dir>/notes` of a slot `<pool dir>/<n>/<name>`; a worktree
+/// elsewhere (an adopted one) takes `notes` of the pool directory of the get
+#[test]
+fn the_root_of_the_notes_follows_from_the_slot() {
+  let pool_dir = Path::new("/pools/repo-12345678");
+  assert_eq!(slot_notes_root(&pool_dir.join("3/repo")), Some(pool_dir.join("notes")));
+  assert_eq!(slot_notes_root(Path::new("/work/adopted/repo")), None);
+  assert_eq!(new_notes_root(&pool_dir.join("3/repo"), Path::new("/elsewhere")), pool_dir.join("notes"));
+  assert_eq!(new_notes_root(Path::new("/work/adopted/repo"), pool_dir), pool_dir.join("notes"));
+}
+
+/// A reader finds the notes in the pool directory first, then those a brd before kept in the common dir, which stay
+/// there, read only: nothing moves them, the return closes them where the link of the slot points, and they expire
+#[test]
+fn the_notes_of_a_brd_before_are_read_where_they_are_and_expire_there() {
+  let pool = Pool::new();
+  let old_root = legacy_notes_root(&pool.git_common_dir);
+  let (old, new) = (Pool::lease("old"), Pool::lease("new"));
+  let old_dir = open_notes(&old_root, &pool.slot, &pool.git_common_dir, &old).unwrap().dir;
+  write(&pool.notes_local().join("gate.log"), "green\n");
+  let roots = NotesRoots::of(&pool.git_common_dir, &store_of(&pool.slot, Some(&old)), None);
+  assert_eq!(
+    roots.places().map(Path::to_path_buf).collect::<Vec<_>>(),
+    [
+      std::fs::canonicalize(&pool.root).unwrap_or_else(|_| pool.root.clone()),
+      std::fs::canonicalize(&old_root).unwrap()
+    ]
+  );
+  let canonical = |path: &Path| std::fs::canonicalize(path).unwrap();
+  assert_eq!(roots.find(&old.id).map(|notes| canonical(&notes.dir)), Some(canonical(&old_dir)));
+
+  let closed = close_notes(&roots, &pool.slot, &old.id).unwrap();
+  assert_eq!(canonical(&closed.dir), canonical(&old_dir), "closed where the link pointed");
+  assert!(read_notes(&old_root, &old.id).unwrap().record.returned_at.is_some());
+  assert_eq!(std::fs::read_to_string(old_dir.join("gate.log")).unwrap(), "green\n");
+
+  let new_dir = pool.open(&new);
+  assert_eq!(new_dir, notes_dir(&pool.root, &new.id), "a new lease goes into the pool directory");
+  let listed: Vec<String> = roots.all().into_iter().map(|notes| notes.record.holder).collect();
+  assert_eq!(listed.len(), 2, "{listed:?}");
+  let held: HashSet<String> = [new.id].into();
+  let expired = expire_notes(&roots, &held, Duration::from_secs(1), now_seconds() + 60, false);
+  assert_eq!(expired.iter().map(|notes| notes.lease_id.as_str()).collect::<Vec<_>>(), [old.id.as_str()]);
+  assert!(!old_dir.exists() && new_dir.is_dir());
+}
+
+/// The expiry deletes only expired notes of each place, nothing else of the pool directory the root is in
+#[test]
+fn the_expiry_deletes_nothing_beside_the_notes_in_the_pool_directory() {
+  let pool = Pool::new();
+  let returned = Pool::lease("returned");
+  pool.open(&returned);
+  close_notes(&pool.roots(), &pool.slot, &returned.id).unwrap();
+  let pool_dir = pool.root.parent().unwrap().to_path_buf();
+  write(&pool_dir.join("1/repo/kept.txt"), "slot\n");
+  write(&pool_dir.join("probe.log"), "beside\n");
+  let expired = expire_notes(&pool.roots(), &HashSet::new(), Duration::from_secs(1), now_seconds() + 60, false);
+  assert_eq!(expired.len(), 1, "{expired:?}");
+  assert!(pool_dir.join("1/repo/kept.txt").exists() && pool_dir.join("probe.log").exists());
+  assert!(pool.root.is_dir(), "the root stays");
 }

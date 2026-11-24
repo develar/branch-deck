@@ -1,32 +1,44 @@
 //! The notes of a lease (`brd lease notes`, openspec/specs/cli/lease/spec.md, "Notes"): the logs, probes and patches of
 //! the session that holds a lease, kept outside its worktree so that they outlive the return. Each lease has a
-//! directory of its own beside the state of the pool, `$GIT_COMMON_DIR/branch-deck/notes/<lease id>/`, and a record
-//! beside it (`<lease id>.json`: its holder, its slot, its branch, when it was got and returned). In the worktree,
-//! `notes.local` links to the directory, so an agent writes there as it always did; the get adds `/notes.local` to
-//! `info/exclude` of the repository where that file lacks the line, so no `git add` takes the link and no status of the
-//! pool counts it. The return removes the link, so the next holder of the slot starts with an empty `notes.local`, and
-//! the directory stays.
+//! directory of its own in the pool directory of the repository, `<pool dir>/notes/<lease id>/`, and a record beside it
+//! (`<lease id>.json`: its holder, its slot, its branch, when it was got and returned). In the worktree, `notes.local`
+//! links to the directory, so an agent writes there as it always did; the get adds `/notes.local` to `info/exclude` of
+//! the repository where that file lacks the line, so no `git add` takes the link and no status of the pool counts it.
+//! The return removes the link, so the next holder of the slot starts with an empty `notes.local`, and the directory
+//! stays.
 //!
-//! Beside the state, not in the directory of the pool: every lease command knows the common dir, while the pool
-//! directory takes the config and the home (`branchdeck.leasePool`), a trim may delete every slot of a pool, and the
-//! record of a lease outlives the slots.
+//! In the pool directory, beside the slots: that directory is where the sessions that lead agents may read already, and
+//! a link of `notes.local` is matched by its target too, so notes in `$GIT_COMMON_DIR` (of a main checkout,
+//! `<repository>/.git`) asked the user for every read of a lead. `notes` is no number, so no slot of the pool
+//! (`<pool dir>/<n>/<name>`), no clone leftover, no trim and no disk report takes it for one, and a trim deletes the
+//! number directory of a slot, never the pool directory; only the expired notes go (`expire_notes`).
+//!
+//! The root of a new lease follows from its slot, `<pool dir>/<n>/<name>` → `<pool dir>/notes` (`slot_notes_root`; a
+//! worktree that `brd lease adopt` kept elsewhere: `notes` of the pool directory of the get), so no file names it, and
+//! a reader looks in every place the notes may be (`NotesRoots`): the root of each pool directory that a slot of the
+//! state lives in and of the pool directory of the config where the reader knows it (`brd lease notes`, the trim, the
+//! status, the keeper of a host), then `$GIT_COMMON_DIR/branch-deck/notes`, where a brd before kept them. Nothing moves
+//! the notes of that old place: they are read and expire there, and the read of it goes once the last of them expired.
+//! The return closes the notes where the link of the slot points.
 //!
 //! Where the system makes no link (Windows without the right to make one), `notes.local` is a directory of the worktree,
 //! whose entries the return moves into the directory of the lease. A `notes.local` that an earlier lease left in the
 //! slot (a return that could not move it, a brd before the notes) is moved into notes of its own by the next get
-//! (`left-<uuid>`), never shown to the next holder. The slot and the state of the pool may be on two volumes (a
-//! `branchdeck.leasePool` on another disk, on Windows a repository on `D:` with its pool under `C:\Users`), so each
-//! move copies where no rename crosses them (`fs_retry::move_path`).
+//! (`left-<uuid>`), never shown to the next holder. The slot and the notes may be on two volumes (a slot that `brd
+//! lease adopt` kept where it was on another disk), so each move copies where no rename crosses them
+//! (`fs_retry::move_path`).
 //!
 //! The notes of a returned lease expire `branchdeck.leaseNotesKeep` after its return (14 days by default, `0` keeps
-//! them): `brd lease trim` and the keeper of a host delete them, never those of a lease the pool holds, and nothing
-//! where the state of the pool can't be read. A directory without a record (a get that stopped before it wrote one)
-//! expires by its modification time.
+//! them): `brd lease trim` and the keeper of a host delete them, in every place, never those of a lease the pool holds,
+//! and nothing where the state of the pool can't be read. A directory without a record (a get that stopped before it
+//! wrote one) expires by its modification time.
 
-use crate::lease::{Lease, LeaseStore, Pool, canonical_path};
+use crate::lease::{Lease, LeaseStore, Pool, canonical_path, pool_dir};
 use crate::lease_clean::parse_age;
+use crate::trim::main_worktree;
+use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LEASE_NOTES_DIR, LeaseConfig, NOTES_LINK, lease_config};
+use git_ops::lease_slot::{LEASE_NOTES_DIR, LeaseConfig, NOTES_LINK, lease_config, legacy_notes_root};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -74,10 +86,82 @@ impl LeaseNotes {
   }
 }
 
-/// The directory of every note of the pool whose state is in `state_dir` (`Pool::state_dir`): `lease_notes_root` of
-/// git-ops, which a fetch of brd-host writes through
-pub fn notes_root(state_dir: &Path) -> PathBuf {
-  state_dir.join(LEASE_NOTES_DIR)
+/// The root of the notes of the leases of the slot `slot`, `<pool dir>/<n>/<name>`: `<pool dir>/notes`, beside the
+/// number directories; `None` for a worktree elsewhere (`brd lease adopt` without `--move`)
+pub fn slot_notes_root(slot: &Path) -> Option<PathBuf> {
+  let number = slot.parent()?;
+  number.file_name()?.to_str()?.parse::<u32>().ok()?;
+  Some(number.parent()?.join(LEASE_NOTES_DIR))
+}
+
+/// The root of the notes of a new lease in `slot`: `slot_notes_root`, else `notes` of `pool_dir`, the pool directory of
+/// the get
+pub(crate) fn new_notes_root(slot: &Path, pool_dir: &Path) -> PathBuf {
+  slot_notes_root(slot).unwrap_or_else(|| pool_dir.join(LEASE_NOTES_DIR))
+}
+
+/// The pool directory of the config of the pool of `git_common_dir` (`pool_dir`), a relative `branchdeck.leasePool`
+/// read from the main worktree, as from any checkout of the repository the one directory
+pub fn config_pool_dir(config: &LeaseConfig, git_common_dir: &Path, home: Option<&Path>) -> Result<PathBuf> {
+  let repository = main_worktree(git_common_dir).unwrap_or_else(|| git_common_dir.to_path_buf());
+  pool_dir(config, &display_path(&repository), git_common_dir, home)
+}
+
+/// Every place the notes of a pool may be in, each read in its order: `notes` of each pool directory that a slot of
+/// the state lives in (`slot_notes_root`) and of the pool directory of the config where the reader knows it, then
+/// `$GIT_COMMON_DIR/branch-deck/notes` (`legacy_notes_root`), where a brd before kept them, read and expired, never
+/// written. That last place goes once the last of the notes there expired
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotesRoots {
+  places: Vec<PathBuf>,
+}
+
+impl NotesRoots {
+  /// The places of the pool of `git_common_dir` whose state is `store`, with `notes` of `pool_dir`
+  pub fn of(git_common_dir: &Path, store: &LeaseStore, pool_dir: Option<&Path>) -> Self {
+    let candidates = store
+      .slots
+      .iter()
+      .filter_map(|slot| slot_notes_root(Path::new(&slot.path)))
+      .chain(pool_dir.map(|dir| dir.join(LEASE_NOTES_DIR)))
+      .chain(std::iter::once(legacy_notes_root(git_common_dir)));
+    let mut places: Vec<PathBuf> = Vec::new();
+    for place in candidates {
+      let place = PathBuf::from(canonical_path(&place));
+      if !places.contains(&place) {
+        places.push(place);
+      }
+    }
+    Self { places }
+  }
+
+  /// One place alone: notes of a test
+  pub fn at(root: &Path) -> Self {
+    Self { places: vec![root.to_path_buf()] }
+  }
+
+  /// Each place, in its order
+  pub fn places(&self) -> impl Iterator<Item = &Path> {
+    self.places.iter().map(PathBuf::as_path)
+  }
+
+  /// The notes of `lease_id`, in the first place that has its record
+  pub fn find(&self, lease_id: &str) -> Option<LeaseNotes> {
+    self.places().find_map(|place| read_notes(place, lease_id))
+  }
+
+  /// Every note of every place, each lease once (the first place wins), the lease got last first
+  pub fn all(&self) -> Vec<LeaseNotes> {
+    let mut seen = HashSet::new();
+    let mut notes: Vec<LeaseNotes> = self.places().flat_map(all_notes).filter(|notes| seen.insert(notes.record.lease_id.clone())).collect();
+    sort_notes(&mut notes);
+    notes
+  }
+
+  /// The bytes on disk of every place
+  pub fn bytes(&self) -> u64 {
+    self.places().map(fs_walk::tree_size).sum()
+  }
 }
 
 /// The directory of the notes of `lease_id`
@@ -114,8 +198,12 @@ pub fn all_notes(root: &Path) -> Vec<LeaseNotes> {
       read_notes(root, name.strip_suffix(".json")?)
     })
     .collect();
-  notes.sort_by(|a, b| b.record.leased_at.cmp(&a.record.leased_at).then_with(|| a.record.lease_id.cmp(&b.record.lease_id)));
+  sort_notes(&mut notes);
   notes
+}
+
+fn sort_notes(notes: &mut [LeaseNotes]) {
+  notes.sort_by(|a, b| b.record.leased_at.cmp(&a.record.leased_at).then_with(|| a.record.lease_id.cmp(&b.record.lease_id)));
 }
 
 fn write_record(root: &Path, record: &NotesRecord) -> std::io::Result<()> {
@@ -184,11 +272,19 @@ fn undo_notes(dir: &Path, link: &Path) {
 }
 
 /// At the return of `lease_id` from `slot`: `notes.local` of the slot removed (a link), or its entries moved into the
-/// directory of the lease (a directory), and the return in the record. No record (a host slot, a lease of a brd before
-/// the notes): nothing. Never fails the return: what can't be moved stays, and the next get sets it aside
-pub(crate) fn close_notes(root: &Path, slot: &Path, lease_id: &str) -> Option<LeaseNotes> {
-  let mut notes = read_notes(root, lease_id)?;
+/// directory of the lease (a directory), and the return in the record, beside the directory the link names, else in
+/// the first place of `roots` that has it. No record
+/// (a host slot, a lease of a brd before the notes): nothing. Never fails the return: what can't be moved stays, and
+/// the next get sets it aside
+pub(crate) fn close_notes(roots: &NotesRoots, slot: &Path, lease_id: &str) -> Option<LeaseNotes> {
   let link = slot.join(NOTES_LINK);
+  // where the link of the slot points, else the first place that has them
+  let linked = std::fs::read_link(&link)
+    .ok()
+    .filter(|target| target.file_name().is_some_and(|name| name == lease_id))
+    .and_then(|target| read_notes(target.parent()?, lease_id));
+  let mut notes = linked.or_else(|| roots.find(lease_id))?;
+  let root = notes.dir.parent()?.to_path_buf();
   match link.symlink_metadata() {
     Ok(metadata) if metadata.file_type().is_symlink() => {
       if let Err(error) = fs_retry::remove_entry(&link, &metadata.file_type()) {
@@ -203,7 +299,7 @@ pub(crate) fn close_notes(root: &Path, slot: &Path, lease_id: &str) -> Option<Le
     _ => {}
   }
   notes.record.returned_at = Some(now_seconds());
-  if let Err(error) = write_record(root, &notes.record) {
+  if let Err(error) = write_record(&root, &notes.record) {
     warn!(lease = %lease_id, error = %error, "cannot record the return in the notes of the lease");
   }
   Some(notes)
@@ -332,10 +428,16 @@ pub fn held_leases(store: &LeaseStore) -> HashSet<String> {
     .collect()
 }
 
+/// The notes of every place of `roots` that expired by `now` (`expire_place`)
+pub fn expire_notes(roots: &NotesRoots, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
+  roots.places().flat_map(|place| expire_place(place, held, keep, now, plan)).collect()
+}
+
 /// The notes of `root` that expired by `now` (`expires_at`), deleted unless `plan`: their directories and records; then
 /// the directories without a record (a get that stopped before it wrote one, the copy of a move across volumes that
-/// stopped), `keep` after their modification time, never one named by `held` nor with `keep` 0
-pub fn expire_notes(root: &Path, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
+/// stopped), `keep` after their modification time, never one named by `held` nor with `keep` 0. Only what is in
+/// `root`: the rest of the pool directory is never touched
+fn expire_place(root: &Path, held: &HashSet<String>, keep: Duration, now: u64, plan: bool) -> Vec<ExpiredNotes> {
   let recorded = all_notes(root)
     .into_iter()
     .filter(|notes| expires_at(&notes.record, held, keep).is_some_and(|at| at <= now))
@@ -389,19 +491,28 @@ fn unrecorded_dirs(root: &Path) -> Vec<(String, PathBuf, u64)> {
 }
 
 /// `expire_notes` of the pool of `git_common_dir` now, deleting: with its `branchdeck.leaseNotesKeep` (one `git config`)
-/// and the leases it holds, for the keeper of a host. A config that can't be read keeps the default
-pub fn expire_pool_notes(git_executor: &GitCommandExecutor, git_common_dir: &Path) -> Vec<ExpiredNotes> {
+/// and the leases it holds, for the keeper of a host, in every place (`NotesRoots`; `home` tells the pool directory of
+/// the config). A config that can't be read keeps the default
+pub fn expire_pool_notes(git_executor: &GitCommandExecutor, git_common_dir: &Path, home: Option<&Path>) -> Vec<ExpiredNotes> {
   let git_common_dir = PathBuf::from(canonical_path(git_common_dir));
-  let keep = lease_config(git_executor, &display_path(&git_common_dir)).map_or(DEFAULT_NOTES_KEEP, |config| {
-    let (keep, error) = notes_keep(&config);
+  let config = lease_config(git_executor, &display_path(&git_common_dir)).ok();
+  let keep = config.as_ref().map_or(DEFAULT_NOTES_KEEP, |config| {
+    let (keep, error) = notes_keep(config);
     if let Some(error) = error {
       warn!(error = %error, "the notes of the pool keep the default");
     }
     keep
   });
+  let pool_dir = config.as_ref().and_then(|config| config_pool_dir(config, &git_common_dir, home).ok());
   let pool = Pool::new(&git_common_dir);
   match pool.read() {
-    Ok(store) => expire_notes(&pool.notes_root(), &held_leases(&store), keep, now_seconds(), false),
+    Ok(store) => expire_notes(
+      &NotesRoots::of(&git_common_dir, &store, pool_dir.as_deref()),
+      &held_leases(&store),
+      keep,
+      now_seconds(),
+      false,
+    ),
     Err(error) => {
       warn!(pool = %git_common_dir.display(), error = %format!("{error:#}"), "the state of the pool can't be read: no notes expire");
       Vec::new()
@@ -415,11 +526,6 @@ fn remove_notes(root: &Path, notes: &LeaseNotes) -> std::io::Result<()> {
     fs_retry::remove_dir_all(&notes.dir)?;
   }
   fs_retry::remove_file(record_path(root, &notes.record.lease_id))
-}
-
-/// The bytes on disk of every note of `root`
-pub fn notes_bytes(root: &Path) -> u64 {
-  fs_walk::tree_size(root)
 }
 
 /// A file of the notes of a lease

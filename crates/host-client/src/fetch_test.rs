@@ -201,14 +201,14 @@ async fn a_planted_part_link_is_removed_and_its_target_stays() {
 /// setup
 async fn fetch_into_notes(local: impl FnOnce(&Path, &Path)) -> (Result<Vec<String>, Refusal>, Setup) {
   let setup = agent_sending(vec![("notes.local/run.log", FileKind::Staged, 3, b"log".to_vec())]);
-  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
-  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let notes = git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git"));
+  record_notes(&notes.join("lease-1"), setup.repo.path());
   let fetched = fetch_with(&setup, None, &["notes.local".to_owned()], |root| local(root, &notes)).await;
   (fetched, setup)
 }
 
-/// `notes.local` of a lease links to its notes beside the state of the pool, and the logs of a run go there by
-/// `--fetch notes.local`: the write goes through that link, as through no other
+/// `notes.local` of a lease links to its notes (here in the place of a brd before, in the state), and the logs of a run
+/// go there by `--fetch notes.local`: the write goes through that link, as through no other
 #[tokio::test(start_paused = true)]
 async fn a_fetch_writes_through_notes_local_into_the_notes_of_a_lease_of_its_repository() {
   let mut notes_dir = PathBuf::new();
@@ -219,6 +219,34 @@ async fn a_fetch_writes_through_notes_local_into_the_notes_of_a_lease_of_its_rep
   .await;
   assert_eq!(fetched.unwrap(), ["notes.local/run.log"]);
   assert_eq!(std::fs::read_to_string(notes_dir.join("run.log")).unwrap(), "log");
+}
+
+/// The record of the notes `dir` of a lease, beside it, naming `slot` as the slot of the lease
+fn record_notes(dir: &Path, slot: &Path) {
+  std::fs::create_dir_all(dir).unwrap();
+  let record = serde_json::json!({ "lease_id": "lease-1", "holder": "agent", "slot": slot, "leased_at": 1, "linked": true });
+  std::fs::write(dir.with_extension("json"), serde_json::to_vec(&record).unwrap()).unwrap();
+}
+
+/// The notes of a lease in the pool directory (`<pool dir>/notes/<lease id>`) take the write of a fetch through
+/// `notes.local` while their record names this checkout as the slot of the lease, and none while it names another
+#[tokio::test(start_paused = true)]
+async fn a_fetch_writes_through_notes_local_only_into_the_notes_of_the_lease_of_its_checkout() {
+  let pool = tempfile::tempdir().unwrap();
+  let notes = std::fs::canonicalize(pool.path()).unwrap().join("notes/lease-1");
+  let link = |checkout: &Path| std::os::unix::fs::symlink(&notes, checkout.join("notes.local")).unwrap();
+
+  let setup = agent_sending(vec![("notes.local/run.log", FileKind::Staged, 3, b"log".to_vec())]);
+  record_notes(&notes, pool.path());
+  let refusal = fetch_with(&setup, None, &["notes.local".to_owned()], link).await.unwrap_err();
+  assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
+  assert!(!notes.join("run.log").exists());
+
+  let setup = agent_sending(vec![("notes.local/run.log", FileKind::Staged, 3, b"log".to_vec())]);
+  record_notes(&notes, setup.repo.path());
+  let fetched = fetch_with(&setup, None, &["notes.local".to_owned()], link).await;
+  assert_eq!(fetched.unwrap(), ["notes.local/run.log"]);
+  assert_eq!(std::fs::read_to_string(notes.join("run.log")).unwrap(), "log");
 }
 
 /// What makes `notes.local` of a case: it gets the root of the checkout and the notes of the leases of its repository
@@ -256,14 +284,14 @@ async fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
     let (fetched, setup) = fetch_into_notes(local).await;
     let refusal = fetched.unwrap_err();
     assert!(refusal.message.contains("1 of 1 files"), "{case}: {}", refusal.message);
-    let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
+    let notes = git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git"));
     assert!(!notes.join("lease-1/run.log").exists() && !notes.join("run.log").exists(), "{case}");
     assert!(!outside_dir.join("run.log").exists(), "{case}");
   }
   // the notes under another name: `logs` at the root, fetched as `logs`
   let setup = agent_sending(vec![("logs/run.log", FileKind::Staged, 3, b"log".to_vec())]);
-  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
-  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let notes = git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git"));
+  record_notes(&notes.join("lease-1"), setup.repo.path());
   let refusal = fetch_with(&setup, None, &["logs".to_owned()], |root| {
     std::os::unix::fs::symlink(notes.join("lease-1"), root.join("logs")).unwrap();
   })
@@ -279,8 +307,8 @@ async fn a_link_that_is_no_notes_of_a_lease_of_the_repository_takes_no_write() {
 async fn a_link_inside_the_notes_of_a_lease_takes_no_write() {
   let outside = tempfile::tempdir().unwrap();
   let setup = agent_sending(vec![("notes.local/sub/run.log", FileKind::Staged, 3, b"log".to_vec())]);
-  let notes = git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git"));
-  std::fs::create_dir_all(notes.join("lease-1")).unwrap();
+  let notes = git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git"));
+  record_notes(&notes.join("lease-1"), setup.repo.path());
   let refusal = fetch_with(&setup, None, &["notes.local".to_owned()], |root| {
     std::os::unix::fs::symlink(notes.join("lease-1"), root.join("notes.local")).unwrap();
     std::os::unix::fs::symlink(outside.path(), notes.join("lease-1/sub")).unwrap();
@@ -303,7 +331,7 @@ async fn a_relative_link_to_the_notes_of_a_lease_takes_no_write() {
   .await;
   let refusal = fetched.unwrap_err();
   assert!(refusal.message.contains("1 of 1 files"), "{}", refusal.message);
-  assert!(!git_ops::lease_slot::lease_notes_root(&setup.repo.path().join(".git")).join("lease-1/run.log").exists());
+  assert!(!git_ops::lease_slot::legacy_notes_root(&setup.repo.path().join(".git")).join("lease-1/run.log").exists());
 }
 
 /// A stream over its size writes no more than its size, and the next file of the fetch still comes

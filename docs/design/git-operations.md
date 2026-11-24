@@ -2802,13 +2802,22 @@ registry fell from 71 581 to 61 354 with it, those of the holder file of the lea
 writes take the rest of its locks: the first mark of each worktree and the landed state (`landed::save_state`).
 
 **The notes of a lease** (`lease_pool::lease_notes`, `brd lease notes`): the logs, probes and patches of the session
-that holds a lease, which the lead or a reviewer may need after the return. Each lease has a directory of its own
-beside the state, `$GIT_COMMON_DIR/branch-deck/notes/<lease id>/`, and a record beside it (`<lease id>.json`: the
+that holds a lease, which the lead or a reviewer may need after the return. Each lease has a directory of its own in
+the pool directory, beside the slots, `<pool dir>/notes/<lease id>/`, and a record beside it (`<lease id>.json`: the
 holder, the slot, the branch, when it was got and returned); the get makes them and links `notes.local` of the
 worktree to the directory, and the return removes the link and records the return, so the next holder of the slot
-starts with an empty `notes.local` and the notes stay. Beside the state, not in the directory of the pool: every lease
-command knows the common dir, while the pool directory takes the config and the home, and a trim may delete every slot
-of a pool. No git runs for them. The link is kept out of git twice: the get adds `/notes.local` to `info/exclude` of the
+starts with an empty `notes.local` and the notes stay. In the pool directory, not in `$GIT_COMMON_DIR`: the sessions
+that lead agents may read the pool directory, and Claude Code matches a link by its target too, so notes under
+`<repository>/.git` asked the user for every read of a lead (one such prompt stopped a team of agents for a night).
+`notes` is no number: no slot (`<pool dir>/<n>/<name>`), clone leftover, trim, disk report or list of the pools of the
+machine takes it for one, and the trim deletes the number directory of a slot, never more of the pool directory. The
+root follows from the slot, `<pool dir>/<n>/<name>` → `<pool dir>/notes` (a worktree that `brd lease adopt` kept
+elsewhere: `notes` of the pool directory of the get), so no file names it, and a reader (`lease_notes::NotesRoots`)
+looks in the root of each pool directory a slot of the state lives in and of the pool directory of the config where it
+knows it (`brd lease notes`, the trim, the status, the keeper of a host), then in `$GIT_COMMON_DIR/branch-deck/notes`,
+where a brd before kept them: those stay there, read and expired, never moved, and the read of that place goes once
+the last of them expired. The return closes the notes where the link of the slot points. A fetch of brd-host writes
+through `notes.local` only into notes whose record names its checkout as the slot (`links_to_lease_notes`). No git runs for them. The link is kept out of git twice: the get adds `/notes.local` to `info/exclude` of the
 repository where that file lacks the line, so no `git add` takes it, and the status of a slot (`slot_changes`) never
 counts an untracked `notes.local` nor a file in it (`status.showUntrackedFiles=all` names each file of a directory), so
 a return, a takeover and the dirty check of a get pass also where `info/exclude` lost the line. The return takes the notes out before it discards anything (`--confirm-preserved`), as its `clean -fd`
@@ -2817,8 +2826,8 @@ the system makes no link (Windows without the right to make one), `notes.local` 
 entries the return moves into the directory of the lease; a `notes.local` that an earlier lease left in a slot (a
 return that could not move it, a brd before the notes) is moved by the next get into notes of its own
 (`left-<uuid>`, returned at once; its record first, so the directory is never one without a record). The slot and the
-notes may be on two volumes (a `branchdeck.leasePool` on another disk, on Windows a repository on `D:` with its pool
-under `C:\Users`), which no rename crosses (`EXDEV`): each move goes through `fs_retry::move_path`, which copies there
+notes may be on two volumes (a worktree that `brd lease adopt` kept where it was on another disk), which no rename
+crosses (`EXDEV`): each move goes through `fs_retry::move_path`, which copies there
 beside the target, renames the copy into place once whole and then removes the source, so a failed copy leaves the
 source whole and no half directory of notes. A get whose notes fail removes the link and the empty directory it made
 and goes on without notes. The notes of a returned lease expire `branchdeck.leaseNotesKeep` after the return (`14d` by

@@ -26,7 +26,7 @@ use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
 use lease_pool::lease_clean::{CleanRule, read_clean_rules};
-use lease_pool::lease_notes::notes_bytes;
+use lease_pool::lease_notes::config_pool_dir;
 use lease_pool::output_bases::{OutputBase, orphans};
 use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
 use schemars::JsonSchema;
@@ -897,7 +897,10 @@ fn disk_usage_core_inner(
   if !params.cached {
     for (pool_index, pool) in machine.pools.iter().enumerate() {
       if locks[pool_index].is_some() {
-        let bytes = notes_bytes(&Pool::new(&pool.git_common_dir).notes_root());
+        // the pool directory of the config only of the pool of the repository, whose config the report read; the
+        // others by the slots of their state
+        let pool_dir = (pool_index == 0).then(|| config_pool_dir(&config, &pool.git_common_dir, params.home).ok()).flatten();
+        let bytes = Pool::new(&pool.git_common_dir).notes_roots(pool_dir.as_deref()).bytes();
         usage.pools[pool_index].notes_bytes = bytes;
         pool_files[pool_index].notes_bytes = Some(bytes);
       }

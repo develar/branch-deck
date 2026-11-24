@@ -277,9 +277,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    machine whose work landed itself (`reclaimed`); the ones with work stay the user's to decide.
    `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
    worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
-   `notes.local` of the worktree links to `notes`, a directory of the lease outside the worktree that git ignores:
-   logs, probes and patches go there, and they outlive the return, which removes the link (the next holder of the slot
-   starts with empty notes). `brd lease notes` names the notes of your lease, --lease-id <id> or --holder <name> those
+   `notes.local` of the worktree links to `notes`, a directory of the lease in the pool directory, outside the worktree,
+   that git ignores: logs, probes and patches go there, and they outlive the return, which removes the link (the next
+   holder of the slot starts with empty notes). `brd lease notes` names the notes of your lease, --lease-id <id> or --holder <name> those
    of another, held or returned, --list their files; the notes of a returned lease expire after
    `branchdeck.leaseNotesKeep` (14 days).
 

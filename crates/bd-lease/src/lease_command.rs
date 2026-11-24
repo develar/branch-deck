@@ -22,7 +22,6 @@ use lease_pool::lease::{
   lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, parse_age};
-use lease_pool::lease_notes::read_notes;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -1315,7 +1314,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
     .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
   let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
   let trash_bytes = Pool::new(Path::new(&canonical_path(git_common_dir))).trash_bytes();
-  let notes_root = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_root();
+  let notes_roots = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_roots(pool.as_deref());
   Ok(LeaseStatusOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
@@ -1345,7 +1344,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
             lease_id: old.id.clone(),
             holder: old.holder.clone(),
           }),
-          notes: read_notes(&notes_root, &lease.id).map(|notes| notes.dir.to_string_lossy().into_owned()),
+          notes: notes_roots.find(&lease.id).map(|notes| notes.dir.to_string_lossy().into_owned()),
           pruned_at: lease.pruned_at,
         }),
         reclaimed: status.slot.reclaimed.as_ref().map(ReclaimedOutput::of),

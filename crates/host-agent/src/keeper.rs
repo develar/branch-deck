@@ -124,7 +124,7 @@ fn keep(home: &Home, woken: &mpsc::Receiver<PathBuf>) {
         Err(refusal) => note(&mut said, path, format!("cannot keep the host slots of {}: {refusal}", path.display())),
       }
     }
-    turns.push(format!("the relief {}", relieve(opened, &relief).word()));
+    turns.push(format!("the relief {}", relieve(opened, &relief, home.dir().to_path_buf()).word()));
     if rounds {
       log(&format!("the keeper round {round}: {}", turns.join(", ")));
     }
@@ -222,7 +222,7 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) -> Turn {
 /// The relief of one tick, when due and none runs: on a thread of its own, the repositories `repos` one after the other
 /// in one round (`ReliefRound`), so each volume is measured and relieved once, by the first repository on it. A relief
 /// that leaves a volume below its minimum, or fails, makes the next one wait `RELIEF_BACKOFF`
-fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
+fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>, home: PathBuf) -> Turn {
   {
     let mut relief = relief.lock().unwrap_or_else(PoisonError::into_inner);
     let turn = Turn::of(relief.running, relief.not_before);
@@ -248,7 +248,7 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
         }
         Err(error) => log(&format!("cannot clean the idle host slots of {}: {error:#}", repo.path.display())),
       }
-      for notes in expire_pool_notes(&repo.git, Path::new(&repo.dirs.git_common_dir)) {
+      for notes in expire_pool_notes(&repo.git, Path::new(&repo.dirs.git_common_dir), Some(&home)) {
         match &notes.error {
           None => log(&format!(
             "deleted the notes of the lease {} of {} returned past their keep: {}",

@@ -1,5 +1,42 @@
-use crate::trim::{parse_max_slots, remove_all, remove_all_until, slot_dir};
-use std::path::Path;
+use crate::trim::{machine_pools, parse_max_slots, remove_all, remove_all_until, slot_dir};
+use git_ops::revs::RepositoryDirs;
+use std::path::{Path, PathBuf};
+
+/// A linked worktree `w1` of the repository `<dir>/other` at `at`, as git writes one: its `.git` file and the admin
+/// directory that names it back
+fn fake_worktree(dir: &Path, at: &Path) -> PathBuf {
+  let git_common_dir = dir.join("other/.git");
+  let admin = git_common_dir.join("worktrees/w1");
+  std::fs::create_dir_all(&admin).unwrap();
+  std::fs::create_dir_all(at).unwrap();
+  std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+  std::fs::write(admin.join("gitdir"), format!("{}\n", at.join(".git").display())).unwrap();
+  std::fs::write(at.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+  std::fs::canonicalize(git_common_dir).unwrap()
+}
+
+/// The notes of the leases beside the slots of a pool directory are no slot: a worktree an agent made in them names no
+/// pool of the machine, while the same worktree as a slot (`<pool>/<n>/<name>`) does
+#[test]
+fn a_worktree_in_the_notes_of_a_pool_directory_names_no_pool() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = dir.path().join("home");
+  let repository = RepositoryDirs {
+    top_level: dir.path().join("repo").to_string_lossy().into_owned(),
+    git_dir: dir.path().join("repo/.git").to_string_lossy().into_owned(),
+    git_common_dir: dir.path().join("repo/.git").to_string_lossy().into_owned(),
+  };
+  let pool_dir = home.join(".branch-deck/pool/other-12345678");
+  let other = fake_worktree(dir.path(), &pool_dir.join("notes/lease-1/repo"));
+  let pools: Vec<PathBuf> = machine_pools(&repository, Some(&home)).into_iter().map(|pool| pool.git_common_dir).collect();
+  assert!(!pools.contains(&other), "{pools:?}");
+
+  std::fs::rename(pool_dir.join("notes"), pool_dir.join("1")).unwrap();
+  std::fs::rename(pool_dir.join("1/lease-1/repo"), pool_dir.join("1/repo")).unwrap();
+  fake_worktree(dir.path(), &pool_dir.join("1/repo"));
+  let pools: Vec<PathBuf> = machine_pools(&repository, Some(&home)).into_iter().map(|pool| pool.git_common_dir).collect();
+  assert!(pools.contains(&other), "{pools:?}");
+}
 
 #[test]
 fn the_number_directory_of_a_slot_goes_with_it_when_the_slot_is_its_only_directory() {
@@ -31,7 +68,7 @@ fn every_path_is_deleted_side_by_side_and_its_bytes_counted() {
   }
   let file = dir.path().join("file");
   std::fs::write(&file, vec![1u8; 8192]).unwrap();
-  let mut all: Vec<&Path> = paths.iter().map(std::path::PathBuf::as_path).collect();
+  let mut all: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
   all.push(&file);
   let freed: Vec<u64> = remove_all(&all).into_iter().map(Result::unwrap).collect();
   assert!(freed[..3].iter().all(|&bytes| bytes >= 20 * 8192), "{freed:?}");
