@@ -240,7 +240,8 @@ changed); --worktree <id> removes an orphaned session of another worktree, a liv
 only with --allow-live-session, once the user approved.
 `brd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
 changes nothing; --materialize writes the missing copies, with --overwrite-edited all of them. --dir <path> puts the copies of a
-new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.
+new session into an empty directory outside every worktree, for a sandbox that keeps .git read only; in a lease the
+copies are in `notes.local/resolve` already, outside .git.
 ";
 
 /// `brd help worktrees`: how agent sessions that share a checkout work beside each other, each in a worktree of its own

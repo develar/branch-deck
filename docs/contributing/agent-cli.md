@@ -1040,8 +1040,8 @@ the contract is the spec. The mechanics behind it:
   for `--user`. The first output lists every such twin in `session.landed_differs`, so the user answers once.
 - The first output of a session lists `dropped`; a round of `--continue` prints `dropped_count` only, so the list of
   a long session is printed once.
-- The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
-  or under `--dir <path>` (absolute, outside every worktree, empty or brd's for this worktree, used by no other
+- The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir
+  (in a lease: in `resolve/` of the notes of the lease, in the pool directory), or under `--dir <path>` (absolute, outside every worktree, empty or brd's for this worktree, used by no other
   session), for a sandbox that keeps `.git` read only. On Windows the paths have backslashes, and the `\\?\` form
   from 260 characters on.
 

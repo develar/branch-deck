@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{STATE_DIR, state_dir};
+use git_ops::lease_slot::{NOTES_LINK, STATE_DIR, links_to_lease_notes, state_dir};
 use git_ops::revs::git_common_dir;
 use git_ops::update_resolve::{ConflictFile, EditCopy, ResolveError, RoundConflict, RoundObjects, SessionState, list_sessions};
 use std::fs;
@@ -233,6 +233,35 @@ pub fn remove_root(state: &SessionState) {
   if state.dir.is_none() || state.dir_created {
     let _ = sync_utils::fs_retry::remove_dir(root);
   }
+}
+
+/// The directory of the copies of a session in a slot of the lease pool without `--dir`: `resolve` in the notes of its
+/// lease, where `notes.local` at `top_level` links to them (`links_to_lease_notes`), by the path the link resolves to, so
+/// no read or delete goes through the link. The notes are in the pool directory, which the sessions that lead agents may
+/// read and edit, while the git dir of a slot is in `.git` of the main checkout, whose every edit of a copy asked the
+/// user. `None` (the copies in the git dir): any other worktree, or a `resolve` there that is no directory, holds the
+/// copies of another git dir, or holds files without the marker of bd. With whether brd created it, as `prepare_dir`
+pub fn lease_notes_dir(top_level: &Path, git_common_dir: &Path, git_dir: &str) -> Option<(String, bool)> {
+  let link = top_level.join(NOTES_LINK);
+  if !links_to_lease_notes(&link, git_common_dir) {
+    return None;
+  }
+  let dir = fs::canonicalize(&link).ok()?.join(RESOLVE_DIR);
+  let created = match fs::symlink_metadata(&dir) {
+    Ok(metadata) if !metadata.is_dir() => return None,
+    Ok(_) => match read_marker(&dir) {
+      Some(owner) if owner == git_dir => false,
+      None if fs::read_dir(&dir).ok()?.next().is_none() => false,
+      _ => return None,
+    },
+    Err(error) if error.kind() == ErrorKind::NotFound => {
+      #[expect(clippy::create_dir, reason = "one level deep, in the notes of the lease")]
+      fs::create_dir(&dir).ok()?;
+      true
+    }
+    Err(_) => return None,
+  };
+  Some((dir.to_string_lossy().into_owned(), created))
 }
 
 /// Prepare the directory of `--dir` for the session of the worktree with `git_dir`: an absolute path, not a symlink, not

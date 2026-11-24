@@ -2093,7 +2093,11 @@ decides nothing).
 **The copies (the store rule).** The copies are the only files of a session outside git objects, and all of them can
 be rebuilt from the session ref.
 
-- They live in `branch-deck/resolve/` of the worktree's git dir (`state.git_dir`), or in the directory of `--dir`.
+- They live in `branch-deck/resolve/` of the worktree's git dir (`state.git_dir`), or in the directory of `--dir`. In
+  a slot of the lease pool whose `notes.local` links to the notes of its lease, a session without `--dir` takes
+  `resolve/` of those notes as its `--dir` (`resolve_copies::lease_notes_dir`, the path the link resolves to): the
+  git dir of a slot is in `.git` of the main checkout, where every edit of a copy by an agent asked the user, while the
+  notes are in the pool directory.
   Per round `r<n>/edit/`, `before/`, `onto/` and `commit/`, each file under the flat name `<key>-<basename>`, and
   `r<n>/commit.patch`; `.branch-deck-resolve` marks the directory and names the git dir of its owner. A flat name
   can't reach outside the round directory, can't collide with another file (two paths that differ only in case get

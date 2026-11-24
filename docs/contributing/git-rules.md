@@ -175,7 +175,7 @@ written only there) in that transaction.
   ([Review plan](../design/git-operations.md#review-plan)).
 - `refs/branch-deck/resolve/<worktree id>` (a shared ref: a gc in another worktree prunes a `refs/worktree/` ref):
   the state of a resolve session. The copies an agent edits (`resolve_copies.rs`) live only in `branch-deck/resolve/`
-  of the worktree's git dir or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this
+  of the worktree's git dir, in `resolve/` of the notes of a lease (a session in a slot of the pool) or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this
   git dir, used by no other session; the marker `.branch-deck-resolve` names the owner's git dir); flat names
   `<key>-<basename>`, never tree paths; tree paths validated (no empty, `.`, `..` or `.git` component, nor an
   NTFS/HFS+ alias of `.git`); regular files only, bytes as git stores them without filters, never read, written or

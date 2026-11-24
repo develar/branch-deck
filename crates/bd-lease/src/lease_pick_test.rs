@@ -187,9 +187,15 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   let outputs = &schema["outputs"];
   assert_covered(&outputs["lease_pick"], &outputs["lease_pick"], &output, "lease_pick");
 
-  std::fs::write(edit_of(&output["update"], "b.txt"), "peer and lane\n").unwrap();
+  // the copies of the session are in the notes of the lease, in the pool directory, by the path the link resolves to
+  let notes = std::fs::canonicalize(Path::new(&path).join("notes.local")).unwrap();
+  let edit = edit_of(&output["update"], "b.txt");
+  assert!(Path::new(&edit).starts_with(notes.join("resolve")), "{edit}");
+  assert!(!Path::new(&edit).starts_with(fixture.repo.path().join(".git").join("worktrees")), "{edit}");
+  std::fs::write(&edit, "peer and lane\n").unwrap();
   let (exit_code, done) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--continue", "--round", "1"]);
   assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+  assert!(!notes.join("resolve").exists(), "the finish removes the copies");
   // the update names the lease by its top level, which has forward slashes on Windows
   let repository = done["repository"].as_str().unwrap();
   assert_eq!(display(Path::new(repository)), display(Path::new(&path)));
@@ -219,8 +225,11 @@ fn an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort() {
   assert_eq!(exit_code, 1);
   let (exit_code, status) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--status"]);
   assert_eq!(exit_code, 0, "{status}");
+  let resolve = std::fs::canonicalize(Path::new(&path).join("notes.local")).unwrap().join("resolve");
+  assert!(resolve.is_dir(), "the copies are in the notes of the lease");
   let (exit_code, aborted) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--abort"]);
   assert_eq!((exit_code, &aborted["branch"]), (0, &json!("HEAD")), "{aborted}");
+  assert!(!resolve.exists(), "the abort removes the copies");
   // the session is gone: the return refuses only the commit that did not land
   let (exit_code, refused) = fixture.run_in(Path::new(&path), &["lease", "return"]);
   assert_error(&refused, exit_code, (4, "unlanded_commits"));

@@ -2,7 +2,7 @@
 //! local changes (docs/design/git-operations.md, "Update project"), and its undo. The upstream, the fetch and the
 //! check that every sync runs against the last fetched state are `baseline`.
 
-use crate::resolve_copies::{Materialize, prepare_dir};
+use crate::resolve_copies::{Materialize, lease_notes_dir, prepare_dir};
 use crate::resolve_session::{DroppedCommit, Record, SessionOutcome, ViewDetail, own_session, regenerate_files, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::managed_branch_kind;
@@ -13,7 +13,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::landed_pairing::{LandedDrop, LandedReads};
 use git_ops::lfs::prefetch_lfs_objects;
-use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
+use git_ops::revs::{Worktree, current_worktree, is_object_id, known_dirs, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
   GuardRefusal, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
@@ -314,7 +314,11 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   plan.check.fetched_at = fetched_at;
 
   if let (Some(start), Resolve::Yes { dir, worktree }) = (start, resolve) {
-    let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose();
+    // without `--dir`, in a slot of the lease pool the copies go into the notes of the lease (`lease_notes_dir`)
+    let dir = match dir {
+      Some(dir) => prepare_dir(git_executor, repo_path, dir, &worktree.git_dir).map(Some),
+      None => Ok(known_dirs(git_executor, repo_path).and_then(|dirs| lease_notes_dir(Path::new(&dirs.top_level), Path::new(&dirs.git_common_dir), &worktree.git_dir))),
+    };
     let dir = dir.inspect_err(|_| start.discard(git_executor, repo_path))?;
     let record = Record {
       grouping: Some(&grouping),
