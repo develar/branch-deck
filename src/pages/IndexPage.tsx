@@ -37,6 +37,7 @@ import { useDiskUsageDialogOpen } from "@/stores/disk-usage-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
 import { useOnboardingTracking } from "@/stores/onboarding"
 import { useSetupTracking } from "@/stores/setup"
+import { useDeniedRequests } from "@/stores/unattended"
 
 /**
  * The focus of the main window, told to the session of its repository when the window gains and loses it (the last
@@ -60,6 +61,7 @@ const ReviewsView = lazy(() => import("@/components/reviews/ReviewsView").then(i
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 const StartInAirDialog = lazy(() => import("@/components/branch/StartInAirDialog").then(it => ({ default: it.StartInAirDialog })))
 const DiskUsageDialog = lazy(() => import("@/components/disk/DiskUsageDialog").then(it => ({ default: it.DiskUsageDialog })))
+const DeniedRequestsDialog = lazy(() => import("@/components/unattended/DeniedRequestsDialog").then(it => ({ default: it.DeniedRequestsDialog })))
 
 /** The width of the Activity side panel until its divider is dragged: the search and a line of an entry */
 const ACTIVITY_PANEL_WIDTH = "24rem"
@@ -211,6 +213,12 @@ export function IndexPage() {
   if (diskUsageOpen && !isDiskUsageLoaded) {
     setDiskUsageLoaded(true)
   }
+  // "Show Denied Requests…" of the toast of Unattended Mode turned off
+  const deniedRequestsOpen = useDeniedRequests() !== null
+  const [isDeniedRequestsLoaded, setDeniedRequestsLoaded] = useState(false)
+  if (deniedRequestsOpen && !isDeniedRequestsLoaded) {
+    setDeniedRequestsLoaded(true)
+  }
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />
@@ -275,6 +283,7 @@ export function IndexPage() {
       <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
       <Suspense fallback={null}>{isAirLaunchLoaded && <StartInAirDialog />}</Suspense>
       <Suspense fallback={null}>{isDiskUsageLoaded && <DiskUsageDialog />}</Suspense>
+      <Suspense fallback={null}>{isDeniedRequestsLoaded && <DeniedRequestsDialog />}</Suspense>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react"
+import { cn } from "cn"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -11,6 +12,7 @@ import { PullRequestStatusLine } from "@/components/repository/PullRequestStatus
 import { RepositorySelector } from "@/components/repository/RepositorySelector"
 import { SettingsButton } from "@/components/repository/SettingsButton"
 import { SyncButton } from "@/components/repository/SyncButton"
+import { UnattendedModeButton } from "@/components/repository/UnattendedModeButton"
 import { UpdateProjectButton, UpdateStateLine } from "@/components/repository/UpdateProjectButton"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { WindowTitleBar } from "@/components/shared/WindowTitleBar"
@@ -20,6 +22,7 @@ import { readsLater } from "@/lib/time"
 import { hasCustomTitleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useRepository, useSelectedProjectPath, useSelectedRepositoryState } from "@/stores/repository"
+import { useAppSettings } from "@/stores/settings/appSettings"
 import { closeRefusedUpdate, runUpdateProject, useRefusedUpdate } from "@/stores/update-project"
 
 const UpdateBlockedDialog = lazy(() => import("@/components/repository/UpdateBlockedDialog").then(it => ({ default: it.UpdateBlockedDialog })))
@@ -43,6 +46,7 @@ export function ConfigurationHeader() {
   const hasSelectedProject = useSelectedProjectPath() !== undefined
   const lastSyncTime = useSelectedRepositoryState("lastSyncTime")
   const refusedUpdate = useRefusedUpdate()
+  const unattended = useAppSettings(state => state.unattended)
   // mounted on the first refusal and kept, so the dialog animates and returns the focus when it closes
   const [isRefusedDialogMounted, setRefusedDialogMounted] = useState(false)
   if (refusedUpdate !== null && !isRefusedDialogMounted) {
@@ -90,8 +94,15 @@ export function ConfigurationHeader() {
               // The widest text is a pseudo-element under the shown one, so it is no text of the page; `formatRelativeTime`
               // says at most two digits of minutes. Each is one run of text, as one rounds to 1/64 px apart from two.
               // The room is there before the first sync, empty: the header stands at its end, so the time that came with
-              // it moved Activity and the landing indicator from under a still pointer
-              <span className="hidden text-xs whitespace-nowrap text-muted-foreground tabular-nums after:invisible after:col-start-1 after:row-start-1 after:content-['Last_synced_00_minutes_ago'] @3xl:grid">
+              // it moved Activity and the landing indicator from under a still pointer. From 768 px of the header (@3xl); while
+              // Unattended Mode is on, from 992 px (62rem) between ☰ and the window buttons of a custom title bar: below it
+              // there, the mark of the mode beside Settings takes its room, which the minimum window lacks for both
+              <span
+                className={cn(
+                  "hidden text-xs whitespace-nowrap text-muted-foreground tabular-nums after:invisible after:col-start-1 after:row-start-1 after:content-['Last_synced_00_minutes_ago']",
+                  unattended && hasCustomTitleBar ? "@min-[62rem]:grid" : "@3xl:grid",
+                )}
+              >
                 {lastSyncTime && (
                   <span className="col-start-1 row-start-1 justify-self-end" data-testid="last-sync-time">
                     <LastSyncTime lastSyncTime={lastSyncTime} />
@@ -101,6 +112,8 @@ export function ConfigurationHeader() {
             )}
             {/* a failed sync shows as the red Sync with the error in its tooltip, next to the page alert */}
             <SyncButton />
+            {/* of the app, not of the repository: the mark of the mode while it is on, in every state of the window */}
+            <UnattendedModeButton />
             <SettingsButton />
           </>
         }

@@ -8,6 +8,8 @@
 //! - `repository_config`: a write of Settings → Repository, the `branchdeck.*` git config (openspec/specs/repository/settings/spec.md),
 //!   through the one writer of each config file (`config_writer`).
 //! - `sign_in`: the sign-ins of the app's accounts (openspec/specs/repository/github-sign-in/spec.md).
+//! - `unattended`: Unattended Mode, its switch through the writer of the settings and the requests its hook denied
+//!   (openspec/specs/repository/unattended-mode/spec.md).
 //! - `mark_reviewed`: Mark Reviewed of the review window of a branch, its reviewed refs (openspec/specs/branch/review-plan/spec.md).
 //!
 //! The services of a process on the user's machine, the app's and those of `brd mcp` alike (`services`: the sessions,
@@ -34,5 +36,6 @@ pub mod repository_config;
 pub mod services;
 pub mod settings;
 pub mod sign_in;
+pub mod unattended;
 pub mod warm_start;
 pub mod windows;

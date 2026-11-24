@@ -106,6 +106,7 @@ testWithIssueLinks.describe("Command palette", () => {
       "Install Agent CLI…",
       "Getting Started",
       "GitHub Repository",
+      "Turn On Unattended Mode",
     ]
     const commands = palette(page)
       .getByRole("group")

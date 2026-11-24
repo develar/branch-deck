@@ -13,6 +13,19 @@ targets:
   - crates/bd-cli/src/lib.rs
   - crates/bd-cli/src/agent_help.rs
   - crates/bd-core/src/context.rs
+  - crates/app-api/src/app/unattended.rs
+  - crates/app-api/src/app/agent_cli.rs
+  - crates/test-server/src/host.rs
+  - src/lib/unattended.ts
+  - src/presenters/unattended.ts
+  - src/stores/unattended.ts
+  - src/stores/settings/appSettings.ts
+  - src/components/repository/UnattendedModeButton.tsx
+  - src/components/repository/ConfigurationHeader.tsx
+  - src/components/unattended/DeniedRequestsDialog.tsx
+  - src/lib/command-palette.ts
+  - src/components/settings/ToolsPage.tsx
+  - src/components/settings/GeneralPage.tsx
 ---
 
 # Unattended Mode
@@ -26,7 +39,9 @@ An agent team left running overnight stops at the first permission prompt of its
 subagents: the prompt waits for a human until morning, and the whole team with it. While the user has turned
 Unattended Mode on, the `PermissionRequest` hook of Claude Code that `brd install` adds answers every such prompt with
 a denial whose message tells the agent to go on without the access, and records what was denied; the user reads that
-list in the morning and decides what to allow. While the mode is off, the prompts are as they were.
+list in the morning and decides what to allow. While the mode is off, the prompts are as they were. The user switches it
+in the command palette, in Settings → General or with `brd unattended`; the title bar marks it while it is on and its
+mark turns it off, and the switch off says how many requests the night denied and lists them.
 
 ## Goals
 
@@ -195,6 +210,94 @@ unwritten.
   [@test] crates/bd-cli/src/claude_hook_test.rs (`an_uninstall_removes_only_the_hook_of_branch_deck`)
   [@test] crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 
+### Requirement: App: The title bar marks the mode while it is on, and the mark turns it off
+
+While the mode is on, the title bar of the main window MUST show its mark before Settings, in every state of the window:
+the moon in the warning tone, with "Unattended" where the header has room; a click on it MUST turn the mode off through
+`set_unattended_mode`, the core of `brd unattended`. While the mode is off, the title bar MUST show nothing of it.
+
+#### Scenario: The mark comes and goes
+- **WHEN** the user turns the mode on from the palette, then clicks the mark
+- **THEN** the mark reads "Unattended", then the title bar shows nothing of the mode
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+
+#### Scenario: The row keeps one line with the mode on
+- **GIVEN** the mode is on, between ☰ and the window buttons of a custom title bar
+- **WHEN** the window narrows from 1440 px to the minimum
+- **THEN** every control stays on the one line, apart; "Unattended" shows from 1088 px of the header, the tinted moon alone below
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar between the main menu and the window buttons on one line at every width with Unattended Mode on, its word where the header has room`)
+
+### Requirement: App: The command palette and Settings → General switch the mode by one item
+
+Commands of the palette MUST hold Turn On Unattended Mode while the mode is off and Turn Off Unattended Mode while it is
+on, and Settings → General MUST hold the switch Unattended Mode under "Coding agents": one item for them and the mark
+(`unattendedModeItem`); every window MUST hear the setting as the writer saves it.
+
+#### Scenario: On and off by the palette
+- **WHEN** the user runs Turn On Unattended Mode, then Turn Off Unattended Mode, from the palette
+- **THEN** the mark of the title bar shows, then goes
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+  [@test] src/presenters/unattended.test.ts (`names the switch by what a choice of it does`)
+
+#### Scenario: On and off in Settings
+- **WHEN** the user turns the switch of Settings → General on, then off
+- **THEN** the mark of the main window shows, then goes; the toast of the switch off in Settings tells the count, without the list
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on and off from Settings → General, the mark of the main window following it`)
+  [@test] src/presenters/unattended.test.ts (`tells how many requests a switch off found and offers their list only when there are some, in the main window`)
+
+### Requirement: App: A switch on without the hook warns and offers its install
+
+A switch on while the hook is missing or runs another Branch Deck MUST show a warning toast "Turned on Unattended Mode"
+that says the requests still wait for the user, with Install Agent CLI where the host installs it; a switch on with the
+hook installed MUST show no toast, the mark says it.
+
+#### Scenario: No hook yet
+- **GIVEN** the agent CLI is not installed
+- **WHEN** the user turns the mode on
+- **THEN** the warning toast offers Install Agent CLI, which installs the agent CLI and its hook
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+  [@test] src/presenters/unattended.test.ts (`says nothing of a switch on whose hook is installed, warns of one without it and offers its install where the host installs`)
+
+### Requirement: App: A switch off tells how many requests were denied and opens them
+
+A switch off MUST show the toast "Turned off Unattended Mode" with the number of requests denied while the mode was on,
+and, when there are some, the action Show Denied Requests… that opens their list.
+
+#### Scenario: A night with denials
+- **GIVEN** the hook denied two requests while the mode was on
+- **WHEN** the user turns the mode off
+- **THEN** the toast says "2 permission requests were denied while it was on" and its action opens Denied Requests
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should tell on a switch off how many requests the night denied and list them`)
+  [@test] src/presenters/unattended.test.ts (`tells how many requests a switch off found and offers their list only when there are some, in the main window`)
+
+#### Scenario: A quiet night
+- **WHEN** the user turns the mode off and nothing was denied
+- **THEN** the toast says "No permission request was denied while it was on", without an action
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should turn the mode on from the palette, show its mark, offer the install of a missing hook, and turn it off by the mark`)
+
+### Requirement: App: Denied Requests lists each request, oldest first
+
+Denied Requests MUST be a dialog of the main window that lists the denied requests oldest first, each with the tool,
+what it asked for, the time, who asked (the main session, or the kind and id of a subagent) and the last part of the
+working directory; Escape MUST close it.
+
+#### Scenario: The list of the night
+- **WHEN** the dialog opens from the toast of a switch off
+- **THEN** it lists `Bash cat /etc/hosts` of `general-purpose (a7)` in `app`, then `WebFetch` of the main session
+  [@test] tests/e2e/unattended/unattended-mode.spec.ts (`should tell on a switch off how many requests the night denied and list them`)
+  [@test] src/presenters/unattended.test.ts (`words who asked and where`)
+
+### Requirement: App: Settings → Tools says when the hook denies nothing
+
+While the agent skill is installed but the hook is missing or runs another Branch Deck, the row of `brd` in Settings →
+Tools MUST say so in the warning tone and offer Install Agent CLI where the host installs it.
+
+#### Scenario: A hook of another Branch Deck
+- **WHEN** Settings → Tools reads a hook of another brd
+- **THEN** the row of `brd` says "The hook of Unattended Mode runs another Branch Deck: Install Agent CLI puts this one in its place"
+  [@test] src/presenters/unattended.test.ts (`says in Settings → Tools why the hook denies nothing`)
+  [@test] tests/e2e/settings/settings.spec.ts (`should show every page of the window in its tallest state`)
+
 ## User Experience
 
 - The message of a denial: "Branch Deck is in Unattended Mode: nobody can approve this. Do it without new access (a path
@@ -202,6 +305,15 @@ unwritten.
   on."
 - `brd unattended on`, `brd unattended off`, `brd unattended status`; `brd hook permission-request` is hidden, Claude
   Code runs it.
+- The title bar while on: the mark Unattended Mode, `MoonStarIcon` and "Unattended" in the warning tone; its tooltip is
+  "Turn Off Unattended Mode" with "While it is on, coding agents' permission requests are
+  denied with a way on instead of waiting for you".
+- The palette: "Turn On Unattended Mode" (`MoonIcon`), "Turn Off Unattended Mode"; Settings → General: "Coding agents",
+  "While you leave them alone", the switch "Unattended Mode".
+- The toasts: "Turned on Unattended Mode" (warning) with "Claude Code has no hook of Unattended Mode, so its permission
+  requests still wait for you: Install Agent CLI adds it" and Install Agent CLI; "Turned off Unattended Mode" with
+  "2 permission requests were denied while it was on" and Show Denied Requests….
+- The dialog: "Denied Requests"; each request its tool, its summary, "Today 2:32 PM · general-purpose (a7) · app".
 
 ## References
 

@@ -1479,11 +1479,11 @@ repository, which runs when the window opens a repository synced before ([Onboar
 
 ### Requirement: Header: The header stays one line down to the minimum window width
 
-The header MUST stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
-overlapping: the repository selector gives way first; the branch count shows while the filter bar is hidden, from
-448 px (`@md`) of the room of the repository; the time of the last sync from 768 px (`@3xl`) of the header; Update,
-the landing indicator, Activity ([Activity](../activity/spec.md), there with an empty log too), Sync and its settings
-never shrink.
+The header MUST stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls apart:
+the repository selector gives way first; the branch count shows while the filter bar is hidden, from
+448 px (`@md`) of the room of the repository; the time of the last sync from 768 px (`@3xl`) of the header (992 px
+under ☰ in Unattended Mode); Update, the landing indicator, Activity ([Activity](../activity/spec.md), with an empty
+log too), Sync and its settings never shrink.
 
 #### Scenario: The minimum window width
 - **GIVEN** the window is 960 px wide (`min_inner_size`)
@@ -1498,8 +1498,9 @@ never shrink.
 - **THEN** the header shows the branch count
 
 #### Scenario: The time of the last sync
-- **WHEN** the header is 768 px (`@3xl`) wide or more
+- **WHEN** the header is 768 px (`@3xl`) wide or more, 992 px (`@min-[62rem]`) between ☰ and the window buttons of a custom title bar while Unattended Mode is on
 - **THEN** it shows the time of the last sync
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar between the main menu and the window buttons on one line at every width with Unattended Mode on, its word where the header has room`)
 
 ### Requirement: Header: The selector cuts its path only at a separator
 

@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithConflicts, expectErrorLog } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_ROW, headerLineProblems, MIN_WINDOW } from "../helpers/header-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
@@ -9,7 +10,7 @@ import { availableReviewRequests, getYourTurnCard, openRequestReview, reviewRequ
 import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getWindowMenus, openSubWindowPage, pressAndExpectOpened } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 import { waitForConflictViewer, expectClosed } from "../helpers/wait-helpers"
@@ -186,6 +187,25 @@ test.describe("Title bar", () => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await expectToolbarOnOneLineAtEveryWidth(page, "wide")
+  })
+
+  test("should keep the toolbar between the main menu and the window buttons on one line at every width with Unattended Mode on, its word where the header has room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await openPalette(page)
+    await runAndWaitForAnswer(page, "set_unattended_mode", () => runByKeyboard(page, "unattended", "Turn On Unattended Mode"))
+    const unattended = header(page).getByRole("button", { name: "Unattended Mode" })
+    await expect(unattended).toBeVisible()
+    await expectToolbarOnOneLineAtEveryWidth(page, "narrow")
+    await expectToolbarOnOneLineAtEveryWidth(page, "wide")
+    await expect(unattended).toHaveText("Unattended")
+    await page.setViewportSize(MIN_WINDOW)
+    await expect(unattended.getByText("Unattended")).toBeHidden()
   })
 
   test("should keep the toolbar under the system title bar on one line at every width up to 1200px, the names of the views gone at the minimum", async ({

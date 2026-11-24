@@ -10,7 +10,7 @@ import type { MainViewEntry } from "@/stores/main-view"
  * The command palette of the main window (⌘K, openspec/specs/repository/command-palette/spec.md): a way to where the user wants
  * to be, to the commands of the app and to the actions of the branch at hand. Its sources, in their order: the views of
  * the window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the header and of the app's menu
- * (the items of `mainMenus`, so the palette offers them as the menu does), the actions of the branch whose row has the
+ * (the items of `mainMenus`, so the palette offers them as the menu does) and the switch of Unattended Mode, the actions of the branch whose row has the
  * focus (the items of its menu, `getBranchContextMenuItems`, which present the actions Rust decides) and "Go to
  * <branch>" for every branch of the table.
  */
@@ -58,6 +58,8 @@ export interface PaletteSources {
    * waits, as the selector does while a sync runs; none where the host has no folder dialog (the IDE)
    */
   readonly openRepository?: { readonly reason: string | null; readonly run: () => void }
+  /** The switch of Unattended Mode, the item the title bar shows too (`unattendedModeItem`) */
+  readonly unattended?: MenuItem
 }
 
 /**
@@ -140,6 +142,17 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
         },
       ]
     }),
+    ...(sources.unattended === undefined
+      ? []
+      : [
+          {
+            id: `app:${sources.unattended.id ?? sources.unattended.label}`,
+            label: sources.unattended.label,
+            group: "Commands" as const,
+            ...(sources.unattended.icon !== undefined && { icon: sources.unattended.icon }),
+            run: () => sources.unattended?.onSelect(FROM_MENU),
+          },
+        ]),
     ...(sources.branchMenu === null ? [] : branchActions(sources.branchMenu.name, sources.branchMenu.groups)),
     ...sources.branches.map(name => ({
       id: `branch:${name}`,

@@ -26,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/develar/branch-deck/master/install.
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/develar/branch-deck/master/install.ps1))) -WithCli
 ```
 
-It writes two things:
+It writes three things:
 
 - **the command**: on macOS and Linux `~/.local/bin/brd`, a link to the app binary (`branch-deck cli`); on Windows
   `brd.exe` next to the app, which the installer puts there. `brd` is always the version of the app, so an update of
@@ -35,7 +35,24 @@ It writes two things:
   agent knows when to use `brd`: before its first edit or commit, to group or stack commits, to update or rebase, to
   land the commits of a worktree. `brd help skill` prints it for an agent that reads skills from elsewhere.
 
-`brd install --uninstall` removes both. Settings → Tools shows the skill as installed.
+- **the hook** of Unattended Mode (below) in the settings of Claude Code, `~/.claude/settings.json`: every other setting
+  and hook there stays as you wrote it.
+
+`brd install --uninstall` removes all three. Settings → Tools shows the skill as installed, and says when the hook is
+missing.
+
+## Leaving agents alone: Unattended Mode
+
+An agent team left running for the night stops at the first permission prompt of any of its agents: the prompt waits
+for you until morning. Before you leave, turn on Unattended Mode: Turn On Unattended Mode in the command palette,
+Settings → General, or `brd unattended on`. While it is on, the title bar of the main window reads "Unattended",
+and every permission request of Claude Code, of a session or any of its subagents, is denied with a message that
+nobody can approve it: the agent does the step without new access, or skips it, names it in its report and goes on.
+
+When you are back, click that mark to turn it off. Its toast says how many requests were denied, and Show Denied Requests… lists each:
+the tool, what it asked for (a command, a path, a URL), when, and which agent asked where. Allow in the settings of
+Claude Code what the agents need next time. `brd unattended status` prints the same list; it stays until the mode is
+turned on again ([Unattended Mode](../../openspec/specs/repository/unattended-mode/spec.md)).
 
 ## How agents work beside you
 

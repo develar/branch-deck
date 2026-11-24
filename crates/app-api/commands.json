@@ -468,6 +468,16 @@
     "transport": "json"
   },
   {
+    "name": "set_unattended_mode",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "get_unattended_mode",
+    "class": "read",
+    "transport": "json"
+  },
+  {
     "name": "agent_cli_status",
     "class": "read",
     "transport": "json"

@@ -14,6 +14,7 @@ import type { PaletteCommand, PaletteCommandGroup } from "@/lib/command-palette"
 import { logError } from "@/lib/errors"
 import { kbdLabel } from "@/lib/menu"
 import { hasFolderDialog, updatesItself } from "@/lib/title-bar"
+import { unattendedModeItem } from "@/lib/unattended"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
 import { openDiskUsageDialog } from "@/stores/disk-usage-dialog"
@@ -62,6 +63,7 @@ export function CommandPalette() {
   const { startsWith } = ComboboxPrimitive.useFilter()
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
+  const unattended = useAppSettings(state => state.unattended)
   const branches = useBranchSync(state => state.branchOrder)
   // the repository selector waits for a sync to end, its folder button too
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -116,6 +118,7 @@ export function CommandPalette() {
         },
         ...(repositoryPath !== undefined && repositoryPath !== "" && { showDiskUsage: () => openDiskUsageDialog(repositoryPath) }),
         ...(hasFolderDialog && { openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() } }),
+        unattended: unattendedModeItem(unattended),
       })
     : []
   const groups = paletteGroups(commands, text, startsWith)

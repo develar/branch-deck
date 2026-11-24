@@ -14,6 +14,7 @@ import type {
   RepositoryView,
   Resource,
   StackBranchUpdate,
+  UnattendedDenial,
 } from "../../../src/lib/bindings"
 import type { PatronusRobotsFixture } from "./patronus-helpers"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
@@ -648,6 +649,14 @@ export class TestRepositoryBuilder {
    */
   async setDialogPick(path: string | null): Promise<void> {
     await this.setFixture("dialog-pick", { path })
+  }
+
+  /**
+   * The hook of Unattended Mode denied `denials` (`POST …/unattended-denials`): the lines a night of agents leaves in the
+   * journal beside the settings of the app of the repository, written as the hook writes them
+   */
+  async addUnattendedDenials(denials: UnattendedDenial[]): Promise<void> {
+    await this.setFixture("unattended-denials", denials)
   }
 
   /**

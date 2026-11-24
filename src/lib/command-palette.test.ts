@@ -68,6 +68,17 @@ describe("paletteCommands", () => {
     expect(commands.filter(command => command.kbds !== undefined).map(command => command.id)).toEqual(["app:sync_branches", "app:update_project", "app:open_settings"])
   })
 
+  it("offers the switch of Unattended Mode after the items of the app's menu, and runs the item the title bar runs", () => {
+    const onSelect = vi.fn()
+    const commands = paletteCommands(sources({ unattended: { id: "unattended_mode", label: "Turn On Unattended Mode", icon: ListTreeIcon, onSelect } }))
+    const ids = commands.map(command => command.id)
+    expect(ids.indexOf("app:unattended_mode")).toBe(ids.indexOf("app:github_link") + 1)
+    const command = commands.find(it => it.id === "app:unattended_mode")
+    expect(command).toMatchObject({ label: "Turn On Unattended Mode", group: "Commands", icon: ListTreeIcon })
+    command?.run()
+    expect(onSelect).toHaveBeenCalledOnce()
+  })
+
   it("offers no Open Repository… where the host has no folder dialog", () => {
     const { openRepository: _, ...withoutDialog } = sources()
     const ids = paletteCommands(withoutDialog).map(command => command.id)

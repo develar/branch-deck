@@ -424,6 +424,14 @@ export const commands = {
 	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>("air_watch_session", __TAURI_INVOKE("air_watch_session", { params, statuses })),
 	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
 	stopAirWatch: (sessionId: string) => typedError<null, ApiError>("stop_air_watch", __TAURI_INVOKE("stop_air_watch", { sessionId })),
+	/**
+	 *  Turns Unattended Mode on or off (the title bar, the command palette): the setting through the writer of the
+	 *  settings, which every window hears; on from off starts the list of denied requests anew. Answers the mode with
+	 *  the requests denied since it was last turned on, and whether its hook is installed
+	 */
+	setUnattendedMode: (on: boolean) => typedError<UnattendedMode, ApiError>("set_unattended_mode", __TAURI_INVOKE("set_unattended_mode", { on })),
+	/**  Unattended Mode as it is, with the requests its hook denied since it was last turned on (Denied Requests) */
+	getUnattendedMode: () => typedError<UnattendedMode, ApiError>("get_unattended_mode", __TAURI_INVOKE("get_unattended_mode")),
 	/**  The skill files of `brd install` that exist, without writing anything */
 	agentCliStatus: () => typedError<AgentCliStatus, ApiError>("agent_cli_status", __TAURI_INVOKE("agent_cli_status")),
 	/**
@@ -10876,6 +10884,30 @@ export type UnapplyBranchResult = {
 	undoToken: string,
 };
 
+/**
+ *  A permission request the hook denied while the mode was on: one line of the journal of denials. Never the content of
+ *  a file or of an edit: the tool and the one field that says what it was asked for (`summary`)
+ */
+export type UnattendedDenial = {
+	/**  When, in Unix seconds */
+	time: number,
+	/**  The Claude Code session that asked */
+	session_id?: string,
+	/**  The subagent that asked; none for the main session */
+	agent_id?: string | null,
+	/**  The kind of that subagent (`general-purpose`, the name of an agent of the user) */
+	agent_type?: string | null,
+	/**  The working directory of the session */
+	cwd?: string,
+	/**  The tool it asked to run: `Bash`, `Read`, `WebFetch`, an MCP tool */
+	tool_name: string,
+	/**
+	 *  What the tool was asked for, cut to `SUMMARY_LIMIT` characters: the command of `Bash`, the path of a file tool, the
+	 *  URL of a fetch, the pattern of a search; else the names of its arguments
+	 */
+	summary?: string,
+};
+
 /**  The hook of `brd install` in the settings of Claude Code (`~/.claude/settings.json`) */
 export type UnattendedHook = 
 /**  The hook runs this brd */
@@ -10884,6 +10916,21 @@ export type UnattendedHook =
 "stale" | 
 /**  No hook of Branch Deck: nothing denies a request, so the mode changes nothing until `brd install` */
 "missing";
+
+/**
+ *  The mode as `brd unattended` and the app answer it: on or off, whether the hook is there to deny, and the requests
+ *  denied since the mode was last turned on (they stay after it is turned off, until it is turned on again)
+ */
+export type UnattendedMode = {
+	on: boolean,
+	/**  Whether this call turned the mode on or off; false for a read, and for a switch to the state it was in */
+	changed: boolean,
+	hook: UnattendedHook,
+	/**  This host installs the hook (`brd install`): false in an IDE (`brd mcp`), whose desktop app installs it */
+	installable: boolean,
+	/**  Oldest first */
+	denials: UnattendedDenial[],
+};
 
 /**  Why Patronus didn't answer */
 export type UnavailableReadinessReason = 

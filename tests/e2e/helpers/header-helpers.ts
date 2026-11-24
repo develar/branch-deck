@@ -63,7 +63,7 @@ export async function expectHeaderControlsOnOneLine(page: Page, ids: string[], z
 }
 
 /** The controls of the header that a width shows or hides, with those of every width: the names of the views and the count */
-export const HEADER_ROW = ["main-menu-button", ...HEADER_CONTROLS, "main-view-switcher", "branch-count", "window-controls"]
+export const HEADER_ROW = ["main-menu-button", ...HEADER_CONTROLS, "unattended-mode-button", "main-view-switcher", "branch-count", "window-controls"]
 
 /**
  * What breaks the one line of the header at the width the page has: a control of `ids` outside the header or its line,

@@ -395,6 +395,14 @@ macro_rules! for_each_command {
       /// Stops the watch of the session `session_id` that the calling window runs, if any
       app(CanceledRead) now stop_air_watch(session_id: String) = $crate::app::air_launch::stop_air_watch;
 
+      /// Turns Unattended Mode on or off (the title bar, the command palette): the setting through the writer of the
+      /// settings, which every window hears; on from off starts the list of denied requests anew. Answers the mode with
+      /// the requests denied since it was last turned on, and whether its hook is installed
+      app(SettingsWriter) window set_unattended_mode(on: bool) -> domain_types::unattended::UnattendedMode = $crate::app::unattended::set_unattended_mode;
+
+      /// Unattended Mode as it is, with the requests its hook denied since it was last turned on (Denied Requests)
+      read window get_unattended_mode() -> domain_types::unattended::UnattendedMode = $crate::app::unattended::get_unattended_mode;
+
       /// The skill files of `brd install` that exist, without writing anything
       read now agent_cli_status() -> $crate::app::agent_cli::AgentCliStatus = $crate::app::agent_cli::agent_cli_status;
 
