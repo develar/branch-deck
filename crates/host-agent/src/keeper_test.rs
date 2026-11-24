@@ -1,5 +1,5 @@
 use super::*;
-use lease_pool::lease::SlotState;
+use lease_pool::lease::{Ahead, SlotState};
 use pool_disk::report::{PoolReport, SlotReport};
 
 const GIB: u64 = 1 << 30;
@@ -71,4 +71,124 @@ fn the_line_of_a_volume_still_low_names_the_largest_pools_and_slots_and_what_a_p
     "{}",
     holders_line(&unmeasured)
   );
+}
+
+/// A free or leased slot of a shrink that freed `bytes`
+fn shrunk_slot(name: &str, holder: Option<&str>, bytes: u64) -> ShrunkSlot {
+  ShrunkSlot {
+    name: name.to_owned(),
+    path: format!("/pool/{name}"),
+    holder: holder.map(str::to_owned),
+    git_common_dir: "/repo/.git".to_owned(),
+    cleaned: vec![lease_pool::lease_clean::Cleaned {
+      rule: "cargo target".to_owned(),
+      freed_bytes: bytes,
+      elapsed: Duration::ZERO,
+      error: None,
+      trashed: Vec::new(),
+      deferred: Vec::new(),
+      profiles: lease_pool::lease_clean::Profiles::default(),
+    }],
+    trash_left: Vec::new(),
+  }
+}
+
+/// The line of a prune ahead of the minimum names the threshold, the leased slots it pruned with their holders and what
+/// each freed, the leased slots where cargo builds, and the free slots it cleaned; a leased slot that freed nothing is
+/// not named. A relief below the minimum names the leased slots the same way
+#[test]
+fn the_line_of_a_prune_ahead_names_the_threshold_and_each_leased_slot_with_its_holder() {
+  let shrunk = Shrunk {
+    leased: vec![
+      shrunk_slot("branch-deck1", Some("lease-keeper"), 12 * GIB),
+      shrunk_slot("branch-deck2", Some("idle-agent"), 0),
+    ],
+    building: vec![lease_pool::shrink::BuildingSlot {
+      name: "branch-deck3".to_owned(),
+      path: "/pool/branch-deck3".to_owned(),
+      holder: "debuginfo".to_owned(),
+      profiles: vec!["target/debug".to_owned()],
+    }],
+    slots: vec![shrunk_slot("idea-15", None, 30 * GIB)],
+    busy: Vec::new(),
+    process_scan: true,
+  };
+  let relieved = Relieved {
+    required: 100 * GIB,
+    before: 120 * GIB,
+    after: Some(162 * GIB),
+    swept: false,
+    reclaimed: Vec::new(),
+    trimmed: None,
+    shrunk: Some(shrunk),
+    evicted: None,
+    host_slots: Vec::new(),
+    ahead: Some(Ahead {
+      threshold: 150 * GIB,
+      trash_freed: 0,
+    }),
+  };
+  assert_eq!(
+    relieved_line(Path::new("/repo"), &relieved, false),
+    "the volume of the pools of /repo had 120.0 GiB free, less than 150.0 GiB, one and a half of `branchdeck.leaseMinFree` 100.0 GiB, below which the keeper prunes ahead of it: the prune of the leased slots by the cargo rules of their leases freed branch-deck1 (lease-keeper) 12.0 GiB, left the leased slot(s) branch-deck3 (debuginfo) as cargo builds there, the shrink freed 30.0 GiB of 1 free slot(s); now 162.0 GiB free"
+  );
+  let below = Relieved {
+    before: 95 * GIB,
+    after: Some(112 * GIB),
+    ahead: None,
+    ..relieved
+  };
+  assert!(
+    relieved_line(Path::new("/repo"), &below, false).starts_with(
+      "the volume of the pools of /repo had 95.0 GiB free, less than `branchdeck.leaseMinFree` 100.0 GiB: the prune of the leased slots by the cargo rules of their leases freed branch-deck1 (lease-keeper) 12.0 GiB,"
+    ),
+    "{}",
+    relieved_line(Path::new("/repo"), &below, false)
+  );
+}
+
+/// A prune ahead that ended below the minimum, as builds wrote faster than it deleted, is not a volume still low after
+/// every step: it starts no wait of the relief, and its line has neither the wait nor what holds the space, so the next
+/// round runs the whole relief. A relief below the minimum that leaves the volume below it is still low. The line of a
+/// prune ahead names the trash that earlier deletes left, which it deleted first
+#[test]
+fn a_prune_ahead_that_ends_below_the_minimum_leaves_the_relief_to_the_next_round() {
+  let ahead = Relieved {
+    required: 100 * GIB,
+    before: 101 * GIB,
+    after: Some(99 * GIB),
+    swept: false,
+    reclaimed: Vec::new(),
+    trimmed: None,
+    shrunk: None,
+    evicted: None,
+    host_slots: Vec::new(),
+    ahead: Some(Ahead {
+      threshold: 150 * GIB,
+      trash_freed: 3 * GIB,
+    }),
+  };
+  assert!(!still_low(&ahead));
+  assert_eq!(ahead_freed(&ahead), 3 * GIB);
+  assert_eq!(
+    relieved_line(Path::new("/repo"), &ahead, still_low(&ahead)),
+    "the volume of the pools of /repo had 101.0 GiB free, less than 150.0 GiB, one and a half of `branchdeck.leaseMinFree` 100.0 GiB, below which the keeper prunes ahead of it: deleted the trash that earlier deletes left, 3.0 GiB; now 99.0 GiB free"
+  );
+  let below = Relieved {
+    before: 95 * GIB,
+    ahead: None,
+    ..ahead
+  };
+  assert!(still_low(&below));
+}
+
+/// After a prune ahead of the minimum that freed bytes the next one may run at once, after ones that freed nothing it
+/// waits 10 minutes, and a round with no prune ahead keeps the wait it had
+#[test]
+fn a_prune_ahead_that_freed_nothing_makes_the_next_one_wait() {
+  let now = Instant::now();
+  let waited = Some(now + Duration::from_mins(3));
+  assert_eq!(next_ahead(waited, &[0, 5], now), None);
+  assert_eq!(next_ahead(None, &[0], now), Some(now + Duration::from_mins(10)));
+  assert_eq!(next_ahead(waited, &[], now), waited);
 }

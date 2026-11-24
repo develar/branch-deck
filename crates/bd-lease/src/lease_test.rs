@@ -1885,23 +1885,23 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 }
 
-const GIB: u64 = 1 << 30;
+pub(crate) const GIB: u64 = 1 << 30;
 /// The size of the volume of a `ShrinkFixture`, which holds its minimum of 100 GiB
-const VOLUME_BYTES: u64 = 1024 * GIB;
+pub(crate) const VOLUME_BYTES: u64 = 1024 * GIB;
 /// The bytes of the cargo unit each free slot of a `ShrinkFixture` keeps
 const UNIT_BYTES: usize = 64 * 1024;
 
 /// Three free slots of the pool, returned in order (the first longest ago), each with a cargo unit of its last build in
 /// `target/`, which the committed rule `cargo target` keeps (one of the 8 newest), and a volume of the test's own
 /// (`Volume`), against a minimum of 100 GiB
-struct ShrinkFixture {
-  fixture: Fixture,
+pub(crate) struct ShrinkFixture {
+  pub(crate) fixture: Fixture,
   /// The slots, the first returned first
-  slots: [String; 3],
+  pub(crate) slots: [String; 3],
 }
 
 impl ShrinkFixture {
-  fn new() -> Self {
+  pub(crate) fn new() -> Self {
     let fixture = Self::with_rules();
     let slots: Vec<String> = (1..=3).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
     for slot in &slots {
@@ -1958,7 +1958,7 @@ impl ShrinkFixture {
   }
 
   /// The file of the cargo unit of `slot`
-  fn unit(slot: &str) -> PathBuf {
+  pub(crate) fn unit(slot: &str) -> PathBuf {
     Path::new(slot).join("target/debug/build/git-ops/0123456789abcdef/fingerprint/dep")
   }
 
@@ -2145,7 +2145,7 @@ fn files_below_matching(dir: &Path, counted: &dyn Fn(&std::ffi::OsStr) -> bool) 
 }
 
 /// The files named `name` below `dir`
-fn files_named(dir: &Path, name: &str) -> u64 {
+pub(crate) fn files_named(dir: &Path, name: &str) -> u64 {
   files_below_matching(dir, &|file| file == name)
 }
 
@@ -3228,7 +3228,7 @@ fn a_get_and_a_return_beside_a_held_sync_do_not_wait_for_it() {
 /// A slot of a `ShrinkFixture` leased again, by `holder`, with nine more units of `git-ops` built 3 hours ago and later:
 /// with the fresh unit of the fixture, the rule `keep = 8` leaves the two oldest stale. The paths of those two
 #[cfg(unix)]
-fn leased_with_stale_units(shrink: &ShrinkFixture, holder: &str) -> (String, Vec<PathBuf>) {
+pub(crate) fn leased_with_stale_units(shrink: &ShrinkFixture, holder: &str) -> (String, Vec<PathBuf>) {
   let leased = path_of(&shrink.fixture.get(&["--holder", holder]));
   let units: Vec<PathBuf> = (0..9u64)
     .map(|index| {

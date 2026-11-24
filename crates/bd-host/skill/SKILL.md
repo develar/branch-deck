@@ -197,7 +197,8 @@ gone by the processes of the host, as its agent judged them; an agent of an olde
 A host has the agent only: no Branch Deck app and no `brd` binary. Never install, copy or link either there, and never run
 `brd lease` on a host through `brd-host run`. Below `branchdeck.leaseMinFree` of the host the agent frees space by
 itself, once a minute: the trash, the free slots past `branchdeck.leaseMaxSlots`, then the build output and the free
-slots below the limit, as a `brd lease get` does. `brd-host trim <host> [--max <n>] [--plan]` deletes the free slots past
+slots below the limit, as a `brd lease get` does; below one and a half of it, the trash that earlier deletes left, the stale
+build output of the leased slots and the build output of the free slots but the next one, ahead of the minimum. `brd-host trim <host> [--max <n>] [--plan]` deletes the free slots past
 the limit now, as `brd lease trim` does there; `brd-host disk <host>` shows what a trim deletes next. Ctrl+C, SIGTERM or SIGHUP
 ends `trim` and `upgrade` at once (130); the host goes on with the request it has. An agent without
 the feature `trim` names `brd-host upgrade <host>`: ask the user for it.

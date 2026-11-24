@@ -1233,6 +1233,29 @@ impl Trash {
   }
 }
 
+/// Delete the trash directories under `root` of runs that are gone or left their trash (`of_gone_run`), as
+/// `Trash::sweep` does, but stop once `stop` holds (`remove_measured_until`): the rest stays for a later sweep. The bytes
+/// it freed, and whether it deleted all
+pub(crate) fn sweep_gone_until(root: &Path, stop: &dyn Fn() -> bool) -> (u64, bool) {
+  let Ok(entries) = std::fs::read_dir(root) else { return (0, true) };
+  let mut freed = 0;
+  for entry in entries.flatten() {
+    if !of_gone_run(&entry.file_name().to_string_lossy()) {
+      continue;
+    }
+    match remove_measured_until(&entry.path(), stop) {
+      Ok(Removed { freed: bytes, complete }) => {
+        freed += bytes;
+        if !complete {
+          return (freed, false);
+        }
+      }
+      Err(error) => warn!(trash = %entry.path().display(), error = %error, "cannot delete the trash of a run that is gone"),
+    }
+  }
+  (freed, true)
+}
+
 /// Whether the trash under `root` holds a directory of a run whose process is gone, which `Trash::sweep` deletes: a
 /// look at the names, no walk
 pub(crate) fn holds_gone_runs(root: &Path) -> bool {

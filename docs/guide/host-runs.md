@@ -150,6 +150,10 @@ brd-host run local -- cargo nextest run -p git-ops
   of the app, `brd-host hello local` names `brd-host upgrade local`, which updates the agent.
 - The keeper works here as on any host: it keeps `branchdeck.hostSlots` warm slots per repository (4 by default), frees
   the disk below `branchdeck.leaseMinFree`, and upgrades the git of Homebrew when Branch Deck raises its floor.
+- Below one and a half of `branchdeck.leaseMinFree` the keeper prunes the build output of your sessions' worktrees
+  ahead of the minimum: the trash that earlier deletes left, the stale units of each leased worktree by its cargo
+  rules, then the build output of free worktrees, except the one the next `brd lease get` takes. So a get rarely meets the minimum while agents build.
+  Without the agent, only a get below the minimum frees space.
 
 ### A set of hosts
 
@@ -334,7 +338,9 @@ Set the minimum free space of the host once, on the host, as on this Mac:
 git config --global branchdeck.leaseMinFree 200G
 ```
 
-Below it the keeper frees space by itself, once a minute: the trash of gone runs, the free worktrees past
+Below one and a half of it the keeper prunes ahead: the trash that earlier deletes left, the stale build output of the
+leased worktrees by their cargo rules, then the build output of the free worktrees, except the one the next get takes. Below it the keeper frees space
+by itself, once a minute: the trash of gone runs, the free worktrees past
 `branchdeck.leaseMaxSlots` (10 by default) with their Bazel output bases, then the build output of free worktrees and
 free worktrees below the limit, the ones returned longest ago first, as a `brd lease get` does on this Mac. A host slot
 is a lease and stays; after a run, its own clean rules free it. Without a minimum the keeper deletes nothing.

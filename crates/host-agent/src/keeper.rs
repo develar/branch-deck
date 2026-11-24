@@ -4,8 +4,12 @@
 //! process acts on and deletes the refs that no run uses (`lease_pool::host_runs::reclaim_all`), then leases the missing
 //! slots (`lease_pool::host_slots::fill`) on a thread of its own, one per repository at a time. After the repositories,
 //! one relief keeps the minimum free space (`lease_pool::host_slots::keep_free`: below `branchdeck.leaseMinFree` the
-//! steps of a get there, the trim of every pool of the host among them), on a thread of its own and once per volume: the
-//! repositories of a host share one. A failed fill waits 1, 5, then 15 minutes before the next one, a relief that leaves
+//! steps of a get there, the trim of every pool of the host among them; below one and a half of it, ahead of it, the
+//! trash that earlier deletes left, then the shrink alone: the leased slots by the cargo rules of their leases, then the
+//! free slots but the one each pool's next get takes, so a get rarely meets the minimum while agents build), on a
+//! thread of its own and once per volume: the repositories of a host share one. A prune ahead that freed nothing
+//! writes no line, and the next one waits 10 minutes. A prune ahead that ends below the minimum starts no wait: the
+//! next round runs the whole relief. A failed fill waits 1, 5, then 15 minutes before the next one, a relief that leaves
 //! a volume below its minimum 15 minutes. Before the relief of a repository, the same thread applies the clean rules
 //! of each host slot that waited idle `branchdeck.hostSlotIdleClean` (6 hours by default) since its last run
 //! (`lease_pool::host_slots::clean_idle_slots`), so a slot keeps its caches warm for a session's runs, not for days,
@@ -22,10 +26,11 @@ use crate::repo::Repository;
 use crate::run::Runs;
 use crate::{cleanup, run_git, tuning};
 use lease_pool::host_runs::reclaim_all;
-use lease_pool::host_slots::{clean_idle_slots, fill, keep_free};
+use lease_pool::host_slots::{KeepFreeOptions, clean_idle_slots, fill, keep_free};
 use lease_pool::lease::{ReclaimedLease, ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
 use lease_pool::lease_notes::expire_pool_notes;
+use lease_pool::shrink::{Shrunk, ShrunkSlot};
 use pool_disk::report::DiskReport;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -41,6 +46,11 @@ const FILL_BACKOFF: [Duration; 3] = [Duration::from_mins(1), Duration::from_mins
 /// The wait after a relief that left the volume below its minimum, or failed: what it could delete is gone, and the
 /// next one would walk the pools again for nothing
 const RELIEF_BACKOFF: Duration = Duration::from_mins(15);
+
+/// The wait after a prune ahead of the minimum that freed nothing: each free slot is clean and each leased slot was
+/// pruned within its age, and the next prune would mark every free slot `cleaning` again for nothing. Builds pile up
+/// stale units over tens of minutes, not one
+const AHEAD_BACKOFF: Duration = Duration::from_mins(10);
 
 /// The largest pools and the largest slots of each that the line of a volume still below its minimum names
 const HOLDERS: usize = 3;
@@ -58,6 +68,9 @@ struct Fill {
 struct Relief {
   running: bool,
   not_before: Option<Instant>,
+  /// After a prune ahead of the minimum that freed nothing, the next one not before this (`next_ahead`); a volume
+  /// below the minimum is relieved meanwhile
+  ahead_not_before: Option<Instant>,
 }
 
 /// What a round did about a fill or the relief
@@ -233,8 +246,15 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>, home: PathBuf) -
   }
   let relief = Arc::clone(relief);
   thread::spawn(in_current_span(move || {
+    let skip_ahead = relief
+      .lock()
+      .unwrap_or_else(PoisonError::into_inner)
+      .ahead_not_before
+      .is_some_and(|not_before| Instant::now() < not_before);
     let mut round = ReliefRound::default();
     let mut low = false;
+    // the bytes that each prune ahead of the minimum of the round freed
+    let mut ahead: Vec<u64> = Vec::new();
     for repo in repos {
       let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -259,10 +279,19 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>, home: PathBuf) -
           Some(error) => log(&format!("cannot delete the notes of the lease {}: {error}", notes.lease_id)),
         }
       }
-      match keep_free(&repo.git, &repo.params(), &mut round) {
+      let options = KeepFreeOptions {
+        skip_ahead,
+        cached_build: Some(&pool_disk::cached_build_bytes),
+        space: None,
+      };
+      match keep_free(&repo.git, &repo.params(), &mut round, &options) {
         Ok(None) => {}
+        Ok(Some(relieved)) if relieved.ahead.is_some() && ahead_freed(&relieved) == 0 => ahead.push(0),
         Ok(Some(relieved)) => {
-          let still_low = relieved.after.is_some_and(|after| after < relieved.required);
+          if relieved.ahead.is_some() {
+            ahead.push(ahead_freed(&relieved));
+          }
+          let still_low = still_low(&relieved);
           low |= still_low;
           let mut line = relieved_line(&repo.path, &relieved, still_low);
           if still_low {
@@ -290,14 +319,43 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>, home: PathBuf) -
     let mut relief = relief.lock().unwrap_or_else(PoisonError::into_inner);
     relief.running = false;
     relief.not_before = low.then(|| Instant::now() + RELIEF_BACKOFF);
+    relief.ahead_not_before = next_ahead(relief.ahead_not_before, &ahead, Instant::now());
   }));
   Turn::Starts
 }
 
-/// The line of a relief below the minimum free space of the volume of `repo`: what each step deleted, and whether the
-/// volume is `still_low` after all
+/// The bytes that the prune ahead of the minimum of `relieved` freed: the left trash and the shrink
+fn ahead_freed(relieved: &Relieved) -> u64 {
+  relieved.ahead.map_or(0, |ahead| ahead.trash_freed) + relieved.shrunk.as_ref().map_or(0, Shrunk::freed_bytes)
+}
+
+/// Whether `relieved` left the volume below the minimum after every step of the relief, which makes the next relief
+/// wait `RELIEF_BACKOFF`. A prune ahead (`Relieved::ahead`) that ended below the minimum took only its own steps: the
+/// next round runs the whole relief at once
+fn still_low(relieved: &Relieved) -> bool {
+  relieved.ahead.is_none() && relieved.after.is_some_and(|after| after < relieved.required)
+}
+
+/// When the next prune ahead of the minimum may run, after a relief whose prunes ahead freed `freed` bytes each, at
+/// `now`: at once after one that freed bytes, `AHEAD_BACKOFF` later after ones that freed nothing, and as before
+/// (`previous`) when none ran. A prune ahead that freed nothing writes no line either
+fn next_ahead(previous: Option<Instant>, freed: &[u64], now: Instant) -> Option<Instant> {
+  if freed.iter().any(|bytes| *bytes > 0) {
+    None
+  } else if freed.is_empty() {
+    previous
+  } else {
+    Some(now + AHEAD_BACKOFF)
+  }
+}
+
+/// The line of a relief below the minimum free space of the volume of `repo`, or below the threshold of its prune ahead
+/// (`Relieved::ahead`): what each step deleted, and whether the volume is `still_low` after all
 fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
   let mut steps = Vec::new();
+  if let Some(ahead) = relieved.ahead.filter(|ahead| ahead.trash_freed > 0) {
+    steps.push(format!("deleted the trash that earlier deletes left, {}", describe_size(ahead.trash_freed)));
+  }
   if relieved.swept {
     steps.push("deleted the trash of gone runs".to_string());
   }
@@ -314,8 +372,24 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
       describe_size(trimmed.freed_bytes())
     ));
   }
-  if let Some(shrunk) = relieved.shrunk.as_ref().filter(|shrunk| !shrunk.slots.is_empty()) {
-    steps.push(format!("the shrink freed {} of {} free slot(s)", describe_size(shrunk.freed_bytes()), shrunk.slots.len()));
+  if let Some(shrunk) = &relieved.shrunk {
+    let pruned: Vec<String> = shrunk
+      .leased
+      .iter()
+      .filter(|slot| slot.freed_bytes() > 0)
+      .map(|slot| format!("{} ({}) {}", slot.name, slot.holder.as_deref().unwrap_or("no holder"), describe_size(slot.freed_bytes())))
+      .collect();
+    if !pruned.is_empty() {
+      steps.push(format!("the prune of the leased slots by the cargo rules of their leases freed {}", pruned.join(", ")));
+    }
+    if !shrunk.building.is_empty() {
+      let building: Vec<String> = shrunk.building.iter().map(|slot| format!("{} ({})", slot.name, slot.holder)).collect();
+      steps.push(format!("left the leased slot(s) {} as cargo builds there", building.join(", ")));
+    }
+    if !shrunk.slots.is_empty() {
+      let freed: u64 = shrunk.slots.iter().map(ShrunkSlot::freed_bytes).sum();
+      steps.push(format!("the shrink freed {} of {} free slot(s)", describe_size(freed), shrunk.slots.len()));
+    }
   }
   if let Some(evicted) = relieved.evicted.as_ref().filter(|evicted| evicted.removed_slots() > 0) {
     steps.push(format!(
@@ -346,11 +420,20 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
   } else {
     String::new()
   };
+  let below = relieved.ahead.map_or_else(
+    || format!("less than `branchdeck.leaseMinFree` {}", describe_size(relieved.required)),
+    |ahead| {
+      format!(
+        "less than {}, one and a half of `branchdeck.leaseMinFree` {}, below which the keeper prunes ahead of it",
+        describe_size(ahead.threshold),
+        describe_size(relieved.required)
+      )
+    },
+  );
   format!(
-    "the volume of the pools of {} had {} free, less than `branchdeck.leaseMinFree` {}: {}; now {after} free{still}",
+    "the volume of the pools of {} had {} free, {below}: {}; now {after} free{still}",
     repo.display(),
     describe_size(relieved.before),
-    describe_size(relieved.required),
     if steps.is_empty() { "nothing to delete".to_string() } else { steps.join(", ") }
   )
 }

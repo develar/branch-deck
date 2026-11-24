@@ -7,6 +7,9 @@
 //! takes last, until the volume has the minimum and its margin (`lease::shrink_target`): the worktree stays, only what
 //! the rules name goes. Only the slots on the volume the get measures are candidates (`free_space::Volume`).
 //!
+//! The keeper of brd-host runs the same shrink ahead of the minimum, below one and a half of it (`lease::relieve_core`,
+//! `lease::ahead_threshold`), up to that threshold, and keeps the slot each pool's next get takes (`keep_next`).
+//!
 //! First the shrink prunes the slots with a `ready` lease of an agent, by the cargo rules of each lease with their own
 //! `keep` and `age` (`lease::prune_leased_slot`): a slot stays hot, as the units its builds read stay, and a long session
 //! piled up 48 to 120 GB of stale units and objects in a slot on 2026-11-15. The largest build output goes first, as
@@ -79,6 +82,9 @@ pub struct ShrinkParams<'a> {
   /// The bytes of the build dirs of each slot of the pool of a common dir as `disk.json` last measured them, by slot
   /// path, read without a walk (`pool_disk::cached_build_bytes`); `None`: the leased slots go by `leased_at` alone
   pub cached_build: Option<&'a CachedBuild<'a>>,
+  /// The free slot of each pool that its next get takes stays (`next_free`), its warm output kept for that get: the
+  /// keeper's prune ahead of the minimum (`lease::relieve_core`); a get below the minimum takes it last
+  pub keep_next: bool,
 }
 
 /// The bytes of the build dirs of each slot of the pool of a common dir, by slot path (`ShrinkParams::cached_build`)
@@ -152,7 +158,7 @@ impl ShrunkSlot {
 /// files, minutes to delete, and the volume that has the target needs none of them. A free slot on another volume frees nothing on this one and is no
 /// candidate. A free slot with a process in it stays (`busy`), as `brd lease clean` skips it; one without rules or whose
 /// rules can't be read frees nothing and is passed over; one leased meanwhile is passed over. A failed rule never stops
-/// the others
+/// the others. With `keep_next` the free slot each pool's next get takes is no candidate
 #[instrument(skip_all, fields(repository = %params.repository.top_level, target = params.target))]
 pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>) -> Shrunk {
   let pools: Vec<(String, LeaseStore)> = machine_pools(params.repository, params.home)
@@ -192,9 +198,19 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     return shrunk;
   }
   let slots: Vec<&[Slot]> = pools.iter().map(|(_, store)| store.slots.as_slice()).collect();
-  let order = shrink_order(&slots, |slot| present(slot) && !shrunk.busy.iter().any(|busy| busy.path == slot.path));
+  let usable = |slot: &Slot| present(slot) && !shrunk.busy.iter().any(|busy| busy.path == slot.path);
+  let kept: Vec<&str> = if params.keep_next {
+    slots
+      .iter()
+      .filter_map(|pool| next_free(pool.iter().filter(|slot| slot.lease.is_none() && usable(slot))))
+      .map(|slot| slot.path.as_str())
+      .collect()
+  } else {
+    Vec::new()
+  };
+  let order = shrink_order(&slots, usable);
   let marker = Lease::marker("shrink", "brd lease get (shrink)", LeaseState::Cleaning);
-  for (index, slot) in order {
+  for (index, slot) in order.into_iter().filter(|(_, slot)| !kept.contains(&slot.path.as_str())) {
     if (params.available)(params.volume).is_none_or(|available| available >= params.target) {
       break;
     }

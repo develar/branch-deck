@@ -9,14 +9,19 @@ use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, slot_path, states};
+#[cfg(unix)]
+use crate::lease_test::{GIB, ShrinkFixture, VOLUME_BYTES, files_named, leased_with_stale_units};
 use crate::takeover_test::landed_lease;
 use bd_cli::fixture_test::{assert_error, canonical, git, gone_process, make_lease_idle};
 use git_ops::lease_slot::STATE_DIR;
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
-  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
-  clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink, snapshot_run,
+  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, KeepFreeOptions, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run,
+  checkout, clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink,
+  snapshot_run,
 };
+#[cfg(unix)]
+use lease_pool::lease::Ahead;
 use lease_pool::lease::{LeaseState, Pool, ReliefRound, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
 use pretty_assertions::assert_eq;
@@ -662,14 +667,19 @@ fn the_keeper_keeps_the_free_slots_past_the_limit_below_the_minimum_free_space_w
     fixture.give_back(lane);
   }
   git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "2"]);
-  assert!(keep_free(&context.git, &params, &mut ReliefRound::default()).unwrap().is_none(), "without a minimum");
+  assert!(
+    keep_free(&context.git, &params, &mut ReliefRound::default(), &KeepFreeOptions::default())
+      .unwrap()
+      .is_none(),
+    "without a minimum"
+  );
   assert_eq!(states(&fixture.status()).len(), 3, "without a minimum nothing goes");
 
   git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
   let tells_free_space = lease_pool::free_space::volume_space(Path::new(&lanes[0])).is_some();
   let mut round = ReliefRound::default();
-  let relieved = keep_free(&context.git, &params, &mut round).unwrap();
-  let again = keep_free(&context.git, &params, &mut round).unwrap();
+  let relieved = keep_free(&context.git, &params, &mut round, &KeepFreeOptions::default()).unwrap();
+  let again = keep_free(&context.git, &params, &mut round, &KeepFreeOptions::default()).unwrap();
   let slots: Vec<String> = states(&fixture.status()).into_iter().map(|(path, _)| path).collect();
   if !tells_free_space {
     assert!(relieved.is_none(), "no free space told, no minimum to fall under");
@@ -703,8 +713,8 @@ fn the_keeper_reclaims_the_idle_leases_whose_work_landed_without_a_get() {
   make_lease_idle(&fixture.state_file(), &slot_path(&landed));
   git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
   let mut round = ReliefRound::default();
-  let relieved = keep_free(&context.git, &params, &mut round).unwrap();
-  let again = keep_free(&context.git, &params, &mut round).unwrap();
+  let relieved = keep_free(&context.git, &params, &mut round, &KeepFreeOptions::default()).unwrap();
+  let again = keep_free(&context.git, &params, &mut round, &KeepFreeOptions::default()).unwrap();
   let state = |path: &str| states(&fixture.status()).into_iter().find(|(slot, _)| slot == path).map(|(_, state)| state);
   if lease_pool::free_space::volume_space(Path::new(&landed)).is_none() {
     assert!(relieved.is_none(), "no free space told, no minimum to fall under");
@@ -720,6 +730,151 @@ fn the_keeper_reclaims_the_idle_leases_whose_work_landed_without_a_get() {
   assert_eq!(state(&landed).as_deref(), Some("free"));
   assert_eq!(state(&host.filled[0].path).as_deref(), Some("ready"), "the host slot stays");
   assert!(again.is_none_or(|again| again.reclaimed.is_empty() && again.trimmed.is_none()), "once per volume and round");
+}
+
+/// Above `branchdeck.leaseMinFree` but below one and a half of it the keeper prunes ahead of the minimum (`keep_free`,
+/// `Relieved::ahead`), up to that threshold. The leased slot loses its stale units by the cargo rules of its lease, and
+/// the shrink stops once the volume has the threshold. The trash that earlier deletes left goes first, and the shrink
+/// does not run once the volume has the threshold after it. Then the free slot returned longest ago loses its build
+/// output, while the free slot the next get takes keeps it, though the volume is still below the threshold. No reclaim,
+/// trim or eviction runs. Above the threshold, while a get holds the lock of the shrink of the machine, and while the
+/// keeper waits after a prune ahead that freed nothing (`skip_ahead`), it deletes nothing. What the shrink moved into
+/// the trash still takes its space until it is deleted, as on a volume
+#[cfg(unix)]
+#[test_log::test]
+fn the_keeper_prunes_ahead_of_the_minimum_and_keeps_the_free_slot_of_the_next_get() {
+  let shrink = ShrinkFixture::new();
+  let (leased, stale) = leased_with_stale_units(&shrink, "busy-agent");
+  // returned in order: the next get takes the second
+  let free: Vec<&String> = shrink.slots.iter().filter(|slot| **slot != leased).collect();
+  let fixture = &shrink.fixture;
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "100G"]);
+  let context = context(fixture);
+  let params = params(fixture, &context);
+  let trash = fixture.repo.path().join(".git").join(STATE_DIR).join("trash");
+  // each unit, stale or of a free slot, holds 5 GiB until it is gone from its place and from the trash
+  let base = std::cell::Cell::new(160);
+  let space = |_: &Path| {
+    let units = stale.iter().cloned().chain(free.iter().map(|slot| ShrinkFixture::unit(slot)));
+    let gone = units.filter(|unit| !unit.exists()).count() as u64;
+    Some(lease_pool::free_space::VolumeSpace {
+      available: (base.get() + 5 * gone - 5 * files_named(&trash, "dep")) * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let options = |skip_ahead| KeepFreeOptions {
+    skip_ahead,
+    cached_build: None,
+    space: Some(&space),
+  };
+  let keep = || keep_free(&context.git, &params, &mut ReliefRound::default(), &options(false)).unwrap();
+  let untouched = || stale.iter().all(|unit| unit.exists()) && free.iter().all(|slot| ShrinkFixture::unit(slot).exists());
+  let free_kept = || free.iter().all(|slot| ShrinkFixture::unit(slot).exists());
+  let not_below = |relieved: &lease_pool::lease::Relieved| {
+    !relieved.swept && relieved.reclaimed.is_empty() && relieved.trimmed.is_none() && relieved.evicted.is_none() && relieved.host_slots.is_empty()
+  };
+  assert!(keep().is_none(), "160 GiB free, above one and a half of the minimum");
+  assert!(untouched());
+
+  base.set(140);
+  {
+    let pool = Pool::new(&fixture.repo.path().join(".git"));
+    let _held = lease_pool::shrink::lock_pressure(Some(fixture.home.path()), &pool, Duration::from_secs(5), &mut |_| {}, &|| false).unwrap();
+    assert!(keep().is_none(), "a get holds the lock of the shrink of the machine");
+    assert!(untouched());
+  }
+  assert!(
+    keep_free(&context.git, &params, &mut ReliefRound::default(), &options(true)).unwrap().is_none(),
+    "the keeper waits"
+  );
+  assert!(untouched());
+
+  // 140 GiB: the prune of the leased slot lifts the volume to the threshold, and the shrink stops there
+  let relieved = keep().expect("a prune ahead of the minimum");
+  assert_eq!(
+    relieved.ahead,
+    Some(Ahead {
+      threshold: 150 * GIB,
+      trash_freed: 0
+    }),
+    "{relieved:?}"
+  );
+  assert_eq!((relieved.required, relieved.before, relieved.after), (100 * GIB, 140 * GIB, Some(150 * GIB)));
+  let shrunk = relieved.shrunk.as_ref().expect("the shrink");
+  let pruned: Vec<(&str, Option<&str>)> = shrunk.leased.iter().map(|slot| (slot.path.as_str(), slot.holder.as_deref())).collect();
+  assert_eq!(pruned, [(leased.as_str(), Some("busy-agent"))]);
+  assert!(shrunk.slots.is_empty(), "the shrink stops at the threshold: {relieved:?}");
+  assert!(
+    stale.iter().all(|unit| !unit.exists()) && ShrinkFixture::unit(&leased).exists(),
+    "only the stale units of the lease go"
+  );
+  assert!(free_kept());
+  assert!(not_below(&relieved), "{relieved:?}");
+
+  // 140 GiB, of which the trash an earlier delete left holds 10: its delete lifts the volume to the threshold, so no
+  // shrink runs
+  let left = trash.join("left-0-0-earlier");
+  for unit in ["a", "b"] {
+    std::fs::create_dir_all(left.join(unit)).unwrap();
+    std::fs::write(left.join(unit).join("dep"), vec![b'x'; 64 * 1024]).unwrap();
+  }
+  let relieved = keep().expect("a prune ahead of the minimum");
+  assert_eq!((relieved.before, relieved.after), (140 * GIB, Some(150 * GIB)), "{relieved:?}");
+  assert!(relieved.ahead.is_some_and(|ahead| ahead.trash_freed > 0), "{relieved:?}");
+  assert!(relieved.shrunk.is_none(), "{relieved:?}");
+  assert!(!left.exists(), "the trash an earlier delete left is gone");
+  assert!(free_kept());
+  assert!(not_below(&relieved), "{relieved:?}");
+
+  // 140 GiB again: the leased slot was pruned within the age of its rules; the free slot returned longest ago loses its
+  // output, and the free slot of the next get keeps it
+  base.set(130);
+  let relieved = keep().expect("a prune ahead of the minimum");
+  assert_eq!((relieved.before, relieved.after), (140 * GIB, Some(145 * GIB)), "{relieved:?}");
+  let shrunk = relieved.shrunk.as_ref().expect("the shrink");
+  assert!(shrunk.leased.is_empty(), "{relieved:?}");
+  assert_eq!(shrunk.slots.iter().map(|slot| slot.path.as_str()).collect::<Vec<_>>(), [free[0].as_str()]);
+  assert!(!ShrinkFixture::unit(free[0]).exists());
+  assert!(ShrinkFixture::unit(free[1]).exists(), "the free slot of the next get stays warm");
+  assert!(not_below(&relieved), "{relieved:?}");
+}
+
+/// A prune ahead that ends below the minimum, as builds wrote meanwhile, relieves no host slot in its round: the round
+/// measured the volume above the minimum (`ReliefRound`). The next round measures it below the minimum and runs the
+/// whole relief, the idle host slots among it
+#[cfg(unix)]
+#[test]
+fn a_prune_ahead_that_ends_below_the_minimum_leaves_the_host_slots_to_the_next_round() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "100G"]);
+  let cache = PathBuf::from(&host.filled[0].path).join("out/cache");
+  std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+  std::fs::write(&cache, vec![1u8; 4096]).unwrap();
+  // the first measure has 101 GiB, every later one 99 GiB
+  let first = std::cell::Cell::new(true);
+  let space = |_: &Path| {
+    Some(lease_pool::free_space::VolumeSpace {
+      available: if first.replace(false) { 101 } else { 99 } * GIB,
+      total: VOLUME_BYTES,
+    })
+  };
+  let options = KeepFreeOptions {
+    skip_ahead: false,
+    cached_build: None,
+    space: Some(&space),
+  };
+
+  let relieved = keep_free(&context.git, &params, &mut ReliefRound::default(), &options).unwrap().expect("a prune ahead");
+  assert_eq!(relieved.ahead.map(|ahead| ahead.threshold), Some(150 * GIB), "{relieved:?}");
+  assert_eq!((relieved.before, relieved.after), (101 * GIB, Some(99 * GIB)));
+  assert!(relieved.host_slots.is_empty(), "{relieved:?}");
+  assert!(cache.is_file(), "no host slot in the round of a prune ahead");
+
+  let relieved = keep_free(&context.git, &params, &mut ReliefRound::default(), &options).unwrap().expect("the whole relief");
+  assert!(relieved.ahead.is_none(), "{relieved:?}");
+  assert_eq!(relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>(), [1], "{relieved:?}");
+  assert!(!cache.exists());
 }
 
 /// Below the minimum free space after the steps of the pools, which take free slots only, the keeper relieves the idle
@@ -760,14 +915,21 @@ fn the_keeper_relieves_the_idle_host_slots_used_longest_ago_first_until_the_volu
   let generation = |n: u32| table(fixture).slots.iter().find(|slot| slot.n == n).unwrap().generation;
   let before = generation(3);
 
-  assert!(relieve_host_slots(&context.git, &params, None, 0, &|_| Some(0)).unwrap().is_none(), "without a minimum");
+  assert!(
+    relieve_host_slots(&context.git, &params, (None, &ReliefRound::default()), 0, &|_| Some(0))
+      .unwrap()
+      .is_none(),
+    "without a minimum"
+  );
   assert!(cache(3).is_file());
 
   // low until the output base of slot 3 is gone: its clean does not suffice, its output bases do, and slot 1 stays warm
   let low_until = base("slot-3");
-  let relieved = relieve_host_slots(&context.git, &params, None, 1000, &|_| Some(if low_until.exists() { 0 } else { u64::MAX }))
-    .unwrap()
-    .expect("a relief below the minimum");
+  let relieved = relieve_host_slots(&context.git, &params, (None, &ReliefRound::default()), 1000, &|_| {
+    Some(if low_until.exists() { 0 } else { u64::MAX })
+  })
+  .unwrap()
+  .expect("a relief below the minimum");
   let slots: Vec<u32> = relieved.host_slots.iter().map(|slot| slot.n).collect();
   assert_eq!(slots, [3], "{relieved:?}");
   let slot = &relieved.host_slots[0];
@@ -787,7 +949,7 @@ fn the_keeper_relieves_the_idle_host_slots_used_longest_ago_first_until_the_volu
   assert_eq!(table(fixture).slots.iter().filter(|slot| slot.state == HostState::Idle).count(), 2, "idle again");
 
   // never enough: every idle slot in turn, slot 3 (used longest ago) before slot 1, and still not the lent one
-  let relieved = relieve_host_slots(&context.git, &params, None, 1000, &|_| Some(0))
+  let relieved = relieve_host_slots(&context.git, &params, (None, &ReliefRound::default()), 1000, &|_| Some(0))
     .unwrap()
     .expect("a relief below the minimum");
   assert_eq!(relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>(), [3, 1], "{relieved:?}");

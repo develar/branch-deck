@@ -21,7 +21,7 @@
 //! one: below `branchdeck.leaseMinFree` the keeper relieves the idle host slots itself (`relieve_host_slots`), their
 //! clean rules with keep 0, then their Bazel output bases, used longest ago first.
 
-use crate::free_space::available_bytes;
+use crate::free_space::{SpaceOf, available_bytes};
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
@@ -33,7 +33,7 @@ use crate::lease_clean::{
   tracked_by_rules,
 };
 use crate::output_bases::OutputBase;
-use crate::shrink::DEEP;
+use crate::shrink::{CachedBuild, DEEP};
 use crate::state_file::StateFile;
 use crate::trim::{Machine, RemovedBase, TrimParams, Trimmed, remove_all, trash_bases, trim_core};
 use anyhow::{Result, bail};
@@ -1659,8 +1659,11 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
 /// repository go next (`relieve_host_slots`). `None` when the volume has it, and when `round` took its volume already
 /// and no host slot of this repository was relieved: the repositories of a host share one volume, and one relief of the
 /// pools serves them all, while each repository relieves its own host slots. Below it after every step,
-/// `Relieved::after` is below `Relieved::required`. While a live process upgrades git it runs no git: `GitUpgrading`
-pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
+/// `Relieved::after` is below `Relieved::required`. Above it but below one and a half of it, the relief prunes ahead
+/// of it (`Relieved::ahead`): the left trash and the shrink alone, and no host slot, also when the prune ends below the
+/// minimum, as the volume of the round had it (`ReliefRound::had_minimum`): the next round runs the whole relief. While a
+/// live process upgrades git it runs no git: `GitUpgrading`
+pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, round: &mut ReliefRound, options: &KeepFreeOptions<'_>) -> Result<Option<Relieved>> {
   refuse_while_upgrading(&params.table().read()?)?;
   let relieved = relieve_core(
     git_executor,
@@ -1674,14 +1677,29 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       bazel: None,
       lock_timeout: params.lock_timeout,
       progress: None,
-      space: None,
-      cached_build: None,
+      space: options.space,
+      cached_build: options.cached_build,
     },
     round,
+    !options.skip_ahead,
   )?;
   let config = lease_config(git_executor, &params.repository.top_level)?;
   let min_free = config_size("branchdeck.leaseMinFree", config.min_free.as_ref())?.unwrap_or(0);
-  relieve_host_slots(git_executor, params, relieved, min_free, &available_bytes)
+  let available = |path: &Path| options.space.map_or_else(|| available_bytes(path), |space| space(path).map(|space| space.available));
+  relieve_host_slots(git_executor, params, (relieved, round), min_free, &available)
+}
+
+/// How the relief of the keeper runs (`keep_free`)
+#[derive(Default)]
+pub struct KeepFreeOptions<'a> {
+  /// No prune ahead of the minimum: the keeper waits after one that freed nothing, as each free slot was cleaned and
+  /// each leased slot pruned, so it does not mark every free slot `cleaning` again once a minute
+  pub skip_ahead: bool,
+  /// The bytes of the build dirs of the slots of a pool as `disk.json` last measured them, for the order of the leased
+  /// slots in a shrink (`pool_disk::cached_build_bytes`); `None`: by `leased_at` alone
+  pub cached_build: Option<&'a CachedBuild<'a>>,
+  /// The space of the volume of a path; `None`: `free_space::volume_space`. A test tells a volume of its own
+  pub space: Option<&'a SpaceOf<'a>>,
 }
 
 /// The clean rules of each idle host slot of `params` that waited `branchdeck.hostSlotIdleClean` (6 hours without it,
@@ -1760,12 +1778,14 @@ impl RelievedHostSlot {
 /// first (`trim::trash_bases`, as the trim removes a free slot). A slot that is not idle is never touched, nor one with
 /// a process of a run in it; a slot stays in the pool: a run gets it again with a cold build. `available` tells the
 /// free bytes of a path (`free_space::available_bytes`); without a minimum, or without host slots, `relieved` as it
-/// is. The answer is `relieved` with `host_slots` and the free space after them, or a relief of its own when the steps
-/// of the pools did not run (a round that took the volume already, a volume that had its minimum before them)
+/// is, and so on a volume that `round` measured above the minimum (`ReliefRound::had_minimum`): a prune ahead that
+/// ended below it leaves the host slots to the whole relief of the next round. The answer is `relieved` with
+/// `host_slots` and the free space after them, or a relief of its own when the steps of the pools did not run (a round
+/// that took the volume already)
 pub fn relieve_host_slots(
   git_executor: &GitCommandExecutor,
   params: &HostSlotsParams<'_>,
-  relieved: Option<Relieved>,
+  (relieved, round): (Option<Relieved>, &ReliefRound),
   min_free: u64,
   available: &dyn Fn(&Path) -> Option<u64>,
 ) -> Result<Option<Relieved>> {
@@ -1776,6 +1796,9 @@ pub fn relieve_host_slots(
   let Some(volume) = table.slots.iter().find(|slot| !slot.path.is_empty()).map(|slot| PathBuf::from(&slot.path)) else {
     return Ok(relieved);
   };
+  if round.had_minimum(&volume) {
+    return Ok(relieved);
+  }
   let low = || available(&volume).is_some_and(|free| free < min_free);
   let before = available(&volume);
   if !low() {
@@ -1806,6 +1829,7 @@ pub fn relieve_host_slots(
     shrunk: None,
     evicted: None,
     host_slots: Vec::new(),
+    ahead: None,
   });
   relieved.after = available(&volume);
   relieved.host_slots = slots;

@@ -20,7 +20,7 @@ use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{
   CleanMode, CleanOptions, CleanOverrides, Cleaned, Trash, apply_clean_rules, apply_clean_rules_with, clone_skips, describe_size, holds_gone_runs, read_clean_rules,
-  remove_together,
+  remove_together, sweep_gone_until,
 };
 use crate::lease_notes::{LeaseNotes, NotesRoots, close_notes, new_notes_root, open_notes};
 use crate::shrink::{CachedBuild, ShrinkParams, Shrunk, lock_pressure, shrink_core};
@@ -1974,6 +1974,20 @@ pub struct Relieved {
   /// The idle host slots of the repository relieved after these steps, used longest ago first, until the volume had its
   /// minimum (`host_slots::relieve_host_slots`); empty for a get, which lends no host slot
   pub host_slots: Vec<RelievedHostSlot>,
+  /// The prune ahead of the minimum, when the volume had the minimum but less than one and a half of it: then only the
+  /// left trash and the shrink ran, up to that threshold, and the shrink kept the free slot each pool's next get takes
+  /// (`ShrinkParams::keep_next`); `None` for a relief below the minimum
+  pub ahead: Option<Ahead>,
+}
+
+/// What the keeper's prune ahead of the minimum did besides the shrink (`Relieved::ahead`, `prune_ahead`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ahead {
+  /// The free bytes below which the keeper prunes ahead of the minimum, and up to which it prunes (`ahead_threshold`)
+  pub threshold: u64,
+  /// The bytes of the trash that earlier deletes left in the pools of the machine on the volume (`Trash::abandon`, the
+  /// trash of gone runs), deleted before the shrink
+  pub trash_freed: u64,
 }
 
 /// The volumes that one round of the keeper took already (`relieve_core`): a relief raises the free space of a volume
@@ -1983,6 +1997,10 @@ pub struct Relieved {
 pub struct ReliefRound {
   /// The pool directory of each volume taken, as `free_space::Volume` tells it
   pools: Vec<PathBuf>,
+  /// The pool directory of each volume that had the minimum at its measure in this round: no host slot of it is
+  /// relieved in this round (`host_slots::relieve_host_slots`), though a prune ahead ended below the minimum; the next
+  /// round runs the whole relief
+  ahead: Vec<PathBuf>,
 }
 
 impl ReliefRound {
@@ -1990,15 +2008,25 @@ impl ReliefRound {
   fn covers(&self, pool_dir: &Path) -> bool {
     self.pools.iter().any(|pool| Volume::of(pool).holds(pool_dir))
   }
+
+  /// Whether the round measured the volume of `path` above the minimum (`ReliefRound::ahead`)
+  pub(crate) fn had_minimum(&self, path: &Path) -> bool {
+    self.ahead.iter().any(|pool| Volume::of(pool).holds(path))
+  }
 }
 
 /// The free space of the volume of the pool of `params.source` raised to its minimum without a get, by the steps a get
 /// takes below it (the trash, the reclaim, the trim, the shrink, the eviction; `Relieved::after`). `None` without a
-/// minimum, where the system tells no free space, and on a volume that has it: then it measures only. Below it after
-/// all, it answers what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked for a slot.
-/// The keeper of the host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum. A
-/// volume that `round` took already is `None` too: once per volume and round
-pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
+/// minimum, where the system tells no free space, and on a volume that has one and a half of it: then it measures only.
+/// Below it after all, it answers what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked
+/// for a slot. The keeper of the host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its
+/// minimum. A volume that `round` took already is `None` too: once per volume and round.
+///
+/// A volume that has the minimum but less than `ahead_threshold` is pruned ahead of it (`prune_ahead`), so a get rarely
+/// meets the minimum while agents build: `None` when another holds the lock of the shrink of the machine, and without
+/// `ahead`. Such a volume is marked in `round` (`ReliefRound::had_minimum`): a prune ahead that ends below the minimum
+/// leaves the whole relief to the next round
+pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, round: &mut ReliefRound, ahead: bool) -> Result<Option<Relieved>> {
   let source = &params.source.top_level;
   let config = lease_config(git_executor, source)?;
   let min_free = required_free(params, &config)?;
@@ -2011,10 +2039,29 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
     return Ok(None);
   }
   round.pools.push(pool_dir.clone());
-  let Some(before) = params.available(&pool_dir).filter(|available| *available < min_free) else {
+  let threshold = ahead_threshold(min_free);
+  let Some(before) = params.available(&pool_dir).filter(|available| *available < threshold) else {
     return Ok(None);
   };
   let pool = Pool::new(&git_common_dir);
+  if before >= min_free {
+    round.ahead.push(pool_dir.clone());
+    if !ahead {
+      return Ok(None);
+    }
+    return Ok(prune_ahead(git_executor, params, &pool, (&pool_dir, threshold)).map(|(trash_freed, shrunk)| Relieved {
+      required: min_free,
+      before,
+      after: params.available(&pool_dir),
+      swept: false,
+      reclaimed: Vec::new(),
+      trimmed: None,
+      shrunk,
+      evicted: None,
+      host_slots: Vec::new(),
+      ahead: Some(Ahead { threshold, trash_freed }),
+    }));
+  }
   let mut relief = Relief {
     keeper: true,
     ..Relief::default()
@@ -2034,7 +2081,85 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
     shrunk: relief.shrunk,
     evicted: relief.evicted,
     host_slots: Vec::new(),
+    ahead: None,
   }))
+}
+
+/// How far below one and a half of the minimum free space the keeper starts its prune (`relieve_core`): on 2026-11-24
+/// a dozen leases building at once took the user's Mac from 139 to 82 GiB free in an hour, below its `100G`, where
+/// every get then shrank first. Ahead of the minimum, the keeper prunes once a minute what the cargo rules of the leases name
+/// stale and cleans the free slots no next get takes, so the get mostly finds the minimum. The minimum is what the user chose
+/// for the machine, so the threshold scales with it, and no setting is added
+const AHEAD_DIVISOR: u64 = 2;
+
+/// The free bytes below which the keeper prunes ahead of the minimum `min_free` (`AHEAD_DIVISOR`)
+pub const fn ahead_threshold(min_free: u64) -> u64 {
+  min_free.saturating_add(min_free / AHEAD_DIVISOR)
+}
+
+/// The keeper's prune ahead of the minimum on the volume of `pool_dir` up to `threshold`: first the trash that earlier
+/// deletes left (`delete_left_trash`), then, below `threshold` still, the shrink of the pools of the machine
+/// (`shrink::shrink_core`): the leased slots by the cargo rules of their leases, then the free slots but the one each
+/// pool's next get takes (`ShrinkParams::keep_next`). A shrink stops its delete at `threshold` and leaves the rest in the
+/// trash, so without the first step each round would make one more slot cold and leave its output in the trash. It
+/// takes the lock of the shrink of the machine only when no get holds it (`shrink::lock_pressure`): a get that shrinks
+/// frees the volume anyway, and the keeper's next round measures again. `None` then, and for a threshold past the size
+/// of the volume, where every free slot would go; else the bytes of the trash it deleted and the shrink, if it ran
+fn prune_ahead(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, pool: &Pool, (pool_dir, threshold): (&Path, u64)) -> Option<(u64, Option<Shrunk>)> {
+  if params.space(pool_dir).is_none_or(|space| threshold > space.total) {
+    return None;
+  }
+  let _pressure = match lock_pressure(params.home, pool, params.lock_timeout, &mut |_| {}, &|| true) {
+    Ok(lock) => lock,
+    Err(error) if error.downcast_ref::<LockWaitCanceled>().is_some() => {
+      debug!("a get holds the lock of the shrink of the machine: the keeper prunes ahead at its next round");
+      return None;
+    }
+    Err(error) => {
+      warn!(error = %format!("{error:#}"), "cannot take the lock of the shrink of the machine to prune ahead of the minimum");
+      return None;
+    }
+  };
+  let available = |path: &Path| params.available(path);
+  let enough = || available(pool_dir).is_some_and(|free| free >= threshold);
+  let trash_freed = delete_left_trash(params, pool_dir, &enough);
+  if enough() {
+    return Some((trash_freed, None));
+  }
+  let shrunk = shrink_core(
+    git_executor,
+    &ShrinkParams {
+      repository: params.source,
+      home: params.home,
+      volume: pool_dir,
+      target: threshold,
+      available: &available,
+      lock_timeout: params.lock_timeout,
+      cached_build: params.cached_build,
+      keep_next: true,
+    },
+  );
+  Some((trash_freed, Some(shrunk)))
+}
+
+/// Delete the trash that earlier deletes left in each pool of the machine (`trim::machine_pools`) on the volume of
+/// `pool_dir`: the directories that a stopped delete left (`Trash::abandon`) and those of gone runs, until `enough`
+/// holds (`lease_clean::sweep_gone_until`). The trash of a live run stays. The bytes it freed
+fn delete_left_trash(params: &LeaseGetParams<'_>, pool_dir: &Path, enough: &dyn Fn() -> bool) -> u64 {
+  let volume = Volume::of(pool_dir);
+  let mut freed = 0;
+  for machine_pool in machine_pools(params.source, params.home) {
+    let trash = Pool::new(&machine_pool.git_common_dir).trash_dir();
+    if !volume.holds(&trash) {
+      continue;
+    }
+    let (bytes, complete) = sweep_gone_until(&trash, enough);
+    freed += bytes;
+    if !complete {
+      break;
+    }
+  }
+  freed
 }
 
 /// The turn of a get at the shrink and the eviction of the machine (`pressure_turn`)
@@ -2256,6 +2381,7 @@ fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>
       available: &available,
       lock_timeout: params.lock_timeout,
       cached_build: params.cached_build,
+      keep_next: false,
     },
   )
 }

@@ -460,6 +460,19 @@ waits for it the same way, so a run of minutes takes one call and a longer one a
   the slots that hold the most by `disk/`, without a walk, and what a person can do: return leases, `brd-host trim`,
   or move a pool with `branchdeck.leasePool`. On 2026-11-18 the Studio said "nothing to delete" for hours while the
   leased slots held 400 GiB, and nobody could tell from the log what held the space.
+- **Ahead of the minimum.** Above `branchdeck.leaseMinFree` but below one and a half of it, the relief prunes ahead of
+  the minimum, up to that threshold (`Relieved::ahead`). First it deletes the trash that earlier deletes left in the
+  pools of the machine. A shrink stops its delete at the threshold and leaves the rest in the trash, so without this
+  step each round would make one more slot cold. Below the threshold still, it runs the shrink alone: the leased slots
+  by the cargo rules of their leases, the largest build output by `disk/` first, then the free slots but the one each
+  pool's next get takes, which stays warm. It takes the lock of the shrink of the machine only when no get holds it; a
+  get that shrinks frees the volume anyway. A prune ahead that ends below the minimum relieves no host slot and starts
+  no wait: the next round, a minute later, runs the whole relief. Each
+  leased slot is pruned at most once in the smallest `age` of its cargo rules. A prune ahead that freed nothing writes
+  no line, and the next one waits 10 minutes (`AHEAD_BACKOFF`): it would mark every free slot `cleaning` again once a
+  minute for nothing. On 2026-11-24 a dozen leases building on the user's Mac took it from 139 to 82 GiB free in an hour,
+  below its `100G`: the relief at the minimum came too late, and each get shrank first. The line of a relief names
+  each pruned leased slot with its holder and the leased slots where cargo builds, which the line before left out.
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 
@@ -488,7 +501,9 @@ session, which starts cold.
   A copy at `~/.local/bin/brd-host`, the path of a host, would replace the link: the client of this machine would stay
   at the build of the setup for its runs to every host until a manual upgrade.
 - **The keeper** is the keeper of every host. Below `branchdeck.leaseMinFree` it relieves every pool of this machine,
-  the pools of the sessions too, by the steps of a get, which a `brd lease get` there takes anyway. Below the floor of
+  the pools of the sessions too, by the steps of a get, which a `brd lease get` there takes anyway, and below one and
+  a half of it it prunes ahead of the minimum, so a get meets it less often. It works only where an agent runs (`setup
+  --local` or a host): a machine without one frees space only inside a get. Below the floor of
   the git of a host it runs `brew upgrade git`; a Mac whose git of Homebrew is current never meets the floor.
 - **One agent per machine.** The `LaunchAgent` has one label. A later `setup --agent` of another client on the same
   machine writes the plist without the bind, and the agent then listens on every address again.
