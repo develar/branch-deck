@@ -26,6 +26,13 @@ fn bodies(github: &FakeGitHub) -> Vec<Value> {
   github.requests_to("POST", REVIEWERS).iter().map(github::fake_github::FakeRequest::json).collect()
 }
 
+/// `brd request-review auth` refused as `no_pull_request`: the message of its error
+fn refused_without_pull_request(environment: &Environment) -> String {
+  let (exit_code, output) = request_review(environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "no_pull_request"));
+  output["error"]["message"].as_str().unwrap().to_owned()
+}
+
 /// `needs_code_owner` with auth pushed: its remote has it, the request pushes nothing
 fn pushed_code_owner(state: &str) -> (Space, Arc<FakeGitHub>, Environment) {
   let (space, github, environment) = needs_code_owner(state);
@@ -103,22 +110,14 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
   let (space, github, environment) = needs_code_owner("NOT_ADDED");
 
   list_pull_requests(&github, &[]);
-  let (exit_code, output) = request_review(&environment, &["auth"]);
-  assert_error(&output, exit_code, (4, "no_pull_request"));
-  assert!(
-    output["error"]["message"]
-      .as_str()
-      .unwrap()
-      .contains(&format!("`{} safe-push auth --create-pull-request`", bd_in(&space.repo))),
-    "{output}"
-  );
+  let message = refused_without_pull_request(&environment);
+  assert!(message.contains(&format!("`{} safe-push auth --create-pull-request`", bd_in(&space.repo))), "{message}");
 
   let mut draft = own_pull_request();
   draft["isDraft"] = json!(true);
   list_pull_requests(&github, &[draft]);
-  let (exit_code, output) = request_review(&environment, &["auth"]);
-  assert_error(&output, exit_code, (4, "no_pull_request"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("is a draft"), "{output}");
+  let message = refused_without_pull_request(&environment);
+  assert!(message.contains("is a draft"), "{message}");
 
   // Patronus doesn't say the GitHub login of the suggested code owner
   list_pull_requests(&github, &[own_pull_request()]);
