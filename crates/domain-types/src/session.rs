@@ -911,6 +911,14 @@ pub enum NewsEvent {
   /// Every reviewer the shown review `number` of `branch` asked approved it: the app closes it
   /// (`Intent::CloseShownReview`) and deletes its refs
   ShownReviewApproved { branch: String, number: u32 },
+  /// The Safe Push `robot_id` of a fix of `branch` merged after its shown review `number` opened: the app extends the
+  /// review (`Intent::ExtendShownReview`), the fix on its head, its reviewers asked again
+  ShownReviewFixLanded {
+    branch: String,
+    number: u32,
+    #[serde(rename = "robotId")]
+    robot_id: String,
+  },
 }
 
 /// What the last answer of Patronus said of the repository

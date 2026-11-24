@@ -308,11 +308,30 @@ Its life, one robot, no gate:
 3. The author's move: changes requested by a reviewer it asked are the "Returned to you" line of Your Turn, also of a
    branch that left the table; the row of the branch marks the review (`RowFact::Shown`) beside its landing, never in
    its place.
-4. Once every reviewer it asked approved, by the latest review of each (GitHub's `reviewDecision` approves after the
+4. A fix goes into the same review. It is a commit `(<branch>) …` or of the same issue key, which groups into the
+   branch again and lands by its own ordinary Safe Push onto the new master: one robot, no gate, no flag. While its
+   robot runs, and once it merged until the review took it, the review waits for the fix (`ShownState::Extending`):
+   nobody's move, nothing closes it. Once it merged (`NewsEvent::ShownReviewFixLanded`, `brd request-review
+   <branch>`), the review takes it (`Intent::ExtendShownReview`): the commits the robot landed (its source revision
+   past the target, what it tested) are replayed onto the head the remote has and pushed leased on it, signed per
+   `commit.gpgsign`; once GitHub shows the new head (a mirror copies it a moment later) its reviewers are asked again,
+   and the record of the body names the source revision of the fix last (`<!-- branch-deck show landed: … -->`). The
+   record is what says the fix was taken: until it, the review waits for the fix, so an approval of the old head never
+   closes it, and a run that stopped between the steps is due again and adds nothing twice: the replay drops a commit
+   whose change the head has, and the comment
+   of a fix that doesn't apply ("Landed a follow-up as <sha>; it does not apply on this review's commits: <the robot
+   page>") is posted only when no comment has it. Such a fix leaves the head as it was; its reviewers read it in the
+   comment.
+5. Once every reviewer it asked approved, by the latest review of each (GitHub's `reviewDecision` approves after the
    first approval and counts a bot that requests changes; a bot and someone not asked count for nothing), it closes
    (`NewsEvent::ShownReviewApproved`, `brd close-review`) with a comment that names who approved it, and its branches
    are deleted: the ones the remote has, each leased on what it has (a leased delete of a gone ref is
    `[rejected] (stale info)`, which fails an atomic push whole).
+
+The session tells each of these once; a run of one that failed is told again at the next answer of the listing or the
+robots, three times per session at most, never at once. A draft whose robot is older than the 7 days of the listing
+opens when the fetched baseline has its branch whole by content and no robot of it is listed: on the head it has, the
+commit of the start.
 
 The reviewers, unless `--reviewer` names them: the owner groups of the changed paths by the `OWNERSHIP` files of the
 target (the groups Patronus resolves), their reviewers and members from the CodeOwners service with the Space token of
@@ -325,9 +344,8 @@ offered (`ActionBlocker::Shown`), Approve and merge (`SubmitReview { then_land }
 "Shown: in master already; your review gates no Safe Push".
 
 D5 holds for it too: the reviewers see exactly what landed, as its head is the commit the robot took, pushed before
-the review opens. The branches of the review are no input of a sync (`BranchKind::Review`), so a push of them changes
-nothing a sync reads. The fix of a review is a new commit of the branch that lands by its own Safe Push; adding it to
-the same pull request is the next step of this design.
+the review opens, and a fix is added only once its own robot landed it. The branches of the review are no input of a
+sync (`BranchKind::Review`), so a push of them changes nothing a sync reads.
 
 ### The stack branch
 
@@ -583,7 +601,17 @@ The whole stack is an object of its own in the app, beside its branches, named "
   - *Why not:* a force push loses the reviews of the old commits, the head only moves forward; a store of its own is a
     second truth beside the open pull request of the author, which every session reads already.
 - **A follow-up pull request per fix.**
-  - *Why not:* the review of one change splits into several; the fix goes into the same pull request (the next step).
+  - *Why not:* the review of one change splits into several; the fix goes onto the head of the same pull request.
+- **The fix a review took kept in a marker of Branch Deck**, or told by the commits of the head alone (a patch-id or a
+  subject match).
+  - *Why not:* a marker is the second truth again; the commits of the head say nothing of a fix that doesn't apply,
+    and a match by content misses a fix reworded or squashed by the robot. The record in the body, written last, is
+    one read of the listing and survives a stop between the steps. The replay onto the head still drops what the head
+    has, so a repeat adds nothing either way.
+- **The commits of a fix from the landing of the table** (`robot_landings_of_grouped`).
+  - *Why not:* they are the local commits as the table has them, which an update drops once they landed; the source
+    revision of the robot past the target is what it tested and landed, and stays, so `brd request-review` after an
+    update still finds them.
 
 ## References
 

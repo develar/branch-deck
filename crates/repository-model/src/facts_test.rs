@@ -1179,3 +1179,162 @@ fn the_facts_of_a_frame_seed_cached_and_a_failure_of_their_first_read_leaves_non
   assert_eq!((auth.value(), &auth.fact().state), (Some(&2), &FactState::Fresh));
   assert!(FactRecord::cached(Fact::<u32>::default(), 0).is_none(), "a fact without an answer seeds none");
 }
+
+/// The listing of the open shown review #12 of auth, its head at `head`, the latest reviews `reviewers` of alice, whom
+/// its body records
+fn listed_shown(seq: u32, head: &str, state: domain_types::pull_request::ReviewerState, requested: bool) -> (Observation, FactResult) {
+  let pull_request = PullRequest {
+    head_ref_name: "user/review/auth/head".to_owned(),
+    base_ref_name: "user/review/auth/base".to_owned(),
+    head_ref_oid: head.to_owned(),
+    reviewers: vec![domain_types::pull_request::Reviewer {
+      login: "alice".to_owned(),
+      state,
+      requested,
+    }],
+    ..pull_request("auth", 12)
+  };
+  let body = domain_policy::shown::reviewers_record(&["alice".to_owned()]);
+  let FactResult::PullRequests(result) = listed_at_tips(&[]) else { unreachable!() };
+  let result = PullRequestsResult {
+    shown_reviews: BTreeMap::from([("auth".to_owned(), domain_policy::shown::shown_review(pull_request, &body))]),
+    ..result
+  };
+  (at(seq, 0, u64::from(seq)), FactResult::PullRequests(result))
+}
+
+fn shown_state(facts: &FactStore) -> domain_types::pull_request::ShownState {
+  facts.pull_requests.view().shown_reviews["auth"].state.clone()
+}
+
+fn shown_news(facts: &FactStore) -> Vec<NewsEvent> {
+  facts
+    .news()
+    .iter()
+    .map(|news| news.event.clone())
+    .filter(|event| {
+      matches!(
+        event,
+        NewsEvent::ShownReviewLanded { .. } | NewsEvent::ShownReviewFixLanded { .. } | NewsEvent::ShownReviewApproved { .. }
+      )
+    })
+    .collect()
+}
+
+/// A shown review whose reviewer requested changes is the author's move until a fix of its branch runs; then it waits
+/// for the fix, and once that merged the session tells its extend once; a run of it that failed is told again at the
+/// next answer, a few times per session, never at once
+#[test]
+fn a_fix_of_a_shown_review_is_waited_for_and_its_merge_is_told_once_and_again_after_a_failed_run() {
+  use domain_types::pull_request::{ReviewerState, ShownState};
+  let mut facts = FactStore::new();
+  let merged = |id: &str, source: &str, start: u32| PatronusRobot {
+    source_revision: Some(source.to_owned()),
+    ..robot(id, Some("auth"), PatronusRobotStatus::Success, start)
+  };
+  let robots = |seq: u32, robots: Vec<PatronusRobot>| {
+    (
+      at(seq, 0, u64::from(seq)),
+      FactResult::Robots {
+        read: FULL_LIST,
+        result: listed(robots),
+      },
+    )
+  };
+  let (observation, result) = robots(1, vec![merged("r1", "s1", 1)]);
+  facts.apply(observation, result);
+  let (observation, result) = listed_shown(2, "s1", ReviewerState::ChangesRequested, false);
+  facts.apply(observation, result);
+  assert_eq!(shown_state(&facts), ShownState::ChangesRequested { by: vec!["alice".to_owned()] });
+  assert_eq!(shown_news(&facts), []);
+
+  // the fix runs: no one's move
+  let (observation, result) = robots(3, vec![merged("r1", "s1", 1), robot("r2", Some("auth"), PatronusRobotStatus::Running, 2)]);
+  facts.apply(observation, result);
+  assert_eq!(shown_state(&facts), ShownState::Extending { robot: "r2".to_owned() });
+  assert_eq!(shown_news(&facts), []);
+
+  // it merged: told once, as long as the review has not taken it
+  let fix_landed = NewsEvent::ShownReviewFixLanded {
+    branch: "auth".to_owned(),
+    number: 12,
+    robot_id: "r2".to_owned(),
+  };
+  for seq in [4, 5] {
+    let (observation, result) = robots(seq, vec![merged("r1", "s1", 1), merged("r2", "s2", 2)]);
+    facts.apply(observation, result);
+  }
+  assert_eq!(shown_news(&facts), std::slice::from_ref(&fix_landed));
+  assert_eq!(shown_state(&facts), ShownState::Extending { robot: "r2".to_owned() });
+
+  // its run failed: told again at the next answer, not at once, at most three times
+  for told in 2..=4 {
+    facts.retell_shown(12);
+    assert_eq!(shown_news(&facts).len(), told - 1);
+    let (observation, result) = robots(10 + u32::try_from(told).unwrap(), vec![merged("r1", "s1", 1), merged("r2", "s2", 2)]);
+    facts.apply(observation, result);
+    assert_eq!(shown_news(&facts).len(), told);
+  }
+  facts.retell_shown(12);
+  let (observation, result) = robots(20, vec![merged("r1", "s1", 1), merged("r2", "s2", 2)]);
+  facts.apply(observation, result);
+  assert_eq!(shown_news(&facts).len(), 4);
+
+  // taken: the head moved and alice is asked again; the review waits for her
+  let (observation, result) = listed_shown(21, "h2", ReviewerState::ChangesRequested, true);
+  let FactResult::PullRequests(mut listing) = result else { unreachable!() };
+  let review = listing.shown_reviews.get_mut("auth").unwrap();
+  review.landed = vec!["s2".to_owned()];
+  facts.apply(observation, FactResult::PullRequests(listing));
+  assert_eq!(
+    shown_state(&facts),
+    ShownState::InReview {
+      waiting: vec!["alice".to_owned()]
+    }
+  );
+}
+
+/// A draft whose branch the fetched baseline landed whole while no robot of it is listed (its robot is older than the
+/// listing) opens: told once the robots are known
+#[test]
+fn a_draft_whose_branch_landed_by_content_opens_once_the_robots_are_known_and_none_of_it_is_listed() {
+  use domain_types::landed::{LandedBranch, LandedCommit};
+  let mut state = TableState::with_prefix("user");
+  state.parts.sections.landed.landing = vec![LandedBranch {
+    name: Some("auth".to_owned()),
+    commits: vec![LandedCommit {
+      id: "c1".to_owned(),
+      subject: "Add auth".to_owned(),
+      upstream: None,
+    }],
+    remaining: 0,
+    landed_at: 1,
+  }];
+  let mut facts = FactStore::new();
+  let (observation, FactResult::PullRequests(mut listing)) = listed_shown(1, "tip", domain_types::pull_request::ReviewerState::Requested, false) else {
+    unreachable!()
+  };
+  listing.shown_reviews.get_mut("auth").unwrap().pull_request.is_draft = true;
+  listing.shown_reviews.get_mut("auth").unwrap().state = domain_types::pull_request::ShownState::Draft;
+  facts.apply(observation, FactResult::PullRequests(listing));
+  // the robots are not known yet: nothing
+  facts.tell_shown_of(&state);
+  assert_eq!(shown_news(&facts), []);
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![robot("other", Some("ui"), PatronusRobotStatus::Success, 1)]),
+    },
+  );
+  facts.tell_shown_of(&state);
+  facts.tell_shown_of(&state);
+  assert_eq!(
+    shown_news(&facts),
+    [NewsEvent::ShownReviewLanded {
+      branch: "auth".to_owned(),
+      number: 12
+    }]
+  );
+  assert_eq!(facts.shown_landed(), &std::collections::BTreeSet::from(["auth".to_owned()]));
+}

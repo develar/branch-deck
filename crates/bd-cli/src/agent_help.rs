@@ -640,7 +640,10 @@ group of the changed paths (`shown.groups`). Its refusals: `approvals_required` 
 approval first: ask with --create-pull-request), `pull_request_open` (the branch has a pull request: ask there),
 `show_lands_stack` (it would land the branches it is built on too), `show_needs_patronus`, `no_reviewer` (ask the
 user whom, then --reviewer). Once the robot merged, `brd request-review <branch> --after-landing` (or the app) marks
-it ready and asks the reviewers; `brd close-review <branch>` closes it once all of them approved.
+it ready and asks the reviewers; `brd close-review <branch>` closes it once all of them approved. A fix of a change
+they requested is a commit `(<branch>) …` (or of the same issue key) landed by its own Safe Push of the branch
+(`brd robot` names the review it `extends`); once merged, `brd request-review <branch>` (or the app) adds it to the
+same review and asks its reviewers again.
 Refusals of `brd safe-push`, nothing pushed or started:
 - `approvals_missing` (exit 4): `error.review` names who has to approve which files: show it. --create-pull-request
   pushes and opens the pull request where they approve, assigned to the user (--no-assign leaves it unassigned;
@@ -808,7 +811,10 @@ user whom; `review_refused`: GitHub asked nobody.
 `brd safe-push --request-review`) gets its head on what the robot landed, is marked ready and asks the reviewers its
 body records (`shown`: `state`, `head`, `base`, `landed`); one open already asks again those who have not approved;
 a branch that landed without one gets it now (`shown.created`). `no_shown_review` (exit 4): no merged Safe Push
-landed it yet.
+landed it yet. A branch with a shown review needs no flag: `brd request-review <branch>` opens it, or, once a fix of
+the branch landed by its own Safe Push, replays the fix onto the head of the review, asks its reviewers again and
+records the fix in its body (`shown.extended`: `fixes`, `head`, `not_applied`: a fix that doesn't apply on its
+commits, which a comment names instead); a repeat adds nothing. --reviewer adds reviewers to it.
 ";
 
 /// `brd close-review --help`: the close of a shown review
@@ -830,7 +836,8 @@ stack. After a failed Safe Push, --full says why (`failure`: `kind`, the failed 
 the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
 `kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
 restarts it. A merged one lists `closes`: the pull requests of the branches it landed, which the app closes; never
-close them yourself.
+close them yourself. `extends`: the number of the open shown review of the branch whose fix it lands; once it merged,
+`brd request-review <branch>` adds the fix to that review.
 ";
 
 /// `brd robot-stats --help`: the statistics

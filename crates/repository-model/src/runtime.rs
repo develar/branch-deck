@@ -224,6 +224,11 @@ pub(crate) enum Message {
     write: PullRequestWrite,
     reply: oneshot::Sender<Version>,
   },
+  /// A run of a news of the shown review `number` failed (`Sessions::retell_shown`); `reply` gets the version of the view
+  RetellShown {
+    number: u32,
+    reply: oneshot::Sender<Version>,
+  },
   Sync {
     reason: SyncReason,
     waiter: Waiter,
@@ -894,7 +899,13 @@ impl Actor {
         if self.facts.pull_requests.write(seq, self.life.now(), &self.key.prefix, write) && lists_again {
           self.events.emit(&self.key, SessionEventKind::PullRequestWritten);
         }
+        // a shown review the write left: as the robots of its branch leave it
+        self.facts.tell_shown();
         self.flush();
+        let _ = reply.send(self.version());
+      }
+      Message::RetellShown { number, reply } => {
+        self.facts.retell_shown(number);
         let _ = reply.send(self.version());
       }
       Message::WriteRobot { robot, reply } => {
@@ -1631,6 +1642,8 @@ impl Actor {
     self.facts.demand_details(&self.told_demand.robot_details);
     // the landings by content the table and the listing show now, with the pull requests they close
     self.facts.tell_landings(&self.state);
+    // and the drafts of the shown reviews they open
+    self.facts.tell_shown_of(&self.state);
     // whether the session syncs of itself, which the page asks for its Ready to Sync card
     self.state.synced = self.synced();
     // the finished robots listed now, which the estimates of the patch learn from, kept for the next sessions too

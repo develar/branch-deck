@@ -365,14 +365,32 @@ async fn post_pull_request(github: &GitHubService, repository: &GitHubRepository
 /// `wait.deadline`; an error other than the missing branch (404) ends the wait at once.
 #[instrument(skip(github))]
 pub async fn wait_for_branch(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch: &str, wait: MirrorWait) -> Result<bool, GitHubFailure> {
+  wait_for(github, repository_path, repository, branch, None, wait).await
+}
+
+/// `wait_for_branch` until GitHub has `branch` at `tip`: the push of a branch it has moved it, which a mirror copies a
+/// moment later (a shown review asks its reviewers again only once GitHub shows them the fix)
+#[instrument(skip(github))]
+pub async fn wait_for_branch_at(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  branch: &str,
+  tip: &str,
+  wait: MirrorWait,
+) -> Result<bool, GitHubFailure> {
+  wait_for(github, repository_path, repository, branch, Some(tip), wait).await
+}
+
+async fn wait_for(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch: &str, at: Option<&str>, wait: MirrorWait) -> Result<bool, GitHubFailure> {
   let mut waited = Duration::ZERO;
   loop {
     let answer = github
       .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
         let mut path = vec!["repos", repository.owner.as_str(), repository.name.as_str(), "branches"];
         path.extend(branch.split('/'));
-        match client.get::<serde_json::Value>(&token, &path, &[]).await {
-          Ok(_) => Ok(true),
+        match client.get::<GhBranch>(&token, &path, &[]).await {
+          Ok(found) => Ok(at.is_none_or(|tip| found.commit.and_then(|commit| commit.sha).as_deref() == Some(tip))),
           Err(GitHubError::NoAccess { status: 404, .. }) => Ok(false),
           Err(error) => Err(error),
         }
@@ -387,6 +405,17 @@ pub async fn wait_for_branch(github: &GitHubService, repository_path: &str, repo
     tokio::time::sleep(wait.poll).await;
     waited += wait.poll;
   }
+}
+
+/// A branch of the REST API (`GET branches/<name>`), by the commit it is at
+#[derive(Debug, serde::Deserialize)]
+struct GhBranch {
+  commit: Option<GhBranchCommit>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GhBranchCommit {
+  sha: Option<String>,
 }
 
 /// GitHub refused the creation for a head or a base it doesn't have: a mirror copies a pushed branch a moment later

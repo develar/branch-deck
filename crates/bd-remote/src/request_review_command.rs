@@ -3,7 +3,9 @@
 //! (`Intent::RequestReview`, `operations::pull_request`), planned over the one-shot session of the command and run as
 //! the app runs it. Without `--reviewer` it asks the code owners Patronus suggests that the app's popover preselects
 //! (`domain_policy::review::candidates`, over the review readiness the session reads: the pre-check with the pull
-//! request, asked again). Users only: a team is not asked.
+//! request, asked again). Users only: a team is not asked. A branch whose review is a shown one (a review after landing,
+//! `shown_command`) has its shown review opened or the fixes that landed since added to it instead, with or without
+//! `--after-landing`, also once it left the table.
 //!
 //! The sync runs first, without the repository lock, so the command knows whether the branch has work its remote lacks: such work
 //! refuses the request (`needs_push`), and `--push` pushes it first, the push of the app's request (the ancestors with
@@ -16,7 +18,7 @@ use crate::safe_push_command::{UNKNOWN_GITHUB_REPOSITORY, compared_table, readin
 use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::SessionFacts;
 use crate::show_reviewers::show_reviewers;
-use crate::shown_command::{read_shown, run_recorded, state_name};
+use crate::shown_command::{ShownRead, read_shown, read_shown_of, run_recorded, state_name};
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
@@ -25,7 +27,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::sync;
-use domain_policy::shown::landing_robot;
+use domain_policy::shown::{landed_by_content, landing_robot, opens_by_content, pending_fixes};
 use domain_types::branch_names::{review_branch_names, to_final_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::landing::{PlannedEffect, Subject};
@@ -37,7 +39,7 @@ use operations::land::LandHost;
 use operations::land_execute::{Accepted, Steps, refusal_of, run_planned};
 use operations::needs::needs;
 use operations::pull_request::one_shot_planned;
-use operations::shown::{ShownText, create_plan, open_plan};
+use operations::shown::{ShownText, create_plan, extend_plan, open_plan};
 use remote_facts::pull_requests::SIGNED_OUT_MESSAGE;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -60,9 +62,10 @@ pub struct RequestReviewArgs {
   #[arg(long, alias = "check")]
   pub dry_run: bool,
   /// The review after landing of a branch a Safe Push landed (show of ship/show/ask): its draft shown review opens, its
-  /// branches on what the robot landed, its reviewers asked; one open already asks again those it asked who have not
-  /// approved. A branch that landed without one gets it now, ready, its reviewers asked (`--reviewer`, else one of
-  /// each owner group of what it changed)
+  /// branches on what the robot landed, its reviewers asked; one open already takes the fixes of the branch that landed
+  /// since, else asks again those it asked who have not approved. A branch that landed without one gets it now, ready,
+  /// its reviewers asked (`--reviewer`, else one of each owner group of what it changed). A branch with a shown review
+  /// needs no flag
   #[arg(long, conflicts_with = "push")]
   pub after_landing: bool,
 }
@@ -115,6 +118,21 @@ pub struct ShownOpened {
   /// It was opened now (`--after-landing` of a branch that landed without one)
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub created: bool,
+  /// The fixes of the branch that landed after it opened, which go onto its head
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub extended: Option<ShownExtended>,
+}
+
+/// The extend of a shown review by the fixes of its branch that landed after it opened
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ShownExtended {
+  /// The merged Safe Pushes of the fixes, by robot id, oldest first
+  pub fixes: Vec<String>,
+  /// Its head now, the fixes that applied on top of its commits; `null` with `--dry-run`
+  pub head: Option<String>,
+  /// The fixes, by robot id, that don't apply on its commits: a comment names each, its head keeps what applied before
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub not_applied: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -164,7 +182,12 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   // the sync, without the lock (its refs move by CAS), says whether the branch has work its remote lacks
   let synced = sync(context)?;
   if !synced.branches.iter().any(|branch| branch.name == name) {
-    return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
+    // a branch that landed and left the table keeps its shown review: its open or extend
+    let read = read_shown_of(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() }, synced)?;
+    if read.review.is_none() {
+      return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
+    }
+    return shown_review_request(context, args, environment, read);
   }
   let target = synced
     .report
@@ -195,12 +218,15 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let session_facts = facts.session.facts();
   let listed = session_facts.pull_requests.view();
   require_listing(listed)?;
-  let pull_request = listed
-    .pull_requests
-    .get(name)
-    .filter(|pull_request| pull_request.state == PullRequestState::Open)
-    .cloned()
-    .ok_or_else(|| no_pull_request(context, name))?;
+  let open = listed.pull_requests.get(name).filter(|pull_request| pull_request.state == PullRequestState::Open).cloned();
+  let Some(pull_request) = open else {
+    if !listed.shown_reviews.contains_key(name) {
+      return Err(no_pull_request(context, name));
+    }
+    // its review is the shown one: its open or extend, and its reviewers asked again
+    let read = read_shown_of(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() }, synced)?;
+    return shown_review_request(context, args, environment, read);
+  };
   let review = if reviewers.is_empty() {
     Some(review_of(session_facts.readiness.fact(&subject.key()))?)
   } else {
@@ -355,24 +381,33 @@ fn no_pull_request(context: &RepoContext, name: &str) -> CliError {
   )
 }
 
-/// `brd request-review <branch> --after-landing` (`RequestReviewArgs::after_landing`): the open of its shown review
-/// once a merged Safe Push landed it (`operations::shown::open_plan`), else a shown review of it created ready on what
-/// the robot landed (`create_plan`), recorded in the operations registry as the app's run holds it
+/// `brd request-review <branch> --after-landing` (`RequestReviewArgs::after_landing`): the sync, then the shown review
+/// of the branch (`shown_review_request`)
 fn request_after_landing(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
-  let intent = Intent::OpenShownReview { branch: name.to_owned() };
-  let mut read = read_shown(context, environment, name, &intent)?;
+  let read = read_shown(context, environment, name, &Intent::OpenShownReview { branch: name.to_owned() })?;
+  shown_review_request(context, args, environment, read)
+}
+
+/// The request of the review after landing of the branch of `args` over what `read` read, recorded in the operations
+/// registry as the app's run holds it: its draft opens once a merged Safe Push landed it (or the baseline by content
+/// while no robot of it is listed, `operations::shown::open_plan`), the fixes that landed since it opened go onto it
+/// (`extend_plan`), else it asks again those it asked who neither approved nor are asked now; `--reviewer` adds
+/// reviewers to it. A branch that landed without one gets it now, ready on what the robot landed (`create_plan`)
+fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment, mut read: ShownRead) -> Result<RequestReviewOutput, CliError> {
+  let name = args.branch.as_str();
   let robot = landing_robot(&read.robots, name).cloned();
   let asked_logins = logins_of(&args.reviewers)?;
   let (head, base) = review_branch_names(&context.prefix, name).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   let (plan, state, created) = if let Some(review) = &read.review {
-    let mut plan = open_plan(review, name, robot.as_ref()).map_err(CliError::from)?;
-    if !asked_logins.is_empty() {
-      let number = review.pull_request.number;
-      plan.effects.retain(|effect| !matches!(effect, PlannedEffect::RequestReviewers { .. }));
-      plan.effects.push(PlannedEffect::RequestReviewers { number, reviewers: asked_logins });
-    }
-    (plan, Some(state_name(&review.state).to_owned()), false)
+    let fixes = pending_fixes(review, name, &read.robots);
+    let plan = if fixes.is_empty() {
+      let landed = read.robots_known && opens_by_content(&read.robots, name, &landed_by_content(&read.synced.landed_section));
+      open_plan(review, name, robot.as_ref(), landed, &asked_logins)
+    } else {
+      extend_plan(review, name, &fixes, &asked_logins)
+    };
+    (plan.map_err(CliError::from)?, Some(state_name(&review.state).to_owned()), false)
   } else {
     let source = robot.as_ref().and_then(|robot| robot.source_revision.clone()).ok_or_else(|| {
         CliError::new(
@@ -423,6 +458,14 @@ fn request_after_landing(context: &RepoContext, args: &RequestReviewArgs, enviro
     PlannedEffect::PushReview { tip, .. } => Some(tip.clone()),
     _ => None,
   });
+  let extended = plan.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::ExtendReview { fixes, .. } => Some(ShownExtended {
+      fixes: fixes.iter().map(|fix| fix.robot.clone()).collect(),
+      head: None,
+      not_applied: Vec::new(),
+    }),
+    _ => None,
+  });
   let person = |login: &str| PersonSummary {
     login: Some(login.to_owned()),
     full_name: None,
@@ -450,12 +493,19 @@ fn request_after_landing(context: &RepoContext, args: &RequestReviewArgs, enviro
       base,
       landed,
       created,
+      extended,
     }),
   };
   if args.dry_run || plan.effects.is_empty() {
     return Ok(output);
   }
   let run = run_recorded(context, &read.services, &plan)?;
+  if let (Some(shown), Some(extension)) = (output.shown.as_mut(), &run.extended)
+    && let Some(extended) = shown.extended.as_mut()
+  {
+    extended.head = Some(extension.head.clone());
+    extended.not_applied = run.not_applied.iter().map(|fix| fix.robot.clone()).collect();
+  }
   if let Some(created) = &run.created {
     output.pull_request = ReviewedPullRequest {
       number: created.pull_request.number,

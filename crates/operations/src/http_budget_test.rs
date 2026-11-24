@@ -356,10 +356,11 @@ async fn a_read_the_facts_already_answer_is_never_made() {
   assert_eq!(needs(&unapplied), []);
 }
 
-/// The reads of a shown review (`operations::shown`): its open reads the robots (the merged Safe Push that landed it)
-/// and the pull requests (the listing with the shown reviews) once each, side by side; its close only the pull requests
+/// The reads of a shown review (`operations::shown`): its open, its extend and its close read the robots (the merged
+/// Safe Push that landed it, the fixes that landed or run since) and the pull requests (the listing with the shown
+/// reviews) once each, side by side
 #[tokio::test(flavor = "multi_thread")]
-async fn the_open_and_the_close_of_a_shown_review_read_their_facts_once() {
+async fn the_open_the_extend_and_the_close_of_a_shown_review_read_their_facts_once() {
   let reads = |first_round: usize| {
     let counted = Arc::new(Counted {
       calls: Mutex::new(BTreeMap::new()),
@@ -374,11 +375,13 @@ async fn the_open_and_the_close_of_a_shown_review_read_their_facts_once() {
   let open = domain_types::operation::Intent::OpenShownReview { branch: "auth".to_owned() };
   fill(&mut session(), &sources, &GitCommandExecutor::new(), &needs(&open)).await;
   assert_eq!(counted.calls(), BTreeMap::from([("pull_requests", 1), ("robots", 1)]));
-  let (counted, sources) = reads(1);
   let close = domain_types::operation::Intent::CloseShownReview {
     branch: "auth".to_owned(),
     allow_unapproved: false,
   };
-  fill(&mut session(), &sources, &GitCommandExecutor::new(), &needs(&close)).await;
-  assert_eq!(counted.calls(), BTreeMap::from([("pull_requests", 1)]));
+  for intent in [domain_types::operation::Intent::ExtendShownReview { branch: "auth".to_owned() }, close] {
+    let (counted, sources) = reads(2);
+    fill(&mut session(), &sources, &GitCommandExecutor::new(), &needs(&intent)).await;
+    assert_eq!(counted.calls(), BTreeMap::from([("pull_requests", 1), ("robots", 1)]), "{intent:?}");
+  }
 }

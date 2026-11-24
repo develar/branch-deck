@@ -997,6 +997,8 @@ impl<'a> Run<'a> {
           | PlannedEffect::DismissLanded
           | PlannedEffect::FetchReview { .. }
           | PlannedEffect::MarkReady { .. }
+          | PlannedEffect::ExtendReview { .. }
+          | PlannedEffect::RecordShown { .. }
           | PlannedEffect::DeleteReview { .. } => self.fail(ApiError::internal(
             "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites, fetches or updates nothing",
           )),

@@ -707,6 +707,7 @@ pub enum OperationKind {
   DisableAutoMerge,
   CloseLandedPullRequests,
   OpenShownReview,
+  ExtendShownReview,
   CloseShownReview,
   SubmitReview,
   ApproveStack,

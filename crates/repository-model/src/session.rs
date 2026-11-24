@@ -663,6 +663,13 @@ impl Sessions {
     self.ask(key, |reply| Message::WritePullRequest { write, reply }).await
   }
 
+  /// A run of a news of the shown review `number` failed in the open session of `key`: its news is due again at the next
+  /// answer of the listing or the robots, a few times per session (`FactStore::retell_shown`). Answers the version of the
+  /// view; `None` for a session that is not open
+  pub async fn retell_shown(&self, key: &SessionKey, number: u32) -> Option<Version> {
+    self.ask(key, |reply| Message::RetellShown { number, reply }).await
+  }
+
   /// A window of the open session of `key` asks to read a fact again, of `subject` for a family read by subject;
   /// answers the version of the view after the patch of that read once it is applied, `None` when nothing was asked
   /// (the rules held it back, the session is not open, nothing takes the events). Check Approvals Again (the readiness

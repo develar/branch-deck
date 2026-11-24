@@ -2602,3 +2602,121 @@ fn the_read_ahead_of_n_waiting_requests_is_one_fetch_and_one_diff_tree() {
   assert_eq!(to_read, [1, 1, 1], "each adds a text to read");
   assert_git_processes(&git, &[("cat-file", 4), ("config", 2), ("diff-tree", 1), ("fetch", 1), ("rev-parse", 1)]);
 }
+
+/// The processes of a warm sync of the repository of `environment` (`brd sync` after one that took in what changed), the
+/// first part of every command of a review after landing but its start
+fn warm_sync(environment: &bd_core::context::Environment) -> Vec<(String, u32)> {
+  sync(&space_context(environment)).unwrap();
+  let context = space_context(environment);
+  sync(&context).unwrap();
+  context
+    .git
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect()
+}
+
+/// `assert_processes` of a command that ran what `synced` counts (a warm sync, another command) and `more`
+#[track_caller]
+fn assert_after_sync(context: &RepoContext, synced: &[(String, u32)], more: &[(&'static str, u32)]) {
+  let mut all: BTreeMap<&str, u32> = synced.iter().map(|(subcommand, count)| (subcommand.as_str(), *count)).collect();
+  for (subcommand, count) in more {
+    *all.entry(subcommand).or_default() += count;
+  }
+  assert_processes(context, &all.into_iter().collect::<Vec<_>>());
+}
+
+/// A review after landing through `brd`, each command on a counting executor of its own (`shown_space`, its reviewer
+/// named): the start is the Safe Push start of the branch that also pushes the head and the base of the review (one
+/// `ls-remote`, one `merge-base` of the fork point, one atomic push) before the start through the API. After a warm
+/// sync each: the open after the merge pushes nothing more when the review is where the robot landed (its `ls-remote`
+/// and `merge-base`); the extend by a fix that landed (`brd request-review` without a flag: its read of the code-owner
+/// review first, `log`, finds no pull request but the shown one) reads the head the remote has (`ls-remote`), the
+/// commits it needs (`cat-file`) and `commit.gpgsign` (`config`), replays the fix (`replay`) and pushes it; the close
+/// reads the branches the remote has (`ls-remote`) and deletes them in one push. The GitHub and Patronus reads are HTTP
+#[test]
+fn a_review_after_landing() {
+  let (space, repository, environment) = crate::remote_fixture_test::shown_space();
+  space.publish_target();
+  let start = space_context(&environment);
+  let args = SafePushArgs {
+    branch: "auth".to_string(),
+    request_review: true,
+    reviewers: vec!["alice".to_owned()],
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&start, &args, &environment).unwrap();
+  assert!(output.robot.is_some(), "{output:?}");
+  // the same start without the review, in a repository of its own
+  let (plain_space, _, plain_environment) = crate::remote_fixture_test::shown_space();
+  plain_space.publish_target();
+  let plain = space_context(&plain_environment);
+  let plain_args = SafePushArgs {
+    branch: "auth".to_string(),
+    ..SafePushArgs::default()
+  };
+  assert!(safe_push(&plain, &plain_args, &plain_environment).unwrap().robot.is_some());
+  let plain_counts: Vec<(String, u32)> = plain
+    .git
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect();
+  assert_after_sync(&start, &plain_counts, &[("ls-remote", 1), ("merge-base", 1), ("push", 1)]);
+
+  let tip = space.local_tip(AUTH);
+  space.set_robots(vec![robot_json("r1", "SUCCESS", "auth", &tip)]);
+  let synced = warm_sync(&environment);
+  let open = space_context(&environment);
+  let args = RequestReviewArgs {
+    branch: "auth".to_owned(),
+    after_landing: true,
+    ..RequestReviewArgs::default()
+  };
+  request_review(&open, &args, &environment).unwrap();
+  assert_after_sync(&open, &synced, &[("ls-remote", 1), ("merge-base", 1)]);
+
+  // a fix landed: what its robot took is on the target as the repository fetched it, the target has a copy of it
+  space.land_on_target("auth.txt", "auth\n", "Add auth");
+  git(&space.repo, &["fetch", "-q", "origin", "master"]);
+  let target = git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
+  let landed_fix = space.land_on_target("auth.txt", "auth 2\n", "Fix auth");
+  git(&space.repo, &["fetch", "-q", "origin", "master"]);
+  let source = git(&space.repo, &["commit-tree", &format!("{landed_fix}^{{tree}}"), "-p", &target, "-m", "(auth) Fix auth"]);
+  let mut fix = robot_json("r2", "SUCCESS", "auth", &source);
+  fix["startDateTime"] = serde_json::json!(crate::remote_fixture_test::minutes_ago(30));
+  space.set_robots(vec![robot_json("r1", "SUCCESS", "auth", &tip), fix]);
+  let synced = warm_sync(&environment);
+  let extend = space_context(&environment);
+  let args = RequestReviewArgs {
+    branch: "auth".to_owned(),
+    ..RequestReviewArgs::default()
+  };
+  let output = request_review(&extend, &args, &environment).unwrap();
+  assert!(output.shown.as_ref().is_some_and(|shown| shown.extended.is_some()), "{output:?}");
+  assert_after_sync(
+    &extend,
+    &synced,
+    &[("cat-file", 1), ("config", 1), ("log", 1), ("ls-remote", 1), ("push", 1), ("replay", 1)],
+  );
+
+  repository.update(|state| {
+    let reviewer = &mut state.pulls[0].pull_request.reviewers[0];
+    reviewer.state = domain_types::pull_request::ReviewerState::Approved;
+    reviewer.requested = false;
+  });
+  let synced = warm_sync(&environment);
+  let close = space_context(&environment);
+  let args = bd_remote::shown_command::CloseReviewArgs {
+    branch: "auth".to_owned(),
+    ..bd_remote::shown_command::CloseReviewArgs::default()
+  };
+  let output = bd_remote::shown_command::close_review(&close, &args, &environment).unwrap();
+  assert!(output.closed, "{output:?}");
+  assert_after_sync(&close, &synced, &[("ls-remote", 1), ("push", 1)]);
+}

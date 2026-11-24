@@ -66,6 +66,10 @@ pub enum Intent {
   /// (`operations::shown`): its head goes to the commit the robot landed (its base to the fork point of it), it is marked
   /// ready for review, and the reviewers its text records are asked
   OpenShownReview { branch: String },
+  /// The fixes of `branch` that landed after its shown review opened are added to it (`operations::shown`): their
+  /// commits replayed onto its head, pushed leased on the head the remote has, its reviewers asked again; a fix that
+  /// doesn't apply on its commits is named in a comment instead
+  ExtendShownReview { branch: String },
   /// The shown review of `branch` is closed with a comment that names who approved it, and its branches are deleted
   /// (`operations::shown`); refused unless every reviewer it asked approved, but with `allow_unapproved`
   CloseShownReview { branch: String, allow_unapproved: bool },
@@ -157,6 +161,7 @@ impl Intent {
       Self::DisableAutoMerge { .. } => OperationKind::DisableAutoMerge,
       Self::CloseLandedPullRequests { .. } => OperationKind::CloseLandedPullRequests,
       Self::OpenShownReview { .. } => OperationKind::OpenShownReview,
+      Self::ExtendShownReview { .. } => OperationKind::ExtendShownReview,
       Self::CloseShownReview { .. } => OperationKind::CloseShownReview,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::ApproveStack { .. } => OperationKind::ApproveStack,
@@ -187,7 +192,7 @@ impl Intent {
       Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
         Some(subject.key())
       }
-      Self::LinkStack { branch } | Self::OpenShownReview { branch } | Self::CloseShownReview { branch, .. } => Some(branch.clone()),
+      Self::LinkStack { branch } | Self::OpenShownReview { branch } | Self::ExtendShownReview { branch } | Self::CloseShownReview { branch, .. } => Some(branch.clone()),
       Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }

@@ -455,13 +455,23 @@ pub struct ShownReview {
   /// The reviewers Branch Deck asks once the branch landed, as the record in the body of the pull request names them
   /// (`SHOWN_REVIEWERS_MARKER`): only they decide when it closes, never a bot or someone not asked
   pub reviewers: Vec<String>,
-  /// What it waits for (`domain_policy::shown::review_state`)
+  /// The source revisions of the Safe Pushes of the branch after its first whose commits the review took (a fix added on
+  /// its head) or told it could not take (a comment), as the record in its body names them (`SHOWN_LANDED_MARKER`):
+  /// the extend of a later one is due (`domain_policy::shown::pending_fixes`)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landed: Vec<String>,
+  /// What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch)
   pub state: ShownState,
 }
 
 /// The line of the body of a shown review that records whom it asks, an HTML comment GitHub doesn't show and that
 /// mentions nobody: `<!-- branch-deck show reviewers: alice bob -->`
 pub const SHOWN_REVIEWERS_MARKER: &str = "<!-- branch-deck show reviewers:";
+
+/// The line of the body of a shown review that records the fixes it took, by the source revisions of their Safe Pushes:
+/// `<!-- branch-deck show landed: 1a2b… 3c4d… -->`
+pub const SHOWN_LANDED_MARKER: &str = "<!-- branch-deck show landed:";
 
 /// What a shown review waits for (`domain_policy::shown::review_state`)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -476,6 +486,10 @@ pub enum ShownState {
   ChangesRequested { by: Vec<String> },
   /// Every reviewer it asked approved (`by`): it closes
   Approved { by: Vec<String> },
+  /// A fix of the branch lands: the Safe Push `robot` runs, or merged and the review has not taken its commits yet. It
+  /// waits for no one's move: the review takes the fix on its head and asks its reviewers again
+  /// (`Intent::ExtendShownReview`)
+  Extending { robot: String },
 }
 
 /// What the user of the token may do in a GitHub repository (GitHub's `RepositoryPermission`, `viewerPermission`),

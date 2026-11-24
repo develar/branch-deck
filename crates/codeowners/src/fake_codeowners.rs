@@ -45,6 +45,22 @@ pub fn group_json(name: &str, reviewers: &[Value], members: &[Value]) -> Value {
   json!({"name": name, "reviewers": reviewers, "members": members})
 }
 
+/// The members of a lookup as the real service answered for `Air Plugin` (2026-11-24, `members[]` projected), in a body
+/// with fields Branch Deck doesn't read and without a `reviewers` list: `isReviewer` null parses, the availability with
+/// its events says whether the member is away now
+pub fn real_lookup() -> Value {
+  json!({
+    "id": "3fa1",
+    "name": "Air Plugin",
+    "description": "The Air plugin",
+    "parent": {"id": "1", "name": "IntelliJ Platform"},
+    "members": [
+      {"githubUsername": "drovdo", "isReviewer": null, "rotated": false, "availability": {"state": "UNAVAILABLE", "events": [{"state": "UNAVAILABLE", "reason": "Vacation", "startsAt": "2026-11-24T00:00", "endsAtExclusive": "2026-11-25T00:00"}]}},
+      {"githubUsername": "AlexPl292", "isReviewer": null, "rotated": false, "availability": {"state": "AVAILABLE", "events": []}},
+    ],
+  })
+}
+
 pub fn router(fake: Arc<FakeCodeOwners>) -> axum::Router {
   axum::Router::new().route("/app/rest/v1/groups/lookup/{name}", get(lookup)).with_state(fake)
 }

@@ -41,6 +41,8 @@ describe("collectReturnedToYou", () => {
     const shownReviews = {
       landed: shown("landed", { kind: "changesRequested", by: ["alice"] }),
       waiting: shown("waiting", { kind: "inReview", waiting: ["alice"] }),
+      // a fix lands: the review waits for it, no one's move
+      fixing: shown("fixing", { kind: "extending", robot: "r2" }),
     }
     const returned = collectReturnedToYou(["auth"].map(row), { auth: openPullRequest("auth", { reviewDecision: "changesRequested" }) }, shownReviews)
     expect(returned.map(it => it.branchName)).toEqual(["auth", "landed"])

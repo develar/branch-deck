@@ -12,7 +12,14 @@ const { runIntent, notifyError } = vi.hoisted(() => ({
       effects:
         intent.kind === "closeShownReview"
           ? [{ effect: { kind: "deleteReview", branch: "login" }, status: { kind: "failed", error: { code: "pushRefused", message: "refused" } } }]
-          : [],
+          : intent.kind === "extendShownReview"
+            ? [
+                {
+                  effect: { kind: "extendReview", branch: "api", number: 14, fixes: [] },
+                  status: { kind: "failed", error: { code: "pushRefused", message: "stale info" } },
+                },
+              ]
+            : [],
     },
   })),
   notifyError: vi.fn(),
@@ -39,5 +46,11 @@ describe("tellShownNews", () => {
       ["/repo", { kind: "openShownReview", branch: "auth" }],
       ["/repo", { kind: "closeShownReview", branch: "login", allowUnapproved: false }],
     ])
+  })
+
+  it("adds the fix that landed to its review after landing and toasts a failure of it", async () => {
+    tellShownNews("/repo", [{ id: 4, event: { kind: "shownReviewFixLanded", branch: "api", number: 14, robotId: "r2" } }])
+    await vi.waitFor(() => expect(notifyError.mock.calls.map(([title]) => title)).toEqual(["Cannot add the fix to the review after landing of api"]))
+    expect(runIntent.mock.calls).toEqual([["/repo", { kind: "extendShownReview", branch: "api" }]])
   })
 })

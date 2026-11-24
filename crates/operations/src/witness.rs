@@ -181,6 +181,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::DisableAutoMerge { number } => (format!("the cancel of the auto-merge of pull request #{number}"), "cancel it again"),
     Intent::CloseLandedPullRequests { .. } => ("the closes of the landed pull requests".to_string(), "close them again"),
     Intent::OpenShownReview { branch } => (format!("the open of the shown review of {branch}"), "open it again"),
+    Intent::ExtendShownReview { branch } => (format!("the extend of the shown review of {branch}"), "extend it again"),
     Intent::CloseShownReview { branch, .. } => (format!("the close of the shown review of {branch}"), "close it again"),
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
     Intent::ApproveStack { top, .. } => (format!("the approval of the stack of pull request #{top}"), "approve it again"),

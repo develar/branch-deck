@@ -467,6 +467,17 @@ impl TestRepo {
       .map_err(|e| e.to_string())
   }
 
+  /// A robot lands `commit` into the master of the bare `origin` (`push_to_bare_origin`) as a copy of its own
+  /// (`cherry-pick -x`: another message, so another commit) on what the repository fetched of it, which the repository
+  /// then fetches (master only); the copy. HEAD is left on the branch `landing`
+  pub fn land_copy_on_origin(&self, commit: &str) -> String {
+    self.git(&["checkout", "-q", "-B", "landing", "origin/master"]);
+    self.git(&["cherry-pick", "-x", commit]);
+    self.git(&["push", "-q", "origin", "HEAD:master"]);
+    self.git(&["fetch", "-q", "origin", "master"]);
+    self.head()
+  }
+
   /// Get the current HEAD commit hash
   pub fn head(&self) -> String {
     self.git_executor.execute_command(&["rev-parse", "HEAD"], self.path_str()).unwrap().trim().to_string()

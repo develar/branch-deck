@@ -38,6 +38,11 @@ pub fn stack_robot(id: &str, root: &str, status: PatronusRobotStatus, revision: 
 
 /// The open pull request `number` of the virtual branch `branch` under the prefix `user`, into `master`, on the commit
 /// `<branch>-tip`, without reviewers
+/// The reviewers of `pull_request` by login, each with whether it is asked now
+pub fn asked(pull_request: &PullRequest) -> Vec<(&str, bool)> {
+  pull_request.reviewers.iter().map(|reviewer| (reviewer.login.as_str(), reviewer.requested)).collect()
+}
+
 pub fn pull_request(branch: &str, number: u32) -> PullRequest {
   PullRequest {
     number,

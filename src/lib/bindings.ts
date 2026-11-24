@@ -4318,6 +4318,12 @@ export type Intent =
  */
 ({ kind: "openShownReview"; branch: string }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
+ *  The fixes of `branch` that landed after its shown review opened are added to it (`operations::shown`): their
+ *  commits replayed onto its head, pushed leased on the head the remote has, its reviewers asked again; a fix that
+ *  doesn't apply on its commits is named in a comment instead
+ */
+({ kind: "extendShownReview"; branch: string }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+/**
  *  The shown review of `branch` is closed with a comment that names who approved it, and its branches are deleted
  *  (`operations::shown`); refused unless every reviewer it asked approved, but with `allow_unapproved`
  */
@@ -4695,6 +4701,14 @@ export type LandedCommit = {
 	 *  has the change in another commit (squashed upstream)
 	 */
 	upstream: UpstreamCommit | null,
+};
+
+/**  A fix of a branch with a shown review, landed by the merged Safe Push `robot` of its source revision `source` */
+export type LandedFix = {
+	robot: string,
+	source: string,
+	/**  The robot page in the Patronus web UI, which a comment of a fix that doesn't apply links */
+	url: string,
 };
 
 /**
@@ -5688,7 +5702,12 @@ landed: string[] } |
  *  Every reviewer the shown review `number` of `branch` asked approved it: the app closes it
  *  (`Intent::CloseShownReview`) and deletes its refs
  */
-{ kind: "shownReviewApproved"; branch: string; number: number };
+{ kind: "shownReviewApproved"; branch: string; number: number } | 
+/**
+ *  The Safe Push `robot_id` of a fix of `branch` merged after its shown review `number` opened: the app extends the
+ *  review (`Intent::ExtendShownReview`), the fix on its head, its reviewers asked again
+ */
+{ kind: "shownReviewFixLanded"; branch: string; number: number; robotId: string };
 
 /**
  *  The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which
@@ -5917,7 +5936,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "close_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "extend_shown_review" | "close_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -6674,7 +6693,19 @@ export type PlannedEffect =
  *  The branches of the shown review of `branch` are deleted, those the remote has, each leased on what it has
  *  (`Intent::CloseShownReview`)
  */
-{ kind: "deleteReview"; branch: string };
+{ kind: "deleteReview"; branch: string } | 
+/**
+ *  The fixes of `branch` that landed after its shown review `number` opened, by the source revisions of their merged
+ *  Safe Pushes (`fixes`, oldest first), are replayed onto the head of the review and pushed, leased on the head the
+ *  remote has (`sync_core::review_head::extend_review`); a fix that doesn't apply on its commits leaves the head as
+ *  it is, and a comment names it once (`Intent::ExtendShownReview`)
+ */
+{ kind: "extendReview"; branch: string; number: number; fixes: LandedFix[] } | 
+/**
+ *  The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
+ *  its text kept (`Intent::ExtendShownReview`, a reviewer added to an open)
+ */
+{ kind: "recordShown"; number: number; reviewers: string[]; landed: string[] };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -9616,7 +9647,13 @@ export type ShownReview = {
 	 *  (`SHOWN_REVIEWERS_MARKER`): only they decide when it closes, never a bot or someone not asked
 	 */
 	reviewers: string[],
-	/**  What it waits for (`domain_policy::shown::review_state`) */
+	/**
+	 *  The source revisions of the Safe Pushes of the branch after its first whose commits the review took (a fix added on
+	 *  its head) or told it could not take (a comment), as the record in its body names them (`SHOWN_LANDED_MARKER`):
+	 *  the extend of a later one is due (`domain_policy::shown::pending_fixes`)
+	 */
+	landed?: string[],
+	/**  What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch) */
 	state: ShownState,
 };
 
@@ -9629,7 +9666,13 @@ export type ShownState =
 /**  `by`, reviewers it asked, requested changes: a fix lands as a new Safe Push of the branch */
 { kind: "changesRequested"; by: string[] } | 
 /**  Every reviewer it asked approved (`by`): it closes */
-{ kind: "approved"; by: string[] };
+{ kind: "approved"; by: string[] } | 
+/**
+ *  A fix of the branch lands: the Safe Push `robot` runs, or merged and the review has not taken its commits yet. It
+ *  waits for no one's move: the review takes the fix on its head and asks its reviewers again
+ *  (`Intent::ExtendShownReview`)
+ */
+{ kind: "extending"; robot: string };
 
 /**  A value of each of the three sides of a merge */
 export type Sides<T> = {

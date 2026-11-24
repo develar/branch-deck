@@ -10,16 +10,22 @@
 //!   nor does a bot or someone not asked;
 //! - `show_candidates`: whom it asks when the user names nobody: one available member of each owner group of the changed
 //!   paths, from the reviewers of the group when it names any, never the author, never one the rotation passes by;
-//! - `close_refusal`: a close of one not approved is refused, unless the user says so.
+//! - `close_refusal`: a close of one not approved is refused, unless the user says so;
+//! - `pending_fixes` and `state_now`: a fix of the branch lands by a Safe Push of its own after the review opened; once
+//!   its robot merged the review takes its commits on its head (`Intent::ExtendShownReview`), and the record of its body
+//!   names its source revision (`recorded_landed`). While that robot runs, and until the review took it, the review
+//!   waits for the fix (`ShownState::Extending`): neither the author's move nor approved;
+//! - `shown_news`: what the app does of them, each told once by the session: a draft whose branch landed opens (by a
+//!   merged Safe Push, or by content when no robot of it is listed), a fix that landed extends, an approved one closes.
 
 use crate::readiness::is_bot;
 use domain_types::branch_names::is_review_base;
 use domain_types::code_owners::OwnerGroup;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, ReviewerState, SHOWN_REVIEWERS_MARKER, ShownReview, ShownState};
+use domain_types::pull_request::{PullRequest, ReviewerState, SHOWN_LANDED_MARKER, SHOWN_REVIEWERS_MARKER, ShownReview, ShownState};
 use domain_types::reason::Reason;
-use domain_types::session::NewsEvent;
-use std::collections::BTreeMap;
+use domain_types::session::{LandedSection, NewsEvent};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The pull request whose base is `base_ref_name` is a shown review (of anyone's prefix): its change is in master
 /// already, and a review of it gates nothing
@@ -37,11 +43,51 @@ pub fn reviewers_record(reviewers: &[String]) -> String {
 /// The reviewers the record of `body` names (`reviewers_record`); none without a record
 #[must_use]
 pub fn recorded_reviewers(body: &str) -> Vec<String> {
+  recorded(body, SHOWN_REVIEWERS_MARKER)
+}
+
+/// The record of the fixes a shown review took, by the source revisions of their Safe Pushes
+#[must_use]
+pub fn landed_record(landed: &[String]) -> String {
+  format!("{SHOWN_LANDED_MARKER} {} -->", landed.join(" "))
+}
+
+/// The source revisions the record of the fixes of `body` names (`landed_record`); none without a record
+#[must_use]
+pub fn recorded_landed(body: &str) -> Vec<String> {
+  recorded(body, SHOWN_LANDED_MARKER)
+}
+
+/// The words of the record line of `marker` in `body`
+fn recorded(body: &str, marker: &str) -> Vec<String> {
   body
     .lines()
-    .find_map(|line| line.trim().strip_prefix(SHOWN_REVIEWERS_MARKER))
+    .find_map(|line| line.trim().strip_prefix(marker))
     .and_then(|rest| rest.trim().strip_suffix("-->"))
-    .map_or_default(|logins| logins.split_whitespace().map(str::to_owned).collect())
+    .map_or_default(|words| words.split_whitespace().map(str::to_owned).collect())
+}
+
+/// `body` with its records naming `reviewers` and the fixes `landed` (none: no record of the fixes), at its end in place
+/// of those it had; the rest of its text as it is
+#[must_use]
+pub fn with_record(body: &str, reviewers: &[String], landed: &[String]) -> String {
+  let kept: Vec<&str> = body
+    .lines()
+    .filter(|line| {
+      let line = line.trim();
+      !line.starts_with(SHOWN_REVIEWERS_MARKER) && !line.starts_with(SHOWN_LANDED_MARKER)
+    })
+    .collect();
+  let mut text = kept.join("\n").trim_end().to_owned();
+  if !text.is_empty() {
+    text.push_str("\n\n");
+  }
+  text.push_str(&reviewers_record(reviewers));
+  if !landed.is_empty() {
+    text.push('\n');
+    text.push_str(&landed_record(landed));
+  }
+  text
 }
 
 /// What the shown review `pull_request` waits for, by the latest review of each of `reviewers`, those it asked (module
@@ -78,7 +124,12 @@ pub fn review_state(pull_request: &PullRequest, reviewers: &[String]) -> ShownSt
 pub fn shown_review(pull_request: PullRequest, body: &str) -> ShownReview {
   let reviewers = recorded_reviewers(body);
   let state = review_state(&pull_request, &reviewers);
-  ShownReview { pull_request, reviewers, state }
+  ShownReview {
+    pull_request,
+    reviewers,
+    landed: recorded_landed(body),
+    state,
+  }
 }
 
 /// Whom a review after landing asks when the user names nobody (`show_candidates`)
@@ -124,7 +175,7 @@ pub fn close_refusal(review: &ShownReview, allow_unapproved: bool) -> Option<Rea
   }
   let waiting = match &review.state {
     ShownState::Approved { .. } => return None,
-    ShownState::Draft => review.reviewers.clone(),
+    ShownState::Draft | ShownState::Extending { .. } => review.reviewers.clone(),
     ShownState::InReview { waiting } => waiting.clone(),
     ShownState::ChangesRequested { by } => by.clone(),
   };
@@ -143,37 +194,135 @@ pub fn close_comment(review: &ShownReview, target: &str) -> String {
     ShownState::Approved { by } => format!("Reviewed after landing: approved by {}. The change is in {target}.", by.join(", ")),
     ShownState::InReview { waiting } if !waiting.is_empty() => format!("Closed without the approval of {}. The change is in {target}.", waiting.join(", ")),
     ShownState::ChangesRequested { by } => format!("Closed without the approval of {}. The change is in {target}.", by.join(", ")),
+    ShownState::Extending { .. } => format!("Closed before the review of the fix that lands. The change is in {target}."),
     ShownState::Draft | ShownState::InReview { .. } => format!("Closed without a review. The change is in {target}."),
   }
+}
+
+/// A Safe Push of `branch` that merged, with the commit it took: not a Dry Run
+fn merged_of(robot: &PatronusRobot, branch: &str) -> bool {
+  robot.status == PatronusRobotStatus::Success && robot.push_mode != PatronusPushMode::DryRun && robot.branch_name.as_deref() == Some(branch) && robot.source_revision.is_some()
 }
 
 /// The merged Safe Push that landed `branch`: the newest successful robot of it that pushed, with the commit it took
 #[must_use]
 pub fn landing_robot<'a>(robots: impl IntoIterator<Item = &'a PatronusRobot>, branch: &str) -> Option<&'a PatronusRobot> {
+  robots.into_iter().filter(|robot| merged_of(robot, branch)).max_by_key(|robot| robot.start_time)
+}
+
+/// The Safe Push of `branch` that runs now (not a Dry Run, not canceling): of a review open already, a fix of it
+#[must_use]
+pub fn running_fix<'a>(robots: impl IntoIterator<Item = &'a PatronusRobot>, branch: &str) -> Option<&'a PatronusRobot> {
   robots
     .into_iter()
-    .filter(|robot| {
-      robot.status == PatronusRobotStatus::Success && robot.push_mode != PatronusPushMode::DryRun && robot.branch_name.as_deref() == Some(branch) && robot.source_revision.is_some()
-    })
+    .filter(|robot| robot.status == PatronusRobotStatus::Running && robot.push_mode != PatronusPushMode::DryRun && robot.branch_name.as_deref() == Some(branch))
     .max_by_key(|robot| robot.start_time)
 }
 
-/// What the app does of the shown reviews `shown` (by branch) over `robots`, the user's robots: a draft whose branch a
-/// merged Safe Push landed opens (`ShownReviewLanded`), one every reviewer it asked approved closes
-/// (`ShownReviewApproved`). The session tells each once
+/// The merged Safe Pushes of `branch` whose commits the open shown review `review` has not taken yet, oldest first: the
+/// ones after the newest it shows (its head is the commit that robot took, or the record of its body names it), all of
+/// them when it shows none of those listed (the robot that landed the branch first is older than the listing, or it
+/// opened on the start tip, `open_plan` without a robot); none of a draft
 #[must_use]
-pub fn shown_news<'a>(shown: &BTreeMap<String, ShownReview>, robots: &(impl IntoIterator<Item = &'a PatronusRobot> + Clone)) -> Vec<NewsEvent> {
+pub fn pending_fixes<'a>(review: &ShownReview, branch: &str, robots: impl IntoIterator<Item = &'a PatronusRobot>) -> Vec<&'a PatronusRobot> {
+  if review.pull_request.is_draft {
+    return Vec::new();
+  }
+  let mut merged: Vec<&PatronusRobot> = robots.into_iter().filter(|robot| merged_of(robot, branch)).collect();
+  merged.sort_by_key(|robot| robot.start_time);
+  let head = review.pull_request.head_ref_oid.as_str();
+  let shows = |robot: &&PatronusRobot| {
+    robot
+      .source_revision
+      .as_deref()
+      .is_some_and(|source| source == head || review.landed.iter().any(|landed| landed == source))
+  };
+  let after = merged.iter().rposition(shows).map_or(0, |index| index + 1);
+  merged.split_off(after)
+}
+
+/// The Safe Push `robot` of the branch of the open shown review `review` lands a fix of it: the review opened (not a
+/// draft, whose own robot lands the branch) and neither shows the commit it took nor records it as taken
+#[must_use]
+pub fn extends(review: &ShownReview, robot: &PatronusRobot) -> bool {
+  let head = review.pull_request.head_ref_oid.as_str();
+  !review.pull_request.is_draft
+    && robot.push_mode != PatronusPushMode::DryRun
+    && robot
+      .source_revision
+      .as_deref()
+      .is_none_or(|source| source != head && !review.landed.iter().any(|landed| landed == source))
+}
+
+/// What `review` of `branch` waits for now, with the robots of the branch (module docs): a draft stays one; a fix that
+/// lands (its robot runs, or merged and not taken yet) is waited for; else what its reviews say (`review_state`)
+#[must_use]
+pub fn state_now<'a>(review: &ShownReview, branch: &str, robots: impl IntoIterator<Item = &'a PatronusRobot> + Clone) -> ShownState {
+  if review.pull_request.is_draft {
+    return ShownState::Draft;
+  }
+  if let Some(fix) = pending_fixes(review, branch, robots.clone()).last().copied().or_else(|| running_fix(robots, branch)) {
+    return ShownState::Extending { robot: fix.id.clone() };
+  }
+  review_state(&review.pull_request, &review.reviewers)
+}
+
+/// The branches the fetched baseline landed whole by content (`landing`, then those an update dropped and the user has
+/// not dismissed): a draft of one of them whose robot is not listed opens on the commit it shows
+#[must_use]
+pub fn landed_by_content(section: &LandedSection) -> BTreeSet<String> {
+  section
+    .landing
+    .iter()
+    .chain(&section.landed)
+    .filter(|branch| branch.remaining == 0 && !branch.commits.is_empty())
+    .filter_map(|branch| branch.name.clone())
+    .collect()
+}
+
+/// The draft of `branch` opens on the head it has: the baseline landed the branch whole by content (`landed`,
+/// `landed_by_content` while the robots are known) and no robot of it is listed, merged or running
+#[must_use]
+pub fn opens_by_content<'a>(robots: impl IntoIterator<Item = &'a PatronusRobot> + Clone, branch: &str, landed: &BTreeSet<String>) -> bool {
+  landed.contains(branch) && landing_robot(robots.clone(), branch).is_none() && running_fix(robots, branch).is_none()
+}
+
+/// What the app does of the shown reviews `shown` (by branch) over `robots`, the user's robots, and `landed`, the
+/// branches the baseline landed whole by content while the robots are known (`landed_by_content`): a draft whose branch
+/// a merged Safe Push landed, or the baseline while no robot of it is listed, opens (`ShownReviewLanded`); one a fix
+/// landed after it opened extends (`ShownReviewFixLanded`, the newest such robot); one every reviewer it asked approved
+/// and no fix lands for closes (`ShownReviewApproved`). The session tells each once
+#[must_use]
+pub fn shown_news<'a>(shown: &BTreeMap<String, ShownReview>, robots: &(impl IntoIterator<Item = &'a PatronusRobot> + Clone), landed: &BTreeSet<String>) -> Vec<NewsEvent> {
   shown
     .iter()
     .filter_map(|(branch, review)| {
       let (branch, number) = (branch.clone(), review.pull_request.number);
-      match review.state {
-        ShownState::Draft => landing_robot(robots.clone(), &branch).map(|_| NewsEvent::ShownReviewLanded { branch, number }),
+      match state_now(review, &branch, robots.clone()) {
+        ShownState::Draft => {
+          (landing_robot(robots.clone(), &branch).is_some() || opens_by_content(robots.clone(), &branch, landed)).then_some(NewsEvent::ShownReviewLanded { branch, number })
+        }
+        ShownState::Extending { .. } => {
+          let fix = pending_fixes(review, &branch, robots.clone()).last().map(|robot| robot.id.clone())?;
+          Some(NewsEvent::ShownReviewFixLanded { branch, number, robot_id: fix })
+        }
         ShownState::Approved { .. } => Some(NewsEvent::ShownReviewApproved { branch, number }),
         ShownState::InReview { .. } | ShownState::ChangesRequested { .. } => None,
       }
     })
     .collect()
+}
+
+/// The comment of a fix that doesn't apply on the commits of a shown review: "Landed a follow-up as 1a2b3c4d5e; it does
+/// not apply on this review's commits: <the robot page>"
+#[must_use]
+pub fn fix_conflict_comment(source: &str, url: &str) -> String {
+  format!("Landed a follow-up as {}; it does not apply on this review's commits: {url}", short_id(source))
+}
+
+/// The ten first characters of a commit id
+fn short_id(id: &str) -> &str {
+  id.get(..10).unwrap_or(id)
 }
 
 #[cfg(test)]

@@ -265,6 +265,10 @@ impl FakeGitHubRepository {
         if let Some(title) = body["title"].as_str() {
           title.clone_into(&mut pull.title);
         }
+        if let Some(text) = body["body"].as_str() {
+          text.clone_into(&mut state.pulls[index].body);
+        }
+        let pull = &mut state.pulls[index].pull_request;
         if body["state"].as_str() == Some("closed") && pull.state == PullRequestState::Open {
           pull.state = PullRequestState::Closed;
         }

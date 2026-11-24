@@ -22,6 +22,7 @@ use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::robot_match::RobotIndex;
+use domain_policy::shown::extends;
 use domain_policy::stack::{WholeStack, build_ancestors};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
@@ -104,10 +105,15 @@ pub struct RobotOutput {
   /// Left out for a robot that didn't merge, off GitHub and while GitHub doesn't list the pull requests
   #[serde(skip_serializing_if = "Option::is_none")]
   pub closes: Option<Vec<ClosedPullRequest>>,
+  /// The number of the open shown review of the branch this Safe Push lands a fix of: once it merged, its commits go
+  /// onto the review (`brd request-review <branch>`, the app by itself) and its reviewers are asked again. Left out for
+  /// a branch without one, a Dry Run, off GitHub and while GitHub doesn't list the pull requests
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub extends: Option<u32>,
 }
 
 /// An open pull request a landing landed all of (`closes`): of a merged Safe Push, of a push into the target
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ClosedPullRequest {
   pub branch: String,
   pub number: u32,
@@ -344,6 +350,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     virtual_behind_head: false,
     head_branch: None,
     closes: None,
+    extends: None,
   };
 
   // the branch and those stacked on it: the robot of a descendant builds this branch too
@@ -414,9 +421,15 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   }
   output.stack_root.clone_from(&details.robot.stack_root);
   output.robot = Some(robot_state(context, &details));
-  if details.robot.status == PatronusRobotStatus::Success && details.robot.push_mode != PatronusPushMode::DryRun {
+  let merged = details.robot.status == PatronusRobotStatus::Success;
+  let running = matches!(details.robot.status, PatronusRobotStatus::Running | PatronusRobotStatus::Canceling);
+  if (merged || running) && details.robot.push_mode != PatronusPushMode::DryRun {
     let table = grouping_table(context, &grouping, &stacks);
-    output.closes = closes(context, environment, (&service, &space), table, listed, &details.robot);
+    // the branch the robot runs on: its own, or the one stacked on it whose robot it is
+    let branch = output.robot_branch.clone().unwrap_or_else(|| name.to_owned());
+    let listing = listing_of(context, environment, (&service, &space), table, listed, &details.robot, &branch);
+    output.closes = listing.as_ref().filter(|_| merged).map(|listing| listing.closes.clone());
+    output.extends = listing.and_then(|listing| listing.extends);
   }
 
   let Some(mut failure) = failure(runtime, &service, context, &details, args.full, environment)? else {
@@ -457,14 +470,23 @@ fn bd_services(context: &RepoContext, environment: &Environment, service: &Arc<P
 /// grouping, and the pull requests GitHub lists, read as the app's session reads them, side by side in one round of the
 /// one-shot session (the robots only when this command listed none: `listed`); `None` off GitHub and while GitHub lists
 /// none. `bd` closes none
-fn closes(
+/// What the listing of the pull requests says of a robot that merged or runs (`listing_of`)
+struct RobotListing {
+  /// Of a merged one: the open pull requests of the branches it landed whole besides its own
+  closes: Vec<ClosedPullRequest>,
+  /// The open shown review of its branch whose fix it lands (`domain_policy::shown::extends`)
+  extends: Option<u32>,
+}
+
+fn listing_of(
   context: &RepoContext,
   environment: &Environment,
   (service, space): (&Arc<PatronusService>, &SpaceRepository),
   table: BranchTable,
   listed: Option<Vec<PatronusRobot>>,
   robot: &PatronusRobot,
-) -> Option<Vec<ClosedPullRequest>> {
+  branch: &str,
+) -> Option<RobotListing> {
   let repository = github_repository_of(context, &context.config().ok()?).ok()??;
   let services = bd_services(context, environment, service, space, Some(repository));
   let mut facts = SessionFacts::new(context, TableState::default(), table, services.sources());
@@ -479,6 +501,14 @@ fn closes(
     return None;
   }
   let pull_requests = pull_requests.clone();
+  let extends = (robot.stack_root.is_none())
+    .then(|| pull_requests.shown_reviews.get(branch))
+    .flatten()
+    .filter(|review| extends(review, robot))
+    .map(|review| review.pull_request.number);
+  if robot.status != PatronusRobotStatus::Success {
+    return Some(RobotListing { closes: Vec::new(), extends });
+  }
   let mut robots = match listed {
     Some(robots) => robots,
     None => listed_robots(&facts.session).ok()?.to_vec(),
@@ -494,15 +524,16 @@ fn closes(
       .branch(branch)
       .map(|found| landed_subject(table, &table.remote, Of::Branch(&found.name), Some(&pull_requests)))
   });
-  Some(
-    closes
+  Some(RobotListing {
+    closes: closes
       .into_iter()
       .map(|close| ClosedPullRequest {
         branch: close.branch,
         number: close.number,
       })
       .collect(),
-  )
+    extends,
+  })
 }
 
 /// A robot of `--robot` must build the branch: its own, of a branch stacked on it, or of the whole stack it is a branch

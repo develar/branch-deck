@@ -4,18 +4,15 @@
 //! branches are the origin's, and a `CodeOwners` service of the owner groups
 
 use bd_cli::fixture_test::{PREFIX, assert_error, next_steps, run_json};
-use bd_cli::remote_fixture_test::{AUTH, Space, robot};
+use bd_cli::remote_fixture_test::{AUTH, Space, robot, shown_space};
 use bd_core::context::Environment;
-use codeowners::fake_codeowners::{group_json, member_json, start_fake_server};
-use domain_types::pull_request::{GitHubUser, ReviewerState};
-use github::fake_github::{FakeGitHub, serve};
-use github::fake_repository::{FakeGitHubRepository, RepositoryState};
-use github::token::TokenSources;
+use codeowners::fake_codeowners::{group_json, member_json, real_lookup, start_fake_server};
+use domain_types::fixtures::asked;
+use domain_types::pull_request::ReviewerState;
+use github::fake_repository::FakeGitHubRepository;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use test_utils::git_test_utils::{append_config, git_command};
-use test_utils::history::HistoryCommit;
 
 const HEAD: &str = "test-user/review/auth/head";
 const BASE: &str = "test-user/review/auth/base";
@@ -27,39 +24,10 @@ fn bd(environment: &Environment, args: &[&str]) -> (i32, Value) {
   run_json(environment, &all)
 }
 
-/// A `Space` whose baseline names the owner group `Air Plugin` of every path, with auth on it; its GitHub is the
-/// stateful fake of `acme/monorepo` (the token's user `me`, alice and bob can be asked), whose branches are the ones of
-/// the origin; the `CodeOwners` service names alice the reviewer of the group
+/// The `Space` of a review after landing (`shown_space`), whose `CodeOwners` service names alice the reviewer of the
+/// group `Air Plugin`
 fn space() -> (Space, Arc<FakeGitHubRepository>, Environment) {
-  let space = Space::with_baseline(
-    &[("README.md", "readme\n"), ("OWNERSHIP", "/**\nowner 'Air Plugin'\n")],
-    &[HistoryCommit::new("(auth) Add auth", &[("auth.txt", "auth\n")])],
-  );
-  append_config(space.repo.path(), &[("branchdeck.githubRepository", "acme/monorepo")]);
-  let repository = Arc::new(FakeGitHubRepository::default());
-  let user = |login: &str| GitHubUser {
-    login: login.to_owned(),
-    name: None,
-  };
-  repository.set(RepositoryState {
-    owner: "acme".to_owned(),
-    name: "monorepo".to_owned(),
-    token: "t".to_owned(),
-    viewer: "me".to_owned(),
-    users: vec![user("alice"), user("bob")],
-    next_number: 21,
-    ..RepositoryState::default()
-  });
-  let remote = space.remote.path().to_path_buf();
-  repository.set_branch_tip(Box::new(move |branch| {
-    let output = git_command()
-      .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
-      .current_dir(&remote)
-      .output()
-      .unwrap();
-    output.status.success().then(|| String::from_utf8(output.stdout).unwrap().trim().to_owned())
-  }));
-  let url = space.runtime.block_on(serve(Arc::new(FakeGitHub::with_repository(Arc::clone(&repository)))));
+  let (space, repository, environment) = shown_space();
   let (codeowners, codeowners_url) = space.runtime.block_on(start_fake_server());
   codeowners.set_group(
     "Air Plugin",
@@ -69,13 +37,16 @@ fn space() -> (Space, Arc<FakeGitHubRepository>, Environment) {
       &[member_json("bob", Some("bob"), "AVAILABLE", false)],
     ),
   );
-  let environment = Environment {
-    github_api_url: url,
-    github_tokens: TokenSources::fixed("t"),
-    codeowners_url,
-    ..space.environment()
-  };
+  let environment = Environment { codeowners_url, ..environment };
   (space, repository, environment)
+}
+
+/// The robot `r1` of auth merged at `tip`: `brd request-review auth --after-landing` opens its review; what it printed
+fn open_after_landing(space: &Space, environment: &Environment, tip: &str) -> Value {
+  space.set_robots(vec![robot("r1", "SUCCESS", "auth", tip)]);
+  let (exit_code, output) = bd(environment, &["request-review", "auth", "--after-landing"]);
+  assert_eq!(exit_code, 0, "{output}");
+  output
 }
 
 #[test_log::test]
@@ -142,17 +113,12 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
   let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
   assert_error(&output, exit_code, (4, "no_shown_review"));
 
-  space.set_robots(vec![robot("r1", "SUCCESS", "auth", &tip)]);
-  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
-  assert_eq!(exit_code, 0, "{output}");
+  let output = open_after_landing(&space, &environment, &tip);
   assert_eq!(output["requested"], json!([{"login": "alice", "full_name": null}]));
   assert_eq!(output["shown"]["state"], json!("draft"));
   let pull = repository.state().pulls[0].pull_request.clone();
   assert!(!pull.is_draft);
-  assert_eq!(
-    pull.reviewers.iter().map(|reviewer| (reviewer.login.as_str(), reviewer.requested)).collect::<Vec<_>>(),
-    [("alice", true)]
-  );
+  assert_eq!(asked(&pull), [("alice", true)]);
 
   // alice has not approved yet: the close waits, unless the user says so
   let (exit_code, output) = bd(&environment, &["close-review", "auth"]);
@@ -179,4 +145,81 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
   // closed: none left to close
   let (exit_code, output) = bd(&environment, &["close-review", "auth"]);
   assert_error(&output, exit_code, (4, "no_shown_review"));
+}
+
+/// A fix of auth landed after its shown review opened: `brd robot` tells which review a running Safe Push of the branch
+/// extends, `brd request-review auth` puts the fix on the head of the review, asks alice again and records the fix in
+/// its body; a second one finds nothing more to add
+#[test_log::test]
+fn a_fix_that_landed_goes_onto_the_shown_review_and_its_reviewers_are_asked_again() {
+  let (space, repository, environment) = space();
+  space.publish_target();
+  let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--request-review"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let tip = space.local_tip(AUTH);
+  open_after_landing(&space, &environment, &tip);
+  // alice requests changes; the robots land auth into master as a copy of their own
+  repository.update(|state| {
+    let reviewers = &mut state.pulls[0].pull_request.reviewers;
+    reviewers[0].state = ReviewerState::ChangesRequested;
+    reviewers[0].requested = false;
+  });
+  space.land_on_target("auth.txt", "auth\n", "Add auth");
+  bd_cli::fixture_test::git(&space.repo, &["fetch", "-q", "origin", "master"]);
+
+  // the fix runs: brd robot names the review it extends
+  let mut running = robot("r2", "RUNNING", "auth", "0000000000000000000000000000000000000002");
+  running["startDateTime"] = json!(bd_cli::remote_fixture_test::minutes_ago(30));
+  space.fake.details.lock().unwrap().insert("r2".to_owned(), running.clone());
+  space.set_robots(vec![robot("r1", "SUCCESS", "auth", &tip), running]);
+  let (exit_code, output) = bd(&environment, &["robot", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["robot"]["id"].clone(), output["extends"].clone()), (json!("r2"), json!(21)), "{output}");
+
+  // it merged: what it took is the fix on the target as the repository fetched it, and the target has a copy of it
+  let target = bd_cli::fixture_test::git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
+  let landed_fix = space.land_on_target("auth.txt", "auth 2\n", "Fix auth");
+  bd_cli::fixture_test::git(&space.repo, &["fetch", "-q", "origin", "master"]);
+  let source = bd_cli::fixture_test::git(&space.repo, &["commit-tree", &format!("{landed_fix}^{{tree}}"), "-p", &target, "-m", "(auth) Fix auth"]);
+  let mut merged = robot("r2", "SUCCESS", "auth", &source);
+  merged["startDateTime"] = json!(bd_cli::remote_fixture_test::minutes_ago(30));
+  space.fake.details.lock().unwrap().insert("r2".to_owned(), merged.clone());
+  space.set_robots(vec![robot("r1", "SUCCESS", "auth", &tip), merged]);
+
+  let (exit_code, output) = bd(&environment, &["request-review", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let head = space.remote_tip(HEAD);
+  assert_eq!(output["shown"]["extended"], json!({"fixes": ["r2"], "head": head}));
+  assert_eq!(output["requested"], json!([{"login": "alice", "full_name": null}]));
+  // the fix on the commit the review showed, the base where it was
+  assert_eq!(bd_cli::fixture_test::git(&space.repo, &["rev-parse", &format!("{head}^")]), tip);
+  assert_eq!(bd_cli::fixture_test::git(&space.repo, &["show", &format!("{head}:auth.txt")]), "auth 2");
+  let state = repository.state();
+  let pull = &state.pulls[0];
+  assert_eq!(asked(&pull.pull_request), [("alice", true)]);
+  assert!(pull.body.contains(&format!("<!-- branch-deck show landed: {source} -->")), "{}", pull.body);
+
+  // taken: nothing more to add, and the merged fix extends nothing
+  let (exit_code, output) = bd(&environment, &["request-review", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["shown"].get("extended"), space.remote_tip(HEAD)), (None, head));
+  let (exit_code, output) = bd(&environment, &["robot", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["robot"]["state"].clone(), output.get("extends")), (json!("success"), None), "{output}");
+}
+
+/// The owner group as the real `CodeOwners` service answers it (members only, one away on vacation): the one available
+/// is asked
+#[test_log::test]
+fn a_member_away_is_not_asked_of_a_group_as_the_real_service_answers_it() {
+  let (space, _, environment) = shown_space();
+  let (codeowners, codeowners_url) = space.runtime.block_on(start_fake_server());
+  codeowners.set_group("Air Plugin", real_lookup());
+  let environment = Environment { codeowners_url, ..environment };
+  let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--request-review", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["shown"]["reviewers"].clone(), output["shown"]["groups"].clone()),
+    (json!(["AlexPl292"]), json!(["Air Plugin"]))
+  );
 }

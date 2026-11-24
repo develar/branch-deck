@@ -138,6 +138,50 @@ impl Space {
   }
 }
 
+/// A `Space` whose baseline names the owner group `Air Plugin` of every path, with auth on it, for a review after
+/// landing; its GitHub is the stateful fake of `acme/monorepo` (the token's user `me`, alice and bob can be asked),
+/// whose branches are the ones of the origin
+pub fn shown_space() -> (Space, Arc<github::fake_repository::FakeGitHubRepository>, Environment) {
+  use github::fake_repository::{FakeGitHubRepository, RepositoryState};
+  let space = Space::with_baseline(
+    &[("README.md", "readme\n"), ("OWNERSHIP", "/**\nowner 'Air Plugin'\n")],
+    &[HistoryCommit::new("(auth) Add auth", &[("auth.txt", "auth\n")])],
+  );
+  append_config(space.repo.path(), &[("branchdeck.githubRepository", "acme/monorepo")]);
+  let repository = Arc::new(FakeGitHubRepository::default());
+  let user = |login: &str| domain_types::pull_request::GitHubUser {
+    login: login.to_owned(),
+    name: None,
+  };
+  repository.set(RepositoryState {
+    owner: "acme".to_owned(),
+    name: "monorepo".to_owned(),
+    token: "t".to_owned(),
+    viewer: "me".to_owned(),
+    users: vec![user("alice"), user("bob")],
+    next_number: 21,
+    ..RepositoryState::default()
+  });
+  let remote = space.remote.path().to_path_buf();
+  repository.set_branch_tip(Box::new(move |branch| {
+    let output = git_command()
+      .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+      .current_dir(&remote)
+      .output()
+      .unwrap();
+    output.status.success().then(|| String::from_utf8(output.stdout).unwrap().trim().to_owned())
+  }));
+  let url = space
+    .runtime
+    .block_on(github::fake_github::serve(Arc::new(FakeGitHub::with_repository(Arc::clone(&repository)))));
+  let environment = Environment {
+    github_api_url: url,
+    github_tokens: TokenSources::fixed("t"),
+    ..space.environment()
+  };
+  (space, repository, environment)
+}
+
 /// `2026-10-14T09:30:00Z` of `minutes` before now: the robots of the fixtures start within the 7 days `bd` lists, so a
 /// fixed day would drop out of the list a week later
 pub fn minutes_ago(minutes: u32) -> String {

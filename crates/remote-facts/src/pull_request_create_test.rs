@@ -1,7 +1,7 @@
 use crate::patronus_command_test::repository;
 use crate::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MirrorWait, create_pull_request, create_pull_request_waiting, new_pull_request, read_new_pull_request, search_github_users,
-  wait_for_branch,
+  wait_for_branch, wait_for_branch_at,
 };
 use crate::pull_request_text::{AncestorText, CommitText};
 use domain_types::pull_request::{GitHubUser, NewPullRequest, Reviewer, ReviewerState};
@@ -390,5 +390,21 @@ async fn waits_until_github_has_the_branch() {
     ],
   );
   assert!(wait_for_branch(&github, ".", &repository(), "me/virtual/auth", SHORT_WAIT).await.unwrap());
+  assert_eq!(fake.requests_to("GET", branch).len(), 2);
+}
+
+#[test(tokio::test)]
+async fn waits_until_github_has_the_branch_at_the_commit_it_was_pushed_to() {
+  let (fake, github) = start_fake_service("t").await;
+  let branch = "/repos/acme/monorepo/branches/me/review/auth/head";
+  fake.answer_in_turn(
+    "GET",
+    branch,
+    vec![
+      FakeAnswer::ok(json!({"name": "me/review/auth/head", "commit": {"sha": "old"}})),
+      FakeAnswer::ok(json!({"name": "me/review/auth/head", "commit": {"sha": "new"}})),
+    ],
+  );
+  assert!(wait_for_branch_at(&github, ".", &repository(), "me/review/auth/head", "new", SHORT_WAIT).await.unwrap());
   assert_eq!(fake.requests_to("GET", branch).len(), 2);
 }

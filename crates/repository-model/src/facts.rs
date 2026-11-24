@@ -68,7 +68,7 @@ use crate::derive::landed_subject;
 use crate::landed_closes::{LandedCloses, push_closes};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::{ContentFailed, ContentMemo, MemoAnswers, content_keys, landed_commits, match_robots, patronus_view, view_of, with_landing_needs};
-use crate::pull_request_facts::PullRequestsFact;
+use crate::pull_request_facts::{PullRequestsFact, settle_shown};
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_readings::ReviewReadingsFact;
 use crate::review_request_facts::ReviewRequestsFact;
@@ -80,7 +80,7 @@ use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_estimate::{learn, prune};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
-use domain_policy::shown::shown_news;
+use domain_policy::shown::{landed_by_content, shown_news};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
@@ -461,9 +461,34 @@ pub struct FactStore {
   /// The merged robots whose news waits for the Patronus view of the robots they merged in: what they landed and
   /// which pull requests that closes
   merges: BTreeSet<String>,
-  /// The news of the shown reviews told, by the number of the review and whether it told its approval (`tell_shown`)
-  told_shown: BTreeSet<(u32, bool)>,
+  /// The news of the shown reviews told (`tell_shown`), each once, but after a run of it failed (`retell_shown`)
+  told_shown: BTreeSet<ShownTold>,
+  /// How many runs of the news of a shown review failed, by its number: it is told again only so often
+  shown_failures: BTreeMap<u32, u8>,
+  /// The branches the baseline landed whole by content while the robots are known (`tell_shown_of`): a draft of one
+  /// of them whose robot is not listed opens
+  shown_landed: BTreeSet<String>,
 }
+
+/// A news of a shown review the session told, by the number of the review: its open, its extend by the fix of a robot,
+/// its close
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ShownTold {
+  Landed(u32),
+  Fix(u32, String),
+  Approved(u32),
+}
+
+impl ShownTold {
+  const fn number(&self) -> u32 {
+    match self {
+      Self::Landed(number) | Self::Fix(number, _) | Self::Approved(number) => *number,
+    }
+  }
+}
+
+/// How many times a news of a shown review is told again after its run failed, per review and session
+const SHOWN_RETRIES: u8 = 3;
 
 impl FactStore {
   #[must_use]
@@ -489,6 +514,8 @@ impl FactStore {
       failures: BTreeSet::new(),
       merges: BTreeSet::new(),
       told_shown: BTreeSet::new(),
+      shown_failures: BTreeMap::new(),
+      shown_landed: BTreeSet::new(),
     }
   }
 
@@ -595,9 +622,8 @@ impl FactStore {
         let mut finished = Vec::new();
         let changed = self.robots.answer(observation, read, result, &mut finished);
         self.finished(finished);
-        if changed {
-          self.tell_shown();
-        }
+        // every answer: a news whose run failed is due again at the next one
+        self.tell_shown();
         changed
       }
       FactResult::Failing(result) => self.robots.failing_answer(result),
@@ -609,16 +635,17 @@ impl FactStore {
         }
         changed
       }
-      FactResult::PullRequests(result) => {
+      FactResult::PullRequests(mut result) => {
+        // settled as the session keeps them, so an unchanged listing changes nothing
+        let robots: Vec<&PatronusRobot> = self.robots.view().robots.values().collect();
+        settle_shown(&mut result.shown_reviews, &robots);
         let merged = news::auto_merged(self.pull_requests.view(), &result);
         let changed = self.pull_requests.answer(observation, result);
         // an answer older than the last one changes nothing, and tells nothing
         for news in merged.into_iter().filter(|_| changed) {
           self.tell(news);
         }
-        if changed {
-          self.tell_shown();
-        }
+        self.tell_shown();
         changed
       }
       FactResult::Rules { branch, result } => self.rules.entry(branch).or_insert_with(FactRecord::loading).answer(observation, result) == Applied::Applied,
@@ -835,20 +862,53 @@ impl FactStore {
     });
   }
 
-  /// The news of the shown reviews the listing and the robots tell now (`domain_policy::shown::shown_news`), each once:
-  /// a draft whose branch landed opens, an approved one closes
-  fn tell_shown(&mut self) {
-    let news = shown_news(&self.pull_requests.view().shown_reviews, &self.robots.view().robots.values());
+  /// The shown reviews as the robots of their branches leave them (`domain_policy::shown::state_now`): a fix that lands
+  /// is waited for. Then the news of the shown reviews the listing, the robots and the landings by content tell now
+  /// (`domain_policy::shown::shown_news`), each once: a draft whose branch landed opens, one a fix landed after it
+  /// opened extends, an approved one closes
+  pub(crate) fn tell_shown(&mut self) {
+    let robots: Vec<&PatronusRobot> = self.robots.view().robots.values().collect();
+    self.pull_requests.settle_shown(&robots);
+    let news = shown_news(&self.pull_requests.view().shown_reviews, &robots.iter().copied(), &self.shown_landed);
     for event in news {
       let key = match &event {
-        NewsEvent::ShownReviewLanded { number, .. } => (*number, false),
-        NewsEvent::ShownReviewApproved { number, .. } => (*number, true),
+        NewsEvent::ShownReviewLanded { number, .. } => ShownTold::Landed(*number),
+        NewsEvent::ShownReviewFixLanded { number, robot_id, .. } => ShownTold::Fix(*number, robot_id.clone()),
+        NewsEvent::ShownReviewApproved { number, .. } => ShownTold::Approved(*number),
         _ => continue,
       };
       if self.told_shown.insert(key) {
         self.tell(event);
       }
     }
+  }
+
+  /// The branches the baseline of `state` landed whole by content, while the robots are known (a draft of one whose
+  /// robot is not listed opens on its head); the news of the shown reviews when they changed (`tell_shown`)
+  pub fn tell_shown_of(&mut self, state: &TableState) {
+    let known = matches!(self.robots.view().head.state, FactState::Fresh | FactState::Stale { .. });
+    let landed = if known { landed_by_content(&state.parts.sections.landed) } else { BTreeSet::new() };
+    if landed != self.shown_landed {
+      self.shown_landed = landed;
+      self.tell_shown();
+    }
+  }
+
+  /// The branches the baseline landed whole by content while the robots are known (`tell_shown_of`)
+  #[must_use]
+  pub const fn shown_landed(&self) -> &BTreeSet<String> {
+    &self.shown_landed
+  }
+
+  /// A run of a news of the shown review `number` failed: its news is due again at the next answer of the listing or the
+  /// robots, a few times per session (`SHOWN_RETRIES`), never at once
+  pub fn retell_shown(&mut self, number: u32) {
+    let failures = self.shown_failures.entry(number).or_default();
+    if *failures >= SHOWN_RETRIES {
+      return;
+    }
+    *failures += 1;
+    self.told_shown.retain(|told| told.number() != number);
   }
 
   fn tell(&mut self, event: NewsEvent) {

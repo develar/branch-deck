@@ -751,6 +751,25 @@ pub enum PlannedEffect {
   /// The branches of the shown review of `branch` are deleted, those the remote has, each leased on what it has
   /// (`Intent::CloseShownReview`)
   DeleteReview { branch: String },
+  /// The fixes of `branch` that landed after its shown review `number` opened, by the source revisions of their merged
+  /// Safe Pushes (`fixes`, oldest first), are replayed onto the head of the review and pushed, leased on the head the
+  /// remote has (`sync_core::review_head::extend_review`); a fix that doesn't apply on its commits leaves the head as
+  /// it is, and a comment names it once (`Intent::ExtendShownReview`)
+  ExtendReview { branch: String, number: u32, fixes: Vec<LandedFix> },
+  /// The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
+  /// its text kept (`Intent::ExtendShownReview`, a reviewer added to an open)
+  RecordShown { number: u32, reviewers: Vec<String>, landed: Vec<String> },
+}
+
+/// A fix of a branch with a shown review, landed by the merged Safe Push `robot` of its source revision `source`
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandedFix {
+  pub robot: String,
+  pub source: String,
+  /// The robot page in the Patronus web UI, which a comment of a fix that doesn't apply links
+  pub url: String,
 }
 
 impl PlannedEffect {

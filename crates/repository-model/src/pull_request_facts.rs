@@ -16,9 +16,11 @@
 use crate::facts::Seq;
 use crate::facts::{Observation, seed_head};
 use domain_policy::pull_request::base_of;
+use domain_policy::shown::state_now;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::pull_request::{MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState};
+use domain_types::patronus::PatronusRobot;
+use domain_types::pull_request::{MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, ShownReview};
 use domain_types::session::{FactState, PullRequestsView};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -63,7 +65,7 @@ pub enum PullRequestWrite {
   /// The shown review of `branch` as an open left it, or gone (`None`: closed)
   Shown {
     branch: String,
-    review: Option<Box<domain_types::pull_request::ShownReview>>,
+    review: Option<Box<ShownReview>>,
   },
 }
 
@@ -109,11 +111,30 @@ pub struct PullRequestsFact {
   listed: bool,
 }
 
+/// The shown reviews `shown` (by branch) as the robots `robots` leave them (`domain_policy::shown::state_now`): a fix of
+/// the branch that lands is waited for; whether one changed
+pub fn settle_shown(shown: &mut BTreeMap<String, ShownReview>, robots: &[&PatronusRobot]) -> bool {
+  let mut changed = false;
+  for (branch, review) in shown {
+    let state = state_now(review, branch, robots.iter().copied());
+    if review.state != state {
+      review.state = state;
+      changed = true;
+    }
+  }
+  changed
+}
+
 impl PullRequestsFact {
   /// The part of the view
   #[must_use]
   pub const fn view(&self) -> &PullRequestsView {
     &self.view
+  }
+
+  /// The shown reviews as the robots `robots` leave them (`settle_shown`); whether one changed
+  pub fn settle_shown(&mut self, robots: &[&PatronusRobot]) -> bool {
+    settle_shown(&mut self.view.shown_reviews, robots)
   }
 
   /// The answer of a listing that answered at `observation.at`; whether it changed the part. An answer not newer than

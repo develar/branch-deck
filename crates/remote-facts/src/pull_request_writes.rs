@@ -9,10 +9,12 @@
 //! (`stacks`, `stacks/<n>/add`, `stacks/<n>/unstack`) and a layer of it merged in the background with every layer below
 //! (`pulls/<n>/merge-async`), in the REST API version that has them (`STACKS_API_VERSION`,
 //! docs/design/github-stacks.md). The other writes are the
-//! `/patronus` comment (`patronus_command.rs`), whose merge of a reviewed pull request checks its head first
+//! `/patronus` comment (`patronus_command.rs`), the records in the body of a shown review and the comment of a fix it
+//! can't take (`record_shown_review`, `comment_once`), whose merge of a reviewed pull request checks its head first
 //! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
 use crate::pull_requests::{GitHubWriteError, visible_data};
+use domain_policy::shown::with_record;
 
 use domain_types::pull_request::{AsyncMerge, AsyncMergeStatus, MergeMethod, PullRequestReviewEvent, PullRequestStack, RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
@@ -60,6 +62,69 @@ pub async fn close_pull_request(github: &GitHubService, repository_path: &str, r
     return Err(GitHubWriteError::Refused(format!("Pull request #{number} can't be closed: it was merged")));
   }
   Ok(())
+}
+
+/// The records of the body of the shown review `number` name `reviewers` and the fixes it took (`landed`), the rest of
+/// its text as GitHub has it now (`domain_policy::shown::with_record`): one `GET pulls/<n>`, then a `PATCH` of the body
+/// only when it changes; whether it changed
+#[instrument(skip(github))]
+pub async fn record_shown_review(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  number: u32,
+  reviewers: &[String],
+  landed: &[String],
+) -> Result<bool, GitHubWriteError> {
+  let number_segment = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number_segment.as_str()];
+  let path = &path;
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let pull_request: GhPullRequestBody = client.get(&token, path, &[]).await?;
+      let body = pull_request.body.unwrap_or_default();
+      let recorded = with_record(&body, reviewers, landed);
+      if recorded == body {
+        return Ok(false);
+      }
+      client.patch::<IgnoredAny, _>(&token, path, &serde_json::json!({"body": recorded})).await?;
+      Ok(true)
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// The text of a pull request of the REST API
+#[derive(Debug, Deserialize)]
+struct GhPullRequestBody {
+  body: Option<String>,
+}
+
+/// Comments `comment` on pull request `number` unless one of its comments has `mark` already (one `GET
+/// issues/<n>/comments` of the last hundred, then the `POST`): a repeat after a crash comments nothing again; whether
+/// it commented
+#[instrument(skip(github, comment))]
+pub async fn comment_once(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32, mark: &str, comment: &str) -> Result<bool, GitHubWriteError> {
+  let number_segment = number.to_string();
+  let comments = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", number_segment.as_str(), "comments"];
+  let (comments, body) = (&comments, &serde_json::json!({"body": comment}));
+  github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      let listed: Vec<GhCommentBody> = client.get(&token, comments, &[("per_page", "100")]).await?;
+      if listed.iter().any(|listed| listed.body.as_deref().is_some_and(|text| text.contains(mark))) {
+        return Ok(false);
+      }
+      client.post::<IgnoredAny, _>(&token, comments, body).await?;
+      Ok(true)
+    })
+    .await
+    .map_err(GitHubWriteError::from)
+}
+
+/// A comment of the REST API, by its text
+#[derive(Debug, Deserialize)]
+struct GhCommentBody {
+  body: Option<String>,
 }
 
 /// Submits a review of the user on pull request `number`, on `commit_id` (one `POST pulls/<n>/reviews`): an approval,

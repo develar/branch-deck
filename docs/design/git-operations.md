@@ -5425,8 +5425,9 @@ remote only: `{prefix}/review/<branch>/head`, the commit a Safe Push lands, and 
 fork point on the target, which its pull request goes into, so it never lands (`BranchKind::Review`). No sync reads or
 writes them: the listing of the branches of a sync and its inputs leave `refs/remotes/<remote>/<prefix>/review/` out
 (`--exclude`), and no local branch exists. One core writes them, `sync_core::review_head`, from the effects of the engine
-(`PlannedEffect::PushReview`, `DeleteReview`, of `operations::land_execute` and `operations::shown`); no repository lock,
-as they are no ref of the repository and every write is leased on the remote:
+(`PlannedEffect::PushReview`, `ExtendReview`, `DeleteReview`, of `operations::land_execute` and `operations::shown`); no
+repository lock, as they are no ref of the repository and every write is leased on the remote (the extend writes
+objects and, with signing, the temporary ref of `fast-import`, deleted after the push):
 
 1. Push (`push_review`): one `ls-remote --exit-code origin` of both (exit 2: none), one `merge-base` of the commit and
    the remote-tracking ref of the target (the fork point), then one `push --porcelain --atomic` of the ones that are not
@@ -5434,13 +5435,29 @@ as they are no ref of the repository and every write is leased on the remote:
    moved all or nothing; nothing to move pushes nothing. The start of a Safe Push with `--request-review` pushes them at
    the commit the robot takes, the open after the merge moves them to the commit the robot took (a restart may have
    taken a newer one). A repeat of the same push is `[up to date]`, exit 0.
-2. Delete (`delete_review`): one `ls-remote` of both, then one atomic push of a leased delete (`:refs/heads/<name>`) of
+2. Extend (`extend_review`), once the Safe Push of a fix of the branch merged: one `ls-remote` of the head (the lease and
+   the commit it goes onto; none: the review was closed, an error), one `cat-file --batch-check` of the head and the
+   source revisions of the fixes (a head the repository lacks is fetched by its branch, objects only:
+   `fetch --no-write-fetch-head --refmap= origin refs/heads/<head>`; a source it lacks is an error), then per fix one
+   `git replay --ref-action=print --onto=<head> <source> ^<remote-tracking ref of the target>`: the commits the robot
+   tested past the target, onto the head, writing objects only. A commit whose change the head has becomes empty and
+   is dropped, so a repeat after a stop prints the head itself and pushes nothing. Exit 1, a conflict, stops there:
+   the head keeps what applied before (its caller comments the rest). With `commit.gpgsign` the new commits are
+   signed (`sign_range`: `rev-list`, `cat-file`, `fast-import`), then one `push --atomic` of the head leased on what
+   `ls-remote` saw. The base stays: the fork point of the first landing. Its caller then waits until GitHub shows the
+   head at the new commit (`wait_for_branch_at`, `GET branches/<name>` every 2 s for 30 s: a Space mirror copies the
+   push a moment later) before it asks the reviewers again.
+3. Delete (`delete_review`): one `ls-remote` of both, then one atomic push of a leased delete (`:refs/heads/<name>`) of
    each the remote has, on its tip: a leased delete of a ref that is gone is `[rejected] (stale info)`, which fails the
    whole atomic push. None left is done, without a push.
 
 A Space origin mirrors both to GitHub; the creation of the pull request asks again while GitHub lacks them
 (`wait_for_mirror`). Process budgets: push one `ls-remote`, one `merge-base`, one `push`; delete one `ls-remote`, one
-`push` (`a_push_and_a_delete_of_a_shown_review`).
+`push` (`a_push_and_a_delete_of_a_shown_review`); extend one `ls-remote`, one `cat-file`, one `replay` per fix, one
+`push`, a repeat no `push` (`an_extend_of_a_shown_review_by_a_fix_that_landed`). At the level of `brd`, after its sync:
+the start adds the push of the review to the Safe Push start, the open its `ls-remote` and `merge-base`, the extend its
+processes and `config` (`commit.gpgsign`), the close its `ls-remote` and push (`a_review_after_landing` of
+`crates/bd-cli/src/process_budget_test.rs`).
 
 Code: `crates/sync-core/src/review_head.rs`, `crates/operations/src/shown.rs`.
 

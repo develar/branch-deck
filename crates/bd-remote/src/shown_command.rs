@@ -1,6 +1,7 @@
-//! `brd close-review` and the shared part of the shown reviews of `brd request-review --after-landing`
-//! (openspec/specs/branch/shown-reviews/spec.md): the reads of the shown reviews and of the robots over the one-shot
-//! session of the command (`operations::needs` of the intent, as the app's session reads them), the plans of
+//! `brd close-review` and the shared part of the shown reviews of `brd request-review` (its open, the extend by the
+//! fixes that landed; openspec/specs/branch/shown-reviews/spec.md): the reads of the shown reviews and of the robots
+//! over the one-shot session of the command (`operations::needs` of the intent, as the app's session reads them; the
+//! state of a review as the robots of its branch leave it), the plans of
 //! `operations::shown`, their run (`operations::shown::run_shown`) recorded in the operations registry of the
 //! repository as the app's run holds it (`shown_request`). A close of a review not every reviewer approved is refused
 //! (`review_not_approved`) unless `--allow-unapproved`, given only once the user agreed.
@@ -14,12 +15,14 @@ use bd_core::operation_record::admit;
 use bd_core::output::SchemaVersion;
 use bd_core::services::{BdServices, github_service, patronus_service};
 use bd_core::sync_command::{SyncOutput, sync};
+use domain_policy::shown::state_now;
 use domain_types::branch_names::{baseline_on_remote, review_branch_names};
 use domain_types::error::ErrorCode;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStats, Outcome, Plan};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{ShownReview, ShownState};
+use domain_types::session::FactState;
 use github::service::GitHubService;
 use operations::needs::needs;
 use operations::shown::{ShownRun, ShownServices, close_plan, no_shown_review, run_shown, shown_refusal, shown_request};
@@ -28,31 +31,42 @@ use serde::Serialize;
 use std::sync::Arc;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository_with};
 
-/// What a command of a shown review read: the sync, the shown review of the branch, the robots, the services of its run
+/// What a command of a shown review read: the sync, the shown review of the branch (as the robots of its branch leave
+/// it, `domain_policy::shown::state_now`), the robots, the services of its run
 pub(crate) struct ShownRead {
   pub synced: SyncOutput,
   pub review: Option<ShownReview>,
   pub robots: Vec<PatronusRobot>,
+  /// Patronus answered the robots: a draft of a branch the baseline landed whole by content opens on its head when
+  /// none of them is of the branch (`domain_policy::shown::opens_by_content`)
+  pub robots_known: bool,
   pub services: ShownServices,
   /// The branch of origin the robots push into ("master")
   pub target: String,
 }
 
 /// The reads of a command of the shown review of `branch` (`intent`): the sync, then what the intent needs of the
-/// remote (`operations::needs`: the pull requests with the shown reviews, of an open the robots too)
+/// remote (`operations::needs`: the pull requests with the shown reviews and the robots, of the landing and the fixes)
 pub(crate) fn read_shown(context: &RepoContext, environment: &Environment, branch: &str, intent: &Intent) -> Result<ShownRead, CliError> {
+  review_branch_names(&context.prefix, branch).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let synced = sync(context)?;
+  read_shown_of(context, environment, branch, intent, synced)
+}
+
+/// `read_shown` after the sync `synced` of its caller
+pub(crate) fn read_shown_of(context: &RepoContext, environment: &Environment, branch: &str, intent: &Intent, synced: SyncOutput) -> Result<ShownRead, CliError> {
   review_branch_names(&context.prefix, branch).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   let configured = context.config()?.github_repository();
   let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?.as_deref())?
     .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
-  let wants_robots = matches!(intent, Intent::OpenShownReview { .. });
   let space = context.space_repository()?;
-  let patronus = match (&space, wants_robots) {
-    (Some(_), true) => Some(Arc::new(patronus_service(environment)?)),
-    _ => None,
+  // an open and an extend go by the robots; a close reads them when it can (a fix that lands holds it back)
+  let patronus = match (&space, intent) {
+    (None, _) => None,
+    (Some(_), Intent::CloseShownReview { .. }) => patronus_service(environment).ok().map(Arc::new),
+    (Some(_), _) => Some(Arc::new(patronus_service(environment)?)),
   };
   let github = Arc::new(github_service(context, environment));
-  let synced = sync(context)?;
   let target = synced.report.target_branch.clone().unwrap_or_else(|| baseline_on_remote(&synced.baseline).to_owned());
   let table = compared_table(context, &synced);
   let services = BdServices {
@@ -66,13 +80,18 @@ pub(crate) fn read_shown(context: &RepoContext, environment: &Environment, branc
   facts.read(context, &needs(intent))?;
   let listed = facts.session.facts().pull_requests.view();
   require_listing(listed)?;
-  let review = listed.shown_reviews.get(branch).cloned();
   let robots = facts.session.robots().to_vec();
+  let robots_known = matches!(facts.session.facts().robots.view().head.state, FactState::Fresh | FactState::Stale { .. });
+  let review = listed.shown_reviews.get(branch).cloned().map(|review| ShownReview {
+    state: state_now(&review, branch, &robots),
+    ..review
+  });
   let services = shown_services(context, &synced, github, repository);
   Ok(ShownRead {
     synced,
     review,
     robots,
+    robots_known,
     services,
     target,
   })
@@ -144,7 +163,8 @@ pub struct CloseReviewOutput {
   pub branch: String,
   pub number: u32,
   pub url: String,
-  /// `approved` (every reviewer it asked approved), `in_review`, `changes_requested` or `draft`
+  /// `approved` (every reviewer it asked approved), `in_review`, `changes_requested`, `extending` (a fix of the branch
+  /// lands) or `draft`
   pub state: String,
   /// Who approved it, of those it asked
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -162,6 +182,7 @@ pub(crate) const fn state_name(state: &ShownState) -> &'static str {
     ShownState::InReview { .. } => "in_review",
     ShownState::ChangesRequested { .. } => "changes_requested",
     ShownState::Approved { .. } => "approved",
+    ShownState::Extending { .. } => "extending",
   }
 }
 

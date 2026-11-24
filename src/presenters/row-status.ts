@@ -155,7 +155,10 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
   }
 }
 
-/** "In review after landing: alice", "alice requested changes in #123", "Approved": the review after landing of a branch */
+/**
+ * "In review after landing: alice", "alice requested changes in #123", "Approved", a fix that goes into it: the review
+ * after landing of a branch
+ */
 function shownTexts(number: number, state: ShownState): StatusTexts {
   switch (state.kind) {
     case "draft":
@@ -174,6 +177,12 @@ function shownTexts(number: number, state: ShownState): StatusTexts {
       }
     case "approved":
       return { text: "approved after landing", tooltip: `Approved by ${joinNames(state.by)} (#${number})`, color: "success" }
+    case "extending":
+      return {
+        text: "fix goes into review after landing",
+        tooltip: `A fix of the branch lands (robot ${state.robot}): #${number} takes it once it merged and asks its reviewers again`,
+        color: "neutral",
+      }
   }
 }
 

@@ -39,7 +39,8 @@ pub struct NextStepSummary {
   /// ones it covers after it (`domain_policy::row_status`): `robot_running`, `robot_finished`, `robot_failed`,
   /// `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`, `blocked`, `waits` (the step is a state it
   /// waits in: the reviewers, a draft, changes requested), and last its shown review (`shown_draft` until its Safe Push
-  /// merged, `shown_in_review`, `shown_changes_requested`: commit a fix as `(branch) …`, `shown_approved`). A running
+  /// merged, `shown_in_review`, `shown_changes_requested`: commit a fix as `(branch) …`, `shown_extending`: a fix lands
+  /// and goes into the review, `shown_approved`). A running
   /// robot comes first, a block or a conflict stays beside it; empty when nothing but its sync or push state is to say,
   /// and of a whole stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -102,6 +103,10 @@ const fn row_fact_name(fact: &RowFact) -> &'static str {
       state: ShownState::Approved { .. },
       ..
     } => "shown_approved",
+    RowFact::Shown {
+      state: ShownState::Extending { .. },
+      ..
+    } => "shown_extending",
   }
 }
 

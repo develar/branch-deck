@@ -2143,7 +2143,13 @@ and its fork point `/base` and opens a draft pull request between them (`shown`:
 `number`, `created`). Without `--reviewer` it asks one available member of each owner group of the changed paths, from
 the CodeOwners service with the Space token of Patronus. Once the robot merged, `brd request-review <branch>
 --after-landing` moves the head onto what landed, marks it ready and asks the reviewers its body records (`shown.state`,
-`requested`); a branch a Safe Push landed without one gets one, ready. `brd close-review <branch> [--allow-unapproved]
+`requested`); a branch a Safe Push landed without one gets one, ready; a draft whose branch the fetched baseline has
+by content while no robot of it is listed (older than the 7 days of the listing) opens on its head. A fix lands by its
+own Safe Push of the branch (`brd robot` names the review it `extends`); once merged, `brd request-review <branch>`
+(no flag needed with a shown review) replays it onto the head of the review, pushes it leased on the head the remote
+has, asks the reviewers again and records the fix in the body (`shown.extended`: `fixes`, `head`, `not_applied`, a
+fix that doesn't apply on its commits and is named in a comment instead); `--reviewer` adds reviewers to the review
+and its record. While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
 [--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
 its branches. Refusals (exit 4): `approvals_required`, `pull_request_open`, `show_lands_stack`, `show_needs_patronus`,
 `no_reviewer` (the start); `no_shown_review` (no merged Safe Push yet, or no open review); `review_not_approved` (the
@@ -2213,6 +2219,9 @@ token and the repository on Space are needed as for `brd safe-push` (`not_logged
   a comment, by the same rule (`domain_policy::landed::pull_requests_to_close`); `brd` closes none. Compared with the
   tips the refs hold, no sync; left out for a robot that didn't merge, off GitHub and while GitHub doesn't list the
   pull requests.
+- `extends` (a Safe Push that runs or merged): the number of the open shown review of its branch whose fix it lands;
+  once it merged, `brd request-review <branch>` (the app by itself) adds the fix to that review and asks its reviewers
+  again. Left out for a branch without one, a Dry Run, off GitHub; a running robot reads the listing of GitHub for it.
 - `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
 ### `brd operation forget <op>`

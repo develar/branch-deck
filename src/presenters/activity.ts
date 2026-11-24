@@ -343,6 +343,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return intent.landing.by === "robot" ? "Cannot close the pull requests of the merged robot" : "Cannot close the pull requests that landed"
     case "openShownReview":
       return `Cannot open the review after landing of ${intent.branch}`
+    case "extendShownReview":
+      return `Cannot add the fix to the review after landing of ${intent.branch}`
     case "closeShownReview":
       return `Cannot close the review after landing of ${intent.branch}`
     case "submitReview":

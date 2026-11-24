@@ -118,6 +118,26 @@ const WRITES: &[Write] = &[
     callers: &[("crates/operations/src/shown.rs", 1, "the close of a shown review (`PlannedEffect::DeleteReview`)")],
   },
   Write {
+    call: "extend_review(",
+    callers: &[("crates/operations/src/shown.rs", 1, "the extend of a shown review by a fix (`PlannedEffect::ExtendReview`)")],
+  },
+  Write {
+    call: "record_shown_review(",
+    callers: &[(
+      "crates/operations/src/shown.rs",
+      1,
+      "the record of the reviewers and the fixes of a shown review (`PlannedEffect::RecordShown`)",
+    )],
+  },
+  Write {
+    call: "comment_once(",
+    callers: &[(
+      "crates/operations/src/shown.rs",
+      1,
+      "the comment of a fix a shown review can't take (`PlannedEffect::ExtendReview`)",
+    )],
+  },
+  Write {
     call: "create_stack(",
     callers: &[("crates/operations/src/land_execute.rs", 1, "the link of a stack of GitHub (`PlannedEffect::LinkStack`)")],
   },
