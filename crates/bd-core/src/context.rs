@@ -3,6 +3,7 @@ use crate::error::CliError;
 use crate::output::ShortIds;
 use app_settings::file::{SETTINGS_FILE_NAME, SettingsFile};
 use app_settings::resolve::{cli_branch_prefix, resolve_branch_prefix};
+use codeowners::client::CODEOWNERS_URL;
 use domain_types::error::ErrorCode;
 use domain_types::settings::{AppSettings, PrefixSource};
 use file_diffs::service::FileDiffs;
@@ -69,6 +70,9 @@ pub struct Environment {
   pub patronus_url: String,
   /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
   pub space_token: Option<String>,
+  /// The `CodeOwners` service `brd safe-push --request-review` asks the members of the owner groups of: `BRANCHDECK_CODEOWNERS_URL`,
+  /// else the production one; asked with the Space token of Patronus
+  pub codeowners_url: String,
   /// The GitHub API the pull requests are read and written through: github.com, a fake one in the tests
   pub github_api_url: String,
   /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the app's sign-in, the git
@@ -105,6 +109,7 @@ impl Environment {
       path: std::env::var_os("PATH"),
       patronus_url: std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string()),
       space_token: std::env::var(TOKEN_ENV).ok(),
+      codeowners_url: std::env::var("BRANCHDECK_CODEOWNERS_URL").map_or_else(|_| CODEOWNERS_URL.to_string(), |url| url.trim_end_matches('/').to_string()),
       github_api_url: GITHUB_API_URL.to_string(),
       github_tokens: TokenSources::from_process(app_data_dir().as_deref()),
       youtrack_environment: EnvironmentToken::from_process(),

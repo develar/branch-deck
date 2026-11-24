@@ -32,6 +32,8 @@ pub mod robot_stats_command;
 pub mod safe_push_command;
 pub mod safe_push_run;
 pub mod session_facts;
+pub mod show_reviewers;
+pub mod shown_command;
 pub mod status;
 
 #[cfg(test)]
@@ -52,5 +54,7 @@ mod robot_test;
 mod safe_push_test;
 #[cfg(test)]
 mod scenario_test;
+#[cfg(test)]
+mod shown_review_test;
 #[cfg(test)]
 mod status_test;

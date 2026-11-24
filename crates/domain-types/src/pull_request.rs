@@ -422,6 +422,11 @@ pub struct PullRequestsResult {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub github_stacks: bool,
+  /// The open shown reviews of the user (`{prefix}/review/<branch>/head` into `{prefix}/review/<branch>/base`), by the
+  /// virtual branch they review; empty unless available
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub shown_reviews: BTreeMap<String, ShownReview>,
 }
 
 impl PullRequestsResult {
@@ -433,8 +438,44 @@ impl PullRequestsResult {
       pull_requests: BTreeMap::new(),
       stack_pull_requests: BTreeMap::new(),
       github_stacks: false,
+      shown_reviews: BTreeMap::new(),
     }
   }
+}
+
+/// A shown review (ship/show/ask, docs/design/landing.md, "Show: a review after landing"): a pull request of the user
+/// whose head is `{prefix}/review/<branch>/head` and whose base is `{prefix}/review/<branch>/base`, the fork point of what
+/// a Safe Push landed, never master, so it can never land. A draft while the robot runs, ready for review with its
+/// reviewers asked once the robot merged, closed once every reviewer it asked approved
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ShownReview {
+  pub pull_request: PullRequest,
+  /// The reviewers Branch Deck asks once the branch landed, as the record in the body of the pull request names them
+  /// (`SHOWN_REVIEWERS_MARKER`): only they decide when it closes, never a bot or someone not asked
+  pub reviewers: Vec<String>,
+  /// What it waits for (`domain_policy::shown::review_state`)
+  pub state: ShownState,
+}
+
+/// The line of the body of a shown review that records whom it asks, an HTML comment GitHub doesn't show and that
+/// mentions nobody: `<!-- branch-deck show reviewers: alice bob -->`
+pub const SHOWN_REVIEWERS_MARKER: &str = "<!-- branch-deck show reviewers:";
+
+/// What a shown review waits for (`domain_policy::shown::review_state`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ShownState {
+  /// A draft: the Safe Push that lands the branch has not merged yet, nobody is asked
+  Draft,
+  /// Ready for review: `waiting` the reviewers it asked who have not approved yet (none: nobody asked yet)
+  InReview { waiting: Vec<String> },
+  /// `by`, reviewers it asked, requested changes: a fix lands as a new Safe Push of the branch
+  ChangesRequested { by: Vec<String> },
+  /// Every reviewer it asked approved (`by`): it closes
+  Approved { by: Vec<String> },
 }
 
 /// What the user of the token may do in a GitHub repository (GitHub's `RepositoryPermission`, `viewerPermission`),

@@ -307,6 +307,7 @@ fn safe_push_of(branch: &str) -> Intent {
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   })
 }
 

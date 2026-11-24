@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ChecksSummary } from "@/lib/bindings"
+import type { ChecksSummary, ShownReview } from "@/lib/bindings"
 import { collectReturnedToYou, formatReturnedMeta } from "@/lib/outgoing-attention"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { openPullRequest } from "@/test-support/pull-request"
@@ -30,6 +30,21 @@ describe("collectReturnedToYou", () => {
     const returned = collectReturnedToYou(["auth", "api", "ui", "old"].map(row), pullRequests)
     expect(returned.map(it => it.branchName)).toEqual(["auth", "ui"])
     expect(returned[0]!.pullRequest).toBe(pullRequests.auth)
+  })
+
+  it("names after the rows the reviews after landing a reviewer handed back, also of a branch that left the table", () => {
+    const shown = (branch: string, state: ShownReview["state"]): ShownReview => ({
+      pullRequest: openPullRequest(branch, { headRefName: `me/review/${branch}/head`, baseRefName: `me/review/${branch}/base` }),
+      reviewers: ["alice"],
+      state,
+    })
+    const shownReviews = {
+      landed: shown("landed", { kind: "changesRequested", by: ["alice"] }),
+      waiting: shown("waiting", { kind: "inReview", waiting: ["alice"] }),
+    }
+    const returned = collectReturnedToYou(["auth"].map(row), { auth: openPullRequest("auth", { reviewDecision: "changesRequested" }) }, shownReviews)
+    expect(returned.map(it => it.branchName)).toEqual(["auth", "landed"])
+    expect(returned[1]!.pullRequest).toBe(shownReviews.landed.pullRequest)
   })
 
   it("names the reviewers who asked for changes", () => {

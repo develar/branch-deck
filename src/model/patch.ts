@@ -17,6 +17,7 @@ import type {
   RepositoryView,
   RobotsChange,
   RobotsView,
+  ShownReview,
   ViewPatch,
 } from "@/lib/bindings"
 import { withoutKeys } from "@/lib/record"
@@ -123,6 +124,9 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
 const NEWS_KEPT = 32
 
 /** A keyed part after a patch: the entries it names replace theirs, those it removes go; the same object without either */
+/** The shown reviews of a part without any, one object: a patch that names none keeps it */
+const NO_SHOWN_REVIEWS: Readonly<Record<string, ShownReview>> = {}
+
 function keyed<T>(entries: Readonly<Record<string, T>>, changed: Readonly<Record<string, T>> | undefined, removed: readonly string[] | undefined): Readonly<Record<string, T>> {
   return Object.keys(changed ?? {}).length === 0 && (removed?.length ?? 0) === 0 ? entries : { ...withoutKeys(entries, removed ?? []), ...changed }
 }
@@ -156,6 +160,7 @@ function patchedPullRequests(part: PullRequestsView, change: PullRequestsChange)
     viewerPermission: answered ? (change.viewerPermission ?? null) : part.viewerPermission,
     pullRequests: keyed(part.pullRequests, change.pullRequests, change.removedPullRequests),
     stackPullRequests: keyed(part.stackPullRequests, change.stackPullRequests, change.removedStackPullRequests),
+    shownReviews: keyed(part.shownReviews ?? NO_SHOWN_REVIEWS, change.shownReviews, change.removedShownReviews),
   }
 }
 

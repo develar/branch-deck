@@ -3844,7 +3844,8 @@ was synced before, on the blocking pool, as `brd sync` in a terminal may have ma
    itself), the `master` and `main` of every remote (the baseline a fetch moves), every remote branch of the prefix
    (`refs/remotes/*/<prefix>/**`: a push from elsewhere of a virtual branch, of a stack branch by `brd safe-push` of a
    whole stack, of an unapplied branch by `brd push --unapplied`; `**`, as a glob matches the whole name and `*` no
-   slash) and the issue groups, the stack parents and the parked branches (not the rest of `refs/branch-deck/`: a
+   slash) but the branches of the shown reviews (`--exclude=refs/remotes/*/<prefix>/review/**`, [Review
+   head](#review-head): a push of them changes nothing a sync reads) and the issue groups, the stack parents and the parked branches (not the rest of `refs/branch-deck/`: a
    review fetch writes there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
 3. Only when that upstream is not in the listing (`origin/develop`): `for-each-ref --format=%(objectname) <upstream>`,
    so a fetch of it is a change too.
@@ -5414,6 +5415,32 @@ removes the conflict (the fixup undoes the conflicting change); then the check r
 take. `brd fold` (Squash Fixups in the app) before the start removes the difference.
 
 Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebase.rs`, `crates/operations/src/land_session.rs`.
+
+#### Review head
+
+The branches of a shown review, a review after landing ([Landing](landing.md#show-a-review-after-landing)), are
+remote only: `{prefix}/review/<branch>/head`, the commit a Safe Push lands, and `{prefix}/review/<branch>/base`, its
+fork point on the target, which its pull request goes into, so it never lands (`BranchKind::Review`). No sync reads or
+writes them: the listing of the branches of a sync and its inputs leave `refs/remotes/<remote>/<prefix>/review/` out
+(`--exclude`), and no local branch exists. One core writes them, `sync_core::review_head`, from the effects of the engine
+(`PlannedEffect::PushReview`, `DeleteReview`, of `operations::land_execute` and `operations::shown`); no repository lock,
+as they are no ref of the repository and every write is leased on the remote:
+
+1. Push (`push_review`): one `ls-remote --exit-code origin` of both (exit 2: none), one `merge-base` of the commit and
+   the remote-tracking ref of the target (the fork point), then one `push --porcelain --atomic` of the ones that are not
+   where they go, each `--force-with-lease` on what `ls-remote` saw (empty: it must not exist), so both are created or
+   moved all or nothing; nothing to move pushes nothing. The start of a Safe Push with `--request-review` pushes them at
+   the commit the robot takes, the open after the merge moves them to the commit the robot took (a restart may have
+   taken a newer one). A repeat of the same push is `[up to date]`, exit 0.
+2. Delete (`delete_review`): one `ls-remote` of both, then one atomic push of a leased delete (`:refs/heads/<name>`) of
+   each the remote has, on its tip: a leased delete of a ref that is gone is `[rejected] (stale info)`, which fails the
+   whole atomic push. None left is done, without a push.
+
+A Space origin mirrors both to GitHub; the creation of the pull request asks again while GitHub lacks them
+(`wait_for_mirror`). Process budgets: push one `ls-remote`, one `merge-base`, one `push`; delete one `ls-remote`, one
+`push` (`a_push_and_a_delete_of_a_shown_review`).
+
+Code: `crates/sync-core/src/review_head.rs`, `crates/operations/src/shown.rs`.
 
 #### Push into the baseline
 

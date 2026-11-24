@@ -348,6 +348,11 @@ pub enum ActionBlocker {
     base: String,
     target: String,
   },
+  /// A shown review (`domain_types::branch_names::is_review_base`): its change is in master already, and the review
+  /// gates nothing; it goes into the fork point of what landed, so no Safe Push of it is offered
+  Shown {
+    number: u32,
+  },
 }
 
 /// Why Push with Children of a branch pushes nothing beyond the branch itself

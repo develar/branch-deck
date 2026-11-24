@@ -47,6 +47,8 @@ pub struct NodeFacts<'a> {
   /// it lacks
   pub regenerate: &'a [RegenerateFile],
   pub regenerate_fix: Option<&'a LandingFix>,
+  /// Its open shown review (`domain_policy::shown`): a mark of its Status cell beside the facts of its landing
+  pub shown: Option<&'a domain_types::pull_request::ShownReview>,
 }
 
 /// The node is filled: the next step is the user's, a fix first (`NeedsFix`, `YourStep`, `Ready`); the others wait for

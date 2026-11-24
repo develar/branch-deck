@@ -582,6 +582,9 @@ pub enum ApprovalLanding {
   /// the target counts the approval until its base is the target. The approval stays with the pull request, not with its
   /// head; then its Safe Push counts it for all it lands, the layers below it not yet landed too
   OnceIntoTarget { base: String, target: String },
+  /// A shown review (`domain_policy::shown::is_shown`): what it shows is in master already, and the review gates nothing;
+  /// an approval counts for no Safe Push, it closes the review once every reviewer it asked approved
+  Shown,
 }
 
 /// Approve N Pull Requests of a stack a review window shows (`RepositoryView::review_stacks`)
@@ -797,6 +800,10 @@ pub struct PullRequestsView {
   /// false without one
   #[serde(default)]
   pub github_stacks: bool,
+  /// The open shown reviews of the user, by the virtual branch they review (`PullRequestsResult::shown_reviews`): a
+  /// branch keeps its review after it landed and left the table
+  #[serde(default)]
+  pub shown_reviews: BTreeMap<String, crate::pull_request::ShownReview>,
 }
 
 /// The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
@@ -884,6 +891,12 @@ pub enum NewsEvent {
   /// the session knew enabled on it open (`domain_policy::news::auto_merged`): no update follows by itself, the page
   /// offers Update Project
   AutoMerged { number: u32, subject: String, into: String },
+  /// The Safe Push of `branch` merged while its shown review `number` is a draft (`domain_policy::shown::shown_news`):
+  /// the app opens it (`Intent::OpenShownReview`), its head on what the robot landed, its reviewers asked
+  ShownReviewLanded { branch: String, number: u32 },
+  /// Every reviewer the shown review `number` of `branch` asked approved it: the app closes it
+  /// (`Intent::CloseShownReview`) and deletes its refs
+  ShownReviewApproved { branch: String, number: u32 },
 }
 
 /// What the last answer of Patronus said of the repository
@@ -1686,6 +1699,12 @@ pub struct PullRequestsChange {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stack_pull_requests: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub shown_reviews: BTreeMap<String, crate::pull_request::ShownReview>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_shown_reviews: Vec<String>,
 }
 
 /// What changed of the robots: the head when it differs, the robots that changed and the ids that went

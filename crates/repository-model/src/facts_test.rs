@@ -524,6 +524,7 @@ fn listed_at_tips(pull_requests: &[(&str, u32, &str)]) -> FactResult {
       .collect(),
     stack_pull_requests: BTreeMap::new(),
     github_stacks: false,
+    shown_reviews: BTreeMap::new(),
   })
 }
 

@@ -2450,6 +2450,7 @@ fn a_request_review_check() {
     reviewers: Vec::new(),
     push: true,
     dry_run: true,
+    after_landing: false,
   };
   let output = request_review(&context, &args, &environment).unwrap();
   assert_eq!(output.reviewers.len(), 1, "{output:?}");

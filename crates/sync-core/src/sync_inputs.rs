@@ -55,6 +55,8 @@ pub fn read_sync_inputs(git_executor: &GitCommandExecutor, repository_path: &str
   let dirs = git_executor.execute_command_lines(&["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], repository_path)?;
   let [git_dir, common_dir] = <[String; 2]>::try_from(dirs).map_err(|dirs| anyhow!("Unexpected rev-parse output: {dirs:?}"))?;
   let own_branches = format!("--exclude=refs/heads/{branch_prefix}/");
+  // the branches of the shown reviews move on every review push and are no input of a sync (`BranchKind::Review`)
+  let review_branches = format!("--exclude=refs/remotes/*/{branch_prefix}/review/**");
   // a glob matches the whole name, and `*` no slash: `**` takes `virtual/`, `stack/`, `unapplied/` and the stacked names
   let remote_branches = format!("refs/remotes/*/{branch_prefix}/**");
   let refs = git_executor.execute_command(
@@ -63,6 +65,7 @@ pub fn read_sync_inputs(git_executor: &GitCommandExecutor, repository_path: &str
       // the upstream of HEAD's branch only, which `@{u}` makes the baseline
       "--format=%(HEAD)%(objectname) %(refname)%(if)%(HEAD)%(then) %(upstream)%(end)",
       &own_branches,
+      &review_branches,
       "refs/heads/",
       "refs/remotes/*/master",
       "refs/remotes/*/main",

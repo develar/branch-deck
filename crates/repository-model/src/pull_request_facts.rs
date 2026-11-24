@@ -60,6 +60,11 @@ pub enum PullRequestWrite {
     number: u32,
     method: Option<MergeMethod>,
   },
+  /// The shown review of `branch` as an open left it, or gone (`None`: closed)
+  Shown {
+    branch: String,
+    review: Option<Box<domain_types::pull_request::ShownReview>>,
+  },
 }
 
 impl PullRequestWrite {
@@ -67,7 +72,7 @@ impl PullRequestWrite {
   /// changed; a close asks nothing (the landed pull requests a merge closes would each list again)
   #[must_use]
   pub const fn lists_again(&self) -> bool {
-    !matches!(self, Self::Closed { .. })
+    !matches!(self, Self::Closed { .. } | Self::Shown { review: None, .. })
   }
 }
 
@@ -125,6 +130,7 @@ impl PullRequestsFact {
       pull_requests,
       stack_pull_requests,
       github_stacks,
+      shown_reviews,
     } = result;
     let recovers = matches!(availability, PullRequestAvailability::Error { .. } | PullRequestAvailability::RateLimited { .. });
     let mut changed = false;
@@ -145,13 +151,15 @@ impl PullRequestsFact {
         || self.view.repository != repository
         || self.view.viewer_permission != viewer_permission
         || self.view.merge_methods != merge_methods
-        || self.view.github_stacks != github_stacks;
+        || self.view.github_stacks != github_stacks
+        || self.view.shown_reviews != shown_reviews;
       self.view.pull_requests = listed;
       self.view.stack_pull_requests = stacks;
       self.view.repository = repository;
       self.view.viewer_permission = viewer_permission;
       self.view.merge_methods = merge_methods;
       self.view.github_stacks = github_stacks;
+      self.view.shown_reviews = shown_reviews;
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);
@@ -204,6 +212,14 @@ impl PullRequestsFact {
   /// The write of the app numbered `seq`, applied at `at` on the session clock, in the session of `prefix`; whether it
   /// changed a pull request. A write of a pull request the session doesn't have changes nothing
   pub fn write(&mut self, seq: Seq, at: Duration, prefix: &str, write: PullRequestWrite) -> bool {
+    // a shown review is of no row: the next listing stands for it
+    if let PullRequestWrite::Shown { branch, review } = write {
+      match review {
+        Some(review) => self.view.shown_reviews.insert(branch, *review),
+        None => self.view.shown_reviews.remove(&branch),
+      };
+      return true;
+    }
     let subject = match &write {
       PullRequestWrite::Created { pull_request } => subject_of_head(&pull_request.head_ref_name, prefix),
       PullRequestWrite::Retargeted { number, .. }
@@ -211,6 +227,7 @@ impl PullRequestsFact {
       | PullRequestWrite::ReviewersRequested { number, .. }
       | PullRequestWrite::Merged { number }
       | PullRequestWrite::AutoMerge { number, .. } => self.subject_of(*number),
+      PullRequestWrite::Shown { .. } => None,
     };
     let Some(subject) = subject else {
       return false;
@@ -251,6 +268,7 @@ impl PullRequestsFact {
           pull_request.auto_merge = method;
         }
       }
+      PullRequestWrite::Shown { .. } => {}
     }
     self.written.insert(subject, seq.0);
     true

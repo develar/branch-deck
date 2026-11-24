@@ -23,6 +23,7 @@ fn safe_push(subject: &str) -> Land {
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   }
 }
 

@@ -445,6 +445,21 @@ pub struct Land {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub anyway: Option<Vec<LandingRefusal>>,
+  /// A shown review of the branch (`brd safe-push --request-review`, docs/design/landing.md, "Show: a review after
+  /// landing"): its draft is opened before the start, and its reviewers are asked once the robot merged
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub request_review: Option<ShowRequest>,
+}
+
+/// The shown review a Safe Push opens (`Land::request_review`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ShowRequest {
+  /// The GitHub logins asked once the branch landed: `--reviewer`, else one available member of each owner group of
+  /// the changed paths (`domain_policy::shown::show_candidates`); none refuses the start (`Reason::NoReviewer`)
+  pub reviewers: Vec<String>,
 }
 
 /// Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`)
@@ -723,6 +738,19 @@ pub enum PlannedEffect {
   },
   /// The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`)
   DisableAutoMerge { number: u32 },
+  /// The branches of the shown review of `branch` go to `tip` and to its fork point on the target in one atomic push
+  /// (`{prefix}/review/<branch>/head` and `/base`), each leased on what the remote has (`sync_core::review_head`)
+  PushReview { branch: String, tip: String },
+  /// The pull request of the shown review of `branch` is opened from its head into its base, unless one of its head is
+  /// open: its text records `reviewers`. A `draft` before its Safe Push (`Land::request_review`), whose open asks them
+  /// once the robot merged; else ready, `reviewers` asked at once (`brd request-review --after-landing` of a branch that
+  /// landed without one)
+  CreateShownReview { branch: String, reviewers: Vec<String>, draft: bool },
+  /// The draft pull request `number` is marked ready for review (`Intent::OpenShownReview`)
+  MarkReady { number: u32 },
+  /// The branches of the shown review of `branch` are deleted, those the remote has, each leased on what it has
+  /// (`Intent::CloseShownReview`)
+  DeleteReview { branch: String },
 }
 
 impl PlannedEffect {

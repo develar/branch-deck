@@ -23,6 +23,7 @@ fn node_of(fixture: &Fixture, status: BranchStatus, lands_with: Option<&RobotOf>
     push_pending: false,
     regenerate: &[],
     regenerate_fix: None,
+    shown: None,
   })
 }
 

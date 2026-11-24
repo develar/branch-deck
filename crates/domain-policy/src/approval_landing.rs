@@ -6,7 +6,8 @@
 //! its own Safe Push only, never for another layer of its stack; one into another base (a layer of a stack goes into the
 //! branch of the one below it) counts for no Safe Push into the target until its base is the target, and then for all
 //! its Safe Push lands. Where Patronus doesn't merge, before the target is known, and for an own pull request (GitHub
-//! takes no review of its author) there is nothing to say.
+//! takes no review of its author) there is nothing to say. A shown review (`shown::is_shown`) shows what is in master
+//! already: an approval of it counts for no Safe Push, it closes the review.
 
 use crate::actions::Target;
 use domain_types::session::ApprovalLanding;
@@ -22,7 +23,9 @@ pub fn approval_landing(target: Target<'_>, base: &str, own: bool) -> Option<App
   if own {
     return None;
   }
-  Some(if base == target {
+  Some(if crate::shown::is_shown(base) {
+    ApprovalLanding::Shown
+  } else if base == target {
     ApprovalLanding::OwnSafePush
   } else {
     ApprovalLanding::OnceIntoTarget {

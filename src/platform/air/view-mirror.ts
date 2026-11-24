@@ -170,6 +170,7 @@ function robotsChange(before: RobotsView, after: RobotsView): RobotsChange {
 function pullRequestsChange(before: PullRequestsView, after: PullRequestsView): PullRequestsChange {
   const pullRequests = keyedDiff(before.pullRequests, after.pullRequests)
   const stackPullRequests = keyedDiff(before.stackPullRequests, after.stackPullRequests)
+  const shownReviews = keyedDiff(before.shownReviews ?? {}, after.shownReviews ?? {})
   // the repository and the permission are taken with the head (`patchedPullRequests` of src/model/patch.ts)
   return {
     ...after,
@@ -177,6 +178,8 @@ function pullRequestsChange(before: PullRequestsView, after: PullRequestsView): 
     removedPullRequests: pullRequests.removed,
     stackPullRequests: stackPullRequests.changed,
     removedStackPullRequests: stackPullRequests.removed,
+    shownReviews: shownReviews.changed,
+    removedShownReviews: shownReviews.removed,
   }
 }
 

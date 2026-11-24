@@ -597,6 +597,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   };
   let (decision, profiles) = land_decision(&sources, &land).unwrap();
   assert_eq!(decision.start_route(), Some(&StartRoute::Api { profile: None }));

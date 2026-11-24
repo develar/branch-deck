@@ -2201,3 +2201,19 @@ fn the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_l
     );
   }
 }
+
+/// openspec/specs/branch/shown-reviews/spec.md, "Reviewer": a shown review of someone else, into the fork point of what
+/// landed, is offered no Safe Push (what it shows is in master already), while its Approve and Request Changes stay
+#[test]
+fn a_shown_review_is_offered_no_safe_push_and_its_review_stays() {
+  use crate::actions::{PullRequestFacts, review_actions};
+  use ActionId::{Approve, RequestChanges, SafePushPullRequest};
+  let actions = review_actions(&PullRequestFacts {
+    base: "alice/review/auth/base",
+    ..pull_request_to_review()
+  });
+  assert_eq!(
+    (reason_of(&actions, SafePushPullRequest), reason_of(&actions, Approve), reason_of(&actions, RequestChanges)),
+    (Some(ActionBlocker::Shown { number: 101 }), None, None)
+  );
+}

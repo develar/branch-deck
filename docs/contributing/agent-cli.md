@@ -205,7 +205,7 @@ branch whose commit conflicts; `stack_not_built` `brd sync`. `NextStep` is in `c
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked`, `no_identity` (git cannot form the identity of the user: set `user.name` and `user.email`) |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `lease_read_again` (the app's intents only: the session of the window could not tell the lease of its slot as it opened and reads it again; nothing was done), `locked`, `busy` (an operation of another process, the app or another `brd`, runs what the command needs: `error.holder`; nothing was done) |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `unrelated_history`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `message_format`, `baseline_parent`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `generated_merged_by_words`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `cli_tool_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `unrelated_history`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `message_format`, `baseline_parent`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `generated_merged_by_words`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `approvals_required`, `pull_request_open`, `show_needs_patronus`, `show_lands_stack`, `review_not_approved`, `no_shown_review`, `slot_busy`, `cli_tool_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -2134,6 +2134,20 @@ approvals of the code owners in that pull request, so one that asks no member of
   one with `--reviewer`. `no_reviewer` (exit 4): a missing group nobody is asked for has no code owner with a GitHub
   login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):
   GitHub asked nobody; the message names each with the reason.
+
+### A review after landing: `brd safe-push --request-review`, `brd request-review --after-landing`, `brd close-review`
+
+Show of ship/show/ask ([Shown Reviews](../../openspec/specs/branch/shown-reviews/spec.md)): `brd safe-push <branch>
+--request-review [--reviewer LOGIN]…` lands the branch and, before the robot starts, pushes `{prefix}/review/<branch>/head`
+and its fork point `/base` and opens a draft pull request between them (`shown`: `reviewers`, `groups`, `head`, `base`,
+`number`, `created`). Without `--reviewer` it asks one available member of each owner group of the changed paths, from
+the CodeOwners service with the Space token of Patronus. Once the robot merged, `brd request-review <branch>
+--after-landing` moves the head onto what landed, marks it ready and asks the reviewers its body records (`shown.state`,
+`requested`); a branch a Safe Push landed without one gets one, ready. `brd close-review <branch> [--allow-unapproved]
+[--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
+its branches. Refusals (exit 4): `approvals_required`, `pull_request_open`, `show_lands_stack`, `show_needs_patronus`,
+`no_reviewer` (the start); `no_shown_review` (no merged Safe Push yet, or no open review); `review_not_approved` (the
+close; `--allow-unapproved` only on the user's word, never a next step).
 
 ### `brd robot <branch> [--full] [--robot ID] [--whole-stack]`
 

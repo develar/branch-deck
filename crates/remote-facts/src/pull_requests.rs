@@ -6,10 +6,11 @@
 //! touches the repository, and every failure of a read is an availability, not an error.
 
 use anyhow::Result;
-use domain_types::branch_names::{BranchKind, strip_branch_namespace};
+use domain_policy::shown::shown_review;
+use domain_types::branch_names::{BranchKind, reviewed_branch, strip_branch_namespace};
 use domain_types::pull_request::{
   ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult,
-  ReviewDecision, Reviewer, ReviewerState, ViewerPermission,
+  ReviewDecision, Reviewer, ReviewerState, ShownReview, ViewerPermission,
 };
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -28,46 +29,44 @@ use tracing::{instrument, warn};
 macro_rules! pull_requests_query {
   ($team:literal, $stack:literal) => {
     concat!(
-      "query($q: String!, $owner: String!, $name: String!) {
+      "query($q: String!, $shown: String!, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { viewerPermission rebaseMergeAllowed mergeCommitAllowed squashMergeAllowed autoMergeAllowed }
-  search(query: $q, type: ISSUE, first: 50) {
-    nodes {
-      ... on PullRequest {
-        number title url state isDraft reviewDecision
-        author { login }
-        headRefName headRefOid baseRefName isCrossRepository updatedAt mergeStateStatus
-        autoMergeRequest { mergeMethod }",
+  search(query: $q, type: ISSUE, first: 50) { nodes { ...ListedPull } }
+  shown: search(query: $shown, type: ISSUE, first: 50) { nodes { ...ListedPull ... on PullRequest { body } } }
+}
+fragment ListedPull on PullRequest {
+  number title url state isDraft reviewDecision
+  author { login }
+  headRefName headRefOid baseRefName isCrossRepository updatedAt mergeStateStatus
+  autoMergeRequest { mergeMethod }",
       $stack,
       "
-        headRepositoryOwner { login }
-        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
-          __typename
-          ... on CheckRun { name status conclusion }
-          ... on StatusContext { context state }
-        } } } } } }
-        latestReviews(first: 100) { nodes { author { login } state } }
-        reviewRequests(first: 100) { nodes { requestedReviewer {
-          __typename
-          ... on User { login }
-          ... on Bot { login }
-          ... on Mannequin { login }",
+  headRepositoryOwner { login }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+    __typename
+    ... on CheckRun { name status conclusion }
+    ... on StatusContext { context state }
+  } } } } } }
+  latestReviews(first: 100) { nodes { author { login } state } }
+  reviewRequests(first: 100) { nodes { requestedReviewer {
+    __typename
+    ... on User { login }
+    ... on Bot { login }
+    ... on Mannequin { login }",
       $team,
       "
-        } } }
-        labels(first: 100) { nodes { name } }
-      }
-    }
-  }
+  } } }
+  labels(first: 100) { nodes { name } }
 }"
     )
   };
 }
 
-pub const PULL_REQUESTS_QUERY: &str = pull_requests_query!("\n          ... on Team { slug }", "\n        stack { number baseRefName size } stackEntry { position }");
+pub const PULL_REQUESTS_QUERY: &str = pull_requests_query!("\n    ... on Team { slug }", "\n  stack { number baseRefName size } stackEntry { position }");
 /// For a token without `read:org` (a token of `GH_TOKEN` or of git), which GitHub refuses a team's slug
-pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS: &str = pull_requests_query!("", "\n        stack { number baseRefName size } stackEntry { position }");
+pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS: &str = pull_requests_query!("", "\n  stack { number baseRefName size } stackEntry { position }");
 /// For a schema of GitHub without stacks, which refuses the fields of the stack (`undefinedField`)
-pub const PULL_REQUESTS_QUERY_WITHOUT_STACKS: &str = pull_requests_query!("\n          ... on Team { slug }", "");
+pub const PULL_REQUESTS_QUERY_WITHOUT_STACKS: &str = pull_requests_query!("\n    ... on Team { slug }", "");
 pub const PULL_REQUESTS_QUERY_WITHOUT_TEAMS_OR_STACKS: &str = pull_requests_query!("", "");
 
 /// The query of the listing with the teams and the stacks the token and the schema allow
@@ -93,6 +92,16 @@ pub fn pull_requests_search(repository: &GitHubRepository) -> String {
   format!("repo:{} is:pr author:@me sort:updated-desc", repository.full_name())
 }
 
+/// The search of the user's open shown reviews in `repository` (`{prefix}/review/<branch>/head`): GitHub's `head:` is a
+/// match of the start of the name, so the listing takes only the heads of exactly that form (`reviewed_branch`)
+pub fn shown_reviews_search(repository: &GitHubRepository, branch_prefix: &str) -> String {
+  format!(
+    "repo:{} is:pr is:open author:@me head:{}/review/ sort:updated-desc",
+    repository.full_name(),
+    branch_prefix.trim_end_matches('/')
+  )
+}
+
 /// The label Patronus puts on a pull request it merged: it rebases, so GitHub closes the pull request instead of
 /// marking it merged
 pub const MERGED_LABEL: &str = "merged";
@@ -111,7 +120,12 @@ pub const SIGNED_OUT_MESSAGE: &str = "No GitHub token: run gh auth login, set GH
 #[instrument(skip(github))]
 pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch_prefix: &str) -> PullRequestsResult {
   let full_name = repository.full_name();
-  let variables = serde_json::json!({"q": pull_requests_search(repository), "owner": repository.owner, "name": repository.name});
+  let variables = serde_json::json!({
+    "q": pull_requests_search(repository),
+    "shown": shown_reviews_search(repository, branch_prefix),
+    "owner": repository.owner,
+    "name": repository.name,
+  });
   let (variables, full_name_ref) = (&variables, full_name.as_str());
   let answer = github
     .ask(repository_path, &full_name, RequestKind::Listing, |client, token| async move {
@@ -140,6 +154,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         .and_then(|repository| repository.viewer_permission)
         .and_then(|permission| ViewerPermission::parse(&permission));
       let (pull_requests, stack_pull_requests) = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
+      let shown_reviews = to_shown_reviews(data.shown.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
       PullRequestsResult {
         availability: PullRequestAvailability::Available {
           owner: repository.owner.clone(),
@@ -150,6 +165,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         pull_requests,
         stack_pull_requests,
         github_stacks,
+        shown_reviews,
       }
     }
     Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
@@ -244,6 +260,9 @@ pub struct PullRequestsData {
   /// Null when the token can't see the repository
   repository: Option<GhRepository>,
   search: Option<GhSearch>,
+  /// The user's open shown reviews (`shown_reviews_search`); absent of an answer without them
+  #[serde(default)]
+  shown: Option<GhSearch>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,6 +353,9 @@ struct GhPullRequest {
   /// Null outside a stack of GitHub; absent of a query that doesn't ask it
   stack: Option<GhStack>,
   stack_entry: Option<GhStackEntry>,
+  /// Of a shown review only (the `shown` search): the record of the reviewers it asks
+  #[serde(default)]
+  body: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,6 +483,34 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
     }
   }
   (branches, stacks)
+}
+
+/// The open shown reviews among `nodes` (the `shown` search), by the virtual branch each reviews: a head of exactly
+/// `{prefix}/review/<branch>/head` in `owner`'s repository, with the reviewers the record of its body names and what it
+/// waits for (`domain_policy::shown::shown_review`); of two of one branch the newest
+fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> BTreeMap<String, ShownReview> {
+  let mut reviews: BTreeMap<String, ShownReview> = BTreeMap::new();
+  for mut gh in nodes {
+    let same_owner = gh
+      .head_repository_owner
+      .as_ref()
+      .and_then(|it| it.login.as_deref())
+      .is_some_and(|login| login.eq_ignore_ascii_case(owner));
+    let Some(branch) = reviewed_branch(&gh.head_ref_name, branch_prefix).map(str::to_owned) else {
+      continue;
+    };
+    if gh.is_cross_repository || !same_owner {
+      continue;
+    }
+    let body = gh.body.take().unwrap_or_default();
+    let Some(pull_request) = to_pull_request(gh).filter(|pull_request| pull_request.state == PullRequestState::Open) else {
+      continue;
+    };
+    if reviews.get(&branch).is_none_or(|existing| pull_request.updated_at > existing.pull_request.updated_at) {
+      reviews.insert(branch, shown_review(pull_request, &body));
+    }
+  }
+  reviews
 }
 
 const fn preference(pull_request: &PullRequest) -> (u8, u32) {

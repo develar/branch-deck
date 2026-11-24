@@ -90,6 +90,9 @@
 //!   history of finished ones, which an answer teaches (`learn`) within its limits (`prune`)
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
+//! - `shown`: the review after landing of ship/show/ask: whether a pull request is a shown review (`is_shown`), what it
+//!   waits for by the latest reviews of those it asked (`review_state`), whom it asks of the owner groups (`show_candidates`)
+//!   and when it closes (`close_refusal`)
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
 //!   effective base, the children and the descendants, the main line, the whole stack of a branch by declared parent
 //!   (`whole_stack_of`), its branches as a sentence names them and what is left of it to land (`whole_stack_rest`)
@@ -131,6 +134,7 @@ pub mod reviews;
 pub mod robot_estimate;
 pub mod robot_match;
 pub mod row_status;
+pub mod shown;
 pub mod stack;
 pub mod stack_approval;
 

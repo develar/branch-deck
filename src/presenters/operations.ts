@@ -70,6 +70,10 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return intent.landing.by === "robot"
         ? [`Closing the pull requests robot ${intent.landing.robotId} landed`, `the close of the pull requests robot ${intent.landing.robotId} landed`]
         : ["Closing the pull requests that landed", "the close of the pull requests that landed"]
+    case "openShownReview":
+      return [`Opening the review after landing of ${intent.branch}`, `the open of the review after landing of ${intent.branch}`]
+    case "closeShownReview":
+      return [`Closing the review after landing of ${intent.branch}`, `the close of the review after landing of ${intent.branch}`]
     case "submitReview":
       return [`Reviewing #${intent.number}`, `a review of #${intent.number}`]
     case "approveStack":

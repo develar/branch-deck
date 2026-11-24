@@ -41,6 +41,8 @@ pub fn environment(cwd: &Path) -> Environment {
     // nothing to answer: a test of `brd safe-push` starts its own Patronus
     patronus_url: "http://127.0.0.1:9".to_string(),
     space_token: None,
+    // nothing to answer: a test of `brd safe-push --request-review` starts its own CodeOwners
+    codeowners_url: "http://127.0.0.1:9".to_string(),
     // nothing to answer and no token: a test of a GitHub pull request starts its own GitHub
     github_api_url: "http://127.0.0.1:9".to_string(),
     github_tokens: github::token::TokenSources::default(),

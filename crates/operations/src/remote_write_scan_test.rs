@@ -55,7 +55,10 @@ const WRITES: &[Write] = &[
   },
   Write {
     call: "close_pull_request(",
-    callers: &[("crates/operations/src/close.rs", 1, OPERATIONS)],
+    callers: &[
+      ("crates/operations/src/close.rs", 1, OPERATIONS),
+      ("crates/operations/src/shown.rs", 1, "the close of a shown review (`Intent::CloseShownReview`)"),
+    ],
   },
   Write {
     call: "merge_pull_request(",
@@ -75,11 +78,44 @@ const WRITES: &[Write] = &[
   },
   Write {
     call: "request_pull_request_reviewers(",
-    callers: &[("crates/operations/src/land_execute.rs", 1, OPERATIONS)],
+    callers: &[
+      ("crates/operations/src/land_execute.rs", 1, OPERATIONS),
+      ("crates/operations/src/shown.rs", 1, "the open of a shown review (`Intent::OpenShownReview`)"),
+    ],
   },
   Write {
     call: "create_pull_request(",
-    callers: &[("crates/operations/src/land_execute.rs", 1, "the creation of a plan (`PlannedEffect::CreatePullRequest`)")],
+    callers: &[
+      (
+        "crates/operations/src/land_execute.rs",
+        2,
+        "the creation of a plan (`PlannedEffect::CreatePullRequest`), the draft of a shown review (`CreateShownReview`)",
+      ),
+      (
+        "crates/operations/src/shown.rs",
+        1,
+        "a shown review of a branch that landed without one (`CreateShownReview`)",
+      ),
+    ],
+  },
+  Write {
+    call: "mark_ready_for_review(",
+    callers: &[("crates/operations/src/shown.rs", 1, "the open of a shown review (`PlannedEffect::MarkReady`)")],
+  },
+  Write {
+    call: "push_review(",
+    callers: &[
+      (
+        "crates/operations/src/land_execute.rs",
+        1,
+        "the draft of a shown review before the start (`PlannedEffect::PushReview`)",
+      ),
+      ("crates/operations/src/shown.rs", 1, "the open of a shown review (`PlannedEffect::PushReview`)"),
+    ],
+  },
+  Write {
+    call: "delete_review(",
+    callers: &[("crates/operations/src/shown.rs", 1, "the close of a shown review (`PlannedEffect::DeleteReview`)")],
   },
   Write {
     call: "create_stack(",

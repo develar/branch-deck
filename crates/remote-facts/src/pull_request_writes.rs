@@ -265,6 +265,11 @@ const DISABLE_AUTO_MERGE_MUTATION: &str = "mutation($id: ID!) {
   disablePullRequestAutoMerge(input: {pullRequestId: $id}) { pullRequest { number } }
 }";
 
+/// The draft pull request `$id` is marked ready for review
+const MARK_READY_MUTATION: &str = "mutation($id: ID!) {
+  markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { number } }
+}";
+
 /// What GitHub did with a merge of a pull request, or with its auto-merge
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeWrite {
@@ -308,6 +313,13 @@ pub async fn merge_pull_request(
 #[instrument(skip(github))]
 pub async fn disable_auto_merge(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32) -> Result<MergeWrite, GitHubWriteError> {
   pull_request_mutation(github, repository_path, repository, number, None, DISABLE_AUTO_MERGE_MUTATION, None).await
+}
+
+/// The draft pull request `number` is marked ready for review (`markPullRequestReadyForReview`; the REST API has no write
+/// of it): one read of its node, then the mutation
+#[instrument(skip(github))]
+pub async fn mark_ready_for_review(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32) -> Result<MergeWrite, GitHubWriteError> {
+  pull_request_mutation(github, repository_path, repository, number, None, MARK_READY_MUTATION, None).await
 }
 
 /// The read of the node of pull request `number`, then `mutation` of it with `method` and `head` (when it shows `head`):

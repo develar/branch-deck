@@ -631,6 +631,7 @@ impl Given {
       create_pull_request: self.has(Flag::CreatePullRequest),
       allow: self.allowances(),
       anyway: None,
+      request_review: None,
     }
   }
 }

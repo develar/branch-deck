@@ -404,6 +404,8 @@ export function presentApprovalLanding(landing: ApprovalLanding | undefined, num
       return `Counts once it goes into ${landing.target}: Patronus counts the approvals of the pull request a Safe Push starts from`
     case "ownSafePush":
       return inStack ? `Counts for the Safe Push of #${number} alone, not of the layers above it` : null
+    case "shown":
+      return "Shown: in master already; your review gates no Safe Push, its approval closes the review"
     case undefined:
       return null
   }

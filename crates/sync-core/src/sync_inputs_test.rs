@@ -30,6 +30,10 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   let head = git(&executor, &repo, &["rev-parse", "HEAD"]);
   git(&executor, &repo, &["update-ref", "refs/branch-deck/review/7/head", &head]);
   assert_eq!(fingerprint(&executor, &repo), before);
+  // nor do the branches of a shown review a fetch brought (`BranchKind::Review`), which its pushes move
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/review/auth/head", &head]);
+  git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/review/auth/base", &head]);
+  assert_eq!(fingerprint(&executor, &repo), before);
 
   // a commit in the IDE
   repo.create_commit("(auth) Add logout", "logout.txt", "logout");

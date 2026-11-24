@@ -496,6 +496,10 @@ impl FakeGitHubRepository {
     if query.contains("search(") {
       let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
       let mut data = search_data(&state.owner, &state.viewer, pulls);
+      if query.contains("shown: search(") {
+        let shown: Vec<(PullRequest, String)> = state.pulls.iter().map(|pull| (self.resolved(&pull.pull_request, state), pull.body.clone())).collect();
+        data["shown"] = shown_search_data(&state.owner, &state.viewer, shown, variables["shown"].as_str().unwrap_or_default());
+      }
       if let Some(permission) = &state.viewer_permission {
         data["repository"]["viewerPermission"] = json!(permission);
       }
@@ -551,7 +555,7 @@ impl FakeGitHubRepository {
   /// A GraphQL mutation of a pull request by its node id (`PR_<number>`): `mergePullRequest` (refused unless GitHub can
   /// merge it: an open pull request on `expectedHeadOid` that is no draft, `DIRTY`, `BEHIND` or `BLOCKED`, whose head
   /// the `Merger` moves its base to), `enablePullRequestAutoMerge` and `disablePullRequestAutoMerge`; an error of
-  /// GitHub's words otherwise
+  /// GitHub's words otherwise; `markPullRequestReadyForReview` of a draft
   fn mutation(&self, state: &mut RepositoryState, body: &Value) -> FakeAnswer {
     let query = body["query"].as_str().unwrap_or_default();
     let variables = &body["variables"];
@@ -569,7 +573,9 @@ impl FakeGitHubRepository {
       return refused("Head branch was modified. Review and try the merge again.");
     }
     let pull = &mut state.pulls[index].pull_request;
-    if query.contains("disablePullRequestAutoMerge(") {
+    if query.contains("markPullRequestReadyForReview(") {
+      pull.is_draft = false;
+    } else if query.contains("disablePullRequestAutoMerge(") {
       pull.auto_merge = None;
     } else if query.contains("enablePullRequestAutoMerge(") {
       pull.auto_merge = method;
@@ -985,6 +991,28 @@ pub fn search_data(owner: &str, viewer: &str, mut pull_requests: Vec<PullRequest
   pull_requests.truncate(SEARCH_LIMIT);
   let nodes: Vec<Value> = pull_requests.iter().map(|pull_request| search_node(owner, pull_request)).collect();
   json!({"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}})
+}
+
+/// The `shown` search of the listing (`is:open author:@me head:<prefix>/review/`) among `pulls` with their bodies: the open
+/// ones of `viewer` whose head starts with the `head:` of `search`, as GitHub's `head:` matches the start of the name
+pub fn shown_search_data(owner: &str, viewer: &str, mut pulls: Vec<(PullRequest, String)>, search: &str) -> Value {
+  let head = search.split_whitespace().find_map(|term| term.strip_prefix("head:")).unwrap_or_default();
+  pulls.retain(|(pull_request, _)| {
+    pull_request.state == PullRequestState::Open
+      && pull_request.author.as_deref().is_some_and(|author| author.eq_ignore_ascii_case(viewer))
+      && pull_request.head_ref_name.starts_with(head)
+  });
+  pulls.sort_by_key(|(pull_request, _)| std::cmp::Reverse(pull_request.updated_at));
+  pulls.truncate(SEARCH_LIMIT);
+  let nodes: Vec<Value> = pulls
+    .iter()
+    .map(|(pull_request, body)| {
+      let mut node = search_node(owner, pull_request);
+      node["body"] = json!(body);
+      node
+    })
+    .collect();
+  json!({"nodes": nodes})
 }
 
 fn search_node(owner: &str, pull_request: &PullRequest) -> Value {

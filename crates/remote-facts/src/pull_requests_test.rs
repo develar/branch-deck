@@ -324,8 +324,38 @@ async fn lists_pull_requests_of_the_push_remote_repository() {
   assert_eq!(request.json()["query"], PULL_REQUESTS_QUERY);
   assert_eq!(
     request.json()["variables"],
-    serde_json::json!({"q": "repo:JetBrains/ultimate-push is:pr author:@me sort:updated-desc", "owner": "JetBrains", "name": "ultimate-push"})
+    serde_json::json!({
+      "q": "repo:JetBrains/ultimate-push is:pr author:@me sort:updated-desc",
+      "shown": "repo:JetBrains/ultimate-push is:pr is:open author:@me head:develar/review/ sort:updated-desc",
+      "owner": "JetBrains",
+      "name": "ultimate-push"
+    })
   );
+}
+
+/// The open shown reviews come from a search of their own in the same query: a head of exactly
+/// `{prefix}/review/<branch>/head`, with the reviewers the record of its body names; a head that only starts so, another
+/// owner's and a closed one are none
+#[test(tokio::test)]
+async fn the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_reviewers_their_body_records() {
+  let node = |number: u32, head: &str, owner: &str, state: &str, body: &str| {
+    serde_json::json!({"number": number, "title": "Add auth", "url": format!("https://github.com/JetBrains/ultimate/pull/{number}"), "state": state,
+      "isDraft": false, "headRefName": head, "headRefOid": "1111", "baseRefName": "develar/review/auth/base", "headRepositoryOwner": {"login": owner},
+      "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "author": {"login": "me"}, "body": body,
+      "latestReviews": {"nodes": [{"author": {"login": "alice"}, "state": "APPROVED"}]}})
+  };
+  let body = "Adds auth.\n\n<!-- branch-deck show reviewers: alice -->";
+  let data = serde_json::json!({"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": []}, "shown": {"nodes": [
+    node(12, "develar/review/auth/head", "JetBrains", "OPEN", body),
+    node(13, "develar/review/auth/headless", "JetBrains", "OPEN", body),
+    node(14, "develar/review/login/head", "someone", "OPEN", body),
+    node(15, "develar/review/ui/head", "JetBrains", "CLOSED", body),
+  ]}});
+  let (result, _) = list(FakeAnswer::ok(serde_json::json!({ "data": data })), &repository("JetBrains", "ultimate")).await;
+  assert_eq!(result.shown_reviews.keys().collect::<Vec<_>>(), ["auth"]);
+  let review = &result.shown_reviews["auth"];
+  assert_eq!((review.pull_request.number, review.reviewers.as_slice()), (12, &["alice".to_owned()][..]));
+  assert_eq!(review.state, domain_types::pull_request::ShownState::Approved { by: vec!["alice".to_owned()] });
 }
 
 /// A pull request of a node of the search: `head` on the remote, `state`, updated at `updated_at`

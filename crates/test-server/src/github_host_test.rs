@@ -46,6 +46,7 @@ fn available(pull_requests: BTreeMap<String, PullRequest>, stack_pull_requests: 
     pull_requests,
     stack_pull_requests,
     github_stacks: false,
+    shown_reviews: BTreeMap::new(),
   }
 }
 
@@ -226,7 +227,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(
     writes_of(&log),
     vec![
-      json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/test-branch", "base": "master"}]),
+      json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/test-branch", "base": "master", "draft": false}]),
       json!(["POST", "/repos/acme/monorepo/issues/8/assignees", {"assignees": ["user-name"]}]),
       json!(["POST", "/repos/acme/monorepo/pulls/8/requested_reviewers", {"reviewers": ["bob"]}]),
       json!(["PATCH", "/repos/acme/monorepo/pulls/7", {"base": "master"}]),

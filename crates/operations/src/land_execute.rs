@@ -46,11 +46,12 @@
 use crate::push::{Sent, send};
 use crate::registry_file::{PendingStart, RecordHandle};
 use crate::robot_start::{ApiStart, CommentStart, Commented, NoRobot, RobotWait, follow_start_comment, patronus_failure, post_start_comment, start_through_api};
+use crate::shown::shown_body;
 use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::github_stack::stack_writes;
 use domain_policy::holds::is_active;
 use domain_types::RemoteStatusUpdate;
-use domain_types::branch_names::to_final_branch_name;
+use domain_types::branch_names::{review_branch_names, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{BaselinePush as PushedCopy, Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
@@ -90,6 +91,7 @@ use sync_core::baseline_push::{BaselinePush, BaselinePushed, push_baseline};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
+use sync_core::review_head::{ReviewPush, push_review};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::Clock;
 use sync_utils::span::in_current_span;
@@ -471,6 +473,10 @@ pub struct Started {
   pub created: Option<CreatedPullRequest>,
   /// Whom its review request asked, and whom GitHub refused
   pub requested: Option<RequestedReviewers>,
+  /// The draft of the shown review a Safe Push with a review after landing opened (or found open)
+  pub shown: Option<CreatedPullRequest>,
+  /// Where its push left the branches of the shown review
+  pub review_push: Option<ReviewPush>,
 }
 
 /// Runs the start `land` as `op` on the plan its caller accepted (`fingerprint`, with `accepted` among the
@@ -827,6 +833,12 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     // a kept branch: unapplied, it lands nothing; checked out in a worktree, it stays as it is
     Reason::KeptLandsNothing { .. } => ErrorCode::Unapplied,
     Reason::KeptCheckedOut { .. } => ErrorCode::BranchCheckedOut,
+    // a review after landing (show) refused before anything is pushed
+    Reason::ShowNeedsApprovals { .. } => ErrorCode::ApprovalsRequired,
+    Reason::ShowWithPullRequest { .. } => ErrorCode::PullRequestOpen,
+    Reason::ShowNeedsPatronus => ErrorCode::ShowNeedsPatronus,
+    Reason::ShowLandsStack { .. } => ErrorCode::ShowLandsStack,
+    Reason::ReviewNotApproved { .. } => ErrorCode::ReviewNotApproved,
   }
 }
 
@@ -900,6 +912,10 @@ struct Run<'a> {
   /// Why the answer of the start is not known (`EffectStatus::Unknown`)
   lost: Option<ApiError>,
   created: Option<CreatedPullRequest>,
+  /// The draft of the shown review it opened (or found open), `CreateShownReview`
+  shown: Option<CreatedPullRequest>,
+  /// Where its push of the branches of the shown review left them, `PushReview`
+  review_push: Option<ReviewPush>,
   /// The pull requests of the layers below the subject it opened (`CreateLayerPullRequest`), in their order
   created_layers: Vec<CreatedPullRequest>,
   requested: Option<RequestedReviewers>,
@@ -930,6 +946,8 @@ impl<'a> Run<'a> {
       commented: None,
       lost: None,
       created: None,
+      shown: None,
+      review_push: None,
       created_layers: Vec::new(),
       requested: None,
       version: None,
@@ -964,6 +982,8 @@ impl<'a> Run<'a> {
           PlannedEffect::MergePullRequest { number, method, head, .. } => self.merge(*number, *method, head, false).await,
           PlannedEffect::EnableAutoMerge { number, method, head, .. } => self.merge(*number, *method, head, true).await,
           PlannedEffect::MergeStack { number, method, head, layers, .. } => self.merge_stack(*number, *method, head, layers).await,
+          PlannedEffect::PushReview { branch, tip } => self.push_review(branch, tip).await,
+          PlannedEffect::CreateShownReview { branch, reviewers, .. } => self.create_shown_review(branch, reviewers).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
           PlannedEffect::ClosePullRequest { .. }
           | PlannedEffect::DisableAutoMerge { .. }
@@ -975,7 +995,9 @@ impl<'a> Run<'a> {
           | PlannedEffect::Fetch { .. }
           | PlannedEffect::Update
           | PlannedEffect::DismissLanded
-          | PlannedEffect::FetchReview { .. } => self.fail(ApiError::internal(
+          | PlannedEffect::FetchReview { .. }
+          | PlannedEffect::MarkReady { .. }
+          | PlannedEffect::DeleteReview { .. } => self.fail(ApiError::internal(
             "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites, fetches or updates nothing",
           )),
         }
@@ -1676,6 +1698,7 @@ impl Run<'_> {
       reviewers: text.reviewers,
       assign_self: text.assign_self,
       wait_for_mirror: self.pushed.is_some(),
+      draft: false,
     };
     match create_pull_request(&github, &repository, &params).await {
       Ok(created) => {
@@ -1721,6 +1744,70 @@ impl Run<'_> {
       }
     }
     EffectStatus::Done
+  }
+
+  /// The branches of the shown review of `branch` go to `tip` and to its fork point on the target in one atomic push,
+  /// each leased on what the remote has (`sync_core::review_head::push_review`), before the start
+  async fn push_review(&mut self, branch: &str, tip: &str) -> EffectStatus {
+    if self.steps.canceled() {
+      return self.skip(canceled());
+    }
+    self.steps.step(OperationStep::Pushing);
+    let services = self.services;
+    let (git, path, remote, prefix) = (
+      services.git.clone(),
+      services.repository_path.clone(),
+      services.push.remote.clone(),
+      services.prefix.clone(),
+    );
+    let target_ref = format!("refs/remotes/{}", services.push.baseline);
+    let (branch, tip) = (branch.to_owned(), tip.to_owned());
+    let pushed =
+      blocking(move || push_review(&git, &path, &remote, &prefix, &branch, &tip, &target_ref).map_err(|error| ApiError::new(ErrorCode::PushRefused, format!("{error:#}")))).await;
+    match pushed {
+      Ok(pushed) => {
+        self.review_push = Some(pushed);
+        EffectStatus::Done
+      }
+      Err(error) => self.fail(error),
+    }
+  }
+
+  /// The draft pull request of the shown review of `branch` from its head into its base (one of its head open is
+  /// taken), its text the host's with what a shown review is and the record of `reviewers`, whom its open asks; nobody is
+  /// asked now (a draft is no review request of Your Turn)
+  async fn create_shown_review(&mut self, branch: &str, reviewers: &[String]) -> EffectStatus {
+    let text = match self.host.pull_request_text(self.pushed.as_ref()).await {
+      Ok(text) => text,
+      Err(error) => return self.fail(error),
+    };
+    let (head, base) = match review_branch_names(&self.services.prefix, branch) {
+      Ok(names) => names,
+      Err(error) => return self.fail(ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}"))),
+    };
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    let params = CreatePullRequestParams {
+      repository_path: self.services.repository_path.clone(),
+      branch_name: branch.to_owned(),
+      head,
+      base,
+      title: text.title,
+      body: shown_body(&text.body, reviewers, &self.services.target),
+      reviewers: Vec::new(),
+      assign_self: text.assign_self,
+      wait_for_mirror: true,
+      draft: true,
+    };
+    match create_pull_request(&github, &repository, &params).await {
+      Ok(created) => {
+        self.shown = Some(created);
+        EffectStatus::Done
+      }
+      Err(error) => self.fail(crate::robot_start::github_failure(error)),
+    }
   }
 
   /// GitHub has the pushed `branch` (a mirror copies it a moment after the push), asked again for a while: GitHub's form
@@ -1826,6 +1913,8 @@ impl Run<'_> {
       commented: self.commented,
       created: self.created,
       requested: self.requested,
+      shown: self.shown,
+      review_push: self.review_push,
     }
   }
 }

@@ -1,4 +1,4 @@
-import type { PullRequest } from "@/lib/bindings"
+import type { PullRequest, ShownReview } from "@/lib/bindings"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 /** An own pull request a reviewer handed back: a row of the Your Turn card */
@@ -9,12 +9,24 @@ export interface ReturnedPullRequest {
 
 /**
  * The branches of the table, in its order, whose open pull request a reviewer handed back (changes requested): the
- * rows of the Your Turn card after the review requests. Failing checks are the chip's, not repeated there.
+ * rows of the Your Turn card after the review requests. Failing checks are the chip's, not repeated there. Then the
+ * reviews after landing a reviewer it asked handed back (`ShownState.changesRequested`, Rust's), by branch: a fix lands
+ * as a new Safe Push of the branch, which may have left the table
  */
-export function collectReturnedToYou(rows: readonly BranchTableRow[], pullRequests: Readonly<Record<string, PullRequest>>): ReturnedPullRequest[] {
-  return collectAttention(rows, pullRequests, pullRequest => (pullRequest.state === "open" && pullRequest.reviewDecision === "changesRequested" ? "changes requested" : null)).map(
-    item => ({ branchName: item.branchName, pullRequest: pullRequests[item.branchName]! }),
-  )
+export function collectReturnedToYou(
+  rows: readonly BranchTableRow[],
+  pullRequests: Readonly<Record<string, PullRequest>>,
+  shownReviews: Readonly<Record<string, ShownReview>> = {},
+): ReturnedPullRequest[] {
+  const returned = collectAttention(rows, pullRequests, pullRequest =>
+    pullRequest.state === "open" && pullRequest.reviewDecision === "changesRequested" ? "changes requested" : null,
+  ).map(item => ({ branchName: item.branchName, pullRequest: pullRequests[item.branchName]! }))
+  for (const [branchName, review] of Object.entries(shownReviews)) {
+    if (review.state.kind === "changesRequested") {
+      returned.push({ branchName, pullRequest: review.pullRequest })
+    }
+  }
+  return returned
 }
 
 /** "#812 · changes requested by alice, bob": the meta of a returned pull request, the reviewers by their latest review */

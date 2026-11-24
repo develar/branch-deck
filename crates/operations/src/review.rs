@@ -177,6 +177,10 @@ pub fn safe_push_refusal(number: u32, offer: SafePushOffer) -> Option<ApiError> 
       format!("Patronus starts a Safe Push only from a pull request into {target}: #{number} goes into {base}"),
     ),
     ActionBlocker::OwnPullRequest => refusal(ErrorCode::ReviewRefused, format!("GitHub takes no review of its author: #{number} is the user's own")),
+    ActionBlocker::Shown { number } => refusal(
+      ErrorCode::PullRequestOtherBase,
+      format!("#{number} is a shown review: what it shows is in master already, and its review gates no Safe Push"),
+    ),
     // no other blocker refuses the Safe Push of a pull request to review (`review_actions`)
     other => refusal(ErrorCode::PlanChanged, format!("The Safe Push of #{number} waits: {other:?}")),
   }

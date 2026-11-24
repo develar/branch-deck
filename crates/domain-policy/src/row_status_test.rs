@@ -160,6 +160,7 @@ impl Row {
       push_pending: false,
       regenerate: &files,
       regenerate_fix: self.regenerate.then_some(&fix),
+      shown: None,
     };
     (landing_node(&facts), row_status(&facts), next_step(&step).kind)
   }
@@ -389,6 +390,7 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
       push_pending: true,
       regenerate: &[],
       regenerate_fix: None,
+      shown: None,
     });
     let expected = if robot == Robot::Running {
       RowStatus {
@@ -423,6 +425,7 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
       push_pending: false,
       regenerate: &[],
       regenerate_fix: None,
+      shown: None,
     };
     let expected = if merged {
       RowStatus {
@@ -458,6 +461,7 @@ fn a_finished_robot_of_an_earlier_state_gives_way_where_no_start_is_offered() {
       push_pending: false,
       regenerate: &[],
       regenerate_fix: None,
+      shown: None,
     })
   };
   for robot in [Robot::Failed, Robot::Canceled] {
@@ -492,6 +496,7 @@ fn cell_of(fixture: &Fixture) -> (RowStatus, NextStep) {
     push_pending: false,
     regenerate: &[],
     regenerate_fix: None,
+    shown: None,
   };
   (row_status(&facts), next_step(&step))
 }
@@ -609,4 +614,37 @@ fn a_copy_to_regenerate_is_said_in_the_cell_unless_it_landed() {
   let landed = Row { landed: Landing::Baseline, ..row };
   assert_eq!(landed.decide().1.main, Some(RowFact::Landed));
   assert!(!says(&landed.decide().1, &regenerate_fact()));
+}
+
+/// openspec/specs/branch/shown-reviews/spec.md, "Row": the review after landing of a branch is the last mark of its cell:
+/// beside the facts of its landing, the main one of a row with nothing else to say
+#[test]
+fn a_shown_review_is_marked_beside_the_landing_never_in_its_place() {
+  let review = domain_policy_shown_review();
+  let fixture = Row::plain().fixture();
+  let standing = fixture.standing();
+  let landed = row_status(&NodeFacts {
+    step: fixture.facts(&standing),
+    status: BranchStatus::Blocked,
+    blocked_by: Some("core"),
+    lands_with: None,
+    lands_failing: false,
+    push_pending: false,
+    regenerate: &[],
+    regenerate_fix: None,
+    shown: Some(&review),
+  });
+  let shown = RowFact::Shown { number: 12, state: review.state };
+  assert_eq!(landed.main, Some(RowFact::Blocked { by: Some("core".to_owned()) }));
+  assert_eq!(landed.also.last(), Some(&shown));
+}
+
+/// The shown review #12 of the branch, waiting for alice
+fn domain_policy_shown_review() -> domain_types::pull_request::ShownReview {
+  let pull_request = domain_types::pull_request::PullRequest {
+    head_ref_name: "user/review/auth/head".to_owned(),
+    base_ref_name: "user/review/auth/base".to_owned(),
+    ..domain_types::fixtures::pull_request("auth", 12)
+  };
+  crate::shown::shown_review(pull_request, &crate::shown::reviewers_record(&["alice".to_owned()]))
 }

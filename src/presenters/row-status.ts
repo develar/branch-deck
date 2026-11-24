@@ -3,7 +3,7 @@
 // facts that stay beside it as a mark whose hover names them, so a running robot never hides a block or a conflict, nor
 // they the robot. It decides nothing: a sync running lays over the cell as it passes, and a cell without a fact says
 // the push state of the branch or what its sync did.
-import type { PatronusRobot, RowFact, RowStatus } from "@/lib/bindings"
+import type { PatronusRobot, RowFact, RowStatus, ShownState } from "@/lib/bindings"
 import { landedBranchDescription } from "@/lib/landed"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedLabel } from "@/lib/parked"
@@ -12,6 +12,7 @@ import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
 import { stackProblemOf } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
 import { describeRegenerate, formatRegenerate } from "@/presenters/landing"
 import type { StepWait } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
@@ -148,6 +149,31 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
     // what it needs to land: its copy, which a push and a start take, holds a merge of words of a generated file
     case "regenerate":
       return { text: formatRegenerate(fact.files), tooltip: describeRegenerate(fact.files, fact.fix), color: "warning" }
+    // its review after landing: in master already, the review follows
+    case "shown":
+      return shownTexts(fact.number, fact.state)
+  }
+}
+
+/** "In review after landing: alice", "alice requested changes in #123", "Approved": the review after landing of a branch */
+function shownTexts(number: number, state: ShownState): StatusTexts {
+  switch (state.kind) {
+    case "draft":
+      return { text: "review after landing", tooltip: `#${number} opens for review once the Safe Push merges`, color: "neutral" }
+    case "inReview":
+      return {
+        text: "in review after landing",
+        tooltip: state.waiting.length === 0 ? `In review after landing: #${number}` : `In review after landing: ${joinNames(state.waiting)} (#${number})`,
+        color: "neutral",
+      }
+    case "changesRequested":
+      return {
+        text: "changes requested after landing",
+        tooltip: `${joinNames(state.by)} requested changes in #${number}: commit a fix of the branch, its Safe Push lands it`,
+        color: "error",
+      }
+    case "approved":
+      return { text: "approved after landing", tooltip: `Approved by ${joinNames(state.by)} (#${number})`, color: "success" }
   }
 }
 
@@ -165,5 +191,7 @@ function markColor(fact: RowFact): RowMark["color"] {
       return "warning"
     case "landed":
       return "success"
+    case "shown":
+      return fact.state.kind === "changesRequested" ? "error" : fact.state.kind === "approved" ? "success" : "warning"
   }
 }

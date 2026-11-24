@@ -27,6 +27,7 @@ fn params(reviewers: &[&str], assign_self: bool) -> CreatePullRequestParams {
     reviewers: reviewers.iter().map(|reviewer| (*reviewer).to_string()).collect(),
     assign_self,
     wait_for_mirror: false,
+    draft: false,
   }
 }
 
@@ -91,7 +92,7 @@ async fn creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except
       (
         "POST".to_string(),
         PULLS.to_string(),
-        json!({"title": "Add auth", "body": "- **Add login**", "head": "me/virtual/auth", "base": "master"})
+        json!({"title": "Add auth", "body": "- **Add login**", "head": "me/virtual/auth", "base": "master", "draft": false})
       ),
       ("POST".to_string(), ASSIGNEES.to_string(), json!({"assignees": ["me"]})),
       ("POST".to_string(), REVIEWERS.to_string(), json!({"reviewers": ["alice", "bob"]})),

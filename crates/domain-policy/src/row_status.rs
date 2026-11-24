@@ -7,6 +7,9 @@
 //! robot finished on the branch as it is. A finished robot that neither failed nor landed all of it covers nothing; the rest is the sync or the push state, which the page words as it
 //! changes (a sync running lays over the cell, as it passes).
 //!
+//! An open shown review (`shown`) is the last mark: beside the facts of its landing, the main one only of a row with
+//! nothing else to say.
+//!
 //! A wait is a state (`StepKind::is_wait`: the reviewers, a draft, changes requested, the merge of GitHub): where no own
 //! fact says more, the cell says the step, and the slot of the actions shows none ("Status says, Actions do",
 //! docs/contributing/ux-writing.md). It comes before a finished robot that covers nothing, never beside another fact.
@@ -59,6 +62,13 @@ pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
   let covers_nothing = matches!(found.as_slice(), [] | [RowFact::Robot { running: false, failed: false }]) && !merged;
   if covers_nothing && next_step(&facts.step).wait {
     found.insert(0, RowFact::Wait);
+  }
+  // its review after landing: beside what landed it, never in its place
+  if let Some(review) = facts.shown {
+    found.push(RowFact::Shown {
+      number: review.pull_request.number,
+      state: review.state.clone(),
+    });
   }
   let mut found = found.into_iter();
   let main = found.next();

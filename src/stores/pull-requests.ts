@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { BranchRules, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability } from "@/lib/bindings"
+import type { BranchRules, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability, ShownReview } from "@/lib/bindings"
 import type { BranchRulesAnswer } from "@/lib/branch-rules"
 import { isRulesUnknown, rulesAnswerOf } from "@/lib/branch-rules"
 import { commandFailure } from "@/lib/errors"
@@ -30,6 +30,8 @@ export interface RepositoryPullRequests {
    * a branch's (openspec/specs/branch/whole-stack/spec.md)
    */
   readonly stackPullRequests: Readonly<Record<string, PullRequest>>
+  /** The open reviews after landing of the user, by the virtual branch each reviews, which may have left the table */
+  readonly shownReviews: Readonly<Record<string, ShownReview>>
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
   /** The refresh button's listing runs */
@@ -45,7 +47,7 @@ export interface PullRequestsState {
 
 export const pullRequestsStore = createStore<PullRequestsState>(() => ({ repositories: {}, rules: {} }))
 
-const EMPTY: RepositoryPullRequests = { availability: null, listed: false, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false }
+const EMPTY: RepositoryPullRequests = { availability: null, listed: false, pullRequests: {}, stackPullRequests: {}, shownReviews: {}, fetchedAt: 0, isRefreshing: false }
 
 /**
  * Whether the pull requests of a repository are known: `loading` before GitHub's first answer (after a start or a
@@ -103,6 +105,12 @@ export function getPullRequest(branchName: string): PullRequest | undefined {
 export function useStackPullRequest(root: string): PullRequest | undefined {
   const key = useRepositoryKey()
   return useStore(pullRequestsStore, state => state.repositories[key]?.stackPullRequests[root])
+}
+
+/** The open reviews after landing of the selected repository, by branch; re-renders only when they change */
+export function useRepositoryShownReviews(): Readonly<Record<string, ShownReview>> {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => state.repositories[key]?.shownReviews ?? EMPTY.shownReviews)
 }
 
 /** Non-hook variant of `useStackPullRequest`, for menus built on open */
@@ -178,7 +186,7 @@ function pathOf(key: string): string {
 export function applyPullRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
   if (change === null || change.pullRequests != null) {
-    const { head, pullRequests, stackPullRequests } = facts.pullRequests
+    const { head, pullRequests, stackPullRequests, shownReviews = EMPTY.shownReviews } = facts.pullRequests
     const entry = pullRequestsStore.getState().repositories[key]
     const listed = head.state.kind === "stale" || (head.state.kind === "fresh" && head.value?.status === "available")
     if (entry === undefined && head.value === null) {
@@ -188,9 +196,10 @@ export function applyPullRequestsFacts(repositoryPath: string, facts: FactsView,
       entry.listed !== listed ||
       entry.pullRequests !== pullRequests ||
       entry.stackPullRequests !== stackPullRequests ||
+      entry.shownReviews !== shownReviews ||
       entry.fetchedAt !== head.observedAt * 1000
     ) {
-      update(key, { availability: head.value, listed, pullRequests, stackPullRequests, fetchedAt: head.observedAt * 1000 })
+      update(key, { availability: head.value, listed, pullRequests, stackPullRequests, shownReviews, fetchedAt: head.observedAt * 1000 })
     }
   }
   if ((change === null || change.rules != null) && pullRequestsStore.getState().rules[key] !== facts.rules) {

@@ -17,7 +17,14 @@ fn once_into_master(base: &str) -> ApprovalLanding {
 /// Where Patronus doesn't merge, before the target is known and for an own pull request nothing is said
 #[test]
 fn an_approval_counts_for_the_safe_push_of_its_own_pull_request_into_the_target_and_a_layer_above_once_it_goes_there() {
-  let cases: [(&str, Target<'_>, &str, bool, Option<ApprovalLanding>); 8] = [
+  let cases: [(&str, Target<'_>, &str, bool, Option<ApprovalLanding>); 9] = [
+    (
+      "a shown review, into the fork point of what landed",
+      MASTER,
+      "alice/review/auth/base",
+      false,
+      Some(ApprovalLanding::Shown),
+    ),
     ("the bottom, into master", MASTER, "master", false, Some(ApprovalLanding::OwnSafePush)),
     (
       "a layer into the one below",

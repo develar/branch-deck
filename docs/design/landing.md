@@ -1,7 +1,7 @@
 # Landing Work into Master
 
 **Status:** Implemented  
-**Updated:** 2026-10-28  
+**Updated:** 2026-11-24  
 **Tags:** [product, stacks, patronus, pull-requests]
 
 ## Problem
@@ -34,7 +34,9 @@ Two words are used for what lands, never for anything else:
   on master. A branch that builds without its parent can be unstacked, and then it lands alone.
 - **Every pull request goes into master.** The pull request of a virtual branch, stacked or not, goes into the
   baseline as the remote names it. It holds everything its Safe Push lands, its ancestors' commits too. So its
-  approvals are the ones Patronus counts, and its Safe Push starts from its comment.
+  approvals are the ones Patronus counts, and its Safe Push starts from its comment. The one exception is a review
+  after landing (show of ship/show/ask): its pull request goes into the fork point of what landed, so it can never land
+  ([Show: a review after landing](#show-a-review-after-landing)).
 - **The whole stack is one more virtual branch.** A stack that forks (side branches off its main line) also builds
   as one branch of all its commits, `{prefix}/stack/<root>`. It has its own pull request into master and lands in
   one robot. Its Safe Push is in the stack's header, and its popover opens at the header.
@@ -273,6 +275,59 @@ A retarget widens the diff of the pull request to what its Safe Push lands, so i
 may dismiss approvals. The push description says it before ("Retargets #8 to master: GitHub may dismiss its
 approvals."), the push toast and Activity name each retarget after ("Retargeted #8 to master" / "login · it went into
 auth"), and `brd` lists them as `retargeted` with `approved_by`, for the agent to tell the user.
+
+### Show: a review after landing
+
+The monorepo works by ship/show/ask: ship lands without a review (`brd safe-push`), ask is the review before landing in
+the pull request of the branch (`--create-pull-request`, `brd request-review`), and show lands first and is reviewed
+after. A shown review is a GitHub pull request of the author that can never land
+([Shown Reviews](../../openspec/specs/branch/shown-reviews/spec.md)):
+
+- **its head** `{prefix}/review/<branch>/head` is the commit the Safe Push lands, and **its base**
+  `{prefix}/review/<branch>/base` the fork point of that commit on master, never master: Patronus refuses a base no
+  protected group names (`/patronus merge` of it is refused, a draft or "no checks configured"), the workflows of the
+  monorepo run only on master, and its Merge button merges nothing that matters. The diff is the one of the branch, as
+  the review fetch takes the merge base;
+- **the record is the pull request itself**: an open pull request of the author with a head under `{prefix}/review/`.
+  Nothing is kept in the config or in a ref of Branch Deck; its body records the reviewers it asks in an HTML comment
+  that mentions nobody (`<!-- branch-deck show reviewers: alice -->`), so only they decide when it closes.
+
+Its life, one robot, no gate:
+
+1. `brd safe-push <branch> --request-review` pushes the branch, then both review branches at the commit the robot
+   takes in one atomic push with empty leases (all or nothing; the same push again is `[up to date]`), then opens the
+   draft between them (a Space origin: after the mirror copied them), then starts the robot through the API. A draft
+   asks nobody: Your Turn lists `draft:false` only. A start that failed leaves the draft, which the next start with
+   `--request-review` takes (the creation finds the open pull request of its head), and `brd close-review
+   --allow-unapproved` closes. Refused: a branch with an open pull request (ask, not show), what lands more than the
+   branch (a fix of a parent would land outside the review), a whole stack, a repository without Patronus, a change
+   Patronus requires the code owners' approval of (`approvals_required`: ask), nobody to ask.
+2. Once the robot merged (`NewsEvent::ShownReviewLanded`, `brd request-review <branch> --after-landing`), the review
+   opens: its branches move to the commit the robot landed (a restart may have taken a newer one) and its fork point,
+   each leased on what the remote has, it is marked ready for review, and the reviewers its body records are asked.
+3. The author's move: changes requested by a reviewer it asked are the "Returned to you" line of Your Turn, also of a
+   branch that left the table; the row of the branch marks the review (`RowFact::Shown`) beside its landing, never in
+   its place.
+4. Once every reviewer it asked approved, by the latest review of each (GitHub's `reviewDecision` approves after the
+   first approval and counts a bot that requests changes; a bot and someone not asked count for nothing), it closes
+   (`NewsEvent::ShownReviewApproved`, `brd close-review`) with a comment that names who approved it, and its branches
+   are deleted: the ones the remote has, each leased on what it has (a leased delete of a gone ref is
+   `[rejected] (stale info)`, which fails an atomic push whole).
+
+The reviewers, unless `--reviewer` names them: the owner groups of the changed paths by the `OWNERSHIP` files of the
+target (the groups Patronus resolves), their reviewers and members from the CodeOwners service with the Space token of
+Patronus, one of each group from its reviewers when it names any, available, not passed by the rotation, with a GitHub
+login, never the author (`domain_policy::shown::show_candidates`). The pre-check of Patronus names no group of a change
+that needs no approval, so it can't name them.
+
+A reviewer tells a shown review by its base (`domain_policy::shown::is_shown`, any prefix): its Safe Push is never
+offered (`ActionBlocker::Shown`), Approve and merge (`SubmitReview { then_land }`) is refused, and the review window says
+"Shown: in master already; your review gates no Safe Push".
+
+D5 holds for it too: the reviewers see exactly what landed, as its head is the commit the robot took, pushed before
+the review opens. The branches of the review are no input of a sync (`BranchKind::Review`), so a push of them changes
+nothing a sync reads. The fix of a review is a new commit of the branch that lands by its own Safe Push; adding it to
+the same pull request is the next step of this design.
 
 ### The stack branch
 
@@ -515,6 +570,21 @@ The whole stack is an object of its own in the app, beside its branches, named "
   - *Why not:* an amend keeps all three, so the stack branch would keep the old content and land it. The hash of the
     commit ids covers the content too.
 
+- **A commit-set review of Space after landing**, as the issue (#254) asked: the commits of the landing reviewed where
+  they are.
+  - *Why not:* the monorepo moves its reviews from Space to GitHub on 2026-12-11, Branch Deck has no client of Space,
+    and Your Turn, the review window, Approve and Since Your Review work on GitHub pull requests already.
+- **A pull request into master after landing**, or the virtual branch itself as the head.
+  - *Why not:* a pull request into master could be merged (or Safe Pushed) again; the virtual branch is rebuilt by
+    every sync and archived after the update, so the review would move under the reviewer or lose its head. The prior
+    art is the issue author's own: pull requests from `<user>/review/<KEY>-head` into `-base` by hand ("Throwaway review
+    of commits already on master; do not merge").
+- **A force push of the head**, or a marker of the review kept by Branch Deck (git config, a ref).
+  - *Why not:* a force push loses the reviews of the old commits, the head only moves forward; a store of its own is a
+    second truth beside the open pull request of the author, which every session reads already.
+- **A follow-up pull request per fix.**
+  - *Why not:* the review of one change splits into several; the fix goes into the same pull request (the next step).
+
 ## References
 
 - [Virtual Branches](virtual-branches.md)
@@ -524,3 +594,4 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - [Patronus](../../openspec/specs/branch/patronus/spec.md)
 - [Whole Stack](../../openspec/specs/branch/whole-stack/spec.md)
 - [Agent CLI](../../openspec/specs/cli/agent-cli/spec.md)
+- [Shown Reviews](../../openspec/specs/branch/shown-reviews/spec.md)

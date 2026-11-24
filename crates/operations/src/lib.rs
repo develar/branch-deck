@@ -55,6 +55,8 @@
 //! - `pull_request`: the writes of pull requests an operation makes: the retarget into the target, a step of a start and
 //!   a push, the retarget the user asks of a pull request (`Intent::Retarget`), the creation of the pull request of a
 //!   subject and a review request of its open one, each with the push it needs first
+//! - `shown`: the shown reviews of ship/show/ask after their start: the open once the robot merged and the close once
+//!   every reviewer approved, their plans and their run (`run_shown`), for the app and `brd`
 //! - `close`: the closes of pull requests: the one the user asks with its reason, and those of the pull requests a merged
 //!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
 //! - `review`: the review of a pull request of someone else and its Safe Push: the `/patronus merge` comment while
@@ -96,6 +98,7 @@ pub mod rewrite;
 pub mod robot;
 pub mod robot_start;
 pub mod run_frame;
+pub mod shown;
 pub mod update;
 pub mod witness;
 

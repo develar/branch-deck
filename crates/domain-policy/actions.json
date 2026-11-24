@@ -344,6 +344,13 @@
       }
     ],
     [
+      "safe-push-pull-request",
+      {
+        "code": "shown",
+        "number": 102
+      }
+    ],
+    [
       "cancel-robot",
       {
         "code": "busy",

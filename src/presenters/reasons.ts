@@ -178,6 +178,12 @@ const words = {
   mergeChecksRunning: ({ number }) => `Required checks of #${number} still run, and the repository allows no auto-merge`,
   mergeBlocked: ({ number }) => `The rules of its base hold the merge of #${number} back`,
   mergeHeadBehind: ({ number }) => `#${number} shows an older commit, and the repository allows no auto-merge: Push Branch first`,
+  showNeedsApprovals: ({ groups }) => `The code owners of ${joinNames(groups)} must approve it before it lands: ask for the review in a pull request`,
+  showWithPullRequest: ({ number }) => `Its review is in pull request #${number}, before it lands`,
+  showNeedsPatronus: () => "A review after landing opens with a Safe Push of Patronus: the repository lands without one",
+  showLandsStack: ({ lands }) => `The Safe Push lands ${joinNames(lands)}: a review after landing reviews one branch`,
+  reviewNotApproved: ({ number, waiting }) =>
+    waiting.length === 0 ? `The review after landing #${number} asked nobody yet` : `${joinNames(waiting)} has not approved the review after landing #${number}`,
 } satisfies Words as Words
 
 /**

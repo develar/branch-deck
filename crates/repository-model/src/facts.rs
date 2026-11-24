@@ -80,6 +80,7 @@ use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_estimate::{learn, prune};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
+use domain_policy::shown::shown_news;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
@@ -460,6 +461,8 @@ pub struct FactStore {
   /// The merged robots whose news waits for the Patronus view of the robots they merged in: what they landed and
   /// which pull requests that closes
   merges: BTreeSet<String>,
+  /// The news of the shown reviews told, by the number of the review and whether it told its approval (`tell_shown`)
+  told_shown: BTreeSet<(u32, bool)>,
 }
 
 impl FactStore {
@@ -485,6 +488,7 @@ impl FactStore {
       told_remote_tips: HashMap::new(),
       failures: BTreeSet::new(),
       merges: BTreeSet::new(),
+      told_shown: BTreeSet::new(),
     }
   }
 
@@ -591,6 +595,9 @@ impl FactStore {
         let mut finished = Vec::new();
         let changed = self.robots.answer(observation, read, result, &mut finished);
         self.finished(finished);
+        if changed {
+          self.tell_shown();
+        }
         changed
       }
       FactResult::Failing(result) => self.robots.failing_answer(result),
@@ -608,6 +615,9 @@ impl FactStore {
         // an answer older than the last one changes nothing, and tells nothing
         for news in merged.into_iter().filter(|_| changed) {
           self.tell(news);
+        }
+        if changed {
+          self.tell_shown();
         }
         changed
       }
@@ -823,6 +833,22 @@ impl FactStore {
       count: status.others_behind,
       authors: fetched.others.clone(),
     });
+  }
+
+  /// The news of the shown reviews the listing and the robots tell now (`domain_policy::shown::shown_news`), each once:
+  /// a draft whose branch landed opens, an approved one closes
+  fn tell_shown(&mut self) {
+    let news = shown_news(&self.pull_requests.view().shown_reviews, &self.robots.view().robots.values());
+    for event in news {
+      let key = match &event {
+        NewsEvent::ShownReviewLanded { number, .. } => (*number, false),
+        NewsEvent::ShownReviewApproved { number, .. } => (*number, true),
+        _ => continue,
+      };
+      if self.told_shown.insert(key) {
+        self.tell(event);
+      }
+    }
   }
 
   fn tell(&mut self, event: NewsEvent) {

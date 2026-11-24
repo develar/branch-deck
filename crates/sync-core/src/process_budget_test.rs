@@ -1485,3 +1485,21 @@ fn the_read_ahead_of_the_waiting_requests_is_one_fetch_and_one_rev_parse() {
   local_review_pairs(&git, path, &fixture.params()).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("rev-parse", 1)]);
 }
+
+/// The push of the branches of a shown review: one `ls-remote` of what the remote has, one `merge-base` of the fork
+/// point, one atomic push of both; the delete of them one `ls-remote` and one push
+#[test]
+fn a_push_and_a_delete_of_a_shown_review() {
+  use crate::review_head::{delete_review, push_review};
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test\n");
+  test_utils::git_test_utils::push_to_bare_origin(&repo);
+  repo.git(&["fetch", "-q", "origin"]);
+  let tip = repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  let git = counting();
+  push_review(&git, repo.path_str(), "origin", "test", "auth", &tip, "refs/remotes/origin/master").unwrap();
+  assert_processes(&git, &[("ls-remote", 1), ("merge-base", 1), ("push", 1)]);
+  let git = counting();
+  delete_review(&git, repo.path_str(), "origin", "test", "auth").unwrap();
+  assert_processes(&git, &[("ls-remote", 1), ("push", 1)]);
+}

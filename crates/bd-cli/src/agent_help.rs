@@ -103,19 +103,19 @@ Workflow: the commits into pull requests
 3. Apply. `brd group --expect-head <head of brd suggest> --sync --plan plan.json`: one message-only rewrite, then a sync.
    `brd rename <old> <new>`, `brd restack <branch> <parent>` and `brd unstack <branch>` take the same options;
    `brd stack-together <branch> <branch>...` stacks oldest-first.
-   `brd describe <branch> --title ... --body ...` sets the pull request text of one branch. `brd group --help`: its
-   refusals and its undo.
+   `brd describe <branch> --title ... --body ...` sets the pull request text of a branch. `brd group --help`: its
+   refusals, its undo.
 4. Push the branches, never into master (`brd land`). Show the result to the user; once approved,
    `brd push <branch>...`, and name every branch of `branches`. Each has a ready `gh pr create` into the baseline; pipe
    its `body` into it. `brd push --help`: the refusals and the stack branches.
 5. Safe Push (Patronus). First, always, `brd safe-push <branch> --dry-run`; show the user `lands` (a stacked branch lands
    what it is built on, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
-   `brd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `brd safe-push --help`: the fields of --dry-run and every
+   `brd safe-push <b>` (`--patronus-dry-run`: a Dry Run). `brd safe-push --help`: the fields of --dry-run, every
    refusal. Any route: `brd land --help`.
-6. Review. `brd request-review <branch> --dry-run` names whom it would ask; once approved, run it without
-   (`brd request-review --help`).
-7. Robot. `brd robot <branch>` (`--full` after a failure says why and what to fix; `brd robot --help`).
-8. Statistics: `brd robot-stats --help`.
+6. Review. `brd request-review <b> --dry-run` names whom; once approved, run it without
+   (`brd request-review --help`). After landing: `brd close-review --help`.
+7. Robot. `brd robot <branch>` (`--full` after a failure: why and what to fix; `brd robot --help`).
+8. Stats: `brd robot-stats --help`.
 
 Other tasks
 - Before the first edit of a session: `brd workspace` says where to work, how to write a subject and whether the
@@ -633,7 +633,15 @@ target and without the review, but it pushes and starts a robot like a Safe Push
 branches included, lands in one robot with --whole-stack (from any branch of it; --dry-run first): the robot starts
 from the stack branch of its top-level root (`whole_stack.source`; a straight chain starts from its last branch),
 `lands` names every branch, and its pull request is the stack's own, where the approvals of the whole stack count.
-Refusals, nothing pushed or started:
+--request-review (show of ship/show/ask) lands the branch now and asks for its review after landing: before the
+start it pushes `{prefix}/review/<branch>/head` and its fork point `/base` and opens a draft pull request between them
+(`shown`: `reviewers`, `head`, `base`, `number`); the reviewers: --reviewer, else one available member of each owner
+group of the changed paths (`shown.groups`). Its refusals: `approvals_required` (Patronus requires the code owners'
+approval first: ask with --create-pull-request), `pull_request_open` (the branch has a pull request: ask there),
+`show_lands_stack` (it would land the branches it is built on too), `show_needs_patronus`, `no_reviewer` (ask the
+user whom, then --reviewer). Once the robot merged, `brd request-review <branch> --after-landing` (or the app) marks
+it ready and asks the reviewers; `brd close-review <branch>` closes it once all of them approved.
+Refusals of `brd safe-push`, nothing pushed or started:
 - `approvals_missing` (exit 4): `error.review` names who has to approve which files: show it. --create-pull-request
   pushes and opens the pull request where they approve, assigned to the user (--no-assign leaves it unassigned;
   --reviewer <login>, repeatable, asks a `github_login` of `review.groups[].reviewers` that the user chose;
@@ -796,6 +804,21 @@ instead): `requested`, `refused` with GitHub's reason, `waiting_for`. `needs_pus
 its remote lacks, which the reviewers would not see; once the user approves the push, --push pushes them first
 (`pushed`). `no_pull_request`: none is open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the
 user whom; `review_refused`: GitHub asked nobody.
+--after-landing: the review after landing (show) of a branch a Safe Push landed: its draft shown review (of
+`brd safe-push --request-review`) gets its head on what the robot landed, is marked ready and asks the reviewers its
+body records (`shown`: `state`, `head`, `base`, `landed`); one open already asks again those who have not approved;
+a branch that landed without one gets it now (`shown.created`). `no_shown_review` (exit 4): no merged Safe Push
+landed it yet.
+";
+
+/// `brd close-review --help`: the close of a shown review
+pub const CLOSE_REVIEW_HELP: &str = "\
+It closes the shown review of a branch (a review after landing, which a Safe Push opened) with a comment that
+names who approved it, and deletes its branches `{prefix}/review/<branch>/head` and `/base`. The app
+closes one by itself once every reviewer it asked approved. `brd close-review <branch>` prints `number`, `url`,
+`state`, `approved_by`, `comment`, `closed`; --dry-run closes nothing. Refusals, nothing closed:
+`review_not_approved` (exit 4): a reviewer it asked has not approved (the message names who); --allow-unapproved
+closes it anyway, only when the user says so. `no_shown_review` (exit 4): the branch has no open shown review.
 ";
 
 /// `brd robot --help`: the robot of a branch and why it failed

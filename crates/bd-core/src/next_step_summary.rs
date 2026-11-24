@@ -5,6 +5,7 @@
 
 use domain_types::next_step::{NextStep, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingReviewGroup, PatronusRobot, Person};
+use domain_types::pull_request::ShownState;
 use domain_types::session::BranchStatus;
 use repository_model::refusal_words::start_refusal_text;
 use schemars::JsonSchema;
@@ -37,8 +38,10 @@ pub struct NextStepSummary {
   /// What happens to a branch, as the first column of its Status cell in the app says it, the main fact first, the
   /// ones it covers after it (`domain_policy::row_status`): `robot_running`, `robot_finished`, `robot_failed`,
   /// `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`, `blocked`, `waits` (the step is a state it
-  /// waits in: the reviewers, a draft, changes requested). A running robot comes first, a block or a conflict stays
-  /// beside it; empty when nothing but its sync or push state is to say, and of a whole stack
+  /// waits in: the reviewers, a draft, changes requested), and last its shown review (`shown_draft` until its Safe Push
+  /// merged, `shown_in_review`, `shown_changes_requested`: commit a fix as `(branch) …`, `shown_approved`). A running
+  /// robot comes first, a block or a conflict stays beside it; empty when nothing but its sync or push state is to say,
+  /// and of a whole stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub status: Vec<String>,
 }
@@ -86,6 +89,19 @@ const fn row_fact_name(fact: &RowFact) -> &'static str {
     RowFact::Blocked { .. } => "blocked",
     RowFact::Wait => "waits",
     RowFact::Regenerate { .. } => "regenerate",
+    RowFact::Shown { state: ShownState::Draft, .. } => "shown_draft",
+    RowFact::Shown {
+      state: ShownState::InReview { .. },
+      ..
+    } => "shown_in_review",
+    RowFact::Shown {
+      state: ShownState::ChangesRequested { .. },
+      ..
+    } => "shown_changes_requested",
+    RowFact::Shown {
+      state: ShownState::Approved { .. },
+      ..
+    } => "shown_approved",
   }
 }
 

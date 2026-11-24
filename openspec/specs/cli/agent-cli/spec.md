@@ -6032,6 +6032,18 @@ each with the reason.
 - **THEN** it is `review_refused`, naming each reviewer with the reason
   [@test] crates/bd-remote/src/request_review_test.rs (`asks_the_logins_it_is_given_and_names_whom_github_refuses`)
 
+### Requirement: `brd close-review`: It closes the shown review of a branch once it is approved
+
+`brd close-review <branch>` MUST close the shown review of a branch and delete its branches once every reviewer it
+asked approved, printing its number, state, who approved it and the comment; it MUST refuse one not approved
+(`review_not_approved`, the reviewers who wait named) unless `--allow-unapproved`, which is never a next step, and one
+the branch lacks (`no_shown_review`); `--dry-run` closes nothing.
+
+#### Scenario: A close before and after the approvals
+- **WHEN** `brd close-review auth` runs while alice waits, then after she approved
+- **THEN** the first is `review_not_approved` with no next step, the second closes it and deletes both branches
+  [@test] crates/bd-remote/src/shown_review_test.rs (`the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_it_closes_once_they_approved`)
+
 ### Requirement: `brd robot`: It prints the robot of the virtual branch as `brd safe-push` finds it
 
 `brd robot <branch>` MUST print the robot of the virtual branch as `brd safe-push` finds it (a running one first, else
@@ -6763,3 +6775,4 @@ Together with `brd help agent` and `brd help update` it MUST name only commands 
 - **WHEN** the helps are compared with the commands and options of the CLI
 - **THEN** `brd help worktrees` names none that doesn't exist
   [@test] crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+

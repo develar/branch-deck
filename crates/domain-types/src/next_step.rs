@@ -673,6 +673,9 @@ pub enum RowFact {
   /// The copy it pushes and lands holds generated files the words merged in a conflict of its sync, not written by their
   /// generator (`domain_policy::regenerate`), each with the commit the copy lacks; `fix` gives the copy that commit
   Regenerate { files: Vec<RegenerateFile>, fix: Option<LandingFix> },
+  /// Its shown review `number` (docs/design/landing.md, "Show: a review after landing"): it landed, and the review after
+  /// it waits (`state`); beside the facts of its landing, never in their place
+  Shown { number: u32, state: crate::pull_request::ShownState },
 }
 
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)

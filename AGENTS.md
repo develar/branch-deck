@@ -208,7 +208,7 @@ Hard rules of the git the app and `brd` run. Each rule in full, with its excepti
 - **Ref moves**: one `RefTransaction` with old-value CAS and a `branch-deck: <op>` reflog message; the named exceptions
   are the notes `fast-import` writes, the temporary refs of `commit_chain.rs` and of `fetch_remote_branches`, and the
   refs of the review fetch.
-- **Who writes the refs of Branch Deck**: every ref of `refs/branch-deck/`, `{prefix}/unapplied/` and `{prefix}/stack/`
+- **Who writes the refs of Branch Deck**: every ref of `refs/branch-deck/`, `{prefix}/unapplied/`, `stack/`, remote `review/`
   has its named writers, with CAS; a sync mostly only reads them.
 - **Repository lock** (`$GIT_COMMON_DIR/branch-deck.lock`, `repository_lock.rs`): a rewrite of the checked-out branch,
   a push, Update Project, `brd pick`, unapply, reapply and drop read and compute before it and hold it only for the witness of

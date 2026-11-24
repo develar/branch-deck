@@ -138,7 +138,8 @@ publisher: choose More info → Run anyway.
 - **Push and pull requests**: each row says its next step on the way into master, such as the review it waits for,
   and never offers a push that is known to fail; a commit a colleague pushed to your pull request shows up before you
   push over it ([next step](openspec/specs/branch/next-step/spec.md), [pull requests](openspec/specs/branch/pull-requests/spec.md),
-  [outgoing](openspec/specs/repository/outgoing/spec.md#remote-commits-of-others)). Park a branch you keep only locally,
+  [outgoing](openspec/specs/repository/outgoing/spec.md#remote-commits-of-others)); a branch can land first and be reviewed after
+  ([shown reviews](openspec/specs/branch/shown-reviews/spec.md)). Park a branch you keep only locally,
   and declare with `brd need` an order of landing no build sees ([parked](openspec/specs/branch/parked-branches/spec.md),
   [declared needs](openspec/specs/branch/declared-needs/spec.md)).
 - **Staying up to date**: Update Project fetches the baseline and rebases your commits, and says beforehand whether

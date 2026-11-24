@@ -1,0 +1,29 @@
+[package]
+name = "codeowners"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = { workspace = true, optional = true }
+domain-types = { path = "../domain-types" }
+test-utils = { path = "../test-utils", features = ["http"], optional = true }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tracing.workspace = true
+
+[features]
+# the in-process CodeOwners service of the tests (`fake_codeowners`), for the tests of other crates
+fake = ["dep:axum", "dep:test-utils"]
+
+[dev-dependencies]
+axum.workspace = true
+pretty_assertions.workspace = true
+# `fake_codeowners` serves through `test_utils::fake_server` under `cfg(test)` too, without the workspace's feature unification
+test-utils = { path = "../test-utils", features = ["http"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

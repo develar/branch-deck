@@ -206,6 +206,26 @@
     "number": 7
   },
   {
+    "code": "showNeedsApprovals",
+    "groups": ["Air Plugin Release Team"]
+  },
+  {
+    "code": "showWithPullRequest",
+    "number": 7
+  },
+  {
+    "code": "showNeedsPatronus"
+  },
+  {
+    "code": "showLandsStack",
+    "lands": ["auth", "login"]
+  },
+  {
+    "code": "reviewNotApproved",
+    "number": 12,
+    "waiting": ["alice"]
+  },
+  {
     "code": "otherBase",
     "number": 7,
     "base": "release/253",

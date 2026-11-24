@@ -739,8 +739,9 @@ pub struct PullRequestFacts<'a> {
 /// Changes, Open Pull Request, then Show Branch of an own one of the table and Remove from Reviews of a linked one. GitHub
 /// takes no review of the author. A pull request into another base (a layer of a stack) is offered no Safe Push: Patronus
 /// refuses a base no protected group names before the start; its Approve stays and counts once it goes into the target
-/// (`approval_landing`). A merged or closed one is read only: its decisions and its Safe Push are disabled for it. The
-/// window's own state (the commit it shows, a write that runs) lies over them in the page
+/// (`approval_landing`). A merged or closed one is read only: its decisions and its Safe Push are disabled for it. A shown
+/// review (`shown::is_shown`) is offered no Safe Push either: what it shows is in master already. The window's own state
+/// (the commit it shows, a write that runs) lies over them in the page
 #[must_use]
 pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
   let closed = match facts.state {
@@ -765,6 +766,8 @@ pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
     Target::Pending => Some(Some(ActionBlocker::Pending { fact: StepFact::Patronus })),
     Target::Unread => Some(Some(ActionBlocker::TargetUnread)),
     Target::None => Some(Some(ActionBlocker::NoTarget)),
+    // a shown review goes into the fork point of what landed: in master already, its review gates nothing
+    Target::Branch(_) if crate::shown::is_shown(facts.base) => Some(Some(ActionBlocker::Shown { number: facts.number })),
     Target::Branch(target) if target != facts.base => Some(Some(ActionBlocker::OtherBase {
       number: facts.number,
       base: facts.base.to_owned(),

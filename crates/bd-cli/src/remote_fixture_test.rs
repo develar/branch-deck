@@ -44,7 +44,12 @@ impl Space {
 
   /// A `Space` whose repository has `commits` on its baseline, in its first history (`repo_on_baseline`)
   pub fn with_history(commits: &[HistoryCommit]) -> Self {
-    let (repo, remote) = repo_with_remote_at(commits, |_| SPACE_URL.to_string());
+    Self::with_baseline(&[("README.md", "readme\n")], commits)
+  }
+
+  /// A `Space` whose baseline has `files` (an `OWNERSHIP` file, say) and `commits` on it
+  pub fn with_baseline(files: &[(&str, &str)], commits: &[HistoryCommit]) -> Self {
+    let (repo, remote) = repo_with_remote_at(files, commits, |_| SPACE_URL.to_string());
     let home = tempfile::tempdir().unwrap();
     // git runs `<ssh> [options] git@git.jetbrains.team "git-receive-pack '/ij/ultimate.git'"`: serve the bare repository
     let ssh = fake_executable(
@@ -271,14 +276,14 @@ pub fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
 
 /// A repository whose `origin` is a local bare repository, with the commits of `subjects`
 pub fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
-  repo_with_remote_at(&subject_commits(subjects), |remote| remote.to_str().unwrap().to_string())
+  repo_with_remote_at(&[("README.md", "readme\n")], &subject_commits(subjects), |remote| remote.to_str().unwrap().to_string())
 }
 
-/// A repository with `commits` on its baseline (`repo_on_baseline`), whose `origin` is at the URL `url` gives for the
-/// path of a new bare repository: one history and one `git init --bare`
-fn repo_with_remote_at(commits: &[HistoryCommit], url: impl FnOnce(&std::path::Path) -> String) -> (TestRepo, TempDir) {
+/// A repository whose baseline has `files`, with `commits` on it (`repo_on_baseline`), whose `origin` is at the URL `url`
+/// gives for the path of a new bare repository: one history and one `git init --bare`
+fn repo_with_remote_at(files: &[(&str, &str)], commits: &[HistoryCommit], url: impl FnOnce(&std::path::Path) -> String) -> (TestRepo, TempDir) {
   let remote = tempfile::tempdir().unwrap();
-  let (repo, _) = repo_on_baseline(&[("README.md", "readme\n")], commits, &url(remote.path()));
+  let (repo, _) = repo_on_baseline(files, commits, &url(remote.path()));
   // no template: its sample hooks are 14 files of no use to a test (`receive_hook` makes the directory)
   git(&repo, &["init", "--bare", "-q", "--template=", remote.path().to_str().unwrap()]);
   disable_background_maintenance(remote.path());

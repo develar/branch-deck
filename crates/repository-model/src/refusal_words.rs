@@ -112,6 +112,20 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     }
     Reason::KeptLandsNothing { branch } => format!("{branch} is unapplied: it lands nothing until it is reapplied"),
     Reason::KeptCheckedOut { branch } => format!("a worktree has {branch} checked out"),
+    Reason::ShowNeedsApprovals { groups } => format!(
+      "the code owners must approve {subject} before it lands (needs review by {}): a review after landing can't take their place; ask for it with --create-pull-request",
+      join_names(groups)
+    ),
+    Reason::ShowWithPullRequest { number } => {
+      format!("{subject} has the open pull request #{number}, where its review goes before landing: a review after landing is for a branch without one")
+    }
+    Reason::ShowNeedsPatronus => "a review after landing opens with a Safe Push of Patronus, and the repository lands without one".to_string(),
+    Reason::ShowLandsStack { lands } => format!(
+      "the Safe Push of {subject} lands {}: a review after landing reviews one branch; land the branches it is built on first",
+      join_names(lands)
+    ),
+    Reason::ReviewNotApproved { number, waiting } if waiting.is_empty() => format!("the shown review #{number} of {subject} asked nobody yet"),
+    Reason::ReviewNotApproved { number, waiting } => format!("{} has not approved the shown review #{number} of {subject}", join_names(waiting)),
   }
 }
 

@@ -10,8 +10,8 @@ pub mod schema;
 pub mod unattended;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP,
-  REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UNATTENDED_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  AGENT_HELP, CHECK_HELP, CLOSE_REVIEW_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY,
+  REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UNATTENDED_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::flag_names::{renamed_in, unknown_argument};
 use crate::install::{InstallArgs, install};
@@ -37,6 +37,7 @@ use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
 use bd_remote::robot_stats_command::{RobotStatsArgs, robot_stats};
 use bd_remote::safe_push_command::{SafePushArgs, safe_push};
+use bd_remote::shown_command::{CloseReviewArgs, close_review};
 use bd_remote::status::{StatusArgs, status, status_brief};
 use bd_rewrite::check_command::{CheckArgs, check};
 use bd_rewrite::commits::{CommitsArgs, commits, commits_brief};
@@ -210,6 +211,11 @@ enum Command {
   /// The code owners Patronus suggests for the groups whose approval is missing, or --reviewer <login>
   #[command(after_help = "Outputs and refusals: `brd request-review --help`", after_long_help = REQUEST_REVIEW_HELP)]
   RequestReview(RequestReviewArgs),
+  /// Close the shown review of a branch (a review after landing) and delete its branches; --dry-run closes nothing
+  ///
+  /// Refused unless every reviewer it asked approved (`review_not_approved`); --allow-unapproved only on the user's word
+  #[command(after_help = "Outputs and refusals: `brd close-review --help`", after_long_help = CLOSE_REVIEW_HELP)]
+  CloseReview(CloseReviewArgs),
   /// The Patronus robot of a branch and why it failed. Read only
   ///
   /// The newest one or --robot <id>; when it failed or fails, why (--full: the failed builds, tests and log tails) and
@@ -732,6 +738,9 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Land(args) => context().and_then(|context| land(&context, args, environment)).and_then(|output| printed(out, &output)),
     Command::RequestReview(args) => context()
       .and_then(|context| request_review(&context, args, environment))
+      .and_then(|output| printed(out, &output)),
+    Command::CloseReview(args) => context()
+      .and_then(|context| close_review(&context, args, environment))
       .and_then(|output| printed(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| printed(out, &output)),
     Command::Operation(OperationArgs {

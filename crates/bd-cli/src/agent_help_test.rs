@@ -224,7 +224,11 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::PushDismissesApprovals
     | ErrorCode::PullRequestOtherBase
     | ErrorCode::ReviewUnknown
-    | ErrorCode::NotLoggedIn => &["safe-push"],
+    | ErrorCode::NotLoggedIn
+    | ErrorCode::ApprovalsRequired
+    | ErrorCode::PullRequestOpen
+    | ErrorCode::ShowNeedsPatronus
+    | ErrorCode::ShowLandsStack => &["safe-push"],
     ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown => &["help agent", "safe-push"],
     ErrorCode::LostBinding => &["help agent", "safe-push", "help update"],
     ErrorCode::NoWriteAccess
@@ -286,6 +290,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::LandedNotEmpty
     | ErrorCode::FinishPending => &["help update"],
     ErrorCode::NoPullRequest | ErrorCode::NoReviewer | ErrorCode::NeedsPush | ErrorCode::ReviewRefused => &["request-review"],
+    ErrorCode::ReviewNotApproved => &["close-review"],
+    ErrorCode::NoShownReview => &["close-review", "request-review"],
     ErrorCode::UnlandedNeed => &["need"],
   }
 }

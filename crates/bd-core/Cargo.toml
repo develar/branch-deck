@@ -14,6 +14,7 @@ git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
+codeowners = { path = "../codeowners" }
 github = { path = "../github" }
 sync-core = { path = "../sync-core" }
 trial-check = { path = "../trial-check" }

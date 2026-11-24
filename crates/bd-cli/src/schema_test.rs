@@ -15,6 +15,7 @@ fn schema_lists_every_output() {
     outputs.keys().map(String::as_str).collect::<Vec<_>>(),
     [
       "check",
+      "close_review",
       "commits",
       "commits_brief",
       "companion",

@@ -218,12 +218,20 @@ pub(crate) fn read_baseline_listing(
 
   let current_ref = branch.map(|branch| format!("refs/heads/{branch}"));
   // without a prefix no branch of it is listed: an empty prefix matches no ref
-  let (local_prefix, remote_prefix) = branch_prefix.map_or_default(|prefix| {
+  let (local_prefix, remote_prefix, review_prefix) = branch_prefix.map_or_default(|prefix| {
     let prefix = prefix.trim_end_matches('/');
-    (format!("refs/heads/{prefix}/"), format!("refs/remotes/origin/{prefix}/"))
+    (
+      format!("refs/heads/{prefix}/"),
+      format!("refs/remotes/origin/{prefix}/"),
+      // the branches of the shown reviews are no branch of a sync (`BranchKind::Review`)
+      format!("--exclude=refs/remotes/origin/{prefix}/review/"),
+    )
   });
   let format = format!("--format={FORMAT_PREFIX}{LISTED_BRANCH_ATOMS}");
   let mut args = vec!["for-each-ref", format.as_str()];
+  if branch_prefix.is_some() {
+    args.push(review_prefix.as_str());
+  }
   args.extend(current_ref.as_deref());
   if branch_prefix.is_some() {
     args.extend([local_prefix.as_str(), remote_prefix.as_str()]);

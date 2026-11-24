@@ -8,6 +8,7 @@ import { tellLandedNews } from "@/lib/landed-closes"
 import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { tellRemoteCommitsNews } from "@/lib/remote-commits-news"
+import { tellShownNews } from "@/lib/shown-news"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
@@ -41,7 +42,7 @@ function isAwaiting(): boolean {
  * approvals that arrived are news of the session (`tellReadinessNews`), and so are the commits of others the session
  * fetched when a pull request showed a head the remote branch lacked (`tellRemoteCommitsNews`), and the landings without
  * a robot whose pull requests close (`tellLandedNews`), and the pull requests GitHub merged by their auto-merge
- * (`tellAutoMergedNews`).
+ * (`tellAutoMergedNews`), and the reviews after landing that open or close (`tellShownNews`).
  */
 export function useReviewStatusRefresh(): void {
   // the stores first: the news below read what they applied
@@ -55,6 +56,7 @@ export function useReviewStatusRefresh(): void {
         tellRemoteCommitsNews(repositoryPath, news)
         tellLandedNews(repositoryPath, news)
         tellAutoMergedNews(repositoryPath, news)
+        tellShownNews(repositoryPath, news)
       }),
     [],
   )

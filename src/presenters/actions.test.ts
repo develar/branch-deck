@@ -68,6 +68,7 @@ describe("the actions Rust offers", () => {
       "Reading the branch Patronus pushes into…",
       "Patronus pushes into a branch of origin: the baseline is none",
       "Patronus starts a Safe Push only from a pull request into master: #101 goes into release/253",
+      "#102 is a review after landing: its change is in master already, so there is nothing to Safe Push",
       "Restarting robot r1…",
     ])
   })

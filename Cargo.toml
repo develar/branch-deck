@@ -38,6 +38,7 @@ members = [
   "crates/generated-files",
   "crates/object-cache",
   "crates/patronus",
+  "crates/codeowners",
   "crates/github",
   "crates/youtrack",
   "crates/text-diff",

@@ -13,6 +13,7 @@ fn an_intent_serializes_as_its_kind_with_the_fields_of_its_family() {
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   });
   let value = serde_json::to_value(&land).unwrap();
   assert_eq!(value["kind"], json!("land"));

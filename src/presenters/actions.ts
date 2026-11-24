@@ -255,6 +255,7 @@ const BLOCKERS = {
   targetUnread: () => "Reading the branch Patronus pushes into…",
   noTarget: () => "Patronus pushes into a branch of origin: the baseline is none",
   otherBase: ({ number, base, target }) => `Patronus starts a Safe Push only from a pull request into ${target}: #${number} goes into ${base}`,
+  shown: ({ number }) => `#${number} is a review after landing: its change is in master already, so there is nothing to Safe Push`,
   busy: ({ op }, _id, words) => `${operationLabel(op, words)}…`,
 } satisfies BlockerFormatters as BlockerFormatters
 

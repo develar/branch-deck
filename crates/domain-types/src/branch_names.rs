@@ -16,6 +16,9 @@ pub enum BranchKind {
   Archived,
   /// `{prefix}/stack/{root}`: the whole stack of `root` as one branch, which a sync builds for a stack that forks
   Stack,
+  /// `{prefix}/review/{name}/head` and `{prefix}/review/{name}/base`: the remote branches of the shown review of the
+  /// virtual branch `name`, never local, never an input of a sync (docs/design/landing.md, "Show: a review after landing")
+  Review,
 }
 
 impl BranchKind {
@@ -25,6 +28,7 @@ impl BranchKind {
       Self::Unapplied => "unapplied",
       Self::Archived => "archived",
       Self::Stack => "stack",
+      Self::Review => "review",
     }
   }
 }
@@ -64,6 +68,27 @@ pub fn to_stack_branch_name(branch_prefix: &str, root: &str) -> anyhow::Result<S
   qualified_branch_name(branch_prefix, BranchKind::Stack, root)
 }
 
+/// The remote branches of the shown review of the virtual branch `branch`: `({prefix}/review/<branch>/head,
+/// {prefix}/review/<branch>/base)`
+pub fn review_branch_names(branch_prefix: &str, branch: &str) -> anyhow::Result<(String, String)> {
+  let namespace = qualified_branch_name(branch_prefix, BranchKind::Review, branch)?;
+  Ok((format!("{namespace}/head"), format!("{namespace}/base")))
+}
+
+/// The virtual branch a shown review reviews, by the full name of its head (`{prefix}/review/<branch>/head`, exactly);
+/// `None` for any other branch
+pub fn reviewed_branch<'a>(head: &'a str, branch_prefix: &str) -> Option<&'a str> {
+  strip_branch_namespace(head, branch_prefix, BranchKind::Review)?
+    .strip_suffix("/head")
+    .filter(|name| !name.is_empty())
+}
+
+/// Whether `base`, the base of a pull request, is the base of a shown review of anyone's prefix (`<prefix>/review/<branch>/base`):
+/// a reviewer tells a shown review by it, which has its author's prefix
+pub fn is_review_base(base: &str) -> bool {
+  base.ends_with("/base") && base.split('/').skip(1).any(|segment| segment == "review")
+}
+
 /// Strip `{prefix}/{kind}/` from a full branch name, e.g. "user/virtual/feature-auth" -> "feature-auth"
 pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str, kind: BranchKind) -> Option<&'a str> {
   full_branch_name
@@ -76,7 +101,7 @@ pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str
 /// The kind of a branch Branch Deck writes under `branch_prefix`, by its full name (without `refs/heads/`):
 /// `jane/virtual/auth` is `Virtual`, `jane/archived/2026-10-01/auth` `Archived`; `None` for any other branch
 pub fn managed_branch_kind(full_branch_name: &str, branch_prefix: &str) -> Option<BranchKind> {
-  [BranchKind::Virtual, BranchKind::Unapplied, BranchKind::Archived, BranchKind::Stack]
+  [BranchKind::Virtual, BranchKind::Unapplied, BranchKind::Archived, BranchKind::Stack, BranchKind::Review]
     .into_iter()
     .find(|&kind| strip_branch_namespace(full_branch_name, branch_prefix, kind).is_some_and(|name| !name.is_empty()))
 }

@@ -3,7 +3,7 @@ name = "bd-remote"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The bd commands of the remote: status, push, safe-push, request-review, robot, and the landed branches"
+description = "The bd commands of the remote: status, push, safe-push, request-review, close-review, robot, and the landed branches"
 publish = false
 
 [dependencies]
@@ -17,6 +17,7 @@ github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
+codeowners = { path = "../codeowners" }
 sync-core = { path = "../sync-core" }
 remote-facts = { path = "../remote-facts" }
 trial-check = { path = "../trial-check" }
@@ -39,6 +40,7 @@ bd-cli = { path = "../bd-cli", features = ["fixtures"] }
 anyhow.workspace = true
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
+codeowners = { path = "../codeowners", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 serde_json.workspace = true

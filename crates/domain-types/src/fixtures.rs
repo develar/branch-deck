@@ -370,6 +370,7 @@ pub fn land_intent(branch: &str, mode: PatronusPushMode) -> crate::operation::In
     create_pull_request: false,
     allow: crate::patronus::LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   })
 }
 

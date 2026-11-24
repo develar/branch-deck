@@ -52,8 +52,13 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
       let readiness = reviewers.is_empty().then(|| FactNeed::Readiness(subject.clone()));
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
-    Intent::Push(_) | Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
-    Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::LinkStack { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
+    Intent::Push(_) | Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
+    Intent::Retarget { .. }
+    | Intent::CreatePullRequest(_)
+    | Intent::LinkStack { .. }
+    | Intent::ClosePullRequest { .. }
+    | Intent::DisableAutoMerge { .. }
+    | Intent::CloseShownReview { .. } => {
       vec![FactNeed::PullRequests]
     }
     Intent::SubmitReview { .. }

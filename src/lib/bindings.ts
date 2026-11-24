@@ -534,7 +534,12 @@ export type ActionBlocker =
  *  names before the start, so none is offered until it goes into the target (`approval_landing`, decision 31 of
  *  docs/design/change-review.md)
  */
-{ code: "otherBase"; number: number; base: string; target: string };
+{ code: "otherBase"; number: number; base: string; target: string } | 
+/**
+ *  A shown review (`domain_types::branch_names::is_review_base`): its change is in master already, and the review
+ *  gates nothing; it goes into the fork point of what landed, so no Safe Push of it is offered
+ */
+{ code: "shown"; number: number };
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
 export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
@@ -987,7 +992,12 @@ export type ApprovalLanding =
  *  the target counts the approval until its base is the target. The approval stays with the pull request, not with its
  *  head; then its Safe Push counts it for all it lands, the layers below it not yet landed too
  */
-{ kind: "onceIntoTarget"; base: string; target: string };
+{ kind: "onceIntoTarget"; base: string; target: string } | 
+/**
+ *  A shown review (`domain_policy::shown::is_shown`): what it shows is in master already, and the review gates nothing;
+ *  an approval counts for no Safe Push, it closes the review once every reviewer it asked approved
+ */
+{ kind: "shown" };
 
 /**  Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`) */
 export type ApprovalsSkip = 
@@ -3119,6 +3129,38 @@ export type ErrorCode =
  */
 "merge_blocked" | 
 /**
+ *  `brd safe-push --request-review`: the code owners must approve the change before it lands (Patronus requires
+ *  their review): a review after landing (show) can't take its place; nothing was pushed or started. Ask for the
+ *  review first: `brd safe-push <branch> --create-pull-request`
+ */
+"approvals_required" | 
+/**
+ *  `brd safe-push --request-review`: the branch has an open pull request, where its review goes (ask), not after
+ *  landing; nothing was pushed or started
+ */
+"pull_request_open" | 
+/**
+ *  `brd safe-push --request-review`: a review after landing needs a Safe Push of Patronus, which lands the branch; the
+ *  repository lands another way. Nothing was pushed or started
+ */
+"show_needs_patronus" | 
+/**
+ *  `brd safe-push --request-review`: the Safe Push lands more than the branch (the branches it is built on, or the
+ *  whole stack), and a review after landing reviews one branch; nothing was pushed or started. Land them first, or
+ *  ask for each its own review
+ */
+"show_lands_stack" | 
+/**
+ *  `brd close-review`: a reviewer the shown review asked has not approved it (`message` names who); nothing was closed.
+ *  `--allow-unapproved` closes it anyway, only when the user says so
+ */
+"review_not_approved" | 
+/**
+ *  `brd close-review`, `brd request-review --after-landing`: the branch has no open shown review, or (`--after-landing`)
+ *  no merged Safe Push that landed it; nothing was done
+ */
+"no_shown_review" | 
+/**
  *  `brd request-review`: the branch has no open pull request, or only a draft; `brd safe-push <branch>
  *  --create-pull-request` opens one, a draft is marked ready for review on GitHub
  */
@@ -4234,11 +4276,11 @@ export type Intent =
 	kind: "push",
 } & Push | 
 /**  A restart of a robot of the user, with the push before it when the branch moved past its commit */
-({ kind: "restartRobot"; robotId: string }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "restartRobot"; robotId: string }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**  A cancel of a running robot of the user */
-({ kind: "cancelRobot"; robotId: string }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "cancelRobot"; robotId: string }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**  The open pull request `number` goes into the base its rule names (`domain_policy::pull_request::base_of`) */
-({ kind: "retarget"; number: number }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "retarget"; number: number }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**  The pull request of a subject is opened, after the push it needs */
 {
 	kind: "createPullRequest",
@@ -4248,49 +4290,60 @@ export type Intent =
  *  pull request of a layer into the target above the bottom is retargeted into the branch below it and joins it, one
  *  outside the stack joins it (`domain_policy::github_stack::stack_writes` with `join`)
  */
-({ kind: "linkStack"; branch: string }) & { body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "linkStack"; branch: string }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  `reviewers` are asked to review the open pull request of a subject, none: the code owners Patronus suggests that
  *  Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
  *  remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
  */
-({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; robotId?: never; source?: never; state?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; robotId?: never; source?: never; state?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**  The pull request `number` is closed with `comment` */
-({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; bottom?: never; branch?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "closePullRequest"; number: number; comment: string }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The auto-merge of the open pull request `number` is disabled (Cancel Auto-Merge): GitHub merges it no more by
  *  itself
  */
-({ kind: "disableAutoMerge"; number: number }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "disableAutoMerge"; number: number }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+/**
+ *  The draft shown review of `branch` is opened once the Safe Push that landed the branch merged
+ *  (`operations::shown`): its head goes to the commit the robot landed (its base to the fork point of it), it is marked
+ *  ready for review, and the reviewers its text records are asked
+ */
+({ kind: "openShownReview"; branch: string }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+/**
+ *  The shown review of `branch` is closed with a comment that names who approved it, and its branches are deleted
+ *  (`operations::shown`); refused unless every reviewer it asked approved, but with `allow_unapproved`
+ */
+({ kind: "closeShownReview"; branch: string; allowUnapproved: boolean }) & { body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
  *  robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
  *  (`domain_policy::landed::pull_requests_to_close`)
  */
-({ kind: "closeLandedPullRequests"; landing: LandingKey }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "closeLandedPullRequests"; landing: LandingKey }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
  *  after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
  *  verdict: the Safe Push alone, the user approved the commit before
  */
-({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { bottom?: never; branch?: never; comment?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; top?: never } | 
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { allowUnapproved?: never; bottom?: never; branch?: never; comment?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; top?: never } | 
 /**
  *  Approve N Pull Requests of the stack of `top` a review window shows (Review Stack): an approval of each of
  *  `layers`, the bottom first, on the head the window showed it at, but of those the user approved on it already
  *  (`domain_policy::stack_approval`). GitHub's head of every layer is read first: a layer whose head moved since, and
  *  every layer above it, is refused by its number, the layers below it are approved
  */
-({ kind: "approveStack"; top: number; layers: ReviewedLayer[] }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "approveStack"; top: number; layers: ReviewedLayer[] }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
  *  is in `expected`); without `expected`, only an open issue changes
  */
-({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; fetch?: never; keep?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; fetch?: never; keep?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
  *  is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
  */
-({ kind: "forgetStart"; op: OperationId }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "forgetStart"; op: OperationId }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**  A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`) */
 {
 	kind: "rewrite",
@@ -4299,7 +4352,7 @@ export type Intent =
  *  Only the remote branch of the baseline is fetched into its tracking ref (the Fetch of a merge toast); the branch,
  *  the index and the working tree stay as they are (`operations::update`)
  */
-({ kind: "fetchBaseline" }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "fetchBaseline" }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The checked out branch is brought onto the baseline, keeping unrelated local changes (Update Project, ⌘T): the
  *  fetch first when `fetch` (the `FetchBaseline` of the session, joined when one runs), then the check and the move
@@ -4313,32 +4366,32 @@ export type Intent =
  *  Update Anyway of the dialog of a conflict of lost bindings: these names stay unbound on the user's word, so an
  *  update whose replay loses only them applies; a lost binding of another name still refuses it
  */
-keep?: KeptLostBinding[] }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; expected?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+keep?: KeptLostBinding[] }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; expected?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The report of the commits that landed with an update is cleared (the user has seen it); `epoch` as of
  *  `UpdateProject`: a report of another lease is no report the user saw
  */
-({ kind: "dismissLanded"; epoch?: number | null }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "dismissLanded"; epoch?: number | null }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The commits of the pull request `number` a review window shows are fetched into its review refs
  *  (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
  *  the head and the base GitHub names, as the review requests of the session have them
  */
-({ kind: "fetchReview"; number: number }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+({ kind: "fetchReview"; number: number }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
  *  The commits of a stack of pull requests a review window shows (Review Stack), its layers from `top` down to
  *  `bottom` as the review requests of the session chain them now (`ReviewRequestsFact::stack`), are fetched by one
  *  fetch of the head of `top` with the base of the bottom into the review refs of `top`, unless both are local, and
  *  its range is cut into the layers (`operations::review_fetch`)
  */
-({ kind: "fetchReviewStack"; top: number; bottom: number }) & { body?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "fetchReviewStack"; top: number; bottom: number }) & { allowUnapproved?: never; body?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The commits of another worktree (`source`: its directory as `brd pick --from` named it) or of a range of revisions
  *  (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`brd pick`, `brd lease pick`): only the
  *  record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
  *  engine of the app runs none
  */
-({ kind: "pick"; source: string }) & { body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never };
+({ kind: "pick"; source: string }) & { allowUnapproved?: never; body?: never; bottom?: never; branch?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never };
 
 /**  What changed in a branch since its review */
 export type Interdiff = {
@@ -4497,6 +4550,11 @@ export type Land = {
 	 *  refusal of its kinds (the flags of `brd safe-push`)
 	 */
 	anyway?: LandingRefusal[] | null,
+	/**
+	 *  A shown review of the branch (`brd safe-push --request-review`, docs/design/landing.md, "Show: a review after
+	 *  landing"): its draft is opened before the start, and its reviewers are asked once the robot merged
+	 */
+	requestReview?: ShowRequest | null,
 };
 
 /**  What a start does and what stands in its way, as `domain_policy::land::decide` answers it over the facts it has */
@@ -5593,7 +5651,17 @@ landed: string[] } |
  *  the session knew enabled on it open (`domain_policy::news::auto_merged`): no update follows by itself, the page
  *  offers Update Project
  */
-{ kind: "autoMerged"; number: number; subject: string; into: string };
+{ kind: "autoMerged"; number: number; subject: string; into: string } | 
+/**
+ *  The Safe Push of `branch` merged while its shown review `number` is a draft (`domain_policy::shown::shown_news`):
+ *  the app opens it (`Intent::OpenShownReview`), its head on what the robot landed, its reviewers asked
+ */
+{ kind: "shownReviewLanded"; branch: string; number: number } | 
+/**
+ *  Every reviewer the shown review `number` of `branch` asked approved it: the app closes it
+ *  (`Intent::CloseShownReview`) and deletes its refs
+ */
+{ kind: "shownReviewApproved"; branch: string; number: number };
 
 /**
  *  The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which
@@ -5822,7 +5890,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "close_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -6560,7 +6628,26 @@ export type PlannedEffect =
  */
 { kind: "enableAutoMerge"; subject: Subject; number: number; method: MergeMethod; head: string; target: string } | 
 /**  The auto-merge of the open pull request `number` is disabled (`Intent::DisableAutoMerge`) */
-{ kind: "disableAutoMerge"; number: number };
+{ kind: "disableAutoMerge"; number: number } | 
+/**
+ *  The branches of the shown review of `branch` go to `tip` and to its fork point on the target in one atomic push
+ *  (`{prefix}/review/<branch>/head` and `/base`), each leased on what the remote has (`sync_core::review_head`)
+ */
+{ kind: "pushReview"; branch: string; tip: string } | 
+/**
+ *  The pull request of the shown review of `branch` is opened from its head into its base, unless one of its head is
+ *  open: its text records `reviewers`. A `draft` before its Safe Push (`Land::request_review`), whose open asks them
+ *  once the robot merged; else ready, `reviewers` asked at once (`brd request-review --after-landing` of a branch that
+ *  landed without one)
+ */
+{ kind: "createShownReview"; branch: string; reviewers: string[]; draft: boolean } | 
+/**  The draft pull request `number` is marked ready for review (`Intent::OpenShownReview`) */
+{ kind: "markReady"; number: number } | 
+/**
+ *  The branches of the shown review of `branch` are deleted, those the remote has, each leased on what it has
+ *  (`Intent::CloseShownReview`)
+ */
+{ kind: "deleteReview"; branch: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -6868,6 +6955,8 @@ export type PullRequestsChange = {
 	removedPullRequests?: string[],
 	stackPullRequests?: { [key in string]: PullRequest },
 	removedStackPullRequests?: string[],
+	shownReviews?: { [key in string]: ShownReview },
+	removedShownReviews?: string[],
 };
 
 /**
@@ -6898,6 +6987,11 @@ export type PullRequestsView = {
 	 *  false without one
 	 */
 	githubStacks?: boolean,
+	/**
+	 *  The open shown reviews of the user, by the virtual branch they review (`PullRequestsResult::shown_reviews`): a
+	 *  branch keeps its review after it landed and left the table
+	 */
+	shownReviews?: { [key in string]: ShownReview },
 };
 
 /**  A push of a subject: of a branch, the stack branch of a whole stack, an unapplied branch (`PushScope::Unapplied`) */
@@ -7345,7 +7439,26 @@ export type Reason =
  *  The subject has the open pull request `number` already: a creation of another one fails on GitHub (422), Open Pull
  *  Request shows it
  */
-{ code: "pullRequestOpen"; number: number };
+{ code: "pullRequestOpen"; number: number } | 
+/**
+ *  A Safe Push with a review after landing (show): the code owners of `groups` must approve the change before it lands,
+ *  which a review after landing can't take the place of; ask for the review in a pull request first
+ */
+{ code: "showNeedsApprovals"; groups: string[] } | 
+/**  A Safe Push with a review after landing (show) of a branch whose open pull request `number` holds its review (ask) */
+{ code: "showWithPullRequest"; number: number } | 
+/**  A review after landing (show) is opened by a Safe Push of Patronus, which the repository doesn't land by */
+{ code: "showNeedsPatronus" } | 
+/**
+ *  A Safe Push with a review after landing (show) would land `lands` (the branches it is built on, or a whole stack),
+ *  more than the one branch a review after landing reviews
+ */
+{ code: "showLandsStack"; lands: string[] } | 
+/**
+ *  The shown review `number` waits for the approvals of `waiting` (or holds their requested changes): it closes once
+ *  every reviewer it asked approved
+ */
+{ code: "reviewNotApproved"; number: number; waiting: string[] };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
@@ -9201,7 +9314,12 @@ export type RowFact =
  *  The copy it pushes and lands holds generated files the words merged in a conflict of its sync, not written by their
  *  generator (`domain_policy::regenerate`), each with the commit the copy lacks; `fix` gives the copy that commit
  */
-{ kind: "regenerate"; files: RegenerateFile[]; fix: LandingFix | null };
+{ kind: "regenerate"; files: RegenerateFile[]; fix: LandingFix | null } | 
+/**
+ *  Its shown review `number` (docs/design/landing.md, "Show: a review after landing"): it landed, and the review after
+ *  it waits (`state`); beside the facts of its landing, never in their place
+ */
+{ kind: "shown"; number: number; state: ShownState };
 
 /**  The push track of a row */
 export type RowPush = {
@@ -9412,6 +9530,15 @@ export type Share = {
 	total: number,
 };
 
+/**  The shown review a Safe Push opens (`Land::request_review`) */
+export type ShowRequest = {
+	/**
+	 *  The GitHub logins asked once the branch landed: `--reviewer`, else one available member of each owner group of
+	 *  the changed paths (`domain_policy::shown::show_candidates`); none refuses the start (`Reason::NoReviewer`)
+	 */
+	reviewers: string[],
+};
+
 /**  A unit of a step that a stop of another step shows (`ReviewStep::shown_elsewhere`) */
 export type ShownElsewhere = {
 	/**  `ReviewUnit::id` */
@@ -9448,6 +9575,34 @@ export type ShownParameter = {
 	/**  Of a change: what changed in it */
 	mark: FormMark | null,
 };
+
+/**
+ *  A shown review (ship/show/ask, docs/design/landing.md, "Show: a review after landing"): a pull request of the user
+ *  whose head is `{prefix}/review/<branch>/head` and whose base is `{prefix}/review/<branch>/base`, the fork point of what
+ *  a Safe Push landed, never master, so it can never land. A draft while the robot runs, ready for review with its
+ *  reviewers asked once the robot merged, closed once every reviewer it asked approved
+ */
+export type ShownReview = {
+	pullRequest: PullRequest,
+	/**
+	 *  The reviewers Branch Deck asks once the branch landed, as the record in the body of the pull request names them
+	 *  (`SHOWN_REVIEWERS_MARKER`): only they decide when it closes, never a bot or someone not asked
+	 */
+	reviewers: string[],
+	/**  What it waits for (`domain_policy::shown::review_state`) */
+	state: ShownState,
+};
+
+/**  What a shown review waits for (`domain_policy::shown::review_state`) */
+export type ShownState = 
+/**  A draft: the Safe Push that lands the branch has not merged yet, nobody is asked */
+{ kind: "draft" } | 
+/**  Ready for review: `waiting` the reviewers it asked who have not approved yet (none: nobody asked yet) */
+{ kind: "inReview"; waiting: string[] } | 
+/**  `by`, reviewers it asked, requested changes: a fix lands as a new Safe Push of the branch */
+{ kind: "changesRequested"; by: string[] } | 
+/**  Every reviewer it asked approved (`by`): it closes */
+{ kind: "approved"; by: string[] };
 
 /**  A value of each of the three sides of a merge */
 export type Sides<T> = {

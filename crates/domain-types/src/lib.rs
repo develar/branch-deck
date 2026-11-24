@@ -74,6 +74,7 @@ pub mod branch_name_suggestion;
 pub mod branch_names;
 pub mod calendar;
 pub mod cli_tools;
+pub mod code_owners;
 pub mod commit;
 pub mod commit_body;
 pub mod conflict;

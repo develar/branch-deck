@@ -243,6 +243,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
         .collect(),
       stack_pull_requests: BTreeMap::new(),
       github_stacks: false,
+      shown_reviews: BTreeMap::new(),
     }),
   );
   let demand = Demand {

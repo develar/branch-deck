@@ -32,6 +32,7 @@ use crate::regenerate_refusal::regenerate_refusal;
 use crate::robot_list::keep_listed;
 use crate::safe_push_run::{BdStart, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
+use crate::show_reviewers::show_reviewers;
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
@@ -51,10 +52,10 @@ use domain_policy::parked::whole_stack_parked;
 use domain_policy::pull_request::{RulesAnswer, dismisses_approvals};
 use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
-use domain_types::branch_names::to_final_branch_name;
+use domain_types::branch_names::{review_branch_names, to_final_branch_name};
 use domain_types::error::ApiError;
 use domain_types::error::ErrorCode;
-use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
+use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, ShowRequest, StackCommit, StartRoute, Subject};
 use domain_types::landing_route::{LandingRoute, RouteGate};
 use domain_types::operation::{EffectStatus, Intent, OperationResult, Plan};
 use domain_types::patronus::{
@@ -121,12 +122,19 @@ pub struct SafePushArgs {
   /// starts. The Safe Push starts from it then
   #[arg(long, conflicts_with_all = ["patronus_dry_run", "dry_run", "without_approvals", "profile"])]
   pub create_pull_request: bool,
-  /// With `--create-pull-request`: ask this GitHub login to review it (repeatable); `github_login` of the `review`
-  /// reviewers of `--dry-run` names the suggested code owners
-  #[arg(long = "reviewer", value_name = "LOGIN", requires = "create_pull_request")]
+  /// Land the branch now and ask for its review after landing (show of ship/show/ask): a draft pull request from
+  /// `{prefix}/review/<branch>/head` into its fork point `{prefix}/review/<branch>/base` is opened before the start, and
+  /// once the robot merged, `brd request-review <branch> --after-landing` (or the app) marks it ready and asks the
+  /// reviewers; it closes once every one of them approved (`brd close-review`). The reviewers: `--reviewer`, else one
+  /// available member of each owner group of the changed paths (the `CodeOwners` service)
+  #[arg(long, conflicts_with_all = ["patronus_dry_run", "create_pull_request", "without_approvals", "whole_stack"])]
+  pub request_review: bool,
+  /// With `--create-pull-request` or `--request-review`: ask this GitHub login to review it (repeatable); `github_login`
+  /// of the `review` reviewers of `--dry-run` names the suggested code owners
+  #[arg(long = "reviewer", value_name = "LOGIN")]
   pub reviewers: Vec<String>,
-  /// With `--create-pull-request`: don't assign the pull request to the user
-  #[arg(long, requires = "create_pull_request")]
+  /// With `--create-pull-request` or `--request-review`: don't assign the pull request to the user
+  #[arg(long)]
   pub no_assign: bool,
   /// Cancel a running Safe Push of an older commit of the branch first: the push would fail it, or, with nothing to push,
   /// the Safe Push replaces it
@@ -253,6 +261,10 @@ pub struct SafePushOutput {
   /// `--create-pull-request`, the one it opened (or found open)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestStart>,
+  /// With `--request-review`: the review after landing, its draft opened before the start (with `--dry-run`, whom it would
+  /// ask); its reviewers are asked once the robot merged
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub shown: Option<ShownStart>,
   /// The open pull requests of the branch and of the branches its push takes along whose base was a virtual branch,
   /// retargeted to the target before the push (with `--dry-run`: the ones a start would retarget). Name them to the user,
   /// and the `approved_by` of each
@@ -408,6 +420,25 @@ pub struct RobotSummary {
   pub commit: Option<String>,
   /// The robot page; open it for the user
   pub url: String,
+}
+
+/// The review after landing a Safe Push with `--request-review` opens (`SafePushOutput::shown`)
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ShownStart {
+  /// The GitHub logins it asks once the robot merged
+  pub reviewers: Vec<String>,
+  /// The owner groups of the changed paths it chose them of; empty with `--reviewer`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub groups: Vec<String>,
+  /// The branch it shows, `{prefix}/review/<branch>/head`, and the one it goes into, their fork point
+  pub head: String,
+  pub base: String,
+  /// The draft pull request; `null` with `--dry-run`
+  pub number: Option<u32>,
+  pub url: Option<String>,
+  /// It was opened now, not found open
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub created: bool,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -571,6 +602,12 @@ fn start_again(context: &RepoContext, args: &SafePushArgs, name: &str, whole_sta
   if let Some(profile) = &args.profile {
     let _ = write!(command, " --profile {}", shell_word(profile));
   }
+  if args.request_review {
+    command.push_str(" --request-review");
+    for reviewer in &args.reviewers {
+      let _ = write!(command, " --reviewer {}", shell_word(reviewer));
+    }
+  }
   if args.create_pull_request {
     command.push_str(" --create-pull-request");
     for reviewer in &args.reviewers {
@@ -604,10 +641,31 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let target_fetch = (!args.create_pull_request).then(|| context.over_network(|| fetch_target(&context.git, &context.repository, context.baseline().ok())));
   // the sync takes no lock (its refs move by CAS), nor do the reads of the remote, the trial and the check against the
   // target; the run takes it only to witness the refs and freeze its push
+  if (!args.reviewers.is_empty() || args.no_assign) && !args.create_pull_request && !args.request_review {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      "--reviewer and --no-assign need --create-pull-request or --request-review",
+    ));
+  }
   let synced = sync(context)?;
   let whole_stack = whole_stack_arg(context, args, &synced)?;
   let start = start_of(args, &synced, whole_stack.as_ref());
-  let plan = plan(context, args, &service, &github, &synced, mode, &start, target_fetch)?;
+  let show = if args.request_review {
+    Some(show_request(context, args, environment, &github, &synced)?)
+  } else {
+    None
+  };
+  let plan = plan(
+    context,
+    args,
+    &service,
+    &github,
+    &synced,
+    mode,
+    &start,
+    target_fetch,
+    show.as_ref().map(|(request, _)| request.clone()),
+  )?;
   let mut output = start_output(
     context,
     args,
@@ -615,6 +673,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     whole_stack.as_ref().map(|whole| (whole, synced.report.stack_branches.as_slice())),
     &plan,
   );
+  output.shown = show.map(|(request, groups)| shown_start(context, &args.branch, request.reviewers, groups));
   if args.dry_run {
     return Ok(check_output(output, plan));
   }
@@ -646,7 +705,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   }
 
   // the PR text is read before the run: its issues come from YouTrack, and the engine runs on the runtime
-  let text = if args.create_pull_request && output.pull_request.is_none() {
+  let text = if (args.create_pull_request && output.pull_request.is_none()) || args.request_review {
     Some(pull_request_text(context, args, &synced, &plan, &youtrack)?)
   } else {
     None
@@ -674,6 +733,68 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   };
   tell(context, args, &synced, &plan, started, &mut output, &youtrack)?;
   Ok(output)
+}
+
+/// The review after landing `--request-review` asks for: the `--reviewer` logins, else one of each owner group of the
+/// paths the branch changes (`show_reviewers`); nobody to ask refuses the start (`no_reviewer`), as a refusal of
+/// `--dry-run`. With the owner groups it chose of
+fn show_request(
+  context: &RepoContext,
+  args: &SafePushArgs,
+  environment: &Environment,
+  github: &Arc<GitHubService>,
+  synced: &SyncOutput,
+) -> Result<(ShowRequest, Vec<String>), CliError> {
+  let reviewers = crate::request_review_command::logins_of(&args.reviewers)?;
+  if !reviewers.is_empty() {
+    return Ok((ShowRequest { reviewers }, Vec::new()));
+  }
+  let repository = github_repository(&synced.report).ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
+  let tip = synced
+    .branches
+    .iter()
+    .find(|branch| branch.name == args.branch)
+    .and_then(|branch| branch.tip.clone())
+    .ok_or_else(|| unknown_or_unapplied(context, &args.branch, UNAPPLIED_SAFE_PUSH))?;
+  let target_ref = format!("refs/remotes/{}", synced.baseline);
+  let (groups, candidates) = show_reviewers(context, environment, github, &repository, &tip, &target_ref)?;
+  if candidates.reviewers.is_empty() {
+    let groups = if candidates.without_reviewer.is_empty() {
+      &groups
+    } else {
+      &candidates.without_reviewer
+    };
+    let whom = if groups.is_empty() {
+      "no OWNERSHIP file names an owner of what it changes".to_owned()
+    } else {
+      format!("nobody of {} is available with a GitHub login", groups.join(", "))
+    };
+    return Err(
+      CliError::new(
+        ErrorCode::NoReviewer,
+        format!(
+          "Nothing was pushed or started: nobody to ask for the review after landing of {}: {whom}; ask the user whom, then --reviewer <login>",
+          args.branch
+        ),
+      )
+      .with_next_step(format!("{} safe-push {} --request-review --reviewer <login>", context.bd, shell_word(&args.branch)), true),
+    );
+  }
+  Ok((ShowRequest { reviewers: candidates.reviewers }, groups))
+}
+
+/// The output of the review after landing of `branch` before its start: whom it asks, its branches
+fn shown_start(context: &RepoContext, branch: &str, reviewers: Vec<String>, groups: Vec<String>) -> ShownStart {
+  let (head, base) = review_branch_names(&context.prefix, branch).unwrap_or_default();
+  ShownStart {
+    reviewers,
+    groups,
+    head,
+    base,
+    number: None,
+    url: None,
+    created: false,
+  }
 }
 
 /// The pull request `--create-pull-request` opens: the text of the whole stack, else of the branch (its issues read from
@@ -723,6 +844,7 @@ fn tell(
     robot,
     commented,
     created,
+    shown,
     ..
   } = started;
   if let Some(repository) = &plan.github {
@@ -764,6 +886,11 @@ fn tell(
     if let (PlannedEffect::Push { .. }, Some(sent)) = (&record.effect, &pushed) {
       output.pushed = pushed_branches(context, synced, plan, sent, youtrack)?;
     }
+  }
+  if let (Some(created), Some(start)) = (shown, output.shown.as_mut()) {
+    start.number = Some(created.pull_request.number);
+    start.url = Some(created.pull_request.url.clone());
+    start.created = created.created;
   }
   if let Some(created) = created {
     output.pull_request = Some(created_pull_request(args, created));
@@ -891,6 +1018,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     }),
     retargeted: Vec::new(),
     retarget_warnings: Vec::new(),
+    shown: None,
     plan: Some(plan.planned.plan.clone()),
     step: None,
   }
@@ -1194,6 +1322,7 @@ fn plan(
   mode: PatronusPushMode,
   start: &Start<'_>,
   target_fetch: Option<TargetFetch>,
+  request_review: Option<ShowRequest>,
 ) -> Result<Prepared, CliError> {
   let subject = start.subject();
   if let Start::Branch(name) = start
@@ -1239,6 +1368,7 @@ fn plan(
       ..LandingAllowances::default()
     },
     anyway: None,
+    request_review,
   };
 
   // what the start reads of the remote, as the session of the app reads it (`operations::needs`): the robots of the
@@ -1326,7 +1456,7 @@ fn plan(
     ));
   }
   land.profile = profile_choice(args, &profiles, &target, mode)?;
-  if args.create_pull_request && github.is_none() {
+  if (args.create_pull_request || args.request_review) && github.is_none() {
     return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   }
   // the plan of the start over what was read, as the app's session plans it (`operations::land`): what its first decision
@@ -1741,7 +1871,21 @@ impl Told<'_> {
       | Reason::LayerNotLinked { .. }
       | Reason::MergedIntoBranch { .. }
       | Reason::KeptLandsNothing { .. }
-      | Reason::KeptCheckedOut { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
+      | Reason::KeptCheckedOut { .. }
+      | Reason::ShowNeedsPatronus
+      | Reason::ShowLandsStack { .. }
+      | Reason::ReviewNotApproved { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
+      // ask, not show: the review before landing in a pull request, the user's to approve
+      Reason::ShowNeedsApprovals { .. } => Refusal::new(
+        ErrorCode::ApprovalsRequired,
+        format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
+      )
+      .with_next_step(format!("{} safe-push {} --create-pull-request", context.bd, shell_word(name)), true),
+      Reason::ShowWithPullRequest { .. } => Refusal::new(
+        ErrorCode::PullRequestOpen,
+        format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
+      )
+      .with_next_step(format!("{} request-review {}", context.bd, shell_word(name)), true),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

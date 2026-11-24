@@ -107,6 +107,11 @@ const UNREACHABLE: &[Unreachable] = &[
     why: "the Patronus client runs no git",
   },
   Unreachable {
+    from: "codeowners",
+    forbidden: &["git-ops", "git-executor", "patronus", "github"],
+    why: "the CodeOwners client runs no git and asks no other service: the caller finds its token and the owner groups",
+  },
+  Unreachable {
     from: "cli-tools",
     forbidden: &["git-ops", "git-executor", "patronus", "youtrack", "github", TAURI],
     why: "the CLIs of Settings → Tools run only themselves: no git, no remote service of the app's own",

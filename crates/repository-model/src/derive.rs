@@ -1467,6 +1467,7 @@ fn default_land(subject: Subject, mode: PatronusPushMode) -> Land {
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   }
 }
 
@@ -1848,6 +1849,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       push_pending: remote.is_some_and(|remote| !remote.up_to_date),
       regenerate,
       regenerate_fix: regenerate_fix.as_ref(),
+      shown: sources.pull_requests.shown_reviews.get(name.as_str()),
     };
     let view = NextStepView {
       step: next_step(&step),
@@ -1951,6 +1953,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       push_pending: false,
       regenerate: &[],
       regenerate_fix: None,
+      shown: None,
     };
     let view = NextStepView {
       step: next_step(&step),

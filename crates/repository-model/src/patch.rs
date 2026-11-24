@@ -425,6 +425,8 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
     removed_pull_requests,
     stack_pull_requests,
     removed_stack_pull_requests,
+    shown_reviews,
+    removed_shown_reviews,
   } = change;
   if let Some(head) = head {
     view.head = head;
@@ -434,6 +436,7 @@ fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsC
   }
   apply_keyed(&mut view.pull_requests, pull_requests, &removed_pull_requests);
   apply_keyed(&mut view.stack_pull_requests, stack_pull_requests, &removed_stack_pull_requests);
+  apply_keyed(&mut view.shown_reviews, shown_reviews, &removed_shown_reviews);
 }
 
 /// The parts of a view as they are now, borrowed, which `changes` compares with a view: of a session, its table state
@@ -649,6 +652,7 @@ pub(crate) fn keyed_facts_change<'a, T: PartialEq + Clone + 'a>(
 pub(crate) fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsView) -> Option<PullRequestsChange> {
   let (pull_requests, removed_pull_requests) = diff_keyed(&last.pull_requests, &now.pull_requests);
   let (stack_pull_requests, removed_stack_pull_requests) = diff_keyed(&last.stack_pull_requests, &now.stack_pull_requests);
+  let (shown_reviews, removed_shown_reviews) = diff_keyed(&last.shown_reviews, &now.shown_reviews);
   let head = changed(&last.head, &now.head);
   // they change only with an answer, which changes the head
   let (repository, viewer_permission, merge_methods) = match head {
@@ -664,6 +668,8 @@ pub(crate) fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsVi
     removed_pull_requests,
     stack_pull_requests,
     removed_stack_pull_requests,
+    shown_reviews,
+    removed_shown_reviews,
   };
   (change != PullRequestsChange::default()).then_some(change)
 }

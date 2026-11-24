@@ -661,6 +661,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "app-settings",
+ "codeowners",
  "dirs",
  "domain-policy",
  "domain-types",
@@ -742,6 +743,7 @@ dependencies = [
  "bd-cli",
  "bd-core",
  "clap",
+ "codeowners",
  "commit-clustering",
  "domain-policy",
  "domain-types",
@@ -1426,6 +1428,21 @@ dependencies = [
  "psi-builder",
  "rust-syntax",
  "starlark-syntax",
+]
+
+[[package]]
+name = "codeowners"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "domain-types",
+ "pretty_assertions",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "test-utils",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ use bd_remote::request_review_command::RequestReviewOutput;
 use bd_remote::robot_command::RobotOutput;
 use bd_remote::robot_stats_command::RobotStatsOutput;
 use bd_remote::safe_push_command::SafePushOutput;
+use bd_remote::shown_command::CloseReviewOutput;
 use bd_remote::status::{StatusBrief, StatusOutput};
 use bd_rewrite::check_command::CheckOutput;
 use bd_rewrite::commits::{CommitsBrief, CommitsOutput};
@@ -82,6 +83,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("reapply", &["reapply"]),
   ("rename", &["rewrite"]),
   ("request-review", &["request_review"]),
+  ("close-review", &["close_review"]),
   ("restack", &["rewrite"]),
   ("review-plan", &["review_plan"]),
   ("reword", &["rewrite"]),
@@ -206,6 +208,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("rewrite".to_string(), schema_for!(RewriteOutput)),
     ("robot_stats".to_string(), schema_for!(RobotStatsOutput)),
     ("request_review".to_string(), schema_for!(RequestReviewOutput)),
+    ("close_review".to_string(), schema_for!(CloseReviewOutput)),
     ("robot".to_string(), schema_for!(RobotOutput)),
     ("safe_push".to_string(), schema_for!(SafePushOutput)),
     ("squash".to_string(), schema_for!(SquashOutput)),

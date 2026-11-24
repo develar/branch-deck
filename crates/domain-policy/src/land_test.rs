@@ -402,6 +402,7 @@ pub(crate) fn land(mode: PatronusPushMode) -> Land {
     create_pull_request: false,
     allow: LandingAllowances::default(),
     anyway: None,
+    request_review: None,
   }
 }
 
@@ -1307,4 +1308,71 @@ fn a_start_whose_copy_holds_a_generated_file_the_words_merged_confirms_first() {
       .iter()
       .any(|it| matches!(it, Confirmation::Regenerate { .. }))
   );
+}
+
+/// A Safe Push with a review after landing (show): a lone branch pushes, pushes the branches of its shown review at its
+/// tip, opens the draft, then starts through the API; what lands more than the branch, its open pull request, approvals
+/// the change needs and nobody to ask refuse it; a Dry Run opens none
+#[test]
+fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_lands_only_the_branch() {
+  let show = |reviewers: &[&str]| Land {
+    request_review: Some(domain_types::landing::ShowRequest {
+      reviewers: reviewers.iter().map(|login| (*login).to_owned()).collect(),
+    }),
+    ..land(SAFE_PUSH)
+  };
+  let lone = || World {
+    chain: vec![("login", Some(UNPUSHED), false, false)],
+    ..world()
+  };
+  let decision = lone().decide(&show(&["alice"]));
+  assert_eq!(codes(&decision), Vec::<String>::new());
+  assert_eq!(
+    decision.effects,
+    [
+      PlannedEffect::Push {
+        branches: vec!["login".to_owned()],
+        force: false
+      },
+      PlannedEffect::PushReview {
+        branch: "login".to_owned(),
+        tip: "login-tip".to_owned()
+      },
+      PlannedEffect::CreateShownReview {
+        branch: "login".to_owned(),
+        reviewers: vec!["alice".to_owned()],
+        draft: true
+      },
+      PlannedEffect::StartRobot {
+        route: StartRoute::Api { profile: None }
+      },
+    ]
+  );
+  // a Dry Run opens no review
+  let dry = Land {
+    mode: DRY_RUN,
+    ..show(&["alice"])
+  };
+  assert!(!lone().decide(&dry).effects.iter().any(|effect| matches!(effect, PlannedEffect::CreateShownReview { .. })));
+  // it would land auth too: a fix of auth would land outside the review
+  assert_eq!(
+    world().decide(&show(&["alice"])).blockers,
+    [Reason::ShowLandsStack {
+      lands: vec!["auth".to_owned(), "login".to_owned()]
+    }]
+  );
+  // its open pull request holds its review before landing
+  let open = World {
+    pull_requests: listed(&[("login", pull_request("login", 7))]),
+    ..lone()
+  };
+  assert_eq!(codes(&open.decide(&show(&["alice"]))), ["showWithPullRequest"]);
+  // the code owners must approve it before it lands: ask, not show
+  let missing = World {
+    readiness: Some(readiness(missing_approvals("Air", None))),
+    ..lone()
+  };
+  assert_eq!(missing.decide(&show(&["alice"])).blockers, [Reason::ShowNeedsApprovals { groups: vec!["Air".to_owned()] }]);
+  // nobody to ask
+  assert_eq!(lone().decide(&show(&[])).blockers, [Reason::NoReviewer { groups: Vec::new() }]);
 }

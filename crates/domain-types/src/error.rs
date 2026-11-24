@@ -286,6 +286,26 @@ pub enum ErrorCode {
   /// `brd land`: the rules of the target hold the merge of the pull request back: approvals or required checks are
   /// missing, changes are requested, it is a draft. Nothing was merged; it lands once they come
   MergeBlocked,
+  /// `brd safe-push --request-review`: the code owners must approve the change before it lands (Patronus requires
+  /// their review): a review after landing (show) can't take its place; nothing was pushed or started. Ask for the
+  /// review first: `brd safe-push <branch> --create-pull-request`
+  ApprovalsRequired,
+  /// `brd safe-push --request-review`: the branch has an open pull request, where its review goes (ask), not after
+  /// landing; nothing was pushed or started
+  PullRequestOpen,
+  /// `brd safe-push --request-review`: a review after landing needs a Safe Push of Patronus, which lands the branch; the
+  /// repository lands another way. Nothing was pushed or started
+  ShowNeedsPatronus,
+  /// `brd safe-push --request-review`: the Safe Push lands more than the branch (the branches it is built on, or the
+  /// whole stack), and a review after landing reviews one branch; nothing was pushed or started. Land them first, or
+  /// ask for each its own review
+  ShowLandsStack,
+  /// `brd close-review`: a reviewer the shown review asked has not approved it (`message` names who); nothing was closed.
+  /// `--allow-unapproved` closes it anyway, only when the user says so
+  ReviewNotApproved,
+  /// `brd close-review`, `brd request-review --after-landing`: the branch has no open shown review, or (`--after-landing`)
+  /// no merged Safe Push that landed it; nothing was done
+  NoShownReview,
   /// `brd request-review`: the branch has no open pull request, or only a draft; `brd safe-push <branch>
   /// --create-pull-request` opens one, a draft is marked ready for review on GitHub
   NoPullRequest,
@@ -456,6 +476,12 @@ impl ErrorCode {
       | Self::NotMergeable
       | Self::MergeBlocked
       | Self::NoPullRequest
+      | Self::ApprovalsRequired
+      | Self::PullRequestOpen
+      | Self::ShowNeedsPatronus
+      | Self::ShowLandsStack
+      | Self::ReviewNotApproved
+      | Self::NoShownReview
       | Self::NoReviewer
       | Self::NeedsPush
       | Self::ReviewRefused
@@ -678,6 +704,8 @@ pub enum OperationKind {
   ClosePullRequest,
   DisableAutoMerge,
   CloseLandedPullRequests,
+  OpenShownReview,
+  CloseShownReview,
   SubmitReview,
   ApproveStack,
   SetIssueState,

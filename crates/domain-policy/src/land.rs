@@ -437,13 +437,17 @@ struct SubjectPart<'a> {
 /// answer is a wait; the effects say what the start does once nothing refuses it and the user accepted its confirmations
 #[must_use]
 pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
-  let mut decision = match facts.route {
-    LandingRoute::Push { gate, remote } => crate::land_direct::decide_push(facts, land, gate, remote.as_deref()),
-    LandingRoute::Patronus { gate } => decide_robot(facts, land, Some(gate)),
-    LandingRoute::PullRequest { merge } if merges_on_github(facts.route, facts.patronus) => crate::land_direct::decide_merge(facts, land, merge),
+  let (mut decision, robot) = match facts.route {
+    LandingRoute::Push { gate, remote } => (crate::land_direct::decide_push(facts, land, gate, remote.as_deref()), false),
+    LandingRoute::Patronus { gate } => (decide_robot(facts, land, Some(gate)), true),
+    LandingRoute::PullRequest { merge } if merges_on_github(facts.route, facts.patronus) => (crate::land_direct::decide_merge(facts, land, merge), false),
     // Patronus lands the repository, or no merge on GitHub lands into its target (a mirror, off GitHub): the robot's
-    LandingRoute::PullRequest { .. } => decide_robot(facts, land, None),
+    LandingRoute::PullRequest { .. } => (decide_robot(facts, land, None), true),
   };
+  // a review after landing opens with the Safe Push of a robot of Patronus, which lands the branch
+  if land.request_review.is_some() && !robot {
+    decision.blockers.push(Reason::ShowNeedsPatronus);
+  }
   // every route pushes or lands the copy: one that holds a generated file the words merged asks first
   let (subject, files) = match &facts.subject {
     SubjectFacts::Branch(branch) => (branch.chain.last().map(|own| Subject::branch(own.name)), branch.regenerate),
@@ -514,6 +518,10 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
     });
   }
   let (review, missing) = review_part(facts, land, &part, start_pull_request, skipped, &mut decision);
+  let show = land.request_review.as_ref().filter(|_| safe_push);
+  if let Some(show) = show {
+    show_blockers(facts, &part, show.reviewers.is_empty(), &mut decision);
+  }
 
   let mut confirmations = Vec::new();
   if part.lands_more > 0 {
@@ -546,6 +554,21 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
       force: part.force,
     });
   }
+  // the draft of the shown review before the start: its branches pushed at the commit the robot takes, its pull request
+  // opened, nobody asked until the robot merged
+  if let (Some(show), SubjectFacts::Branch(branch)) = (show, &facts.subject)
+    && let Some(tip) = branch.tip
+  {
+    decision.effects.push(PlannedEffect::PushReview {
+      branch: branch.start.name.to_string(),
+      tip: tip.to_string(),
+    });
+    decision.effects.push(PlannedEffect::CreateShownReview {
+      branch: branch.start.name.to_string(),
+      reviewers: show.reviewers.clone(),
+      draft: true,
+    });
+  }
   let found = part.own.as_ref().filter(|(_, base)| starts_from(base)).map(|(pull_request, _)| *pull_request);
   if land.create_pull_request {
     decision.pull_request = found.map(|pull_request| pull_request.number);
@@ -562,6 +585,21 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
   }
   decision.lands = part.lands;
   decision
+}
+
+/// What refuses a Safe Push with a review after landing (show, `Land::request_review`): a whole stack, or more than the
+/// branch to land (a review after landing reviews one branch, and a fix of a branch it is built on would land outside
+/// it), an open pull request of the branch (its review is there, before landing), nobody to ask
+fn show_blockers(facts: &LandFacts<'_>, part: &SubjectPart<'_>, nobody: bool, decision: &mut LandDecision) {
+  if matches!(facts.subject, SubjectFacts::WholeStack(_)) || part.lands.len() > 1 {
+    decision.blockers.push(Reason::ShowLandsStack { lands: part.lands.clone() });
+  }
+  if let Some((pull_request, _)) = &part.own {
+    decision.blockers.push(Reason::ShowWithPullRequest { number: pull_request.number });
+  }
+  if nobody {
+    decision.blockers.push(Reason::NoReviewer { groups: Vec::new() });
+  }
 }
 
 /// What the landing gate refuses of what lands, each a blocker unless Start Anyway lifts it (`lifted`); a wait until it
@@ -839,6 +877,13 @@ fn review_part(
   };
   let mut missing = false;
   match review_state(Some(&answer.readiness), answer.requirement.as_ref(), facts.github, start_pull_request) {
+    ReviewState::Missing { groups, .. } if land.request_review.is_some() && skipped.is_none() => {
+      // a review after landing can't take the place of the approvals the change needs before it lands
+      missing = true;
+      decision.blockers.push(Reason::ShowNeedsApprovals {
+        groups: groups.iter().map(|group| group.name.clone()).collect(),
+      });
+    }
     ReviewState::Missing { groups, .. } => {
       missing = true;
       if skipped.is_none() && !land.create_pull_request {
