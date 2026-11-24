@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import type { CachedModel } from "../../../src/lib/bindings"
-import { expect } from "../fixtures/base-test"
+import { allowErrorLog, expect } from "../fixtures/base-test"
 import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { registerWindowBuild } from "./sub-window-helpers"
@@ -279,6 +279,11 @@ export async function injectWarmModel(page: Page, model: CachedModel): Promise<v
  * session seeded from the frame, and the page loads again with that seed (`window.__BD_MODEL__`); answers the seed
  */
 export async function reloadWarm(page: Page, repo: TestRepositoryBuilder): Promise<CachedModel> {
+  allowErrorLog(
+    page,
+    /^Cannot subscribe to the branches of the repository: The page of the window went away while it subscribed$/,
+    "the quit of the app forgets its windows while the page of the test still lives: a subscribe of that page then in flight is refused, which a window of an app that quits never sees",
+  )
   await repo.closeSessions()
   const model = await repo.warmStartModel()
   if (model === null) {
