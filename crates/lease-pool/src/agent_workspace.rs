@@ -11,7 +11,7 @@
 //! report.
 
 use crate::build_config::build_config_changed;
-use crate::lease::{IdleCheck, LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
+use crate::lease::{IdleStatus, LeaseHome, SlotState, StatusScan, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
@@ -46,8 +46,8 @@ pub struct ActiveLease {
   pub home: LeaseHome,
   /// Whether the process it was got for still runs
   pub holder_alive: Option<bool>,
-  /// Its holder is gone (`Lease::is_idle`): with the last check that found work in it, if any
-  pub idle: Option<Option<IdleCheck>>,
+  /// Its holder is gone (`Lease::is_idle`): idle, with work, or busy with the processes of another session in its slot
+  pub idle: Option<IdleStatus>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,9 +113,9 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
   let config = repository_config_from_entries(&read_config_entries(git, &dirs.top_level)?, OriginFacts::default());
   let top_level = canonical_path(Path::new(&dirs.top_level));
 
-  let (slots, _) = lease_status_core(Path::new(&dirs.git_common_dir), false)?;
+  let (slots, _) = lease_status_core(Path::new(&dirs.git_common_dir), StatusScan::Idle)?;
   let active_leases: Vec<ActiveLease> = slots
-    .iter()
+    .into_iter()
     .filter(|status| status.state == SlotState::Ready)
     .filter_map(|status| {
       let lease = status.slot.lease.as_ref()?;
@@ -125,7 +125,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
         path: status.slot.path.clone(),
         home: lease.home(),
         holder_alive: lease.holder_alive(),
-        idle: lease.is_idle().then(|| lease.idle_check.clone()),
+        idle: status.idle,
       })
     })
     .collect();

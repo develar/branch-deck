@@ -4218,6 +4218,48 @@ pub struct SlotStatus {
   pub missing: bool,
   /// With `processes`: the processes in it, except the session of `brd`, git's maintenance and `caffeinate`
   pub processes: Option<Vec<BusyProcess>>,
+  /// A `ready` lease of an agent whose holder is gone (`Lease::is_idle`): what it is to the pool
+  pub idle: Option<IdleStatus>,
+}
+
+/// Which slots `lease_status_core` scans for processes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusScan {
+  /// No slot: the state alone
+  None,
+  /// The slots of the leases whose holder is gone, with one scan only when there is one: a slot in which a process of
+  /// another session works is `IdleStatus::Busy`
+  Idle,
+  /// Every slot (`brd lease status --processes`), the idle ones as `Idle` scans them too
+  All,
+}
+
+/// What a lease whose holder process is gone is to the pool
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdleStatus {
+  /// No check found work in it yet: a get takes it over once its work landed and it was quiet for an hour
+  Idle,
+  /// A check found work its home branch lacks, which no get touches
+  WithWork(IdleCheck),
+  /// Processes of another session work in the slot: the session of the lease lives, as a resumed session runs as
+  /// another process. Its Bazel servers alone keep no slot busy, as a get stops them itself. `check` is the work a
+  /// check found, if any
+  Busy { processes: Vec<BusyProcess>, check: Option<IdleCheck> },
+}
+
+impl IdleStatus {
+  /// The status of an idle lease with the last check that found work in it (`Lease::idle_check`) and the processes of
+  /// its slot that are no Bazel server of it (the `others` of `slot_servers`)
+  fn of(check: Option<IdleCheck>, others: &[&ProcessInfo]) -> Self {
+    match check {
+      _ if !others.is_empty() => Self::Busy {
+        processes: busy_processes(others),
+        check,
+      },
+      None => Self::Idle,
+      Some(check) => Self::WithWork(check),
+    }
+  }
 }
 
 /// Where the commits of a lease go (`brd lease pick`): the source checkout of its get and the branch it had checked out
@@ -4246,7 +4288,7 @@ impl Lease {
 /// The slot whose top level is `top_level` when its lease is ready, from the state, no git; `None` outside a leased slot
 pub fn ready_slot_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Slot>> {
   let top_level = canonical_path(Path::new(top_level));
-  let (slots, _) = lease_status_core(git_common_dir, false)?;
+  let (slots, _) = lease_status_core(git_common_dir, StatusScan::None)?;
   Ok(
     slots
       .into_iter()
@@ -4301,16 +4343,30 @@ pub fn reclaimed_refusal(git_common_dir: &Path, top_level: &str, mutates: bool, 
   }
 }
 
-/// Every slot of the pool from the state, no git: with `processes`, the process scan of each slot too
-pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<SlotStatus>, bool)> {
+/// Every slot of the pool from the state, no git, and the process scan that `scan` asks: one scan of the processes at
+/// most, and none for `StatusScan::Idle` without an idle lease. The second value says whether the platform has a scan,
+/// for `StatusScan::All`
+pub fn lease_status_core(git_common_dir: &Path, scan: StatusScan) -> Result<(Vec<SlotStatus>, bool)> {
+  lease_status_with(git_common_dir, scan, &ProcessScan::scan)
+}
+
+/// `lease_status_core` with the scan of the processes `process_scan`: `ProcessScan::scan`, and a counted one of a test
+pub fn lease_status_with(git_common_dir: &Path, scan: StatusScan, process_scan: &dyn Fn() -> ProcessScan) -> Result<(Vec<SlotStatus>, bool)> {
   let mut store = Pool::new(Path::new(&canonical_path(git_common_dir))).read()?;
   // a get gone while it took an idle lease over gave it back: the state as the next writer settles it
   store.slots.iter_mut().for_each(settle_abandoned_takeover);
-  let scan = if processes { ProcessScan::scan() } else { ProcessScan::Unavailable };
+  let idle: Vec<bool> = store.slots.iter().map(|slot| slot.lease.as_ref().is_some_and(Lease::is_idle)).collect();
+  let processes = scan == StatusScan::All;
+  let scan = if processes || (scan == StatusScan::Idle && idle.contains(&true)) {
+    process_scan()
+  } else {
+    ProcessScan::Unavailable
+  };
   let slots = store
     .slots
     .into_iter()
-    .map(|slot| {
+    .zip(idle)
+    .map(|(slot, idle)| {
       let state = match &slot.lease {
         _ if is_unfinished(&slot) => SlotState::Unfinished,
         None => SlotState::Free,
@@ -4323,7 +4379,22 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
       };
       let missing = !Path::new(&slot.path).is_dir();
       let processes = processes.then(|| busy_processes(&scan.inside(Path::new(&slot.path))));
-      SlotStatus { slot, state, missing, processes }
+      // without a scan no other process is known: `slot_servers` would read the pid files of the output bases
+      let idle = idle.then(|| {
+        let others = if scan.is_available() {
+          slot_servers(&scan, Path::new(&slot.path)).1
+        } else {
+          Vec::new()
+        };
+        IdleStatus::of(slot.lease.as_ref().and_then(|lease| lease.idle_check.clone()), &others)
+      });
+      SlotStatus {
+        slot,
+        state,
+        missing,
+        processes,
+        idle,
+      }
     })
     .collect();
   Ok((slots, scan.is_available()))

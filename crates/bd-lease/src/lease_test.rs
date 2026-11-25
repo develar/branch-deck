@@ -2493,6 +2493,73 @@ fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   assert_eq!(fixture.status()["slots"][0]["lease"]["idle"], json!({ "state": "idle" }));
 }
 
+/// The `idle` of a lease in `status`, by the path of its slot
+fn idle_of(status: &Value, path: &str) -> Value {
+  let path = slot_path(path);
+  let slot = status["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(path));
+  slot.unwrap_or_else(|| panic!("no slot {path}: {status}"))["lease"]["idle"].clone()
+}
+
+/// A lease whose holder is gone is `busy` while a process of another session works in its slot, with that process and
+/// the work a check found; its Bazel server alone keeps it as it was, and `brd workspace` lists it as the status does
+#[cfg(unix)]
+#[test]
+fn an_idle_lease_with_a_process_of_another_session_in_its_slot_is_busy() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "resumed"]));
+  bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&path));
+  std::fs::write(Path::new(&path).join("work.txt"), "work\n").unwrap();
+  // the get checks the idle lease, finds the file and adds a slot
+  fixture.get(&[]);
+  let idle = idle_of(&fixture.status(), &path);
+  assert_eq!((&idle["state"], &idle["paths"]), (&json!("idle_with_work"), &json!(["work.txt"])), "{idle}");
+
+  let server = FakeServer::start(&slot_path(&path), Path::new(&path), false);
+  assert_eq!(idle_of(&fixture.status(), &path), idle, "its Bazel server alone");
+  let other = busy_of_another_session(&path);
+  let busy = idle_of(&fixture.status(), &path);
+  assert_eq!(
+    (&busy["state"], &busy["paths"], &busy["checked_at"]),
+    (&json!("busy"), &json!(["work.txt"]), &idle["checked_at"]),
+    "{busy}"
+  );
+  let pids: Vec<&Value> = busy["processes"].as_array().unwrap().iter().map(|process| &process["pid"]).collect();
+  assert_eq!(pids, [&json!(other.id())], "the process of the other session, not the server {}: {busy}", server.pid());
+  assert_eq!(busy["processes"][0]["kind"], json!("other"), "{busy}");
+
+  let (exit_code, workspace) = fixture.run(&["workspace"]);
+  assert_eq!(exit_code, 0, "{workspace}");
+  let listed = workspace["active_leases"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|lease| lease["path"] == json!(slot_path(&path)))
+    .unwrap();
+  assert_eq!(listed["idle"], busy, "{workspace}");
+}
+
+/// The status scans the processes once, and only when a lease has a gone holder; `--processes` always
+#[test]
+fn the_status_scans_the_processes_only_for_a_lease_whose_holder_is_gone() {
+  use lease_pool::lease::{StatusScan, lease_status_with};
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "resumed"]));
+  let git_common_dir = fixture.repo.path().join(".git");
+  let scans = std::cell::Cell::new(0);
+  let scan = || {
+    scans.set(scans.get() + 1);
+    sync_utils::process_scan::ProcessScan::Unavailable
+  };
+  let count = |mode: StatusScan| {
+    let before = scans.get();
+    lease_status_with(&git_common_dir, mode, &scan).unwrap();
+    scans.get() - before
+  };
+  assert_eq!((count(StatusScan::Idle), count(StatusScan::All)), (0, 1), "a live holder");
+  bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&path));
+  assert_eq!((count(StatusScan::Idle), count(StatusScan::All), count(StatusScan::None)), (1, 1, 0), "a gone holder");
+}
+
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new. The two new
 /// slots are registered one after the other: a `worktree add` beside another read its half written admin directory
 /// ("failed to read .git/worktrees/<name>/commondir"), and a get's `worktree prune` deleted it

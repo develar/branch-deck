@@ -2599,7 +2599,10 @@ nothing but LFS puts the content back after a checkout of the blobs.
    in: 13 of the 15 slots of idea-1 were leased at once, some by sessions that had given up, and every further get
    cloned the main checkout. A gone holder alone frees nothing (unlanded work, a resumed session runs as another
    process); a get takes the lease over only once its work landed (Takeover, below), names the others when it adds a
-   slot (`idle_leases`), and `brd lease status` says `holder_alive` and `idle`.
+   slot (`idle_leases`, which checks no process), and `brd lease status` says `holder_alive` and `idle`. The status
+   and `brd workspace` scan the processes once, and only when a lease has a gone holder: a process of another session
+   in its slot makes it `busy`, since a resumed session runs as another process; its Bazel servers alone do not, as a
+   get stops them itself.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. The verdict is kept with its proof (`DirtyCheck`, no git:

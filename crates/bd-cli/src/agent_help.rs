@@ -270,7 +270,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    holder process has been gone for an hour, when every commit of it is on its home branch (by a pick, a patch id,
    the identity and the twin of `brd update`, the mapping note of a sync) and its tree is clean: `took_over` names its
    holder, its lease and the commits it found landed (`landed`, each with its `proof`). One with work its home branch
-   lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` name it with its `commits`, `paths` or
+   lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` (which checks no process: `brd lease status`
+   says `busy` for one a session works in) name it with its `commits`, `paths` or
    `operation`; tell the user, never give it up with `brd lease return --confirm-preserved` on your own. `brd lease reclaim --idle`
    returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`; `skipped` with its `reason`,
    `holder_unknown` when no holder process was recorded: tell the user, never return it on your own); --dry-run only
@@ -427,7 +428,10 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    return stops them with SIGTERM (`bazel shutdown` on Windows) once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `brd lease status` lists the slots and their leases from the pool state
-   (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`; `brd lease list` is the same). The return applies the clean rules of
+   (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work` or `busy`, `reclaimed`, `free_bytes`; `brd lease list` is the same).
+   `busy`: the holder process of the lease is gone, but a process of another session works in its slot (`processes`):
+   the session of the lease lives as another process, a resumed one: never return that lease.
+   The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
    succeeds); the notes of the lease are no path of the worktree, so no rule deletes them:

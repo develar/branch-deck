@@ -24,7 +24,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{lease_config, state_dir};
 use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
-use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
+use lease_pool::lease::{Pool, Slot, SlotState, StatusScan, lease_status_core};
 use lease_pool::lease_clean::{CleanRule, read_clean_rules};
 use lease_pool::lease_notes::config_pool_dir;
 use lease_pool::output_bases::{OutputBase, orphans};
@@ -722,7 +722,7 @@ fn disk_usage_core_inner(
   let locks: Vec<Option<std::fs::File>> = stores.iter().map(|store| if params.cached { None } else { store.try_walk_lock() }).collect();
   let mut units: Vec<Unit> = Vec::new();
   for (pool_index, pool) in machine.pools.iter().enumerate() {
-    let (statuses, _) = lease_status_core(&pool.git_common_dir, false)?;
+    let (statuses, _) = lease_status_core(&pool.git_common_dir, StatusScan::None)?;
     let limit = max_slots(git_executor, None, &pool.git_common_dir).0;
     let trims_next: HashSet<String> = {
       let slots: Vec<Slot> = statuses.iter().map(|status| status.slot.clone()).collect();

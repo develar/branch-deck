@@ -281,7 +281,8 @@ When the build config cannot be read (no merge base, a home branch that no longe
 
 `active_leases` MUST list every ready lease of the pool, so a session that lost its path finds its own by `holder`,
 with `holder_alive` (omitted for a lease whose get recorded no holder process) and, for one whose holder is gone,
-`idle` as `brd lease status` shows it (`idle_with_work` with its work: tell the user).
+`idle` as `brd lease status` shows it (`idle_with_work` with its work: tell the user; `busy`: its session lives as
+another process, never return it).
 
 #### Scenario: A session that lost its path finds its lease by holder
 - **WHEN** an agent runs `brd workspace` in the shared checkout or in a lease
@@ -293,6 +294,8 @@ with `holder_alive` (omitted for a lease whose get recorded no holder process) a
 - **WHEN** the holder of a ready lease is gone
 - **THEN** its entry has `idle` as `brd lease status` shows it
 - **AND** `idle_with_work` with its work: tell the user
+- **AND** `busy` with the processes of another session in its slot: its session lives, never return it
+  [@test] crates/bd-lease/src/lease_test.rs (`an_idle_lease_with_a_process_of_another_session_in_its_slot_is_busy`)
 
 ### Requirement: A lease taken over refuses `brd workspace` of another session
 

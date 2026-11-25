@@ -1298,9 +1298,11 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   it), `abandoned` (the get, the return or the clean of it died) or `unfinished` (its add never finished: the next get
   that adds a slot removes it), `dirty`, `missing`, `lease` (`holder_pid`,
   `holder_alive`: whether the process the get ran for still runs; `idle` of a ready lease whose holder is gone:
-  `idle`, or `idle_with_work` with the `commits`, `paths` or `operation` a check found; `taking_over` while a get
+  `idle`, `idle_with_work` with the `commits`, `paths` or `operation` a check found, or `busy` with the `processes` of
+  another session in its slot, its Bazel servers left out, and the work a check found; `taking_over` while a get
   checks one), `reclaimed` (the lease a takeover or a reclaim took from its dead holder), `free_bytes`,
-  `trash_bytes`; no `git status`. `--processes` adds the processes in each slot.
+  `trash_bytes`; no `git status`, and one scan of the processes only when a lease has a gone holder. `--processes`
+  adds the processes in each slot.
 - `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
   work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`), keeps the ones with
   work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`, and
@@ -2328,7 +2330,8 @@ commits land on (the main worktree, or the source of this lease); in a lease `ho
 toolchain at any depth, the `profile` table of a `Cargo.toml`, the `[host]` table of `.branchdeck.toml`), which the
 lease has in another form: its builds use the old config until `brd lease pick` moves it onto the tip; `lease_id` and `holder` this slot's lease;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
-lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone); in a slot taken
+lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone, as `brd lease
+status` shows it); in a slot taken
 over from a dead holder, another session's `brd workspace` is `lease_reclaimed`; `next` the commands to run, in order:
 
 ```json

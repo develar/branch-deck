@@ -104,8 +104,9 @@ pub struct ActiveLeaseOutput {
   /// Whether the process the lease was got for still runs; omitted for a lease of an older bd
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder_alive: Option<bool>,
-  /// Its holder is gone: `idle` (a get takes it over once its work landed), or `idle_with_work` with what a check found,
-  /// which no get touches: tell the user
+  /// Its holder is gone: `idle` (a get takes it over once its work landed), `idle_with_work` with what a check found,
+  /// which no get touches: tell the user, or `busy`: a process of another session works in its slot, so its session
+  /// lives as another process: never return it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub idle: Option<IdleOutput>,
 }
@@ -198,6 +199,6 @@ fn active_lease(lease: ActiveLease) -> ActiveLeaseOutput {
     holder: lease.holder,
     path: lease.path,
     holder_alive: lease.holder_alive,
-    idle: lease.idle.map(|check| IdleOutput::of(check.as_ref())),
+    idle: lease.idle.as_ref().map(IdleOutput::of_status),
   }
 }

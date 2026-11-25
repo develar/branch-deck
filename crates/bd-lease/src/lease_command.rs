@@ -17,9 +17,9 @@ use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome, LeaseReclaimParams,
-  LeaseRefusal, LeaseReturnParams, PATH_LIMIT, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core,
-  lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, IdleStatus, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome,
+  LeaseReclaimParams, LeaseRefusal, LeaseReturnParams, PATH_LIMIT, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StatusScan, StoppedServer, canonical_path,
+  lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, parse_age};
 use schemars::JsonSchema;
@@ -587,7 +587,8 @@ fn idle_output(idle: &[IdleLease]) -> Vec<IdleLeaseOutput> {
 pub struct IdleOutput {
   /// `idle`: no check found work in it yet, a get takes it over once its work landed and it was quiet for an hour;
   /// `idle_with_work`: a check found work its home branch lacks (`commits`, `paths`, `operation`), which no get touches:
-  /// tell the user
+  /// tell the user; `busy`: processes of another session work in the slot (`processes`), so the session of the lease
+  /// lives as another process: never return the lease or take its slot, the work fields stay as a check found them
   pub state: IdleStateOutput,
   /// Unix seconds of the check that found the work
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -604,6 +605,9 @@ pub struct IdleOutput {
   /// A git operation in progress (`rebase`, `merge`, `cherry-pick`, `revert`, `bisect`) or an open resolve session
   #[serde(skip_serializing_if = "Option::is_none")]
   pub operation: Option<String>,
+  /// The processes of a `busy` lease that work in its slot, its Bazel servers left out
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub processes: Vec<ProcessOutput>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
@@ -611,6 +615,7 @@ pub struct IdleOutput {
 pub enum IdleStateOutput {
   Idle,
   IdleWithWork,
+  Busy,
 }
 
 impl IdleOutput {
@@ -623,6 +628,7 @@ impl IdleOutput {
         paths: Vec::new(),
         paths_omitted: 0,
         operation: None,
+        processes: Vec::new(),
       },
       Some(check) => Self {
         state: IdleStateOutput::IdleWithWork,
@@ -638,6 +644,20 @@ impl IdleOutput {
         paths: cut(&check.paths),
         paths_omitted: omitted_with(&check.paths, check.paths_omitted),
         operation: check.operation.clone(),
+        processes: Vec::new(),
+      },
+    }
+  }
+
+  /// The idle lease as the status found it: `busy` with its processes and the work a check found
+  pub fn of_status(status: &IdleStatus) -> Self {
+    match status {
+      IdleStatus::Idle => Self::of(None),
+      IdleStatus::WithWork(check) => Self::of(Some(check)),
+      IdleStatus::Busy { processes, check } => Self {
+        state: IdleStateOutput::Busy,
+        processes: processes_output(processes),
+        ..Self::of(check.as_ref())
       },
     }
   }
@@ -1185,7 +1205,7 @@ pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, p
 /// The id of the one lease of `holder` in the pool, from the state alone: none is `no_lease`, several are
 /// `invalid_arguments` with the return of each by its id in `next_steps`, as `brd lease notes --holder` names them all
 fn lease_of_holder(context: &LeaseContext, holder: &str) -> Result<String, CliError> {
-  let (slots, _) = lease_status_core(Path::new(&context.dirs.git_common_dir), false).map_err(lease_error)?;
+  let (slots, _) = lease_status_core(Path::new(&context.dirs.git_common_dir), StatusScan::None).map_err(lease_error)?;
   let leases: Vec<(&str, &str)> = slots
     .iter()
     .filter_map(|status| status.slot.lease.as_ref().map(|lease| (lease, status.slot.path.as_str())))
@@ -1284,7 +1304,8 @@ pub struct LeaseOutput {
   /// lease: a get takes it over only once its work landed (`idle`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder_alive: Option<bool>,
-  /// A `ready` lease whose holder process is gone, no host slot: `idle`, or `idle_with_work` with what a check found
+  /// A `ready` lease whose holder process is gone, no host slot: `idle`, `idle_with_work` with what a check found, or
+  /// `busy` with the processes of another session in its slot
   #[serde(skip_serializing_if = "Option::is_none")]
   pub idle: Option<IdleOutput>,
   /// The idle lease a `preparing` get takes over, while it checks its work
@@ -1312,7 +1333,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
   let pool = lease_config(&context.git, &context.dirs.top_level)
     .ok()
     .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
-  let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
+  let (slots, process_scan) = lease_status_core(git_common_dir, if args.processes { StatusScan::All } else { StatusScan::Idle }).map_err(lease_error)?;
   let trash_bytes = Pool::new(Path::new(&canonical_path(git_common_dir))).trash_bytes();
   let notes_roots = Pool::new(Path::new(&canonical_path(git_common_dir))).notes_roots(pool.as_deref(), environment.home.as_deref());
   Ok(LeaseStatusOutput {
@@ -1339,7 +1360,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
           reused: lease.reused,
           holder_pid: lease.holder_pid,
           holder_alive: lease.holder_alive(),
-          idle: lease.is_idle().then(|| IdleOutput::of(lease.idle_check.as_ref())),
+          idle: status.idle.as_ref().map(IdleOutput::of_status),
           taking_over: lease.taking_over.as_ref().map(|old| TakingOverOutput {
             lease_id: old.id.clone(),
             holder: old.holder.clone(),
