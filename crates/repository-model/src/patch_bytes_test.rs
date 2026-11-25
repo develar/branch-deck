@@ -12,9 +12,10 @@ use crate::state::View;
 use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, Person, ReviewReadiness};
 use domain_types::session::ViewPatch;
 
-/// The first patch of the view of the 141 rows, every part from nothing (measured 509 235 bytes: the actions 143 KB,
-/// the branches 111 KB, the landing decisions 77 KB, the next steps 72 KB, the facts 68 KB, the Patronus part 29 KB)
-const FIRST_PATCH_BUDGET: usize = 560_000;
+/// The first patch of the view of the 141 rows, every part from nothing (measured 567 334 bytes: the actions 177 KB,
+/// the branches 114 KB, the next steps 80 KB, the landing decisions 77 KB, the facts 71 KB, the Patronus part 23 KB,
+/// the units of the landing plan 15 KB, the rest of the plan 1 KB)
+const FIRST_PATCH_BUDGET: usize = 580_000;
 /// The patch of one robot that fails: its fact, and the next step, the landing decisions, the actions and the attention
 /// of its branch (measured 3 476 bytes, of them 1 714 the actions with the Safe Push and Request Review… of the branch,
 /// disabled with the step's reason as its Safe Push is)

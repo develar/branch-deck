@@ -71,6 +71,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   const approvalLanding = keyed(view.approvalLanding ?? {}, changes.approvalLanding, changes.removedApprovalLanding)
   const reviewStacks = keyed(view.reviewStacks ?? {}, changes.reviewStacks, changes.removedReviewStacks)
   const operations = keyed(view.operations, changes.operations, changes.removedOperations)
+  const landingUnits = keyed(view.landingUnits ?? {}, changes.landingUnits, changes.removedLandingUnits)
   const sections = view.sections
   const archived = changes.archived
   return {
@@ -115,6 +116,8 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     reviews: changes.reviews ?? view.reviews,
     patronus: changes.patronus == null ? view.patronus : patchedPatronus(view.patronus, changes.patronus),
     route: changes.route ?? view.route,
+    landingUnits,
+    landingPlan: changes.landingPlan ?? view.landingPlan,
     facts: changes.facts == null ? view.facts : patchedFacts(view.facts, changes.facts),
     news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),
   }

@@ -53,8 +53,8 @@ export async function openContextMenu(page: Page, element: Locator): Promise<voi
 /**
  * Click a context menu item by name
  */
-export async function clickContextMenuItem(page: Page, itemName: string): Promise<void> {
-  const menuItem = page.getByRole("menuitem", { name: itemName })
+export async function clickContextMenuItem(page: Page, itemName: string, options: { readonly exact?: boolean } = {}): Promise<void> {
+  const menuItem = page.getByRole("menuitem", { name: itemName, exact: options.exact === true })
   await menuItem.waitFor({ state: "visible" })
   await menuItem.click()
 }

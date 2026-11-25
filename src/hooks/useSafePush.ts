@@ -674,9 +674,10 @@ function revealStartRow(place: StartPlace): void {
  * (`plan_changed`: the fresh needs ask for it no more, a second press after the first ran), the Safe Push popover opens
  * at the row with the needs as they are. The start of a cycle's fix is a click of the Safe Push of what lands both; a
  * fix no rewrite runs here (the group of an unassigned commit) opens the popover at once. The
- * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked
+ * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked. `surface`
+ * the popover that runs it, whose indicator shows it
  */
-export function requestLandingFix(branchName: string, refusal: LandingRefusal): void {
+export function requestLandingFix(branchName: string, refusal: LandingRefusal, surface?: string): void {
   const fix = landingFixOf(refusal)
   // the popover itself, whatever the step holds back now (a readiness asked again for the tip that moved): it reads the
   // start with the needs as they are, and says what it waits for; where the start of the subject shows (the whole stack
@@ -694,7 +695,7 @@ export function requestLandingFix(branchName: string, refusal: LandingRefusal): 
     return
   }
   const fixes = stackRootOfReadinessKey(branchName) === null ? { fixes: refusal } : {}
-  if (fix == null || !runLandingFix(fix, { ...fixes, onPlanChanged: popover })) {
+  if (fix == null || !runLandingFix(fix, { ...fixes, onPlanChanged: popover, ...(surface !== undefined && { surface }) })) {
     popover()
   }
 }

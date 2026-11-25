@@ -1544,6 +1544,15 @@ export type CheckCount = {
 	robot_url: string,
 };
 
+/**  The checks of Patronus of two units in one robot */
+export type ChecksPrice = 
+/**  Each starts the same `count` checks: together they start no other ("same 7 checks") */
+{ kind: "same"; count: number } | 
+/**  Together they start `count` checks, `added` of which only one of them starts ("+ AI Assistant Tests +11") */
+{ kind: "added"; count: number; added: string[] } | 
+/**  The checks are unknown (no `.patronus/config.yaml`, or one that does not parse): `reason` */
+{ kind: "unknown"; reason: string };
+
 export type ChecksState = "passing" | "failing" | "pending";
 
 /**  The checks of the head commit, summarized */
@@ -2694,6 +2703,29 @@ export type DroppedCommit = {
 	/**  Unix timestamp */
 	authorTime: number,
 };
+
+/**
+ *  An action of an edge of the landing plan (`domain_policy::actions::edge_actions`): of a need that nothing lands,
+ *  landing both in one robot or the one it needs first; of a failed robot of it its restart; of an unassigned commit
+ *  its group; of a cycle the start that lands both
+ */
+export type EdgeAction = 
+/**
+ *  Land Together: `branch`, the root of what waits, stacked on `onto`, the branch it needs (`RewriteIntent::Restack`
+ *  with the refusal it fixes): one robot lands both; `forks` the stack they make forks, so its whole stack lands them
+ *  ("Land Together · Safe Push Whole Stack")
+ */
+{ kind: "landTogether"; branch: string; onto: string; forks: boolean } | 
+/**  Land acp-load-replay First: the Safe Push of `branch`, the branch it needs, before this one */
+{ kind: "landFirst"; branch: string } | 
+/**  Restart acp-load-replay: the failed robot of the branch it needs, first */
+{ kind: "restart"; robot: RobotOf } | 
+/**  Group 1a2b3c4d into claude-folds: the unassigned commit it needs into the branch that needs it */
+{ kind: "group"; commit: string; into: string } | 
+/**  Unstack `branch` from `from`, whose declared need it inherits: it lands alone then */
+{ kind: "unstack"; branch: string; from: string } | 
+/**  The Safe Push of `subject`, which lands both: the branch built on both, or the whole stack */
+{ kind: "start"; subject: Subject };
 
 /**  What kind of need an edge is */
 export type EdgeKind = 
@@ -4713,6 +4745,28 @@ export type LandResult = {
 };
 
 /**
+ *  Land Together: the unit `from` stacked on `onto`, the branch of the unit `onto_unit` it needs, so one robot lands
+ *  both (`RewriteIntent::Restack` of the root of `from` that fixes `fixes`, one undo). Offered only for a need of the
+ *  build that nothing lands (`EdgeState::Open`), never of a declared one, never with a unit that lands or failed
+ */
+export type LandTogether = {
+	from: string,
+	onto: string,
+	ontoUnit: string,
+	/**
+	 *  The refusal of the start of `from` the restack fixes: the engine runs it on fresh landing needs only, and refuses
+	 *  it once nothing refuses with it any more
+	 */
+	fixes: LandingRefusal,
+	/**  The stack the two make forks: the Safe Push of its whole stack lands them ("Land Together · Safe Push Whole Stack") */
+	forks: boolean,
+	/**  What landing them in one robot costs */
+	price: TogetherPrice,
+	/**  The same restack for an agent: `brd restack <from> <onto>` */
+	command: string,
+};
+
+/**
  *  What landed a subject (`domain_policy::landed::landed_state`): the fetched baseline, merged Safe Pushes, or GitHub
  *  merging its pull request; nothing of it is left to land while `after` is empty
  */
@@ -4887,6 +4941,11 @@ export type LandingEdge = {
 	 *  own, which only the landing of `needed` clears
 	 */
 	fix: LandingFix | null,
+	/**
+	 *  What the user does of it, the first the primary, in the order every surface shows them (the slot of the row, its
+	 *  "⋯", the Safe Push popover): one builder (`domain_policy::actions::edge_actions`); none while it waits
+	 */
+	actions?: EdgeAction[],
 };
 
 /**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
@@ -4969,6 +5028,25 @@ export type LandingNodeKind =
 "waiting" | 
 /**  Kept local, never pushed */
 "parked" | "inMaster";
+
+/**  The landing plan of a table */
+export type LandingPlan = {
+	/**
+	 *  The landing needs of the table are still computed (or stale): the waves may change, and no unit is offered to land
+	 *  with another
+	 */
+	stale: boolean,
+	/**  What lands in one move, in the order of the table */
+	units: LandingUnit[],
+	/**  The edges of the needs of every unit, each lifted to the root of its unit (`landing_edges`) */
+	edges: LandingEdge[],
+	/**  The units on their way, in the order they land: what lands now, what is ready next, then what waits for others */
+	waves: LandingWave[],
+	/**  The parked branches, which land with nothing */
+	parked: string[],
+	/**  The offers to land a unit with the unit it needs in one robot, each with its price */
+	proposals: LandTogether[],
+};
 
 /**  Why a start is refused */
 export type LandingRefusal = 
@@ -5084,6 +5162,34 @@ export type LandingSetting =
 /**  A merge of its pull request on GitHub lands it */
 "pullRequest";
 
+/**
+ *  What lands into master in one move (openspec/specs/repository/landing-overview/spec.md): a lone branch, or a stack,
+ *  whose node and next step are those of its whole stack
+ */
+export type LandingUnit = {
+	/**  The branch, or the root of the stack */
+	name: string,
+	/**  Its branches, the root first, each after its parent; the parked ones are in no unit */
+	branches: string[],
+	/**  The commits of its branches */
+	commitCount: number,
+	/**
+	 *  The subject whose node is the unit's (its key in `RepositoryView::next_steps`): the branch; of a stack the stack
+	 *  branch (`stack:<root>`) while it forks, else the last branch of its straight chain; the root itself while the
+	 *  whole stack holds a parked branch, which lands it in pieces
+	 */
+	node: string,
+	/**  The kind of that node */
+	kind: LandingNodeKind,
+	/**  The branches of a stack whose own node needs a fix (a conflict, a failed robot): each a move of its own */
+	fixes: string[],
+	/**
+	 *  The required checks of Patronus its changes start, in the order of `.patronus/config.yaml`; none while they are
+	 *  unknown
+	 */
+	checks: string[] | null,
+};
+
 /**  What the user's merged robots landed */
 export type LandingValue = {
 	/**  Over the merges whose changes were read; null without one */
@@ -5091,6 +5197,13 @@ export type LandingValue = {
 	merges_read: number,
 	/**  Merged robots of a whole stack (`{prefix}/stack/<root>`) */
 	whole_stack: number,
+};
+
+/**  A wave of the plan: the units that land at one step of the way */
+export type LandingWave = {
+	kind: WaveKind,
+	/**  The units, by name, in the order of the table */
+	units: string[],
 };
 
 /**  The spans of code of one line of a block of a body: a line of a paragraph, an item of a list, a label or a heading */
@@ -8190,6 +8303,16 @@ export type RepositoryView = {
 	 *  the target
 	 */
 	route: LandingRoute,
+	/**
+	 *  The units of the landing plan, by name (the branch, or the root of the stack): a part of their own, keyed, so the
+	 *  node of one that changes sends that unit alone; the page lists them in the order of the rows
+	 */
+	landingUnits?: { [key in string]: LandingUnit },
+	/**
+	 *  The landing plan of the table (`domain_policy::landing_plan`) without its units (`landing_units`): the edges
+	 *  between them, the waves and the offers to land two in one robot with their price
+	 */
+	landingPlan?: LandingPlan,
 	/**  What the remote services answered, beside the table */
 	facts: FactsView,
 	/**
@@ -10949,6 +11072,9 @@ export type TableChanges = {
 	reviews?: ReviewsView | null,
 	patronus?: PatronusChange | null,
 	route?: LandingRoute | null,
+	landingUnits?: { [key in string]: LandingUnit },
+	removedLandingUnits?: string[],
+	landingPlan?: LandingPlan | null,
 	facts?: FactsChanges | null,
 	/**  The news since the patch before, oldest first */
 	news?: News[],
@@ -11149,6 +11275,32 @@ export type TitleSource =
 "name" | 
 /**  No title: the page names it by the evidence of its concern */
 "evidence";
+
+/**  What landing two units in one robot costs, as risks the page words one by one */
+export type TogetherPrice = {
+	/**  The robots apart and together: "1 robot instead of 2" */
+	robots: number,
+	together: number,
+	/**  The checks the robot runs together against those of each apart */
+	checks: ChecksPrice,
+	/**  A failure of either holds both: one robot, one verdict */
+	failureHoldsBoth: boolean,
+	/**
+	 *  The pull request whose approvals count for the start that lands both: of the whole stack while it forks, else of
+	 *  the branch that lands last; none without one
+	 */
+	approvalsIn: number | null,
+	/**
+	 *  The code owners of the unit it needs that the unit that waits lacks: the wider diff asks them too; none while
+	 *  unknown
+	 */
+	ownersAdded: string[] | null,
+	/**
+	 *  Off Patronus, the open pull requests of the two that become one stack of GitHub ("#12 and #13 become one GitHub
+	 *  stack"); none on Patronus
+	 */
+	githubStack: number[] | null,
+};
 
 /**  Where the GitHub token came from, in the order they are tried (`github::token`) */
 export type TokenSource = 
@@ -11715,6 +11867,15 @@ export type ViewSubscription = {
  *  where a ruleset lets them (the API of the rules doesn't tell whether it does)
  */
 export type ViewerPermission = "read" | "triage" | "write" | "maintain" | "admin";
+
+/**  Where a wave stands on the way into master */
+export type WaveKind = 
+/**  Landing now: their robots run */
+{ kind: "landing" } | 
+/**  Next: nothing they need is on the way */
+{ kind: "next" } | 
+/**  After the units of `after` land ("After acp-load-replay"), which are in earlier waves */
+{ kind: "after"; after: string[] };
 
 export type WeekCount = {
 	/**  Unix seconds of the local Monday 00:00 */

@@ -37,6 +37,7 @@ use crate::pull_request::creation_blocker;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
 use domain_types::landing::Landed;
 use domain_types::landing::Subject;
+use domain_types::landing::{EdgeAction, EdgeKind, EdgeState, LandingEdge, LandingFix};
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind};
 use domain_types::operation::{Intent, OperationId, OperationStep, Origin, PullRequestField, PushScope, Resource, RunningOperation};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
@@ -1015,6 +1016,53 @@ fn is_own_rewrite(id: ActionId, name: &str, unparks: &str, rewrite: &RewriteInte
     (ActionId::Park, RewriteIntent::Park { branches, .. }) => matches!(branches.as_slice(), [line] if line.branch_name == name),
     (ActionId::Unpark, RewriteIntent::Unpark { branch_names, .. }) => matches!(branch_names.as_slice(), [only] if only == unparks),
     _ => false,
+  }
+}
+
+/// What the user does of an edge of the landing plan, the primary first, for every surface (the slot of the row, its
+/// "⋯", the Safe Push popover, the plan): none while it waits for the robot that lands what it needs, whose start
+/// beside it fails; of a failed robot of the branch it needs its restart; of an unassigned commit its group; of a cycle
+/// the start that lands both; of a need of the build that nothing lands, landing both in one robot (the restack of its
+/// fix, `forks` when the stack they make forks) or the branch it needs first; of a declared need its unstack when it is
+/// inherited, and the branch it needs first, never in one robot with it; of a companion nothing, its robots its own
+#[must_use]
+pub fn edge_actions(edge: &LandingEdge, forks: bool) -> Vec<EdgeAction> {
+  let land_first = || EdgeAction::LandFirst { branch: edge.needed.clone() };
+  match (&edge.state, &edge.fix) {
+    (EdgeState::NeededFailed { robot }, _) => vec![EdgeAction::Restart { robot: robot.clone() }],
+    (EdgeState::Unassigned, Some(LandingFix::MoveCommit { commit, into })) => vec![EdgeAction::Group {
+      commit: commit.id.clone(),
+      into: into.clone(),
+    }],
+    (EdgeState::Cycle, Some(LandingFix::Start { subject })) => vec![EdgeAction::Start { subject: subject.clone() }],
+    (EdgeState::Open, fix) => match (edge.kind, fix) {
+      (EdgeKind::Companion, _) => Vec::new(),
+      (EdgeKind::Build, Some(LandingFix::Restack { branch, onto })) => vec![
+        EdgeAction::LandTogether {
+          branch: branch.clone(),
+          onto: onto.clone(),
+          forks,
+        },
+        land_first(),
+      ],
+      (_, Some(LandingFix::Unstack { branch, from })) => vec![
+        EdgeAction::Unstack {
+          branch: branch.clone(),
+          from: from.clone(),
+        },
+        land_first(),
+      ],
+      _ => vec![land_first()],
+    },
+    // a wait: its start lands after the robot of what it needs; an unassigned commit or a cycle without its fix
+    _ => Vec::new(),
+  }
+}
+
+/// `edges` with their actions (`edge_actions`); `forks` whether landing an edge together makes a stack that forks
+pub fn with_edge_actions(edges: &mut [LandingEdge], forks: impl Fn(&LandingEdge) -> bool) {
+  for edge in edges {
+    edge.actions = edge_actions(edge, forks(edge));
   }
 }
 

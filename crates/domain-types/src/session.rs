@@ -23,6 +23,7 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
+use crate::landing_plan::{LandingPlan, LandingUnit};
 use crate::landing_route::{LandingRemote, LandingRoute};
 use crate::next_step::NextStepView;
 use crate::operation::{OperationId, ReviewedLayer, RunningOperation};
@@ -528,6 +529,14 @@ pub struct RepositoryView {
   /// grouping read of git, the facts of GitHub the session holds and the refusal of the server of its last push into
   /// the target
   pub route: LandingRoute,
+  /// The units of the landing plan, by name (the branch, or the root of the stack): a part of their own, keyed, so the
+  /// node of one that changes sends that unit alone; the page lists them in the order of the rows
+  #[serde(default)]
+  pub landing_units: BTreeMap<String, LandingUnit>,
+  /// The landing plan of the table (`domain_policy::landing_plan`) without its units (`landing_units`): the edges
+  /// between them, the waves and the offers to land two in one robot with their price
+  #[serde(default)]
+  pub landing_plan: LandingPlan,
   /// What the remote services answered, beside the table
   pub facts: FactsView,
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
@@ -1601,6 +1610,15 @@ pub struct TableChanges {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub route: Option<LandingRoute>,
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landing_units: BTreeMap<String, LandingUnit>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_landing_units: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landing_plan: Option<LandingPlan>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub facts: Option<FactsChanges>,

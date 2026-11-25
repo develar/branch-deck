@@ -150,8 +150,9 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   // its pull request is the branch's one, which "Open Pull Request" already opens
   const robotActions = robot === undefined ? [] : getRobotActionItemsNow(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
-    // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
-    nextStep.landingFix,
+    // the build of what its Safe Push lands needs a branch outside it: the actions of that edge first ("Land Together",
+    // "Land stills-codec First")
+    ...nextStep.landingFixes,
     getSafePushMenuItem(branch, nextStep),
     // GitHub merges its pull request once the checks pass: Cancel Auto-Merge, while Rust offers it
     pullRequest === undefined

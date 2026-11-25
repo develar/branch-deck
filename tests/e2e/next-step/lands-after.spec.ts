@@ -93,8 +93,9 @@ test.describe("Lands after", () => {
       await expect(detail.getByTitle("flow/src/main/kotlin/org/example/platform/landing/pipeline/codec/integration/FlowCodecIntegrationEntryPoint.kt:3")).toHaveText(
         "FlowCodecIntegrationEntryPoint.kt:3",
       )
-      // the fix first: Start Anyway stays, never the focused default
-      await expect(needs.getByRole("button", { name: "Stack flow on codec" })).toBeFocused()
+      // the actions of the edge first, Land Together focused: Start Anyway stays, never the focused default
+      await expect(needs.getByRole("button", { name: "Land Together" })).toBeFocused()
+      await expect(needs.getByRole("button", { name: "Land codec First" })).toBeVisible()
       await expect(popover.getByTestId("safe-push-start")).toHaveText("Start Anyway")
       // nothing of the lines goes past the popover
       const box = (await safePushPopover(page).boundingBox())!

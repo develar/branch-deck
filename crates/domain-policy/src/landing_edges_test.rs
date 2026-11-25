@@ -76,6 +76,7 @@ fn edge(from: &str, needed: &str, kind: EdgeKind, state: EdgeState, refuses: &[&
     refusals: 1,
     refuses: refuses.iter().map(|branch| (*branch).to_string()).collect(),
     fix,
+    actions: Vec::new(),
   }
 }
 

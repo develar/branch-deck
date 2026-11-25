@@ -46,6 +46,7 @@ pub fn edges_of(branch: &str, root: &str, refusals: &[LandingRefusal], failed_of
           refusals: 0,
           refuses: vec![branch.to_string()],
           fix,
+          actions: Vec::new(),
         },
         None,
       ));

@@ -91,9 +91,13 @@ describe("the words of the next step", () => {
     const step = presentNextStep(needs(refused.refusal), testContext({ actions: testActions(calls) }))
     expect(step).toMatchObject({ kind: "needsBranch", safePushBlocker: null })
     expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util", description: "Uses parseFlow of util in Flow.kt. Stack flow on util to land it too." })
-    expect(step.landingFix).toMatchObject({ label: "Stack flow on util" })
+    // the actions of the edge, Rust's builder, for "⋯" and the popover
+    expect(step.landingFixes.map(fix => fix.label)).toEqual(["Land Together", "Land util First"])
     step.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["fixLanding restack"])
+    step.landingFixes[1]!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["fixLanding restack", "startSubject util"])
+    calls.length = 1
     // a branch built on what lands: the start of what lands both, never a move
     const cycle = (reasonOf("landingRefused", 1) as Extract<Reason, { code: "landingRefused" }>).refusal satisfies LandingRefusal
     const starts = presentNextStep(needs(cycle, { state: { kind: "cycle" } }), testContext({ actions: testActions(calls) }))
@@ -116,7 +120,7 @@ describe("the words of the next step", () => {
     }
     const opens = presentNextStep(testStep({ kind: "needsBranch", refusals: [lost], edges: [] }), testContext({ actions: testActions(calls) }))
     expect(opens.item).toMatchObject({ id: "landing-needs", label: "Needs fix of 6a4e00db" })
-    expect(opens.landingFix).toBeNull()
+    expect(opens.landingFixes).toEqual([])
   })
 
   it("row 1′: says one edge in one sentence, restarts a failed robot of the branch it needs and groups an unassigned commit", () => {
@@ -128,11 +132,10 @@ describe("the words of the next step", () => {
     expect(merged.item?.description).toBe("Uses 5 names of util in acp_load_replay.rs (Effect, Input +3). Stack flow on util to land it too.")
     expect(merged.item?.description).not.toContain("brd check")
     // the robot of util failed: its restart, of that robot
-    const restart = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => calls.push("restart") }
     const failed = testEdge(refused, { state: { kind: "neededFailed", robot: { branch: "util", robotId: "r9", wholeStack: false } } })
-    const restarts = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused], edges: [failed] }), testContext({ actions: testActions(calls, { restart }) }))
+    const restarts = presentNextStep(testStep({ kind: "needsBranch", refusals: [refused], edges: [failed] }), testContext({ actions: testActions(calls) }))
     expect(restarts.item).toMatchObject({
-      id: "restart-robot",
+      id: "restart-needed",
       label: "Restart util",
       description: "Uses parseFlow of util in Flow.kt: the Safe Push of util failed. Restart it first: a start beside a failing piece fails too.",
     })
@@ -153,7 +156,7 @@ describe("the words of the next step", () => {
       description: "Uses parseFlow of 1a2b3c4d (unassigned) in Flow.kt. Group 1a2b3c4d into flow.",
     })
     groups.item!.onSelect(FROM_MENU)
-    expect(calls).toEqual(["restart", "groupCommit 1a2b3c4d5 flow"])
+    expect(calls).toEqual(["restartRobot r9", "groupCommit 1a2b3c4d5 flow"])
   })
 
   it("row 1′: lands after the running Safe Push of what every need is of, a wait its status says, the start in its popover", () => {
@@ -181,7 +184,7 @@ describe("the words of the next step", () => {
     const needs = testStep({ kind: "needsBranch", refusals: [refused.refusal], edges: [testEdge(refused.refusal)] })
     const step = presentNextStep(needs, testContext({ busy, actions: testActions(calls) }))
     expect(step.item).toMatchObject({ id: "landing-fix", label: "Needs util", disabled: true, description: "Stacking flow on util…" })
-    expect(step.landingFix).toMatchObject({ label: "Stack flow on util", disabled: true, description: "Stacking flow on util…" })
+    expect(step.landingFixes[0]).toMatchObject({ label: "Land Together", disabled: true, description: "Stacking flow on util…" })
     // the fix names the refusal it fixes, which the engine checks against the fresh needs
     presentNextStep(needs, testContext({ actions: testActions(calls) })).item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["fixLanding restack"])
@@ -190,7 +193,8 @@ describe("the words of the next step", () => {
   it("row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need", () => {
     const calls: string[] = []
     const own = presentNextStep(testStep({ kind: "needsBranch", refusals: [DECLARED_DOCS], edges: [testEdge(DECLARED_DOCS)] }), testContext({ actions: testActions(calls) }))
-    expect(own).toMatchObject({ kind: "needsBranch", safePushBlocker: null, landingFix: null })
+    expect(own).toMatchObject({ kind: "needsBranch", safePushBlocker: null })
+    expect(own.landingFixes.map(fix => fix.label)).toEqual(["Land docs First"])
     expect(own.item).toMatchObject({ id: "landing-needs", label: "Needs docs" })
     own.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["openSafePush"])
@@ -200,7 +204,7 @@ describe("the words of the next step", () => {
       testContext({ actions: testActions(calls) }),
     )
     expect(unstacks.item).toMatchObject({ id: "landing-fix", label: "Needs docs" })
-    expect(unstacks.landingFix).toMatchObject({ label: "Unstack ui from auth" })
+    expect(unstacks.landingFixes[0]).toMatchObject({ label: "Unstack ui from auth" })
     unstacks.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["openSafePush", "fixLanding unstack"])
   })

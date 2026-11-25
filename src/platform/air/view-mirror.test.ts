@@ -24,6 +24,7 @@ const KEYED = new Set([
   "approvalLanding",
   "reviewStacks",
   "operations",
+  "landingUnits",
 ])
 
 /** The ops of the change from `before` to `after`, as the mirror of `brd mcp` has it: a keyed part by key, the others whole */

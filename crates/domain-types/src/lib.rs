@@ -84,6 +84,7 @@ pub mod fixtures;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;
+pub mod landing_plan;
 pub mod landing_route;
 pub mod next_step;
 pub mod operation;

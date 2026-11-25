@@ -10,6 +10,7 @@ targets:
   - src/lib/activity-window.ts
   - src/hooks/useLandingOverview.ts
   - src/hooks/useLandingNode.ts
+  - crates/domain-policy/src/landing_plan.rs
   - crates/domain-policy/src/landing_node.rs
   - crates/domain-policy/src/next_step.rs
   - crates/domain-policy/src/attention.rs
@@ -61,10 +62,10 @@ indicator, whose states were the same story told twice.
 
 ### Requirement: Units: A unit is a lone branch or a stack, with the node of the whole stack
 
-A unit is what lands in one move: a lone branch, or a stack (its root's row). The node and the next step of a stack
-MUST be those of the whole stack, as the header of its island shows them (`getStackLandingNodeNow`,
-`useStackNextStep`: of its stack branch while the stack forks, `nextSteps` of the view under `stack:<root>`, else of
-the last branch of its straight chain).
+A unit is what lands in one move: a lone branch, or a stack (its root's row), as Rust decides it
+(`RepositoryView.landingUnits`, `domain_policy::landing_plan`). The node and the next step of a stack MUST be those of
+the whole stack, as the header of its island shows them (`useStackNextStep`: of its stack branch while the stack
+forks, `nextSteps` of the view under `stack:<root>`, else of the last branch of its straight chain).
 
 #### Scenario: A stack is one unit, its root's row with the step of the whole stack
 - **GIVEN** a stack of several branches and a lone branch
@@ -74,6 +75,8 @@ the last branch of its straight chain).
 - **AND** the step of its row is the step of the whole stack
   [@test] src/lib/landing-overview.test.ts (`counts the user's moves by unit, a ready stack of 22 branches one move, the most urgent first`)
   [@test] tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)
+  [@test] crates/domain-policy/src/landing_plan_test.rs (`the_plan_of_idea_1_lands_two_robots_now_three_branches_next_and_two_units_after_them`)
+  [@test] tests/e2e/next-step/land-together.spec.ts (`should land a branch with the branch it needs in one robot from the Safe Push popover, one unit in the Landing overview, and undo it`)
 
 #### Scenario: A stack that forks takes the step of its stack branch
 - **GIVEN** a stack that forks

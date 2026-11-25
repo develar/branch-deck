@@ -57,6 +57,7 @@ use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, nee
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::patronus_view::landing_robots;
 use crate::table::{TableParts, TableState};
+use domain_policy::actions::with_edge_actions;
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::declared_needs::declared_refusals;
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
@@ -70,6 +71,7 @@ use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, lande
 use domain_policy::landing_edges::edges_of;
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, landing_node};
+use domain_policy::landing_plan::{PlanFacts, UnitFacts, landing_plan, landing_units, together_forks};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
@@ -85,7 +87,8 @@ use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
-use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandFact, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
+use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandFact, LandProfiles, Landed, LandingEdge, LandingFix, LandingRefusal, ProfileChoice, Subject};
+use domain_types::landing_plan::LandingPlan;
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, PushSlot, RowStatus, StackPullRequest};
 use domain_types::operation::{Intent, Resource, RunningOperation};
@@ -1707,7 +1710,6 @@ impl StepSources<'_> {
     self.robots.robots.get(id?)
   }
 
-  /// The robot of a subject with what the session learned of it; `restart` whether its restart is offered
   /// The failed Safe Push of `branch` itself, as the view names its robot: what an edge that needs the branch waits on
   /// to restart (`EdgeState::NeededFailed`)
   fn failed_robot_of(&self, branch: &str) -> Option<RobotOf> {
@@ -1718,6 +1720,15 @@ impl StepSources<'_> {
     Some(Subject::branch(branch).robot_of(&robot.id))
   }
 
+  /// The edges of the start of `branch` (root of what lands `root`) of `refusals`, with their actions
+  /// (`edges_of`, `with_edge_actions`)
+  fn edges(&self, repo: &Repository<'_>, branch: &str, root: &str, refusals: &[LandingRefusal]) -> Vec<LandingEdge> {
+    let mut edges = edges_of(branch, root, refusals, |needed| self.failed_robot_of(needed));
+    with_edge_actions(&mut edges, |edge| restack_forks(repo, edge));
+    edges
+  }
+
+  /// The robot of a subject with what the session learned of it; `restart` whether its restart is offered
   fn step_robot(&self, id: Option<&str>, restart: impl Fn(&PatronusRobot) -> bool) -> Option<StepRobot<'_>> {
     let robot = self.robot(id)?;
     let offered = self
@@ -1814,7 +1825,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
     };
     let edges = match needs {
-      Needs::Known(refusals) if !refusals.is_empty() => edges_of(name, ancestors.first().copied().unwrap_or(name), refusals, |needed| sources.failed_robot_of(needed)),
+      Needs::Known(refusals) if !refusals.is_empty() => sources.edges(&repo, name, ancestors.first().copied().unwrap_or(name), refusals),
       _ => Vec::new(),
     };
     let step = StepFacts {
@@ -1919,7 +1930,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     // none landed: every branch of it, as `whole_stack_rest` leaves them
     let lands = rest.members.len();
     let declared = whole_stack_declared(sources.declared, stack);
-    let edges = edges_of(&stack.root, &stack.root, &declared, |needed| sources.failed_robot_of(needed));
+    let edges = sources.edges(&repo, &stack.root, &stack.root, &declared);
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1988,6 +1999,83 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
   steps.into_iter().collect()
 }
 
+/// Whether landing `edge` together (the restack of its fix) makes a stack that forks (`together_forks`)
+fn restack_forks(repo: &Repository<'_>, edge: &LandingEdge) -> bool {
+  match &edge.fix {
+    Some(LandingFix::Restack { branch, onto }) => together_forks(repo, branch, onto),
+    _ => false,
+  }
+}
+
+/// The landing plan of the table of `sources` over its next steps and nodes (`next_steps`), for the app and `brd plan`
+/// (`domain_policy::landing_plan`): the units, the edges of the landing needs of every row with the order the user
+/// declared, the waves, the parked branches and the offers to land together with their price
+#[must_use]
+pub fn landing_plan_of(sources: &StepSources<'_>, steps: &BTreeMap<String, NextStepView>) -> LandingPlan {
+  let repo = Repository::of_grouping(&sources.table.branches, &sources.table.parked);
+  let table_stacks: BTreeMap<String, StackBranchUpdate>;
+  let stacks = if let Some(stacks) = sources.view_stacks {
+    stacks
+  } else {
+    table_stacks = sources.table.stack_branches.iter().map(|stack| (stack.root.clone(), stack.clone())).collect();
+    &table_stacks
+  };
+  let whole_stack_key = |root: &str| match whole_stack_view(&repo, stacks, root)? {
+    WholeStackView::Forking { .. } => Some(stack_readiness_key(root)),
+    WholeStackView::Chain { leaf } => Some(leaf),
+  };
+  let node_kind = |key: &str| steps.get(key).map(|view| view.node.kind);
+  let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
+  let commit_count = |name: &str| rows.get(name).map_or(0, |row| u32::try_from(row.commit_count).unwrap_or(u32::MAX));
+  let footprints = &sources.view.footprints;
+  let units = landing_units(&UnitFacts {
+    repo: &repo,
+    whole_stack_key: &whole_stack_key,
+    node_kind: &node_kind,
+    commit_count: &commit_count,
+    footprints,
+  });
+  // the needs as the rows read them: the order the user declared with what the check found, else the found ones
+  let merged: Vec<(&str, Vec<LandingRefusal>)> = sources
+    .rows
+    .iter()
+    .filter_map(|(name, _)| {
+      let found = match sources.view.branches.get(name).map(|facts| &facts.landing_needs) {
+        Some(LandingNeeds::Known { refusals }) => refusals.as_slice(),
+        _ => &[],
+      };
+      let declared = sources.declared.get(name).map_or(&[][..], Vec::as_slice);
+      let refusals: Vec<LandingRefusal> = declared.iter().chain(found).cloned().collect();
+      (!refusals.is_empty()).then_some((name.as_str(), refusals))
+    })
+    .collect();
+  let open_pull_request = |key: &str| match key.strip_prefix("stack:") {
+    Some(root) => sources
+      .pull_requests
+      .stack_pull_requests
+      .get(root)
+      .filter(|it| it.state == PullRequestState::Open)
+      .map(|it| it.number),
+    None => sources
+      .pull_requests
+      .pull_requests
+      .get(key)
+      .filter(|it| it.state == PullRequestState::Open)
+      .map(|it| it.number),
+  };
+  let failed_robot_of = |branch: &str| sources.failed_robot_of(branch);
+  landing_plan(PlanFacts {
+    repo: &repo,
+    units,
+    needs: merged.iter().map(|(name, refusals)| (*name, refusals.as_slice())).collect(),
+    stale: !matches!(sources.landing_needs, FactState::Fresh),
+    failed_robot_of: &failed_robot_of,
+    footprints,
+    github: !matches!(sources.route, LandingRoute::Patronus { .. }),
+    open_pull_request: &open_pull_request,
+  })
+}
+
 /// The open pull request of each subject of `state` as the rules read it (`open_pull_requests_view`), over the pull
 /// requests and the readiness of the session of `prefix`
 #[must_use]
@@ -2024,9 +2112,35 @@ pub fn open_pull_requests_of(state: &TableState, facts: &FactStore, prefix: &str
 /// subject (`landed`, `landed_states_of`); none before the first sync
 #[must_use]
 pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<String, PullRequestView>, landed: &BTreeMap<String, Landed>) -> BTreeMap<String, NextStepView> {
-  let Some(table) = facts.table_facts(state) else {
-    return BTreeMap::new();
-  };
+  with_step_sources(state, facts, open, landed, next_steps).unwrap_or_default()
+}
+
+/// `next_steps_of` with the landing plan over them (`landing_plan_of`); an empty plan before the first sync
+#[must_use]
+pub fn steps_and_plan_of(
+  state: &TableState,
+  facts: &FactStore,
+  open: &BTreeMap<String, PullRequestView>,
+  landed: &BTreeMap<String, Landed>,
+) -> (BTreeMap<String, NextStepView>, LandingPlan) {
+  with_step_sources(state, facts, open, landed, |sources| {
+    let steps = next_steps(sources);
+    let plan = landing_plan_of(sources, &steps);
+    (steps, plan)
+  })
+  .unwrap_or_default()
+}
+
+/// What `decide` makes of the step sources of `state` over the facts of the session (`next_steps_of`); none before the
+/// first sync
+fn with_step_sources<T>(
+  state: &TableState,
+  facts: &FactStore,
+  open: &BTreeMap<String, PullRequestView>,
+  landed: &BTreeMap<String, Landed>,
+  decide: impl FnOnce(&StepSources<'_>) -> T,
+) -> Option<T> {
+  let table = facts.table_facts(state)?;
   let parts = &state.parts;
   let rows: Vec<(String, RowFacts)> = parts.order.iter().filter_map(|name| Some((name.clone(), row_of_view(parts.branches.get(name)?)))).collect();
   let part = facts.patronus.part();
@@ -2053,7 +2167,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     view_state: &part.state,
     declared: &declared_needs_of(&table.table, |need| is_unapplied(&parts.sections.unapplied, need), &part.view),
   };
-  next_steps(&sources)
+  Some(decide(&sources))
 }
 
 /// How long each running robot of the session usually runs, by robot id (`domain_policy::robot_estimate::estimates`):

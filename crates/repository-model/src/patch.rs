@@ -9,6 +9,7 @@
 use domain_types::actions::ActionState;
 use domain_types::commit::Commit;
 use domain_types::landing::{LandDecisions, Landed};
+use domain_types::landing_plan::{LandingPlan, LandingUnit};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::operation::{OperationId, RunningOperation};
@@ -143,6 +144,9 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     reviews,
     patronus,
     route,
+    landing_units,
+    removed_landing_units,
+    landing_plan,
     facts,
     news,
   } = changes;
@@ -186,6 +190,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   set_if_some(&mut view.inputs_checked_at, inputs_checked_at);
   set_if_some(&mut view.reviews, reviews);
   set_if_some(&mut view.route, route);
+  apply_keyed(&mut view.landing_units, landing_units, &removed_landing_units);
+  set_if_some(&mut view.landing_plan, landing_plan);
   let sections = &mut view.sections;
   set_if_some(&mut sections.unassigned, unassigned);
   set_if_some(&mut sections.unapplied, unapplied);
@@ -248,7 +254,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
 
 /// A copy of the parts of `changes` that the table and the facts hold, without the parts the view derives of them (the
 /// rules' answers: the pushes, the open pull requests, the starts, what landed, the next steps, the actions, the
-/// attention, the layers, the reviewer groups, the reviews and the route), which `state::View` moves into the view it
+/// attention, the layers, the reviewer groups, the reviews, the route and the landing plan), which `state::View` moves into the view it
 /// keeps instead of copying them
 pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
   let TableChanges {
@@ -296,6 +302,9 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     reviews: _,
     patronus,
     route: _,
+    landing_units: _,
+    removed_landing_units: _,
+    landing_plan: _,
     facts,
     news,
   } = changes;
@@ -472,6 +481,8 @@ pub(crate) struct Now<'a> {
   pub(crate) reviews: &'a ReviewsView,
   pub(crate) patronus: &'a PatronusPart,
   pub(crate) route: &'a LandingRoute,
+  pub(crate) landing_units: &'a BTreeMap<String, LandingUnit>,
+  pub(crate) landing_plan: &'a LandingPlan,
   /// What changed of the facts, which the caller compares by what it holds them in
   pub(crate) facts: Option<FactsChanges>,
   /// Oldest first
@@ -501,6 +512,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (review_groups, removed_review_groups) = diff_keyed(&last.review_groups, now.review_groups);
   let (approval_landing, removed_approval_landing) = diff_keyed(&last.approval_landing, now.approval_landing);
   let (review_stacks, removed_review_stacks) = diff_keyed(&last.review_stacks, now.review_stacks);
+  let (landing_units, removed_landing_units) = diff_keyed(&last.landing_units, now.landing_units);
   let (operations, removed_operations) = operations_change(&last.operations, &now.operations);
   let (last_archived, archived) = (&last.sections.archived, &now.sections.archived);
   let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -555,6 +567,9 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     reviews: changed(&last.reviews, now.reviews),
     patronus: patronus_change(&last.patronus, now.patronus),
     route: changed(&last.route, now.route),
+    landing_units,
+    removed_landing_units,
+    landing_plan: changed(&last.landing_plan, now.landing_plan),
     facts: now.facts,
     news: new_news(&last.news, now.news),
   }
@@ -592,6 +607,8 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     reviews: &to.reviews,
     patronus: &to.patronus,
     route: &to.route,
+    landing_units: &to.landing_units,
+    landing_plan: &to.landing_plan,
     facts: facts_view_change(&from.facts, &to.facts),
     news: &to.news,
   };

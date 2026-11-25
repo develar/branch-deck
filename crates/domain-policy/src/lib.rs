@@ -121,6 +121,7 @@ pub mod landed_island;
 pub mod landing_edges;
 pub mod landing_needs;
 pub mod landing_node;
+pub mod landing_plan;
 pub mod landing_route;
 pub mod news;
 pub mod next_step;

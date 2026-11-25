@@ -13,13 +13,27 @@ import {
   Layers2Icon,
   MessageSquareWarningIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
   ShieldCheckIcon,
   TriangleAlertIcon,
   UserPlusIcon,
   LayersIcon,
 } from "lucide-react"
 import { getErrorDetails } from "@/lib/api-error"
-import type { LandingEdge, LandingFix, LandingRefusal, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind, Subject } from "@/lib/bindings"
+import type {
+  EdgeAction,
+  LandingEdge,
+  LandingFix,
+  LandingRefusal,
+  MissingReviewGroup,
+  NextStep,
+  Person,
+  StepBlocker,
+  StepFact,
+  StepFailure,
+  StepKind,
+  Subject,
+} from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import type { MenuItem } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
@@ -29,7 +43,7 @@ import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to
 import { sameJson } from "@/lib/record"
 import { joinNames } from "@/lib/text"
 import { formatWholeStack } from "@/lib/whole-stack"
-import { describeEdge, describeLandingRefusals, formatEdgeFix, formatLandsAfter, formatNeeded, landingFixOf } from "@/presenters/landing"
+import { describeEdge, describeLandingRefusals, formatEdgeAction, formatLandsAfter, formatNeeded, landingFixOf } from "@/presenters/landing"
 import { formatLandedWhole, formatReason } from "@/presenters/reasons"
 
 /**
@@ -103,6 +117,8 @@ export interface NextStepActions {
   readonly startSubject: (subject: Subject) => void
   /** Groups the unassigned commit `commitId` into the branch `into` (`LandingFix.moveCommit`), the only move a fix offers */
   readonly groupCommit: (commitId: string, into: string) => void
+  /** Restarts the failed robot `robotId` of the branch an edge needs (`EdgeAction.restart`) */
+  readonly restartRobot: (robotId: string) => void
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
@@ -169,8 +185,11 @@ export interface BranchNextStep {
   readonly withoutReview: { readonly blocker: string | null } | null
   /** Why nothing of it is left to land or review (row 1): "Landed in origin/master", "Merged by Patronus"; null while work is left */
   readonly landed: string | null
-  /** Row 1′: the fix of what the Safe Push needs, for the menu; null elsewhere and for a fix no action runs */
-  readonly landingFix: MenuItem | null
+  /**
+   * Row 1′: the actions of the first edge of what the Safe Push needs (`LandingEdge.actions`, one builder of Rust), for
+   * the menu: "Land Together", "Land util First", "Restart util", "Group 1a2b3c4d into flow"; none elsewhere
+   */
+  readonly landingFixes: readonly MenuItem[]
 }
 
 // ---- the words of the facts ----
@@ -359,7 +378,7 @@ interface Shown {
   /** The notice of S for the step's own reason, while no reason of the subject outranks it */
   readonly notice?: { readonly title: string; readonly description: string }
   readonly retarget?: MenuItem
-  readonly landingFix?: MenuItem | null
+  readonly landingFixes?: readonly MenuItem[]
   /** The words of a wait as its status says them (`StepWait.label`), sentence case */
   readonly status?: string
 }
@@ -438,38 +457,62 @@ function needsBranch(kind: Extract<StepKind, { kind: "needsBranch" }>, context: 
     onSelect: context.actions.openSafePush,
   }
   if (edge === undefined) {
-    return { kind: "needsBranch", item: open, landingFix: null }
+    return { kind: "needsBranch", item: open, landingFixes: [] }
   }
-  const restart = context.actions.restart
-  if (edge.state.kind === "neededFailed" && restart !== null) {
-    const item: MenuItem = { ...restart, label: `Restart ${edge.needed}`, description: reason }
-    return { kind: "needsBranch", item, landingFix: null }
+  const landingFixes = edgeActionItems(edge, kind.refusals, reason, context.actions)
+  const [primary] = edge.actions ?? []
+  const first = landingFixes[0]
+  // Land Together and an unstack keep the need as the label, the action its click; Land X First opens the popover,
+  // which offers it beside Start Anyway; a restart, a group or a start says itself
+  if (primary === undefined || first === undefined || primary.kind === "landFirst") {
+    return { kind: "needsBranch", item: { ...open, label: `Needs ${edge.needed}` }, landingFixes }
   }
-  const landingFix = edgeFixItem(edge, kind.refusals, reason, context.actions)
-  // a restack or an unstack keeps the need as the label, the fix its click; a group or a start says itself
-  const restacks = edge.fix?.kind === "restack" || edge.fix?.kind === "unstack"
-  const label = landingFix === null || restacks ? `Needs ${edge.needed}` : landingFix.label
-  const item: MenuItem = landingFix === null ? { ...open, label } : { ...landingFix, label, icon: TriangleAlertIcon }
-  return { kind: "needsBranch", item, landingFix }
+  const keepsNeed = primary.kind === "landTogether" || primary.kind === "unstack"
+  const item: MenuItem = { ...first, label: keepsNeed ? `Needs ${edge.needed}` : first.label, icon: keepsNeed ? TriangleAlertIcon : first.icon }
+  return { kind: "needsBranch", item, landingFixes }
 }
 
-/** The item that runs the fix of `edge` with a refusal of it (`refusals`, whose fix is the edge's); null without one */
-function edgeFixItem(edge: LandingEdge, refusals: readonly LandingRefusal[], reason: string, actions: NextStepActions): MenuItem | null {
-  const fix: LandingFix | null = edge.fix
-  const label = formatEdgeFix(fix)
-  if (fix === null || label === null) {
-    return null
-  }
-  switch (fix.kind) {
-    case "restack":
+/**
+ * The items of the actions of `edge` (`LandingEdge.actions`, the primary first) for every surface of the step: the slot,
+ * "⋯" and the Safe Push popover; an action whose refusal the step lacks is none
+ */
+export function edgeActionItems(
+  edge: LandingEdge,
+  refusals: readonly LandingRefusal[],
+  reason: string,
+  actions: Pick<NextStepActions, "fixLanding" | "startSubject" | "groupCommit" | "restartRobot">,
+): MenuItem[] {
+  return (edge.actions ?? []).flatMap(action => {
+    const item = edgeActionItem(action, refusals, reason, actions)
+    return item === null ? [] : [item]
+  })
+}
+
+function edgeActionItem(
+  action: EdgeAction,
+  refusals: readonly LandingRefusal[],
+  reason: string,
+  actions: Pick<NextStepActions, "fixLanding" | "startSubject" | "groupCommit" | "restartRobot">,
+): MenuItem | null {
+  const label = formatEdgeAction(action)
+  const item = (id: string, icon: MenuItem["icon"], onSelect: () => void): MenuItem => ({ id, label, icon, description: reason, onSelect })
+  switch (action.kind) {
+    case "landTogether":
     case "unstack": {
+      // the restack names the refusal it fixes, which the engine checks against the fresh needs
+      const fix: LandingFix =
+        action.kind === "landTogether" ? { kind: "restack", branch: action.branch, onto: action.onto } : { kind: "unstack", branch: action.branch, from: action.from }
       const refusal = refusals.find(it => sameJson(landingFixOf(it), fix))
-      return refusal === undefined ? null : { id: "landing-fix", label, icon: Layers2Icon, description: reason, onSelect: () => actions.fixLanding(refusal) }
+      return refusal === undefined ? null : item("landing-fix", Layers2Icon, () => actions.fixLanding(refusal))
     }
-    case "moveCommit":
-      return { id: "landing-fix", label, icon: Layers2Icon, description: reason, onSelect: () => actions.groupCommit(fix.commit.id, fix.into) }
+    case "landFirst":
+      return item("land-first", ShieldCheckIcon, () => actions.startSubject({ kind: "branch", name: action.branch }))
+    case "restart":
+      return item("restart-needed", RotateCcwIcon, () => actions.restartRobot(action.robot.robotId))
+    case "group":
+      return item("landing-fix", Layers2Icon, () => actions.groupCommit(action.commit, action.into))
     case "start":
-      return { id: "landing-fix", label, icon: ShieldCheckIcon, description: reason, onSelect: () => actions.startSubject(fix.subject) }
+      return item("landing-fix", ShieldCheckIcon, () => actions.startSubject(action.subject))
   }
 }
 
@@ -803,14 +846,14 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     item = { ...item, disabled: true, description: STALE_READINESS }
   }
   let retarget = shown.retarget ?? null
-  let landingFix = shown.landingFix ?? null
-  if (busy !== null && landingFix !== null) {
+  let landingFixes = shown.landingFixes ?? []
+  if (busy !== null && landingFixes.length > 0) {
     // what runs on the row (the fix itself, waiting in the session for the fresh needs, or a rewrite before it) holds
-    // the fix of the slot and of "⋯" alike: a second press would ask a second rewrite
-    landingFix = { ...landingFix, disabled: true, description: running! }
-    if (item !== null && item.id === landingFix.id) {
+    // the actions of the slot and of "⋯" alike: a second press would ask a second rewrite
+    if (item !== null && landingFixes.some(fix => fix.id === item!.id)) {
       item = { ...item, disabled: true, description: running! }
     }
+    landingFixes = landingFixes.map(fix => ({ ...fix, disabled: true, description: running! }))
   }
   if (busy !== null && !BARE.has(shown.kind)) {
     item = item === null ? null : withBusy(item, tone, busy)
@@ -835,7 +878,7 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     retarget,
     withoutReview: step.withoutReview === null ? null : { blocker: blockerOf(step.withoutReview.blocker) },
     landed: formatLandedWhole(step.landed),
-    landingFix,
+    landingFixes,
   }
 }
 
@@ -869,5 +912,5 @@ export const NO_NEXT_STEP: BranchNextStep = {
   retarget: null,
   withoutReview: null,
   landed: null,
-  landingFix: null,
+  landingFixes: [],
 }

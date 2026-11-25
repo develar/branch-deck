@@ -1,30 +1,31 @@
 import { useMemo } from "react"
-import { getLandingNodeNow, getNodeKindNow, getStackLandingNodeNow, getStackNodeKindNow, nodeSources, useNodeStores } from "@/hooks/useLandingNode"
+import { getLandingNodeNow, getNodeKindNow, nodeSources, useNodeStores } from "@/hooks/useLandingNode"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
 import { collectLandingOverview } from "@/lib/landing-overview"
-import { getBranch, getBranchTableRows, getUnparkedStackDescendants } from "@/stores/branch-sync"
+import { branchSyncStore } from "@/stores/branch-sync"
 
-/** The units of the table now, in its order: a lone branch, or the root of a stack with its branches */
+/**
+ * The units of the landing plan now, as Rust decides them (`RepositoryView.landingUnits`, `domain_policy::landing_plan`),
+ * in the order of the rows: a lone branch, or the root of a stack with its branches, each with the node Rust names in
+ * the page's words; a branch of a stack that needs a fix of its own comes with it while the move that runs on it
+ * leaves it one
+ */
 function computeLandingUnits(): LandingUnit[] {
+  const { landingUnits, branchOrder } = branchSyncStore.getState()
   const units: LandingUnit[] = []
-  for (const row of getBranchTableRows()) {
-    // a root: no line up into its node, no fork into it
-    if (row.kind !== "branch" || row.lanes.up || row.lanes.forkFrom !== null) {
+  for (const name of branchOrder) {
+    const unit = landingUnits[name]
+    const node = unit === undefined ? null : getLandingNodeNow(unit.node)
+    if (unit === undefined || node === null) {
       continue
     }
-    // the parked ones are in the Parked card: no unit, no move
-    const members = [row.name, ...getUnparkedStackDescendants(row.name)]
-    const stackKind = members.length > 1 ? getStackNodeKindNow(row.name) : null
-    // a whole stack that holds a parked branch lands in pieces: its root's own node counts
-    const node = stackKind === null || stackKind === "parked" ? getLandingNodeNow(row.name) : getStackLandingNodeNow(row.name)
-    if (node === null) {
-      continue
-    }
-    // the words only of the branches that need a fix
-    const fixes = members.length > 1 ? members.flatMap(name => (getNodeKindNow(name) === "needsFix" ? [{ name, node: getLandingNodeNow(name)! }] : [])) : []
-    const commitCount = members.reduce((sum, name) => sum + (getBranch(name)?.commitCount ?? 0), 0)
-    units.push({ name: row.name, branchCount: members.length, commitCount, node, fixes })
+    // what runs on a row is laid over its node: a fix whose move runs is none
+    const fixes = unit.fixes.flatMap(fix => {
+      const fixNode = getNodeKindNow(fix) === "needsFix" ? getLandingNodeNow(fix) : null
+      return fixNode === null ? [] : [{ name: fix, node: fixNode }]
+    })
+    units.push({ name: unit.name, branchCount: unit.branches.length, commitCount: unit.commitCount, node, fixes })
   }
   return units
 }

@@ -1,6 +1,6 @@
 // Next steps as Rust gives them (`NextStep` of the view's `nextSteps`) and the context the page presents them in, for
 // the tests of the presenters: a step is data, so a test writes the one row it asks about
-import type { LandingEdge, LandingRefusal, MissingReviewGroup, NextStep, NextStepView, StepFact, StepKind, StepRow } from "@/lib/bindings"
+import type { EdgeAction, LandingEdge, LandingRefusal, MissingReviewGroup, NextStep, NextStepView, StepFact, StepKind, StepRow } from "@/lib/bindings"
 import { landingFixOf } from "@/presenters/landing"
 import type { NextStepActions, StepContext } from "@/presenters/next-step"
 import { branchSyncStore } from "@/stores/branch-sync"
@@ -52,6 +52,48 @@ export function testEdge(refusal: LandingRefusal, extra: Partial<LandingEdge> = 
     refuses: [refusal.branch],
     fix: refusal.kind === "lostBinding" ? null : (refusal.fix ?? null),
     ...extra,
+    actions: extra.actions ?? testEdgeActions(refusal, extra),
+  }
+}
+
+/**
+ * The actions Rust's builder gives the edge of `refusal` in the state of `extra` (`domain_policy::actions::edge_actions`),
+ * as a fixture: none while it waits, the restart of a failed robot, the group of an unassigned commit, the start of a
+ * cycle, Land Together and the landing first of a need nothing lands, the unstack of an inherited declared need
+ */
+function testEdgeActions(refusal: LandingRefusal, extra: Partial<LandingEdge>): EdgeAction[] {
+  const state = extra.state ?? { kind: "open" }
+  const fix = refusal.kind === "lostBinding" ? null : (refusal.fix ?? null)
+  const needed =
+    refusal.kind === "unlandedNeed"
+      ? refusal.needs
+      : refusal.kind === "missingDeclaration"
+        ? refusal.declaredBy.branch
+        : refusal.kind === "danglingReference"
+          ? refusal.fixedBy.branch
+          : ""
+  switch (state.kind) {
+    case "waits":
+      return []
+    case "neededFailed":
+      return [{ kind: "restart", robot: state.robot }]
+    case "unassigned":
+      return fix?.kind === "moveCommit" ? [{ kind: "group", commit: fix.commit.id, into: fix.into }] : []
+    case "cycle":
+      return fix?.kind === "start" ? [{ kind: "start", subject: fix.subject }] : []
+    case "open":
+      if (fix?.kind === "restack") {
+        return [
+          { kind: "landTogether", branch: fix.branch, onto: fix.onto, forks: false },
+          { kind: "landFirst", branch: needed },
+        ]
+      }
+      return fix?.kind === "unstack"
+        ? [
+            { kind: "unstack", branch: fix.branch, from: fix.from },
+            { kind: "landFirst", branch: needed },
+          ]
+        : [{ kind: "landFirst", branch: needed }]
   }
 }
 
@@ -87,6 +129,7 @@ export function testActions(calls: string[] = [], extra: Partial<NextStepActions
     fixLanding: refusal => calls.push(`fixLanding ${landingFixOf(refusal)?.kind ?? "none"}`),
     startSubject: subject => calls.push(`startSubject ${subject.kind === "branch" ? subject.name : `stack:${subject.root}`}`),
     groupCommit: (commitId, into) => calls.push(`groupCommit ${commitId} ${into}`),
+    restartRobot: robotId => calls.push(`restartRobot ${robotId}`),
     copyLoginCommand: record("copyLoginCommand"),
     refreshPatronus: record("refreshPatronus"),
     pickRemoteCommits: record("pickRemoteCommits"),

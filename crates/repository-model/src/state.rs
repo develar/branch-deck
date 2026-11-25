@@ -15,7 +15,7 @@
 //! which page got the patch of the table of this run): it remembers the end it saw beside the seed (`src/model/store.ts`).
 
 use crate::action_view::{ActionSources, actions_of, actions_without_operations, push_slots_of};
-use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, next_steps_of, open_pull_requests_of, push_view, robot_estimates_of};
+use crate::derive::{attention_of, github_layers_of, landed_states_of, landing_route_of, lands_of, open_pull_requests_of, push_view, robot_estimates_of, steps_and_plan_of};
 use crate::facts::FactStore;
 use crate::patch::{Now, apply_changes, changed, changes, diff_views, kept_parts, keyed_facts_change, pull_requests_change, robots_change};
 use crate::review_view::{approval_landing_of, review_actions_of, review_groups_of, review_stacks_of, reviews_view};
@@ -23,6 +23,7 @@ use crate::session::SubscriptionId;
 use crate::table::TableState;
 use domain_types::actions::ActionState;
 use domain_types::landing::{LandDecisions, Landed};
+use domain_types::landing_plan::{LandingPlan, LandingUnit};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::RobotEstimate;
@@ -184,6 +185,9 @@ struct Derived {
   review_stacks: BTreeMap<String, ReviewStackApproval>,
   reviews: ReviewsView,
   route: LandingRoute,
+  /// The units of the plan, by name, and the plan without them
+  units: BTreeMap<String, LandingUnit>,
+  plan: LandingPlan,
 }
 
 /// What the next steps and the actions of a view are derived over, but the pushes and the starts: what landed each
@@ -194,6 +198,7 @@ struct Bases {
   github_layers: BTreeMap<String, GitHubLayer>,
   open: BTreeMap<String, PullRequestView>,
   steps: BTreeMap<String, NextStepView>,
+  plan: LandingPlan,
 }
 
 impl Bases {
@@ -205,14 +210,16 @@ impl Bases {
     // the layers of the stacks of GitHub, over what landed: the bottom of a stack is the first branch not landed
     let github_layers = github_layers_of(state, facts, &route, &landed);
     let open = open_pull_requests_of(state, facts, parts.header.prefix.as_str(), &github_layers);
-    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
-    let steps = next_steps_of(state, facts, &open, &landed);
+    // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync; the
+    // landing plan over them
+    let (steps, plan) = steps_and_plan_of(state, facts, &open, &landed);
     Self {
       landed,
       route,
       github_layers,
       open,
       steps,
+      plan,
     }
   }
 }
@@ -261,7 +268,9 @@ impl Derived {
       github_layers,
       open,
       steps,
+      mut plan,
     } = Bases::of(state, facts);
+    let units = std::mem::take(&mut plan.units).into_iter().map(|unit| (unit.name.clone(), unit)).collect();
     // where the page shows the push of each branch, and whether the side stack it heads is quiet, as its row is now
     // (a sync included): over the pushes the view keeps through a sync, the next step of the row as its part
     let mut steps = steps;
@@ -315,6 +324,8 @@ impl Derived {
       review_stacks,
       reviews,
       route,
+      units,
+      plan,
     }
   }
 
@@ -349,6 +360,8 @@ impl Derived {
       reviews: &self.reviews,
       patronus: facts.patronus.part(),
       route: &self.route,
+      landing_units: &self.units,
+      landing_plan: &self.plan,
       facts: facts_change(&last.facts, facts),
       news: facts.news(),
     }
@@ -378,6 +391,8 @@ impl Derived {
     view.review_stacks = self.review_stacks;
     view.reviews = self.reviews;
     view.route = self.route;
+    view.landing_units = self.units;
+    view.landing_plan = self.plan;
   }
 }
 

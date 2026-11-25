@@ -139,13 +139,7 @@ export function getStackNodeBranch(root: string): string | null {
   return whole?.kind === "chain" ? whole.leaf : null
 }
 
-/** The node of the whole stack of `root` now (`wholeStackNodeKey`): the header of its island, a unit of the overview */
-export function getStackLandingNodeNow(root: string): LandingNode | null {
-  const key = wholeStackNodeKey(root, getWholeStack(root))
-  return key === null ? null : getLandingNodeNow(key)
-}
-
-/** The kind of the node of the whole stack of `root` now: `getStackLandingNodeNow` without its words */
+/** The kind of the node of the whole stack of `root` now (`wholeStackNodeKey`): the header of its island */
 export function getStackNodeKindNow(root: string): LandingNodeKind | null {
   const key = wholeStackNodeKey(root, getWholeStack(root))
   return key === null ? null : getNodeKindNow(key)

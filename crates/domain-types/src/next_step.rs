@@ -393,6 +393,7 @@ pub struct WithoutReview {
 /// Where a subject is on its way into master, the node of its row (docs/design/landing.md): filled while the next step
 /// is the user's and on this row, hollow while it waits for others, is done, or stays local
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum LandingNodeKind {

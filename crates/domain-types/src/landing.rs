@@ -306,6 +306,34 @@ pub struct LandingEdge {
   /// inherited declared need, the group of an unassigned commit, the start of a cycle); none of a declared need of its
   /// own, which only the landing of `needed` clears
   pub fix: Option<LandingFix>,
+  /// What the user does of it, the first the primary, in the order every surface shows them (the slot of the row, its
+  /// "⋯", the Safe Push popover): one builder (`domain_policy::actions::edge_actions`); none while it waits
+  #[serde(default)]
+  pub actions: Vec<EdgeAction>,
+}
+
+/// An action of an edge of the landing plan (`domain_policy::actions::edge_actions`): of a need that nothing lands,
+/// landing both in one robot or the one it needs first; of a failed robot of it its restart; of an unassigned commit
+/// its group; of a cycle the start that lands both
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum EdgeAction {
+  /// Land Together: `branch`, the root of what waits, stacked on `onto`, the branch it needs (`RewriteIntent::Restack`
+  /// with the refusal it fixes): one robot lands both; `forks` the stack they make forks, so its whole stack lands them
+  /// ("Land Together · Safe Push Whole Stack")
+  LandTogether { branch: String, onto: String, forks: bool },
+  /// Land acp-load-replay First: the Safe Push of `branch`, the branch it needs, before this one
+  LandFirst { branch: String },
+  /// Restart acp-load-replay: the failed robot of the branch it needs, first
+  Restart { robot: RobotOf },
+  /// Group 1a2b3c4d into claude-folds: the unassigned commit it needs into the branch that needs it
+  Group { commit: String, into: String },
+  /// Unstack `branch` from `from`, whose declared need it inherits: it lands alone then
+  Unstack { branch: String, from: String },
+  /// The Safe Push of `subject`, which lands both: the branch built on both, or the whole stack
+  Start { subject: Subject },
 }
 
 /// What kind of need an edge is

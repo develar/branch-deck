@@ -1,8 +1,9 @@
 // @spec openspec/specs/branch/patronus/spec.md
 // @spec openspec/specs/branch/declared-needs/spec.md
+// @spec openspec/specs/branch/landing-plan/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, NeedState, StackCommit } from "@/lib/bindings"
-import { describeLandingRefusals, describeRefusalDetail, formatLandingFix, formatNeeded } from "@/presenters/landing"
+import { describeLandingRefusals, describeRefusalDetail, formatEdgeAction, formatLandingFix, formatNeeded } from "@/presenters/landing"
 import { DECLARED_DOCS } from "@/test-support/landing-refusal"
 
 const USES: StackCommit = { id: "a25430833a277000", subject: "IJAI-4382 lane-run shows each scenario", branch: "lane-run" }
@@ -141,5 +142,17 @@ describe("describeRefusalDetail", () => {
     const unassigned: LandingRefusal = { ...MISSING, declaredBy: { ...DECLARES, branch: "" }, fix: { kind: "moveCommit", commit: { ...DECLARES, branch: "" }, into: "lane-run" } }
     expect(text(describeRefusalDetail([unassigned], false))).toBe("a2543083 of lane-run uses Stills (tests.rs:7), which ecebf000 (unassigned) adds. Group ecebf000 into lane-run.")
     expect(text(describeRefusalDetail([DECLARED_DOCS], false))).toBe(text([{ text: describeLandingRefusals([DECLARED_DOCS], DECLARED_DOCS.branch)!.reason }]))
+  })
+})
+
+describe("formatEdgeAction", () => {
+  it("labels every action of an edge as every surface shows it", () => {
+    expect(formatEdgeAction({ kind: "landTogether", branch: "lane-run", onto: "stills-codec", forks: false })).toBe("Land Together")
+    expect(formatEdgeAction({ kind: "landTogether", branch: "lane-run", onto: "stills-codec", forks: true })).toBe("Land Together · Safe Push Whole Stack")
+    expect(formatEdgeAction({ kind: "landFirst", branch: "agent-id" })).toBe("Land agent-id First")
+    expect(formatEdgeAction({ kind: "restart", robot: { branch: "acp-load-replay", robotId: "r1", wholeStack: false } })).toBe("Restart acp-load-replay")
+    expect(formatEdgeAction({ kind: "group", commit: "1a2b3c4d5e", into: "claude-folds" })).toBe("Group 1a2b3c4d into claude-folds")
+    expect(formatEdgeAction({ kind: "unstack", branch: "ui", from: "auth" })).toBe("Unstack ui from auth")
+    expect(formatEdgeAction({ kind: "start", subject: { kind: "wholeStack", root: "air-home-watch" } })).toBe("Safe Push Whole Stack")
   })
 })

@@ -103,6 +103,7 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   );
   ops.keyed("reviewStacks", &view.review_stacks, changes.review_stacks.keys(), &changes.removed_review_stacks);
   ops.keyed("operations", &view.operations, changes.operations.keys(), &changes.removed_operations);
+  ops.keyed("landingUnits", &view.landing_units, changes.landing_units.keys(), &changes.removed_landing_units);
   ops.part(changes.order.is_some(), "order", &view.order);
   ops.part(changes.undo.is_some(), "undo", &view.undo);
   ops.part(changes.inputs_checked_at.is_some(), "inputsCheckedAt", &view.inputs_checked_at);
@@ -111,6 +112,7 @@ pub fn ops(view: &RepositoryView, changes: &TableChanges) -> Vec<Value> {
   ops.part(changes.reviews.is_some(), "reviews", &view.reviews);
   ops.part(changes.patronus.is_some(), "patronus", &view.patronus);
   ops.part(changes.route.is_some(), "route", &view.route);
+  ops.part(changes.landing_plan.is_some(), "landingPlan", &view.landing_plan);
   ops.part(changes.facts.is_some(), "facts", &view.facts);
   ops.part(!changes.news.is_empty(), "news", &view.news);
   ops.0

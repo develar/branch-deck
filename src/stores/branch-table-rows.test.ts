@@ -12,7 +12,6 @@ import {
   getStackChildren,
   getStackDescendants,
   getStackIslandRoots,
-  getUnparkedStackDescendants,
 } from "@/stores/branch-sync"
 import { getCollapsedSideStacks, toggleSideStackCollapsed } from "@/stores/stack-collapse"
 import { placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -83,8 +82,6 @@ describe("branch table rows with stacked branches", () => {
     expect(getMainBranchOrder()).toEqual(["docs", "session", "auth"])
     expect(getParkedState("oauth")).toEqual({ note: "waits for IJPL-1", with: "login" })
     expect(getParkedState("auth")).toBeNull()
-    // the stack of auth lands without them
-    expect(getUnparkedStackDescendants("auth")).toEqual(["session"])
     expect(getStackDescendants("auth")).toHaveLength(3)
     setParked({})
     expect(getParkedTableRows()).toEqual([])

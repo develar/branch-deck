@@ -15,6 +15,7 @@ import { formatPushMode, formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
 import { sameJson } from "@/lib/record"
+import { restartRobot } from "@/lib/robot-run"
 import { baselineOnRemote } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -188,15 +189,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
         openPullRequest(pullRequest)
       }
     },
-    // the fix runs on fresh landing needs, while they still ask for it: the engine decides it (`RewriteIntent.fixes`)
-    fixLanding: refusal => requestLandingFix(key, refusal),
-    startSubject: subject => void requestSafePush(subject.kind === "branch" ? subject.name : stackReadinessKey(subject.root), { mode: "rebaseAutosquash", via: "click" }),
-    groupCommit: (commitId, into) => {
-      const commit = branchSyncStore.getState().unassignedCommits.find(it => it.originalHash === commitId)
-      if (commit !== undefined) {
-        void moveCommits([commit], into)
-      }
-    },
+    ...edgeRunners(key),
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
@@ -204,6 +197,34 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     linkStack: () => void linkGitHubStackOf(key),
     restart: robot === undefined ? null : (getRobotActionItems(robot, { ...inputs.words, offered: inputs.robotActions }).find(isRestart) ?? null),
     requestReview: getRequestReviewItem({ pullRequest: inputs.pullRequest, actions: inputs.reviewActions, open: () => openRequestReview(key) }, { ...inputs.words, subject: key }),
+  }
+}
+
+/** What the actions of an edge run (`EdgeAction`, `edgeActionItems`) */
+export type EdgeRunners = Pick<NextStepActions, "fixLanding" | "startSubject" | "groupCommit" | "restartRobot">
+
+/**
+ * What the actions of an edge of the step of `key` run, on the row and in the popover of its start (`surface`, whose
+ * indicator shows a rewrite it runs): Land Together and an unstack on fresh landing needs while they still ask for it
+ * (the engine decides it, `RewriteIntent.fixes`), Land X First and the start of a cycle as a click of that Safe Push,
+ * the group of an unassigned commit, the restart of the failed robot of the branch it needs
+ */
+export function edgeRunners(key: string, surface?: string): EdgeRunners {
+  return {
+    fixLanding: refusal => requestLandingFix(key, refusal, surface),
+    startSubject: subject => void requestSafePush(subject.kind === "branch" ? subject.name : stackReadinessKey(subject.root), { mode: "rebaseAutosquash", via: "click" }),
+    groupCommit: (commitId, into) => {
+      const commit = branchSyncStore.getState().unassignedCommits.find(it => it.originalHash === commitId)
+      if (commit !== undefined) {
+        void moveCommits([commit], into, surface === undefined ? {} : { surface })
+      }
+    },
+    restartRobot: robotId => {
+      const needed = getRobot(robotId)
+      if (needed !== undefined) {
+        void restartRobot(needed)
+      }
+    },
   }
 }
 

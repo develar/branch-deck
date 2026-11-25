@@ -610,9 +610,37 @@ its own robot and a start beside it would fail. The plan says that need once, as
   either. The subject is noted from the view while the robot runs (`noteWaitingStarts`): by the time the merge is
   told, its dependent's step already says ready. The press waits for that step to be decided again: right after the
   update its needs are computed for the new tips, and a click then would only say "Checking what flow needs to land…".
-- **Next.** The units of the landing overview move into Rust, the edges get waves (what lands now, next, after what)
-  and offers to land together with their cost in checks of Patronus, and `brd plan` and a Plan view of Landing draw
-  them (stages 2 and 3 of the plan of 2026-11-24).
+- **The plan is a fact.** `domain_policy::landing_plan` makes the plan of the session from the edges of every row
+  (`repository_model::derive::landing_plan_of`), the same for the app and `brd plan`. Its **units** are what lands in
+  one move: a root by declared parent with the branches stacked on it that are not parked, the node of its whole stack
+  (its stack branch while it forks, else the last branch of its chain; its root's own while it holds a parked branch);
+  the Landing overview reads them (`RepositoryView::landing_units`, keyed, so the node of one unit that changes sends
+  that unit alone), no rule of them is left in the page. The edges lift to the root of each unit, and the **waves**
+  are their topological order: "Landing now" (the robots run), "Next" (nothing they need is on the way), then "After …"
+  one wave after the deepest unit each needs; the parked branches apart. While the needs are computed the plan is
+  stale, and nothing is offered.
+- **Land Together, with its price.** Two units may land in one robot only along an edge of the build that nothing
+  lands (`EdgeKind::Build`, `EdgeState::Open`), never with a unit that lands, failed or needs a fix, never of a declared
+  need, never between independent units: merging what needs nothing of each other only couples two verdicts. The
+  action is the existing directional restack of the root of the unit that waits onto the branch it needs
+  (`RewriteIntent::Restack` naming the refusal it fixes, run on fresh needs only, one undo), never Stack Together, which
+  orders by the age of the commits; "Land Together · Safe Push Whole Stack" when the stack they make forks. A branch has
+  one parent, so a unit with several open edges is offered one at a time. The price is said as risks, not as one
+  number: one robot instead of two, the checks of Patronus (the same, those only one of them starts, or unknown), a
+  failure that holds both, the pull request whose approvals count (of the whole stack while it forks), the code owners
+  of the unit it needs that the other lacks, and off Patronus the pull requests that become one stack of GitHub. The
+  checks come from the footprint of each branch ([Landing footprint](git-operations.md#landing-footprint)): a check
+  runs once any path starts it, so the checks of two in one robot are the union of theirs, a pure function of the
+  footprints (`checks_price`). On idea-1 every path of `plugins/air/**` starts the same seven required checks, so two
+  pieces of the Air plugin land together at the price of a robot and a shared verdict, while `ci-pack-cache` adds the
+  checks of the build.
+- **One builder of the actions.** What the user does of an edge comes from one builder
+  (`domain_policy::actions::edge_actions`) for the slot of the row, its "⋯" and the Safe Push popover: nothing while it
+  waits, "Restart acp-load-replay" of the failed robot of the branch it needs, "Group 1a2b3c4d into claude-folds", the
+  Safe Push of a cycle, Land Together and "Land agent-id First". The popover says the refusal in a short detail
+  (the commits by short hash and the use by file and line, their whole words on hover, no sentence that repeats a
+  button); `brd` keeps the whole sentence of the gate.
+- **Next.** A Plan view of Landing draws the waves, the edges and the offers (stage 3 of the plan of 2026-11-24).
 
 ## Alternatives Considered
 

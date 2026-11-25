@@ -20,7 +20,9 @@ import type {
   IssueLead,
   LandDecisions,
   Landed,
+  LandingPlan,
   LandingRoute,
+  LandingUnit,
   NextStepView,
   OperationId,
   PullRequestView,
@@ -394,6 +396,17 @@ export interface BranchSyncState {
    * `domain_policy::landing_route`); null before a view
    */
   route: LandingRoute | null
+  /**
+   * The units of the landing plan, by name (`RepositoryView.landingUnits`, `domain_policy::landing_plan`): what lands
+   * into master in one move, its node, its branches that need a fix of their own; the page lists them in the order of
+   * the rows
+   */
+  landingUnits: Readonly<Record<string, LandingUnit>>
+  /**
+   * The landing plan without its units (`RepositoryView.landingPlan`): the edges between them, the waves and the offers
+   * to land two in one robot with their price; null before a view
+   */
+  landingPlan: LandingPlan | null
 }
 
 /** No operation of the session: before a view has any, and for a selector of a surface that names none */
@@ -401,7 +414,8 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`, `robotEstimates`, `githubLayers`, `reviewGroups`, `approvalLanding`, `reviewStacks`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `robotEstimates`, `githubLayers`, `reviewGroups`, `approvalLanding`, `reviewStacks`), its operations, its route
+ * and its landing plan
  */
 export const NO_SUBJECT_PARTS: Pick<
   BranchSyncState,
@@ -419,6 +433,8 @@ export const NO_SUBJECT_PARTS: Pick<
   | "reviewStacks"
   | "operations"
   | "route"
+  | "landingUnits"
+  | "landingPlan"
 > = {
   pushes: {},
   openPullRequests: {},
@@ -434,6 +450,8 @@ export const NO_SUBJECT_PARTS: Pick<
   reviewStacks: {},
   operations: NO_OPERATIONS,
   route: null,
+  landingUnits: {},
+  landingPlan: null,
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -1085,12 +1103,6 @@ export function getStackChildren(name: string): readonly string[] {
 /** The branches stacked on `name`, directly or further down */
 export function getStackDescendants(name: string): readonly string[] {
   return structureIn(branchSyncStore.getState(), name).descendants
-}
-
-/** `getStackDescendants` without the parked ones and those parked with them: what lands with the stack of `name` */
-export function getUnparkedStackDescendants(name: string): string[] {
-  const state = branchSyncStore.getState()
-  return structureIn(state, name).descendants.filter(it => structureIn(state, it).parked === null)
 }
 
 /** The issue groups of the last grouping: issue key -> branch name */

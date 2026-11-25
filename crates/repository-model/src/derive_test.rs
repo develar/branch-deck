@@ -814,6 +814,36 @@ fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_
   assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster, "merged by its robot");
 }
 
+/// The view carries the units of the landing plan, keyed by name, each with the subject of its node (a stack: its stack
+/// branch), apart from the rest of the plan; a patch carries no unit that stayed
+#[test]
+fn the_view_carries_the_units_of_the_landing_plan_by_name_and_a_patch_none_that_stayed() {
+  let (state, mut facts) = crate::derive::derive_budget_test::session();
+  let mut view = View::new(1);
+  let first = view.diff(&state, &facts).unwrap();
+  let units = &first.changes.landing_units;
+  assert!(!units.is_empty());
+  let stack = &units["stack0"];
+  assert_eq!(stack.node, "stack:stack0", "a stack that forks: the node of its stack branch");
+  assert!(stack.branches.len() > 1 && stack.branches[0] == "stack0", "{:?}", stack.branches);
+  assert!(
+    units
+      .values()
+      .all(|unit| unit.branches.iter().all(|branch| !units.contains_key(branch) || branch == &unit.name)),
+    "a branch is in one unit"
+  );
+  let plan = first.changes.landing_plan.as_ref().unwrap();
+  assert!(plan.units.is_empty(), "the units are a part of their own");
+  // the robot of a branch of a stack finishes merged: its own node is in master, the node of its unit, the whole stack,
+  // stays, so the patch carries no unit and no plan
+  let branch = finish_merged(&mut facts);
+  let second = view.diff(&state, &facts).unwrap();
+  assert!(units["stack0"].branches.contains(&branch));
+  assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster);
+  assert_eq!(second.changes.landing_units.len(), 0);
+  assert_eq!(second.changes.landing_plan, None);
+}
+
 /// The robot `r0` of the large table finishes merged, as the poll of the session answers it; its branch
 fn finish_merged(facts: &mut FactStore) -> String {
   let robot = facts.robots.view().robots["r0"].clone();

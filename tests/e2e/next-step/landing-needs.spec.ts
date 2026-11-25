@@ -205,7 +205,7 @@ test.describe("Landing needs", () => {
     // opens with the needs as they are
     await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["landingNeeds"] }))
     await expect(safePushPopover(page)).toBeVisible()
-    await expect(safePushPopover(page).getByTestId("safe-push-landing-needs")).toContainText("Stack lane-run on stills-core")
+    await expect(safePushPopover(page).getByTestId("safe-push-landing-headline")).toHaveText("Uses Stills of stills-core in BuildLog.kt")
     await expect(popoverStart(page)).toHaveText("Start Anyway")
     expect(executes).toHaveLength(1)
     expect(await depths(page)).toEqual(["stills-codec@0", "lane-run@0", "ui-perf-nightly@1"])
@@ -330,14 +330,14 @@ test.describe("Landing needs", () => {
     await expectStacked(page)
   })
 
-  test("should stack the branch on the branch its Safe Push needs from the menu of a branch built on it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should land the branch with the branch its Safe Push needs from the menu of a branch built on it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupNeeds(page, setupRepo, syncAndWaitForBranches)
     await openContextMenu(page, findBranchRow(page, "ui-perf-nightly"))
-    await runAndWaitForSync(page, () => clickContextMenuItem(page, "Stack lane-run on stills-codec"))
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "Land Together"))
     await expectStacked(page)
   })
 
-  test("should say in the Safe Push popover why the build fails before the start, and stack the branch from it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should say in the Safe Push popover why the build fails before the start, and land the branch together with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupNeeds(page, setupRepo, syncAndWaitForBranches)
 
     const popover = await openSafePushWithKey(page, "ui-perf-nightly")
@@ -346,9 +346,10 @@ test.describe("Landing needs", () => {
     const detail = needs.getByTestId("safe-push-landing-detail")
     await expect(detail).toHaveText(/^[0-9a-f]{8} of lane-run uses Stills \(BuildLog\.kt:3\), which [0-9a-f]{8} of stills-codec adds\.$/)
     await expect(detail.getByTitle("Name lossy stills")).toHaveText(/ of stills-codec$/)
+    await expect(needs.getByRole("button", { name: "Land stills-codec First" })).toBeVisible()
     await expect(popoverStart(page)).toHaveText("Start Anyway")
-    // the fix restacks the root of what lands; the popover reads the start again, which lands stills-codec too
-    await runAndWaitForSync(page, () => needs.getByRole("button", { name: "Stack lane-run on stills-codec" }).click())
+    // Land Together restacks the root of what lands; the popover reads the start again, which lands stills-codec too
+    await runAndWaitForSync(page, () => needs.getByRole("button", { name: "Land Together" }).click())
     await expectStacked(page)
     await expect(popover.getByTestId("safe-push-landing-needs")).toHaveCount(0)
     await expect(popoverStart(page)).toHaveText("Safe Push")
@@ -381,7 +382,8 @@ test.describe("Landing needs", () => {
 
     await findBranchRow(page, "lane-run").click({ button: "right" })
     await openSubmenu(page, "Whole Stack")
-    await clickContextMenuItem(page, "Safe Push Whole Stack")
+    // the Whole Stack item itself, not Land Together · Safe Push Whole Stack of the need above it
+    await clickContextMenuItem(page, "Safe Push Whole Stack", { exact: true })
     await expect(popoverStart(page)).toBeFocused()
     await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     // refused before its first effect: the reason, the restack of the root of what lands, and Start Anyway

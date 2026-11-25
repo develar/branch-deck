@@ -688,6 +688,12 @@ function projectView(
   if (changes === null || changes.route != null) {
     update.route = next.route
   }
+  if (changes === null || Object.keys(changes.landingUnits ?? {}).length > 0 || (changes.removedLandingUnits?.length ?? 0) > 0) {
+    update.landingUnits = next.landingUnits ?? {}
+  }
+  if (changes === null || changes.landingPlan != null) {
+    update.landingPlan = next.landingPlan ?? null
+  }
   if (changes === null || changes.patronus?.landingNeeds != null) {
     update.landingNeeds = next.patronus.landingNeeds.kind
   }

@@ -23,7 +23,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { getSafePushRequestReviewItem } from "@/hooks/useBranchContextActions"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { edgeRunners, useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import { useRowBusy } from "@/hooks/useRowOperation"
@@ -73,10 +73,9 @@ import {
 } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { landingRefusalsOf } from "@/presenters/land"
-import type { LandingRefused } from "@/presenters/landing"
-import type { DetailPart } from "@/presenters/landing"
+import type { DetailPart, LandingRefused } from "@/presenters/landing"
 import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRefusalDetail, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
-import { formatPerson } from "@/presenters/next-step"
+import { edgeActionItems, formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
 import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
@@ -284,7 +283,9 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         <h2 className="text-sm font-medium" data-testid="safe-push-lands">
           {merges ?? title}
         </h2>
-        {landingRefused !== null && <LandingNeedsLine refused={landingRefused} edge={needs.edge} waits={waits} disabled={busy !== null} surface={surface} fixRef={fixRef} />}
+        {landingRefused !== null && (
+          <LandingNeedsLine refused={landingRefused} edge={needs.edge} waits={waits} subject={branchName} disabled={busy !== null} surface={surface} fixRef={fixRef} />
+        )}
         {show && candidates !== null && (
           <ShowReviewersField branchName={branchName} target={target} candidates={candidates} reviewers={reviewers} onChange={setPicked} disabled={busy !== null} author={null} />
         )}
@@ -366,15 +367,17 @@ function edgesOfStep(kind: { readonly kind: string; readonly edges?: readonly La
 
 /**
  * Why the build of what the start lands fails: a headline of one line, the first edge of the needs ("Uses 5 names of
- * acp-load-replay in acp_load_replay.rs", "Lands after acp-load-replay" while it waits), then the detail, wrapped:
- * the gate's sentence (`describeLandingRefusals`), of a wait the edge's; the fix as a button ("Stack lane-run on
- * stills-codec"), which restacks and leaves the popover open to read the start again, and takes the focus; Start Anyway
- * stays below, in "⋯" of a wait
+ * acp-load-replay in acp_load_replay.rs", "Lands after acp-load-replay" while it waits), then a short detail of one or
+ * two lines: the commits by their short hash and the use by file name and line, their whole words in the hover
+ * (`describeRefusalDetail`), of a wait where the branch it needs lands; then the actions of the edge as buttons, one
+ * builder of Rust for every surface (`LandingEdge.actions`: "Land Together", "Land codec First", "Restart codec", "Group
+ * 1a2b3c4d into flow", "Safe Push Whole Stack"), the first focused; Start Anyway stays below, in "⋯" of a wait
  */
 function LandingNeedsLine({
   refused,
   edge,
   waits,
+  subject,
   disabled,
   surface,
   fixRef,
@@ -382,16 +385,15 @@ function LandingNeedsLine({
   refused: LandingRefused
   edge: LandingEdge | null
   waits: boolean
+  subject: string
   disabled: boolean
   surface: string
   fixRef: RefObject<HTMLButtonElement | null>
 }) {
-  const fix = refused.fix
-  const label = formatLandingFix(fix)
   const headline = edge === null ? null : waits ? formatLandsAfter(edge.needed, false) : describeEdgeEvidence(edge)
-  // short: commits by their hash, the file by its name, the whole of each in its hover; the fix only where no button runs it
-  const fixShown = fix?.kind === "restack" && label !== null
-  const detail = waits && edge !== null ? describeEdge(edge) : <DetailText parts={describeRefusalDetail(refused.refusals, fixShown)} />
+  const [first] = refused.refusals
+  const more = edge === null ? 0 : Math.max(0, edge.names.length - 1)
+  const items = waits ? [] : edge === null ? gateFixItems(refused, surface) : edgeActionItems(edge, refused.refusals, refused.reason, edgeRunners(subject, surface))
   return (
     <div className="flex flex-col gap-1.5" data-testid="safe-push-landing-needs" data-waits={waits ? "true" : undefined}>
       {headline !== null && (
@@ -400,21 +402,28 @@ function LandingNeedsLine({
         </Line>
       )}
       <Line tone={headline === null ? "warning" : "muted"} testId="safe-push-landing-detail">
-        {detail}
+        {waits && edge !== null ? describeEdge(edge) : first === undefined ? refused.reason : <DetailParts parts={describeRefusalDetail(first, subject, more)} />}
       </Line>
-      {!waits && fixShown && (
-        <Button
-          ref={fixRef}
-          size="xs"
-          variant="outline"
-          className="self-start"
-          disabled={disabled}
-          onClick={() => void restackBranch(fix.branch, fix.onto, { surface })}
-          data-testid="safe-push-landing-fix"
-        >
-          <Layers2Icon data-icon="inline-start" />
-          {label}
-        </Button>
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((item, index) => {
+            const Icon = item.icon
+            return (
+              <Button
+                key={`${item.id}:${item.label}`}
+                ref={index === 0 ? fixRef : undefined}
+                size="xs"
+                variant="outline"
+                disabled={disabled || item.disabled === true}
+                onClick={() => item.onSelect(FROM_MENU)}
+                data-testid={index === 0 ? "safe-push-landing-fix" : "safe-push-landing-action"}
+              >
+                {Icon !== undefined && <Icon data-icon="inline-start" />}
+                {item.label}
+              </Button>
+            )
+          })}
+        </div>
       )}
     </div>
   )
@@ -430,6 +439,36 @@ function DetailText({ parts }: { parts: readonly DetailPart[] }) {
         {part.text}
       </span>
     ),
+  )
+}
+
+/**
+ * The fix of a refusal of no edge of the step (the gate of a start the step doesn't name, the whole stack): the restack
+ * the gate names ("Stack lane-run on stills-codec"), which leaves the popover open to read the start again
+ */
+function gateFixItems(refused: LandingRefused, surface: string): MenuItem[] {
+  const fix = refused.fix
+  const label = formatLandingFix(fix)
+  if (fix?.kind !== "restack" || label === null) {
+    return []
+  }
+  return [{ id: "landing-fix", label, icon: Layers2Icon, onSelect: () => void restackBranch(fix.branch, fix.onto, { surface }) }]
+}
+
+/** The parts of a short detail: a short name shows its whole text on hover */
+function DetailParts({ parts }: { parts: readonly DetailPart[] }) {
+  return (
+    <>
+      {parts.map((part, index) =>
+        typeof part === "string" ? (
+          part
+        ) : (
+          <span key={index} title={part.title} className="font-mono">
+            {part.text}
+          </span>
+        ),
+      )}
+    </>
   )
 }
 

@@ -5,7 +5,7 @@
 // Anyway; the edges of the landing plan Rust merges them into (`domain_policy::landing_edges`), one sentence each; and
 // the generated files the words merged that a copy holds (`domain_policy::regenerate`), which its Status
 // cell, its push and its start name. It decides nothing.
-import type { LandingAllowances, LandingEdge, LandingFix, LandingRefusal, RegenerateFile, RobotOf, StackCommit, Subject } from "@/lib/bindings"
+import type { EdgeAction, LandingAllowances, LandingEdge, LandingFix, LandingRefusal, RegenerateFile, RobotOf, StackCommit, Subject } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatGenerated } from "@/presenters/review-plan"
 
@@ -204,17 +204,24 @@ export function formatLandingFix(fix: LandingFix | null): string | null {
 }
 
 /**
- * The label of the action of the fix of an edge of row 1′, every fix: "Stack lane-run on stills-codec", "Unstack ui from
- * auth", "Group 1a2b3c4d into lane-run", "Safe Push Whole Stack"; null without a fix
+ * The label of an action of an edge (`EdgeAction`, the builder of Rust), the same on every surface: "Land Together"
+ * ("Land Together · Safe Push Whole Stack" when the stack they make forks), "Land util First", "Restart util", "Group
+ * 1a2b3c4d into lane-run", "Unstack ui from auth", "Safe Push Whole Stack"
  */
-export function formatEdgeFix(fix: LandingFix | null): string | null {
-  switch (fix?.kind) {
-    case "moveCommit":
-      return `Group ${formatShortHash(fix.commit.id)} into ${fix.into}`
+export function formatEdgeAction(action: EdgeAction): string {
+  switch (action.kind) {
+    case "landTogether":
+      return action.forks ? "Land Together · Safe Push Whole Stack" : "Land Together"
+    case "landFirst":
+      return `Land ${action.branch} First`
+    case "restart":
+      return `Restart ${action.robot.branch}`
+    case "group":
+      return `Group ${formatShortHash(action.commit)} into ${action.into}`
+    case "unstack":
+      return `Unstack ${action.branch} from ${action.from}`
     case "start":
-      return formatStartOf(fix.subject)
-    default:
-      return formatLandingFix(fix)
+      return formatStartOf(action.subject)
   }
 }
 
@@ -281,6 +288,62 @@ export function describeEdge(edge: LandingEdge): string {
     case "unassigned":
     case "open":
       return edge.fix === null ? `${evidence}: it is not in master yet.` : `${evidence}. ${describeFix(edge.fix)}`
+  }
+}
+
+/** A part of a short line of the popover: text, or a short name with its whole text in the hover */
+export type DetailPart = string | { readonly text: string; readonly title: string }
+
+/** A commit by its short hash, its subject in the hover */
+function commitPart(commit: StackCommit): DetailPart {
+  return { text: formatShortHash(commit.id), title: commit.subject === "" ? commit.id : commit.subject }
+}
+
+/** A use by its file name and line, the whole path in the hover */
+function sitePart(file: string, line: number): DetailPart {
+  return { text: `${fileName(file)}:${line}`, title: `${file}:${line}` }
+}
+
+/**
+ * The detail of a refusal of the start in the Safe Push popover, one or two short lines: the commits by their short hash
+ * (the subject in the hover), the use by file name and line (the path in the hover), and nothing an action button of
+ * the popover says ("Stack flow on codec"). "a1b2c3d4 uses Codec at Flow.kt:3, which 5e6f7a8b of codec adds: the build
+ * of flow fails. 4 more names too." `brd` keeps the whole sentence of the gate (`LandingRefusal::reason`)
+ */
+export function describeRefusalDetail(refusal: LandingRefusal, subject: string, more: number): DetailPart[] {
+  const rest = more === 0 ? [] : [` ${more === 1 ? "One more name" : `${more} more names`} too.`]
+  switch (refusal.kind) {
+    case "missingDeclaration":
+      return [
+        commitPart(refusal.usedBy),
+        ` uses ${refusal.identifier} at `,
+        sitePart(refusal.file, refusal.line),
+        ", which ",
+        commitPart(refusal.declaredBy),
+        ` of ${branchOf(refusal.declaredBy)} adds: the build of ${subject} fails.`,
+        ...rest,
+      ]
+    case "danglingReference": {
+      const change = refusal.reference === "removed" ? "removes" : refusal.reference === "changed" ? "changes" : "declares again"
+      return [
+        commitPart(refusal.removedBy),
+        ` ${change} ${refusal.identifier}, still used at `,
+        sitePart(refusal.file, refusal.line),
+        "; ",
+        commitPart(refusal.fixedBy),
+        ` of ${branchOf(refusal.fixedBy)} changes that use.`,
+        ...rest,
+      ]
+    }
+    case "lostBinding":
+      return [
+        commitPart(refusal.removedBy),
+        ` removes ${refusal.binding === "import" ? "the import" : "the declaration"} of ${refusal.identifier}, still used at `,
+        sitePart(refusal.file, refusal.line),
+        ".",
+      ]
+    case "unlandedNeed":
+      return [`You declared that ${refusal.needs} lands before ${refusal.branch}.`]
   }
 }
 

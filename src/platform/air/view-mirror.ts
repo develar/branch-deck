@@ -53,13 +53,24 @@ const KEYED_PARTS = {
   approvalLanding: "removedApprovalLanding",
   reviewStacks: "removedReviewStacks",
   operations: "removedOperations",
+  landingUnits: "removedLandingUnits",
 } as const satisfies Partial<Record<keyof RepositoryView, keyof TableChanges>>
 
 type KeyedPart = keyof typeof KEYED_PARTS
 
 /** The parts a patch replaces whole, under the same name in `TableChanges` */
-const WHOLE_PARTS = ["cached", "synced", "sync", "header", "order", "undo", "inputsCheckedAt", "reviews", "route"] as const satisfies readonly (keyof RepositoryView &
-  keyof TableChanges)[]
+const WHOLE_PARTS = [
+  "cached",
+  "synced",
+  "sync",
+  "header",
+  "order",
+  "undo",
+  "inputsCheckedAt",
+  "reviews",
+  "route",
+  "landingPlan",
+] as const satisfies readonly (keyof RepositoryView & keyof TableChanges)[]
 
 function isKeyed(part: string): part is KeyedPart {
   return Object.hasOwn(KEYED_PARTS, part)
