@@ -609,7 +609,7 @@ fn a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound() {
     panic!("the exclusive run drains the host");
   };
   assert_eq!(entry.ticket.run, "ab");
-  assert!(since_ms >= before && until_ms == since_ms + 900_000, "{since_ms} {until_ms}");
+  assert!(since_ms >= before && until_ms == since_ms + 300_000, "{since_ms} {until_ms}");
   assert!(matches!(take(&params, &exclusive).unwrap(), TurnAnswer::Queued(_)));
   assert!(
     matches!(bar(dir.path(), now_ms(), DRAIN_BAR), Some(Bar::Drains { since_ms: again, .. }) if again == since_ms),

@@ -58,7 +58,7 @@ pub(crate) fn host_sample_every() -> Option<Duration> {
 }
 
 /// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain:
-/// `BD_HOST_TEST_DRAIN_BAR_MS`, else [`lease_pool::host_turn::DRAIN_BAR`] (15 min)
+/// `BD_HOST_TEST_DRAIN_BAR_MS`, else [`lease_pool::host_turn::DRAIN_BAR`] (5 min)
 pub(crate) fn drain_bar() -> Duration {
   from_env("BD_HOST_TEST_DRAIN_BAR_MS", lease_pool::host_turn::DRAIN_BAR)
 }

@@ -427,7 +427,7 @@ fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Samp
 }
 
 /// A run that is not heavy waits before its lend while an exclusive run holds the turn of the host, or drains it for at
-/// most 15 min, in the phase `exclusive`, which only such a wait has: up to the wait for a slot, with its line at once and
+/// most 5 min, in the phase `exclusive`, which only such a wait has: up to the wait for a slot, with its line at once and
 /// once a minute. Answers
 /// `false` when a cancel ended the wait; a wait whose time is up refuses with `slot_timeout`
 fn wait_for_measurement(context: &Context<'_>, phases: &mut Phases<'_>, stop: &dyn Fn() -> bool) -> Result<bool, Refusal> {

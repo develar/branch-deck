@@ -48,7 +48,7 @@
 //! command starts and leaves as it ends), and when every sample of the host of the last 30 s is quiet, as a bursty run
 //! in a lull of one sample is no quiet host ([`HostWindow`]). While it holds no heavy run is admitted and each new run
 //! that is not heavy waits for its end before its lend ([`exclusive_holder`]). While it drains, at the head of the queue
-//! with no holder, the new runs that are not heavy wait too, for at most 15 min from the start of the drain, so a host
+//! with no holder, the new runs that are not heavy wait too, for at most 5 min from the start of the drain, so a host
 //! of steady light runs drains at all ([`bar`], `drain.json`). No heavy run passes it before its drain ends either: the
 //! drain is the one window of the host for the measurement. Once its drain has ended without a quiet host, the first heavy
 //! run behind it that is not exclusive starts past it while the head cannot start and the ordinary admission admits that
@@ -105,7 +105,7 @@ pub const SHORT_WALL: Duration = Duration::from_mins(2);
 /// How often short runs pass a run of the queue at most ([`place`]): a run waits at most 4 short runs longer
 pub const PASS_BUDGET: u32 = 4;
 /// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain
-pub const DRAIN_BAR: Duration = Duration::from_mins(15);
+pub const DRAIN_BAR: Duration = Duration::from_mins(5);
 /// How long the head of the queue waits in the queue for a quiet host, or for room beside the load of the host outside
 /// the heavy runs, before a free turn admits it whatever that load ([`admits`]): the runs that are not heavy wait for no
 /// heavy run, so on a host of steady light runs a run of the whole host would wait for the whole of its 2 h

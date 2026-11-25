@@ -268,7 +268,7 @@ impl LockLine {
 }
 
 /// Waits up to `wait` while an exclusive run holds the turn of the host, or drains it for at most
-/// `tuning::drain_bar` (15 min), for the run `run` that is not heavy, before its lend: its line at once, at once again
+/// `tuning::drain_bar` (5 min), for the run `run` that is not heavy, before its lend: its line at once, at once again
 /// when the drain becomes a hold, and once a minute (`lease_pool::host_runs::measurement_line`, `drain_line`). Answers
 /// `Some(true)` once nothing bars it, `Some(false)` when the time is up, and `None` when `stop` ended the wait
 pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop: &dyn Fn() -> bool, say: &mut dyn FnMut(&str)) -> Option<bool> {

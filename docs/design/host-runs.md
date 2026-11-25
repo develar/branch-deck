@@ -216,8 +216,11 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   the load median of the measured lane doubled. While it holds no heavy run is admitted and each new run that is not
   heavy waits for its end before its lend, in the step `exclusive`. The Studio has steady light traffic all day (the narrow bt runs of many
   sessions), so a drain alone would often reach the 2 h of the wait: while an exclusive run is at the head of the queue
-  and no heavy run holds, the new runs that are not heavy wait for it too, for at most 15 min from the start of the
-  drain (`drain.json`), after which they start again and the exclusive run waits on. It is an explicit flag, never a pattern of
+  and no heavy run holds, the new runs that are not heavy wait for it too, for at most 5 min from the start of the
+  drain (`drain.json`), after which they start again and the exclusive run waits on. The bar is 5 min: on 2026-11-25
+  the commands of the runs that are not heavy took 0.9 min (p50) and 5.0 min (p95) over 272 runs, so a drain that is not
+  quiet after 5 min was not quiet after 15 either, and the drain of 15 min at 10:27 kept the Studio about 16 cores idle
+  while 11 heavy runs waited. It is an explicit flag, never a pattern of
   `[host]`: a check that took the host this way would stop every agent of the host for its whole run. The holder is also in
   `exclusive.json` beside the table: a supervisor of the build before, of a run that began before an upgrade, rewrites
   `turn.json` at each sample of its run and drops the fields it does not know (on 2026-11-19 the first exclusive run

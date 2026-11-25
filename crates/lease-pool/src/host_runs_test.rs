@@ -165,8 +165,8 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
     recent: None,
   };
   assert_eq!(
-    drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 780_000, now_ms),
-    "run 1792-81 waits 2 min for a measurement: run 1788-12 of idea-1 waits for the host to drain (zsh ./measure-ab.sh); this run starts when the measurement ends, or in at most 13 min"
+    drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 180_000, now_ms),
+    "run 1792-81 waits 2 min for a measurement: run 1788-12 of idea-1 waits for the host to drain (zsh ./measure-ab.sh); this run starts when the measurement ends, or in at most 3 min"
   );
   assert_eq!(
     measurement_line("1792-81", &holder, Duration::from_mins(3), now_ms),

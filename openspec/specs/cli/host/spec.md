@@ -2592,7 +2592,7 @@ not heavy MUST wait for its end before its lend, in the step `exclusive`, up to 
 - **THEN** the new run waits before its lend, in the step `exclusive`, and its log says `run <id> waits <time> for a
   measurement: run <id> of <repository> waits for the host to drain (<command>); this run starts when the measurement
   ends, or in at most <time>`
-- **AND** 15 min after the start of the drain (`heavy/drain.json`) the bar lifts and the new runs start again, while the
+- **AND** 5 min after the start of the drain (`heavy/drain.json`) the bar lifts and the new runs start again, while the
   exclusive run waits on and the heavy runs behind it that fit start past it; once it holds the host they wait for its
   end; behind a heavy holder it drains nothing
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_draining_exclusive_run_bars_new_runs_for_at_most_the_bound`)
@@ -2600,7 +2600,7 @@ not heavy MUST wait for its end before its lend, in the step `exclusive`, up to 
   [@test] crates/host-agent/tests/serve/heavy.rs (`a_new_run_waits_while_an_exclusive_run_drains_the_host_for_at_most_the_bound`)
 
 #### Scenario: A heavy run past an exclusive run whose drain ended
-- **WHEN** an exclusive run at the head of the queue cannot start, and its drain of 15 min has ended without a quiet
+- **WHEN** an exclusive run at the head of the queue cannot start, and its drain of 5 min has ended without a quiet
   host, as runs that are not heavy run on for hours
 - **THEN** the first heavy run behind it that is not exclusive starts past it once the admission of the head of the
   queue admits that run: beside the holders and the busy cores outside them, or on a free turn of a quiet host or after

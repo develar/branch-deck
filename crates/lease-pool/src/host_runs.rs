@@ -135,7 +135,7 @@ fn head_drain_text(queue: &TurnQueue, now_ms: u64) -> String {
 
 /// The line of the run `run` that is not heavy and waited `waited` at `now_ms` while the exclusive run `drainer` drains
 /// the host, until `until_ms` at most: "run 1792-81 waits 2 min for a measurement: run 1788-12 of idea-1 waits for the
-/// host to drain (zsh ./measure-ab.sh); this run starts when the measurement ends, or in at most 13 min"
+/// host to drain (zsh ./measure-ab.sh); this run starts when the measurement ends, or in at most 3 min"
 pub fn drain_line(run: &str, drainer: &TurnEntry, waited: Duration, until_ms: u64, now_ms: u64) -> String {
   format!(
     "run {run} waits {} for a measurement: run {} waits for the host to drain ({}); this run starts when the measurement ends, or in at most {}",
