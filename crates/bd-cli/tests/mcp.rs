@@ -7,20 +7,9 @@
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, ExitStatus, Stdio};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use std::process::{Command, Stdio};
 
 const BRD: &str = env!("CARGO_BIN_EXE_brd");
-
-/// The most a test waits for an answer or the exit: a regression fails the test, it does not hang it
-const TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Ends the process of `pid` that did not answer in time
-fn kill(pid: u32) {
-  let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
-}
 
 /// The first answer of `brd mcp` is on its stdout, and the end of its stdin ends it with 0. The app data directory is in
 /// the temporary home; neither the start nor `initialize` reads a secret, so the keychain stays untouched
@@ -39,36 +28,24 @@ fn brd_mcp_answers_initialize_on_its_stdout_and_ends_with_its_stdin() {
     .stderr(Stdio::inherit())
     .spawn()
     .expect("brd mcp starts");
-  let pid = child.id();
   let mut stdin = child.stdin.take().expect("the stdin of brd mcp");
-  let stdout = child.stdout.take().expect("the stdout of brd mcp");
+  let mut stdout = BufReader::new(child.stdout.take().expect("the stdout of brd mcp"));
 
-  let (lines, first_line) = mpsc::channel();
-  thread::spawn(move || {
-    let mut line = String::new();
-    let read = BufReader::new(stdout).read_line(&mut line).map(|_| line);
-    let _ = lines.send(read);
-  });
+  // No clock: the start of a process is seconds on a loaded host (6.6 s on the Studio), so the test waits for the line
+  // and the exit themselves. A brd that never answers or never exits is ended by the terminate-after of
+  // `.config/nextest.toml`, which kills the process group of the test, brd included
   let initialize = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} });
   stdin.write_all(format!("{initialize}\n").as_bytes()).expect("initialize reaches brd mcp");
   stdin.flush().expect("initialize reaches brd mcp");
-  let Ok(line) = first_line.recv_timeout(TIMEOUT) else {
-    kill(pid);
-    panic!("brd mcp wrote no line on its stdout in {TIMEOUT:?}");
-  };
-  let answer: Value = serde_json::from_str(&line.expect("the stdout of brd mcp")).expect("the answer is JSON");
+  let mut line = String::new();
+  stdout.read_line(&mut line).expect("the stdout of brd mcp");
+  assert!(!line.is_empty(), "brd mcp closed its stdout before it answered initialize");
+  let answer: Value = serde_json::from_str(&line).expect("the answer is JSON");
   assert_eq!(answer["id"], 1, "{answer:#}");
   assert_eq!(answer["result"]["serverInfo"]["name"], "branch-deck", "{answer:#}");
   assert_eq!(answer["result"]["capabilities"]["experimental"]["x-air-app"]["version"], "1.0.0", "{answer:#}");
 
   drop(stdin);
-  let (exits, exit) = mpsc::channel::<std::io::Result<ExitStatus>>();
-  thread::spawn(move || {
-    let _ = exits.send(child.wait());
-  });
-  let Ok(status) = exit.recv_timeout(TIMEOUT) else {
-    kill(pid);
-    panic!("brd mcp did not exit in {TIMEOUT:?} after the end of its stdin");
-  };
+  let status = child.wait();
   assert_eq!(status.expect("brd mcp ended").code(), Some(0));
 }
