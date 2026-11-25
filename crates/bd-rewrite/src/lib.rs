@@ -28,6 +28,7 @@ pub mod move_hunk_command;
 pub mod need_command;
 pub mod park_command;
 pub mod review_plan_command;
+pub mod review_plan_fold;
 pub mod reword_command;
 pub mod rewrite;
 pub mod squash_command;

@@ -212,7 +212,7 @@ pub(crate) fn ui_texts(files: &[ChangedFile<'_>], texts: &HashMap<String, String
       before: before.map(|entry| entry.value.clone()),
       after: after.map(|entry| entry.value.clone()),
       line,
-      module: modules.of_file.get(index).copied(),
+      module: modules.of_file.get(index).copied().flatten(),
     };
     let mut changed: Vec<UiText> = after
       .iter()

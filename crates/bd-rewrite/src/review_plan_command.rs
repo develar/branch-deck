@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 40` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 41` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -78,9 +78,13 @@
 //! the two still two units;
 //! version 40 the `unit` of that place, the unit that shows it (of its declaration, or the one that takes its file
 //! whole), and the `moved_out` of a slice that holds nothing but declarations moved whole to other files, read at
-//! their new places
+//! their new places;
+//! version 41 the generated files past the first 20 of `files`, `order`, the slices of the unit `generated` and the
+//! stops and paths of each step left out, each list with the count of them (`review_plan_fold`), no module of the
+//! review of generated files alone and no dependency change of a generated manifest
 
 use crate::mark_reviewed_command::refused;
+use crate::review_plan_fold::{StepsOutput, cut_generated, fold_steps};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::ShortIds;
@@ -99,16 +103,16 @@ use review_plan::links::{FileLink, LinkState, LinkedSymbol};
 use review_plan::modules::ModuleShape;
 use review_plan::registrations::Registration;
 use review_plan::shown::ShownForm;
-use review_plan::steps::ReviewSteps;
 use review_plan::texts::UiText;
 use review_plan::units::{MovedPlace, OtherReason, RenamedFrom, RenamedUses, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 40;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 41;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -193,8 +197,10 @@ pub struct ReviewPlanOutput {
   /// alone (`by_name`); `noUseBreaks` when every one is `unbroken`, also when `api` holds additions alone
   pub verdict: BreakVerdict,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too): the most `breaks` first, then
-  /// the `untested` ones, then in tree order
+  /// the `untested` ones, then in tree order; of the generated files (`mechanical: "generated"`) the first 20
   pub files: Vec<FileFactsOutput>,
+  /// The generated files `files` leaves out, past its first 20 of them
+  pub files_omitted: usize,
   /// Which changed file uses which, before and after the commits, by the file that uses, then the one that declares
   pub links: Vec<FileLinkOutput>,
   /// The entries the commits add to, remove from or change in the build files (the `orderEntry` of an `*.iml`, the
@@ -255,7 +261,8 @@ pub struct ReviewPlanOutput {
   /// of its stops (`start..end`, its tests from `tests`): the `contract`, a `module` or a `folder` with the small modules
   /// it holds (`also`), the `mechanical` stops last; its `title` and what gives it (`titleSource`:
   /// `commit`, the `label` of the section it tells, the first `sentence` of its paragraph, the first code `name` of it,
-  /// or none, `evidence`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
+  /// or none, `evidence`); of the stops and the paths of generated files the first 20 of a step, the rest counted
+  /// (`stopsOmitted`, `pathsOmitted`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
   /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
   /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and its `parts` (a labelled
   /// section, a run of other blocks), each `folded` or not; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
@@ -263,15 +270,17 @@ pub struct ReviewPlanOutput {
   /// nothing; its `parts` as the document tells them, each where it is `told` (`overview`, a `step` of the concerns of
   /// one commit, else with its `commit`) and `titled` when its label titles that step; each stop its `marks`, the lines
   /// of the told bodies that name it
-  pub steps: ReviewSteps,
+  pub steps: StepsOutput,
   /// The issue key the commits name (`issue`) and the prose the change adds, removes or changes (`contract`): the rules
   /// of the specs with the tests their `[@test]` lines name (`provenBy`), the records of decisions, the guides of
   /// agents, the docs
   pub brief: ReviewBrief,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
-  /// between files with no edge
+  /// between files with no edge; of the generated files the first 20
   pub order: Vec<String>,
+  /// The generated files `order` leaves out, past its first 20 of them
+  pub order_omitted: usize,
   /// What the pair leaves to read, proven from the full marks of its diffs under the default whitespace policy, as
   /// the review window counts each file (a review with its plan passes the blocks of the imports alone): by the role of
   /// each file (`roles`: code, tests, prose, build, resources, each with its files, the files with a change to read,
@@ -413,8 +422,11 @@ pub struct UnitOutput {
   pub test: bool,
   /// Of a declaration: the line of its name, after the commits (before them for a removal)
   pub line: Option<u32>,
-  /// What it changes in each file
+  /// What it changes in each file; of the `mechanical` unit `generated` the first 20 files
   pub slices: Vec<UnitSliceOutput>,
+  /// Of the `mechanical` unit `generated`: the files `slices` leaves out, past its first 20
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub slices_omitted: usize,
   /// The change, wherever it sits: the same across a rebase or an amend that keeps it
   pub fingerprint: String,
   /// Of a `behaviour` unit whose every changed line changed in renamed names that are not local, which the index has
@@ -593,6 +605,25 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     .flat_map(|step| step.commits.iter().map(|commit| &commit.id))
     .chain(plan.steps.commits.iter().map(|commit| &commit.id));
   let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).chain(step_ids).map(String::as_str));
+  let generated_paths: HashSet<String> = plan
+    .files
+    .iter()
+    .filter(|facts| facts.mechanical == Some(MechanicalKind::Generated))
+    .map(|facts| facts.path.clone())
+    .collect();
+  let generated_units: HashSet<String> = plan
+    .units
+    .iter()
+    .filter(|unit| {
+      unit.kind
+        == (UnitKind::Mechanical {
+          mechanical: MechanicalKind::Generated,
+        })
+    })
+    .map(|unit| unit.id.clone())
+    .collect();
+  let (files, files_omitted) = cut_generated(plan.files, |facts| facts.mechanical == Some(MechanicalKind::Generated));
+  let (order, order_omitted) = cut_generated(plan.order, |path| generated_paths.contains(path));
   let mut steps = plan.steps;
   for step in &mut steps.steps {
     for commit in &mut step.commits {
@@ -615,7 +646,8 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     title: plan.title,
     api: plan.api.into_iter().map(api_output).collect(),
     verdict: plan.verdict,
-    files: plan.files.into_iter().map(file_output).collect(),
+    files: files.into_iter().map(file_output).collect(),
+    files_omitted,
     links: plan.links.into_iter().map(link_output).collect(),
     dependencies: plan.dependencies,
     modules: plan.modules,
@@ -624,9 +656,10 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     units: plan.units.into_iter().map(unit_output).collect(),
     concerns: plan.concerns,
-    steps,
+    steps: fold_steps(steps, &generated_units, &generated_paths),
     brief: plan.brief,
-    order: plan.order,
+    order,
+    order_omitted,
     reading: plan.reading,
     index_note: plan.index_note,
   })
@@ -715,7 +748,8 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     api: unit.api,
     test: unit.test,
     line: unit.line,
-    slices: unit.slices.into_iter().map(slice).collect(),
+    slices: Vec::new(),
+    slices_omitted: 0,
     fingerprint: unit.fingerprint,
     renamed: unit.renamed,
     renamed_from: unit.renamed_from,
@@ -749,7 +783,16 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
       UnitKindOutput::Other
     }
   };
+  let generated = output.mechanical == Some(MechanicalKind::Generated);
+  let (slices, slices_omitted) = cut_generated(unit.slices, |_| generated);
+  output.slices = slices.into_iter().map(slice).collect();
+  output.slices_omitted = slices_omitted;
   output
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if calls")]
+const fn is_zero(count: &usize) -> bool {
+  *count == 0
 }
 
 fn repeated_edit_output(group: RepeatedEditGroup) -> RepeatedEditOutput {

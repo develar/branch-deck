@@ -1087,7 +1087,7 @@ pub mod templates {
   pub const GENERATED_RANGE_MODULES: usize = 3000;
 
   /// A branch of the shape of a generator's run over a monorepo, `jps-bridge`: a commit a person wrote (the record of
-  /// a module, its converter, its test and its spec), then one whose files a tool wrote, the section the generator
+  /// a module, its converter, its test and its spec), then one whose files a tool wrote, each with a body that tells it, the section the generator
   /// writes into the `BUILD.bazel` of each of `GENERATED_RANGE_MODULES` modules rewritten and a `load` line added, the
   /// list of the generated files and the lock file too. Each group of a hundred modules has its owner by an
   /// `OWNERSHIP` file (`Team 0` … `Team 29`), the build its own (`Build Tools`)
@@ -1163,9 +1163,13 @@ pub mod templates {
     RepoTemplate::new("generated_range")
       .branch_prefix("user-name")
       .commit_with_timestamp("Initial project setup", &initial, Some(1704117600))
-      .commit_with_timestamp("(jps-bridge) the record of each JPS module is in its package", &hand, Some(1704119400))
       .commit_with_timestamp(
-        "(jps-bridge) tool output only, the record of each JPS module is in its package",
+        "(jps-bridge) the record of each JPS module is in its package\n\nThe converter writes the `jps_module` record of each module into its package, and its test names the record it writes.",
+        &hand,
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(jps-bridge) tool output only, the record of each JPS module is in its package\n\nThe converter wrote every file of this commit, and no file has a hand-written change. A second run of it changes no file.",
         &generated,
         Some(1704121200),
       )

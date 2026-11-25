@@ -125,8 +125,9 @@ pub struct ModuleShape {
 #[derive(Debug, Default)]
 pub(crate) struct Modules {
   pub shapes: Vec<ModuleShape>,
-  /// By the place of each file of `changed`: its module in `shapes`
-  pub of_file: Vec<u32>,
+  /// By the place of each file of `changed`: its module in `shapes`, `None` for a generated file whose module has
+  /// no other changed file
+  pub of_file: Vec<Option<u32>>,
   /// By the place of each file of `changed`: its directory below the folders the files of its module share
   /// (`SharedFolders::below`)
   pub folder_of: Vec<String>,
@@ -138,7 +139,7 @@ pub(crate) struct Modules {
 impl Modules {
   /// The module of `path`, a file of the review
   pub(crate) fn of_path(&self, path: &str) -> Option<u32> {
-    self.place_of_path.get(path).and_then(|&index| self.of_file.get(index).copied())
+    self.place_of_path.get(path).and_then(|&index| self.of_file.get(index).copied().flatten())
   }
 
   /// The directory of `path`, a file of the review, below the folders the files of its module share
@@ -282,13 +283,30 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
   // the roots in tree order, each once
   let mut distinct: Vec<&str> = sides.iter().map(|&(root, _)| root).collect::<HashSet<_>>().into_iter().collect();
   distinct.sort_by(|a, b| compare_tree_paths(a, b));
-  let place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();
-  let module_of: Vec<usize> = sides.iter().map(|&(root, _)| place[root]).collect();
-  // the files of each module, by their place in `changed`
+  let root_place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();
+  let module_of: Vec<usize> = sides.iter().map(|&(root, _)| root_place[root]).collect();
+  // the files of each root, by their place in `changed`
   let mut members: Vec<Vec<usize>> = vec![Vec::new(); distinct.len()];
   for (index, &module) in module_of.iter().enumerate() {
     members[module].push(index);
   }
+  // a root whose changed files are all generated is no module of the review: a generator's run that rewrites a build
+  // file in each of thousands of modules changes none of them by hand, and its files fold by their kind
+  let generated = |index: usize| input.mechanical.get(index).copied().flatten() == Some(MechanicalKind::Generated);
+  let kept: Vec<usize> = (0..distinct.len()).filter(|&root| !members[root].iter().all(|&index| generated(index))).collect();
+  let shape_of_root: Vec<Option<usize>> = {
+    let mut shape_of_root = vec![None; distinct.len()];
+    for (shape, &root) in kept.iter().enumerate() {
+      shape_of_root[root] = Some(shape);
+    }
+    shape_of_root
+  };
+  let all_roots = std::mem::take(&mut distinct);
+  distinct = kept.iter().map(|&root| all_roots[root]).collect();
+  let place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();
+  let shape_of_file: Vec<Option<usize>> = module_of.iter().map(|&root| shape_of_root[root]).collect();
+  let all_members = std::mem::take(&mut members);
+  members = kept.iter().map(|&root| all_members[root].clone()).collect();
   let manifests: HashSet<&str> = input.dependencies.iter().map(|change| change.manifest.as_str()).collect();
   let roles: Vec<Role> = changed
     .iter()
@@ -317,7 +335,8 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
       entries: None,
     })
     .collect();
-  for (index, &module) in module_of.iter().enumerate() {
+  for (index, module) in shape_of_file.iter().enumerate() {
+    let Some(module) = *module else { continue };
     let shape = &mut shapes[module];
     match roles[index] {
       Role::Code => shape.files.code += 1,
@@ -330,9 +349,10 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
     shape.additions += additions;
     shape.deletions += deletions;
   }
-  // the folders of each module below the packages its code and tests share (`com/example/player`), its resources apart
+  // the folders of each root below the packages its code and tests share (`com/example/player`), its resources apart,
+  // of a root of generated files alone too
   let mut folder_of: Vec<String> = vec![String::new(); changed.len()];
-  for ((shape, root), files) in shapes.iter_mut().zip(&distinct).zip(&members) {
+  for (root_index, (root, files)) in all_roots.iter().zip(&all_members).enumerate() {
     let paths: Vec<&str> = files.iter().map(|&index| changed[index].path).collect();
     let shared = SharedFolders::of(&paths, root);
     let mut directories: BTreeMap<String, u32> = BTreeMap::new();
@@ -340,9 +360,11 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
       *directories.entry(shared.directory(path)).or_default() += 1;
       folder_of[index] = shared.below(path);
     }
-    let mut found: Vec<ModuleDirectory> = directories.into_iter().map(|(path, files)| ModuleDirectory { path, files }).collect();
-    found.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| compare_tree_paths(&a.path, &b.path)));
-    shape.directories = found;
+    if let Some(shape) = shape_of_root[root_index] {
+      let mut found: Vec<ModuleDirectory> = directories.into_iter().map(|(path, files)| ModuleDirectory { path, files }).collect();
+      found.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| compare_tree_paths(&a.path, &b.path)));
+      shapes[shape].directories = found;
+    }
   }
   add_uses(&mut shapes, &place, input, &root_of);
   // the order: an added module first, then the most changed lines of code and tests, then tree order (`distinct`)
@@ -381,7 +403,7 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
   }
   Modules {
     shapes: ordered,
-    of_file: module_of.iter().map(|&module| new_place[module]).collect(),
+    of_file: shape_of_file.iter().map(|module| module.map(|module| new_place[module])).collect(),
     folder_of,
     place_of_path,
   }

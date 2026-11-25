@@ -13,9 +13,9 @@
 //!   of the story; a declaration moved whole to another file says where (`moved_across`)
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
-//! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
+//! - `dependencies`: the entries the commits add to, remove from or change in the build files but the generated ones, and the build files they
 //!   add or delete
-//! - `modules`: the modules the commits add, change or delete, the shape of each part and what each newly uses
+//! - `modules`: the modules the commits add, change or delete (a root of generated files alone none), the shape of each part and what each newly uses
 //! - `registrations`: what the commits register in the platform, the services, extension points, listeners,
 //!   extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, from accio
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
@@ -67,7 +67,7 @@ use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::entries::add_entries;
 use crate::fan_in::{add_usages, verdict_of};
-use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
+use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
 use crate::groups::order_by_entries;
 use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
@@ -562,7 +562,7 @@ pub fn review_plan_of(
       },
     );
     let Dependencies {
-      changes: dependencies,
+      changes: mut dependencies,
       states,
       added: added_manifests,
     } = dependency_changes(&changed, &texts);
@@ -570,6 +570,15 @@ pub fn review_plan_of(
     // the tokens of the texts, read once: what tells a change of whitespace alone in a file of a grammar
     let tokens = TextTokens::new(&texts);
     let kinds = file_kinds(&changed, &texts, &tokens, &states, &generated);
+    // the entries a generator wrote are its output, as the files it wrote: the change of its source is what the
+    // review reads, so a generated manifest has no dependency change of its own
+    let generated_manifests: HashSet<&str> = changed
+      .iter()
+      .zip(&kinds.mechanical)
+      .filter(|(_, kind)| **kind == Some(MechanicalKind::Generated))
+      .map(|(file, _)| file.path)
+      .collect();
+    dependencies.retain(|change| !generated_manifests.contains(change.manifest.as_str()));
     let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
     // what the roots of the modules shape: the links, which cross modules by them, the modules and their texts. Before
     // the roots answer (`None`) the plan has no module, not one module of every file at the root
