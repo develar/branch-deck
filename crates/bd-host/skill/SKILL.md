@@ -208,7 +208,8 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 `brd-host stats [<host>] [--days <n>] [--json]` sums the runs that ended there in the last `n` days (7 by default, 90
 at most), of every host without one: the waits against the work by phase, the heavy queue (behind holders, or at the
 head of a free turn for the load of the host), the outcomes, the runs that ended before their command, the cores, the
-30 commands that waited longest, and the bytes. The line `heavy turn by the minute` comes from the series of the heavy
+30 commands that waited longest, what each exclusive command cost (the time it held and drained the host, the runs
+that waited in it, its outcomes), and the bytes. The line `heavy turn by the minute` comes from the series of the heavy
 turn that the agent keeps for 30 days: the idle cores of the host while heavy runs waited, by why no run started, and
 the runs that a backfill behind the head would have started, a dry run that starts nothing. Read it before you guess
 why heavy runs wait; an agent without the feature `stats` names `brd-host upgrade <host>`: ask the user for it.

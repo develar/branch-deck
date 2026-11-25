@@ -1,6 +1,6 @@
 use super::*;
 use crate::host_slots::Ticket;
-use crate::host_turn::TurnEntry;
+use crate::host_turn::{HeadDrain, TurnEntry};
 use pretty_assertions::assert_eq;
 
 const MIN: u64 = 60_000;
@@ -54,6 +54,10 @@ fn queue(place: u32, need: NeedKind, behind_ms: u64, load_ms: u64) -> QueueRecor
     load_ms,
     short_ms: None,
     passes: 0,
+    drain_ms: None,
+    drain_at_ms: None,
+    pending_ms: None,
+    pending_at_ms: None,
   }
 }
 
@@ -229,18 +233,35 @@ fn entry(run: &str) -> TurnEntry {
   }
 }
 
-/// A run in the queue waits behind a holder or a run before it, and for the load of the host at the head of a free turn
+/// A run in the queue waits behind a holder or a run before it, and for the load of the host at the head of a free
+/// turn, an exclusive head in its drain for the drain
 #[test]
 fn a_run_in_the_queue_waits_behind_others_or_for_the_load_of_the_host() {
   let mut table = HeavyTurn {
     queue: vec![entry("head"), entry("second")],
     ..HeavyTurn::default()
   };
-  assert_eq!(spot(&table, "head"), Some((0, QueueSpot::Load)));
-  assert_eq!(spot(&table, "second"), Some((1, QueueSpot::Behind)));
-  assert_eq!(spot(&table, "gone"), None);
+  let draining = Some(HeadDrain::Draining { until_ms: 1 });
+  assert_eq!(spot(&table, "head", None), Some((0, QueueSpot::Load)));
+  assert_eq!(spot(&table, "head", draining), Some((0, QueueSpot::Drain)));
+  assert_eq!(spot(&table, "head", Some(HeadDrain::Ended { ended_ms: 1 })), Some((0, QueueSpot::Load)));
+  assert_eq!(spot(&table, "second", draining), Some((1, QueueSpot::Behind)));
+  assert_eq!(spot(&table, "gone", None), None);
   table.holders.push(entry("holder"));
-  assert_eq!(spot(&table, "head"), Some((0, QueueSpot::Behind)));
+  assert_eq!(spot(&table, "head", None), Some((0, QueueSpot::Behind)));
+  assert_eq!(
+    spot(&table, "head", Some(HeadDrain::Pending)),
+    Some((0, QueueSpot::Pending)),
+    "an exclusive head waits for the holders"
+  );
+  assert_eq!(spot(&table, "second", Some(HeadDrain::Pending)), Some((1, QueueSpot::Behind)));
+}
+
+/// A need of a later build reads as `Other`, so the line of a later agent still counts
+#[test]
+fn a_need_of_a_later_build_reads_as_other() {
+  let queue: QueueRecord = serde_json::from_str(r#"{"place":0,"holders":0,"cores":20,"need":"memory","behind_ms":0,"load_ms":0}"#).unwrap();
+  assert_eq!(queue.need, NeedKind::Other);
 }
 
 /// Each span between two looks goes to the spot of the first of them; a look outside the queue starts no span
@@ -252,8 +273,92 @@ fn the_clock_of_the_queue_splits_the_wait_by_the_spot_of_each_look() {
   clock.note(3000, Some(QueueSpot::Load));
   clock.note(3500, None);
   clock.note(4000, Some(QueueSpot::Load));
-  clock.close(4200);
-  assert_eq!((clock.behind_ms, clock.load_ms), (3000, 700));
+  clock.note(4200, Some(QueueSpot::Drain));
+  clock.note(4500, Some(QueueSpot::Pending));
+  clock.close(4600);
+  assert_eq!(
+    (clock.behind_ms, clock.load_ms, clock.drain_ms, clock.pending_ms),
+    (3100, 1000, 300, 100),
+    "a drain is a wait for the load too, and the wait of an exclusive head for the holders one behind them"
+  );
+}
+
+/// The cost of an exclusive command: the hold of its runs after their phase `heavy`, their drains, the other runs whose
+/// wait for the heavy turn or for a measurement overlapped either, and its outcomes; a run whose line names no drain
+/// counts apart
+#[test]
+fn the_summary_gives_the_cost_of_each_exclusive_command() {
+  let exclusive = |run: &str, started_ms: u64, drain: Option<(u64, u64)>| {
+    let mut line = heavy(
+      line(
+        run,
+        "bt --lane fast --no-cache --json",
+        started_ms,
+        3,
+        &[("heavy", 10 * MIN), ("slot", MIN), ("command", 13 * MIN)],
+      ),
+      QueueRecord {
+        drain_at_ms: drain.map(|(at, _)| at),
+        drain_ms: drain.map(|(_, ms)| ms),
+        // it waits for the holders from minute 1 to 7, before its drain
+        pending_at_ms: drain.map(|_| started_ms + MIN),
+        pending_ms: drain.map(|_| 6 * MIN),
+        ..queue(0, NeedKind::Exclusive, 5 * MIN, 5 * MIN)
+      },
+    );
+    line.exclusive = true;
+    line
+  };
+  let lines = [
+    // drains 3 min from minute 7 and holds from minute 10 to 24
+    exclusive("x1", NOV_24, Some((NOV_24 + 7 * MIN, 3 * MIN))),
+    // an older supervisor: no drain of record; holds from minute 70 to 84
+    exclusive("x2", NOV_24 + 60 * MIN, None),
+    // waits for the heavy turn from minute 5 to 15: 2 min behind the head before its drain, 3 min in the drain and 5 min
+    // in the hold
+    heavy(
+      line("h1", "pnpm e2e", NOV_24 + 5 * MIN, 0, &[("heavy", 10 * MIN), ("command", 5 * MIN)]),
+      queue(1, NeedKind::Cores, 10 * MIN, 0),
+    ),
+    // waits for the heavy turn from minute 0 to 4: 3 min behind the head before its drain
+    heavy(
+      line("h2", "pnpm lint:backend", NOV_24, 0, &[("heavy", 4 * MIN), ("command", MIN)]),
+      queue(1, NeedKind::Cores, 4 * MIN, 0),
+    ),
+    // waits for the measurement from minute 20 to 22, then runs
+    line("l1", "pnpm lint", NOV_24 + 20 * MIN, 0, &[("exclusive", 2 * MIN), ("command", MIN)]),
+    // runs from minute 30, after the hold
+    line("l2", "pnpm lint", NOV_24 + 30 * MIN, 0, &[("exclusive", 0), ("command", MIN)]),
+    // waits from minute 75 to 76 behind the second
+    line("l3", "pnpm lint", NOV_24 + 75 * MIN, 0, &[("slot", 0), ("exclusive", MIN), ("command", MIN)]),
+  ];
+  let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
+  assert_eq!(
+    report.exclusive_costs,
+    vec![ExclusiveCost {
+      repo: "/Users/u/idea-1".to_owned(),
+      command_key: "bt --lane fast --no-cache --json".to_owned(),
+      command: "bt --lane fast --no-cache --json".to_owned(),
+      measure_as: None,
+      runs: 2,
+      held_ms: 28 * MIN,
+      drain_ms: 3 * MIN,
+      drain_unknown: 1,
+      waiters: 3,
+      waited_ms: 11 * MIN,
+      pending_ms: 6 * MIN,
+      pending_waiters: 2,
+      pending_waited_ms: 5 * MIN,
+      outcomes: vec![Outcome { exit: 3, refused: None, runs: 2 }],
+    }]
+  );
+  assert!(
+    report
+      .lines("studio")
+      .contains(&"    2 run(s) held the host 28 min and drained it 3 min (1 run(s) without a drain of record), 3 run(s) waited 11 min in them; before the drains they waited 6 min for the holders, while 2 run(s) waited 5 min behind them, outcomes exit 3 2: bt --lane fast --no-cache --json".to_owned()),
+    "{:#?}",
+    report.lines("studio")
+  );
 }
 
 #[test]

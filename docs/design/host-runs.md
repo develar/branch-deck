@@ -396,7 +396,10 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   it was short and how often short runs passed it (its mark in `passes.json`, which leaves with the run, so the watch
   keeps the last one it read), and its wait split in two: behind the holders or the runs before it,
   and at the head of a free turn for the load of the host (a quiet host, or room beside the runs that are not heavy).
-  Without the split a summary cannot tell a first-come queue from a wait for a quiet host. The supervisor writes it
+  Without the split a summary cannot tell a first-come queue from a wait for a quiet host. An exclusive run also names
+  the part of the second in which it drained the host (`drain_ms`, from `head_drain` at each look), the part of the
+  first in which it waited at the head for the holders before its drain (`pending_ms`), and when a look first found
+  each (`drain_at_ms`, `pending_at_ms`). The supervisor writes it
   after the phase `heavy`, whatever its end; a watch of the wait reads the table without its lock at most once a
   second, at the stop check of each look, so it holds no look back and changes nothing of the turn. The file is the
   run's own and not a field of `turn.json`: a supervisor of an older build rewrites the table without the fields that
@@ -406,7 +409,18 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   agent keeps, with the pure `host_history::aggregate`, and only the summary crosses the link: the waits against the
   work by phase, the queue, the outcomes by exit and refusal (255 is any refusal), the waits of the runs that never
   ran their command, the cores, the 30 commands that waited longest and the rest in one entry, so the reply stays far
-  below the 1 MiB of a message, and the bytes by day. A command fails when it ran and exited with a code other than 0
+  below the 1 MiB of a message, and the bytes by day.
+- **The cost of the exclusive runs**: on 2026-11-25 the exclusive rules caused 47.7 % of the wait of the Studio, and the
+  8 runs of `bt --lane fast --no-cache --json` of the day ended with exit 3. A rule cannot tell a needed measurement
+  from a routine one, so the summary shows the cost to the person who starts them (`ExclusiveCost`): per exclusive
+  command, the time its runs held the turn (their phases after `heavy`), the time they drained the host, the other runs
+  whose wait for the heavy turn or for a measurement overlapped either, with the time of the overlap, and its outcomes.
+  The wait of an exclusive head for the holders counts apart, with the heavy runs that waited behind it then: no run
+  behind the head starts in that time but a short one new to the queue, though such a run can wait for the cores too.
+  A gate of an hour before the head makes that the larger part of the cost.
+  The spans come from the start of each run and its phases in their order, so they are as exact as the phases; a line of
+  a supervisor before the drain counts apart (`drain_unknown`). A need of a later build reads as `other`
+  (`NeedKind::Other`), so its line still counts after a downgrade. A command fails when it ran and exited with a code other than 0
   and 130 (a cancel). The aggregate lives on the side of the agent: `host-link` and `host-client` reach no pool.
 
 ### The series of the heavy turn

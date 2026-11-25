@@ -17,7 +17,7 @@ use host_link::heavy::measure_key;
 use host_link::proto::Reply;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_history::{
-  BasePackLine, HistoryLine, KEEP_DAYS, LineBytes, LineCores, LinePhase, NeedKind, QueueClock, QueueRecord, SCHEMA, StatsReport, aggregate, command_line, spot, utc_date,
+  BasePackLine, HistoryLine, KEEP_DAYS, LineBytes, LineCores, LinePhase, NeedKind, QueueClock, QueueRecord, QueueSpot, SCHEMA, StatsReport, aggregate, command_line, spot, utc_date,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -220,7 +220,8 @@ const QUEUE_LOOK: Duration = Duration::from_secs(1);
 
 /// The watch of a heavy run in the queue of the heavy turn, for its `queue.json`: its first look before the run joins
 /// counts the holders and the runs that wait, and each later look, at most once a second, finds the run in the queue
-/// and what it waits for there (`lease_pool::host_history::spot`). It reads the table without its lock, as
+/// and what it waits for there (`lease_pool::host_history::spot`), the drain of an exclusive run at the head and its wait
+/// for the holders before it too. It reads the table without its lock, as
 /// `brd-host runs` does, so it holds no wait back
 pub(crate) struct QueueWatch {
   dir: PathBuf,
@@ -238,6 +239,10 @@ pub(crate) struct QueueWatch {
   cores: u32,
   expected: Option<Cores>,
   need: NeedKind,
+  /// When a look first found the run draining the host at the head of the queue, in Unix milliseconds
+  drain_at: Option<u64>,
+  /// When a look first found the run at the head of the queue waiting for the holders before its drain
+  pending_at: Option<u64>,
 }
 
 impl QueueWatch {
@@ -258,6 +263,8 @@ impl QueueWatch {
       cores: of.cores,
       expected,
       need: NeedKind::of(expected, of.exclusive, of.cores),
+      drain_at: None,
+      pending_at: None,
       dir,
     }
   }
@@ -270,7 +277,17 @@ impl QueueWatch {
     }
     self.looked = Some(now);
     let Ok(table) = lease_pool::host_turn::read_live(&self.dir) else { return };
-    let found = spot(&table, &self.run);
+    let head_drain = lease_pool::host_turn::head_drain(&self.dir, &table.queue, now_ms(), crate::tuning::drain_bar());
+    let found = spot(&table, &self.run, head_drain);
+    match found {
+      Some((_, QueueSpot::Drain)) => {
+        self.drain_at.get_or_insert_with(now_ms);
+      }
+      Some((_, QueueSpot::Pending)) => {
+        self.pending_at.get_or_insert_with(now_ms);
+      }
+      _ => {}
+    }
     if let Some((position, _)) = found {
       // the place that the rule of the queue gave the run as it joined: a short run joins ahead of the long ones
       self.place.get_or_insert_with(|| count(position));
@@ -296,6 +313,10 @@ impl QueueWatch {
       load_ms: self.clock.load_ms,
       short_ms: self.mark.short_ms,
       passes: self.mark.passes,
+      drain_ms: (self.need == NeedKind::Exclusive).then_some(self.clock.drain_ms),
+      drain_at_ms: self.drain_at,
+      pending_ms: (self.need == NeedKind::Exclusive).then_some(self.clock.pending_ms),
+      pending_at_ms: self.pending_at,
     };
     if let Err(error) = run.write_queue(&record) {
       crate::log::supervisor(&format!("cannot write the queue of the run {}: {error}", self.run));

@@ -10,7 +10,7 @@
 //! runs that never ran their command, the cores, the 30 commands that waited longest ([`TOP_COMMANDS`]) and the rest in
 //! one entry, and the bytes by day
 
-use crate::host_turn::HeavyTurn;
+use crate::host_turn::{HeadDrain, HeavyTurn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -102,6 +102,50 @@ impl HistoryLine {
   fn failed(&self) -> bool {
     self.ran_command() && self.refused.is_none() && self.exit != 0 && self.exit != INTERRUPTED
   }
+
+  /// The span of its first phase `name` in Unix milliseconds, by its start and the phases before it in their order
+  fn phase_span(&self, name: &str) -> Option<(u64, u64)> {
+    let mut at = self.started_ms;
+    for phase in &self.phases {
+      if phase.name == name {
+        return Some((at, at.saturating_add(phase.ms)));
+      }
+      at = at.saturating_add(phase.ms);
+    }
+    None
+  }
+
+  /// The time that it held the heavy turn: its phases after the phase `heavy`, which the turn holds to its give-back
+  fn held_ms(&self) -> u64 {
+    self.phases.iter().skip_while(|phase| phase.name != "heavy").skip(1).map(|phase| phase.ms).sum()
+  }
+
+  /// The span in Unix milliseconds in which an exclusive head waited for the holders before its drain
+  /// (`QueueRecord::pending_at_ms`, `pending_ms`): no run behind it started then but a short run new to the queue
+  fn pending_span(&self) -> Option<(u64, u64)> {
+    let queue = self.queue.as_ref()?;
+    let (at, ms) = (queue.pending_at_ms?, queue.pending_ms?);
+    (ms > 0).then(|| (at, at.saturating_add(ms)))
+  }
+
+  /// The spans in Unix milliseconds in which an exclusive run kept the host from the others: its drain at the head of
+  /// the queue (`QueueRecord::drain_at_ms`, `drain_ms`) and its hold from the end of its phase `heavy`
+  fn exclusive_spans(&self) -> Vec<(u64, u64)> {
+    let mut spans = Vec::new();
+    if let Some(queue) = &self.queue
+      && let (Some(at), Some(ms)) = (queue.drain_at_ms, queue.drain_ms)
+      && ms > 0
+    {
+      spans.push((at, at.saturating_add(ms)));
+    }
+    if let Some((_, admitted)) = self.phase_span("heavy") {
+      let held = self.held_ms();
+      if held > 0 {
+        spans.push((admitted, admitted.saturating_add(held)));
+      }
+    }
+    spans
+  }
 }
 
 fn is_wait(phase: &str) -> bool {
@@ -160,6 +204,9 @@ pub enum NeedKind {
   Measured,
   /// A quiet host, for a measurement
   Exclusive,
+  /// A need of a later build, so its line still counts
+  #[serde(other)]
+  Other,
 }
 
 impl NeedKind {
@@ -200,6 +247,20 @@ pub struct QueueRecord {
   /// How often short runs went ahead of it in the queue, by the marks of the queue
   #[serde(default, skip_serializing_if = "is_zero")]
   pub passes: u32,
+  /// The wait of an exclusive run at the head of the queue while it drained the host, a part of `load_ms`; `None` for a
+  /// run that is not exclusive, and from a build before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub drain_ms: Option<u64>,
+  /// When a look first found that drain, in Unix milliseconds
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub drain_at_ms: Option<u64>,
+  /// The wait of an exclusive run at the head of the queue for the holders to end before its drain, a part of
+  /// `behind_ms`; `None` for a run that is not exclusive, and from a build before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pending_ms: Option<u64>,
+  /// When a look first found the run waiting so, in Unix milliseconds
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pending_at_ms: Option<u64>,
 }
 
 /// What a heavy run in the queue waits for at one look
@@ -209,15 +270,21 @@ pub enum QueueSpot {
   Behind,
   /// The load of the host: it is the head of the queue, and no heavy run holds cores
   Load,
+  /// The load of the host while it drains it: an exclusive run at the head of the queue in its drain
+  Drain,
+  /// The holders of the turn, as an exclusive run at the head of the queue whose drain begins once they end
+  Pending,
 }
 
-/// The place of the run `run` in the queue of `table` and what it waits for there; `None` when it is not in the queue
-pub fn spot(table: &HeavyTurn, run: &str) -> Option<(usize, QueueSpot)> {
+/// The place of the run `run` in the queue of `table` and what it waits for there, with `head_drain` the drain of an
+/// exclusive head (`host_turn::head_drain`); `None` when it is not in the queue
+pub fn spot(table: &HeavyTurn, run: &str, head_drain: Option<HeadDrain>) -> Option<(usize, QueueSpot)> {
   let position = table.queue.iter().position(|entry| entry.ticket.run == run)?;
-  let spot = if position == 0 && table.holders.is_empty() {
-    QueueSpot::Load
-  } else {
-    QueueSpot::Behind
+  let spot = match (position, table.holders.is_empty(), head_drain) {
+    (0, true, Some(HeadDrain::Draining { .. })) => QueueSpot::Drain,
+    (0, true, _) => QueueSpot::Load,
+    (0, false, Some(HeadDrain::Pending)) => QueueSpot::Pending,
+    _ => QueueSpot::Behind,
   };
   Some((position, spot))
 }
@@ -227,7 +294,12 @@ pub fn spot(table: &HeavyTurn, run: &str) -> Option<(usize, QueueSpot)> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct QueueClock {
   pub behind_ms: u64,
+  /// The wait for the load of the host, its drain too
   pub load_ms: u64,
+  /// The wait while it drained the host, a part of `load_ms`
+  pub drain_ms: u64,
+  /// The wait of an exclusive head for the holders before its drain, a part of `behind_ms`
+  pub pending_ms: u64,
   last: Option<(u64, Option<QueueSpot>)>,
 }
 
@@ -245,6 +317,14 @@ impl QueueClock {
       match spot {
         QueueSpot::Behind => self.behind_ms += span,
         QueueSpot::Load => self.load_ms += span,
+        QueueSpot::Drain => {
+          self.load_ms += span;
+          self.drain_ms += span;
+        }
+        QueueSpot::Pending => {
+          self.behind_ms += span;
+          self.pending_ms += span;
+        }
       }
     }
     self.last = self.last.map(|(_, spot)| (at_ms, spot));
@@ -306,6 +386,9 @@ pub struct StatsReport {
   /// The commands past them, in one entry
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub other: Option<OtherCommands>,
+  /// What each exclusive command cost the host, the most first; none from an agent of a build before it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub exclusive_costs: Vec<ExclusiveCost>,
   pub bytes: BytesTotals,
   /// The bytes of each UTC day with a run or a pack of a base, the oldest first
   pub by_day: Vec<DayBytes>,
@@ -350,6 +433,16 @@ pub struct Outcome {
   pub runs: u32,
 }
 
+impl Outcome {
+  /// `exit 3 8`, `heavy_timeout 2`: the exit or the refusal and its runs
+  fn text(&self) -> String {
+    match &self.refused {
+      Some(code) => format!("{code} {}", self.runs),
+      None => format!("exit {} {}", self.exit, self.runs),
+    }
+  }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithoutCommand {
   pub runs: u32,
@@ -390,6 +483,40 @@ pub struct CommandStats {
   pub cores: Option<Cores>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub peak: Option<Cores>,
+}
+
+/// What the runs of an exclusive command cost the host over a window
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExclusiveCost {
+  pub repo: String,
+  pub command_key: String,
+  /// The command line of its last run
+  pub command: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_as: Option<String>,
+  pub runs: u32,
+  /// The time its runs held the heavy turn: their phases after the phase `heavy`
+  pub held_ms: u64,
+  /// The time its runs drained the host at the head of the queue (`QueueRecord::drain_ms`)
+  pub drain_ms: u64,
+  /// Its runs whose line names no drain: of a supervisor of a build before it
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub drain_unknown: u32,
+  /// The other runs whose wait for the heavy turn (`heavy`) or for a measurement (`exclusive`) overlapped a drain or a
+  /// hold of its runs, and the time of the overlap, by the phases of each run in their order
+  pub waiters: u32,
+  pub waited_ms: u64,
+  /// The time its runs waited at the head of the queue for the holders before their drains (`QueueRecord::pending_ms`)
+  #[serde(default)]
+  pub pending_ms: u64,
+  /// The other heavy runs whose wait for the heavy turn overlapped that time, and the time of the overlap: they waited
+  /// behind the exclusive head, and maybe for the cores too
+  #[serde(default)]
+  pub pending_waiters: u32,
+  #[serde(default)]
+  pub pending_waited_ms: u64,
+  /// Its runs by their exit and their refusal, the most first
+  pub outcomes: Vec<Outcome>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -446,6 +573,7 @@ pub fn aggregate(lines: &[HistoryLine], bases: &[BasePackLine], since_ms: u64, u
     ..StatsReport::default()
   };
   (report.commands, report.other) = commands(&lines);
+  report.exclusive_costs = exclusive_costs(&lines);
   (report.bytes, report.by_day) = bytes(&lines, &bases);
   report
 }
@@ -496,6 +624,67 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
   }
 }
 
+/// What each exclusive command of `lines` cost the host: the hold and the drain of its runs, the other runs that waited
+/// in them, and its outcomes, the largest hold and drain first
+fn exclusive_costs(lines: &[&HistoryLine]) -> Vec<ExclusiveCost> {
+  let mut by: BTreeMap<(&str, &str), Vec<&HistoryLine>> = BTreeMap::new();
+  for line in lines.iter().filter(|line| line.exclusive) {
+    by.entry((line.repo.as_str(), line.command_key.as_str())).or_default().push(line);
+  }
+  let mut costs: Vec<ExclusiveCost> = by
+    .into_iter()
+    .map(|((repo, command_key), runs)| {
+      let others: Vec<&&HistoryLine> = lines.iter().filter(|other| !runs.iter().any(|run| run.run == other.run)).collect();
+      let spans: Vec<(u64, u64)> = runs.iter().flat_map(|line| line.exclusive_spans()).collect();
+      let (waiters, waited_ms) = waits_in(&spans, &others, &["heavy", "exclusive"]);
+      let pending: Vec<(u64, u64)> = runs.iter().filter_map(|line| line.pending_span()).collect();
+      let (pending_waiters, pending_waited_ms) = waits_in(&pending, &others, &["heavy"]);
+      let (command, measure_as) = last_named(&runs);
+      ExclusiveCost {
+        repo: repo.to_owned(),
+        command_key: command_key.to_owned(),
+        command,
+        measure_as,
+        runs: count(runs.len()),
+        held_ms: runs.iter().map(|line| line.held_ms()).sum(),
+        drain_ms: runs.iter().filter_map(|line| line.queue.and_then(|queue| queue.drain_ms)).sum(),
+        drain_unknown: count(runs.iter().filter(|line| line.queue.is_none_or(|queue| queue.drain_ms.is_none())).count()),
+        waiters,
+        waited_ms,
+        pending_ms: runs.iter().filter_map(|line| line.queue.and_then(|queue| queue.pending_ms)).sum(),
+        pending_waiters,
+        pending_waited_ms,
+        outcomes: outcomes(&runs),
+      }
+    })
+    .collect();
+  costs.sort_by_key(|cost| std::cmp::Reverse(cost.held_ms + cost.drain_ms));
+  costs
+}
+
+/// The runs of `others` whose phases of `names` overlapped `spans`, and the time of the overlap, by the phases of each run
+/// in their order
+fn waits_in(spans: &[(u64, u64)], others: &[&&HistoryLine], names: &[&str]) -> (u32, u64) {
+  let (mut waiters, mut waited_ms) = (0u32, 0u64);
+  for other in others {
+    let waits: Vec<(u64, u64)> = names.iter().filter_map(|name| other.phase_span(name)).collect();
+    let overlap: u64 = spans
+      .iter()
+      .flat_map(|&(from, to)| waits.iter().map(move |&(start, end)| end.min(to).saturating_sub(start.max(from))))
+      .sum();
+    if overlap > 0 {
+      waiters += 1;
+      waited_ms += overlap;
+    }
+  }
+  (waiters, waited_ms)
+}
+
+/// The command line and the class of the measures of the last of `runs`, which a summary names a command by
+fn last_named(runs: &[&HistoryLine]) -> (String, Option<String>) {
+  runs.last().map_or_default(|line| (line.command.clone(), line.measure_as.clone()))
+}
+
 fn outcomes(lines: &[&HistoryLine]) -> Vec<Outcome> {
   let mut by: BTreeMap<(i32, Option<String>), u32> = BTreeMap::new();
   for line in lines {
@@ -530,11 +719,12 @@ fn commands(lines: &[&HistoryLine]) -> (Vec<CommandStats>, Option<OtherCommands>
         .filter_map(|line| line.cores.map(|cores| cores.level.map_or(cores.mean, |level| level.max(cores.mean))))
         .collect();
       levels.sort_unstable();
+      let (command, measure_as) = last_named(&runs);
       CommandStats {
         repo: repo.to_owned(),
         command_key: command_key.to_owned(),
-        command: runs.last().map_or_default(|line| line.command.clone()),
-        measure_as: runs.last().and_then(|line| line.measure_as.clone()),
+        command,
+        measure_as,
         runs: count(runs.len()),
         failed: count(runs.iter().filter(|line| line.failed()).count()),
         wait_ms: runs.iter().map(|line| line.wait_ms()).sum(),
@@ -640,14 +830,7 @@ impl StatsReport {
         queue.passes
       ));
     }
-    let outcomes: Vec<String> = self
-      .outcomes
-      .iter()
-      .map(|outcome| match &outcome.refused {
-        Some(code) => format!("{code} {}", outcome.runs),
-        None => format!("exit {} {}", outcome.exit, outcome.runs),
-      })
-      .collect();
+    let outcomes: Vec<String> = self.outcomes.iter().map(Outcome::text).collect();
     lines.push(format!("  outcomes: {}", outcomes.join(", ")));
     if self.without_command.runs > 0 {
       lines.push(format!(
@@ -696,6 +879,35 @@ impl StatsReport {
         other.runs,
         other.failed,
         hours(other.wait_ms)
+      ));
+    }
+    if !self.exclusive_costs.is_empty() {
+      lines.push("  exclusive commands by their cost:".to_owned());
+    }
+    for cost in &self.exclusive_costs {
+      let unknown = match cost.drain_unknown {
+        0 => String::new(),
+        runs => format!(" ({runs} run(s) without a drain of record)"),
+      };
+      let outcomes: Vec<String> = cost.outcomes.iter().map(Outcome::text).collect();
+      let named = cost.measure_as.as_ref().map_or_else(|| cost.command.clone(), |class| format!("--measure-as {class}"));
+      let pending = match cost.pending_ms {
+        0 => String::new(),
+        ms => format!(
+          "; before the drains they waited {} for the holders, while {} run(s) waited {} behind them",
+          hours(ms),
+          cost.pending_waiters,
+          hours(cost.pending_waited_ms)
+        ),
+      };
+      lines.push(format!(
+        "    {} run(s) held the host {} and drained it {}{unknown}, {} run(s) waited {} in them{pending}, outcomes {}: {named}",
+        cost.runs,
+        hours(cost.held_ms),
+        hours(cost.drain_ms),
+        cost.waiters,
+        hours(cost.waited_ms),
+        outcomes.join(", ")
       ));
     }
     if let Some(series) = &self.series {

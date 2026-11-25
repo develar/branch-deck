@@ -100,6 +100,10 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     load_ms: 200,
     short_ms: Some(50_000),
     passes: 0,
+    drain_ms: None,
+    drain_at_ms: None,
+    pending_ms: None,
+    pending_at_ms: None,
   };
   run.write_queue(&queue).expect("the queue");
   let output = "{\"stream\":\"stdout\",\"text\":\"ok\"}\n";
@@ -247,6 +251,53 @@ fn the_summary_reads_the_lines_of_its_window_and_the_ended_runs_that_the_agent_k
   assert_eq!(stats(&home, 91, now_ms).unwrap_err().code, Code::BadRequest);
 }
 
+/// The watch of an exclusive run at the head of the queue behind a holder writes its wait for the holders before its
+/// drain, a part of its wait behind them
+#[test]
+fn the_watch_of_an_exclusive_run_writes_its_wait_for_the_holders() {
+  let dir = tempfile::tempdir().expect("a temporary home");
+  let home = Home::new(dir.path().to_path_buf());
+  fs::create_dir_all(home.heavy_dir()).expect("the heavy turn");
+  let turn = HeavyTurn {
+    cores: 20,
+    holders: vec![entry("holder")],
+    queue: vec![TurnEntry { exclusive: true, ..entry("1-9") }],
+    ..HeavyTurn::default()
+  };
+  fs::write(home.heavy_dir().join("turn.json"), serde_json::to_vec(&turn).expect("JSON")).expect("the table");
+  let command = ["zsh".to_owned(), "./measure-ab.sh".to_owned()];
+  let before = now_ms();
+  let mut watch = QueueWatch::start(&home, &turn_run(&command, true));
+  watch.look();
+  std::thread::sleep(Duration::from_millis(20));
+  let queue = finished(&home, watch);
+  let pending = queue.pending_ms.expect("the wait of an exclusive run for the holders");
+  assert!(pending >= 20 && queue.behind_ms >= pending && queue.drain_ms == Some(0), "{queue:?}");
+  assert!(queue.pending_at_ms.is_some_and(|at| at >= before), "{queue:?}");
+}
+
+/// The `queue.json` that `watch` writes as the wait of the run 1-9 ends
+fn finished(home: &Home, watch: QueueWatch) -> QueueRecord {
+  let runs = Runs::new(home.runs_dir());
+  let (run, _lock) = runs.create(&spec("1-9")).expect("a run");
+  watch.finish(&run);
+  run.queue().expect("queue.json")
+}
+
+/// The heavy run 1-9 of `command` on a host of 20 cores, `exclusive` or not
+fn turn_run(command: &[String], exclusive: bool) -> crate::turn::TurnRun<'_> {
+  crate::turn::TurnRun {
+    run: "1-9",
+    repo: "/r",
+    affinity: "checkout-1",
+    command,
+    cores: 20,
+    exclusive,
+    fetch: &[],
+    measure_as: None,
+  }
+}
+
 fn entry(run: &str) -> TurnEntry {
   let pid = std::process::id();
   TurnEntry {
@@ -279,16 +330,7 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
   };
   table(vec![entry("first")]);
   let command = ["pnpm".to_owned(), "e2e".to_owned()];
-  let of = crate::turn::TurnRun {
-    run: "1-9",
-    repo: "/r",
-    affinity: "checkout-1",
-    command: &command,
-    cores: 20,
-    exclusive: false,
-    fetch: &[],
-    measure_as: None,
-  };
+  let of = turn_run(&command, false);
   let mut watch = QueueWatch::start(&home, &of);
   table(vec![entry("first"), entry("1-9")]);
   // a short run passed it twice, by the marks of the queue
@@ -304,11 +346,7 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
   };
   fs::write(home.heavy_dir().join("passes.json"), serde_json::to_vec(&marks).expect("JSON")).expect("the marks");
   watch.look();
-  let runs = Runs::new(home.runs_dir());
-  let (run, _lock) = runs.create(&spec("1-9")).expect("a run");
-  watch.finish(&run);
-
-  let queue = run.queue().expect("queue.json");
+  let queue = finished(&home, watch);
   assert_eq!(
     (
       queue.place,
@@ -322,4 +360,39 @@ fn the_watch_of_a_heavy_run_writes_its_place_and_its_wait_in_the_queue() {
     ),
     (1, 1, 20, None, NeedKind::Unmeasured, 0, None, 2)
   );
+  assert_eq!(
+    (queue.drain_ms, queue.drain_at_ms, queue.pending_ms, queue.pending_at_ms),
+    (None, None, None, None),
+    "a run that is not exclusive drains nothing"
+  );
+}
+
+/// The watch of an exclusive run at the head of the queue writes the part of its wait for the load of the host in which
+/// it drained the host, and when a look first found that drain; a run that is not exclusive writes none
+#[test]
+fn the_watch_of_an_exclusive_run_writes_its_drain() {
+  let dir = tempfile::tempdir().expect("a temporary home");
+  let home = Home::new(dir.path().to_path_buf());
+  fs::create_dir_all(home.heavy_dir()).expect("the heavy turn");
+  let head = TurnEntry { exclusive: true, ..entry("1-9") };
+  let turn = HeavyTurn {
+    cores: 20,
+    queue: vec![head.clone()],
+    ..HeavyTurn::default()
+  };
+  fs::write(home.heavy_dir().join("turn.json"), serde_json::to_vec(&turn).expect("JSON")).expect("the table");
+  let mut drain = serde_json::to_value(&head).expect("JSON");
+  drain["drain_since_ms"] = serde_json::json!(now_ms());
+  fs::write(home.heavy_dir().join("drain.json"), serde_json::to_vec(&drain).expect("JSON")).expect("the drain");
+  let command = ["zsh".to_owned(), "./measure-ab.sh".to_owned()];
+  let of = turn_run(&command, true);
+  let before = now_ms();
+  let mut watch = QueueWatch::start(&home, &of);
+  watch.look();
+  std::thread::sleep(Duration::from_millis(20));
+  let queue = finished(&home, watch);
+  assert_eq!(queue.need, NeedKind::Exclusive);
+  let drained = queue.drain_ms.expect("the drain of an exclusive run");
+  assert!(drained >= 20 && queue.load_ms >= drained, "{queue:?}");
+  assert!(queue.drain_at_ms.is_some_and(|at| at >= before), "{queue:?}");
 }
