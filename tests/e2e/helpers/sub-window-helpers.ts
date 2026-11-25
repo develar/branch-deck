@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 import { expect, testRemainingMs } from "../fixtures/base-test"
 import { tauriMockInitScript } from "../setup/tauri-mock-script"
+import { fontsLoaded } from "./font-helpers"
 import { nextAnswer } from "./sync-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
@@ -132,6 +133,7 @@ export async function openSubWindowPage(page: Page, subWindow: OpenedSubWindow):
     console.info("[e2e-leaving]")
   })
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
+  await fontsLoaded(page)
 }
 
 /**
@@ -197,6 +199,7 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
   // the routes of the window's own commands (its fetch), before it asks
   await beforeLoad?.(page)
   await page.goto(`${subWindow.url}?repoId=${repoId}`)
+  await fontsLoaded(page)
   return page
 }
 

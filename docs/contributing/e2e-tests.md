@@ -30,7 +30,9 @@ rules in one line each and links here.
   `waitForTimeout`: under load
   (several checkouts running e2e and cargo) any fixed wait is too short; Oxlint refuses it in `tests/`, and a
   `setTimeout` in a spec, a fixture or a helper. A box or a point measured for a press waits for the facts that move
-  it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`). A width or a flag that the
+  it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`); the text font reflows the page
+  once it loaded, which the setup and the open of a sub-window wait for (`fontsLoaded`: the steps of the welcome card
+  moved 20 px under a box measured before it). A width or a flag that the
   `ResizeObserver` of the branch columns writes (`--bd-track-*`, `data-wide`), and every box it moves, is read after
   `waitForBranchLayout(page, syncs)` (the end of the sync after the `finishedSyncCount` read before it started, the
   facts of the steps, the reports of that frame), never at the first

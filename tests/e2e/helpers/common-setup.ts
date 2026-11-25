@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { CachedModel } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
 import { clearClipboard } from "./clipboard-helpers"
+import { fontsLoaded } from "./font-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { registerWindowBuild } from "./sub-window-helpers"
 import { TestRepositoryBuilder } from "./test-repository"
@@ -233,6 +234,9 @@ export async function setupTestRepository(page: Page, templateName: string, opti
     // For empty store scenarios (like welcome card), wait for the app to be mounted
     // Wait for the branch creator root element which is always present
     await page.waitForSelector("[data-testid='branch-creator-root']", { timeout: 45000 })
+  }
+  if (parsedOptions.waitForPage) {
+    await fontsLoaded(page)
   }
 
   // Wait for the repository to be loaded and validated by checking if the sync button is enabled

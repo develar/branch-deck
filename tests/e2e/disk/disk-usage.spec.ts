@@ -1,6 +1,7 @@
 // @spec openspec/specs/repository/disk-usage/spec.md
 import { appendFileSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { testRemainingMs } from "../fixtures/base-test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -45,7 +46,9 @@ test.describe("Disk usage", () => {
     await runByKeyboard(page, "disk usage", "Show Disk Usage…")
     const dialog = page.getByTestId("disk-usage-dialog")
     const progress = dialog.getByRole("status").filter({ hasText: "Measured" })
-    await expect(progress).toHaveText("Measured 3 of 3 slots")
+    // the walk of the slots reads the config and the leases of each pool with git, seconds under load beside a full run,
+    // and `disk_usage` answers nothing before the hosts it waits for: its count is waited for as long as the test lets it
+    await expect(progress).toHaveText("Measured 3 of 3 slots", { timeout: testRemainingMs() })
     await repo.arrival("hostDisks")
     await expect(dialog.getByRole("region", { name: "studio" })).toHaveCount(0)
     await repo.holdRemoteAnswers({ release: ["hostDisks"] })
