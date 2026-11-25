@@ -35,6 +35,7 @@ import {
   readAirTargets,
   refreshedForm,
   targetKey,
+  withDefaultTarget,
   withModel,
   withPlan,
   withTarget,
@@ -67,10 +68,10 @@ type TargetsState =
 type PromptState = { status: "loading" } | { status: "loaded" } | { status: "error"; message: string }
 
 /**
- * "Start in Air" of a failed robot: the agents of the IDE with Air that has the repository open, a model, an effort and
- * a mode of the agent, Plan with its effort, Run or Draft, and the prompt the robot's "Copy Prompt for Agent" copies, to
- * edit; ⌘↵ starts it. The IDE may ask the user first. Without an IDE it says so, and Copy Prompt stays. A started
- * session with an id is followed in a toast (`followAirSession`).
+ * "Start in Air" of a failed robot: the default agent of the New Session button and the agents of the IDE with Air that
+ * has the repository open, a model, an effort and a mode of the agent, Plan with its effort, Run or Draft, and the
+ * prompt the robot's "Copy Prompt for Agent" copies, to edit; ⌘↵ starts it. The IDE may ask the user first. Without an
+ * IDE it says so, and Copy Prompt stays. A started session is followed in a toast (`followAirSession`).
  *
  * Loaded on the first open, then kept mounted (see `PreviewDialogFrame`); each opening reads the agents and the prompt
  * anew.
@@ -134,7 +135,7 @@ function StartInAirForm({
     readAirTargets(repositoryPath).then(
       answer => {
         if (current) {
-          setTargets(answer)
+          setTargets(withDefaultTarget(answer))
         }
       },
       (error: unknown) => {
@@ -160,7 +161,7 @@ function StartInAirForm({
       readAirTargets(repositoryPath)
         .then(answer => {
           if (current && answer.status === "listed") {
-            setTargets(answer)
+            setTargets(withDefaultTarget(answer))
           }
         })
         .catch(() => undefined)
@@ -239,9 +240,9 @@ function StartInAirForm({
         updateProject(repositoryPath, { airLaunch: choiceOf(form, target) })
         closeAirLaunchDialog()
         const description = `${title} · ${formatIde(answer.ide)}`
-        // a draft and an agent of a terminal without an id yet have nothing to watch
-        if (answer.sessionId !== null) {
-          followAirSession(repositoryPath, answer.sessionId, target.name, description)
+        // a draft has nothing to watch
+        if (answer.localSessionId !== null) {
+          followAirSession(repositoryPath, answer.localSessionId, target.name, description)
           return
         }
         showToast({ title: form.start === "run" ? `Started ${target.name} in Air` : `Opened a draft for ${target.name} in Air`, description })

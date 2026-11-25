@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { AirLaunchChoice, AirLaunchForm } from "@/lib/air-launch"
 import {
   choiceOf,
+  DEFAULT_TARGET,
   effortsOf,
   findTarget,
   formatEffort,
@@ -22,6 +23,7 @@ import {
   targetKey,
   watchAirSession,
   withModel,
+  withDefaultTarget,
   withPlan,
   withTarget,
 } from "@/lib/air-launch"
@@ -103,6 +105,41 @@ describe("initialForm", () => {
   it("has no model and no effort for an agent without models, and no form without agents", () => {
     expect(initialForm([CLAUDE], undefined)).toEqual(claudeForm())
     expect(initialForm([], undefined)).toBeNull()
+  })
+})
+
+describe("the default agent", () => {
+  /** The pickers of the default agent */
+  const DEFAULT_FORM: AirLaunchForm = { target: targetKey(DEFAULT_TARGET), model: null, effort: null, mode: null, plan: false, planEffort: null, start: "run" }
+
+  it("stands first before the agents of the IDE, also when the IDE lists none", () => {
+    const ide = { product: "IU", build: "IU-271.1", project: "/work/idea" }
+    expect(withDefaultTarget({ status: "listed", ide, targets: TARGETS })).toEqual({ status: "listed", ide, targets: [DEFAULT_TARGET, CODEX, CLAUDE] })
+    expect(withDefaultTarget({ status: "listed", ide, targets: [] })).toEqual({ status: "listed", ide, targets: [DEFAULT_TARGET] })
+    expect(withDefaultTarget({ status: "noIde" })).toEqual({ status: "noIde" })
+  })
+
+  it("is the first choice with nothing remembered, and comes back as the remembered choice", () => {
+    expect(initialForm([DEFAULT_TARGET, ...TARGETS], undefined)).toEqual(DEFAULT_FORM)
+    expect(initialForm([DEFAULT_TARGET], undefined)).toEqual(DEFAULT_FORM)
+    const remembered = choiceOf({ ...DEFAULT_FORM, start: "draft" }, DEFAULT_TARGET)
+    expect(initialForm([DEFAULT_TARGET, ...TARGETS], remembered)).toEqual({ ...DEFAULT_FORM, start: "draft" })
+  })
+
+  it("sends no target, so the IDE starts the default of its New Session button", () => {
+    expect(launchRequest("/work/idea", DEFAULT_FORM, DEFAULT_TARGET, "Fix it", "t")).toEqual({
+      project: "/work/idea",
+      launchTargetId: null,
+      interactionSurfaceId: null,
+      model: null,
+      effort: null,
+      mode: null,
+      plan: false,
+      planEffort: null,
+      prompt: "Fix it",
+      title: "t",
+      start: "run",
+    })
   })
 })
 
@@ -264,7 +301,7 @@ describe("the launch", () => {
 })
 
 describe("formatRefusal", () => {
-  it("words every code of protocol v1, the message of a failed launch, and an unknown code with its message", () => {
+  it("words every refusal code of the IDE, the message of a failed launch, and an unknown code with its message", () => {
     expect(formatRefusal("DENIED", "user said no")).toBe("The IDE denied Branch Deck, or nobody answered its question in time")
     expect(formatRefusal("UNTRUSTED_PROJECT", null)).toBe("The IDE does not trust the project. Trust it in the IDE first")
     expect(formatRefusal("LAUNCH_FAILED", "codex exited with 1")).toBe("The session did not start: codex exited with 1")
@@ -276,10 +313,12 @@ describe("formatRefusal", () => {
       "UNAVAILABLE",
       "BUSY",
       "RATE_LIMITED",
-      "UNSUPPORTED_VERSION",
+      "UNAUTHORIZED",
       "UNKNOWN_METHOD",
       "BAD_REQUEST",
+      "BAD_PARAMS",
       "NO_PROJECT",
+      "NO_DEFAULT",
       "UNTRUSTED_PROJECT",
       "TARGET_UNAVAILABLE",
       "MODEL_UNAVAILABLE",
@@ -289,9 +328,10 @@ describe("formatRefusal", () => {
       "LAUNCH_FAILED",
       "MODE_UNAVAILABLE",
       "MODE_CONFLICT",
+      "MODE_NOT_ALLOWED",
+      "UNKNOWN_AGENT",
       "PLAN_UNAVAILABLE",
       "INVALID_PLAN_REASONING_EFFORT",
-      "NO_SESSION",
     ]
     for (const code of codes) {
       expect(formatRefusal(code, null)).not.toContain(code)
@@ -306,18 +346,18 @@ describe("the status of a session", () => {
     expect(formatSessionStatus("Codex", "reviewing")).toEqual({ type: "info", title: "Codex waits for your review in Air", done: false })
     expect(formatSessionStatus("Codex", "ready")).toEqual({ type: "success", title: "Codex is done in Air", done: true })
     expect(formatSessionStatus("Codex", "unread").done).toBe(true)
-    expect(formatSessionStatus("Codex", "later").type).toBe("loading")
+    expect(formatSessionStatus("Codex", "other").type).toBe("loading")
   })
 
   it("words the end of a watch, and nothing for a watch the page stopped", () => {
     expect(formatWatchEnd("Codex", { status: "stopped" })).toBeNull()
-    expect(formatWatchEnd("Codex", { status: "refused", code: "NO_SESSION", message: "gone" })).toEqual({ type: "info", title: "The session of Codex is gone in Air" })
+    expect(formatWatchEnd("Codex", { status: "gone" })).toEqual({ type: "info", title: "The session of Codex is gone in Air" })
     expect(formatWatchEnd("Codex", { status: "refused", code: "BUSY", message: null })).toEqual({
       type: "warning",
       title: "Cannot follow Codex in Air",
       description: "The IDE answers another request now. Try again in a moment",
     })
-    expect(formatWatchEnd("Codex", { status: "ended", reason: "timeout" })?.description).toBe("The IDE ends a watch after 4 hours")
+    expect(formatWatchEnd("Codex", { status: "refused", code: "DENIED", message: null })?.description).toBe("The IDE denied Branch Deck, or nobody answered its question in time")
     expect(formatWatchEnd("Codex", { status: "closed" })?.description).toBe("The IDE closed the connection")
   })
 })
@@ -347,7 +387,7 @@ describe("the commands", () => {
     })
     const seen: unknown[] = []
     await expect(watchAirSession("/work/idea", "s-1", status => seen.push(status))).resolves.toEqual({ status: "stopped" })
-    expect(airWatchSession).toHaveBeenCalledWith({ project: "/work/idea", sessionId: "s-1" }, expect.anything())
+    expect(airWatchSession).toHaveBeenCalledWith({ project: "/work/idea", localSessionId: "s-1" }, expect.anything())
     expect(seen).toEqual([
       { title: "Fix it", activity: "processing" },
       { title: null, activity: "ready" },

@@ -1,21 +1,31 @@
-//! The messages of the launch socket: the lines of the local peer handshake v2 (the opener, the greeting with its nonce,
-//! the envelope and a refusal of the handshake), then the request of protocol v1 (`hosts`, `targets`, `launch`, `watch`) and its
-//! response lines, and the refusal codes. A response field the protocol adds later is ignored; a refusal code this client
-//! does not know stays as its text (`RefusalCode::Other`, `HandshakeRefusal::Other`). The types the page gets are `Air…`
-//! in its bindings (`serde(rename)`), beside the types of the app.
+//! The messages of the local AHP socket of Air for a local app: the lines of the local peer handshake v2 (the opener,
+//! the greeting with its nonce, the envelope and a refusal of the handshake), the JSON-RPC 2.0 frames after it (a request
+//! of `ahp-root://`, its result or error, a notice of the root), the results a local app reads and the refusal of an
+//! error (`error.data.code`). A field the IDE adds later is ignored; a refusal code this client does not know stays as its
+//! text. The types the page gets are `Air…` in its bindings (`serde(rename)`), beside the types of the app.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fmt;
 use std::path::PathBuf;
 
-/// The version of the request this client sends (`"v"` of the request object inside the envelope of the handshake)
-pub const PROTOCOL_VERSION: u32 = 1;
-
-/// The `proto` of each line of the local peer handshake, which the IDE shares with the Junie pairing socket
+/// The `proto` of each line of the local peer handshake
 pub const HANDSHAKE_PROTO: &str = "local-peer";
 
 /// The version of the local peer handshake this client speaks
 pub const HANDSHAKE_VERSION: u32 = 2;
+
+/// The channel of every request of a local app
+pub const ROOT_CHANNEL: &str = "ahp-root://";
+
+/// The AHP version that `initialize` offers
+pub const AHP_VERSION: &str = "1.0.0";
+
+/// The `clientId` of `initialize`
+pub const CLIENT_ID: &str = "branch-deck";
+
+/// The id of `initialize`, the request of the envelope; the requests after it count on from here
+pub(crate) const INITIALIZE_ID: u64 = 1;
 
 /// The first line of the client, before the IDE reads the credentials of the peer
 pub(crate) const OPENER_LINE: &[u8] = b"{\"proto\":\"local-peer\",\"v\":2}\n";
@@ -26,8 +36,9 @@ pub(crate) const MAX_NONCE_CHARS: usize = 64;
 /// The bytes of the envelope around the request, with the longest nonce and the line end
 pub(crate) const ENVELOPE_FRAME_BYTES: usize = r#"{"nonce":"","request":}"#.len() + MAX_NONCE_CHARS + 1;
 
-/// The envelope line of the handshake: the echo of the nonce of the greeting and the request object. The nonce is
-/// base64url (`handshake_line` checks it), so it needs no escape
+/// The envelope line of the handshake: the echo of the nonce of the greeting and the request object, with no `access`:
+/// the IDE admits the connection as a local app. The nonce is base64url (`handshake_line` checks it), so it needs no
+/// escape
 pub(crate) fn envelope_line(nonce: &str, request: &[u8]) -> Vec<u8> {
   let mut line = Vec::with_capacity(ENVELOPE_FRAME_BYTES + request.len());
   line.extend_from_slice(br#"{"nonce":""#);
@@ -38,16 +49,41 @@ pub(crate) fn envelope_line(nonce: &str, request: &[u8]) -> Vec<u8> {
   line
 }
 
+/// The `initialize` request of the envelope
+pub(crate) fn initialize_request() -> Value {
+  serde_json::json!({
+    "jsonrpc": "2.0",
+    "id": INITIALIZE_ID,
+    "method": "initialize",
+    "params": {"channel": ROOT_CHANNEL, "protocolVersions": [AHP_VERSION], "clientId": CLIENT_ID},
+  })
+}
+
+/// The request `id` of `method`: `params`, an object, with the channel `ahp-root://` first
+///
+/// # Errors
+/// `params` is not an object
+pub(crate) fn request(id: u64, method: &str, params: &impl Serialize) -> Result<Value, serde_json::Error> {
+  let mut object = serde_json::Map::new();
+  object.insert("channel".to_owned(), Value::from(ROOT_CHANNEL));
+  match serde_json::to_value(params)? {
+    Value::Object(fields) => object.extend(fields),
+    Value::Null => {}
+    other => return Err(serde::ser::Error::custom(format!("the params of {method} are not an object: {other}"))),
+  }
+  Ok(serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": object}))
+}
+
 /// A line of the IDE as the handshake reads it
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum HandshakeLine {
   /// The greeting: the client echoes its nonce in the envelope
   Greeting { nonce: String },
-  /// The IDE refused the handshake, and the handler did not run
+  /// The IDE refused the handshake, and the host did not read the request
   Refused(HandshakeRefusal),
   /// A line of the handshake that is not a greeting this client can echo: another version, no nonce or a bad one
   BadGreeting(String),
-  /// Not a line of the handshake: a response line of the application, also the answer of an IDE before handshake v2
+  /// Not a line of the handshake: a frame of JSON-RPC
   Application,
 }
 
@@ -56,11 +92,11 @@ struct HandshakeFields {
   #[serde(default)]
   proto: Option<String>,
   #[serde(default)]
-  v: Option<serde_json::Value>,
+  v: Option<Value>,
   #[serde(default)]
-  nonce: Option<serde_json::Value>,
+  nonce: Option<Value>,
   #[serde(default)]
-  error: Option<serde_json::Value>,
+  error: Option<Value>,
 }
 
 /// What a line of the IDE is to the handshake: a line with `"proto":"local-peer"` is a greeting or a refusal, any other
@@ -75,10 +111,10 @@ pub(crate) fn handshake_line(line: &[u8]) -> HandshakeLine {
   if let Some(error) = error {
     return HandshakeLine::Refused(HandshakeRefusal::from(error.as_str().map_or_else(|| error.to_string(), str::to_owned)));
   }
-  if v.as_ref().and_then(serde_json::Value::as_u64) != Some(u64::from(HANDSHAKE_VERSION)) {
+  if v.as_ref().and_then(Value::as_u64) != Some(u64::from(HANDSHAKE_VERSION)) {
     return HandshakeLine::BadGreeting(format!("the greeting is not of handshake v{HANDSHAKE_VERSION}: {}", v.unwrap_or_default()));
   }
-  match nonce.as_ref().and_then(serde_json::Value::as_str) {
+  match nonce.as_ref().and_then(Value::as_str) {
     Some(nonce) if is_nonce(nonce) => HandshakeLine::Greeting { nonce: nonce.to_owned() },
     _ => HandshakeLine::BadGreeting("the greeting has no nonce of base64url without padding".to_owned()),
   }
@@ -88,7 +124,7 @@ fn is_nonce(nonce: &str) -> bool {
   (1..=MAX_NONCE_CHARS).contains(&nonce.len()) && nonce.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Why the IDE refused the handshake (`{"proto":"local-peer","v":2,"error":…}`): the handler did not run
+/// Why the IDE refused the handshake (`{"proto":"local-peer","v":2,"error":…}`): the host did not read the request
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HandshakeRefusal {
   /// The first line of the client is not the opener
@@ -128,6 +164,142 @@ impl fmt::Display for HandshakeRefusal {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(self.as_str())
   }
+}
+
+/// A frame of the IDE after the handshake
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Frame {
+  /// The answer of the request `id`: its result, or its error
+  Response { id: Value, outcome: Result<Value, RpcError> },
+  /// A notice of the root (`root/sessionAdded`)
+  Notification(Notification),
+  /// A request of the IDE: a local app serves none
+  Request { method: String },
+}
+
+#[derive(Deserialize)]
+struct FrameFields {
+  #[serde(default)]
+  id: Option<Value>,
+  #[serde(default)]
+  method: Option<String>,
+  #[serde(default)]
+  params: Option<Value>,
+  #[serde(default)]
+  result: Option<Value>,
+  #[serde(default)]
+  error: Option<RpcError>,
+}
+
+/// The frame of `line`
+///
+/// # Errors
+/// The line is not JSON, or not a frame of JSON-RPC
+pub(crate) fn parse_frame(line: &[u8]) -> Result<Frame, String> {
+  let FrameFields {
+    id,
+    method,
+    params,
+    result,
+    error,
+  } = serde_json::from_slice(line).map_err(|error| error.to_string())?;
+  match (id, method) {
+    (None | Some(Value::Null), Some(method)) => Ok(Frame::Notification(Notification {
+      method,
+      params: params.unwrap_or_default(),
+    })),
+    (Some(_), Some(method)) => Ok(Frame::Request { method }),
+    (Some(id), None) => Ok(Frame::Response {
+      id,
+      outcome: error.map_or_else(|| Ok(result.unwrap_or_default()), Err),
+    }),
+    (None, None) => Err("a frame without an id and a method".to_owned()),
+  }
+}
+
+/// A notice of the IDE: its method and its params
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notification {
+  pub method: String,
+  pub params: Value,
+}
+
+/// The error object of a JSON-RPC error
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct RpcError {
+  pub code: i64,
+  #[serde(default)]
+  pub message: String,
+  #[serde(default)]
+  pub data: Option<Value>,
+}
+
+impl RpcError {
+  /// The refusal of the error: the code of `data.code`, else the code of the JSON-RPC error number; the message and the
+  /// hint of `data`, else the message of the error
+  pub fn refusal(&self) -> Refusal {
+    let data = self.data.as_ref();
+    let text = |field: &str| data.and_then(|data| data.get(field)).and_then(Value::as_str).map(str::to_owned);
+    let code = text("code").unwrap_or_else(|| match self.code {
+      -32700 | -32600 => "BAD_REQUEST".to_owned(),
+      -32601 => "UNKNOWN_METHOD".to_owned(),
+      -32602 => "BAD_PARAMS".to_owned(),
+      code => format!("ERROR_{code}"),
+    });
+    Refusal {
+      code,
+      message: text("message").or_else(|| (!self.message.is_empty()).then(|| self.message.clone())),
+      hint: text("hint"),
+    }
+  }
+}
+
+/// Why the IDE did not do what a request asked: the code of `error.data.code` (`DENIED`), and the English message and
+/// hint of the IDE for a log
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+  pub code: String,
+  pub message: Option<String>,
+  pub hint: Option<String>,
+}
+
+impl fmt::Display for Refusal {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match &self.message {
+      Some(message) => write!(f, "{}: {message}", self.code),
+      None => f.write_str(&self.code),
+    }
+  }
+}
+
+/// The result of `x-air-ij/hosts`. The IDE asks no consent for it, so it never opens a dialog
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostsResult {
+  /// The product code (`IU`)
+  #[serde(default)]
+  pub product: String,
+  #[serde(default)]
+  pub build: String,
+  /// The launch directory of each open project once
+  pub hosts: Vec<Host>,
+  /// Unix milliseconds of the last focus of a window of the IDE; none before the first focus
+  #[serde(default)]
+  pub focused_at: Option<u64>,
+}
+
+/// An open project of the IDE
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Host {
+  /// The launch directory of the project, absolute
+  pub project_directory: PathBuf,
+}
+
+/// The result of `x-air-ij/targets`
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct TargetsResult {
+  pub targets: Vec<Target>,
 }
 
 /// An agent that Air can start, with the models it reports
@@ -175,7 +347,7 @@ pub enum ModeKind {
   AutoReview,
   Standard,
   FullAccess,
-  /// A kind of a later protocol
+  /// A kind of a later IDE
   #[serde(other)]
   Other,
 }
@@ -203,139 +375,214 @@ pub struct Model {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename = "AirStartKind", rename_all = "camelCase")]
 pub enum StartKind {
-  /// Starts the session and sends the prompt
+  /// Starts the session and sends the prompt (`createSession`)
   Run,
   /// Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing
+  /// (`x-air-ij/openDraft`)
   Draft,
 }
 
-/// The fields of a `launch` request
+/// A launch as the page asks it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename = "AirLaunchRequest", rename_all = "camelCase")]
 pub struct LaunchRequest {
   /// The absolute path of the directory: the base of an open project, or a directory in it
   pub project: String,
-  pub launch_target_id: String,
-  pub interaction_surface_id: String,
+  /// The target, with `interaction_surface_id`; none starts the default of the New Session button of the IDE
+  #[serde(default)]
+  pub launch_target_id: Option<String>,
+  /// The surface of the target; only with `launch_target_id`
+  #[serde(default)]
+  pub interaction_surface_id: Option<String>,
   /// An id or a name of a model of the target; none for a target without models
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
   pub model: Option<String>,
   /// One effort id; none keeps the default of the agent
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
   pub effort: Option<String>,
   /// The id of a mode of the target; none keeps the default of the agent
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
   pub mode: Option<String>,
   /// The session starts in Plan; false is not sent. With a mode of kind `plan` of the target, Plan is that mode, and
   /// another `mode` beside it is `MODE_CONFLICT`
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default)]
   pub plan: bool,
-  /// The effort id of Plan; only with `plan` (else `BAD_REQUEST`), none keeps the default of the agent
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  /// The effort id of Plan; only with `plan`, none keeps the default of the agent
+  #[serde(default)]
   pub plan_effort: Option<String>,
-  /// Required for `run`, optional for `draft`
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  /// Required for `run`; a draft without one opens with an empty prompt
+  #[serde(default)]
   pub prompt: Option<String>,
-  /// The title the session list shows
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  /// The title the session list shows; only for `run`
+  #[serde(default)]
   pub title: Option<String>,
   pub start: StartKind,
 }
 
-/// A request object, inside the envelope of the handshake: the version and the method before the fields of the method
-#[derive(Serialize)]
-pub(crate) struct Envelope<'a, T> {
-  pub(crate) v: u32,
-  pub(crate) method: &'static str,
-  #[serde(flatten)]
-  pub(crate) fields: &'a T,
+impl LaunchRequest {
+  /// The params of `createSession` (`run`) or `x-air-ij/openDraft` (`draft`), which has no title
+  pub(crate) fn params(&self) -> SessionParams<'_> {
+    SessionParams {
+      project_directory: &self.project,
+      prompt: self.prompt.as_deref().unwrap_or_default(),
+      launch_target_id: self.launch_target_id.as_deref(),
+      interaction_surface_id: self.launch_target_id.as_ref().and(self.interaction_surface_id.as_deref()),
+      model: self.model.as_deref(),
+      effort: self.effort.as_deref(),
+      mode: self.mode.as_deref(),
+      plan: self.plan,
+      plan_effort: self.plan_effort.as_deref().filter(|_| self.plan),
+      title: self.title.as_deref().filter(|_| self.start == StartKind::Run),
+    }
+  }
 }
 
-/// The fields of a `hosts` request: none
-#[derive(Serialize)]
-pub(crate) struct HostsRequest;
-
-/// The fields of a `targets` request
-#[derive(Serialize)]
-pub(crate) struct TargetsRequest<'a> {
-  pub(crate) project: &'a str,
-}
-
-/// The fields of a `watch` request
-#[derive(Serialize)]
+/// The params of `createSession` and `x-air-ij/openDraft`: an option that is not set is not sent
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WatchRequest<'a> {
-  pub(crate) project: &'a str,
-  pub(crate) session_id: &'a str,
+pub(crate) struct SessionParams<'a> {
+  pub(crate) project_directory: &'a str,
+  pub(crate) prompt: &'a str,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) launch_target_id: Option<&'a str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) interaction_surface_id: Option<&'a str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) model: Option<&'a str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) effort: Option<&'a str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) mode: Option<&'a str>,
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  pub(crate) plan: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) plan_effort: Option<&'a str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) title: Option<&'a str>,
 }
 
-/// The response to `hosts`. The IDE asks no consent for it, so it never opens a dialog
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum Hosts {
-  #[serde(rename = "ok", rename_all = "camelCase")]
-  Listed {
-    /// The launch directories of the IDE, absolute
-    hosts: Vec<PathBuf>,
-    /// Unix milliseconds of the last focus of a window of the IDE; none when the IDE does not say
-    #[serde(default)]
-    focused_at: Option<u64>,
-  },
-  Refused(Refusal),
+/// The params of a method of one host: `x-air-ij/targets`
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HostParams<'a> {
+  pub(crate) project_directory: &'a str,
 }
 
-/// The response to `targets`
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum Targets {
-  #[serde(rename = "ok")]
-  Listed {
-    targets: Vec<Target>,
-  },
-  Refused(Refusal),
-}
-
-/// The response to `launch`
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum Launch {
-  /// The session started; `session_id` is the id of its provider, none for a draft and for an agent of a terminal
-  /// that has no id yet: then there is nothing to watch
-  #[serde(rename_all = "camelCase")]
-  Accepted {
-    #[serde(default)]
-    session_id: Option<String>,
-  },
-  Refused(Refusal),
-}
-
-/// A line of a `watch`: the status of the session now and after each change, then at most one end. A refusal before
-/// the first status is any refusal of v1; after it, `NO_SESSION`
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum WatchLine {
-  Session {
-    session: Session,
-  },
-  /// The IDE stopped the watch: `timeout` after 4 h; a reason of a later protocol stays as its text
-  End {
-    reason: String,
-  },
-  Refused(Refusal),
-}
-
-/// The status of a session as a watch reports it
+/// The result of `createSession`
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Session {
-  pub session_id: String,
+pub struct CreateSessionResult {
+  pub session: SessionIdentity,
+  /// The id that the agent gives the session, when the start knows it
+  #[serde(default)]
+  pub agent_session_id: Option<String>,
+}
+
+/// The local identity of a session: the key of its row
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionIdentity {
+  pub project_directory: String,
+  /// The `resource` of the row of the session
+  pub local_session_id: String,
+}
+
+/// The params of `listSessions`
+#[derive(Debug, Serialize)]
+pub(crate) struct ListSessionsParams<'a> {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub(crate) cursor: Option<&'a str>,
+}
+
+/// The result of `listSessions`: a page of the rows, newest first
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListSessionsResult {
+  pub(crate) items: Vec<SessionSummary>,
+  /// Present exactly when more rows follow
+  #[serde(default)]
+  pub(crate) next_cursor: Option<String>,
+}
+
+/// The row of a session, as `listSessions` and the root notices give it
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct SessionSummary {
+  /// The local session id
+  pub resource: String,
   #[serde(default)]
   pub title: Option<String>,
-  pub activity: Activity,
-  /// Unix milliseconds of the last change, if the IDE knows it
+  /// The facts of Air of the row: `_meta["x-air-ij"]`, with its `activity`
+  #[serde(default, rename = "_meta")]
+  pub meta: Option<Value>,
+}
+
+impl SessionSummary {
+  /// What the session does now (`_meta["x-air-ij"].activity`)
+  pub fn activity(&self) -> Activity {
+    Activity::of_meta(self.meta.as_ref())
+  }
+}
+
+/// The fields of a row that moved (`root/sessionSummaryChanged`); a field that did not move is absent
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct SummaryChanges {
   #[serde(default)]
-  pub updated_at: Option<u64>,
+  pub title: Option<String>,
+  /// The facts of Air of the row, whole, when one of them moved
+  #[serde(default, rename = "_meta")]
+  pub meta: Option<Value>,
+}
+
+impl SummaryChanges {
+  /// The activity of the facts of Air that moved; none when they did not move
+  pub fn activity(&self) -> Option<Activity> {
+    self.meta.as_ref().map(|meta| Activity::of_meta(Some(meta)))
+  }
+}
+
+/// A change of the rows of the root, of a notice of the root
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootChange {
+  Added(SessionSummary),
+  Removed { session: String },
+  Changed { session: String, changes: SummaryChanges },
+}
+
+#[derive(Deserialize)]
+struct AddedParams {
+  summary: SessionSummary,
+}
+
+#[derive(Deserialize)]
+struct RemovedParams {
+  session: String,
+}
+
+#[derive(Deserialize)]
+struct ChangedParams {
+  session: String,
+  changes: SummaryChanges,
+}
+
+impl RootChange {
+  /// The change of a notice; none for a notice of another method
+  ///
+  /// # Errors
+  /// A notice of the root with params of another shape
+  pub fn of(notification: &Notification) -> Result<Option<Self>, String> {
+    let params = || notification.params.clone();
+    let parsed = match notification.method.as_str() {
+      "root/sessionAdded" => serde_json::from_value::<AddedParams>(params()).map(|it| Self::Added(it.summary)),
+      "root/sessionRemoved" => serde_json::from_value::<RemovedParams>(params()).map(|it| Self::Removed { session: it.session }),
+      "root/sessionSummaryChanged" => serde_json::from_value::<ChangedParams>(params()).map(|it| Self::Changed {
+        session: it.session,
+        changes: it.changes,
+      }),
+      _ => return Ok(None),
+    };
+    parsed.map(Some).map_err(|error| format!("{}: {error}", notification.method))
+  }
 }
 
 /// What a session does now
@@ -355,122 +602,31 @@ pub enum Activity {
   NeedsInput,
   /// The turn is done, and the user did not read it yet
   Unread,
-  /// An activity of a later protocol
-  #[serde(other)]
+  /// An activity of a later IDE, or none
   Other,
 }
 
-/// Why the IDE did not do what a request asked
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Refusal {
-  pub code: RefusalCode,
-  /// English text for a log, not for the user
-  #[serde(default)]
-  pub message: Option<String>,
-}
-
-/// The refusal codes of protocol v1. The client shows the code to the user and sends again only after a change
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(from = "String")]
-pub enum RefusalCode {
-  /// The user denied the client, or the consent timed out
-  Denied,
-  /// The IDE cannot show the consent dialog (headless)
-  Unavailable,
-  /// Too many connections, or another consent is in flight
-  Busy,
-  /// More than 10 connections in 60 s
-  RateLimited,
-  UnsupportedVersion,
-  UnknownMethod,
-  /// The line is not JSON, a field has a wrong type, or the line is longer than 1 MiB
-  BadRequest,
-  /// No open project holds the directory
-  NoProject,
-  UntrustedProject,
-  /// No available route has this launch target and interaction surface
-  TargetUnavailable,
-  /// The target lists models, and none has this id or name
-  ModelUnavailable,
-  /// Several models of the target have this name: send the id
-  ModelAmbiguous,
-  InvalidReasoningEffort,
-  /// `run` with a blank prompt
-  EmptyPrompt,
-  /// The launch did not start; the message says why
-  LaunchFailed,
-  /// The target has no mode of this id
-  ModeUnavailable,
-  /// `plan` with another `mode`, while Plan is a mode of the target
-  ModeConflict,
-  /// `plan` for a target that cannot start in Plan
-  PlanUnavailable,
-  InvalidPlanReasoningEffort,
-  /// The watched session is gone, or never was there
-  NoSession,
-  /// A code of a later protocol
-  Other(String),
-}
-
-impl RefusalCode {
-  /// The code as the protocol writes it
-  pub fn as_str(&self) -> &str {
-    match self {
-      Self::Denied => "DENIED",
-      Self::Unavailable => "UNAVAILABLE",
-      Self::Busy => "BUSY",
-      Self::RateLimited => "RATE_LIMITED",
-      Self::UnsupportedVersion => "UNSUPPORTED_VERSION",
-      Self::UnknownMethod => "UNKNOWN_METHOD",
-      Self::BadRequest => "BAD_REQUEST",
-      Self::NoProject => "NO_PROJECT",
-      Self::UntrustedProject => "UNTRUSTED_PROJECT",
-      Self::TargetUnavailable => "TARGET_UNAVAILABLE",
-      Self::ModelUnavailable => "MODEL_UNAVAILABLE",
-      Self::ModelAmbiguous => "MODEL_AMBIGUOUS",
-      Self::InvalidReasoningEffort => "INVALID_REASONING_EFFORT",
-      Self::EmptyPrompt => "EMPTY_PROMPT",
-      Self::LaunchFailed => "LAUNCH_FAILED",
-      Self::ModeUnavailable => "MODE_UNAVAILABLE",
-      Self::ModeConflict => "MODE_CONFLICT",
-      Self::PlanUnavailable => "PLAN_UNAVAILABLE",
-      Self::InvalidPlanReasoningEffort => "INVALID_PLAN_REASONING_EFFORT",
-      Self::NoSession => "NO_SESSION",
-      Self::Other(code) => code,
-    }
+impl Activity {
+  /// The activity of the facts of Air of a row, `_meta` with `x-air-ij.activity`
+  fn of_meta(meta: Option<&Value>) -> Self {
+    Self::of(meta.and_then(|meta| meta.get("x-air-ij")).and_then(|facts| facts.get("activity")))
   }
-}
 
-impl From<String> for RefusalCode {
-  fn from(code: String) -> Self {
-    match code.as_str() {
-      "DENIED" => Self::Denied,
-      "UNAVAILABLE" => Self::Unavailable,
-      "BUSY" => Self::Busy,
-      "RATE_LIMITED" => Self::RateLimited,
-      "UNSUPPORTED_VERSION" => Self::UnsupportedVersion,
-      "UNKNOWN_METHOD" => Self::UnknownMethod,
-      "BAD_REQUEST" => Self::BadRequest,
-      "NO_PROJECT" => Self::NoProject,
-      "UNTRUSTED_PROJECT" => Self::UntrustedProject,
-      "TARGET_UNAVAILABLE" => Self::TargetUnavailable,
-      "MODEL_UNAVAILABLE" => Self::ModelUnavailable,
-      "MODEL_AMBIGUOUS" => Self::ModelAmbiguous,
-      "INVALID_REASONING_EFFORT" => Self::InvalidReasoningEffort,
-      "EMPTY_PROMPT" => Self::EmptyPrompt,
-      "LAUNCH_FAILED" => Self::LaunchFailed,
-      "MODE_UNAVAILABLE" => Self::ModeUnavailable,
-      "MODE_CONFLICT" => Self::ModeConflict,
-      "PLAN_UNAVAILABLE" => Self::PlanUnavailable,
-      "INVALID_PLAN_REASONING_EFFORT" => Self::InvalidPlanReasoningEffort,
-      "NO_SESSION" => Self::NoSession,
-      _ => Self::Other(code),
+  /// The activity of its name: the name of `AgentSessionActivity` of the IDE (`NEEDS_INPUT`), in any case and with or
+  /// without `_`; any other value is `Other`
+  pub fn of(activity: Option<&Value>) -> Self {
+    let Some(name) = activity.and_then(Value::as_str) else {
+      return Self::Other;
+    };
+    let name: String = name.chars().filter(|it| *it != '_').map(|it| it.to_ascii_lowercase()).collect();
+    match name.as_str() {
+      "ready" => Self::Ready,
+      "draft" => Self::Draft,
+      "processing" => Self::Processing,
+      "reviewing" => Self::Reviewing,
+      "needsinput" => Self::NeedsInput,
+      "unread" => Self::Unread,
+      _ => Self::Other,
     }
-  }
-}
-
-impl fmt::Display for RefusalCode {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.write_str(self.as_str())
   }
 }

@@ -5,10 +5,10 @@ import { TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 
 /**
  * The toast of a session that Start in Air started (openspec/specs/branch/start-in-air/spec.md): it follows the status of the
- * session through `watch` in place ("works", "waits for you", "is done") until the session is done, the session is
- * gone or the watch ends. A close of the toast stops the watch.
+ * row of the session in place ("works", "waits for you", "is done") until the session is done, the session is gone or
+ * the watch ends. A close of the toast stops the watch.
  */
-export function followAirSession(project: string, sessionId: string, agent: string, description: string): void {
+export function followAirSession(project: string, localSessionId: string, agent: string, description: string): void {
   // the session is done, or the user closed the toast: the toast says nothing more
   let settled = false
   const id = toast.add({
@@ -19,7 +19,7 @@ export function followAirSession(project: string, sessionId: string, agent: stri
     onClose: () => {
       if (!settled) {
         settled = true
-        stopAirWatch(sessionId)
+        stopAirWatch(localSessionId)
       }
     },
   })
@@ -27,7 +27,7 @@ export function followAirSession(project: string, sessionId: string, agent: stri
     settled = true
     toast.update(id, { ...update, timeout: TOAST_TIMEOUT_MS })
   }
-  watchAirSession(project, sessionId, status => {
+  watchAirSession(project, localSessionId, status => {
     if (settled) {
       return
     }
@@ -35,7 +35,7 @@ export function followAirSession(project: string, sessionId: string, agent: stri
     const update = { type: shown.type, title: shown.title, description: status.title ?? description }
     if (shown.done) {
       settle(update)
-      stopAirWatch(sessionId)
+      stopAirWatch(localSessionId)
     } else {
       toast.update(id, update)
     }

@@ -1,13 +1,14 @@
-//! The running IDEs with Air and the IDE of a directory. Each IDE process writes one instance file `<pid>.json` at its
-//! start in the directory of the user (`instance_dir`), which names its socket. A file of a process that no longer runs,
-//! one that does not parse and one of another schema are skipped. Each running IDE is asked over its socket for the
-//! launch directories it hosts (`ask_hosts`, the request `hosts`), within `HOSTS_TIMEOUT`; an IDE that does not answer
-//! in time, fails or refuses is skipped. The IDE of a directory is the one with a host that holds it, the deepest host
-//! first, then the IDE whose window got the focus last, then the newest file (`pick`).
+//! The running IDEs with Air and the IDE of a directory. Each IDE process that admits local apps writes one instance
+//! file `<pid>.json` in the directory of the user (`instance_dir`), which names its local AHP socket. A file of a process
+//! that no longer runs, one that does not parse and one of another schema are skipped. Each running IDE is asked over
+//! its socket for the launch directories it hosts (`ask_hosts`, the request `x-air-ij/hosts`), within `HOSTS_TIMEOUT`;
+//! an IDE that does not answer in time, fails or refuses is skipped. The IDE of a directory is the one with a host that
+//! holds it, the deepest host first, then the IDE whose window got the focus last, then the newest file (`pick`).
 
-use crate::client::Client;
-use crate::protocol::{Hosts, Refusal};
+use crate::client::{Client, ClientError};
+use crate::protocol::HostsResult;
 use serde::Deserialize;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use sync_utils::process_scan::is_running;
@@ -15,10 +16,13 @@ use sync_utils::span::in_current_span;
 use tracing::debug;
 
 /// The schema of the instance files this client reads; a file of another schema is skipped
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
-/// How long the discovery waits for the answer of one IDE to `hosts`: the IDE asks no consent for it, so a longer wait
-/// is an IDE that hangs
+/// The leaf of the directory of the instance files (`instance_dir`)
+pub const INSTANCE_DIR_LEAF: &str = "ahp";
+
+/// How long the discovery waits for the answer of one IDE to `x-air-ij/hosts`: the IDE asks no consent for it, so a
+/// longer wait is an IDE that hangs
 pub const HOSTS_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A running IDE as its instance file names it
@@ -36,7 +40,7 @@ pub struct Instance {
   pub modified: SystemTime,
 }
 
-/// A running IDE and its answer to `hosts`
+/// A running IDE and its answer to `x-air-ij/hosts`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedInstance {
   pub instance: Instance,
@@ -55,9 +59,8 @@ pub struct Match<'a> {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct InstanceFile {
-  schema_version: u32,
+  schema: u32,
   pid: u32,
   #[serde(default)]
   product: String,
@@ -66,21 +69,47 @@ struct InstanceFile {
   socket: PathBuf,
 }
 
-/// The directory of the instance files: `~/Library/Application Support/JetBrains/air/launch` on macOS,
-/// `%APPDATA%\JetBrains\air\launch` on Windows, `$XDG_DATA_HOME/JetBrains/air/launch` (else
-/// `~/.local/share/JetBrains/air/launch`) on Linux; none without a home directory
+/// The platform whose rule `instance_dir_of` takes
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Platform {
+  MacOs,
+  Windows,
+  /// Linux and any other Unix: the base directory of XDG
+  Xdg,
+}
+
+impl Platform {
+  const fn current() -> Self {
+    if cfg!(target_os = "macos") {
+      Self::MacOs
+    } else if cfg!(windows) {
+      Self::Windows
+    } else {
+      Self::Xdg
+    }
+  }
+}
+
+/// The directory of the instance files: `<PathManager.getCommonDataPath()>/air/ahp` of the IDE, that is
+/// `~/Library/Application Support/JetBrains/air/ahp` on macOS, `%APPDATA%\JetBrains\air\ahp` (else
+/// `~\AppData\Roaming\JetBrains\air\ahp`) on Windows, `$XDG_DATA_HOME/JetBrains/air/ahp` (else
+/// `~/.local/share/JetBrains/air/ahp`) on Linux; none without a home directory
 pub fn instance_dir() -> Option<PathBuf> {
-  let data = if cfg!(target_os = "macos") {
-    std::env::home_dir().map(|home| home.join("Library/Application Support"))
-  } else if cfg!(windows) {
-    std::env::var_os("APPDATA").map(PathBuf::from)
-  } else {
-    std::env::var_os("XDG_DATA_HOME")
-      .map(PathBuf::from)
+  instance_dir_of(Platform::current(), std::env::home_dir().as_deref(), |name| std::env::var_os(name))
+}
+
+/// The directory of the instance files of `platform` with the home directory `home` and the environment `var`. An empty
+/// variable is unset, as the IDE reads it; a relative `XDG_DATA_HOME` is unset too, as XDG says
+pub(crate) fn instance_dir_of(platform: Platform, home: Option<&Path>, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+  let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+  let data = match platform {
+    Platform::MacOs => home.map(|home| home.join("Library").join("Application Support")),
+    Platform::Windows => set("APPDATA").or_else(|| home.map(|home| home.join("AppData").join("Roaming"))),
+    Platform::Xdg => set("XDG_DATA_HOME")
       .filter(|dir| dir.is_absolute())
-      .or_else(|| std::env::home_dir().map(|home| home.join(".local/share")))
+      .or_else(|| home.map(|home| home.join(".local").join("share"))),
   };
-  data.map(|dir| dir.join("JetBrains").join("air").join("launch"))
+  data.map(|dir| dir.join("JetBrains").join("air").join(INSTANCE_DIR_LEAF))
 }
 
 /// The instances of the files in `dir` whose process `alive` says runs; none when the directory is missing
@@ -107,7 +136,7 @@ pub fn read_instances(dir: &Path, alive: impl Fn(u32) -> bool) -> Vec<Instance> 
 fn read_instance(file: &Path) -> Option<Instance> {
   let text = std::fs::read_to_string(file).ok()?;
   let parsed: InstanceFile = serde_json::from_str(&text).ok()?;
-  if parsed.schema_version != SCHEMA_VERSION {
+  if parsed.schema != SCHEMA_VERSION {
     return None;
   }
   let modified = std::fs::metadata(file).and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
@@ -121,7 +150,7 @@ fn read_instance(file: &Path) -> Option<Instance> {
   })
 }
 
-/// The answers of `instances` to `hosts`, each asked on its own thread within `timeout`; an IDE that does not answer in
+/// The answers of `instances` to `x-air-ij/hosts`, each asked on its own thread within `timeout`; an IDE that does not answer in
 /// time, fails or refuses is skipped
 pub fn ask_hosts(instances: Vec<Instance>, timeout: Duration) -> Vec<HostedInstance> {
   std::thread::scope(|scope| {
@@ -139,9 +168,13 @@ pub fn ask_hosts(instances: Vec<Instance>, timeout: Duration) -> Vec<HostedInsta
 
 fn ask(instance: Instance, timeout: Duration) -> Option<HostedInstance> {
   match Client::new(&instance.socket).with_timeout(timeout).hosts() {
-    Ok(Hosts::Listed { hosts, focused_at }) => Some(HostedInstance { instance, hosts, focused_at }),
-    Ok(Hosts::Refused(Refusal { code, message })) => {
-      debug!(pid = instance.pid, socket = %instance.socket.display(), %code, ?message, "skipped an IDE that refused to name its hosts");
+    Ok(HostsResult { hosts, focused_at, .. }) => Some(HostedInstance {
+      instance,
+      hosts: hosts.into_iter().map(|host| host.project_directory).collect(),
+      focused_at,
+    }),
+    Err(ClientError::Refused(refusal)) => {
+      debug!(pid = instance.pid, socket = %instance.socket.display(), %refusal, "skipped an IDE that refused to name its hosts");
       None
     }
     Err(error) => {

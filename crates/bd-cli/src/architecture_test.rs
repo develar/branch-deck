@@ -99,7 +99,7 @@ const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
     from: "air-launch",
     forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
-    why: "the client of the launch socket of Air is one blocking exchange over a local socket: no git, no network, no runtime",
+    why: "the client of the local AHP socket of Air is blocking JSON-RPC over a local socket: no git, no network, no runtime",
   },
   Unreachable {
     from: "patronus",

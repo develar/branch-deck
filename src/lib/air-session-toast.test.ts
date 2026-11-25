@@ -17,7 +17,7 @@ vi.mock("@/lib/air-launch", async importOriginal => ({
 function heldWatch() {
   let send: (status: AirSessionStatus) => void = () => {}
   let end: (end: AirWatchEnd) => void = () => {}
-  watch.session.mockImplementation((_project: string, _sessionId: string, onStatus: (status: AirSessionStatus) => void) => {
+  watch.session.mockImplementation((_project: string, _localSessionId: string, onStatus: (status: AirSessionStatus) => void) => {
     send = onStatus
     return new Promise<AirWatchEnd>(resolve => {
       end = resolve
@@ -63,7 +63,7 @@ describe("followAirSession", () => {
     const held = heldWatch()
     followAirSession("/work/idea", "s-1", "Codex", "d")
     held.send({ title: null, activity: "processing" })
-    held.end({ status: "refused", code: "NO_SESSION", message: null })
+    held.end({ status: "gone" })
     await vi.waitFor(() => expect(lastUpdate()).toMatchObject({ type: "info", title: "The session of Codex is gone in Air", description: "d" }))
 
     heldWatch()

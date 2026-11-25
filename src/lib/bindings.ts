@@ -432,17 +432,18 @@ export const commands = {
 	airLaunchTargets: (params: AirTargetsParams) => typedError<AirTargetsAnswer, ApiError>("air_launch_targets", __TAURI_INVOKE("air_launch_targets", { params })),
 	/**
 	 *  Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
-	 *  no IDE and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+	 *  without a target the IDE starts the default of its New Session button. No IDE and a refusal of the IDE are
+	 *  answers. The IDE may ask the user first: the answer can take up to 120 s
 	 */
 	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>("air_launch", __TAURI_INVOKE("air_launch", { params })),
 	/**
-	 *  Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: its
-	 *  status to `statuses` now and after each change, until the IDE ends the watch, `stop_air_watch`, or the page of the
-	 *  window goes away. No IDE and a refusal of the IDE are answers
+	 *  Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: the
+	 *  status of its row to `statuses` now and after each change, until the row is removed, the IDE closes the
+	 *  connection, `stop_air_watch`, or the page of the window goes away. No IDE and a refusal of the IDE are answers
 	 */
 	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>("air_watch_session", __TAURI_INVOKE("air_watch_session", { params, statuses })),
-	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
-	stopAirWatch: (sessionId: string) => typedError<null, ApiError>("stop_air_watch", __TAURI_INVOKE("stop_air_watch", { sessionId })),
+	/**  Stops the watch of the session `local_session_id` that the calling window runs, if any */
+	stopAirWatch: (localSessionId: string) => typedError<null, ApiError>("stop_air_watch", __TAURI_INVOKE("stop_air_watch", { localSessionId })),
 	/**
 	 *  Turns Unattended Mode on or off (the title bar, the command palette): the setting through the writer of the
 	 *  settings, which every window hears; on from off starts the list of denied requests anew. Answers the mode with
@@ -755,15 +756,17 @@ export type AirIde = {
 
 /**  How a launch went */
 export type AirLaunchAnswer = { status: "noIde" } | 
-/**  The session started; `session_id` is the id of its provider, none for a draft */
-{ status: "accepted"; ide: AirIde; sessionId: string | null } | { status: "refused"; ide: AirIde; code: string; message: string | null };
+/**  The session started; `local_session_id` is the key of its row, none for a draft */
+{ status: "accepted"; ide: AirIde; localSessionId: string | null } | { status: "refused"; ide: AirIde; code: string; message: string | null };
 
-/**  The fields of a `launch` request */
+/**  A launch as the page asks it */
 export type AirLaunchRequest = {
 	/**  The absolute path of the directory: the base of an open project, or a directory in it */
 	project: string,
-	launchTargetId: string,
-	interactionSurfaceId: string,
+	/**  The target, with `interaction_surface_id`; none starts the default of the New Session button of the IDE */
+	launchTargetId?: string | null,
+	/**  The surface of the target; only with `launch_target_id` */
+	interactionSurfaceId?: string | null,
 	/**  An id or a name of a model of the target; none for a target without models */
 	model?: string | null,
 	/**  One effort id; none keeps the default of the agent */
@@ -775,11 +778,11 @@ export type AirLaunchRequest = {
 	 *  another `mode` beside it is `MODE_CONFLICT`
 	 */
 	plan?: boolean,
-	/**  The effort id of Plan; only with `plan` (else `BAD_REQUEST`), none keeps the default of the agent */
+	/**  The effort id of Plan; only with `plan`, none keeps the default of the agent */
 	planEffort?: string | null,
-	/**  Required for `run`, optional for `draft` */
+	/**  Required for `run`; a draft without one opens with an empty prompt */
 	prompt?: string | null,
-	/**  The title the session list shows */
+	/**  The title the session list shows; only for `run` */
 	title?: string | null,
 	start: AirStartKind,
 };
@@ -793,7 +796,7 @@ export type AirMode = {
 
 /**  What a mode does. A target whose Plan is a mode has a mode of kind `plan`: `plan` of a launch takes it */
 export type AirModeKind = "plan" | "auto_review" | "standard" | "full_access" | 
-/**  A kind of a later protocol */
+/**  A kind of a later IDE */
 string;
 
 /**  A model of a target */
@@ -822,8 +825,8 @@ export type AirSessionActivity =
 "needs_input" | 
 /**  The turn is done, and the user did not read it yet */
 "unread" | 
-/**  An activity of a later protocol */
-string;
+/**  An activity of a later IDE, or none */
+"other";
 
 /**  The status of the watched session, now and after each change */
 export type AirSessionStatus = {
@@ -834,9 +837,12 @@ export type AirSessionStatus = {
 
 /**  What a launch does in the IDE */
 export type AirStartKind = 
-/**  Starts the session and sends the prompt */
+/**  Starts the session and sends the prompt (`createSession`) */
 "run" | 
-/**  Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing */
+/**
+ *  Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing
+ *  (`x-air-ij/openDraft`)
+ */
 "draft";
 
 /**  An agent that Air can start, with the models it reports */
@@ -864,7 +870,7 @@ export type AirTarget = {
 export type AirTargetsAnswer = 
 /**  No running IDE with Air has the directory or a parent of it open */
 { status: "noIde" } | { status: "listed"; ide: AirIde; targets: AirTarget[] } | 
-/**  The code of the protocol (`DENIED`), and its English text for a log */
+/**  The code of the refusal (`DENIED`, `error.data.code`), and the English text of the IDE for a log */
 { status: "refused"; ide: AirIde; code: string; message: string | null };
 
 /**  What `air_launch_targets` asks */
@@ -875,21 +881,21 @@ export type AirTargetsParams = {
 
 /**  How a watch ended */
 export type AirWatchEnd = { status: "noIde" } | 
-/**  Before the first status any code of the protocol (`BUSY`); after it `NO_SESSION`: the session is gone */
+/**  The IDE refused the connection or the list of the rows (`DENIED`) */
 { status: "refused"; code: string; message: string | null } | 
-/**  The IDE ended the watch: `timeout` after 4 h */
-{ status: "ended"; reason: string } | 
-/**  The IDE closed the connection without an end */
+/**  The row of the session is removed: the session is gone */
+{ status: "gone" } | 
+/**  The IDE closed the connection */
 { status: "closed" } | 
-/**  The page stopped it, or the page of its window went away */
+/**  The page stopped it, a newer watch of the session replaced it, or the page of its window went away */
 { status: "stopped" };
 
 /**  What `air_watch_session` asks */
 export type AirWatchParams = {
 	/**  The absolute path of the directory the session works in, as the launch named it */
 	project: string,
-	/**  The id of the session, as the accepted launch answered it */
-	sessionId: string,
+	/**  The local session id, as the accepted launch answered it: the `resource` of the row of the session */
+	localSessionId: string,
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */

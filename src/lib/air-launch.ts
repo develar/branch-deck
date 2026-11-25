@@ -15,10 +15,11 @@ import { commands } from "@/lib/bindings"
 import { commandFailure, logWarning } from "@/lib/errors"
 
 /*
- * Start in Air (openspec/specs/branch/start-in-air/spec.md): the state of the dialog over the agents of the IDE (`targets`), the
- * request of a launch, the choice the dialog remembers per repository, the words of a refusal of the IDE, and the
- * words of the status of the session a launch started (`watch`). The IDE decides what it accepts; the dialog only
- * offers what the targets list and names what the IDE answered.
+ * Start in Air (openspec/specs/branch/start-in-air/spec.md): the state of the dialog over the agents of the IDE (`targets`,
+ * after the default agent of its New Session button), the request of a launch, the choice the dialog remembers per
+ * repository, the words of a refusal of the IDE, and the words of the status of the session a launch started (the
+ * watch of its row). The IDE decides what it accepts; the dialog only offers what the targets list and names what the
+ * IDE answered.
  */
 
 /**
@@ -53,6 +54,30 @@ export interface AirLaunchForm {
   /** Only while Plan is on */
   planEffort: string | null
   start: AirStartKind
+}
+
+/**
+ * The default agent of the New Session button of the IDE, the first agent of the dialog: a launch of it names no
+ * target, so the IDE starts its default. It has no models, modes and Plan of its own
+ */
+export const DEFAULT_TARGET: AirTarget = {
+  agentId: "",
+  launchTargetId: "",
+  interactionSurfaceId: "",
+  name: "Default Agent",
+  models: [],
+  modes: [],
+  plan: false,
+  listsLoading: false,
+}
+
+export function isDefaultTarget(target: Pick<AirTarget, "launchTargetId">): boolean {
+  return target.launchTargetId === ""
+}
+
+/** The answer of the targets with the default agent first */
+export function withDefaultTarget(answer: AirTargetsAnswer): AirTargetsAnswer {
+  return answer.status === "listed" ? { ...answer, targets: [DEFAULT_TARGET, ...answer.targets] } : answer
 }
 
 /** One key of a target: two targets can have the same agent on another surface */
@@ -133,8 +158,7 @@ export function initialForm(targets: readonly AirTarget[], remembered: AirLaunch
 
 /**
  * The dialog asks the IDE for its targets again after this delay while an agent still lists its models and modes
- * (`AirTarget.listsLoading`), at most `LIST_REFRESH_LIMIT` times: the IDE answers within 2 s and lists the rest later,
- * and each ask is one connection of the 10 the IDE allows in 60 s
+ * (`AirTarget.listsLoading`), at most `LIST_REFRESH_LIMIT` times: the IDE answers within 2 s and lists the rest later
  */
 export const LIST_REFRESH_DELAY_MS = 3000
 export const LIST_REFRESH_LIMIT = 4
@@ -177,13 +201,17 @@ export function withPlan(form: AirLaunchForm, target: AirTarget, plan: boolean):
   return { ...form, ...planFor(target, form.model, plan, null) }
 }
 
-/** The request of a launch; a draft without a prompt sends none, Plan of a mode sends no other mode */
+/**
+ * The request of a launch; a draft without a prompt sends none, Plan of a mode sends no other mode, the default agent
+ * names no target
+ */
 export function launchRequest(project: string, form: AirLaunchForm, target: AirTarget, prompt: string, title: string): AirLaunchRequest {
   const text = prompt.trim() === "" ? null : prompt
+  const named = !isDefaultTarget(target)
   return {
     project,
-    launchTargetId: target.launchTargetId,
-    interactionSurfaceId: target.interactionSurfaceId,
+    launchTargetId: named ? target.launchTargetId : null,
+    interactionSurfaceId: named ? target.interactionSurfaceId : null,
     model: form.model,
     effort: form.effort,
     mode: isModeLocked(form, target) ? null : form.mode,
@@ -245,13 +273,15 @@ export function formatIde(ide: { product: string; build: string }): string {
 
 const REFUSALS: Record<string, string> = {
   DENIED: "The IDE denied Branch Deck, or nobody answered its question in time",
-  UNAVAILABLE: "The IDE cannot ask for consent: it runs without a window",
+  UNAVAILABLE: "The IDE cannot ask for consent now. Try again with the IDE window open",
   BUSY: "The IDE answers another request now. Try again in a moment",
   RATE_LIMITED: "Branch Deck asked the IDE too often in the last minute. Try again later",
-  UNSUPPORTED_VERSION: "The IDE speaks another version of the launch protocol. Update Air or Branch Deck",
+  UNAUTHORIZED: "The IDE does not let local apps in now. Update Air, or restart the IDE",
   UNKNOWN_METHOD: "The IDE does not know this request. Update Air",
   BAD_REQUEST: "The IDE cannot read the request of Branch Deck",
+  BAD_PARAMS: "The IDE cannot read the request of Branch Deck",
   NO_PROJECT: "No project open in the IDE holds the repository",
+  NO_DEFAULT: "The New Session button of the IDE has no default agent. Pick an agent",
   UNTRUSTED_PROJECT: "The IDE does not trust the project. Trust it in the IDE first",
   TARGET_UNAVAILABLE: "The agent is not available in the IDE now",
   MODEL_UNAVAILABLE: "The agent has no such model now",
@@ -261,9 +291,10 @@ const REFUSALS: Record<string, string> = {
   LAUNCH_FAILED: "The session did not start",
   MODE_UNAVAILABLE: "The agent has no such mode now",
   MODE_CONFLICT: "The agent cannot start in Plan with another mode",
+  MODE_NOT_ALLOWED: "The IDE does not let a local app start with full access. Turn on the registry key air.local.app.full.access in the IDE",
+  UNKNOWN_AGENT: "The IDE does not know the agent now",
   PLAN_UNAVAILABLE: "The agent cannot start in Plan now",
   INVALID_PLAN_REASONING_EFFORT: "Air does not know this plan effort",
-  NO_SESSION: "The IDE has no such session",
 }
 
 /** A refusal of the IDE by its code; the message of the IDE only where the code says to read it, or for an unknown code */
@@ -313,7 +344,7 @@ export function formatSessionStatus(agent: string, activity: AirSessionActivity)
     case "reviewing":
       return { type: "info", title: `${agent} waits for your review in Air`, done: false }
     default:
-      // `processing`, and an activity of a later protocol
+      // `processing`, and an activity of a later IDE or none
       return { type: "loading", title: `${agent} works in Air…`, done: false }
   }
 }
@@ -323,16 +354,10 @@ export function formatWatchEnd(agent: string, end: AirWatchEnd): { type: "info" 
   switch (end.status) {
     case "stopped":
       return null
+    case "gone":
+      return { type: "info", title: `The session of ${agent} is gone in Air` }
     case "refused":
-      return end.code === "NO_SESSION"
-        ? { type: "info", title: `The session of ${agent} is gone in Air` }
-        : { type: "warning", title: `Cannot follow ${agent} in Air`, description: formatRefusal(end.code, end.message) }
-    case "ended":
-      return {
-        type: "info",
-        title: `Stopped following ${agent} in Air`,
-        description: end.reason === "timeout" ? "The IDE ends a watch after 4 hours" : `The IDE ended the watch (${end.reason})`,
-      }
+      return { type: "warning", title: `Cannot follow ${agent} in Air`, description: formatRefusal(end.code, end.message) }
     case "closed":
       return { type: "info", title: `Stopped following ${agent} in Air`, description: "The IDE closed the connection" }
     case "noIde":
@@ -341,22 +366,22 @@ export function formatWatchEnd(agent: string, end: AirWatchEnd): { type: "info" 
 }
 
 /**
- * Watches the session `sessionId` of the IDE that has `project` open: `onStatus` gets each status, now and after each
- * change, until the IDE ends the watch or `stopAirWatch`
+ * Watches the session `localSessionId` of the IDE that has `project` open: `onStatus` gets the status of its row, now
+ * and after each change, until the row is removed, the IDE closes the connection, or `stopAirWatch`
  */
-export async function watchAirSession(project: string, sessionId: string, onStatus: (status: AirSessionStatus) => void): Promise<AirWatchEnd> {
+export async function watchAirSession(project: string, localSessionId: string, onStatus: (status: AirSessionStatus) => void): Promise<AirWatchEnd> {
   const statuses = new Channel<AirSessionStatus>()
   statuses.onmessage = onStatus
-  const result = await commands.airWatchSession({ project, sessionId }, statuses)
+  const result = await commands.airWatchSession({ project, localSessionId }, statuses)
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
   return result.data
 }
 
-/** Stops the watch of the session `sessionId` of this window; the watch answers `stopped` */
-export function stopAirWatch(sessionId: string): void {
-  void commands.stopAirWatch(sessionId).then(result => {
+/** Stops the watch of the session `localSessionId` of this window; the watch answers `stopped` */
+export function stopAirWatch(localSessionId: string): void {
+  void commands.stopAirWatch(localSessionId).then(result => {
     if (result.status === "error") {
       logWarning("Cannot stop the watch of an Air session", result.error)
     }
