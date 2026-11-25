@@ -10,7 +10,8 @@ import { unparkBranch } from "@/hooks/useParkBranch"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { restackBranch } from "@/hooks/useStackActions"
-import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
+import { getStackNextStep, hostsWholeStackNow } from "@/hooks/useStackNextStep"
+import { getWholeStackMenuItems, getWholeStackStartItems } from "@/hooks/useWholeStackActions"
 import { cancelAutoMerge } from "@/lib/auto-merge-news"
 import { formatSquashFixupsLabel, getListFixups, hasUnreadFixups } from "@/lib/autosquash"
 import type { ActionId, ActionState, AutosquashPlan, PullRequest } from "@/lib/bindings"
@@ -26,7 +27,7 @@ import { openBranchReviewWindow } from "@/lib/review-window"
 import { getRobotActionItemsNow } from "@/lib/robot-items"
 import { formatPushWithChildrenLabel, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
-import { describeStackBranchAlong } from "@/lib/whole-stack"
+import { describeRootOnly, describeStackBranchAlong, formatRootOnlyLabel } from "@/lib/whole-stack"
 import { getRowPart } from "@/model/store"
 import type { ActionItem, BlockerWords } from "@/presenters/actions"
 import { ACTION_LOOKS, findAction, presentAction } from "@/presenters/actions"
@@ -146,21 +147,27 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
 
   const nextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP
+  // the root of a stack that forks hosts its whole stack: the slot, S and the first start here are the whole stack's,
+  // its own start "Safe Push Root Only" after it
+  const hosts = hostsWholeStackNow(branch.name)
+  const slotStep = hosts ? (getStackNextStep(branch.name)?.step ?? NO_NEXT_STEP) : nextStep
   const robot = getBranchRobot(branch.name)
   // its pull request is the branch's one, which "Open Pull Request" already opens
   const robotActions = robot === undefined ? [] : getRobotActionItemsNow(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the actions of that edge first ("Land Together",
-    // "Land stills-codec First")
-    ...nextStep.landingFixes,
-    getSafePushMenuItem(branch, nextStep),
+    // "Land stills-codec First"); of the whole stack a root hosts, which has no landing needs of its own (the gate of its
+    // start checks it), those of the root's own step, whose fix restacks the whole stack alike
+    ...(slotStep.landingFixes.length > 0 ? slotStep.landingFixes : nextStep.landingFixes),
+    hosts ? getHostedStackStartItem(branch.name) : null,
+    getSafePushMenuItem(branch, nextStep, hosts),
     // GitHub merges its pull request once the checks pass: Cancel Auto-Merge, while Rust offers it
     pullRequest === undefined
       ? null
       : branchItem(branch, "cancel-auto-merge", { onSelect: () => void cancelAutoMerge(getSelectedRepositoryPath(), pullRequest.number, branch.name) }),
   )
   // a listed robot keeps its actions while Patronus doesn't answer for a new start
-  landingActions.push(...robotActions, ...present(getPatronusMenuItem(branch, nextStep)), ...getPushMenuItems(branch))
+  landingActions.push(...robotActions, ...present(getPatronusMenuItem(branch, nextStep, hosts)), ...getPushMenuItems(branch))
   // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
   landingActions.push(...present(getPushWithChildrenItem(branch.name)))
   // the commits someone else pushed to its remote branch: the question of the push button lists them with the pick
@@ -362,10 +369,12 @@ export function getBranchStackFixItems(branch: Branch, actions: readonly ActionS
  * "Patronus ›", the rarer starts beside "Safe Push" (S), each as Rust offers it (`domain_policy::actions`, the reasons of
  * the next step of the branch): "Safe Push With Profile…" always opens the popover at the row's slot, its profile to
  * choose (a comment on a pull request can't choose one); "Dry Run" starts at once when it has nothing to say, else opens
- * it (`requestSafePush`); "Check Approvals Again" asks for the approvals that count anew. The approvals go into the
- * GitHub pull request: "Create Pull Request…" is the review group's; no Space merge request (deprecated). None off Space.
+ * it (`requestSafePush`), "Dry Run Root Only" on a root whose row hosts its whole stack (`rootOnly`, "Dry Run Whole
+ * Stack" is in "Whole Stack ›"); "Check Approvals Again" asks for the approvals that count anew. The approvals go into
+ * the GitHub pull request: "Create Pull Request…" is the review group's; no Space merge request (deprecated). None off
+ * Space.
  */
-function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem | null {
+function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep, rootOnly: boolean): MenuItem | null {
   const children = present(
     withStepReason(
       branchItem(
@@ -385,7 +394,10 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
         branch,
         "dry-run",
         {
-          description: describeStart("dryRun", branch.name, landingBranchCountOf(branch.name), getReadinessTarget()),
+          ...(rootOnly && { label: formatRootOnlyLabel(ACTION_LOOKS["dry-run"].label) }),
+          description: rootOnly
+            ? describeRootOnly(branch.name, getReadinessTarget(), "dryRun")
+            : describeStart("dryRun", branch.name, landingBranchCountOf(branch.name), getReadinessTarget()),
           onSelect: () => void requestSafePush(branch.name, { mode: "dryRun", via: "click" }),
         },
         nextStep.dryRunBlocker,
@@ -406,12 +418,39 @@ function landingBranchCountOf(name: string): number {
 }
 
 /**
+ * The first start of the menu of the root of a stack that forks whose row hosts its whole stack, as its slot shows it:
+ * "Safe Push Whole Stack" (S; "Push to master · 4", the merge of its pull request on those routes), the item of the
+ * actions of the whole stack (`getWholeStackStartItems`) with the key of the slot; null while Rust offers none
+ */
+function getHostedStackStartItem(root: string): MenuItem | null {
+  const item = getWholeStackStartItems(root).find(it => it.id !== "dry-run-whole-stack")
+  return item === undefined ? null : { ...item, kbds: [...ACTION_LOOKS["safe-push"].kbds] }
+}
+
+/**
  * "Safe Push" (S; "Safe Push · 3" for a stacked branch): the start of the row (`requestSafePush`), as Rust offers it,
  * disabled with the reason of the next step of the branch (the slot, the menu, S on the row, the branch preview, the
  * review and the stack header say the same); "Push to master" (S; "Push to master · 3") in its place where the
- * repository lands by a push of the copy into the target
+ * repository lands by a push of the copy into the target. On a root whose row hosts its whole stack (`rootOnly`), the
+ * start of the root alone, without the key, whose slot is the whole stack's: "Safe Push Root Only", "Push to master Root
+ * Only"
  */
-function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP): MenuItem | null {
+function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP, rootOnly = false): MenuItem | null {
+  const item = startItemOf(branch, nextStep)
+  if (item === null || !rootOnly) {
+    return item
+  }
+  const target = getReadinessTarget()
+  return {
+    ...item,
+    kbds: undefined,
+    ...(item.id !== "merge-pull-request" && { label: formatRootOnlyLabel(item.id === "safe-push" ? ACTION_LOOKS["safe-push"].label : formatPushToBaselineLabel(target, 1)) }),
+    ...(item.id === "safe-push" && item.disabled !== true && { description: describeRootOnly(branch.name, target, "rebaseAutosquash") }),
+  }
+}
+
+/** The start of the row (`getSafePushMenuItem`): its Safe Push, its push into the target or the merge of its pull request */
+function startItemOf(branch: Branch, nextStep: BranchNextStep): MenuItem | null {
   const branchCount = landingBranchCountOf(branch.name)
   // a repository that lands by a push of the copy into the target: Rust offers its push in place of the robot's start
   const target = getReadinessTarget()
@@ -477,7 +516,7 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const slot = getPushSlot(branch.name)
   if (slot !== null && slot.none !== true) {
     // offered until Patronus says the repository is not on Space: disabled with what it waits for before its answer
-    items.push(...present(getSafePushMenuItem(branch)))
+    items.push(...present(getSafePushMenuItem(branch, undefined, hostsWholeStackNow(branch.name))))
     // the push of the button alone: its second way is in "⋯"; a first push that Safe Push and Create Pull Request make
     // is disabled with why, so the title bar keeps its buttons where they are when the answers that decide it come
     const push = getPushMenuItems(branch)[0]
@@ -685,8 +724,9 @@ function getUngroupItem(branch: Branch): MenuItem | null {
 
 /**
  * The collapse of the stack and, on every branch of a stack, "Whole Stack ›", the actions of the whole stack of its root
- * (`getWholeStackMenuItems`; Push with Children stays beside the push of the root), so a small stack without an island
- * has them in the menu and the preview of each of its branches; none for a branch of no stack
+ * (`getWholeStackMenuItems`; Push with Children stays beside the push of the root; the start the menu of a root whose
+ * row hosts its whole stack leads with stays there), so a small stack without an island has them in the menu and the
+ * preview of each of its branches; none for a branch of no stack
  */
 function getStackViewItems(branch: Branch): MenuItem[] {
   const items: MenuItem[] = []
@@ -699,9 +739,11 @@ function getStackViewItems(branch: Branch): MenuItem[] {
         : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
   }
-  // every branch of a stack is a piece of the whole stack: one submenu, its root's, on each of them
+  // every branch of a stack is a piece of the whole stack: one submenu, its root's, on each of them; on the root whose row
+  // hosts it, without the start the menu leads with
   const root = getStackAncestors(branch.name)[0] ?? (getStackDescendants(branch.name).length > 0 ? branch.name : null)
-  const wholeStack = root === null ? [] : getWholeStackMenuItems(root, { withPush: false })
+  const onTop = root === branch.name && hostsWholeStackNow(branch.name) ? getHostedStackStartItem(branch.name)?.id : undefined
+  const wholeStack = root === null ? [] : getWholeStackMenuItems(root, { withPush: false }).filter(item => item.id !== onTop)
   if (wholeStack.length > 0) {
     items.push({ id: "whole-stack", label: "Whole Stack", icon: LayersIcon, onSelect: () => {}, children: wholeStack })
   }

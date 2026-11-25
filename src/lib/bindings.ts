@@ -4315,6 +4315,17 @@ export type HolderTool =
 /**  Branch Deck, the app */
 "app";
 
+/**  What the row of the root of a stack that forks shows of the whole stack it hosts (`NextStepView::hosted`) */
+export type HostedStack = {
+	/**  The node of the whole stack, unless something of the root itself decides it (`landing_node::root_own_node`) */
+	node: LandingNode,
+	/**
+	 *  Its Status cell: the facts of the root, and the state the step of the whole stack waits in
+	 *  (`row_status::hosting_row_status`)
+	 */
+	status: RowStatus,
+};
+
 export type HourTime = {
 	/**  The median from start to merge, seconds */
 	median: number,
@@ -6011,6 +6022,16 @@ export type NextStepView = {
 	 *  the push keeps its place), and of a whole stack
 	 */
 	push?: PushSlot,
+	/**
+	 *  Of the root of a stack that forks, which lands as its whole stack, with work of its own left and a slot to show
+	 *  (`landing_node::hosts_whole_stack`): its row hosts that whole stack, which has no row of its own. Its slot, S and
+	 *  the first start of its "⋯" are those of `stack:<root>`, its own start stays in its "⋯" ("Safe Push Root Only"), and
+	 *  the row shows the node and the Status cell of `hosted` in place of `node` and `status`, which stay the root's own:
+	 *  an island shows the whole stack in its header, so its root's row keeps them (and leaves its slot to the header).
+	 *  `None` of every other branch, of a stack that holds a parked branch (it lands in pieces), of a root all of which is
+	 *  in master, and of a whole stack
+	 */
+	hosted?: HostedStack | null,
 };
 
 /**  Why the node is what it is, with the facts its words need */

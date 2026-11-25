@@ -193,7 +193,8 @@
         "confirmations": ["landsMoreThanRow"],
         "start": "api",
         "lands": ["auth", "login", "session"]
-      }
+      },
+      "hostsWholeStack": false
     },
     "asymmetry": {
       "kind": "byDesign",

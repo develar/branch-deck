@@ -1,7 +1,7 @@
 use crate::landing_node::{NodeFacts, landing_node};
 use crate::next_step::{StepRobot, next_step};
 use crate::next_step_test::{Fixture, failed, group, missing, missing_declaration, open, readiness, robot_on_tip};
-use crate::row_status::row_status;
+use crate::row_status::{hosting_row_status, row_status};
 use domain_types::conflict::RegenerateFile;
 use domain_types::fixtures::robot_of;
 use domain_types::landing::{Landed, LandedBy, LandingFix, StackCommit};
@@ -416,18 +416,7 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
       it.remote = None;
       it.own_robot_landed = own_robot_landed;
     });
-    let standing = fixture.standing();
-    let node = NodeFacts {
-      step: fixture.facts(&standing),
-      status: BranchStatus::Unchanged,
-      blocked_by: None,
-      lands_with: None,
-      lands_failing: false,
-      push_pending: false,
-      regenerate: &[],
-      regenerate_fix: None,
-      shown: None,
-    };
+    let (status, kind) = with_cell_facts(&fixture, |node| (row_status(node), landing_node(node).kind));
     let expected = if merged {
       RowStatus {
         main: Some(RowFact::Robot { running: false, failed: false }),
@@ -436,8 +425,8 @@ fn a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_
     } else {
       RowStatus::default()
     };
-    assert_eq!(row_status(&node), expected, "landed by content: {own_robot_landed}");
-    assert_eq!(landing_node(&node).kind == LandingNodeKind::InMaster, merged, "landed by content: {own_robot_landed}");
+    assert_eq!(status, expected, "landed by content: {own_robot_landed}");
+    assert_eq!(kind == LandingNodeKind::InMaster, merged, "landed by content: {own_robot_landed}");
   }
 }
 
@@ -486,10 +475,14 @@ fn a_finished_robot_of_an_earlier_state_gives_way_where_no_start_is_offered() {
 
 /// The Status cell and the next step of the branch of `fixture`, nothing else of the row
 fn cell_of(fixture: &Fixture) -> (RowStatus, NextStep) {
+  with_cell_facts(fixture, |facts| (row_status(facts), next_step(&facts.step)))
+}
+
+/// `read` of the facts of the node of the branch of `fixture`, nothing else of the row
+fn with_cell_facts<T>(fixture: &Fixture, read: impl FnOnce(&NodeFacts<'_>) -> T) -> T {
   let standing = fixture.standing();
-  let step = fixture.facts(&standing);
-  let facts = NodeFacts {
-    step,
+  read(&NodeFacts {
+    step: fixture.facts(&standing),
     status: BranchStatus::Unchanged,
     blocked_by: None,
     lands_with: None,
@@ -498,8 +491,7 @@ fn cell_of(fixture: &Fixture) -> (RowStatus, NextStep) {
     regenerate: &[],
     regenerate_fix: None,
     shown: None,
-  };
-  (row_status(&facts), next_step(&step))
+  })
 }
 
 /// A wait is a state: the cell says it where nothing of the branch's own says more (a finished robot that covers nothing
@@ -555,6 +547,36 @@ fn a_wait_is_the_state_of_the_cell_where_nothing_of_its_own_says_more() {
   let (status, step) = cell_of(&Fixture::branch());
   assert!(!step.wait);
   assert_eq!(status, RowStatus::default());
+}
+
+/// The row of the root of a stack that forks hosts its whole stack: its cell says the state of the step its slot shows,
+/// the whole stack's, never a state of its own step, which its slot doesn't show; its own facts stay
+#[test]
+fn the_cell_of_the_root_that_hosts_its_whole_stack_says_the_wait_of_the_whole_stack() {
+  let wait = RowStatus {
+    main: Some(RowFact::Wait),
+    also: Vec::new(),
+  };
+  let hosting = |fixture: &Fixture, whole_stack: &Fixture| {
+    let stack_standing = whole_stack.standing();
+    let stack_step = next_step(&whole_stack.facts(&stack_standing));
+    with_cell_facts(fixture, |facts| hosting_row_status(facts, &stack_step))
+  };
+  let draft = Fixture::branch().with(open(PullRequestBase::Target, |it| it.is_draft = true));
+  assert_eq!(cell_of(&draft).0, wait, "a branch says the draft its step waits in");
+  assert_eq!(
+    hosting(&draft, &Fixture::branch()),
+    RowStatus::default(),
+    "the slot of the root shows the start of the whole stack"
+  );
+  assert_eq!(hosting(&Fixture::branch(), &draft), wait, "the whole stack waits in its draft");
+  let parked = draft.clone().with(|it| {
+    it.parked = Some(Parked {
+      note: "after the release".to_string(),
+      with: None,
+    });
+  });
+  assert_eq!(hosting(&parked, &draft).main, Some(RowFact::Parked), "its own facts say more");
 }
 
 /// The start lands after the running Safe Push of what it needs (`StepKind::AfterLanding`): the cell says the wait, also

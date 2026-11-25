@@ -7,7 +7,6 @@ import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../h
 import { holdRemotePushes, virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
-import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -219,11 +218,11 @@ test.describe("Push to master", () => {
     await expect(findBranchRow(page, "docs")).toBeVisible()
   })
 
-  test("should push a whole stack into master from Whole Stack of the menu of its root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should push a whole stack into master from the menu of its root, which leads with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, {}, { template: "stacked_branches", branch: "auth" })
     const copy = await repo.revision("user-name/stack/auth")
+    // the row of the root hosts the whole stack: its menu leads with the push of the whole stack
     await findBranchRow(page, "auth").click({ button: "right" })
-    await openSubmenu(page, "Whole Stack")
     await page.getByRole("menuitem", { name: "Push to master · 4" }).click()
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("data-decision", "confirm")

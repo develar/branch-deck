@@ -6,6 +6,7 @@ import { foundLandedNews } from "@/lib/landed"
 import { keepStartAfterMerge, takeWaitingStart } from "@/lib/merge-dependents"
 import { openRobot } from "@/lib/patronus"
 import { lastFetchTime } from "@/lib/update-state"
+import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { getRowPart } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
@@ -98,7 +99,11 @@ export function showMergeToast(repositoryPath: string, robot: PatronusRobot, tit
   const startDependent: EventToastAction | null =
     dependent === null
       ? null
-      : { label: `Start ${dependent}`, onClick: () => void whenStepDecided(dependent).then(() => requestSafePush(dependent, { mode: "rebaseAutosquash", via: "click" })) }
+      : {
+          // a whole stack is started as every surface names its start (the slot of the root that hosts it, the menus)
+          label: stackRootOfReadinessKey(dependent) === null ? `Start ${dependent}` : "Safe Push Whole Stack",
+          onClick: () => void whenStepDecided(dependent).then(() => requestSafePush(dependent, { mode: "rebaseAutosquash", via: "click" })),
+        }
   if (startDependent !== null) {
     // the update that lands the merge says it in this toast's place (`showUpdateToast`), with the start
     keepStartAfterMerge(repositoryPath, startDependent)

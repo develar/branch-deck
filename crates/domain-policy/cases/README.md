@@ -89,6 +89,10 @@ command without it, which must land, `landed: true`, when nothing refuses it and
 - `expect.status` (optional): the Status cell of a branch subject (`domain_types::next_step::RowStatus`), the main fact
   first, by the names of `brd status` (`NextStepSummary::status`: `robot_running`, `blocked`, `merge_conflict`, …); the
   app answers it of the next steps it derives, `brd` of `brd status`.
+- `expect.hostsWholeStack` (optional): whether the row of `branch` hosts the whole stack of its root
+  (`NextStepView::hosted`: the root of a stack that forks, which lands as its whole stack, its slot showing
+  the step of `stack:<root>`); the app answers it of the next steps it derives, `brd` of `brd status`
+  (`NextStepSummary::hosts_whole_stack`).
 - `asymmetry` (optional): `{ "kind": "byDesign", "why": "…" }`, where `brd` answers otherwise by design (the spec or the
   doc it names), always with `brd`: its own `step` or `land` instead of `expect`'s, or `error`, the code of the error of
   the command that refuses before it decides anything (what the table alone refuses, a target Patronus doesn't protect,

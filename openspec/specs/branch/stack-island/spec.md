@@ -632,7 +632,7 @@ S on the focused header MUST open the same popover of the Safe Push of the whole
 - **GIVEN** the header has the focus
 - **WHEN** the user presses S
 - **THEN** the popover of the Safe Push of the whole stack opens at the header's slot
-  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`)
 
 ### Requirement: Header: The Safe Push of the whole stack is disabled with the reason of the whole stack
 
@@ -711,7 +711,7 @@ stack, the list the menu of every branch of the stack shows under "Whole Stack �
 - **WHEN** the user opens "⋯" of the header
 - **THEN** the menu "More actions for the air stack" lists, in this order: "Safe Push Whole Stack" and "Dry Run Whole Stack", "Safe Push deploy" while the stack lands in pieces, "Create Pull Request of the Stack…" or "Open Pull Request #12" with "Request Review…" of it while it is open, "Push with Children (7 branches)", "Review Whole Stack" and the actions of the robot of the whole stack
 - **AND** then "Collapse Stack" / "Expand Stack"
-  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
 
 ### Requirement: Header: The Safe Push and the Dry Run of the whole stack in the menu open at the header
@@ -722,7 +722,7 @@ with the reasons of the whole stack.
 #### Scenario: Safe Push Whole Stack
 - **WHEN** the user chooses "Safe Push Whole Stack" in "⋯"
 - **THEN** the popover of the Safe Push of the whole stack opens at the header's slot
-  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`)
 
 #### Scenario: Dry Run Whole Stack
 - **WHEN** the user chooses "Dry Run Whole Stack" in "⋯"
@@ -928,7 +928,7 @@ S on the focused header MUST open the popover of the Safe Push of the whole stac
 - **GIVEN** the header has the focus
 - **WHEN** the user presses S, then Enter
 - **THEN** the popover of the Safe Push of the whole stack opens, and Enter starts it
-  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`)
 
 ### Requirement: Collapse, keys and filter: A side stack of the island is a side stack of the table
 

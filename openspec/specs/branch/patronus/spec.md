@@ -2988,7 +2988,7 @@ start of its last branch.
 #### Scenario: The start of the whole stack from the header
 - **WHEN** the user starts from the header of a stack island, its "⋯" or S on it, a Safe Push or a Dry Run
 - **THEN** one robot of the stack branch is asked, the popover at the header
-  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
 
 #### Scenario: A straight chain
 - **WHEN** the stack is a straight chain, which has no stack branch

@@ -416,7 +416,11 @@ test.describe("Stack island", () => {
 
   // a test of its own, as the next one: each start is seconds of push, gate and robot under load, and the starts of
   // every surface of the header in one test ran past its timeout (docs/design/e2e-testing.md, "A test of many starts")
-  test("should start the whole stack from the island's ⋯ and with S on its header, the popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
@@ -446,7 +450,19 @@ test.describe("Stack island", () => {
     await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir])
     await closeRefusal(page)
-    // the first start pushed the stack branch alone; the remote has it since, so the second pushed nothing
+
+    // the root's row hosts the whole stack, whose step the header right above it shows: its slot leaves the step to the
+    // header, as its push leaves Push with Children there; S on the row starts the whole stack, its popover at the header
+    const root = findBranchRow(page, "air")
+    await expect(headerSlot.getByTestId("safe-push-button")).toHaveText("Safe Push · 7")
+    await expect(root.getByTestId("safe-push-button")).toHaveCount(0)
+    await root.focus()
+    await page.keyboard.press("s")
+    await expectWholeStackPopoverAt(popover, headerSlot)
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir])
+    await closeRefusal(page)
+    // the first start pushed the stack branch alone; the remote has it since, so the others pushed nothing
     expect(await remotePushes(repo)).toEqual([["stack:air"]])
   })
 

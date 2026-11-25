@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from "react"
 import { useStore } from "zustand"
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { getStepInputs, stepActionsOf, useStepInputs } from "@/hooks/useBranchNextStep"
+import { rowNodeOf } from "@/hooks/useStackNextStep"
 import type { LandingNodeKind, NextStep, NextStepView, RunningOperation, WholeStackView } from "@/lib/bindings"
 import { sameJson } from "@/lib/record"
 import { formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
@@ -97,7 +98,7 @@ function presentNode(key: string, node: NodeView, inputs: NodeInputs): LandingNo
 
 /** The node of the subject `key` now (a branch, `stack:<root>`), in its words; null before the view has it */
 export function getLandingNodeNow(key: string): LandingNode | null {
-  const node = getRowPart(key, "landing")?.node
+  const node = rowNodeOf(key, getRowPart(key, "landing"))
   if (node === undefined) {
     return null
   }
@@ -114,8 +115,8 @@ export function getLandingNodeNow(key: string): LandingNode | null {
  * filter chips, F2 and the states of a stack count; null before the view has it
  */
 export function getNodeKindNow(key: string): LandingNodeKind | null {
-  const view = getRowPart(key, "landing")
-  return view === undefined ? null : presentNodeKind(view.node, runningMoveNow(key), pushingNow(key))
+  const node = rowNodeOf(key, getRowPart(key, "landing"))
+  return node === undefined ? null : presentNodeKind(node, runningMoveNow(key), pushingNow(key))
 }
 
 /**
@@ -186,7 +187,8 @@ function useRunningMove(key: string): FoundMove | null {
 /** The node of the subject `key` ("" for none), re-rendering when its part of the view or what its words read changes */
 function useNodeOf(key: string): LandingNode | null {
   // the node alone, kept while it says the same: the rest of the step changes in every patch of it (the landing needs)
-  const node = useRowPart(key, "landing", step => step?.node, sameJson)
+  // of the whole stack the row of a root hosts, where no island header shows it (`rowNodeOf`)
+  const node = useRowPart(key, "landing", step => rowNodeOf(key, step), sameJson)
   const step = useStepInputs(key, wordedStep(node))
   const statusText = useBranchSyncEntry("branches", key, branch => branch?.statusText ?? "")
   const move = useRunningMove(key)

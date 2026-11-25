@@ -2,6 +2,7 @@ import type { KeyboardEvent, RefObject } from "react"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { getMoveRowsNow } from "@/hooks/useBranchFilter"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { slotSubjectOf } from "@/hooks/useStackNextStep"
 import { moveRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { FROM_MENU, selectMenuItemById } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
@@ -58,10 +59,11 @@ function selectRowItem(name: string, id: string, setExpanded: (name: string, exp
 /**
  * S: opens the popover of the row's Safe Push at its slot when its "Safe Push" is enabled (Patronus answered, the row
  * has a push, the next step's `safePushBlocker`), never a start by itself; its start takes the focus, so Enter starts the robot.
- * Disabled, S says why in an `info` toast, as the hover of the item does (`requestSafePush`).
+ * Disabled, S says why in an `info` toast, as the hover of the item does (`requestSafePush`). On the root of a stack that
+ * forks whose row hosts its whole stack, the start of that whole stack, as its slot (`slotSubjectOf`)
  */
 function openSafePush(name: string): void {
-  void requestSafePush(name, { mode: "rebaseAutosquash", via: "key" })
+  void requestSafePush(slotSubjectOf(name), { mode: "rebaseAutosquash", via: "key" })
 }
 
 /**

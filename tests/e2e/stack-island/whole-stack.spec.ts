@@ -1015,17 +1015,18 @@ test.describe("Whole stack", () => {
     await syncAndWaitForBranches()
     const members = ["auth", "login", "oauth", "session"]
 
-    // each branch offers its own Safe Push, with what it is built on
+    // each branch offers its own Safe Push, with what it is built on; the root's row hosts the whole stack, its slot the
+    // Safe Push of all four
     for (const [name, label] of [
-      ["auth", "Safe Push"],
+      ["auth", "Safe Push · 4"],
       ["login", "Safe Push · 2"],
       ["oauth", "Safe Push · 3"],
       ["session", "Safe Push · 2"],
     ]) {
       await expect(slotSafePush(page, name!)).toHaveText(label!)
     }
-    // the Safe Push of the whole stack lands them all in one robot, from its stack branch
-    await openWholeStackSubmenu(page, "auth")
+    // the Safe Push of the whole stack, which the root's menu leads with, lands them all in one robot, from its stack branch
+    await findBranchRow(page, "auth").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expect(safePushPopover(page)).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
     await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
@@ -1048,6 +1049,7 @@ test.describe("Whole stack", () => {
     await expect(findBranchRow(page, "docs").getByTestId("landed-with")).toHaveCount(0)
     await expect(slotSafePush(page, "docs")).toHaveText("Safe Push")
     // the whole stack has nothing left to start either
+    // auth landed: its row is its own, "Whole Stack ›" of its menu has the start of the whole stack
     await openWholeStackSubmenu(page, "auth")
     await expect(page.getByRole("menuitem", { name: "Safe Push Whole Stack" })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
@@ -1098,6 +1100,7 @@ test.describe("Whole stack", () => {
     const merged = await mergeRunningRobot(page, repo, running)
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()
     const rest = "Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth landed with oauth"
+    // auth landed: its row is its own, "Whole Stack ›" of its menu has the start of the whole stack
     await openWholeStackSubmenu(page, "auth")
     const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
     await expect(item).not.toHaveAttribute("aria-disabled", "true")
@@ -1144,6 +1147,7 @@ test.describe("Whole stack", () => {
     await repo.commit("(auth/session) Keep the session", { "session-keep.txt": "keep\n" }, 1704150000)
     await syncAndWaitForBranches()
     const rest = "Lands 1 branch · 2 commits into master in one Safe Push: session; auth, login and oauth landed with oauth"
+    // auth landed: its row is its own, "Whole Stack ›" of its menu has the start of the whole stack
     await openWholeStackSubmenu(page, "auth")
     const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
     await expect(item).not.toHaveAttribute("aria-disabled", "true")

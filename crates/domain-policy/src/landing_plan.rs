@@ -9,6 +9,8 @@
 //!   in the topological order of the edges (Landing now: their robots run; Next: nothing they need is on the way;
 //!   After …: what they need lands first, each wave after the waves of what it needs), the parked branches apart, and
 //!   the offers to land two units in one robot (`LandTogether`)
+//! - `lands_as_whole_stack`: whether a stack lands as its whole stack, the rule of the node of its unit and of the row
+//!   of a root that forks, which hosts the step of its whole stack (`NextStepView::hosted`)
 //! - `checks_price`: the checks of Patronus two units start in one robot against those each starts apart, a pure
 //!   function of their footprints (`LandingFootprints`)
 //!
@@ -44,6 +46,15 @@ pub struct UnitFacts<'a, 'r> {
   pub footprints: &'a LandingFootprints,
 }
 
+/// Whether a stack lands as its whole stack, one unit whose node and step are those of `kind`, the node of its whole stack
+/// (its stack branch while it forks, else the last branch of its straight chain): once the view has that node, unless the
+/// whole stack holds a parked branch, which lands the stack in pieces. The row of the root of a stack that forks hosts
+/// such a whole stack, which has no row of its own (`landing_node::hosts_whole_stack`)
+#[must_use]
+pub fn lands_as_whole_stack(kind: Option<LandingNodeKind>) -> bool {
+  kind.is_some_and(|kind| kind != LandingNodeKind::Parked)
+}
+
 /// The units of the table, in its order: every root by declared parent that is not parked, with the branches stacked on
 /// it that are not parked (the module's header); a unit whose node the view lacks is none yet
 #[must_use]
@@ -61,7 +72,7 @@ pub fn landing_units(facts: &UnitFacts<'_, '_>) -> Vec<LandingUnit> {
       let stack = (branches.len() > 1)
         .then(|| (facts.whole_stack_key)(root))
         .flatten()
-        .filter(|key| (facts.node_kind)(key).is_some_and(|kind| kind != LandingNodeKind::Parked));
+        .filter(|key| lands_as_whole_stack((facts.node_kind)(key)));
       let node = stack.unwrap_or_else(|| root.to_string());
       let kind = (facts.node_kind)(&node)?;
       let fixes = if branches.len() > 1 {

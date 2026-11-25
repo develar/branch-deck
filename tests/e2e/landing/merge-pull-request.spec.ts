@@ -8,7 +8,6 @@ import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from ".
 import { availablePullRequests, createPullRequestDialog, gitHubMutations, gitHubWrites, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
-import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -249,13 +248,13 @@ test.describe("Merge #7", () => {
     await expectStackMerged(page, repo, "air", copy)
   })
 
-  test("should merge a whole stack from Whole Stack of the menu of its root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should merge a whole stack from the menu of its root, which leads with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stack_island", { pullRequests: mergingStack("air"), landing: { setting: "pull-request", gitHub: "acme/monorepo" } })
     await syncAndWaitForBranches()
     await waitForStepFacts(findBranchRow(page, "air").getByTestId("next-step-slot"))
     const copy = await repo.revision("user-name/stack/air")
+    // the row of the root hosts the whole stack: its menu leads with the merge of the pull request of the stack
     await findBranchRow(page, "air").click({ button: "right" })
-    await openSubmenu(page, "Whole Stack")
     await page.getByRole("menuitem", { name: "Merge #12" }).click()
     await confirmStackMerge(page)
     await expectStackMerged(page, repo, "air", copy)

@@ -14,16 +14,31 @@
 //! fact says more, the cell says the step, and the slot of the actions shows none ("Status says, Actions do",
 //! docs/contributing/ux-writing.md). It comes before a finished robot that covers nothing, never beside another fact; the
 //! landing of what its start needs (`StepKind::AfterLanding`) comes before its failed robot too, whose restart waits.
+//! The root of a stack that forks whose row hosts its whole stack says the state of the step its slot shows, the whole
+//! stack's (`hosting_row_status`).
 
 use crate::landing_node::NodeFacts;
 use crate::next_step::{Chip, Slot, next_step};
 use crate::own_facts::own_facts;
 use crate::regenerate;
-use domain_types::next_step::{RowFact, RowStatus, StepKind};
+use domain_types::next_step::{NextStep, RowFact, RowStatus, StepKind};
 
 /// The Status cell of the branch of `facts`
 #[must_use]
 pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
+  status_of(facts, &next_step(&facts.step))
+}
+
+/// The Status cell of the root of a stack that forks whose row hosts its whole stack (`NextStepView::hosted`):
+/// its own facts as of any branch, and the state `whole_stack` waits in, the step its slot shows, in place of a state its
+/// own step waits in, which its slot doesn't show
+#[must_use]
+pub fn hosting_row_status(root: &NodeFacts<'_>, whole_stack: &NextStep) -> RowStatus {
+  status_of(root, whole_stack)
+}
+
+/// The Status cell of the branch of `facts` whose slot shows `step`
+fn status_of(facts: &NodeFacts<'_>, step: &NextStep) -> RowStatus {
   let own = own_facts(facts);
   let mut found = Vec::new();
   if matches!(own.slot, Slot::Running { .. }) {
@@ -61,7 +76,6 @@ pub fn row_status(facts: &NodeFacts<'_>) -> RowStatus {
   // the state it waits in, where no fact of its own says more than a finished robot that covers nothing: the slot of its
   // actions shows none
   let covers_nothing = matches!(found.as_slice(), [] | [RowFact::Robot { running: false, failed: false }]) && !merged;
-  let step = next_step(&facts.step);
   // the landing of what its start needs: before its failed robot too, whose restart waits for it ("Restart after util")
   let after_landing = matches!(step.kind, StepKind::AfterLanding { .. }) && !merged && own.landed.is_none();
   if (covers_nothing && step.wait) || after_landing {

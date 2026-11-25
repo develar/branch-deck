@@ -426,16 +426,25 @@ The whole stack is an object of its own in the app, beside its branches, named "
   `stack_pull_request_text`, the code owners Patronus names for the stack branch asked to review, the stack branch
   pushed alone on Create, the push step of its intent) and opens from "Open Pull Request #12".
 - **One list of its actions** (`getWholeStackMenuItems`, `src/hooks/useWholeStackActions.ts`) renders in the "⋯" of the
-  island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
-  preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the review window of
-  the stack branch) and the actions of its robot.
+  island and under "Whole Stack ›" in the menu of every branch of the stack, so a small stack without an island has them
+  too, and the root's preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the
+  review window of the stack branch) and the actions of its robot; the root's menu leads with the Safe Push, as its slot,
+  and its "Whole Stack ›" has the rest.
 - **Its Safe Push** is one more subject of the decision of a start (`domain_policy::land::decide`), its subject the key
   `stack:<root>`: the stack branch, the robot of the whole stack, its pull request, its readiness
   (`ReviewReadinessBranch::source`). The header of its island shows its next step ("Safe Push · 7", the same table as a
   branch's, [Next Step](../../openspec/specs/branch/next-step/spec.md#the-whole-stack)); its slot, its "⋯" and S on the header
-  open its popover at the header, "Whole Stack ›" of the root's menu at the root's row for a small stack, and so does
-  "Land the whole stack: Safe Push Whole Stack" in the popover of a piece (the root, any branch of a stack that forks):
-  the piece and the whole stack are the two ways, side by side. Its readiness is asked while the header or the root's
+  open its popover at the header. Without an island the whole stack has no row of its own, so the row of its root hosts
+  it (`NextStepView::hosted`, Rust's, by the rule of the unit of the plan, `lands_as_whole_stack`): its slot
+  shows "Safe Push · 4" as the landing overview and the Plan say it of the unit, S and the first item of its "⋯" start
+  the whole stack, its popover at the root's row, its node and Status cell are the whole stack's unless something of
+  the root itself decides them, and the root's own start, which lands the root alone, is "Safe Push Root Only" of its
+  "⋯". The root of an island hosts it too, but leaves its slot to the header right above it, as it leaves Push with
+  Children, and keeps its own node and Status cell, which the header shows of the whole stack (the view sends both,
+  the page knows the islands); a straight chain needs no host, its last branch's Safe Push being its whole stack, and a stack with a parked
+  branch lands in pieces, its root's row its own. "Land the whole stack: Safe Push Whole Stack" in the popover of a
+  piece (the root's own, any branch of a stack that forks) opens it too: the piece and the whole stack are the two ways,
+  side by side. Its readiness is asked while the header or the root's
   row shows, so the menus of a small stack know its missing approvals before a click. The popover
   says what one robot lands, the main line first and then the side branches, which only the whole stack lands ("Lands 7
   branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test."), and that only the stack
@@ -656,8 +665,9 @@ its own robot and a start beside it would fail. The plan says that need once, as
   and the toast of its restack offers "Safe Push Whole Stack" beside Undo, as Rust offers that action
   (`safe-push-whole-stack`, disabled while the stack branch is not built: `StackNotBuilt`), rather than the button
   starting it by itself: the restack and the start stay two decisions, the second seeing the stack the first made. The
-  slot of the root's row stays the root's own start, as for every stack that forks without an island: its whole stack
-  starts from the root's menu, the island header and the Landing overview.
+  slot of the root's row then shows that start too, as for every stack that forks without an island (the row of its
+  root hosts the whole stack): the row, the overview and the Plan say one thing, and the root alone is "Safe Push Root
+  Only" of its "⋯".
 
 ## Alternatives Considered
 

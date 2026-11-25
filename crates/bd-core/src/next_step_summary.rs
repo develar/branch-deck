@@ -3,7 +3,7 @@
 //! and why a Safe Push or a Dry Run can't start now. `brd status` prints it of every branch and whole stack, `bd
 //! safe-push --dry-run` of the subject it checks.
 
-use domain_types::next_step::{NextStep, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
+use domain_types::next_step::{NextStep, NextStepView, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingReviewGroup, PatronusRobot, Person};
 use domain_types::pull_request::ShownState;
 use domain_types::session::BranchStatus;
@@ -50,6 +50,11 @@ pub struct NextStepSummary {
   /// and of a whole stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub status: Vec<String>,
+  /// The root of a stack that forks, which lands as its whole stack: the app's row of the branch hosts that whole stack
+  /// (its slot, S, the first start of its menu and its node: the `next_step` of the stack in `stacks`), and offers this
+  /// step, the root's own Safe Push, in its menu only ("Safe Push Root Only"); absent otherwise
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub hosts_whole_stack: bool,
 }
 
 /// The running Safe Push a start lands after (`StepKind::AfterLanding`)
@@ -83,6 +88,17 @@ impl NextStepSummary {
       safe_push_blocked: blocked(step.safe_push.as_ref()),
       dry_run_blocked: blocked(step.dry_run.as_ref()),
       status: Vec::new(),
+      hosts_whole_stack: false,
+    }
+  }
+
+  /// Of a view of the app (`NextStepView`): its step, what the Status cell says, and whether the row hosts the whole
+  /// stack of its root
+  #[must_use]
+  pub fn of_view(view: &NextStepView, what: &str, robots: &[PatronusRobot]) -> Self {
+    Self {
+      hosts_whole_stack: view.hosted.is_some(),
+      ..Self::new(&view.step, what, robots).with_status(&view.status)
     }
   }
 

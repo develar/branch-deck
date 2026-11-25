@@ -60,6 +60,25 @@ export function describeWholeStackLanding(
   return mode === "dryRun" ? `Checks ${size} on ${target} in one Dry Run: ${names}${rest}` : `Lands ${size} into ${target} in one Safe Push: ${names}${rest}`
 }
 
+/**
+ * "Safe Push Root Only", "Dry Run Root Only", "Push to master Root Only": the root's own start where its row hosts its
+ * whole stack (`NextStepView.hosted`), whose start the slot, S and the first item of the menu are
+ */
+export function formatRootOnlyLabel(label: string): string {
+  return `${label} Root Only`
+}
+
+/**
+ * What the root's own start does where its row hosts its whole stack: "Lands only auth into master, without the
+ * branches stacked on it, which the Safe Push of the whole auth stack lands"; a dry run "Checks only auth on master,
+ * without the branches stacked on it"
+ */
+export function describeRootOnly(root: string, target: string, mode: PatronusPushMode): string {
+  return mode === "dryRun"
+    ? `Checks only ${root} on ${target}, without the branches stacked on it`
+    : `Lands only ${root} into ${target}, without the branches stacked on it, which the Safe Push of ${formatWholeStack(root)} lands`
+}
+
 /** The prefix of the readiness key of a whole stack: a branch name has no ":" (git refuses it in a ref) */
 const STACK_READINESS_PREFIX = "stack:"
 

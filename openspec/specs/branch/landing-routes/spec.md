@@ -1333,10 +1333,10 @@ pushes at once when it asks nothing, else opens its popover at the slot, which E
   [@test] tests/e2e/landing/push-to-master.spec.ts (`should push into master when the review window asks the main window`)
 
 #### Scenario: A whole stack
-- **WHEN** the user starts it from the header of the island of a whole stack, or from "Whole Stack ›" of the menu of its root
+- **WHEN** the user starts it from the header of the island of a whole stack, or from the menu of its root, which leads with it
 - **THEN** its stack branch is pushed
   [@test] tests/e2e/landing/push-to-master.spec.ts (`should push the stack branch of a whole stack into master from the header of its island`)
-  [@test] tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from Whole Stack of the menu of its root`)
+  [@test] tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from the menu of its root, which leads with it`)
   [@test] crates/domain-policy/src/actions_test.rs (`a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_with_the_reason_of_its_step`)
 
 ### Requirement: The page: The popover of a push says what one push lands
@@ -1468,10 +1468,10 @@ while required checks run.
 - **THEN** the title bar of the review window says "GitHub merges the pull request of JIRA-456 once its checks pass"
 
 #### Scenario: A whole stack
-- **WHEN** the user starts it from the header of the island of a whole stack, or from "Whole Stack ›" of the menu of its root
+- **WHEN** the user starts it from the header of the island of a whole stack, or from the menu of its root, which leads with it
 - **THEN** the pull request of its stack branch is merged, which always asks first ("GitHub merges #12 of the whole air stack with the 6 branches it is built on into master by rebase: 14 commits.", the push of its stack branch the remote lacks)
   [@test] tests/e2e/landing/merge-pull-request.spec.ts (`should merge the pull request of the stack branch of a whole stack from the header of its island`)
-  [@test] tests/e2e/landing/merge-pull-request.spec.ts (`should merge a whole stack from Whole Stack of the menu of its root`)
+  [@test] tests/e2e/landing/merge-pull-request.spec.ts (`should merge a whole stack from the menu of its root, which leads with it`)
   [@test] crates/domain-policy/src/actions_test.rs (`a_whole_stack_off_the_robot_offers_the_push_or_the_merge_of_its_stack_branch_with_the_reason_of_its_step`)
 
 #### Scenario: The rows of a merge

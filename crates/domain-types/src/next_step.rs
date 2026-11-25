@@ -691,6 +691,18 @@ pub enum RowFact {
   Shown { number: u32, state: crate::pull_request::ShownState },
 }
 
+/// What the row of the root of a stack that forks shows of the whole stack it hosts (`NextStepView::hosted`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct HostedStack {
+  /// The node of the whole stack, unless something of the root itself decides it (`landing_node::root_own_node`)
+  pub node: LandingNode,
+  /// Its Status cell: the facts of the root, and the state the step of the whole stack waits in
+  /// (`row_status::hosting_row_status`)
+  pub status: RowStatus,
+}
+
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -722,4 +734,14 @@ pub struct NextStepView {
   #[serde(default, skip_serializing_if = "PushSlot::is_default")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub push: PushSlot,
+  /// Of the root of a stack that forks, which lands as its whole stack, with work of its own left and a slot to show
+  /// (`landing_node::hosts_whole_stack`): its row hosts that whole stack, which has no row of its own. Its slot, S and
+  /// the first start of its "⋯" are those of `stack:<root>`, its own start stays in its "⋯" ("Safe Push Root Only"), and
+  /// the row shows the node and the Status cell of `hosted` in place of `node` and `status`, which stay the root's own:
+  /// an island shows the whole stack in its header, so its root's row keeps them (and leaves its slot to the header).
+  /// `None` of every other branch, of a stack that holds a parked branch (it lands in pieces), of a root all of which is
+  /// in master, and of a whole stack
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub hosted: Option<HostedStack>,
 }

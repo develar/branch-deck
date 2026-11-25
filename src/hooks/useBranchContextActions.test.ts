@@ -184,31 +184,39 @@ describe("Whole Stack › of the branch menu", () => {
   })
 })
 
+/**
+ * The stack of auth that forks (login and session on it), built as its stack branch, each branch with the actions of a
+ * branch that lands, the whole stack with its Safe Push and Dry Run, as Rust offers them
+ */
+function setForkingAuthStack(): void {
+  const branches = [synced("auth", null, unpushed), synced("login", "auth", unpushed), synced("session", "auth", unpushed)]
+  const branchOrder = branches.map(branch => branch.name)
+  const stack: StackBranch = {
+    root: "auth",
+    branchName: "user/stack/auth",
+    members: ["auth", "login", "session"],
+    commitCount: 3,
+    state: "Built",
+    tip: "stack-tip",
+    blockedBy: null,
+    conflict: null,
+    error: null,
+    remoteStatus: null,
+  }
+  const stackBranches = { auth: stack }
+  branchSyncStore.setState({
+    ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder, stackBranches }),
+    branchOrder,
+    stackBranches,
+    pushes: {},
+    actions: Object.fromEntries(branches.map(branch => [branch.name, enabled(...LANDING_BRANCH)])),
+  })
+  offerOnly("stack:auth", "safe-push-whole-stack", "dry-run-whole-stack")
+}
+
 describe("the Safe Push of the whole stack in the branch menu", () => {
   it("says what is left of the whole stack as Rust decides it of the table as it is, never what the view of the robots names", () => {
-    const branches = [synced("auth", null, unpushed), synced("login", "auth", unpushed), synced("session", "auth", unpushed)]
-    const branchOrder = branches.map(branch => branch.name)
-    const stack: StackBranch = {
-      root: "auth",
-      branchName: "user/stack/auth",
-      members: ["auth", "login", "session"],
-      commitCount: 3,
-      state: "Built",
-      tip: "stack-tip",
-      blockedBy: null,
-      conflict: null,
-      error: null,
-      remoteStatus: null,
-    }
-    const stackBranches = { auth: stack }
-    branchSyncStore.setState({
-      ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder, stackBranches }),
-      branchOrder,
-      stackBranches,
-      pushes: {},
-      actions: Object.fromEntries(branches.map(branch => [branch.name, enabled(...LANDING_BRANCH)])),
-    })
-    offerOnly("stack:auth", "safe-push-whole-stack", "dry-run-whole-stack")
+    setForkingAuthStack()
     const rest = { members: ["session"], commitCount: 1, landed: ["auth", "login"], by: [{ branch: "login", robotId: "r1", wholeStack: false }], byOwnRobot: false }
     branchSyncStore.setState({ nextSteps: { "stack:auth": { ...testView(testStep({ kind: "safePush" }, { lands: 1 })), rest } } })
     const item = menuOf("auth")
@@ -216,6 +224,43 @@ describe("the Safe Push of the whole stack in the branch menu", () => {
       ?.children?.find(item => item.id === "safe-push-whole-stack")
     // the target is the readiness's, none in this test
     expect(item?.description).toMatch(/^Lands 1 branch · 1 commit into .* in one Safe Push: session; auth and login landed with login$/)
+  })
+})
+
+describe("the menu of a root whose row hosts its whole stack", () => {
+  it("leads with Safe Push Whole Stack (S), as its slot, once, and offers the root's own start as Safe Push Root Only and Dry Run Root Only, without a key", () => {
+    setForkingAuthStack()
+    const steps = (hosts: boolean) =>
+      branchSyncStore.setState({
+        nextSteps: {
+          auth: {
+            ...testView(testStep({ kind: "safePush" })),
+            ...(hosts && { hosted: { node: testView(testStep({ kind: "safePush" }, { lands: 3 })).node, status: { main: null, also: [] } } }),
+          },
+          "stack:auth": testView(testStep({ kind: "safePush" }, { lands: 3 })),
+        },
+      })
+    steps(true)
+    const landing = groupsOf("auth")[0]!
+    expect(landing.slice(0, 2).map(item => [item.label, item.kbds])).toEqual([
+      ["Safe Push Whole Stack", ["s"]],
+      ["Safe Push Root Only", undefined],
+    ])
+    expect(landing[1]?.description).toMatch(/^Lands only auth into .*, without the branches stacked on it, which the Safe Push of the whole auth stack lands$/)
+    expect(itemOf("auth", "dry-run")?.label).toBe("Dry Run Root Only")
+    // the start it leads with is not repeated in its "Whole Stack ›", which every other branch of the stack has whole
+    const wholeStackOf = (name: string) =>
+      menuOf(name)
+        .find(item => item.id === "whole-stack")
+        ?.children?.map(item => item.id)
+    expect(wholeStackOf("auth")).toEqual(["dry-run-whole-stack"])
+    expect(wholeStackOf("login")).toEqual(["safe-push-whole-stack", "dry-run-whole-stack"])
+    // the review window of the root names its own start alike
+    expect(getBranchReviewItems(branchSyncStore.getState().branches.auth!).find(item => item.id === "safe-push")?.label).toBe("Safe Push Root Only")
+    // a root that lands in pieces (a parked branch of its stack) keeps its own Safe Push
+    steps(false)
+    expect(groupsOf("auth")[0]!.map(item => item.label)[0]).toBe("Safe Push")
+    expect(itemOf("auth", "dry-run")?.label).toBe("Dry Run")
   })
 })
 

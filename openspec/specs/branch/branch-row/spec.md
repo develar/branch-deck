@@ -1492,9 +1492,13 @@ the row hover.
 - **AND** no step of a wait ("Awaiting review", "Changes requested", "Draft"): the Status cell says it
 - **AND** the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7")
 - **AND** a stacked branch's own step ("Safe Push · 3"), its popover at its own row
+- **AND** on the root of a stack that forks, whose row hosts its whole stack, the step of the whole stack ("Safe Push · 4",
+  its popover at the root's row; none in an island, whose header shows it), the root's own start in its "⋯" ("Safe Push
+  Root Only"): [Whole Stack](../whole-stack/spec.md#requirement-the-safe-push-of-the-whole-stack-in-the-app-the-row-of-its-root-hosts-it)
 - **AND** nothing while a robot runs, after a merge, for a landed or held branch ([Patronus](../patronus/spec.md#robot-of-a-row))
   [@test] tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
   [@test] tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should start the whole stack from the slot and S of the root of a small stack that forks, as the landing overview says it, and the root alone from Safe Push Root Only`)
 
 ### Requirement: Actions cell: Safe Push is the one labelled action
 
@@ -2006,7 +2010,8 @@ push over it, as P in the preview).
 
 S MUST open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered, the
 row has a push, its start is not refused (`landing.start`), no inline action running): S never starts by itself
-(`requestSafePush` with `via: "key"`). Otherwise S says why in an `info` toast, the reason the button's hover says.
+(`requestSafePush` with `via: "key"`), and starts what the slot shows (`slotSubjectOf`). Otherwise S says why in an
+`info` toast, the reason the button's hover says.
 
 #### Scenario: S and Enter
 - **WHEN** the user presses S on the focused row whose "Safe Push" is enabled, then Enter
@@ -2016,6 +2021,12 @@ row has a push, its start is not refused (`landing.start`), no inline action run
 #### Scenario: S where the start is not possible
 - **WHEN** the user presses S on a row whose "Safe Push" is disabled
 - **THEN** an `info` toast says the reason the hover of the button says
+
+#### Scenario: S on the root that hosts its whole stack
+- **WHEN** the user presses S on the row of the root of a stack that forks
+- **THEN** the popover of the whole stack opens at the row, at the header of its island where it has one
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should start the whole stack from the slot and S of the root of a small stack that forks, as the landing overview says it, and the root alone from Safe Push Root Only`)
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header and on its root's row, the popover at the header`)
 
 ### Requirement: Keyboard: D reviews the branch in its review window
 
@@ -2163,7 +2174,9 @@ The groups MUST come in the order of how often their actions are wanted, Safe Pu
   remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request
   other than the branch's own), then "Patronus ›" with the rarer starts: "Safe Push With Profile…" (always the popover,
   its profile to choose; disabled for a start that comments on a pull request, which runs the default checks), "Dry
-  Run" and "Check Approvals Again"
+  Run" and "Check Approvals Again"; on the root of a stack that forks whose row hosts its whole stack, "Safe Push Whole
+  Stack" (`S`) as its slot, then "Safe Push Root Only", and "Dry Run Root Only" in "Patronus ›"
+  ([Whole Stack](../whole-stack/spec.md#requirement-the-safe-push-of-the-whole-stack-in-the-app-the-row-of-its-root-hosts-it))
 - **AND** then the push of the branch, named as its push button, "Push oauth Only" after it
   while it pushes the stack ([Stacked Branches](../stacked-branches/spec.md#pull-requests)), on a branch with branches
   stacked on it "Push with Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond
@@ -2181,6 +2194,7 @@ The groups MUST come in the order of how often their actions are wanted, Safe Pu
 - **AND** last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
   with a pull request, "Copy Retarget Command" for an open one into a virtual branch)
   [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`)
+  [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push Whole Stack (S), as its slot, once, and offers the root's own start as Safe Push Root Only and Dry Run Root Only, without a key`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
@@ -2249,7 +2263,7 @@ disabled with "Waits for the answer of Patronus" until Patronus answers, and for
 
 A repository that lands by a push into the target MUST offer "Push to master" (`push-to-baseline`, S; "Push to master ·
 3") in the place of the starts of the robot, on Space or off it, disabled with the reason of its step, its slot shows the
-step, and "Whole Stack ›" of a root offers the push of the whole stack ([Landing Routes](../landing-routes/spec.md#the-page)).
+step, and the menu of a root whose row hosts its whole stack leads with the push of the whole stack ([Landing Routes](../landing-routes/spec.md#the-page)).
 
 #### Scenario: A push into master from the menu
 - **GIVEN** a repository that lands by a push into the target
@@ -2259,9 +2273,9 @@ step, and "Whole Stack ›" of a root offers the push of the whole stack ([Landi
   [@test] tests/e2e/landing/push-to-master.spec.ts (`should push into master from the menu of the row`)
 
 #### Scenario: The whole stack into master
-- **WHEN** the user chooses the push of the whole stack in "Whole Stack ›" of the menu of a root
+- **WHEN** the user chooses the push of the whole stack the menu of a root leads with
 - **THEN** the whole stack is pushed into master
-  [@test] tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from Whole Stack of the menu of its root`)
+  [@test] tests/e2e/landing/push-to-master.spec.ts (`should push a whole stack into master from the menu of its root, which leads with it`)
 
 ### Requirement: Branch menu: The menu of a branch that can't change keeps every item
 

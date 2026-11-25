@@ -16,6 +16,8 @@ function step(page: Page, branchName: string) {
 async function overviewUnits(page: Page): Promise<string[]> {
   const popover = await openLandingOverview(page)
   const rows = popover.getByTestId("landing-row")
+  // the units render after the popover under load: read them once the first is in
+  await expect(rows.first()).toBeAttached()
   const units = await rows.evaluateAll(elements => elements.map(element => element.getAttribute("data-branch-name") ?? ""))
   await page.mouse.move(0, 0)
   await expectClosed(popover)

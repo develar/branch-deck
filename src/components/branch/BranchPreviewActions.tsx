@@ -12,6 +12,7 @@ import { getCreatePullRequestItem, openPullRequestItemOf } from "@/hooks/useBran
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useUnclaimedOperation } from "@/hooks/useRowOperation"
 import { useLandsByPush } from "@/hooks/useSafePush"
+import { useHostsWholeStack } from "@/hooks/useStackNextStep"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
@@ -55,6 +56,8 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const slot = usePushSlot(branch.name)
   const kept = slot !== null && slot.none !== true
   const waits = formatFirstPush(slot?.first, branch.name)
+  // the root of a stack that forks hosts its whole stack: its S and its Safe Push are the whole stack's, as its slot
+  const hostsWholeStack = useHostsWholeStack(branch.name)
   return (
     <>
       {/* the slot of the pull request, as the menu has it: Create, then Open */}
@@ -86,7 +89,8 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
           {openItem.label}
         </Button>
       )}
-      {(offersSafePush || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
+      {/* the start of the row's slot: of the whole stack the row of a root hosts */}
+      {(offersSafePush || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} {...(hostsWholeStack && { wholeStack: branch.name })} />}
       {kept && <BranchPushButton branch={branch.row} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )

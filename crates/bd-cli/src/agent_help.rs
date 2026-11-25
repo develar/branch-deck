@@ -462,6 +462,9 @@ commits are left (`brd safe-push --help`); `parked`: it stays local until the us
 branches `brd unapply` took out; `stacks`: the stack branch of each stack that forks (`brd push --help`);
 `prefix_source`: where the branch prefix came from. `next_step.status`: what the app's Status cell says of the branch,
 the main fact first (`robot_running` before `blocked`): a Safe Push that runs is said even where the step is `settled`.
+`next_step.hosts_whole_stack`: the root of a stack that forks, whose whole stack lands it: the app's row shows the step
+of the whole stack (its `next_step` in `stacks`, `brd safe-push <root> --whole-stack`); the root's own step lands the
+root alone.
 ";
 
 /// `brd plan --help`: the fields of the landing plan

@@ -21,7 +21,7 @@ import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { CommitsPreviewBody } from "@/components/preview/CommitsPreviewBody"
 import type { PreviewCommit } from "@/components/preview/CommitsPreviewBody"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
-import { useBranchNextStep, useBranchStepWait } from "@/hooks/useBranchNextStep"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
@@ -29,6 +29,7 @@ import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
 import { useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush, useLandsByPush } from "@/hooks/useSafePush"
+import { useHostsWholeStack, useRowStepWait, useStackNextStep } from "@/hooks/useStackNextStep"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { reviewBlockerOf } from "@/lib/branch-review"
@@ -43,6 +44,7 @@ import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/review-window"
 import { stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { isActionEnabled } from "@/presenters/actions"
 import { presentPreviewStatus } from "@/presenters/row-status"
@@ -94,7 +96,11 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const patronusAvailable = usePatronusAvailable()
   const reviewBlocker = branch === undefined ? null : reviewBlockerOf(branch, actions)
   const canReview = branch !== undefined && reviewBlocker === null
-  const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
+  // the step of the row's slot: of the whole stack the row of a root hosts
+  const hostsWholeStack = useHostsWholeStack(currentName ?? "")
+  const ownBlocker = useBranchNextStep(hostsWholeStack ? "" : (currentName ?? ""))?.safePushBlocker ?? null
+  const stackStep = useStackNextStep(hostsWholeStack ? (currentName ?? "") : "")
+  const safePushBlocker = hostsWholeStack ? (stackStep?.step.safePushBlocker ?? null) : ownBlocker
   // as the footer's "Safe Push" is shown (`SafePushButton`, where Patronus is, or Push to master where the repository
   // lands by a push); disabled, S says why
   const landsByPush = useLandsByPush()
@@ -145,7 +151,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
       if (safePushBlocker === null) {
         onClose()
       }
-      void requestSafePush(branch.name, { mode: "rebaseAutosquash", via: "key" })
+      void requestSafePush(hostsWholeStack ? stackReadinessKey(branch.name) : branch.name, { mode: "rebaseAutosquash", via: "key" })
     }
   }
 
@@ -253,7 +259,7 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const parked = useParkedState(branch.name)
   // the robot has its own chip here: the first fact of the cell that is not the robot, else the push state
   // the state its next step waits in, which the status words: "Awaiting review"
-  const wait = useBranchStepWait(branch.name)
+  const wait = useRowStepWait(branch.name)
   const rowStatus = useRowPart(branch.name, "landing", step => step?.status, sameJson)
   const status = presentPreviewStatus(rowStatus, { branch, landedIn, robot, parked, wait })
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0

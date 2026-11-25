@@ -37,7 +37,10 @@ export interface SafePushButtonProps {
   hint?: ReactNode
   /** What the hover says while it can start, instead of the step's (the stack header: whose and what it lands) */
   description?: string
-  /** Where its popover opens: the slot of the row, or of the header of the stack island */
+  /**
+   * Where its popover opens: the slot of the row, or of the header of the stack island; of a whole stack without one, at
+   * the header of its island, else at its root's row (`startPlaceOf`); the row of a branch
+   */
   placement?: SafePushPlacement
   /**
    * The root whose whole stack it starts (`branch` is the root): its step, its start and its progress are the whole
@@ -89,7 +92,7 @@ export function SafePushButton({
   icon = true,
   hint,
   description,
-  placement = "row",
+  placement,
   wholeStack,
   compact = false,
   fixedEdge = "end",
@@ -200,7 +203,7 @@ export function SafePushButton({
                 return
               }
               closePreview?.()
-              void requestSafePush(key, { mode: "rebaseAutosquash", via: "click", placement })
+              void requestSafePush(key, { mode: "rebaseAutosquash", via: "click", placement: placement ?? (wholeStack === undefined ? "row" : undefined) })
             }}
           />
         }

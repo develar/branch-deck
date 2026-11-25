@@ -37,7 +37,9 @@
 //! (`domain_policy::next_step`, `domain_policy::landing_node` over `StepSources`: the table of the last sync, its rows as
 //! they are now, the Patronus view, the robots and the facts of the remote services), which the view derives with
 //! every patch, a sync of a branch included (row 1), and `brd status` and `brd safe-push --dry-run` over what they read
-//! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
+//! (`grouped_rows`). The root of a stack that forks, which lands as its whole stack, hosts that whole stack in its row
+//! while it has work of its own left (`landing_node::hosts_whole_stack`, `NextStepView::hosted`): the node of the whole
+//! stack unless its own decides (`landing_node::root_own_node`), and its wait. `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 //!
 //! `landing_route_of` is the route of the repository into master with its gate (`domain_policy::landing_route::route`)
@@ -70,7 +72,7 @@ use domain_policy::land::{
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
 use domain_policy::landing_edges::edges_of;
 use domain_policy::landing_needs::name_landing_robots;
-use domain_policy::landing_node::{NodeFacts, landing_node};
+use domain_policy::landing_node::{NodeFacts, hosts_whole_stack, landing_node, root_own_node};
 use domain_policy::landing_plan::{PlanFacts, UnitFacts, landing_plan, landing_units, together_forks};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
@@ -83,14 +85,14 @@ use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
 use domain_policy::robot_estimate::estimates;
-use domain_policy::row_status::row_status;
+use domain_policy::row_status::{hosting_row_status, row_status};
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandFact, LandProfiles, Landed, LandingEdge, LandingFix, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_plan::LandingPlan;
 use domain_types::landing_route::{LandingRemote, LandingRoute};
-use domain_types::next_step::{NextStepView, PushSlot, RowStatus, StackPullRequest};
+use domain_types::next_step::{HostedStack, LandingNode, NextStep, NextStepView, PushSlot, RowStatus, StackPullRequest};
 use domain_types::operation::{Intent, Resource, RunningOperation};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness, RobotEstimate};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
@@ -1792,104 +1794,10 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
   let unknown = sources.patronus.of_unknown(sources.view_state);
   let listing = Listing::of_remote(&sources.pull_requests.head, sources.landing);
   let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
-  // in the order of the rows, then of the stacks: collected into the map at once
+  // in the order of the stacks, then of the rows: collected into the map at once
   let mut steps = Vec::with_capacity(sources.rows.len() + sources.table.stack_branches.len());
-  for (name, row) in sources.rows {
-    let facts = sources.view.branches.get(name);
-    let landing = facts.map(|facts| &facts.landing);
-    let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
-    let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
-    let ancestors = build_ancestors(&repo, name);
-    let known = view_knows_with_ancestors(sources.table, sources.view, name, &ancestors);
-    // all of the branch as the table has it now: every commit of it one the robot landed
-    let own_robot_landed = landed_by
-      .zip(robot)
-      .is_some_and(|(landed, robot)| landed.own && sources.table.landed_whole(name, landed) && landed.by.robot_id == robot.robot.id);
-    let commits = sources.table.branch(name).map(|branch| branch.commits.as_slice());
-    let hold = facts.and_then(|facts| live_hold(facts, sources.robots, commits));
-    let subject = Subject::branch(name);
-    let stack_pull_request = sources.stack_pull_request_of(name);
-    let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
-    let landed_whole = |ancestor: &&str| {
-      let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
-      let commits = sources.table.branch(ancestor).map(|branch| branch.commits.as_slice());
-      landed.is_some_and(|landed| landed_whole_now(landed, |id| sources.robot(Some(id)), commits).is_some())
-    };
-    // a canceling Safe Push lands nothing
-    let lands_with = facts
-      .and_then(|facts| facts.span.as_ref())
-      .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(holds_pushes))
-      .map(|span| &span.by);
-    let needs = match merged_needs.get(name.as_str()) {
-      Some(refusals) => Needs::Known(refusals),
-      None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
-    };
-    let edges = match needs {
-      Needs::Known(refusals) if !refusals.is_empty() => sources.edges(&repo, name, ancestors.first().copied().unwrap_or(name), refusals),
-      _ => Vec::new(),
-    };
-    let step = StepFacts {
-      subject: &subject,
-      route: sources.route,
-      patronus: if known { patronus } else { unknown.answer() },
-      syncing: row.syncing,
-      sync_failed: row.sync_failed,
-      problem: row.problem.as_deref(),
-      commit_count: row.commit_count,
-      blocked: row.status == BranchStatus::Blocked,
-      start: landing.and_then(|landing| landing.start.as_ref()),
-      dry_run_start: landing.and_then(|landing| landing.dry_run.as_ref()),
-      landing_part: facts
-        .and_then(|facts| facts.landing_ancestor.as_ref())
-        .is_some_and(|ancestor| sources.robot(Some(&ancestor.robot_id)).is_some_and(is_active)),
-      held: hold.is_some(),
-      parked: row.parked.as_ref(),
-      landed: sources.landed.get(name.as_str()),
-      tip: sources.table.tip_of(name),
-      remote,
-      robot,
-      own_robot_landed,
-      listing,
-      pull_request: sources.pull_requests.pull_requests.get(name.as_str()).map(|pull_request| StepPullRequest {
-        pull_request,
-        base: sources.open_pull_requests.get(name.as_str()).map(|open| &open.base),
-      }),
-      target: sources.target,
-      needs,
-      edges: &edges,
-      readiness: (sources.readiness)(name),
-      stack_pull_request: stack_pull_request.as_ref(),
-      repository,
-      merge_methods: sources.pull_requests.merge_methods,
-      lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
-      listed: Some(&sources.pull_requests.pull_requests),
-    };
-    // the generated files the words merged that its copy holds, and how what lands from its root gets the commit the copy
-    // lacks
-    let regenerate = sources.table.regenerate.get(name.as_str()).map_or(&[][..], Vec::as_slice);
-    let regenerate_fix = sources.table.regenerate_fix(name);
-    let node = NodeFacts {
-      step,
-      status: row.status,
-      blocked_by: row.blocked_by.as_deref(),
-      lands_with,
-      lands_failing: lands_with.is_some_and(|by| sources.robots.failing.contains(&by.robot_id)),
-      push_pending: remote.is_some_and(|remote| !remote.up_to_date),
-      regenerate,
-      regenerate_fix: regenerate_fix.as_ref(),
-      shown: sources.pull_requests.shown_reviews.get(name.as_str()),
-    };
-    let view = NextStepView {
-      step: next_step(&step),
-      node: landing_node(&node),
-      status: row_status(&node),
-      rest: None,
-      hold: hold.map(|(hold, _)| hold.clone()),
-      fix_hold: hold.map(|(hold, _)| fix_hold(hold, sources.robots.failing.contains(&hold.by.robot_id))),
-      push: PushSlot::default(),
-    };
-    steps.push((name.clone(), view));
-  }
+  // the whole stacks first, by root, their node and their step: the row of the root of each may host it
+  let mut hosted: HashMap<String, (LandingNode, NextStep)> = HashMap::new();
   for stack in sources.table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
     let key = stack_readiness_key(&stack.root);
     let facts = sources.view.stacks.get(&stack.root);
@@ -1993,8 +1901,116 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       hold: own_robot,
       fix_hold: None,
       push: PushSlot::default(),
+      hosted: None,
     };
+    // the row of its root may host it: its slot, S, its node and its Status cell show it (`hosts_whole_stack`)
+    hosted.insert(stack.root.clone(), (view.node.clone(), view.step.clone()));
     steps.push((key, view));
+  }
+  for (name, row) in sources.rows {
+    let facts = sources.view.branches.get(name);
+    let landing = facts.map(|facts| &facts.landing);
+    let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
+    let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
+    let ancestors = build_ancestors(&repo, name);
+    let known = view_knows_with_ancestors(sources.table, sources.view, name, &ancestors);
+    // all of the branch as the table has it now: every commit of it one the robot landed
+    let own_robot_landed = landed_by
+      .zip(robot)
+      .is_some_and(|(landed, robot)| landed.own && sources.table.landed_whole(name, landed) && landed.by.robot_id == robot.robot.id);
+    let commits = sources.table.branch(name).map(|branch| branch.commits.as_slice());
+    let hold = facts.and_then(|facts| live_hold(facts, sources.robots, commits));
+    let subject = Subject::branch(name);
+    let stack_pull_request = sources.stack_pull_request_of(name);
+    let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
+    let landed_whole = |ancestor: &&str| {
+      let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
+      let commits = sources.table.branch(ancestor).map(|branch| branch.commits.as_slice());
+      landed.is_some_and(|landed| landed_whole_now(landed, |id| sources.robot(Some(id)), commits).is_some())
+    };
+    // a canceling Safe Push lands nothing
+    let lands_with = facts
+      .and_then(|facts| facts.span.as_ref())
+      .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(holds_pushes))
+      .map(|span| &span.by);
+    let needs = match merged_needs.get(name.as_str()) {
+      Some(refusals) => Needs::Known(refusals),
+      None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
+    };
+    let edges = match needs {
+      Needs::Known(refusals) if !refusals.is_empty() => sources.edges(&repo, name, ancestors.first().copied().unwrap_or(name), refusals),
+      _ => Vec::new(),
+    };
+    let step = StepFacts {
+      subject: &subject,
+      route: sources.route,
+      patronus: if known { patronus } else { unknown.answer() },
+      syncing: row.syncing,
+      sync_failed: row.sync_failed,
+      problem: row.problem.as_deref(),
+      commit_count: row.commit_count,
+      blocked: row.status == BranchStatus::Blocked,
+      start: landing.and_then(|landing| landing.start.as_ref()),
+      dry_run_start: landing.and_then(|landing| landing.dry_run.as_ref()),
+      landing_part: facts
+        .and_then(|facts| facts.landing_ancestor.as_ref())
+        .is_some_and(|ancestor| sources.robot(Some(&ancestor.robot_id)).is_some_and(is_active)),
+      held: hold.is_some(),
+      parked: row.parked.as_ref(),
+      landed: sources.landed.get(name.as_str()),
+      tip: sources.table.tip_of(name),
+      remote,
+      robot,
+      own_robot_landed,
+      listing,
+      pull_request: sources.pull_requests.pull_requests.get(name.as_str()).map(|pull_request| StepPullRequest {
+        pull_request,
+        base: sources.open_pull_requests.get(name.as_str()).map(|open| &open.base),
+      }),
+      target: sources.target,
+      needs,
+      edges: &edges,
+      readiness: (sources.readiness)(name),
+      stack_pull_request: stack_pull_request.as_ref(),
+      repository,
+      merge_methods: sources.pull_requests.merge_methods,
+      lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
+      listed: Some(&sources.pull_requests.pull_requests),
+    };
+    // the generated files the words merged that its copy holds, and how what lands from its root gets the commit the copy
+    // lacks
+    let regenerate = sources.table.regenerate.get(name.as_str()).map_or(&[][..], Vec::as_slice);
+    let regenerate_fix = sources.table.regenerate_fix(name);
+    let node = NodeFacts {
+      step,
+      status: row.status,
+      blocked_by: row.blocked_by.as_deref(),
+      lands_with,
+      lands_failing: lands_with.is_some_and(|by| sources.robots.failing.contains(&by.robot_id)),
+      push_pending: remote.is_some_and(|remote| !remote.up_to_date),
+      regenerate,
+      regenerate_fix: regenerate_fix.as_ref(),
+      shown: sources.pull_requests.shown_reviews.get(name.as_str()),
+    };
+    // the root of a stack that lands as its whole stack hosts it: the node and the Status cell its row shows say what its
+    // slot shows
+    let hosting = hosted
+      .get(name.as_str())
+      .filter(|(stack_node, stack_step)| hosts_whole_stack(&node, stack_node, stack_step));
+    let view = NextStepView {
+      step: next_step(&step),
+      node: landing_node(&node),
+      status: row_status(&node),
+      rest: None,
+      hold: hold.map(|(hold, _)| hold.clone()),
+      fix_hold: hold.map(|(hold, _)| fix_hold(hold, sources.robots.failing.contains(&hold.by.robot_id))),
+      push: PushSlot::default(),
+      hosted: hosting.map(|(stack_node, stack_step)| HostedStack {
+        node: root_own_node(&node).unwrap_or_else(|| stack_node.clone()),
+        status: hosting_row_status(&node, stack_step),
+      }),
+    };
+    steps.push((name.clone(), view));
   }
   steps.into_iter().collect()
 }

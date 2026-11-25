@@ -1,9 +1,10 @@
-use crate::landing_node::{NodeFacts, is_users_move, landing_node};
+use crate::landing_node::{NodeFacts, hosts_whole_stack, is_users_move, landing_node, root_own_node};
+use crate::next_step::next_step;
 use crate::next_step_test::{Fixture, failed, failure, fresh, group, missing, open, readiness, reviewer, robot_on_tip, signed_out};
 use domain_types::fixtures::{robot_of, whole_stack_robot_of};
 use domain_types::landing::{Landed, LandedBy};
 use domain_types::landing_route::{RouteFact, RouteGate};
-use domain_types::next_step::{LandingNode, LandingNodeKind, NodeLabel, StackPullRequest, StepFact, StepFailure, StepKind};
+use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, StackPullRequest, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingApprovalsReason, PatronusAvailability, PatronusPushMode, PatronusRobotStatus, ReviewReadiness, UnknownReadinessReason};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestBase, ReviewerState};
 use domain_types::reason::Reason;
@@ -13,8 +14,13 @@ use pretty_assertions::assert_eq;
 
 /// The node of `fixture` with the row's `status` and the robot that lands it with more
 fn node_of(fixture: &Fixture, status: BranchStatus, lands_with: Option<&RobotOf>) -> LandingNode {
+  with_node_facts(fixture, status, lands_with, landing_node)
+}
+
+/// `read` of the facts of the node of `fixture` with the row's `status` and the robot that lands it with more
+fn with_node_facts<T>(fixture: &Fixture, status: BranchStatus, lands_with: Option<&RobotOf>, read: impl FnOnce(&NodeFacts<'_>) -> T) -> T {
   let standing = fixture.standing();
-  landing_node(&NodeFacts {
+  read(&NodeFacts {
     step: fixture.facts(&standing),
     status,
     blocked_by: (status == BranchStatus::Blocked).then_some("core"),
@@ -328,4 +334,62 @@ fn a_merge_of_the_pull_request_is_ready_landing_a_fix_or_a_wait_by_what_holds_it
   );
   let unknown = node(&merging(RouteGate::Open, Some(MergeStateStatus::Unknown)));
   assert_eq!((unknown.kind, unknown.pending), (LandingNodeKind::Waiting, true));
+}
+
+/// The row of the root of a stack that forks hosts its whole stack: it takes the node of the whole stack, whose step its
+/// slot shows, unless something of the root itself decides it, as for any branch (a failure, all of it in master, a
+/// block, its own robot running or failed, a Safe Push that lands it); its own step decides nothing then
+#[test]
+fn the_root_that_hosts_its_whole_stack_keeps_its_own_node_only_while_its_own_facts_decide_it() {
+  let own = |fixture: &Fixture, status: BranchStatus, lands_with: Option<&RobotOf>| with_node_facts(fixture, status, lands_with, root_own_node);
+  assert_eq!(own(&Fixture::branch(), BranchStatus::Unchanged, None), None, "ready to land: the node of its whole stack");
+  let draft = Fixture::branch().with(open(PullRequestBase::Target, |it| it.is_draft = true));
+  assert_eq!(
+    own(&draft, BranchStatus::Unchanged, None),
+    None,
+    "a step of its own pull request: the node of its whole stack"
+  );
+  let conflict = own(&Fixture::branch(), BranchStatus::MergeConflict, None).map(|node| node.kind);
+  assert_eq!(conflict, Some(LandingNodeKind::NeedsFix), "its failure stays its fix");
+  let running = own(
+    &Fixture::branch().with(|it| it.robot = Some((robot_on_tip(PatronusRobotStatus::Running), None, None, false))),
+    BranchStatus::Unchanged,
+    None,
+  );
+  assert_eq!(running.map(|node| (node.kind, node.ring)), Some((LandingNodeKind::Landing, true)), "its own robot runs");
+  let failed = own(&Fixture::branch().with(failed(Some(false), true)), BranchStatus::Unchanged, None);
+  assert_eq!(failed.map(|node| (node.kind, node.robot)), Some((LandingNodeKind::NeedsFix, true)), "its own robot failed");
+  let whole = whole_stack_robot_of("auth", "r9");
+  let lands = own(&Fixture::branch(), BranchStatus::Unchanged, Some(&whole)).map(|node| node.label);
+  assert_eq!(lands, Some(NodeLabel::LandsWith { by: whole }), "the robot of its whole stack lands it");
+}
+
+/// The row of the root of a stack that forks hosts its whole stack while the stack lands as one unit and the root has
+/// work of its own left: not while the whole stack holds a parked branch (it lands in pieces), nor once all of the root
+/// is in master, whose row offers no start as of every landed branch, nor off Space, where the slot shows no step
+#[test]
+fn the_root_hosts_its_whole_stack_while_it_lands_as_one_unit_and_has_work_left() {
+  let whole = |kind: LandingNodeKind| LandingNode { kind, ..node(&Fixture::branch()) };
+  let safe_push = next_step(&Fixture::branch().facts(&Fixture::branch().standing()));
+  let hosts = |fixture: &Fixture, stack: &LandingNode| with_node_facts(fixture, BranchStatus::Unchanged, None, |facts| hosts_whole_stack(facts, stack, &safe_push));
+  assert!(hosts(&Fixture::branch(), &whole(LandingNodeKind::Ready)));
+  assert!(hosts(&Fixture::branch(), &whole(LandingNodeKind::Waiting)), "a whole stack that waits is still the unit");
+  assert!(!hosts(&Fixture::branch(), &whole(LandingNodeKind::Parked)), "a parked branch lands the stack in pieces");
+  let landed = Fixture::branch().with(|it| {
+    it.landed = Some(Landed {
+      by: LandedBy::Baseline {
+        upstream: "origin/master".to_string(),
+      },
+      after: Vec::new(),
+    });
+  });
+  assert!(!hosts(&landed, &whole(LandingNodeKind::Ready)), "all of the root is in master: its row is its own");
+  let hidden = NextStep {
+    kind: StepKind::Hidden,
+    ..safe_push.clone()
+  };
+  let off_space = with_node_facts(&Fixture::branch(), BranchStatus::Unchanged, None, |facts| {
+    hosts_whole_stack(facts, &whole(LandingNodeKind::Ready), &hidden)
+  });
+  assert!(!off_space, "off Space the slot shows no step to host");
 }

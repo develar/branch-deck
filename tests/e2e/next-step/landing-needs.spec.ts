@@ -6,7 +6,7 @@ import { availableRobots, expectPatronusStarts, startRequest, wholeStackStartReq
 import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush, startAnyway } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
+import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { runAndWaitForAnswer, runAndWaitForSync, waitForSettledSession } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -377,13 +377,14 @@ test.describe("Landing needs", () => {
     // landing needs of the view are of branches, so the gate of the start checks the whole stack
     const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+    // the row of lane-run hosts its whole stack: its slot is the start of the whole stack, whose gate checks the build
+    await expect(step(page, "lane-run").getByTestId("safe-push-button")).toHaveText("Safe Push · 3")
     const starts = await recordCommand(page, "execute")
 
+    // its menu leads with the fix of the need of lane-run, then the start of the whole stack
     await findBranchRow(page, "lane-run").click({ button: "right" })
-    await openSubmenu(page, "Whole Stack")
-    // the Whole Stack item itself, not Land Together · Safe Push Whole Stack of the need above it
-    await clickContextMenuItem(page, "Safe Push Whole Stack", { exact: true })
+    // the start of the whole stack itself (S), not Land Together · Safe Push Whole Stack of the need above it
+    await clickContextMenuItem(page, "Safe Push Whole Stack S", { exact: true })
     await expect(popoverStart(page)).toBeFocused()
     await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     // refused before its first effect: the reason, the restack of the root of what lands, and Start Anyway

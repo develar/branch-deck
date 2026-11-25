@@ -13,8 +13,13 @@
 //! (`push_ready`), the refusal of the gate of the route a wait; one that lands by a merge of the pull request on GitHub
 //! once GitHub can merge it (`merge_ready`), landing while its auto-merge is enabled, and what holds the merge back
 //! (`merge_held`) a fix, the user's step or a wait.
+//!
+//! The root of a stack that forks, whose row hosts its whole stack (`hosts_whole_stack`: its slot shows the step of
+//! `stack:<root>`), shows the node of that whole stack once nothing of its own decides it (`root_own_node`): the node
+//! says what the slot does.
 
 use crate::land::merges_on_github;
+use crate::landing_plan::lands_as_whole_stack;
 use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, after_landing, changes_requested_by, next_step, problems_failed, problems_pending};
 use crate::own_facts::{OwnFacts, own_facts};
 use crate::readiness::waiting_reviewers;
@@ -105,7 +110,34 @@ pub fn landing_node(facts: &NodeFacts<'_>) -> LandingNode {
   }
 }
 
+/// Whether the row of the root of a stack that forks hosts its whole stack, whose node is `whole_stack` and step
+/// `step` (`NextStepView::hosted`): while the stack lands as one unit (`landing_plan::lands_as_whole_stack`, not while
+/// it holds a parked branch), the root has work of its own left (a root all of which is in master keeps its row, which
+/// offers no start as of every landed branch, the rest landing from the rows of the branches built on it), and the step
+/// has a slot to show (none off Space)
+#[must_use]
+pub fn hosts_whole_stack(root: &NodeFacts<'_>, whole_stack: &LandingNode, step: &NextStep) -> bool {
+  lands_as_whole_stack(Some(whole_stack.kind)) && step.kind != StepKind::Hidden && own_facts(root).landed.is_none()
+}
+
+/// Of the root of a stack that forks whose row hosts its whole stack (`NextStepView::hosted`: its slot shows
+/// the step of `stack:<root>`): its own node while something of the root itself decides it (parked, all of it in master,
+/// a failure, no commits, a block, its own robot running or failed, a Safe Push that lands it), as for any branch; `None`
+/// while the node of its whole stack is the row's, whose step its slot shows, so the node and the slot say one thing
+#[must_use]
+pub fn root_own_node(root: &NodeFacts<'_>) -> Option<LandingNode> {
+  let own = own_facts(root);
+  let failed = own.slot == Slot::Finished(Chip::Failed) && !root.step.landing_part;
+  (failed || own_state(root, &own).is_some()).then(|| landing_node(root))
+}
+
 fn first_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> LandingNode {
+  own_state(facts, own).unwrap_or_else(|| step_state(facts, own))
+}
+
+/// The states of the subject itself, which no step of it decides: parked, all of it in master, a failure, no commits, a
+/// block, its own robot running, a Safe Push that lands it; `None` while the step decides the node (`step_state`)
+fn own_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> Option<LandingNode> {
   // a sync of the row passes: the node keeps the state it started from
   let step = StepFacts { syncing: false, ..facts.step };
   let slot = own.slot;
@@ -121,39 +153,43 @@ fn first_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> LandingNode {
       parked: parked.clone(),
       conflict: own.conflict,
     };
-    return LandingNode {
+    return Some(LandingNode {
       move_shows: !own.conflict,
       ..own_node(LandingNodeKind::Parked, label)
-    };
+    });
   }
   // all of it is in master: a conflict of what is left to build is moot, the update archives it
   if let Some(landed) = &own.landed {
-    return own_node(LandingNodeKind::InMaster, NodeLabel::Landed { landed: landed.clone() });
+    return Some(own_node(LandingNodeKind::InMaster, NodeLabel::Landed { landed: landed.clone() }));
   }
   // the fix is the user's move even while a robot lands it: the conflict came after the push, of new work or of a
   // baseline the robot meets too, and the robot lands the remote copy, whose push it holds
   if own.conflict {
     let problem = step.problem.map(str::to_owned);
-    return own_node(LandingNodeKind::NeedsFix, NodeLabel::SyncFailed { status: facts.status, problem });
+    return Some(own_node(LandingNodeKind::NeedsFix, NodeLabel::SyncFailed { status: facts.status, problem }));
   }
   if step.commit_count == 0 {
-    return own_node(LandingNodeKind::Waiting, NodeLabel::NoCommits);
+    return Some(own_node(LandingNodeKind::Waiting, NodeLabel::NoCommits));
   }
   // a Safe Push that will land it lands it whatever its parent builds to locally: the move is the robot's
   if own.blocked && !own.landing {
     let by = facts.blocked_by.map(str::to_owned);
-    return LandingNode {
+    return Some(LandingNode {
       shows: by.clone(),
       ..own_node(LandingNodeKind::Waiting, NodeLabel::Blocked { by })
-    };
+    });
   }
   if let Slot::Running { dry_run, failing, .. } = slot {
     let kind = if dry_run { LandingNodeKind::Waiting } else { LandingNodeKind::Landing };
-    return robot(kind, NodeLabel::RobotRunning { dry_run, failing }, false);
+    return Some(robot(kind, NodeLabel::RobotRunning { dry_run, failing }, false));
   }
-  if let Some(by) = facts.lands_with {
-    return node(LandingNodeKind::Landing, NodeLabel::LandsWith { by: by.clone() });
-  }
+  facts.lands_with.map(|by| node(LandingNodeKind::Landing, NodeLabel::LandsWith { by: by.clone() }))
+}
+
+/// The node the facts of the step decide, once nothing of the subject itself did (`own_state`)
+fn step_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> LandingNode {
+  let step = StepFacts { syncing: false, ..facts.step };
+  let slot = own.slot;
   // a push into the target or a merge on GitHub lands it: its own table decides
   let merges = merges_on_github(step.route, !matches!(step.patronus, PatronusAnswer::NotOnSpace));
   if matches!(step.route, LandingRoute::Push { .. }) || merges {

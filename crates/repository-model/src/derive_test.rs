@@ -2232,3 +2232,34 @@ fn the_step_of_a_whole_stack_names_its_own_robot_only_while_it_holds_the_stack_b
   );
   assert_eq!(hold_of(PatronusRobotStatus::Failure), None);
 }
+
+/// The root of a stack that forks lands as its whole stack: its row hosts the whole stack, which has no row of its own
+/// (`NextStepView::hosted`: the slot, S and the first start of its menu), the node the row shows the node of the whole
+/// stack unless something of its own decides it (`landing_node::root_own_node`), as the unit of the landing plan takes it;
+/// its own node and status stay beside, for an island, whose header shows the whole stack. No branch of the stack hosts
+/// it, nor the root of a stack that holds a parked branch, which lands in pieces
+#[test]
+fn the_root_of_a_stack_that_forks_hosts_its_whole_stack_its_node_the_whole_stacks() {
+  let (state, facts) = air_stack_session(air_stack_view(&[], None), Vec::new(), &[], false);
+  let steps = merged_robot_steps_of(&state, &facts);
+  let hosting: Vec<&str> = steps.iter().filter(|(_, view)| view.hosted.is_some()).map(|(key, _)| key.as_str()).collect();
+  assert_eq!(hosting, ["air"]);
+  let hosted = steps["air"].hosted.as_ref().unwrap();
+  assert_eq!(hosted.node, steps["stack:air"].node, "the node of the root's row says what its slot does");
+  assert_ne!(
+    steps["air"].step.lands, steps["stack:air"].step.lands,
+    "its own step, which its menu offers, lands only the root"
+  );
+  assert_ne!(steps["air"].node.label, hosted.node.label, "its own node stays, of the root alone");
+
+  // the robot of the whole stack runs: it lands the root, which says so of its own
+  let running = stack_held("air", "whole");
+  let (state, facts) = air_stack_session(air_stack_view(&[], Some(running)), vec![whole_robot(PatronusRobotStatus::Running)], &[], false);
+  let steps = merged_robot_steps_of(&state, &facts);
+  assert_eq!(steps["air"].hosted.as_ref().map(|hosted| hosted.node.kind), Some(LandingNodeKind::Landing));
+
+  // a parked side branch keeps the stack branch local: the stack lands in pieces, the root's row is its own
+  let (state, facts) = air_stack_session(air_stack_view(&[], None), Vec::new(), &[("air-side", "after the release")], false);
+  let steps = merged_robot_steps_of(&state, &facts);
+  assert_eq!(steps["air"].hosted, None);
+}

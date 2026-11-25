@@ -10,6 +10,7 @@ import {
   findBranchRow,
   getBranchCommitRow,
   getBranchDetailsRow,
+  getLandingNode,
   getMoreButton,
   getPushButton,
   getStackChip,
@@ -144,6 +145,11 @@ async function docsRestackedBelowRunningRobot(
   await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
   await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
   return { repo, docsRow: findBranchRow(page, "docs") }
+}
+
+/** The slot of the step of the whole stack of `root`, in the header of its island */
+function wholeStackSlotOf(page: Page, root: string): Locator {
+  return page.locator(`[data-testid="next-step-slot"][data-whole-stack="${root}"]`)
 }
 
 /** oauth-robot of oauth, started on the stack below login and merged into master as the table has it */
@@ -1227,6 +1233,17 @@ test.describe("Stacked branches", () => {
       await expectPatronusStarts(repo, [...before, wholeStackStartRequest("auth")])
     }
 
+    /**
+     * The popover of the root's own Safe Push, which lands auth alone: "Safe Push With Profile…" of "Patronus ›" of its
+     * menu, which always opens it ("Safe Push Root Only" starts at once when it has nothing to say)
+     */
+    async function openRootOwnPopover(page: Page): Promise<void> {
+      await findBranchRow(page, "auth").click({ button: "right" })
+      await openSubmenu(page, "Patronus")
+      await page.getByRole("menuitem", { name: "Safe Push With Profile…" }).click()
+      await expect(safePushPopover(page)).toHaveAttribute("aria-label", "Safe Push of auth")
+    }
+
     test("should give the focus to the start of the popover once it can start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // fixme: the popup keeps the focus it took before the start could start (Enter on the popup still starts)
       await setupStack(page, setupRepo, syncAndWaitForBranches)
@@ -1252,8 +1269,9 @@ test.describe("Stacked branches", () => {
         await openSubmenu(page, "Whole Stack")
       }
 
-      // the steps of the start take the place of the root's own step: "⋯" of the row stays where it is, measured once the
-      // facts that place it answered (under load they come after the sync, and the step they answer moves it)
+      // the steps of the start show in the root's slot, which hosts the whole stack: "⋯" of the row stays where it is,
+      // measured once the facts that place it answered (under load they come after the sync, and the step they answer
+      // moves it)
       await waitForStepFacts(rootSlot)
       const more = getMoreButton(findBranchRow(page, "auth"))
       // the measured tracks of the columns follow the labels of the slots ("Safe Push · 3") a frame after them: the place
@@ -1269,9 +1287,9 @@ test.describe("Stacked branches", () => {
         .toBe(true)
       const expectMoreInPlace = async () => expect((await more.boundingBox())!.x).toBe(moreX)
 
-      // the root's menu, "Whole Stack ›": its Safe Push says what it lands; its steps show where it was asked, in the
+      // the root's menu leads with its Safe Push, which says what it lands; its steps show where it was asked, in the
       // root's slot, as in the header of an island: the facts first, then its popover at the root's row
-      await openWholeStack()
+      await findBranchRow(page, "auth").click({ button: "right" })
       const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await item.hover()
       await expect(openTooltip(page)).toHaveText(WHOLE_AUTH_STACK)
@@ -1300,8 +1318,8 @@ test.describe("Stacked branches", () => {
       await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["start"] }))
       await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
       expect(await remotePushes(repo)).toEqual([["stack:auth"]])
-      // the root's own step again
-      await expect(start).toHaveText("Safe Push")
+      // the step of the whole stack again
+      await expect(start).toHaveText("Safe Push · 4")
       await expect(start).not.toHaveAttribute("aria-busy", "true")
       await expectClosed(popover)
       await closeRefusal(page)
@@ -1318,6 +1336,56 @@ test.describe("Stacked branches", () => {
       await expectPatronusStarts(repo, [wholeStackStartRequest("auth"), wholeStackStartRequest("auth", { mode: "DRY_RUN" })])
     })
 
+    test("should start the whole stack from the slot and S of the root of a small stack that forks, as the landing overview says it, and the root alone from Safe Push Root Only", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const { repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
+      const row = findBranchRow(page, "auth")
+      const rootSlot = row.getByTestId("next-step-slot")
+      const start = rootSlot.getByTestId("safe-push-button")
+
+      // the whole stack has no row of its own: the root's row hosts it, its slot the step of the whole stack, in the words
+      // and with the node of its unit in the landing overview
+      await expect(rootSlot).toHaveAttribute("data-whole-stack", "auth")
+      await expect(start).toHaveText("Safe Push · 4")
+      const overview = await openLandingOverview(page)
+      const unit = landingRow(overview, "auth")
+      await expect(unit.getByTestId("next-step")).toHaveText("Safe Push · 4")
+      const unitKind = await unit.getAttribute("data-kind")
+      await expect(getLandingNode(row)).toHaveAttribute("data-kind", unitKind!)
+      await page.mouse.move(0, 0)
+      await expectClosed(overview)
+
+      // a click on the slot: the popover of the whole stack at the root's row, what one robot lands; Enter starts it from
+      // the stack branch
+      await start.hover()
+      await expect(openTooltip(page)).toHaveText(`${WHOLE_AUTH_STACK}S`)
+      await start.click()
+      await expectWholeAuthStackPopover(page)
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+      await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
+      await closeRefusal(page)
+      // S on the row is the same start
+      await openSafePushWithKey(page, "auth")
+      await expectWholeAuthStackPopover(page)
+      await page.keyboard.press("Escape")
+      await expectClosed(safePushPopover(page))
+
+      // "⋯": the start of the slot first, with its key, then the root's own start, which lands auth alone
+      await getMoreButton(row).click()
+      const items = page.getByRole("menu").getByRole("menuitem")
+      await expect(items.nth(0)).toContainText("Safe Push Whole Stack")
+      await expect(items.nth(0)).toContainText("S")
+      await expect(items.nth(1)).toHaveText("Safe Push Root Only")
+      await items.nth(1).hover()
+      await expect(openTooltip(page)).toHaveText("Lands only auth into master, without the branches stacked on it, which the Safe Push of the whole auth stack lands")
+      // it has nothing to say: a click starts it at once
+      await runAndWaitForAnswer(page, "execute", () => items.nth(1).click())
+      await expectPatronusStarts(repo, [wholeStackStartRequest("auth"), startRequest("auth")])
+    })
+
     test("should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover", async ({
       page,
       setupRepo,
@@ -1327,8 +1395,9 @@ test.describe("Stacked branches", () => {
       const popover = safePushPopover(page)
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
 
-      // the root's popover lands auth alone, the branches built on it stay; the whole stack is its second way
-      await openSafePushWithKey(page, "auth")
+      // the root's own popover (its slot and S are the whole stack's) lands auth alone, the branches built on it stay; the
+      // whole stack is its second way
+      await openRootOwnPopover(page)
       await expect(popover).toHaveAttribute("aria-label", "Safe Push of auth")
       const option = popover.getByTestId("safe-push-whole-stack-option")
       await expect(option).toContainText("Land the whole stack:")
@@ -1362,12 +1431,10 @@ test.describe("Stacked branches", () => {
       // still be in the queue behind the held asks of the branches (4 at a time): the rows of the branches can send the
       // demand before the row of the root shows the whole stack
       await findBranchRow(page, "auth").click({ button: "right" })
-      await openSubmenu(page, "Whole Stack")
       const waiting = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await expect(waiting).toHaveAttribute("aria-disabled", "true")
       await waiting.hover()
       await expect(openTooltip(page)).toHaveText("Waits for Patronus to check the approvals")
-      await page.keyboard.press("Escape")
       await page.keyboard.press("Escape")
       await expectClosed(page.getByRole("menu"))
       await repo.holdRemoteAnswers({ release: ["readiness"] })
@@ -1376,18 +1443,18 @@ test.describe("Stacked branches", () => {
 
       // now the menu knows: its Safe Push disabled with the reason, its pull request offered
       await findBranchRow(page, "auth").click({ button: "right" })
-      await openSubmenu(page, "Whole Stack")
       const safePush = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await expect(safePush).toHaveAttribute("aria-disabled", "true")
       await safePush.hover()
       await expect(openTooltip(page)).toHaveText(missing)
+      await openSubmenu(page, "Whole Stack")
       await page.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
       const dialog = createPullRequestDialog(page)
       await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole auth stack → master")
       await page.keyboard.press("Escape")
 
-      // and the root's popover: the whole stack disabled, the reason under it
-      await openSafePushWithKey(page, "auth")
+      // and the root's own popover (its slot and S are the whole stack's): the whole stack disabled, the reason under it
+      await openRootOwnPopover(page)
       const option = safePushPopover(page).getByTestId("safe-push-whole-stack-option")
       await expect(option.getByRole("button", { name: "Safe Push Whole Stack" })).toBeDisabled()
       await expect(option.getByTestId("safe-push-whole-stack-reason")).toHaveText(missing)
@@ -1528,9 +1595,9 @@ test.describe("Stacked branches", () => {
       await expect(popover.getByTestId("safe-push-children")).toHaveText("oauth is built on login: it stays, and after the merge the next sync builds it on master.")
       await page.keyboard.press("Escape")
       await expectClosed(popover)
-      // the root lands alone; what is built on it stays (S: a click on a lone branch with nothing to say starts at once)
-      const root = await openSafePushWithKey(page, "auth")
-      await expect(root).toHaveAttribute("aria-label", "Safe Push of auth")
+      // the root lands alone; what is built on it stays (its slot and S are the whole stack's, its own start is in its menu)
+      await openRootOwnPopover(page)
+      const root = safePushPopover(page)
       await expect(root.getByTestId("safe-push-lands")).toHaveText("Lands auth into master: 1 commit.")
       await expect(root.getByTestId("safe-push-children")).toHaveText(/^.+ are built on auth: they stay, and after the merge the next sync builds them on master\.$/)
     })
@@ -1687,9 +1754,10 @@ test.describe("Stacked branches", () => {
       // a dry run pushes nothing into master, but its push of auth would go into what the Safe Push of oauth lands and
       // fail it at the end: it waits too, and says why
       await openContextMenu(page, findBranchRow(page, "auth"))
-      await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
+      await expect(page.getByRole("menuitem", { name: /^Safe Push Whole Stack S/ })).toHaveAttribute("aria-disabled", "true")
+      await expect(page.getByRole("menuitem", { name: "Safe Push Root Only" })).toHaveAttribute("aria-disabled", "true")
       await openSubmenu(page, "Patronus")
-      const dryRun = page.getByRole("menuitem", { name: "Dry Run" })
+      const dryRun = page.getByRole("menuitem", { name: "Dry Run Root Only" })
       await expect(dryRun).toHaveAttribute("aria-disabled", "true")
       await dryRun.hover()
       await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
@@ -1708,9 +1776,14 @@ test.describe("Stacked branches", () => {
       await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
       await page.keyboard.press("Escape")
       await expectClosed(page.getByRole("menu"))
-      // docs is free: no "lands with", its next step its own Safe Push, as of any root
+      // docs is free: no "lands with", its own Safe Push enabled. Five branches make an island: its header shows the step
+      // of the whole stack, which the robot of oauth lands a part of, and the row of docs leaves its slot to it
       await expect(docsRow.getByTestId("landing-span")).toHaveCount(0)
-      await expect(docsRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+      await expect(wholeStackSlotOf(page, "docs")).toHaveAttribute("data-step", "safePush")
+      await openContextMenu(page, docsRow)
+      await expect(page.getByRole("menuitem", { name: "Safe Push Root Only" })).not.toHaveAttribute("aria-disabled", "true")
+      await page.keyboard.press("Escape")
+      await expectClosed(page.getByRole("menu"))
     })
 
     test("should push a branch a restack placed below a running Safe Push from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1723,7 +1796,7 @@ test.describe("Stacked branches", () => {
 
     test("should push a branch a restack placed below a running Safe Push by its key", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const { repo, docsRow } = await docsRestackedBelowRunningRobot(page, setupRepo, syncAndWaitForBranches)
-      await expect(docsRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+      await expect(wholeStackSlotOf(page, "docs")).toHaveAttribute("data-step", "safePush")
       await docsRow.focus()
       await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("p"))
       await expectPushedToast(page, "docs")
@@ -1751,8 +1824,8 @@ test.describe("Stacked branches", () => {
       const authRow = findBranchRow(page, "auth")
       const loginRow = findBranchRow(page, "login")
 
-      // each branch offers its own Safe Push, with what it is built on
-      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
+      // each branch offers its own Safe Push, with what it is built on; the root's row hosts the whole stack
+      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push · 4")
       await expect(slotSafePush(page, "login")).toHaveText("Safe Push · 2")
       await expect(slotSafePush(page, "session")).toHaveText("Safe Push · 2")
       // the Safe Push of oauth lands auth and login with it, in one robot
@@ -1821,12 +1894,13 @@ test.describe("Stacked branches", () => {
 
     test("should leave a commit added below the commit of a merged Safe Push the only work left of its branch, by content", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await changedBelowMergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
-      // by content: auth landed but for the new commit, the only work left of it, which its Safe Push sends: the remote
-      // lacks auth, its first push is a step of it, in the menu only
+      // by content: auth landed but for the new commit, the only work left of it, which a Safe Push sends: the remote
+      // lacks auth, its first push is a step of it, in the menu only. Its row hosts the whole stack, whose Safe Push lands
+      // what is left of it: the new commit of auth and session
       const authRow = findBranchRow(page, "auth")
       const authChip = authRow.getByTestId("landed-with")
       await expect(authChip).toHaveText("Landed with oauth · 1 commit after it")
-      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
+      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push · 2")
       await expect(getPushButton(authRow)).toHaveCount(0)
       await openContextMenu(page, authRow)
       await expect(page.getByRole("menuitem", { name: "Push Branch (2) P" })).toBeEnabled()

@@ -13,7 +13,7 @@ import {
 import { useOperationWords } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
-import type { ActionId, ActionState, WholeStackRest as RestOfStack } from "@/lib/bindings"
+import type { ActionId, ActionState, HostedStack, NextStepView, WholeStackRest as RestOfStack } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import type { MenuItem } from "@/lib/menu"
 import { formatLandingSubject } from "@/lib/patronus"
@@ -28,7 +28,7 @@ import type { BranchNextStep, StepContext, StepWait } from "@/presenters/next-st
 import { presentNextStep } from "@/presenters/next-step"
 import type { OperationWords } from "@/presenters/operations"
 import type { StackBranch } from "@/stores/branch-sync"
-import { getStackBranch, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
+import { getStackBranch, getStackIslandRoots, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords } from "@/stores/indicators"
 import { getStackPullRequest } from "@/stores/pull-requests"
@@ -197,6 +197,58 @@ export function getStackNextStep(root: string, options?: { readonly forStart: tr
     stackWords: getOperationWords(),
   }
   return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, options !== undefined, view.step.kind.kind === "pushToBaseline")) }
+}
+
+/**
+ * The row of `name` hosts the whole stack of the stack that forks it heads, as Rust decides it
+ * (`NextStepView.hosted`, `domain_policy::landing_plan::lands_as_whole_stack`): the whole stack has no row of its
+ * own, so the slot, S and the first start of the "⋯" of its root's row are the whole stack's, the root's own start
+ * "Safe Push Root Only" in its "⋯"; false of every other branch
+ */
+export function useHostsWholeStack(name: string): boolean {
+  return useRowPart(name, "landing", view => view?.hosted != null)
+}
+
+/** `useHostsWholeStack` now, for menus built on open, keys and starts */
+export function hostsWholeStackNow(name: string): boolean {
+  return getRowPart(name, "landing")?.hosted != null
+}
+
+/**
+ * The row of `name` shows the whole stack it hosts (`NextStepView.hosted`): its node and its Status cell are the whole
+ * stack's, unless an island header shows that whole stack right above it, where the row keeps the root's own
+ */
+function showsHosted(name: string, view: NextStepView | undefined): view is NextStepView & { hosted: HostedStack } {
+  return view?.hosted != null && !getStackIslandRoots().has(name)
+}
+
+/** The node the row of the subject `key` shows of its part of the view: the whole stack's it hosts (`showsHosted`), else its own */
+export function rowNodeOf(key: string, view: NextStepView | undefined): NextStepView["node"] | undefined {
+  return showsHosted(key, view) ? view.hosted.node : view?.node
+}
+
+/** The Status cell the row of `name` shows of its part of the view: of the whole stack it hosts (`showsHosted`), else its own */
+export function rowStatusOf(name: string, view: NextStepView | undefined): NextStepView["status"] | undefined {
+  return showsHosted(name, view) ? view.hosted.status : view?.status
+}
+
+/**
+ * The state the step of the slot of the row of `name` waits in, which its Status cell and its preview say: of the whole
+ * stack the row of a root hosts and shows (`showsHosted`, `useStackStepWait`), of the branch otherwise (`useBranchStepWait`)
+ */
+export function useRowStepWait(name: string): StepWait | null {
+  const hosts = useRowPart(name, "landing", view => showsHosted(name, view))
+  const own = useBranchStepWait(hosts ? "" : name)
+  const stack = useStackStepWait(hosts ? name : "")
+  return hosts ? stack : own
+}
+
+/**
+ * The subject the slot of the row of `name` starts, as S, the preview and the first start of its "⋯" do: the whole stack
+ * of the root whose row hosts it (`stackReadinessKey`), the branch otherwise
+ */
+export function slotSubjectOf(name: string): string {
+  return hostsWholeStackNow(name) ? stackReadinessKey(name) : name
 }
 
 /**

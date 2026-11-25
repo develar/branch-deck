@@ -6,10 +6,10 @@ import { RobotStatusChip } from "@/components/branch/PatronusChip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { StepWaitStatus } from "@/components/branch/StepWaitStatus"
-import { useBranchStepWait } from "@/hooks/useBranchNextStep"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useRowRobotChip } from "@/hooks/useRowRobot"
+import { rowStatusOf, useRowStepWait } from "@/hooks/useStackNextStep"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedLabel } from "@/lib/parked"
@@ -61,7 +61,8 @@ function RowStatusCell({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const robot = useBranchRobot(branch.name)
   const parked = useParkedState(branch.name)
-  const status = useRowPart(branch.name, "landing", step => step?.status, sameJson)
+  // of the whole stack the row of a root hosts, where no island header shows it (`rowStatusOf`)
+  const status = useRowPart(branch.name, "landing", step => rowStatusOf(branch.name, step), sameJson)
   const context = { branch, landedIn, robot, parked, wait: null }
   const cell = presentRowCell(status, context)
   const mark = presentRowMark(status, context)
@@ -102,10 +103,11 @@ function RobotRowStatus({ branch, robot, running }: { branch: Branch; robot: Pat
 
 /**
  * The state the next step of the branch waits in ("Awaiting review", "Changes requested", "Draft"), which its slot of
- * actions doesn't show; the step's hooks only for a row that waits, a few of the rows
+ * actions doesn't show (of the whole stack the row of a root hosts, `useRowStepWait`); the step's hooks only for a row
+ * that waits, a few of the rows
  */
 function RowWaitStatus({ name }: { name: string }) {
-  const wait = useBranchStepWait(name)
+  const wait = useRowStepWait(name)
   return wait === null ? null : <StepWaitStatus wait={wait} showKeys />
 }
 

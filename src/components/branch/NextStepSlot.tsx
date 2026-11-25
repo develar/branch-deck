@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { useHostsWholeStack, useStackNextStep } from "@/hooks/useStackNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { formatKbds, FROM_MENU } from "@/lib/menu"
@@ -41,7 +42,9 @@ type SlotBranch = Pick<Branch, "name" | "remoteStatus">
  * - nothing while the Status cell says why: a sync, a failed sync, a blocked branch, a robot that runs or merged, a
  *   Safe Push that lands the branch (`PushHold`), a branch that landed, and a wait (`BranchNextStep.wait`: "Awaiting
  *   review", "Changes requested", "Draft"), a state and no action, which the Status cell says (`StepWaitStatus`);
- * - on the root of a small stack, while the start of its whole stack runs, the steps of that start.
+ * - on the root of a small stack, while the start of its whole stack runs, the steps of that start;
+ * - on the root of a stack that forks, whose row hosts its whole stack (`useHostsWholeStack`), the step of that whole
+ *   stack ("Safe Push · 4", `HostedStackSlot`), the step of its island's header there instead.
  * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
  * (`RequestReviewAnchors`).
  */
@@ -57,6 +60,17 @@ export interface NextStepSlotProps {
 }
 
 export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }: NextStepSlotProps) {
+  // the root of a stack that forks hosts its whole stack, which has no row of its own: its slot is the whole stack's
+  const hosts = useHostsWholeStack(stackHeader === undefined ? branch.name : "")
+  return hosts ? (
+    <HostedStackSlot branch={branch} inIsland={wholeStackInHeader} />
+  ) : (
+    <OwnStepSlot branch={branch} stackHeader={stackHeader} wholeStackInHeader={wholeStackInHeader} />
+  )
+}
+
+/** The slot of the step of the branch itself (`NextStepSlot`) */
+function OwnStepSlot({ branch, stackHeader, wholeStackInHeader = false }: NextStepSlotProps) {
   if (stackHeader === undefined) {
     countRender(`step:${branch.name}`)
   }
@@ -100,6 +114,62 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
       {stackHeader === undefined && <SafePushAskPopover ask={wholeStackAsk} anchor={slotRef} />}
       {/* and the Request Review… of its pull request, from "Whole Stack ›" of the root's menu */}
       {stackHeader === undefined && !wholeStackInHeader && <WholeStackRequestReviewAnchor root={branch.name} />}
+    </div>
+  )
+}
+
+/**
+ * The slot of the row of the root of a stack that forks, which hosts its whole stack (`NextStepView.hosted`,
+ * Rust's): the whole stack has no row of its own, so this slot shows its step (`useStackNextStep`, the step of its stack
+ * branch), the same words as the landing overview and the Plan card of its unit: "Safe Push · 4" (one robot lands every
+ * branch of it, side branches too; S starts it, its popover at this row), disabled with the reason while its stack
+ * branch is not built; its restart, "Create Pull Request…" of the stack, Request Review… of its pull request; nothing of a
+ * wait, which the Status cell says. In an island (`inIsland`) the header shows that step: the slot leaves it there, as
+ * the row leaves Push with Children to the header. The root's own start ("Safe Push Root Only" of its "⋯") and the
+ * Request Review… of its own pull request open here.
+ */
+function HostedStackSlot({ branch, inIsland }: { branch: SlotBranch; inIsland: boolean }) {
+  countRender(`step:${branch.name}`)
+  const root = branch.name
+  const key = stackReadinessKey(root)
+  const next = useStackNextStep(inIsland ? "" : root)
+  const ask = useSafePushAsk(root, "row")
+  // the start of the whole stack asked at this row (the preview of the root), else at the header of its island
+  const stackAsk = useSafePushAsk(key, "row")
+  // a start of the whole stack runs: its steps show here, where the slot shows the whole stack
+  const starting = useLandRun(inIsland ? "" : key) !== null
+  const stack = useStackBranch(root)
+  const pullRequest = useStackPullRequest(root)
+  const slotRef = useRef<HTMLDivElement>(null)
+  const step = next?.leaf === null && next.step.kind !== "hidden" ? next.step : null
+  if (step === null && !starting && ask === null) {
+    // no step where Patronus doesn't answer; Request Review… of an open pull request asks GitHub, from the menus
+    return <RequestReviewAnchors branch={branch} wholeStack={!inIsland} />
+  }
+  // a wait is a state: the Status cell says it, the slot of the actions shows none
+  const item = step?.wait === null ? step.item : null
+  const requestReview = !starting && step?.kind === "requestReview" && item?.disabled !== true ? item : null
+  return (
+    <div
+      ref={slotRef}
+      className="flex min-w-0 items-center"
+      data-testid="next-step-slot"
+      data-step={step?.kind}
+      data-waits-for={step?.waitsFor ?? undefined}
+      data-stack-path="landing"
+      data-whole-stack={root}
+    >
+      {starting || (item !== null && isStartItem(item)) ? (
+        <SafePushButton branch={branch} wholeStack={root} shortcut="S" placement="row" compact />
+      ) : (
+        item !== null && requestReview === null && <StepButton action={item} tone={step!.tone} showKeys />
+      )}
+      {/* the Request Review… of its own pull request, from its "⋯" */}
+      <RequestReview branch={branch} step={null} />
+      {/* and of the pull request of its whole stack: the step's, else from "Whole Stack ›" of its "⋯" */}
+      {!inIsland && <RequestReviewSlot owner={{ name: key, remoteStatus: stack?.remoteStatus ?? null }} pullRequest={pullRequest} step={requestReview} />}
+      <SafePushAskPopover ask={ask} anchor={slotRef} />
+      <SafePushAskPopover ask={stackAsk} anchor={slotRef} />
     </div>
   )
 }

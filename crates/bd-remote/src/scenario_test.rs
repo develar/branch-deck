@@ -141,7 +141,9 @@ enum AsymmetryKind {
 
 /// The one expectation of a case: `step` a subset of the next step of the subject (`step_answer`), `land` of the
 /// decision of its start (`land_answer`); `null` where the side has none. `status`, where a case names it, the Status
-/// cell of a branch, the main fact first, by the names of `brd status` (`NextStepSummary::status`)
+/// cell of a branch, the main fact first, by the names of `brd status` (`NextStepSummary::status`); `hostsWholeStack`,
+/// where a case names it, whether the row of the branch hosts the whole stack of its root (`NextStepView::
+/// hosted`, `NextStepSummary::hosts_whole_stack` of `brd status`)
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expect {
@@ -149,6 +151,8 @@ struct Expect {
   land: Value,
   #[serde(default)]
   status: Option<Vec<String>>,
+  #[serde(default, rename = "hostsWholeStack")]
+  hosts_whole_stack: Option<bool>,
 }
 
 /// What `bd` answers instead of `expect`, by design: its own `step` or `land`, or the error of the command, which
@@ -1040,11 +1044,12 @@ impl Situation {
     })
   }
 
-  /// `brd status`: the Status cell of `branch` by its names
-  fn status(&self, branch: &str) -> Result<Vec<String>, CliError> {
+  /// `brd status`: the next step of `branch`, with its Status cell by its names and whether its row hosts the whole
+  /// stack of its root
+  fn status(&self, branch: &str) -> Result<Option<NextStepSummary>, CliError> {
     let output = status(&self.context()?, &StatusArgs::default(), &self.environment)?;
     let branch = output.branches.unwrap_or_default().into_iter().find(|it| it.name == branch);
-    Ok(branch.and_then(|it| it.next_step).map_or_default(|step| step.status))
+    Ok(branch.and_then(|it| it.next_step))
   }
 
   fn context(&self) -> Result<RepoContext, CliError> {
@@ -1306,11 +1311,16 @@ impl AppSession<'_> {
   }
 
   /// What the session derives of the case: the next step of the subject, the decision of its start, the Status cell of
-  /// the branch by the names of `brd status`
-  fn answer(&self, given: &Given) -> (Value, Value, Vec<String>) {
+  /// the branch by the names of `brd status`, and whether the row of the branch hosts the whole stack of its root
+  fn answer(&self, given: &Given) -> AppAnswer {
     let prefix = &self.context.prefix;
     let Some((key, subject)) = self.subject(given) else {
-      return (Value::Null, Value::Null, Vec::new());
+      return AppAnswer {
+        step: Value::Null,
+        land: Value::Null,
+        status: Vec::new(),
+        hosts_whole_stack: false,
+      };
     };
     let open = session_open_pull_requests(&self.state, &self.facts, prefix);
     let landed = landed_states_of(&self.state, &self.facts);
@@ -1341,8 +1351,21 @@ impl AppSession<'_> {
     let status = steps
       .get(&key)
       .map_or_default(|view| NextStepSummary::new(&view.step, &key, &[]).with_status(&view.status).status);
-    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(plan.as_ref()), status)
+    AppAnswer {
+      step: step_answer(steps.get(&key).map(|view| &view.step)),
+      land: land_answer(plan.as_ref()),
+      status,
+      hosts_whole_stack: steps.get(given.branch.as_str()).is_some_and(|view| view.hosted.is_some()),
+    }
   }
+}
+
+/// What the app's session answers of a case (`AppSession::answer`)
+struct AppAnswer {
+  step: Value,
+  land: Value,
+  status: Vec<String>,
+  hosts_whole_stack: bool,
 }
 
 /// Folds the events of a sync into the table of a session up to its grouping, then nothing: the table of a sync that
@@ -1370,7 +1393,7 @@ impl ProgressReporter for UntilGrouped {
 impl Situation {
   /// What the app answers of the case: its session synced the repository and read the facts of the start, then (`sync:
   /// running`) its next sync of a new commit of the branch runs past its grouping
-  fn app(&self, given: &Given) -> (Value, Value, Vec<String>) {
+  fn app(&self, given: &Given) -> AppAnswer {
     let context = self.context().unwrap();
     let mut session = AppSession::synced(&context, &self.environment);
     session.read(given);
@@ -1577,7 +1600,12 @@ fn answer(case: &Case) -> Vec<String> {
     return named(vec!["brd answers otherwise only by design: an asymmetry, with the answer bd".to_string()]);
   }
   let situation = Situation::of(given);
-  let (step, land, status) = situation.app(given);
+  let AppAnswer {
+    step,
+    land,
+    status,
+    hosts_whole_stack,
+  } = situation.app(given);
   let mut failures = differences("app", "step", &expect.step, &step);
   failures.extend(differences("app", "land", &expect.land, &land));
   if let Some(expected) = &expect.status {
@@ -1586,8 +1614,21 @@ fn answer(case: &Case) -> Vec<String> {
     }
     let expected = case.bd.as_ref().and_then(|bd| bd.status.as_ref()).unwrap_or(expected);
     match situation.status(&given.branch) {
-      Ok(bd) if bd == *expected => {}
-      Ok(bd) => failures.push(format!("brd status: the status cell: expected {expected:?}, answers {bd:?}")),
+      Ok(bd) if bd.as_ref().map_or_default(|step| step.status.clone()) == *expected => {}
+      Ok(bd) => failures.push(format!(
+        "brd status: the status cell: expected {expected:?}, answers {:?}",
+        bd.map_or_default(|step| step.status)
+      )),
+      Err(error) => failures.push(format!("brd status: {}", error.message)),
+    }
+  }
+  if let Some(expected) = expect.hosts_whole_stack {
+    if hosts_whole_stack != expected {
+      failures.push(format!("app: the row hosts the whole stack: expected {expected}, answers {hosts_whole_stack}"));
+    }
+    match situation.status(&given.branch) {
+      Ok(bd) if bd.as_ref().is_some_and(|step| step.hosts_whole_stack) == expected => {}
+      Ok(_) => failures.push(format!("brd status: the row hosts the whole stack: expected {expected}, answers {}", !expected)),
       Err(error) => failures.push(format!("brd status: {}", error.message)),
     }
   }

@@ -1374,6 +1374,28 @@ quiet "In #12" that opens it; the Safe Push of the branch itself still needs app
 - **THEN** the popover says first "#12, the pull request of the whole air stack, is open: its approvals count only for the Safe Push of the whole stack, not for this Safe Push of deploy." (a confirm reason, `wholeStack`)
   [@test] src/presenters/land.test.ts (`opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`)
 
+### Requirement: The whole stack: The row of its root shows its step
+
+The step of a whole stack that lands as one unit MUST show in the row of its root, which hosts it
+(`NextStepView.hosted`, `landing_node::hosts_whole_stack`;
+[Whole Stack](../whole-stack/spec.md#requirement-the-safe-push-of-the-whole-stack-in-the-app-the-row-of-its-root-hosts-it)):
+its slot, S, the preview and the first start of its "⋯" take the step of `stack:<root>`, and its node and its Status cell
+follow it outside an island; the step of the root itself stays what the table decides for it.
+
+#### Scenario: The steps of a forking stack
+- **WHEN** the steps of a stack that forks are derived
+- **THEN** the root's view says that its row hosts the whole stack, its node the node of `stack:<root>` while nothing of its own decides it, and no other branch's view says so
+- **AND** its node is the node of the whole stack unless something of the root itself decides it (`landing_node::root_own_node`), and its Status cell says the state the step of the whole stack waits in (`row_status::hosting_row_status`)
+- **AND** `brd status` says `hosts_whole_stack` of the root, as the app does, the root's own step its `next_step`, the step of the slot in `stacks`
+  [@test] crates/repository-model/src/derive_test.rs (`the_root_of_a_stack_that_forks_hosts_its_whole_stack_its_node_the_whole_stacks`)
+  [@test] crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
+
+#### Scenario: A whole stack that lands in pieces
+- **WHEN** the whole stack holds a parked branch, all of the root is in master, the repository is off Space, or the stack is a straight chain
+- **THEN** no row hosts it: the row of the root shows its own step, and the step of the whole stack of a chain is the step of its last branch, in that branch's row
+  [@test] crates/repository-model/src/derive_test.rs (`the_root_of_a_stack_that_forks_hosts_its_whole_stack_its_node_the_whole_stacks`)
+  [@test] crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
+
 ### Requirement: A push into the target: The route of a push takes its own table
 
 A repository that lands by a push of the copy into the target (`LandingRoute::Push`,

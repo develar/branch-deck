@@ -1321,7 +1321,32 @@
         "start": "api",
         "pushes": ["auth"],
         "lands": ["auth", "login", "session"]
-      }
+      },
+      "hostsWholeStack": true
+    }
+  },
+  {
+    "id": "whole-stack-root-own-start",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks: the row of auth hosts the whole stack, whose step its slot shows; its own Safe Push, Safe Push Root Only of its menu, lands auth alone",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack-in-the-app",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "start": "api",
+        "pushes": ["auth"]
+      },
+      "hostsWholeStack": true
     }
   },
   {
@@ -1409,7 +1434,8 @@
         "confirmations": ["landsMoreThanRow"],
         "start": "api",
         "lands": ["auth", "login", "session"]
-      }
+      },
+      "hostsWholeStack": true
     }
   },
   {
