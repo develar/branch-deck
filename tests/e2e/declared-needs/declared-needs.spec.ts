@@ -72,7 +72,7 @@ test.describe("Declared needs", () => {
     await expect(button).toHaveText("Needs feature-api")
     await openContextMenu(page, findBranchRow(page, "JIRA-456"))
     await openSubmenu(page, "Remove Need")
-    await runAndWaitForSync(page, () => clickContextMenuItem(page, "feature-api"))
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "feature-api", { exact: true }))
     await expect(button).toHaveText("Needs feature-auth")
 
     await openContextMenu(page, findBranchRow(page, "JIRA-456"))

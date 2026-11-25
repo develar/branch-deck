@@ -23,41 +23,41 @@ async function overviewUnits(page: Page): Promise<string[]> {
 }
 
 test.describe("Land Together", () => {
-  test("should land a branch with the branch it needs in one robot from the Safe Push popover, one unit in the Landing overview, and undo it", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    // landing_needs: lane-run (with ui-perf-nightly on it) uses Stills of stills-codec, which nothing lands
-    await setupRepo("landing_needs", { patronus: availableRobots() })
-    await syncAndWaitForBranches()
-    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
-    expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
+  test(
+    "should land a branch with the branch it needs in one robot from the Safe Push popover, one unit in the Landing overview, and undo it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // landing_needs: lane-run (with ui-perf-nightly on it) uses Stills of stills-codec, which nothing lands
+      await setupRepo("landing_needs", { patronus: availableRobots() })
+      await syncAndWaitForBranches()
+      await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+      expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
 
-    const popover = await openSafePushWithKey(page, "lane-run")
-    const needs = popover.getByTestId("safe-push-landing-needs")
-    const together = needs.getByRole("button", { name: "Land Together" })
-    await expect(together).toBeFocused()
-    await runAndWaitForSync(page, () => together.click())
-    const toast = page.locator("[data-slot=toast]", { hasText: "Stacked lane-run on stills-codec" })
-    await expect(toast).toBeVisible()
-    // one unit: the stack of stills-codec lands all three in one robot, and nothing is needed any more
-    await expect.poll(() => findBranchRow(page, "lane-run").getAttribute("data-depth")).toBe("1")
-    await expect(safePushPopover(page).getByTestId("safe-push-landing-needs")).toHaveCount(0)
-    await page.keyboard.press("Escape")
-    expect(await overviewUnits(page)).toEqual(["stills-codec"])
-    const overview = await openLandingOverview(page)
-    await expect(landingRow(overview, "stills-codec")).toContainText("3 branches")
-    await page.mouse.move(0, 0)
-    await expectClosed(overview)
+      const popover = await openSafePushWithKey(page, "lane-run")
+      const needs = popover.getByTestId("safe-push-landing-needs")
+      const together = needs.getByRole("button", { name: "Land Together" })
+      await expect(together).toBeFocused()
+      await runAndWaitForSync(page, () => together.click())
+      const toast = page.locator("[data-slot=toast]", { hasText: "Stacked lane-run on stills-codec" })
+      await expect(toast).toBeVisible()
+      // one unit: the stack of stills-codec lands all three in one robot, and nothing is needed any more
+      await expect.poll(() => findBranchRow(page, "lane-run").getAttribute("data-depth")).toBe("1")
+      await expect(safePushPopover(page).getByTestId("safe-push-landing-needs")).toHaveCount(0)
+      await page.keyboard.press("Escape")
+      expect(await overviewUnits(page)).toEqual(["stills-codec"])
+      const overview = await openLandingOverview(page)
+      await expect(landingRow(overview, "stills-codec")).toContainText("3 branches")
+      await page.mouse.move(0, 0)
+      await expectClosed(overview)
 
-    // one undo puts the two units back, the need with them
-    await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
-    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
-    expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
-  })
+      // one undo puts the two units back, the need with them
+      await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
+      await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+      expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
+    },
+  )
 
-  test("should group the unassigned commit a branch needs from the Safe Push popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should group the unassigned commit a branch needs from the Safe Push popover", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("landing_needs", { patronus: availableRobots() })
     // lane-encode uses Encoder, which a commit of no branch adds
     await repo.commit("Add the encoder", { "bundle/src/Encoder.kt": "package bundle\n\nclass Encoder\n" }, 1704124800)
@@ -74,7 +74,7 @@ test.describe("Land Together", () => {
     await expect(step(page, "lane-encode")).not.toHaveAttribute("data-step", "needsBranch")
   })
 
-  test("should start the Safe Push of the branch built on both from the Safe Push popover of a cycle", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should start the Safe Push of the branch built on both from the Safe Push popover of a cycle", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("landing_needs", { patronus: availableRobots() })
     // gauge uses Meter, which meter adds, and meter is built on gauge: the Safe Push of meter lands both
     await repo.commit("(gauge/meter) Add the meter", { "meter/src/Meter.kt": "package meter\n\nclass Meter\n" }, 1704124800)

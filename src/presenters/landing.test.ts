@@ -142,6 +142,12 @@ describe("describeRefusalDetail", () => {
     const unassigned: LandingRefusal = { ...MISSING, declaredBy: { ...DECLARES, branch: "" }, fix: { kind: "moveCommit", commit: { ...DECLARES, branch: "" }, into: "lane-run" } }
     expect(text(describeRefusalDetail([unassigned], false))).toBe("a2543083 of lane-run uses Stills (tests.rs:7), which ecebf000 (unassigned) adds. Group ecebf000 into lane-run.")
     expect(text(describeRefusalDetail([DECLARED_DOCS], false))).toBe(text([{ text: describeLandingRefusals([DECLARED_DOCS], DECLARED_DOCS.branch)!.reason }]))
+    // a declared need its branch inherits: the unstack is a button of the popover, never a sentence beside it
+    const inherited: LandingRefusal = { ...DECLARED_DOCS, branch: "ui", inheritedFrom: "auth", fix: { kind: "unstack", branch: "ui", from: "auth" } }
+    expect(text(describeRefusalDetail([inherited], true))).toBe(
+      "You declared that docs lands before auth: it is not in master yet, so a start of ui lands them out of order. ui is built on auth, which needs it: they land in one robot.",
+    )
+    expect(text(describeRefusalDetail([inherited], false))).toContain("Unstack ui from auth to land it alone.")
   })
 })
 

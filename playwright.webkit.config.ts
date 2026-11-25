@@ -25,6 +25,7 @@ export default defineConfig({
     "pull-requests/shown-reviews.spec.ts",
     "next-step/facts-without-answer.spec.ts",
     "next-step/lands-after.spec.ts",
+    "next-step/land-together.spec.ts",
     "command-palette/command-palette.spec.ts",
     "startup/warm-start.spec.ts",
     "youtrack/issue-popover.spec.ts",

@@ -369,7 +369,7 @@ function edgesOfStep(kind: { readonly kind: string; readonly edges?: readonly La
  * Why the build of what the start lands fails: a headline of one line, the first edge of the needs ("Uses 5 names of
  * acp-load-replay in acp_load_replay.rs", "Lands after acp-load-replay" while it waits), then a short detail of one or
  * two lines: the commits by their short hash and the use by file name and line, their whole words in the hover
- * (`describeRefusalDetail`), of a wait where the branch it needs lands; then the actions of the edge as buttons, one
+ * (`describeRefusalDetail`), the fix only where no button runs it, of a wait where the branch it needs lands; then the actions of the edge as buttons, one
  * builder of Rust for every surface (`LandingEdge.actions`: "Land Together", "Land codec First", "Restart codec", "Group
  * 1a2b3c4d into flow", "Safe Push Whole Stack"), the first focused; Start Anyway stays below, in "⋯" of a wait
  */
@@ -391,9 +391,9 @@ function LandingNeedsLine({
   fixRef: RefObject<HTMLButtonElement | null>
 }) {
   const headline = edge === null ? null : waits ? formatLandsAfter(edge.needed, false) : describeEdgeEvidence(edge)
-  const [first] = refused.refusals
-  const more = edge === null ? 0 : Math.max(0, edge.names.length - 1)
   const items = waits ? [] : edge === null ? gateFixItems(refused, surface) : edgeActionItems(edge, refused.refusals, refused.reason, edgeRunners(subject, surface))
+  // short: commits by their hash, the file by its name, the whole of each in its hover; the fix only where no button runs it
+  const detail = waits && edge !== null ? describeEdge(edge) : <DetailText parts={describeRefusalDetail(refused.refusals, items.length > 0)} />
   return (
     <div className="flex flex-col gap-1.5" data-testid="safe-push-landing-needs" data-waits={waits ? "true" : undefined}>
       {headline !== null && (
@@ -402,7 +402,7 @@ function LandingNeedsLine({
         </Line>
       )}
       <Line tone={headline === null ? "warning" : "muted"} testId="safe-push-landing-detail">
-        {waits && edge !== null ? describeEdge(edge) : first === undefined ? refused.reason : <DetailParts parts={describeRefusalDetail(first, subject, more)} />}
+        {detail}
       </Line>
       {items.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -453,23 +453,6 @@ function gateFixItems(refused: LandingRefused, surface: string): MenuItem[] {
     return []
   }
   return [{ id: "landing-fix", label, icon: Layers2Icon, onSelect: () => void restackBranch(fix.branch, fix.onto, { surface }) }]
-}
-
-/** The parts of a short detail: a short name shows its whole text on hover */
-function DetailParts({ parts }: { parts: readonly DetailPart[] }) {
-  return (
-    <>
-      {parts.map((part, index) =>
-        typeof part === "string" ? (
-          part
-        ) : (
-          <span key={index} title={part.title} className="font-mono">
-            {part.text}
-          </span>
-        ),
-      )}
-    </>
-  )
 }
 
 /**

@@ -221,19 +221,6 @@ that lands both.
   [@test] tests/e2e/next-step/land-together.spec.ts (`should group the unassigned commit a branch needs from the Safe Push popover`)
   [@test] tests/e2e/next-step/land-together.spec.ts (`should start the Safe Push of the branch built on both from the Safe Push popover of a cycle`)
 
-### Requirement: Popover: The detail of a refusal is short
-
-The detail under the headline MUST be one or two short lines: the commits by short hash and the use by file name and
-line, their subject and whole path on hover, and no sentence that says what a button of the popover does; `brd` MUST keep
-the whole sentence of the gate.
-
-#### Scenario: The detail of lane-run
-- **WHEN** the popover of `ui-perf-nightly` says that `lane-run` uses Stills of `stills-codec`
-- **THEN** the detail is "<hash> uses Stills at BuildLog.kt:3, which <hash> of stills-codec adds: the build of
-  ui-perf-nightly fails.", the path and the subjects on hover
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say in the Safe Push popover why the build fails before the start, and land the branch together with it`)
-  [@test] src/presenters/landing.test.ts (`says a refusal in a short line: the commits by their short hash and the use by its file, their whole words on hover`)
-
 ### Requirement: Merge toast: The update of a merge offers the start that waited for it
 
 The toast of the update that took the place of the toast of a merge MUST offer the start of the subject that waited
@@ -372,8 +359,8 @@ nothing lands; an unstack and the landing first of a declared need.
   agent-id First", "Restart acp-load-replay", "Group 1a2b3c4d into claude-folds", "Unstack ui from auth", "Safe Push
   meter".
 - The popover: the headline "Lands after codec" (info) or "Uses Codec of codec in Flow.kt" (warning), then the detail
-  "1a2b3c4d uses Codec at Flow.kt:3, which 5e6f7a8b of codec adds: the build of flow fails." (subjects and the path on
-  hover); the actions of the edge as `outline` buttons; "Start Anyway" in "⋯" of a wait, an `outline` button otherwise.
+  "1a2b3c4d of flow uses Codec (Flow.kt:3), which 5e6f7a8b of codec adds." (subjects and the path on hover); the
+  actions of the edge as `outline` buttons; "Start Anyway" in "⋯" of a wait, an `outline` button otherwise.
 - The waves: "Landing now", "Next", "After acp-load-replay"; the price of Land Together: "1 robot instead of 2", "same
   7 checks", "+ AI Assistant Tests +11", "checks unknown", "a failure holds both", "approvals count in #12", the code
   owners it adds, "#12 and #13 become one GitHub stack".

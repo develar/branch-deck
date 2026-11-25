@@ -103,7 +103,8 @@ export function describeRefusalDetail(refusals: readonly LandingRefusal[], fixSh
       ]
     }
     case "unlandedNeed":
-      return [text(describeUnlandedNeed(first, first.branch)), ...after]
+      // its unstack only where no button of the popover runs it
+      return [text(describeUnlandedNeed(first, first.branch, !fixShown)), ...after]
   }
 }
 
@@ -137,11 +138,12 @@ export function describeLandingRefusal(refusal: LandingRefusal, subject: string)
  * not in master yet, so a start of auth lands them out of order."; of a branch that inherits it, why and the unstack
  * that lands it alone; of a needed branch a robot lands, that robot
  */
-function describeUnlandedNeed(refusal: Extract<LandingRefusal, { kind: "unlandedNeed" }>, subject: string): string {
+function describeUnlandedNeed(refusal: Extract<LandingRefusal, { kind: "unlandedNeed" }>, subject: string, withFix = true): string {
   const { branch, needs, state } = refusal
   const owner = refusal.inheritedFrom ?? branch
   const declared = `You declared that ${needs} lands before ${owner}`
-  const inherited = owner === branch ? "" : ` ${branch} is built on ${owner}, which needs it: they land in one robot. Unstack ${branch} from ${owner} to land it alone.`
+  const unstack = withFix ? ` Unstack ${branch} from ${owner} to land it alone.` : ""
+  const inherited = owner === branch ? "" : ` ${branch} is built on ${owner}, which needs it: they land in one robot.${unstack}`
   switch (state.kind) {
     case "active": {
       const landing = refusal.landingIn == null ? "" : ` ${describeLanding(needs, refusal.landingIn)}`
@@ -288,62 +290,6 @@ export function describeEdge(edge: LandingEdge): string {
     case "unassigned":
     case "open":
       return edge.fix === null ? `${evidence}: it is not in master yet.` : `${evidence}. ${describeFix(edge.fix)}`
-  }
-}
-
-/** A part of a short line of the popover: text, or a short name with its whole text in the hover */
-export type DetailPart = string | { readonly text: string; readonly title: string }
-
-/** A commit by its short hash, its subject in the hover */
-function commitPart(commit: StackCommit): DetailPart {
-  return { text: formatShortHash(commit.id), title: commit.subject === "" ? commit.id : commit.subject }
-}
-
-/** A use by its file name and line, the whole path in the hover */
-function sitePart(file: string, line: number): DetailPart {
-  return { text: `${fileName(file)}:${line}`, title: `${file}:${line}` }
-}
-
-/**
- * The detail of a refusal of the start in the Safe Push popover, one or two short lines: the commits by their short hash
- * (the subject in the hover), the use by file name and line (the path in the hover), and nothing an action button of
- * the popover says ("Stack flow on codec"). "a1b2c3d4 uses Codec at Flow.kt:3, which 5e6f7a8b of codec adds: the build
- * of flow fails. 4 more names too." `brd` keeps the whole sentence of the gate (`LandingRefusal::reason`)
- */
-export function describeRefusalDetail(refusal: LandingRefusal, subject: string, more: number): DetailPart[] {
-  const rest = more === 0 ? [] : [` ${more === 1 ? "One more name" : `${more} more names`} too.`]
-  switch (refusal.kind) {
-    case "missingDeclaration":
-      return [
-        commitPart(refusal.usedBy),
-        ` uses ${refusal.identifier} at `,
-        sitePart(refusal.file, refusal.line),
-        ", which ",
-        commitPart(refusal.declaredBy),
-        ` of ${branchOf(refusal.declaredBy)} adds: the build of ${subject} fails.`,
-        ...rest,
-      ]
-    case "danglingReference": {
-      const change = refusal.reference === "removed" ? "removes" : refusal.reference === "changed" ? "changes" : "declares again"
-      return [
-        commitPart(refusal.removedBy),
-        ` ${change} ${refusal.identifier}, still used at `,
-        sitePart(refusal.file, refusal.line),
-        "; ",
-        commitPart(refusal.fixedBy),
-        ` of ${branchOf(refusal.fixedBy)} changes that use.`,
-        ...rest,
-      ]
-    }
-    case "lostBinding":
-      return [
-        commitPart(refusal.removedBy),
-        ` removes ${refusal.binding === "import" ? "the import" : "the declaration"} of ${refusal.identifier}, still used at `,
-        sitePart(refusal.file, refusal.line),
-        ".",
-      ]
-    case "unlandedNeed":
-      return [`You declared that ${refusal.needs} lands before ${refusal.branch}.`]
   }
 }
 
