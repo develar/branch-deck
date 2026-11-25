@@ -29,7 +29,7 @@ import {
 } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { moveClockUntil, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { intentAnswer, moveClockUntil, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -357,8 +357,10 @@ test.describe("Pull request chip", () => {
     // GitHub from then on)
     await createFromRowMenu(page, row)
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", "waiting")
+    // decided again on what the push left: one push, then the pull request, its answer before what it did
+    const created = intentAnswer(page, "createPullRequest")
     await held.release()
-    // decided again on what the push left: one push, then the pull request
+    await created
     await expectPushedThenCreated(page, repo)
   })
 
@@ -372,7 +374,10 @@ test.describe("Pull request chip", () => {
     expect(await remotePushes(repo)).toEqual([])
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
 
+    // the push and the creation run once the sync ended: the answer of the creation, then what it did
+    const created = intentAnswer(page, "createPullRequest")
     await releaseHeldSync(page, repo, syncs)
+    await created
     await expectPushedThenCreated(page, repo)
     expect(executions).toHaveLength(1)
   })

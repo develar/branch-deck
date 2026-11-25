@@ -16,7 +16,7 @@ import {
   shiftSelectCommit,
   startDrag,
 } from "../helpers/selection-helpers"
-import { finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import { finishedSyncCount, intentAnswer, nextAnswer, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -397,8 +397,10 @@ test.describe("Move commits", () => {
     await pressUndoThatWaits(page, moved, undos)
     await verifyCommitCount(findBranchRow(page, "docs"), 2)
 
-    // the holder is done: the park runs, then the undo, which closes the toast
-    await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
+    // the holder is done: the park runs, then the undo, which closes the toast; each with its sync, the answers of both
+    const both = nextAnswer(page, "execute", 2)
+    await repo.holdRepositoryLock(false)
+    await both
     await expect(page.locator("[data-slot=toast]", { hasText: "Parked ABC-123" })).toBeVisible()
     await expectUndoneOnce(page, moved, undos)
   })
@@ -410,7 +412,10 @@ test.describe("Move commits", () => {
     // so the toast stays with its Undo
     await pressUndoThatWaits(page, moved, undos)
 
+    // the undo runs after the held sync, then its own sync: its answer, then what it did
+    const undone = intentAnswer(page, "rewrite")
     await repo.holdRemoteAnswers({ release: ["sync"] })
+    await undone
     await expectUndoneOnce(page, moved, undos)
     // the held sync and the one the undo asked
     await expect.poll(() => finishedSyncCount(page)).toBe(syncs + 2)

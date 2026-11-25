@@ -52,7 +52,18 @@ import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
+import {
+  emitTauriEvent,
+  intentAnswer,
+  nextAnswer,
+  pressSyncHeld,
+  pressUpdateUntilStep,
+  releaseHeldSync,
+  runAndWaitForAnswer,
+  runAndWaitForSync,
+  runAndWaitForUpdate,
+  syncFromMenu,
+} from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, resizeReportsDelivered, waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -451,8 +462,7 @@ async function landIntoMaster(repo: TestRepositoryBuilder): Promise<void> {
 /** Update Project pressed, then the Safe Push of JIRA-456 while the update is at `step`: both went to the session */
 async function safePushDuringUpdate(page: Page, step: "waiting" | "fetch"): Promise<void> {
   const executions = await recordCommand(page, "execute")
-  await page.getByTestId("update-project-button").click()
-  await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", step)
+  await pressUpdateUntilStep(page, step)
   await slotSafePush(page, "JIRA-456").click()
   await expect.poll(() => executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject", "land"])
 }
@@ -1226,7 +1236,10 @@ test.describe("Patronus actions", () => {
     await repo.arrival("sync")
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     expect((await repo.getPatronusLog()).starts).toEqual([])
+    // the sync, the push and the start run after the release: the answer of the start, then what it did
+    const started = intentAnswer(page, "land")
     await repo.holdRemoteAnswers({ release: ["sync"] })
+    await started
 
     await expectJiraStarted(page, repo)
     expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(before)
@@ -1253,7 +1266,9 @@ test.describe("Patronus actions", () => {
     expect((await repo.getPatronusLog()).starts).toEqual([])
 
     // the fetch goes, the update rebuilds JIRA-456 onto the new master, and the start pushes that build once and starts
+    const started = intentAnswer(page, "land")
     await repo.holdFetchLock(false)
+    await started
     await expectJiraStarted(page, repo)
     expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(before)
     await expectPushedToRemote(repo, ["JIRA-456"])
@@ -1278,7 +1293,7 @@ test.describe("Patronus actions", () => {
     expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(pushed)
 
     // the push ends: the start goes on with the pushed commits, no "Cannot start"
-    await pushes.release()
+    await runAndWaitForAnswer(page, "execute", () => pushes.release())
     await expectJiraStarted(page, repo)
     expect((await repo.getRemoteBranches())[virtualBranch("JIRA-456")]).toEqual(pushed)
     await expect(toastWith(page, "Cannot start")).toHaveCount(0)

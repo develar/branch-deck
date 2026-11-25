@@ -3,7 +3,7 @@ import { test, testWithUnassigned, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { dropOn, selectCommit, startDrag } from "../helpers/selection-helpers"
-import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { finishedSyncCount, intentAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
 
@@ -52,8 +52,11 @@ test.describe("Combine branches", () => {
     await dropOn(page, docs)
     await expect(page.getByTestId("drag-target-status")).toHaveCount(0)
 
+    // the move runs after the held sync, then its own sync: its answer, then what it did
+    const moved = intentAnswer(page, "rewrite")
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await waitForSyncComplete(page, previousCount)
+    await moved
     await verifyCommitCount(docs, 2)
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })

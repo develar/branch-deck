@@ -6,7 +6,7 @@ import { expectRowTracksInPlace, trackOverlaps } from "../helpers/column-helpers
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { expectPushedToast, holdRemotePushes } from "../helpers/push-helpers"
-import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
@@ -86,7 +86,7 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     await held.arrived()
     // the pointer rests on "⋯" while the push runs
     await more.hover()
-    await held.release()
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expectPushedToast(page, "feature-auth")
     await expect(getPushButton(row)).toHaveCount(0)
     // the column follows its rows: the push takes no room in it

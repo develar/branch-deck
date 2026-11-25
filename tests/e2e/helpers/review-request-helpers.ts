@@ -5,7 +5,7 @@ import { expect } from "../fixtures/base-test"
 import { pressAndExpectReviewOpened } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
-import { moveClockUntil } from "./sync-helpers"
+import { intentAnswer, moveClockUntil } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 import { sendProgress } from "./wait-helpers"
 
@@ -134,15 +134,11 @@ export async function waitForReviewReading(review: Locator): Promise<void> {
  * the tab. Asked before the window loads, so a fetch that answered before the call is not missed
  */
 export function reviewFetched(window: Page): Promise<unknown> {
-  return window.waitForEvent("requestfinished", {
-    predicate: request =>
-      request.url().endsWith("/invoke/execute") && REVIEW_FETCHES.includes((request.postDataJSON() as { intent?: { kind?: string } } | null)?.intent?.kind ?? ""),
-    timeout: 0,
-  })
+  return intentAnswer(window, REVIEW_FETCHES)
 }
 
 /** The intents of a review fetch: of a pull request, of a stack */
-const REVIEW_FETCHES = ["fetchReview", "fetchReviewStack"]
+const REVIEW_FETCHES = ["fetchReview", "fetchReviewStack"] as const
 
 /** The button of each key of a decision of the review window */
 const DECISION_BUTTONS = { a: "review-approve", r: "review-request-changes", m: "review-safe-push" } as const

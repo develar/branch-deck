@@ -39,7 +39,12 @@ rules in one line each and links here.
   row `syncAndWaitForBranches` returns at, and after a resize once `resizeReportsDelivered`. A chain of commands gets a
   wait per step, each of which takes seconds under load: a rewrite and its sync `runAndWaitForSync`, Update Project
   `runAndWaitForUpdate`, a start `runAndWaitForAnswer(page, "execute", …)` (the end of its stream), the facts of a next step
-  `waitForStepFacts`, any other step `nextAnswer(page, command)` before the assertion that reads its answer (a start
+  `waitForStepFacts`, an operation the session admitted behind a held sync, a lock or an update `intentAnswer(page,
+  kind)` asked before the release (its whole chain, the sync, the push, the start or the creation, runs after it, and
+  the `execute` of the update it waited behind answers meanwhile: a look at the chip of the start failed in 9 of 200
+  runs of `patronus-actions.spec.ts` beside busy loops at load 170 to 270), the step an update stands at while a hold
+  keeps it `pressUpdateUntilStep` (its fetch and check before the wait for the lock outlast a look under load), any
+  other step `nextAnswer(page, command)` before the assertion that reads its answer (a start
   that a review window asks for runs in the main window, `askReviewRun`: its answer is the main page's; a review
   window opens on the answers of its plan and its diffs, `openPlanWindow`). The press
   goes into the wait (`runAndWaitForAnswer(page, command, () => button.click())`) or comes after `nextAnswer`: a wait

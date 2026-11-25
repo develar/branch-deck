@@ -198,6 +198,22 @@ export function nextAnswer(page: Page, command: string, count = 1, timeout = 0):
   return page.waitForEvent("requestfinished", { predicate: request => request.url().endsWith(`/invoke/${command}`) && ++answered === count, timeout })
 }
 
+/**
+ * The answer of the `execute` of an intent of `kinds` (`land`, `createPullRequest`, `rewrite`), however long the test
+ * lets it take; ask for it before the release that lets the operation go on. An operation the session admitted behind
+ * a held sync, a lock or an update runs its whole chain after the release (the sync, the push, the start or the
+ * creation), seconds under load, past the 5 s of a look at its toast or chip; the stream of its `execute` began long
+ * before, and ends with its answer. By the kind of its intent, not by count: the `execute` of the update it waited
+ * behind answers during that chain too
+ */
+export function intentAnswer(page: Page, kinds: string | readonly string[]): Promise<unknown> {
+  const wanted = typeof kinds === "string" ? [kinds] : kinds
+  return page.waitForEvent("requestfinished", {
+    predicate: request => request.url().endsWith("/invoke/execute") && wanted.includes((request.postDataJSON() as { intent?: { kind?: string } } | null)?.intent?.kind ?? ""),
+    timeout: 0,
+  })
+}
+
 /** Runs `action`, which starts `command` at the end of a chain of commands, and waits for the answer of that command */
 export async function runAndWaitForAnswer(page: Page, command: string, action: () => Promise<unknown>): Promise<void> {
   const answered = nextAnswer(page, command)
@@ -212,6 +228,16 @@ export async function runAndWaitForAnswer(page: Page, command: string, action: (
  */
 export async function runAndWaitForUpdate(page: Page, press: () => Promise<unknown>): Promise<void> {
   await runAndWaitForAnswer(page, "execute", press)
+}
+
+/**
+ * Presses Update Project and waits, however long the test lets it take, until its progress stands at `step` where a
+ * hold of the test keeps it (`fetch`: the fetch lock, `waiting`: the repository lock). The update fetches and checks
+ * before it waits for the lock, git work of seconds under load (its check lasted past the 5 s of a look in a loaded run)
+ */
+export async function pressUpdateUntilStep(page: Page, step: "fetch" | "waiting"): Promise<void> {
+  await page.getByTestId("update-project-button").click()
+  await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", step, { timeout: 0 })
 }
 
 /** Waits until the page listens to `event`: one fired before a lazy page registered its listener is lost */

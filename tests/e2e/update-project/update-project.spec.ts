@@ -6,7 +6,7 @@ import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/bran
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { boxOf, getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
-import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate, viewEpoch } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, pressUpdateUntilStep, runAndWaitForSync, runAndWaitForUpdate, viewEpoch } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -32,8 +32,7 @@ async function expectTooltip(page: Page, text: string | RegExp): Promise<void> {
 
 /** Presses Update and waits until the update waits (behind a rewrite, or for the repository lock): its steps, hovered */
 async function updateWaiting(page: Page): Promise<Locator> {
-  await updateButton(page).click()
-  await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "waiting")
+  await pressUpdateUntilStep(page, "waiting")
   await page.mouse.move(0, 0)
   await updateButton(page).hover()
   return page.getByTestId("update-steps")
@@ -180,8 +179,7 @@ test.describe("Update Project", () => {
     await repo.holdFetchLock(true)
     const executions = await recordCommand(page, "execute")
     const parks = await recordRewrites(page, "park")
-    await updateButton(page).click()
-    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
+    await pressUpdateUntilStep(page, "fetch")
     await expect(page.getByTestId("update-state-line-button")).toHaveCount(0)
 
     // the fetch holds no HEAD: a park during it runs at once, its toast before the update ends
@@ -283,8 +281,7 @@ test.describe("Update Project", () => {
     await repo.holdFetchLock(true)
     await repo.holdRepositoryLock(true)
     const button = updateButton(page)
-    await button.click()
-    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")
+    await pressUpdateUntilStep(page, "fetch")
     await page.mouse.move(0, 0)
     await button.hover()
     const steps = page.getByTestId("update-steps")

@@ -20,7 +20,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { RemoteCommit, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { recordCommand, expectClosed } from "../helpers/wait-helpers"
@@ -284,8 +284,10 @@ test.describe("Push button", () => {
     await page.keyboard.press("p")
     await expect(getPushButton(abc)).toHaveAttribute("aria-busy", "true")
 
+    // the sync runs after the release, then the backend refuses both: what they would push is not what the rows show
+    const refused = nextAnswer(page, "execute", 2)
     await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
-    // the backend refuses both: what they would push is not what the rows show
+    await refused
     await expect(page.getByText("Nothing was pushed: JIRA-456 is not synced (a merge conflict)")).toBeVisible()
     await expect(page.getByText("Nothing was pushed: ABC-123 is not synced (a merge conflict)")).toBeVisible()
   })
