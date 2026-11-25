@@ -149,12 +149,14 @@ export function formatMergedRobotTitle(robot: PatronusRobot, label?: string): st
 
 /**
  * What a started, restarted or canceling robot tests, as its toast and Activity say it: "IJPL-1 → master · profile
- * Large Scale Change", "Whole air stack → master". The virtual branch or the whole stack (the subject for a robot of a
- * temporary ref), never the ref the robot runs on.
+ * Large Scale Change", "Whole air stack → master", of a robot someone else started "IJPL-1 → master · started by Jane
+ * Doe". The virtual branch or the whole stack (the subject for a robot of a temporary ref), never the ref the robot
+ * runs on.
  */
 export function describeRobot(robot: PatronusRobot, profileName: string | null = null): string {
   const target = `${formatRobotSubjectStart(robot)} → ${robot.targetBranch}`
-  return profileName === null ? target : `${target} · profile ${profileName}`
+  const profile = profileName === null ? target : `${target} · profile ${profileName}`
+  return robot.startedBy == null ? profile : `${profile} · started by ${robot.startedBy}`
 }
 
 /**

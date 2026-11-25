@@ -51,6 +51,7 @@ fn running(id: &str, branch: &str, source: &str) -> PatronusRobot {
     url: format!("https://patronus/robot/{id}"),
     pull_request: None,
     profile: None,
+    started_by: None,
   }
 }
 

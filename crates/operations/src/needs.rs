@@ -8,8 +8,9 @@ use domain_types::operation::{Intent, PushScope};
 /// A fact of the remote a plan reads
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FactNeed {
-  /// The user's robots, the full list of the service's window, and the Patronus view of the table over them
-  Robots,
+  /// The robots of the full list of the service's window, the user's and, whoever started them, those of the pushed
+  /// branches of `RobotsOf`, and the Patronus view of the table over them
+  Robots(RobotsOf),
   /// The open pull requests of the branches and of the whole stacks, one search
   PullRequests,
   /// The merge profiles of the target of the baseline
@@ -24,12 +25,24 @@ pub enum FactNeed {
   Readiness(Subject),
 }
 
+/// Whose pushed branches a list of the robots asks besides the user's robots
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RobotsOf {
+  /// Every pushed branch of the table (`BranchTable::robot_sources`)
+  Table,
+  /// The pushed branches whose robot may hold a push or a start of the subject (`BranchTable::robot_sources_of`): its
+  /// stack and the stack branches of it
+  Subject(Subject),
+  /// These pushed branches, `{prefix}/virtual/<name>` and `{prefix}/stack/<root>`: of a command without a table
+  Sources(Vec<String>),
+}
+
 impl FactNeed {
   /// A fact the others are read over: the robots, the pull requests, the profiles and the rules are read first, the
   /// ones of a robot or of a review after them and the Patronus view
   #[must_use]
   pub const fn is_first(&self) -> bool {
-    matches!(self, Self::Robots | Self::PullRequests | Self::Profiles | Self::Rules { .. })
+    matches!(self, Self::Robots(_) | Self::PullRequests | Self::Profiles | Self::Rules { .. })
   }
 }
 
@@ -43,17 +56,23 @@ impl FactNeed {
 #[must_use]
 pub fn needs(intent: &Intent) -> Vec<FactNeed> {
   match intent {
-    Intent::Land(land) => vec![FactNeed::Robots, FactNeed::PullRequests, FactNeed::Profiles, FactNeed::LastProfile(land.subject.clone())],
+    Intent::Land(land) => vec![
+      FactNeed::Robots(RobotsOf::Subject(land.subject.clone())),
+      FactNeed::PullRequests,
+      FactNeed::Profiles,
+      FactNeed::LastProfile(land.subject.clone()),
+    ],
     Intent::Push(push) if push.scope == PushScope::Unapplied => Vec::new(),
-    Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => vec![FactNeed::Robots],
+    Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => vec![FactNeed::Robots(RobotsOf::Table)],
     Intent::RequestReview { subject, reviewers, push_first } => {
       // the review is asked of a session whose robots Patronus listed
-      let robots = (*push_first || reviewers.is_empty()).then_some(FactNeed::Robots);
+      let robots = (*push_first || reviewers.is_empty()).then(|| FactNeed::Robots(RobotsOf::Subject(subject.clone())));
       let readiness = reviewers.is_empty().then(|| FactNeed::Readiness(subject.clone()));
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
-    Intent::Push(_) | Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } => {
-      vec![FactNeed::Robots, FactNeed::PullRequests]
+    Intent::Push(push) => vec![FactNeed::Robots(RobotsOf::Subject(push.subject.clone())), FactNeed::PullRequests],
+    Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } => {
+      vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests]
     }
     Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::LinkStack { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
       vec![FactNeed::PullRequests]

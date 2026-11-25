@@ -904,7 +904,7 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     // robots are asked meanwhile, as no wait for a rewrite or a sync changes what Patronus has (a wait behind the
     // operations that hold what it needs more asks them again)
     let waits = wait_for_facts(sessions, key, guard, Ahead::head(), SyncWait::Running);
-    let (robots, waited) = tokio::join!(robots_to_check(services, key, &push), waits);
+    let (robots, waited) = tokio::join!(robots_to_check(services, sessions, key, &push), waits);
     let waited = waited?;
     // the rows are still the frame of an earlier run: no tip of this process to push. Its first sync failed (the one it
     // waited for, or one before it) or git deferred it, and that error says why: nothing waits for a sync any more
@@ -939,7 +939,7 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
         if queued {
           // the operations it waited for start and restart robots: decided again on the robots as Patronus has them now
           replan.waited = true;
-          checked = checked_of(services, sessions, key, robots_to_check(services, key, &push).await).await;
+          checked = checked_of(services, sessions, key, robots_to_check(services, sessions, key, &push).await).await;
         }
       };
       // else decided again on the sync that moved its branch: over the remote head the session has now
@@ -961,7 +961,9 @@ fn admission_holds(sources: &LandSources<'_>, push: &Push) -> Vec<Resource> {
     return Vec::new();
   }
   let name = push.subject.name();
-  let mut resources: Vec<Resource> = stack_of(sources, name)
+  let mut resources: Vec<Resource> = sources
+    .table
+    .stack_of(name)
     .into_iter()
     .filter_map(|branch| sources.pull_requests.pull_requests.get(branch.as_str()))
     .filter(|pull_request| pull_request.state == PullRequestState::Open)
@@ -987,51 +989,23 @@ fn admission_holds(sources: &LandSources<'_>, push: &Push) -> Vec<Resource> {
   resources
 }
 
-/// The branches of the stack of `name` in the table of `sources`: the ones it is built on, it, and the ones built on it
-fn stack_of(sources: &LandSources<'_>, name: &str) -> Vec<String> {
-  let base = |branch: &str| {
-    sources
-      .table
-      .branch(branch)
-      .and_then(|info| info.stack.as_ref())
-      .and_then(|stack| stack.effective_base.clone())
-  };
-  let mut stack = vec![name.to_string()];
-  let mut below = base(name);
-  while let Some(branch) = below.filter(|branch| !stack.contains(branch)) {
-    below = base(&branch);
-    stack.push(branch);
-  }
-  loop {
-    let above: Vec<String> = sources
-      .table
-      .branches
-      .iter()
-      .filter(|info| !stack.contains(&info.name) && base(&info.name).is_some_and(|parent| stack.contains(&parent)))
-      .map(|info| info.name.clone())
-      .collect();
-    if above.is_empty() {
-      return stack;
-    }
-    stack.extend(above);
-  }
-}
-
 /// The holds the run of a push checks of `robots` (`checked_holds`); none without robots to check
 async fn checked_of(services: &dyn ServiceHost, sessions: &Sessions, key: &SessionKey, robots: Option<Vec<PatronusRobot>>) -> Option<Arc<CheckedHolds>> {
   checked_holds(services, sessions, key, robots?).await.map(Arc::new)
 }
 
-/// The user's robots the run of `push` checks, asked as it starts, one full list (`PatronusService::robots_for_checks`,
-/// which a robot started meanwhile in the IDE or by `bd` is in); none for an unapplied branch, which nothing holds (C3),
-/// and off Space or without a token, where no robot runs
-async fn robots_to_check(services: &dyn ServiceHost, key: &SessionKey, push: &Push) -> Option<Vec<PatronusRobot>> {
+/// The robots the run of `push` checks, asked as it starts (`PatronusService::robots_for_checks`, which a robot started
+/// meanwhile in the IDE or by `bd` is in): the user's, and whoever started them those of the pushed branches that may
+/// hold it, of the table of the last sync of the session (a reviewer's Safe Merge from the merge request); none for an
+/// unapplied branch, which nothing holds (C3), and off Space or without a token, where no robot runs
+async fn robots_to_check(services: &dyn ServiceHost, sessions: &Sessions, key: &SessionKey, push: &Push) -> Option<Vec<PatronusRobot>> {
   if push.scope == PushScope::Unapplied {
     return None;
   }
   let space = services.space_repository(key).await.ok().flatten()?;
   let patronus = services.patronus(key).ok()?;
-  Some(patronus.robots_for_checks(&space.name, &key.prefix).await)
+  let robot_sources = sessions.table(key).await.map_or_default(|facts| facts.table.robot_sources_of(&push.subject, &facts.remote));
+  Some(patronus.robots_for_checks(&space.name, &key.prefix, robot_sources).await)
 }
 
 /// The holds the run of a push checks: `robots` (`robots_to_check`) and the Patronus view of the table of the last sync

@@ -71,8 +71,9 @@ const fn mode_of(record: &Record) -> PatronusPushMode {
   }
 }
 
-/// The robot of `start` in `mode` among `robots` of the user under `prefix`: started since it was sent, on its source ref
-/// (on its commit when Patronus names one), or of its pull request for a comment; the newest of them
+/// The robot of `start` in `mode` among `robots` under `prefix`: one of the user (a robot someone else started on the
+/// branch, a reviewer's Safe Merge, is never the robot of a start of the user), started since it was sent, on its source
+/// ref (on its commit when Patronus names one), or of its pull request for a comment; the newest of them
 #[must_use]
 pub fn robot_of(start: &PendingStart, mode: PatronusPushMode, prefix: &str, robots: &[PatronusRobot]) -> Option<PatronusRobot> {
   let dry_run = mode == PatronusPushMode::DryRun;
@@ -82,7 +83,7 @@ pub fn robot_of(start: &PendingStart, mode: PatronusPushMode, prefix: &str, robo
   let stack_root = strip_branch_namespace(name, prefix, BranchKind::Stack).map(str::to_owned);
   robots
     .iter()
-    .filter(|robot| robot.start_time >= since && (robot.push_mode == PatronusPushMode::DryRun) == dry_run)
+    .filter(|robot| !robot.is_someone_elses() && robot.start_time >= since && (robot.push_mode == PatronusPushMode::DryRun) == dry_run)
     .filter(|robot| match &start.route {
       StartRoute::Api { .. } => {
         let on_ref = (virtual_branch.is_some() && robot.branch_name == virtual_branch) || (stack_root.is_some() && robot.stack_root == stack_root);

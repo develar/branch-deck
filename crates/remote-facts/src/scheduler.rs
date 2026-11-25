@@ -61,7 +61,7 @@ use details::DetailsSchedule;
 use domain_policy::refresh::{
   FactTiming, ListWindow, RefreshReason, ServiceState, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
-use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus};
+use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, RobotsAsk};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use github::{GitHubFamily, GitHubSchedule};
@@ -271,6 +271,8 @@ enum Input {
   /// A list that started at `started` ended: how Patronus answered (`None`: the session was gone), what applying it left
   Listed {
     started: Duration,
+    /// The pushed branches it listed whoever started their robots
+    sources: Vec<String>,
     answer: Option<ListAnswer>,
     applied: Option<AppliedFacts>,
   },
@@ -365,6 +367,10 @@ struct RobotsSchedule {
   follow_up_waiters: Vec<Reply>,
   /// The last list said the repository is not on Space
   off_service: bool,
+  /// The pushed branches of the committed table (`TableCommitted`), whose robots are listed whoever started them
+  sources: Vec<String>,
+  /// Of them, those a list answered for the whole window: an incremental list asks the window of the others
+  listed_sources: BTreeSet<String>,
   /// What the poll asks about (`Sessions` tells it after every patch that changed it), as of the view at
   /// `digest_version`
   digest: RobotsDigest,
@@ -481,7 +487,12 @@ impl SessionFacts {
   fn handle(&mut self, input: Input) {
     match input {
       Input::Event(kind) => self.event(kind),
-      Input::Listed { started, answer, applied } => self.listed(started, answer, applied),
+      Input::Listed {
+        started,
+        sources,
+        answer,
+        applied,
+      } => self.listed(started, sources, answer, applied),
       Input::Polled { answered, applied } => {
         self.robots.polling = false;
         if let Some(applied) = applied.filter(|_| answered) {
@@ -528,8 +539,9 @@ impl SessionFacts {
       SessionEventKind::Closed => {}
       SessionEventKind::Focus(focused) => self.focus(focused),
       SessionEventKind::Demand(demand) => self.demand(&demand),
-      SessionEventKind::TableCommitted { baseline } => {
+      SessionEventKind::TableCommitted { baseline, robot_sources } => {
         self.table_committed = true;
+        self.robots.sources = robot_sources;
         self.ask_list(RefreshReason::Sync, None);
         self.github_table_committed(Some(baseline));
         self.ask_review_requests(RefreshReason::Sync, None);
@@ -650,6 +662,15 @@ impl SessionFacts {
         Some(unix_now().saturating_sub(ago))
       }
     };
+    // an incremental list asks the whole window of the branches pushed since a list answered for them
+    let ask = match since {
+      None => RobotsAsk::full(robots.sources.clone()),
+      Some(_) => RobotsAsk {
+        since,
+        sources: robots.sources.clone(),
+        new_sources: robots.sources.iter().filter(|source| !robots.listed_sources.contains(*source)).cloned().collect(),
+      },
+    };
     robots.listing = true;
     robots.list.started_at = Some(now);
     robots.waiters = waiters;
@@ -659,20 +680,25 @@ impl SessionFacts {
       async move {
         let (answer, applied) = match scheduler.port.begin(&key).await {
           Some(ticket) => {
-            let result = scheduler.sources.robots(&key, since, background).await;
+            let result = scheduler.sources.robots(&key, ask.clone(), background).await;
             let answer = ListAnswer::of(&result.availability);
             let read = RobotsRead::List { full: since.is_none() };
             (Some(answer), scheduler.port.apply(&key, ticket, FactResult::Robots { read, result }).await)
           }
           None => (None, None),
         };
-        let _ = inbox.send(Input::Listed { started: now, answer, applied });
+        let _ = inbox.send(Input::Listed {
+          started: now,
+          sources: ask.sources,
+          answer,
+          applied,
+        });
       }
       .in_current_span(),
     );
   }
 
-  fn listed(&mut self, started: Duration, answer: Option<ListAnswer>, applied: Option<AppliedFacts>) {
+  fn listed(&mut self, started: Duration, sources: Vec<String>, answer: Option<ListAnswer>, applied: Option<AppliedFacts>) {
     let version = applied.as_ref().map(|applied| applied.version);
     let now = self.now();
     let robots = &mut self.robots;
@@ -682,6 +708,8 @@ impl SessionFacts {
       Some(ListAnswer::Listed) => {
         robots.listed_from = Some(started);
         robots.off_service = false;
+        // a full list asked each of them for the whole window, an incremental one those not asked before
+        robots.listed_sources.extend(sources);
       }
       Some(ListAnswer::NotOnSpace) => robots.off_service = true,
       Some(ListAnswer::Failed) | None => {}

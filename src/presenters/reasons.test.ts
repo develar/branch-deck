@@ -114,6 +114,23 @@ describe("formatPushHoldReason", () => {
     expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth, commits: 2 })).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
   })
 
+  it("names who started a Safe Push of someone else that holds the branch, as Rust's refusal of a push does", () => {
+    const reviewers = testRobot("r1", "auth", { startedBy: "Jane Doe" })
+    expect(formatPushHoldReason("auth", { kind: "own", branch: "auth", robot: reviewers })).toBe(
+      "A Safe Push of auth that Jane Doe started is running: wait until it merges, or restart it on the current branch",
+    )
+    const oauth = testRobot("oauth", "oauth", { startedBy: "Jane Doe" })
+    expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth })).toBe("A Safe Push of oauth that Jane Doe started is running: it lands auth with it")
+    const held: Reason = {
+      code: "held",
+      branch: "auth",
+      hold: { kind: "own", by: { branch: "auth", robotId: "r1", wholeStack: false }, carried: null, startedBy: "Jane Doe" },
+      mode: "rebaseAutosquash",
+      target: "master",
+    }
+    expect(formatReason(held)).toBe("A Safe Push of auth that Jane Doe started is running: wait until it merges, or restart it on the current branch")
+  })
+
   it("says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge", () => {
     const oauth = testRobot("oauth", "oauth", { status: "success", finishTime: 200 })
     expect(formatPushHoldReason("auth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Landed in master with oauth: nothing of it is left to push")

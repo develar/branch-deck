@@ -275,6 +275,22 @@ fn keeps_the_merge_profile_a_poll_the_details_or_the_start_named_when_a_list_whi
   );
 }
 
+/// Who started a robot never changes: a poll answered before any list said who asks keeps the person a list named
+#[test]
+fn a_poll_without_the_owner_keeps_who_started_the_robot() {
+  let named = PatronusRobot {
+    started_by: Some("Jane Doe".into()),
+    ..robot("robot", Some("auth"), PatronusRobotStatus::Running, 10)
+  };
+  let mut fact = RobotsFact::default();
+  fact.answer(at(1, 0, 1), FULL_LIST, listed(vec![named]), &mut Vec::new());
+  let polled = robot("robot", Some("auth"), PatronusRobotStatus::Canceling, 10);
+  fact.answer(at(2, 0, 2), RobotsRead::Poll, listed(vec![polled]), &mut Vec::new());
+  let kept = &fact.view().robots["robot"];
+  assert_eq!(kept.status, PatronusRobotStatus::Canceling);
+  assert_eq!(kept.started_by.as_deref(), Some("Jane Doe"));
+}
+
 /// The GitHub repository comes with a list only: a poll keeps the one the list named
 #[test]
 fn keeps_the_github_repository_of_a_list_through_a_poll() {

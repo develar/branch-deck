@@ -120,7 +120,8 @@ pub struct RobotDto {
   /// flag is off for the user and for a robot started without one
   #[serde(default)]
   pub merge_profile: Option<RobotMergeProfileDto>,
-  /// Who started the robot; only of a list
+  /// Who started the robot: the person who pressed Safe Merge in Space, commented `/patronus`, or started it in the web
+  /// UI or the CLI; in every answer (a list, `fetch-updates`, `GET /robots/{id}`), but only a list says who asks (`me`)
   #[serde(default)]
   pub owner: Option<RobotOwnerDto>,
   /// The robot a restart restarted; only of a list
@@ -135,13 +136,34 @@ pub struct RobotDto {
   pub is_emergency: bool,
 }
 
-/// The owner of a robot, and who asks (`me` of a list): the name and the email Patronus also sends are not read
+/// The owner of a robot, and who asks (`me` of a list): the email Patronus also sends is not read
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RobotOwnerDto {
-  /// `USER` or `APPLICATION`
+  /// `USER`, `APPLICATION` or `INTERNAL_SERVICE`
   #[serde(rename = "type")]
   pub kind: String,
   pub id: String,
+  /// The full name of a person ("Jane Doe"), the name of an application
+  #[serde(default)]
+  pub name: Option<String>,
+}
+
+impl RobotOwnerDto {
+  /// The same principal: its type and id, whatever name an answer gives
+  pub fn is(&self, other: &Self) -> bool {
+    self.kind == other.kind && self.id == other.id
+  }
+}
+
+/// Whose robots a list asks for
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RobotListFilter<'a> {
+  /// The robots of the token's owner (`owner=me`)
+  Mine,
+  /// Everyone's robots of one source branch (`sourceBranch`, without `refs/heads/`)
+  SourceBranch(&'a str),
+  /// Everyone's robots of the repository: only for a window of minutes, a week of the monorepo is megabytes
+  Everyone,
 }
 
 /// `GET /robots/{id}/changes`: what the robot landed
@@ -649,16 +671,22 @@ impl PatronusClient {
     &self.web_url
   }
 
-  /// The robots of the token's owner in the repository started since `start` (Unix seconds), newest first
+  /// The robots of `filter` in the repository started since `start` (Unix seconds), newest first, and who asks. No `end`:
+  /// the default of Patronus, now
   #[instrument(skip(self, token))]
-  pub async fn list_robots(&self, token: &str, repository: &str, start: u32) -> Result<Vec<RobotDto>, PatronusError> {
+  pub async fn list_robots(&self, token: &str, repository: &str, start: u32, filter: RobotListFilter<'_>) -> Result<(Option<RobotOwnerDto>, Vec<RobotDto>), PatronusError> {
     let start = format_utc_timestamp(start);
-    let query = [("owner", "me"), ("repository", repository), ("start", start.as_str())];
+    let mut query = vec![("repository", repository), ("start", start.as_str())];
+    match filter {
+      RobotListFilter::Mine => query.push(("owner", "me")),
+      RobotListFilter::SourceBranch(branch) => query.push(("sourceBranch", branch)),
+      RobotListFilter::Everyone => {}
+    }
     let url = reqwest::Url::parse_with_params(&format!("{}/app/rest/v1/robots", self.base_url), query).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
     let started = Instant::now();
     let robots: RobotsDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     info!(count = robots.robots.len(), elapsed_ms = started.elapsed().as_millis(), "listed Patronus robots");
-    Ok(robots.robots)
+    Ok((robots.me, robots.robots))
   }
 
   /// Everyone's robots into `target` of `repository` started in `[start, end)`, and who asks: no owner filter, a window

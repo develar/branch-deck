@@ -799,9 +799,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   routes read from the settings of the test, `initialStoreValues` or a `set_setting` of the page, as the app's
   commands read it from the writer), and
   `/patronus-history` adds the robots the Safe Push statistics count, the user's (owner `1`) and other people's
-  (`setPatronusHistory`), and the list filters as Patronus does (`owner=me`, `targetBranch`, `[start, end)` with an
-  end); `get_robot_stats` runs the app's body at the page's clock in UTC (`TestHost::now`, `calendar`) without the
-  object cache, its progress on the stream of its channel.
+  (`setPatronusHistory`), and the list filters as Patronus does (`owner=me`, `sourceBranch`, `targetBranch`,
+  `[start, end)` with an end; the `startedBy` of a robot of `setPatronus` is its owner, someone else); `get_robot_stats`
+  runs the app's body at the page's clock in UTC (`TestHost::now`, `calendar`) without the object cache, its progress
+  on the stream of its channel.
   `/patronus-details` the TeamCity checks and problems per robot and the failed builds per check attempt in the wire
   form (`setPatronusDetails`, `failedFastTests` and `buildsNeverStarted` in `patronus-helpers.ts`); a robot without
   them has none. `/patronus-profiles` (`setPatronusProfiles`, the `patronusProfiles` setup option) sets the merge

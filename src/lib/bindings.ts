@@ -4308,6 +4308,8 @@ export type HoldView = {
 	by: RobotOf,
 	/**  `span`: the commits the robot lands, as its content told */
 	carried: Carried | null,
+	/**  Who started the robot when it is not the user (`PatronusRobot::started_by`): the words of the hold name them */
+	startedBy?: string | null,
 };
 
 /**  Which program holds the lock, or runs an operation */
@@ -6661,6 +6663,11 @@ export type PatronusRobot = {
 	 *  list doesn't say it, a poll, the details and a start do
 	 */
 	profile?: PatronusRobotProfile | null,
+	/**
+	 *  Who started the robot when it is not the user: the full name of a person (a reviewer's Safe Merge from the merge
+	 *  request of the branch) or of an application; null for the user's own robot, or while unknown
+	 */
+	startedBy?: string | null,
 };
 
 /**  What the chip popover shows beyond the list: the merge profile, the CI checks and the problems */
@@ -10047,6 +10054,8 @@ export type SpanView = {
 	 *  tells (its commit is not in the repository)
 	 */
 	carried: Carried | null,
+	/**  Who started the robot when it is not the user (`PatronusRobot::started_by`): the words of the hold name them */
+	startedBy?: string | null,
 };
 
 export type Spread = {

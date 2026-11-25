@@ -3,25 +3,39 @@
 //! two windows of one repository within a few seconds is fetched once. The list of a check before an action of the app
 //! (a push, a start, the landing check) is never answered from a kept one: a robot started elsewhere (the IDE, `bd`)
 //! since that list would hold nothing.
+//!
+//! The robots are the user's (`owner=me`) and, whoever started them, those of the pushed branches of the user (a
+//! reviewer's Safe Merge from the merge request): Patronus filters by one source branch per list, so a full window asks
+//! one list per pushed branch, and a short incremental one asks everyone's robots of its minutes once.
 
-use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
+use crate::client::{
+  MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotListFilter, RobotOwnerDto,
+  RobotUpdateRequest,
+};
 use crate::token::{TokenLookup, TokenStamp};
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
+  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult, RobotsAsk,
 };
 use moka::sync::Cache;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fmt::Write as _;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
-use tracing::{info, instrument};
+use tokio::sync::Semaphore;
+use tracing::{Instrument as _, info, instrument};
 
 /// The window of a full list, as the Patronus default
 pub const FULL_LIST_DAYS: u32 = 7;
 /// A full list this fresh is reused instead of asking again
 const FULL_LIST_REUSE: Duration = Duration::from_secs(10);
+/// An incremental list of a window at most this long (Unix seconds) asks everyone's robots of the repository once
+/// instead of one list per pushed branch: a few robots a minute on the monorepo, against a week of them in megabytes
+pub const EVERYONE_WINDOW: u32 = 30 * 60;
+/// The lists of one read in flight at once
+const MAX_LISTS: usize = 4;
 const BACKOFF_FIRST: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(600);
 
@@ -43,15 +57,55 @@ pub(crate) struct ServiceState {
   pub(crate) progress_api_rests_until: Option<Instant>,
   /// Counts `forget_full_lists`: a full list that was in flight when the robots changed is not kept
   full_list_generation: u64,
+  /// Who asks, as the last list answered: a poll and the details, which do not say it, tell the robots of someone else
+  /// by it
+  me: Option<RobotOwnerDto>,
+}
+
+/// What a list answered: who asks, and the robots
+type Listed = (Option<RobotOwnerDto>, Vec<RobotDto>);
+
+/// One list of a read: whose robots, kept under it for the page when of the full window
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ListKey {
+  Mine,
+  Source(String),
+  Everyone,
+}
+
+impl ListKey {
+  fn filter(&self) -> RobotListFilter<'_> {
+    match self {
+      Self::Mine => RobotListFilter::Mine,
+      Self::Source(branch) => RobotListFilter::SourceBranch(branch),
+      Self::Everyone => RobotListFilter::Everyone,
+    }
+  }
+}
+
+/// A list of a read and the start of its window
+struct ListRequest {
+  key: ListKey,
+  start: u32,
+  /// Of the full window: kept for the page, and answered from a kept one with `reuse`
+  full: bool,
+}
+
+/// What the lists of a read answered: who asks, the robots of every list that answered (by id once), and the failure of
+/// the first that did not
+struct Fetched {
+  me: Option<RobotOwnerDto>,
+  robots: Vec<RobotDto>,
+  failure: Option<PatronusAvailability>,
 }
 
 /// The answers of Patronus, each with when it was fetched: the readers decide how long an answer holds. Bounded, so a
 /// long session does not grow them with every push (the least used entries go first)
 pub(crate) struct Caches {
-  /// By repository: the last full list, for the page's lists only (`FULL_LIST_REUSE`); dropped when the robots changed
-  /// (an action of the app, a poll that saw a change). Written only under the service lock (`keep_full_list`,
-  /// `forget_full_lists`)
-  full_lists: Cache<String, (Instant, Vec<RobotDto>)>,
+  /// By repository and list (the user's, a pushed branch's): the last list of the full window, for the page's lists
+  /// only (`FULL_LIST_REUSE`); dropped when the robots changed (an action of the app, a poll that saw a change). Written
+  /// only under the service lock (`keep_full_list`, `forget_full_lists`)
+  full_lists: Cache<(String, ListKey), (Instant, Listed)>,
   /// By robot id; a finished robot does not change any more
   pub(crate) details: Cache<String, (Instant, crate::actions::CachedDetails)>,
   /// By `project/repository/target`: the answer of `robot-start-supported`
@@ -62,9 +116,9 @@ pub(crate) struct Caches {
   pub(crate) merge_requests: Cache<String, (Instant, Option<crate::client::MergeRequestDto>)>,
   /// By robot id, of finished robots: the problems of every severity as Patronus answered them, which the details of
   /// the robot and its failure read too
-  pub(crate) problems: Cache<String, std::sync::Arc<[crate::client::ProblemDto]>>,
+  pub(crate) problems: Cache<String, Arc<[crate::client::ProblemDto]>>,
   /// By robot id: the problems requests in flight, one for the details of its card and the read ahead that ask at once
-  pub(crate) problem_reads: sync_utils::single_flight::SingleFlight<String, Result<std::sync::Arc<[crate::client::ProblemDto]>, PatronusError>>,
+  pub(crate) problem_reads: sync_utils::single_flight::SingleFlight<String, Result<Arc<[crate::client::ProblemDto]>, PatronusError>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
   /// By robot id: its progress of the new API (`robots/progress`), kept as a build's is
@@ -76,7 +130,7 @@ pub(crate) struct Caches {
 impl Caches {
   fn new() -> Self {
     Self {
-      full_lists: Cache::new(16),
+      full_lists: Cache::new(256),
       details: Cache::new(200),
       start_supported: Cache::new(64),
       reviews: Cache::builder().max_capacity(500).support_invalidation_closures().build(),
@@ -107,51 +161,110 @@ impl PatronusService {
     }
   }
 
-  /// The user's robots in the Space repository `repository` (e.g. `ultimate`) started since `since`, or in the last
-  /// `FULL_LIST_DAYS` days, for the page: a full list fetched within `FULL_LIST_REUSE` (another window) answers again.
-  /// With `new_api` the list names the merge profile of a robot where Patronus put it (`mergeProfile`)
-  #[instrument(skip(self))]
-  pub async fn robots(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool, new_api: bool) -> PatronusRobotsResult {
-    self.list(repository, branch_prefix, since, background, new_api, true).await
-  }
-
-  /// `robots`, answered from a kept full list only with `reuse`; a full list fetched is kept for the page
-  async fn list(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool, new_api: bool, reuse: bool) -> PatronusRobotsResult {
-    let token = match self.token(background) {
-      Ok(token) => token,
+  /// The robots of `ask` in the Space repository `repository` (e.g. `ultimate`), for the page: the user's, and those of
+  /// the pushed branches `ask.sources` whoever started them, started since `ask.since` or in the last `FULL_LIST_DAYS`
+  /// days. A list of the full window fetched within `FULL_LIST_REUSE` (another window) answers again. With `new_api` the
+  /// list names the merge profile of a robot where Patronus put it (`mergeProfile`). A list that failed fails the read:
+  /// a full one without the robots of a branch would drop them from the session
+  #[instrument(skip(self, ask), fields(since = ask.since, sources = ask.sources.len(), new_sources = ask.new_sources.len()))]
+  pub async fn robots(&self, repository: &str, branch_prefix: &str, ask: &RobotsAsk, background: bool, new_api: bool) -> PatronusRobotsResult {
+    let fetched = match self.fetch(repository, ask, background, true).await {
+      Ok(fetched) => fetched,
       Err(result) => return result,
     };
-    if reuse
-      && since.is_none()
-      && let Some(robots) = self.fresh_full_list(repository)
-    {
-      return self.to_result(&robots, branch_prefix, new_api);
-    }
-    let start = since.unwrap_or_else(|| unix_now().saturating_sub(FULL_LIST_DAYS * 86_400));
-    let generation = self.lock().full_list_generation;
-    let response = self.client.list_robots(&token.value, repository, start).await;
-    match self.settle(response, &token.stamp) {
-      Ok(robots) => {
-        if since.is_none() {
-          self.keep_full_list(repository, &robots, generation);
-        }
-        self.to_result(&robots, branch_prefix, new_api)
-      }
-      Err(availability) => PatronusRobotsResult::from(availability),
+    match fetched.failure {
+      Some(availability) => PatronusRobotsResult::from(availability),
+      None => self.to_result(&fetched.robots, branch_prefix, new_api, fetched.me.as_ref()),
     }
   }
 
-  /// The user's robots in `repository` for the check of the app's push (`repository_model::push_guard`): one full list
-  /// asked now, never a kept one (a robot the IDE or `bd` started since
-  /// the page's list holds too), as `brd push` reads its holds; none when Patronus can't be asked (no token, a rejected
-  /// token, no answer, or while the requests back off after a failure: a background request, so a Patronus that is
-  /// down holds no push up), logged: best effort, the page checked the robots it knows before
-  pub async fn robots_for_checks(&self, repository: &str, branch_prefix: &str) -> Vec<PatronusRobot> {
-    let result = self.list(repository, branch_prefix, None, true, false, false).await;
-    if !matches!(result.availability, PatronusAvailability::Available) {
-      info!(availability = ?result.availability, "no robots for the checks: nothing holds");
+  /// The lists `ask` needs, at most `MAX_LISTS` in flight, each settled (a rejected token, the backoff); answered from
+  /// a kept list of the full window only with `reuse`, and a list of the full window fetched is kept for the page.
+  /// Everyone's robots of a short window are kept only when the user's or of `ask.sources`: a robot of someone else on
+  /// a temporary ref or a branch of their own is never the robot of a branch of the user
+  async fn fetch(&self, repository: &str, ask: &RobotsAsk, background: bool, reuse: bool) -> Result<Fetched, PatronusRobotsResult> {
+    let token = self.token(background)?;
+    let requests = list_requests(ask, unix_now());
+    let generation = self.lock().full_list_generation;
+    let mut answers: Vec<(ListKey, Listed)> = Vec::new();
+    let mut pending = tokio::task::JoinSet::new();
+    let lists = Arc::new(Semaphore::new(MAX_LISTS));
+    for request in requests {
+      if reuse
+        && request.full
+        && let Some((me, robots)) = self.fresh_full_list(repository, &request.key)
+      {
+        answers.push((request.key, (me, robots)));
+        continue;
+      }
+      let (client, token, repository, lists) = (self.client.clone(), token.value.clone(), repository.to_string(), Arc::clone(&lists));
+      pending.spawn(
+        async move {
+          let _permit = lists.acquire_owned().await;
+          let response = client.list_robots(&token, &repository, request.start, request.key.filter()).await;
+          (request, response)
+        }
+        .in_current_span(),
+      );
     }
-    result.robots
+    let mut failure = None;
+    while let Some(joined) = pending.join_next().await {
+      // a list that panicked answered nothing: the read fails, as a full one without it would drop its robots
+      let Ok((request, response)) = joined else {
+        failure.get_or_insert_with(|| PatronusAvailability::Error {
+          message: "a list of the robots failed".to_string(),
+        });
+        continue;
+      };
+      match self.settle(response, &token.stamp) {
+        Ok((me, robots)) => {
+          if request.full {
+            self.keep_full_list(repository, &request.key, me.as_ref(), &robots, generation);
+          }
+          answers.push((request.key, (me, robots)));
+        }
+        Err(availability) => {
+          failure.get_or_insert(availability);
+        }
+      }
+    }
+    let me = answers.iter().find_map(|(_, (me, _))| me.clone()).or_else(|| self.me());
+    if let Some(me) = &me {
+      self.lock().me = Some(me.clone());
+    }
+    let sources: HashSet<&str> = ask.sources.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let mut robots = Vec::new();
+    for (key, (_, listed)) in answers {
+      for robot in listed {
+        let kept = key != ListKey::Everyone || is_mine(&robot, me.as_ref()) || source_branch(&robot).is_some_and(|branch| sources.contains(branch));
+        if kept && seen.insert(robot.id.clone()) {
+          robots.push(robot);
+        }
+      }
+    }
+    Ok(Fetched { me, robots, failure })
+  }
+
+  /// The robots for the check of the app's push (`repository_model::push_guard`): the user's and those of `sources`
+  /// (the pushed branches that may hold it) whoever started them, of the full window asked now, never kept ones (a robot
+  /// the IDE, `bd` or a reviewer started since the page's list holds too), as `brd push` reads its holds; the lists it
+  /// fetched answer the page's next list. Best effort: of a list that failed, none, and none when Patronus can't be asked
+  /// (no token, a rejected token, or while the requests back off after a failure: a background request, so a Patronus
+  /// that is down holds no push up), logged; the page checked the robots it knows before
+  pub async fn robots_for_checks(&self, repository: &str, branch_prefix: &str, sources: Vec<String>) -> Vec<PatronusRobot> {
+    match self.fetch(repository, &RobotsAsk::full(sources), true, false).await {
+      Ok(fetched) => {
+        if let Some(availability) = &fetched.failure {
+          info!(availability = ?availability, "a list for the checks failed: its robots hold nothing");
+        }
+        self.to_result(&fetched.robots, branch_prefix, false, fetched.me.as_ref()).robots
+      }
+      Err(result) => {
+        info!(availability = ?result.availability, "no robots for the checks: nothing holds");
+        Vec::new()
+      }
+    }
   }
 
   /// The robots of `known` whose status changed; the others are not in the result. Always a background request.
@@ -185,7 +298,7 @@ impl PatronusService {
           // the robots changed: a kept full list, or one in flight, would show a robot that finished running
           self.forget_full_lists();
         }
-        self.to_result(&robots, branch_prefix, false)
+        self.to_result(&robots, branch_prefix, false, self.me().as_ref())
       }
       Err(availability) => PatronusRobotsResult::from(availability),
     }
@@ -240,19 +353,27 @@ impl PatronusService {
     }
   }
 
-  fn fresh_full_list(&self, repository: &str) -> Option<Vec<RobotDto>> {
-    let (fetched_at, robots) = self.caches.full_lists.get(repository)?;
-    (fetched_at.elapsed() < FULL_LIST_REUSE).then_some(robots)
+  fn fresh_full_list(&self, repository: &str, key: &ListKey) -> Option<Listed> {
+    let (fetched_at, listed) = self.caches.full_lists.get(&(repository.to_string(), key.clone()))?;
+    (fetched_at.elapsed() < FULL_LIST_REUSE).then_some(listed)
   }
 
-  /// Keeps the full list `robots` of `repository` fetched at generation `generation` of `forget_full_lists`, unless the
-  /// robots changed while it was in flight (a cancel from another window, a poll that saw a robot finish): that list
-  /// would show the canceled robot running until the next one
-  fn keep_full_list(&self, repository: &str, robots: &[RobotDto], generation: u64) {
+  /// Keeps the list `key` of the full window of `repository` fetched at generation `generation` of
+  /// `forget_full_lists`, unless the robots changed while it was in flight (a cancel from another window, a poll that
+  /// saw a robot finish): that list would show the canceled robot running until the next one
+  fn keep_full_list(&self, repository: &str, key: &ListKey, me: Option<&RobotOwnerDto>, robots: &[RobotDto], generation: u64) {
     let state = self.lock();
     if state.full_list_generation == generation {
-      self.caches.full_lists.insert(repository.to_string(), (Instant::now(), robots.to_vec()));
+      self
+        .caches
+        .full_lists
+        .insert((repository.to_string(), key.clone()), (Instant::now(), (me.cloned(), robots.to_vec())));
     }
+  }
+
+  /// Who asks, as the last list answered; None before the first
+  pub(crate) fn me(&self) -> Option<RobotOwnerDto> {
+    self.lock().me.clone()
   }
 
   /// A start, a restart, a cancel or a poll changed the robots, or a reconcile found the robot of a start whose answer was
@@ -295,12 +416,13 @@ impl PatronusService {
     Some(format!("{} {}", self.client.base_url(), to_hex(&digest[..16])))
   }
 
-  /// `listed_profiles`: the new API, the profile a list names (`mergeProfile`) counts
-  fn to_result(&self, robots: &[RobotDto], branch_prefix: &str, listed_profiles: bool) -> PatronusRobotsResult {
+  /// `listed_profiles`: the new API, the profile a list names (`mergeProfile`) counts; `me`: who asks, which tells the
+  /// robots someone else started
+  fn to_result(&self, robots: &[RobotDto], branch_prefix: &str, listed_profiles: bool, me: Option<&RobotOwnerDto>) -> PatronusRobotsResult {
     let mut robots: Vec<PatronusRobot> = robots
       .iter()
       .map(|robot| {
-        let mut known = to_robot(robot, branch_prefix, &self.client);
+        let mut known = to_robot(robot, branch_prefix, &self.client, me);
         if listed_profiles && known.profile.is_none() {
           known.profile = listed_profile(robot);
         }
@@ -321,9 +443,10 @@ impl PatronusService {
 }
 
 /// The robot as the app shows it: its source branch named by its kind, a virtual branch (`branch_name`) or the stack
-/// branch of a whole stack (`stack_root`); neither for another branch or a temporary ref
-pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) -> PatronusRobot {
-  let source = robot.source_branch.as_deref().map(|branch| branch.strip_prefix("refs/heads/").unwrap_or(branch));
+/// branch of a whole stack (`stack_root`); neither for another branch or a temporary ref. Of an owner who is not `me`
+/// it names who started it (`started_by`); without `me` (no list answered yet) none
+pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient, me: Option<&RobotOwnerDto>) -> PatronusRobot {
+  let source = source_branch(robot);
   let named = |kind: BranchKind| source.and_then(|branch| strip_branch_namespace(branch, branch_prefix, kind)).map(str::to_string);
   PatronusRobot {
     id: robot.id.clone(),
@@ -340,6 +463,60 @@ pub fn to_robot(robot: &RobotDto, branch_prefix: &str, client: &PatronusClient) 
     url: client.robot_url(&robot.id),
     pull_request: robot.github_pr_url.as_deref().and_then(parse_pull_request_link),
     profile: robot_profile(robot),
+    started_by: started_by(robot, me),
+  }
+}
+
+/// The source branch of a robot without `refs/heads/`
+fn source_branch(robot: &RobotDto) -> Option<&str> {
+  robot.source_branch.as_deref().map(|branch| branch.strip_prefix("refs/heads/").unwrap_or(branch))
+}
+
+/// The robot is of who asks; unknown (no `me`, no owner) is not
+fn is_mine(robot: &RobotDto, me: Option<&RobotOwnerDto>) -> bool {
+  matches!((robot.owner.as_ref(), me), (Some(owner), Some(me)) if owner.is(me))
+}
+
+/// The name of the owner who is not `me`; of an owner without a name, its id
+fn started_by(robot: &RobotDto, me: Option<&RobotOwnerDto>) -> Option<String> {
+  let (owner, me) = (robot.owner.as_ref()?, me?);
+  (!owner.is(me)).then(|| owner.name.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| owner.id.clone()))
+}
+
+/// The lists of `ask` at `now`: of no pushed branch the user's robots of its window; of a short incremental window
+/// everyone's robots of it once, with the full window of the branches pushed since the last list; else the full window
+/// of the user's robots and of each pushed branch
+fn list_requests(ask: &RobotsAsk, now: u32) -> Vec<ListRequest> {
+  let full_start = now.saturating_sub(FULL_LIST_DAYS * 86_400);
+  let full = |key: ListKey| ListRequest {
+    key,
+    start: full_start,
+    full: true,
+  };
+  let sources = |branches: &[String]| branches.iter().map(|branch| full(ListKey::Source(branch.clone()))).collect::<Vec<_>>();
+  match ask.since {
+    _ if ask.sources.is_empty() => vec![match ask.since {
+      Some(since) => ListRequest {
+        key: ListKey::Mine,
+        start: since,
+        full: false,
+      },
+      None => full(ListKey::Mine),
+    }],
+    Some(since) if now.saturating_sub(since) <= EVERYONE_WINDOW => {
+      let mut requests = vec![ListRequest {
+        key: ListKey::Everyone,
+        start: since,
+        full: false,
+      }];
+      requests.extend(sources(&ask.new_sources));
+      requests
+    }
+    _ => {
+      let mut requests = vec![full(ListKey::Mine)];
+      requests.extend(sources(&ask.sources));
+      requests
+    }
   }
 }
 

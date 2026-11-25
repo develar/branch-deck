@@ -24,6 +24,7 @@ pub fn robot(id: &str, branch_name: Option<&str>, status: PatronusRobotStatus, s
     url: format!("https://patronus/robot/{id}"),
     pull_request: None,
     profile: None,
+    started_by: None,
   }
 }
 
@@ -186,6 +187,7 @@ pub fn view_of_every_field() -> crate::repository_view::PatronusView {
         kind: HoldKind::Landed,
         by: robot_of("auth", "r1"),
         carried: None,
+        started_by: None,
       }),
       replaces: Some("r0".to_string()),
       ..BranchLanding::default()

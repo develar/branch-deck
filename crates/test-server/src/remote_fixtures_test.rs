@@ -5,7 +5,7 @@ use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
 use patronus::actions::progress_of;
-use patronus::client::{PatronusClient, RobotDto, RobotProgressDto};
+use patronus::client::{PatronusClient, RobotDto, RobotOwnerDto, RobotProgressDto};
 use patronus::service::to_robot;
 use patronus::stats::{owner_key, to_history_robot};
 use pretty_assertions::assert_eq;
@@ -28,11 +28,13 @@ fn robot(id: &str, client: &PatronusClient) -> PatronusRobot {
     url: client.robot_url(id),
     pull_request: None,
     profile: None,
+    started_by: None,
   }
 }
 
 /// Each fixture robot, written in the wire form of the fake, reads back through the real parser and `to_robot` as the
-/// fixture: the URL is the one the client derives
+/// fixture: the URL is the one the client derives, and of a robot someone else started its owner is that person, not
+/// who asks
 #[test]
 fn a_fixture_robot_reads_back_through_the_real_parser() {
   let client = PatronusClient::new("http://127.0.0.1:1", "test");
@@ -66,10 +68,15 @@ fn a_fixture_robot_reads_back_through_the_real_parser() {
       }),
       ..robot("canceled", &client)
     },
+    PatronusRobot {
+      started_by: Some("Jane Doe".to_string()),
+      ..robot("reviewers", &client)
+    },
   ];
+  let me: RobotOwnerDto = serde_json::from_value(json!({"type": "USER", "id": "1", "name": "Me"})).unwrap();
   for fixture in robots {
     let wire: RobotDto = serde_json::from_value(fixture_robot(&fixture, "user-name").unwrap()).unwrap();
-    assert_eq!(to_robot(&wire, "user-name", &client), fixture);
+    assert_eq!(to_robot(&wire, "user-name", &client, Some(&me)), fixture);
   }
 }
 
@@ -506,14 +513,7 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
 
   // the row offers the push: the session lists no robot of it yet
-  let execute = execute_request(&client, addr, &repository_path, &push_intent("test-branch", None)).await;
-  let answer = post(&client, addr, "/invoke/execute", execute).await;
-  assert_eq!(
-    (answer["status"].clone(), answer["error"]["code"].clone()),
-    (json!("error"), json!("robot_running")),
-    "{answer}"
-  );
-  let refusal = answer["error"]["message"].as_str().unwrap();
+  let refusal = refused_push(&client, addr, &repository_path).await;
   assert!(
     refusal.contains(
       "Nothing was pushed: A Safe Push of test-branch is running: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch ("
@@ -528,6 +528,62 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
   assert_eq!(String::from_utf8(remote.stdout).unwrap(), "", "nothing reached the remote");
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["requests"]["list"], 1, "one full list of the user's robots");
+}
+
+/// A push of a pushed branch whose Safe Push someone else runs (a reviewer's Safe Merge from the merge request, which no
+/// list of the user's robots has) is refused as for the user's own, naming who started it: the check lists the robots of
+/// the pushed branches that may hold the push, whoever started them, before git pushes anything
+#[tokio::test]
+async fn a_push_into_a_branch_whose_safe_push_someone_else_runs_is_refused_before_git_pushes() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  let pushed = git_command()
+    .args(["push", "origin", "user-name/virtual/test-branch"])
+    .current_dir(&repository_path)
+    .output()
+    .unwrap();
+  assert!(pushed.status.success(), "{}", String::from_utf8_lossy(&pushed.stderr));
+  sync(&client, addr, &repository_path).await;
+  let mut robots = running_on("test-branch");
+  robots["robots"][0]["startedBy"] = json!("Jane Doe");
+  post(&client, addr, &format!("/repositories/{id}/patronus"), robots).await;
+  let before = remote_tip(&repository_path);
+
+  let refusal = refused_push(&client, addr, &repository_path).await;
+  assert!(
+    refusal.contains("Nothing was pushed: A Safe Push of test-branch that Jane Doe started is running: a push moves the branch it took its commit from"),
+    "{refusal}"
+  );
+  assert_eq!(remote_tip(&repository_path), before, "nothing reached the remote");
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  let queries: Vec<String> = log["requests"]["listQueries"]
+    .as_array()
+    .map_or_default(|queries| queries.iter().filter_map(|query| query["sourceBranch"].as_str().map(str::to_string)).collect());
+  assert!(
+    queries.contains(&"user-name/virtual/test-branch".to_string()),
+    "the check listed the robots of the pushed branch: {log}"
+  );
+}
+
+/// The message of the refusal of the push of `test-branch` a running Safe Push holds (`robot_running`)
+async fn refused_push(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str) -> String {
+  let execute = execute_request(client, addr, repository_path, &push_intent("test-branch", None)).await;
+  let answer = post(client, addr, "/invoke/execute", execute).await;
+  assert_eq!(
+    (answer["status"].clone(), answer["error"]["code"].clone()),
+    (json!("error"), json!("robot_running")),
+    "{answer}"
+  );
+  answer["error"]["message"].as_str().unwrap().to_string()
+}
+
+/// The tip of the remote branch of `test-branch` in the bare origin of the repository at `repository_path`
+fn remote_tip(repository_path: &str) -> String {
+  let output = git_command()
+    .args(["ls-remote", "origin", "refs/heads/user-name/virtual/test-branch"])
+    .current_dir(repository_path)
+    .output()
+    .unwrap();
+  String::from_utf8(output.stdout).unwrap()
 }
 
 /// A start whose build needs a branch outside what it lands is refused by `execute` with every refusal of the landing

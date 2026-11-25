@@ -1120,6 +1120,7 @@ fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
       kind: HoldKind::Span,
       by: robot_of("login", "login-run"),
       carried: None,
+      started_by: None,
     }),
     ..BranchLanding::default()
   };
@@ -1410,6 +1411,7 @@ fn merged_robot_row(name: &str, robot_id: &str, by: Option<(RobotOf, &[&str])>) 
     kind: HoldKind::Landed,
     by: by.clone(),
     carried: None,
+    started_by: None,
   });
   BranchPatronus {
     robot_id: Some(robot_id.to_string()),
@@ -1668,6 +1670,7 @@ fn a_start_reads_no_landing_and_no_hold_of_a_branch_whose_commits_changed_since_
     kind: HoldKind::Landed,
     by: by.clone(),
     carried: None,
+    started_by: None,
   };
   let view = PatronusView {
     branches: BTreeMap::from([("auth".to_string(), held_branch(&by, Some((false, &["a1"])), hold.clone()))]),
@@ -1703,6 +1706,7 @@ fn a_start_reads_the_holds_of_the_view_as_every_reader_does() {
       kind,
       by: robot_of("login", "r"),
       carried: None,
+      started_by: None,
     };
     let landed = (kind == HoldKind::Landed).then_some((true, &["l1"][..]));
     let facts = BranchPatronus {
@@ -1775,6 +1779,7 @@ fn the_push_of_an_action_is_refused_by_its_chain_as_the_table_is() {
           kind: HoldKind::Own,
           by: robot_of("login", "r"),
           carried: None,
+          started_by: None,
         }),
         ..BranchLanding::default()
       },
@@ -1926,6 +1931,7 @@ fn the_view_says_whether_the_robot_that_holds_a_branch_of_a_fix_lands_it_or_fail
         kind: HoldKind::Own,
         by: by.clone(),
         carried: None,
+        started_by: None,
       }),
       ..BranchLanding::default()
     },
@@ -2239,6 +2245,7 @@ fn the_step_of_a_whole_stack_names_its_own_robot_only_while_it_holds_the_stack_b
       kind: HoldKind::Own,
       by: whole_stack_robot_of("air", "whole"),
       carried: None,
+      started_by: None,
     })
   );
   assert_eq!(hold_of(PatronusRobotStatus::Failure), None);

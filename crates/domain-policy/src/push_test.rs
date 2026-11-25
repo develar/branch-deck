@@ -78,6 +78,7 @@ fn a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_bu
     kind,
     by: robot_of("login", "login-run"),
     carried: None,
+    started_by: None,
   };
   let (span, landed) = (hold(HoldKind::Span), hold(HoldKind::Landed));
   assert_eq!(kept_by(true, true, Some(&span), None, true), Some(Kept::Parked));

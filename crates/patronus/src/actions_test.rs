@@ -4,7 +4,7 @@ use crate::fake_patronus::start_fake;
 use crate::service_test::{service, token};
 use crate::teamcity_cli::TeamCityCli;
 use crate::token::TokenLookup;
-use domain_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus};
+use domain_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, RobotsAsk};
 use domain_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailureKind, RobotFailureProblem};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -575,7 +575,7 @@ async fn an_action_without_a_token_tells_how_to_log_in() {
   assert_eq!(service.cancel_robot("me", "running").await.unwrap_err(), "Run ./safePush.cmd once to log in to Patronus");
   assert_eq!(fake.canceled.lock().unwrap().len(), 0);
   // the checks of a push see no robots then
-  assert_eq!(service.robots_for_checks("ultimate", "me").await, Vec::new());
+  assert_eq!(service.robots_for_checks("ultimate", "me", Vec::new()).await, Vec::new());
 }
 
 fn failed_check(name: &str, build_id: &str, attempt: u32, limit: u32) -> FailedCheck {
@@ -903,22 +903,22 @@ async fn a_start_a_restart_and_a_cancel_forget_the_full_list() {
   let (service, _) = service(client, token("t"));
   let statuses =
     |result: domain_types::patronus::PatronusRobotsResult| -> Vec<(String, PatronusRobotStatus)> { result.robots.into_iter().map(|robot| (robot.id, robot.status)).collect() };
-  assert_eq!(statuses(service.robots("ultimate", "me", None, false, false).await), []);
+  assert_eq!(statuses(service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await), []);
   let source = "refs/heads/me/virtual/IJPL-1";
   service
     .start_robot("ultimate", "me", source, "master", PatronusPushMode::RebaseAutosquash, None, None)
     .await
     .unwrap();
   assert_eq!(
-    statuses(service.robots("ultimate", "me", None, false, false).await),
+    statuses(service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await),
     [("started-1".to_string(), PatronusRobotStatus::Running)]
   );
   service.cancel_robot("me", "started-1").await.unwrap();
   assert_eq!(
-    statuses(service.robots("ultimate", "me", None, false, false).await),
+    statuses(service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await),
     [("started-1".to_string(), PatronusRobotStatus::Canceling)]
   );
   service.restart_robot("me", "started-1").await.unwrap();
-  assert_eq!(service.robots("ultimate", "me", None, false, false).await.robots.len(), 2);
+  assert_eq!(service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await.robots.len(), 2);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 4);
 }

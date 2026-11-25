@@ -1160,7 +1160,7 @@ impl<'c> AppSession<'c> {
     let robots = match &space {
       Some(space) => PatronusRobotsResult {
         github_repository: self.github.as_ref().map(GitHubRepository::full_name),
-        ..runtime.block_on(service.robots(&space.name, &context.prefix, None, false, context.patronus_new_api))
+        ..runtime.block_on(service.robots(&space.name, &context.prefix, &domain_types::patronus::RobotsAsk::mine(), false, context.patronus_new_api))
       },
       None => PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
     };

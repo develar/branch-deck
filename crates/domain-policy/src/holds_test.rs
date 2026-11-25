@@ -24,6 +24,7 @@ fn span(by: RobotOf) -> SpanView {
       commits: vec!["a1".to_string()],
       amended: Vec::new(),
     }),
+    started_by: None,
   }
 }
 
@@ -279,6 +280,7 @@ fn a_hold_of_a_branch_of_a_fix_is_a_wait_for_its_robot_unless_it_fails_or_landed
     kind,
     by: by.clone(),
     carried: None,
+    started_by: None,
   };
   let cases = [
     (HoldKind::Span, false, FixHold::Lands { by: by.clone() }),
@@ -292,4 +294,25 @@ fn a_hold_of_a_branch_of_a_fix_is_a_wait_for_its_robot_unless_it_fails_or_landed
   for (kind, failing, expected) in cases {
     assert_eq!(fix_hold(&hold(kind), failing), expected, "{kind:?}, failing {failing}");
   }
+}
+
+/// A running Safe Push someone else started on the branch (a reviewer's Safe Merge from the merge request) holds it as
+/// the user's own does, and the hold names who started it; of a branch built on it, as its span
+#[test]
+fn a_robot_someone_else_started_holds_the_branch_as_the_users_own() {
+  let reviewers = PatronusRobot {
+    started_by: Some("Jane Doe".to_string()),
+    ..with_status("reviewers", "auth", PatronusRobotStatus::Running)
+  };
+  let hold = branch_hold("auth", None, Some(&reviewers), None).unwrap();
+  assert_eq!(
+    (hold.kind, hold.by.robot_id.as_str(), hold.started_by.as_deref()),
+    (HoldKind::Own, "reviewers", Some("Jane Doe"))
+  );
+  let by_span = SpanView {
+    started_by: Some("Jane Doe".to_string()),
+    ..span(robot_of("login", "l"))
+  };
+  let hold = branch_hold("auth", None, None, Some(&by_span)).unwrap();
+  assert_eq!((hold.kind, hold.started_by.as_deref()), (HoldKind::Span, Some("Jane Doe")));
 }

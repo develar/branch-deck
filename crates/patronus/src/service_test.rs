@@ -2,7 +2,9 @@ use crate::client::{LIST_TIMEOUT, PatronusClient, RobotDto};
 use crate::fake_patronus::{robot_json, start_fake};
 use crate::service::{PatronusService, robot_profile, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus};
+use domain_types::patronus::{
+  KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, RobotsAsk,
+};
 use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -27,7 +29,7 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
   let base_url = client.base_url().to_string();
   let (service, _) = service(client, token("t"));
 
-  let result = service.robots("ultimate", "me", None, false, false).await;
+  let result = service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert_eq!(result.availability, PatronusAvailability::Available);
   assert_eq!(
     result.robots,
@@ -49,6 +51,7 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
         pull_request: None,
         // a list has no options: the profile is not known
         profile: None,
+        started_by: None,
       },
       PatronusRobot {
         id: "older".to_string(),
@@ -71,7 +74,7 @@ async fn with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot
   let (fake, client) = start_fake().await;
   fake.list_profiles.store(true, Ordering::SeqCst);
   let (service, _) = service(client, token("t"));
-  let result = service.robots("ultimate", "me", None, false, true).await;
+  let result = service.robots("ultimate", "me", &RobotsAsk::mine(), false, true).await;
   let profile = |id: &str| result.robots.iter().find(|robot| robot.id == id).unwrap().profile.clone();
   assert_eq!(
     profile("older"),
@@ -88,7 +91,7 @@ async fn with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot
   let (fake, client) = start_fake().await;
   fake.list_profiles.store(true, Ordering::SeqCst);
   let (other, _) = crate::service_test::service(client, token("t"));
-  let result = other.robots("ultimate", "me", None, false, false).await;
+  let result = other.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert!(result.robots.iter().all(|robot| robot.profile.is_none()));
 }
 
@@ -100,7 +103,7 @@ fn a_robot_started_by_a_pull_request_comment_links_the_pull_request() {
     "type": "GITHUB_PR", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null, "spaceReviewKey": null,
     "githubPrUrl": "https://github.com/acme/monorepo/pull/1031", "githubPrLabel": "acme/monorepo#1031"}"#;
   let robot: RobotDto = serde_json::from_str(json).unwrap();
-  let robot = to_robot(&robot, "me", &PatronusClient::new("http://patronus".to_string(), "test"));
+  let robot = to_robot(&robot, "me", &PatronusClient::new("http://patronus".to_string(), "test"), None);
   assert_eq!(robot.branch_name.as_deref(), Some("IJPL-1"));
   assert_eq!(
     robot.pull_request,
@@ -121,7 +124,12 @@ fn a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch() {
       "targetBranch": "master", "startDateTime": "2026-10-15T00:07:08Z", "finishDateTime": null, "status": "RUNNING",
       "type": "WEB_UI", "pushMode": "REBASE_AUTOSQUASH", "cancellationReason": null}}"#
     );
-    to_robot(&serde_json::from_str(&json).unwrap(), "me", &PatronusClient::new("http://patronus".to_string(), "test"))
+    to_robot(
+      &serde_json::from_str(&json).unwrap(),
+      "me",
+      &PatronusClient::new("http://patronus".to_string(), "test"),
+      None,
+    )
   };
   let named = |robot: PatronusRobot| (robot.branch_name, robot.stack_root);
   assert_eq!(named(robot_on("refs/heads/me/stack/air")), (None, Some("air".to_string())));
@@ -157,11 +165,11 @@ async fn reuses_a_fresh_full_list_but_not_an_incremental_one() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
 
-  service.robots("ultimate", "me", None, false, false).await;
-  service.robots("ultimate", "other", None, true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
+  service.robots("ultimate", "other", &RobotsAsk::mine(), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "a second window of the repository reuses the list");
 
-  service.robots("ultimate", "me", Some(1_791_970_000), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1_791_970_000), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
   assert_eq!(fake.last_query.lock().unwrap().get("start").map(String::as_str), Some("2026-10-14T09:26:40Z"));
 }
@@ -170,7 +178,7 @@ async fn reuses_a_fresh_full_list_but_not_an_incremental_one() {
 async fn sends_nothing_without_a_token() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, TokenLookup::Missing);
-  let result = service.robots("ultimate", "me", None, false, false).await;
+  let result = service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert_eq!(result.availability, PatronusAvailability::NotLoggedIn);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 0);
 }
@@ -181,8 +189,14 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
   let (service, current) = service(client, token("dead"));
   fake.set_status(401);
 
-  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::NotLoggedIn);
-  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::NotLoggedIn);
+  assert_eq!(
+    service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await.availability,
+    PatronusAvailability::NotLoggedIn
+  );
+  assert_eq!(
+    service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await.availability,
+    PatronusAvailability::NotLoggedIn
+  );
   let known = [KnownRobotStatus {
     id: "newer".to_string(),
     status: PatronusRobotStatus::Running,
@@ -195,7 +209,7 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
   );
 
   // the user asks: sent again
-  service.robots("ultimate", "me", Some(1), false, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 
   // the CLI wrote a new token
@@ -204,7 +218,10 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
     value: "fresh".to_string(),
     stamp: TokenStamp::File(Some(std::time::SystemTime::now())),
   });
-  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::Available);
+  assert_eq!(
+    service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await.availability,
+    PatronusAvailability::Available
+  );
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
 }
 
@@ -214,7 +231,7 @@ async fn background_requests_back_off_after_a_server_failure() {
   let (service, _) = service(client, token("t"));
   fake.set_status(503);
 
-  let failed = service.robots("ultimate", "me", Some(1), true, false).await;
+  let failed = service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   assert!(
     matches!(failed.availability, PatronusAvailability::Error { ref message } if message == "no such repository"),
     "{failed:?}"
@@ -222,16 +239,19 @@ async fn background_requests_back_off_after_a_server_failure() {
   // a GET is asked once more after a transient failure
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 
-  let skipped = service.robots("ultimate", "me", Some(1), true, false).await;
+  let skipped = service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   assert_eq!(skipped.availability, failed.availability);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "no request while backing off");
 
   // the user asks anyway
   fake.set_status(200);
-  assert_eq!(service.robots("ultimate", "me", Some(1), false, false).await.availability, PatronusAvailability::Available);
+  assert_eq!(
+    service.robots("ultimate", "me", &RobotsAsk::mine_since(1), false, false).await.availability,
+    PatronusAvailability::Available
+  );
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
   // and the backoff is over
-  service.robots("ultimate", "me", Some(1), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 4);
 }
 
@@ -243,14 +263,15 @@ async fn a_list_that_timed_out_is_not_asked_again_and_backs_off() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   let held = fake.hold("GET", "/app/rest/v1/robots");
-  let mut list = std::pin::pin!(service.robots("ultimate", "me", Some(1), true, false));
+  let ask = RobotsAsk::mine_since(1);
+  let mut list = std::pin::pin!(service.robots("ultimate", "me", &ask, true, false));
   held.reached_by(&mut list).await;
   tokio::time::pause();
   tokio::time::advance(LIST_TIMEOUT).await;
   let failed = list.await;
   assert!(matches!(failed.availability, PatronusAvailability::Error { .. }), "{failed:?}");
   assert_eq!(held.arrivals(), 1);
-  service.robots("ultimate", "me", Some(1), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   assert_eq!(held.arrivals(), 1, "no request while backing off");
 }
 
@@ -259,8 +280,8 @@ async fn a_client_error_is_not_asked_again() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   fake.set_status(400);
-  service.robots("ultimate", "me", Some(1), true, false).await;
-  service.robots("ultimate", "me", Some(1), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "no retry and no backoff for a 4xx");
 }
 
@@ -314,17 +335,17 @@ async fn the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere() 
 
   // the page loads: no robot
   *fake.robots.lock().unwrap() = Some(Vec::new());
-  assert_eq!(service.robots("ultimate", "me", None, false, false).await.robots, Vec::new());
+  assert_eq!(service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await.robots, Vec::new());
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
 
   // `brd safe-push` starts a robot, which no poll of the page knows yet
   let started = robot_json("started", "RUNNING", "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
   *fake.robots.lock().unwrap() = Some(vec![started]);
-  assert_eq!(ids(&service.robots_for_checks("ultimate", "me").await), ["started"]);
+  assert_eq!(ids(&service.robots_for_checks("ultimate", "me", Vec::new()).await), ["started"]);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the check asked, within the reuse window of the page's list");
 
   // the page's list right after is the one the check fetched
-  assert_eq!(ids(&service.robots("ultimate", "other", None, true, false).await.robots), ["started"]);
+  assert_eq!(ids(&service.robots("ultimate", "other", &RobotsAsk::mine(), true, false).await.robots), ["started"]);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 }
 
@@ -340,7 +361,7 @@ async fn a_poll_that_sees_a_change_drops_the_kept_full_list() {
   let newer = |status: &str| robot_json("newer", status, "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
 
   *fake.robots.lock().unwrap() = Some(vec![newer("RUNNING")]);
-  let listed = service.robots("ultimate", "me", None, false, false).await.robots;
+  let listed = service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await.robots;
   assert_eq!(status_of(&listed, "newer"), PatronusRobotStatus::Running);
   // the robot finishes; the page's poll sees it
   *fake.robots.lock().unwrap() = Some(vec![newer("SUCCESS")]);
@@ -350,7 +371,7 @@ async fn a_poll_that_sees_a_change_drops_the_kept_full_list() {
   }];
   assert_eq!(status_of(&service.poll("me", &known).await.robots, "newer"), PatronusRobotStatus::Success);
 
-  let listed = service.robots("ultimate", "me", None, false, false).await.robots;
+  let listed = service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await.robots;
   assert_eq!(status_of(&listed, "newer"), PatronusRobotStatus::Success);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of before the poll is not reused");
 
@@ -360,7 +381,7 @@ async fn a_poll_that_sees_a_change_drops_the_kept_full_list() {
     status: PatronusRobotStatus::Success,
   }];
   assert_eq!(service.poll("me", &known).await.robots, Vec::new());
-  service.robots("ultimate", "me", None, false, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 }
 
@@ -371,11 +392,11 @@ async fn the_checks_send_nothing_while_the_requests_back_off() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   fake.set_status(503);
-  service.robots("ultimate", "me", Some(1), true, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine_since(1), true, false).await;
   let sent = fake.list_calls.load(Ordering::SeqCst);
 
   fake.set_status(200);
-  assert_eq!(service.robots_for_checks("ultimate", "me").await, Vec::new());
+  assert_eq!(service.robots_for_checks("ultimate", "me", Vec::new()).await, Vec::new());
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), sent, "no request while backing off");
 }
 
@@ -389,11 +410,133 @@ async fn a_full_list_in_flight_when_the_robots_changed_is_not_kept() {
   // the robots change while Patronus answers the list
   let changing = Arc::clone(&service);
   *fake.robots_hook.lock().unwrap() = Some(Arc::new(move |_| changing.forget_full_lists()));
-  service.robots("ultimate", "me", None, false, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   *fake.robots_hook.lock().unwrap() = None;
 
-  service.robots("ultimate", "me", None, false, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of before the change is not reused");
-  service.robots("ultimate", "me", None, false, false).await;
+  service.robots("ultimate", "me", &RobotsAsk::mine(), false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of after it is");
+}
+
+/// A robot of someone else: `robot_json` with the owner Jane Doe (id 2)
+fn someone_elses(id: &str, status: &str, source_branch: &str, start: &str) -> serde_json::Value {
+  let mut robot = robot_json(id, status, source_branch, start);
+  robot["owner"] = serde_json::json!({"type": "USER", "id": "2", "name": "Jane Doe", "email": "jane.doe@example.com"});
+  robot["type"] = serde_json::json!("SPACE_SAFE_MERGE");
+  robot
+}
+
+/// A full list asks the user's robots and, whoever started them, those of each pushed branch, one list per branch
+/// (Patronus filters by one source branch): a reviewer's Safe Merge from the merge request of a pushed branch is the
+/// branch's robot and names who started it, while the user's own robots name nobody
+#[tokio::test]
+async fn a_full_list_asks_the_users_robots_and_those_of_each_pushed_branch() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  *fake.robots.lock().unwrap() = Some(vec![
+    robot_json("mine", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
+    someone_elses("reviewers", "RUNNING", "refs/heads/me/virtual/IJPL-2", "2026-10-14T09:30:00Z"),
+    someone_elses("unrelated", "RUNNING", "refs/heads/jane/virtual/IJPL-9", "2026-10-14T09:31:00Z"),
+  ]);
+  let ask = RobotsAsk::full(vec!["me/virtual/IJPL-1".to_string(), "me/virtual/IJPL-2".to_string()]);
+  let result = service.robots("ultimate", "me", &ask, false, false).await;
+  assert_eq!(result.availability, PatronusAvailability::Available);
+  let named: Vec<(String, Option<String>, Option<String>)> = result
+    .robots
+    .iter()
+    .map(|robot| (robot.id.clone(), robot.branch_name.clone(), robot.started_by.clone()))
+    .collect();
+  assert_eq!(
+    named,
+    [
+      ("reviewers".to_string(), Some("IJPL-2".to_string()), Some("Jane Doe".to_string())),
+      ("mine".to_string(), Some("IJPL-1".to_string()), None),
+    ]
+  );
+  assert_eq!(fake.take_list_kinds(), ["owner=me", "sourceBranch=me/virtual/IJPL-1", "sourceBranch=me/virtual/IJPL-2"]);
+}
+
+/// A short incremental list asks everyone's robots of its minutes once instead of one list per pushed branch, with
+/// the whole window of a branch pushed since the last list; of everyone's it keeps the user's and those of the pushed
+/// branches: a robot of someone else on a temporary ref or on a branch of their own is never matched to a branch
+#[tokio::test]
+async fn a_short_incremental_list_asks_everyone_once_and_keeps_the_users_robots_and_those_of_the_pushed_branches() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  *fake.robots.lock().unwrap() = Some(vec![
+    robot_json("mine-cli", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z"),
+    someone_elses("reviewers", "RUNNING", "refs/heads/me/virtual/IJPL-2", "2026-10-14T09:31:00Z"),
+    someone_elses("their-cli", "RUNNING", "refs/patronus/safepushcli/ef56ab78", "2026-10-14T09:32:00Z"),
+    someone_elses("their-branch", "RUNNING", "refs/heads/jane/virtual/IJPL-9", "2026-10-14T09:33:00Z"),
+  ]);
+  let since = sync_utils::timestamp::unix_now() - 300;
+  let ask = RobotsAsk {
+    since: Some(since),
+    sources: vec!["me/virtual/IJPL-2".to_string(), "me/virtual/IJPL-3".to_string()],
+    new_sources: vec!["me/virtual/IJPL-3".to_string()],
+  };
+  let result = service.robots("ultimate", "me", &ask, true, false).await;
+  let ids: Vec<&str> = result.robots.iter().map(|robot| robot.id.as_str()).collect();
+  assert_eq!(ids, ["reviewers", "mine-cli"]);
+  assert_eq!(fake.take_list_kinds(), ["everyone", "sourceBranch=me/virtual/IJPL-3"]);
+
+  // a window longer than `EVERYONE_WINDOW` (the machine slept) asks as a full list; the whole window of the branch the
+  // list before asked is the kept one
+  let ask = RobotsAsk {
+    since: Some(since - crate::service::EVERYONE_WINDOW),
+    ..ask
+  };
+  service.robots("ultimate", "me", &ask, true, false).await;
+  assert_eq!(fake.take_list_kinds(), ["owner=me", "sourceBranch=me/virtual/IJPL-2"]);
+}
+
+/// A full list fails whole when the list of one pushed branch fails: one without the robots of that branch would drop
+/// them from the session
+#[tokio::test]
+async fn a_full_list_that_failed_for_one_branch_fails_whole() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  *fake.failing_source.lock().unwrap() = Some("me/virtual/IJPL-2".to_string());
+  let ask = RobotsAsk::full(vec!["me/virtual/IJPL-1".to_string(), "me/virtual/IJPL-2".to_string()]);
+  let result = service.robots("ultimate", "me", &ask, false, false).await;
+  assert!(matches!(result.availability, PatronusAvailability::Error { .. }), "{result:?}");
+  assert_eq!(result.robots, Vec::new());
+}
+
+/// A poll and the details do not say who asks: the principal of the last list tells a robot someone else started
+#[tokio::test]
+async fn a_poll_names_who_started_a_robot_by_the_principal_of_the_last_list() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let reviewers = |status: &str| someone_elses("reviewers", status, "refs/heads/me/virtual/IJPL-2", "2026-10-14T09:31:00Z");
+  *fake.robots.lock().unwrap() = Some(vec![reviewers("RUNNING")]);
+  let known = [KnownRobotStatus {
+    id: "reviewers".to_string(),
+    status: PatronusRobotStatus::Running,
+  }];
+  // before any list the principal is not known: nobody is named
+  *fake.updates.lock().unwrap() = Some(vec![reviewers("SUCCESS")]);
+  assert_eq!(service.poll("me", &known).await.robots[0].started_by, None);
+
+  service
+    .robots("ultimate", "me", &RobotsAsk::full(vec!["me/virtual/IJPL-2".to_string()]), false, false)
+    .await;
+  let polled = service.poll("me", &known).await;
+  assert_eq!(polled.robots[0].started_by.as_deref(), Some("Jane Doe"));
+}
+
+/// The check of a push asks the robots of the pushed branches that may hold it, whoever started them: a reviewer's
+/// Safe Merge started since the page's list holds the push
+#[tokio::test]
+async fn the_checks_see_a_robot_someone_else_started_on_a_pushed_branch() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  *fake.robots.lock().unwrap() = Some(vec![someone_elses("reviewers", "RUNNING", "refs/heads/me/virtual/IJPL-2", "2026-10-14T09:31:00Z")]);
+  let checked = service.robots_for_checks("ultimate", "me", vec!["me/virtual/IJPL-2".to_string()]).await;
+  let ids: Vec<(&str, Option<&str>)> = checked.iter().map(|robot| (robot.id.as_str(), robot.started_by.as_deref())).collect();
+  assert_eq!(ids, [("reviewers", Some("Jane Doe"))]);
+  assert_eq!(fake.take_list_kinds(), ["owner=me", "sourceBranch=me/virtual/IJPL-2"]);
+  // without the branch only the user's robots are asked: the colleague's robot holds nothing
+  assert_eq!(service.robots_for_checks("ultimate", "me", Vec::new()).await, Vec::new());
 }

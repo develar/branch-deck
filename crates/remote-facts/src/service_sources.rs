@@ -18,6 +18,7 @@ use domain_policy::reviews::gone_links;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
+  RobotsAsk,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::review_request::{ClosedReviewsResult, LinkedPullRequest, ReviewRequestsResult, ReviewsAsk};
@@ -229,7 +230,7 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
   /// The robots of the Space repository `origin` pushes to, with the GitHub repository they are mirrored to; off Space,
   /// when git can't tell the remote or without a service (no Space token), the availability says so. With the new API the list names the merge profile of
   /// each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of Patronus)
-  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
+  fn robots<'a>(&'a self, key: &'a SessionKey, ask: RobotsAsk, background: bool) -> Read<'a, PatronusRobotsResult> {
     Box::pin(async move {
       let space = match self.host.space_repository(key).await {
         Ok(Some(space)) => space,
@@ -240,7 +241,7 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
         Ok(service) => service,
         Err(error) => return unavailable(error),
       };
-      let mut result = service.robots(&space.name, &key.prefix, since, background, self.host.new_api(key)).await;
+      let mut result = service.robots(&space.name, &key.prefix, &ask, background, self.host.new_api(key)).await;
       match self.host.github_repository(key).await {
         Ok(github) => result.github_repository = github.map(|github| github.full_name()),
         Err(error) => warn!(error = ?error, "the robots name no GitHub repository: it can't be read"),

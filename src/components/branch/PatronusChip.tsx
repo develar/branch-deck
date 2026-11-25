@@ -210,6 +210,14 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot
             </dd>
           </>
         )}
+        {robot.startedBy != null && (
+          <>
+            <dt className="text-muted-foreground">Started by</dt>
+            <dd className="break-words" data-testid="patronus-started-by">
+              {robot.startedBy}
+            </dd>
+          </>
+        )}
         {robot.startTime > 0 && (
           <>
             <dt className="text-muted-foreground">Started</dt>

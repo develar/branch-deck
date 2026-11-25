@@ -1235,6 +1235,7 @@ fn a_park_of_a_branch_a_robot_holds_is_refused_as_its_menu_refuses_it() {
           kind,
           by: robot_of("oauth", "r1"),
           carried: None,
+          started_by: None,
         },
         mode: PatronusPushMode::RebaseAutosquash,
         target: "master".to_owned(),

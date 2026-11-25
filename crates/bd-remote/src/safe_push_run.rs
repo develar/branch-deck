@@ -15,7 +15,7 @@ use bd_core::error::CliError;
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::Land;
-use domain_types::patronus::{PatronusAvailability, PatronusRobot};
+use domain_types::patronus::{PatronusAvailability, PatronusRobot, RobotsAsk};
 use github::service::GitHubService;
 use operations::land::{LandHost, one_shot_planned};
 use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, bounded_lock, shown_remote};
@@ -58,7 +58,7 @@ impl StartHost for BdStart<'_> {
 
   fn robots_since(&self, since: u32) -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
     Box::pin(async move {
-      let result = self.sources.robots(&self.key, Some(since), false).await;
+      let result = self.sources.robots(&self.key, RobotsAsk::mine_since(since), false).await;
       match result.availability {
         PatronusAvailability::Available => Ok(result.robots),
         PatronusAvailability::NotLoggedIn => Err(ApiError::new(

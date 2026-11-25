@@ -9,7 +9,7 @@ use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
+  ReviewReadiness, ReviewReadinessBranch, ReviewStart, RobotsAsk, UnavailableReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult, TokenSource};
 use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
@@ -57,6 +57,8 @@ enum GitHubCall {
 #[derive(Default)]
 struct ScriptedSources {
   calls: Mutex<Vec<Call>>,
+  /// The pushed branches of each list: whose robots it asks whoever started them, and of them those of the whole window
+  list_sources: Mutex<Vec<(Vec<String>, Vec<String>)>>,
   github_calls: Mutex<Vec<GitHubCall>>,
   answer: Mutex<Option<PatronusRobotsResult>>,
   pull_requests: Mutex<Option<PullRequestsResult>>,
@@ -113,10 +115,11 @@ impl ScriptedSources {
 }
 
 impl FactSources for ScriptedSources {
-  fn robots<'a>(&'a self, _key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
+  fn robots<'a>(&'a self, _key: &'a SessionKey, ask: RobotsAsk, background: bool) -> Read<'a, PatronusRobotsResult> {
     // to ten seconds: the second may tick between the window and the read
-    let since_ago = since.map(|since| (unix_now().saturating_sub(since) + 5) / 10 * 10);
+    let since_ago = ask.since.map(|since| (unix_now().saturating_sub(since) + 5) / 10 * 10);
     lock(&self.calls).push(Call::List { since_ago, background });
+    lock(&self.list_sources).push((ask.sources, ask.new_sources));
     let held = self.held(&self.hold);
     Box::pin(async move {
       if let Some(released) = held {
@@ -456,8 +459,14 @@ async fn settle() {
 
 /// The table of a sync committed, on `origin/master`
 fn committed() -> SessionEventKind {
+  committed_with(&[])
+}
+
+/// The table of a sync committed, on `origin/master`, with the pushed branches `sources`
+fn committed_with(sources: &[&str]) -> SessionEventKind {
   SessionEventKind::TableCommitted {
     baseline: "origin/master".to_owned(),
+    robot_sources: sources.iter().map(|source| (*source).to_owned()).collect(),
   }
 }
 
@@ -528,6 +537,42 @@ async fn lists_the_last_days_first_then_only_the_robots_started_since_shortly_be
   // two minutes before the list five minutes ago
   assert_eq!(session.calls(), vec![since(420)]);
   assert_eq!(*lock(&session.port.applied), vec![RobotsRead::List { full: true }, RobotsRead::List { full: false }]);
+}
+
+/// The lists ask the robots of the pushed branches of the committed table whoever started them: the full list each of
+/// its window, an incremental one each, and the whole window of a branch pushed since the last list; a failed list
+/// lists none of them, so the next asks their window again
+#[tokio::test]
+async fn lists_the_pushed_branches_of_the_committed_table_and_a_newly_pushed_one_for_the_whole_window() {
+  let session = Harness::new();
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed_with(&["me/virtual/auth"])).await;
+  assert_eq!(session.calls(), vec![full(true)]);
+  let sources = |list: &[&str], new: &[&str]| {
+    (
+      list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+      new.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+    )
+  };
+  assert_eq!(std::mem::take(&mut *lock(&session.sources.list_sources)), [sources(&["me/virtual/auth"], &[])]);
+
+  session.advance(300).await;
+  session.send(committed_with(&["me/virtual/auth", "me/virtual/login"])).await;
+  assert_eq!(session.calls(), vec![since(420)]);
+  assert_eq!(
+    std::mem::take(&mut *lock(&session.sources.list_sources)),
+    [sources(&["me/virtual/auth", "me/virtual/login"], &["me/virtual/login"])]
+  );
+
+  // a failed list lists none of them: the next asks the whole window of the new branch again
+  let all = ["me/virtual/auth", "me/virtual/login", "me/virtual/oauth"];
+  for answer in [Some(PatronusRobotsResult::from(PatronusAvailability::Error { message: "down".to_owned() })), None] {
+    *lock(&session.sources.answer) = answer;
+    session.advance(300).await;
+    session.send(committed_with(&all)).await;
+    session.calls();
+    assert_eq!(std::mem::take(&mut *lock(&session.sources.list_sources)), [sources(&all, &["me/virtual/oauth"])]);
+  }
 }
 
 #[tokio::test]
@@ -1185,6 +1230,7 @@ async fn the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later() {
   session
     .send(SessionEventKind::TableCommitted {
       baseline: "origin/main".to_owned(),
+      robot_sources: Vec::new(),
     })
     .await;
   session.github_calls();
@@ -1218,6 +1264,7 @@ async fn a_refresh_of_the_profiles_waits_only_for_the_read_of_its_baseline() {
   session
     .send(SessionEventKind::TableCommitted {
       baseline: "origin/main".to_owned(),
+      robot_sources: Vec::new(),
     })
     .await;
   let (reply, mut new) = oneshot::channel();

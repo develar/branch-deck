@@ -92,6 +92,7 @@ pub(crate) fn robot(id: &str, branch: &str, status: PatronusRobotStatus, source:
     url: format!("https://patronus/robot/{id}"),
     pull_request: None,
     profile: None,
+    started_by: None,
   }
 }
 

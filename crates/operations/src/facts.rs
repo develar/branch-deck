@@ -7,10 +7,11 @@
 //! the list names none, the problems of its failed robot, its review, all subjects in one read). A read that failed is
 //! the answer its fact keeps; a read that panicked answers nothing.
 
-use crate::needs::FactNeed;
-use domain_types::patronus::PatronusRobotStatus;
+use crate::needs::{FactNeed, RobotsOf};
+use domain_types::patronus::{PatronusRobotStatus, RobotsAsk};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
+use repository_model::branch_table::BranchTable;
 use repository_model::facts::{FactResult, RobotsRead};
 use repository_model::one_shot::OneShot;
 use repository_model::readiness_facts::ReadinessDigest;
@@ -29,10 +30,11 @@ type Pending = Pin<Box<dyn Future<Output = FactResult> + Send>>;
 #[instrument(skip_all, fields(needs = needs.len()))]
 pub async fn fill(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &GitCommandExecutor, needs: &[FactNeed]) {
   let key = session.key().clone();
-  let baseline = session.facts().table.value().map_or_default(|table| table.baseline.clone());
+  let table = session.facts().table.value();
+  let baseline = table.map_or_default(|table| table.baseline.clone());
   let first: Vec<Pending> = unique(needs.iter().filter(|need| need.is_first()))
     .into_iter()
-    .filter_map(|need| first_read(sources, &key, &baseline, need))
+    .filter_map(|need| first_read(sources, &key, &baseline, table, need))
     .collect();
   apply_all(session, first).await;
   // the robot of a subject is the view's: what matches it costs git, so only a need of one derives it here
@@ -56,7 +58,7 @@ pub async fn fill(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &G
         robots.extend(failed.map(|robot| (robot.id.clone(), false)));
       }
       FactNeed::Readiness(subject) => readiness.push(subject.key()),
-      FactNeed::Robots | FactNeed::PullRequests | FactNeed::Profiles | FactNeed::Rules { .. } => {}
+      FactNeed::Robots(_) | FactNeed::PullRequests | FactNeed::Profiles | FactNeed::Rules { .. } => {}
     }
   }
   for (id, details) in unique(robots.iter()) {
@@ -80,17 +82,25 @@ fn unique<'a, T: PartialEq>(items: impl Iterator<Item = &'a T>) -> Vec<&'a T> {
   unique
 }
 
-/// The read of a fact of the first round; none of the others
-fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, need: &FactNeed) -> Option<Pending> {
+/// The read of a fact of the first round; none of the others. The robots of the pushed branches are of `table`; none
+/// without one
+fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, table: Option<&Arc<BranchTable>>, need: &FactNeed) -> Option<Pending> {
   let (sources, key) = (Arc::clone(sources), key.clone());
   let read: Pending = match need {
-    FactNeed::Robots => Box::pin(async move {
-      let result = sources.robots(&key, None, false).await;
-      FactResult::Robots {
-        read: RobotsRead::List { full: true },
-        result,
-      }
-    }),
+    FactNeed::Robots(of) => {
+      let robot_sources = match of {
+        RobotsOf::Sources(sources) => sources.clone(),
+        RobotsOf::Table => table.map_or_default(|table| table.robot_sources()),
+        RobotsOf::Subject(subject) => table.map_or_default(|table| table.robot_sources_of(subject, &table.remote)),
+      };
+      Box::pin(async move {
+        let result = sources.robots(&key, RobotsAsk::full(robot_sources), false).await;
+        FactResult::Robots {
+          read: RobotsRead::List { full: true },
+          result,
+        }
+      })
+    }
     FactNeed::PullRequests => Box::pin(async move { FactResult::PullRequests(sources.pull_requests(&key).await) }),
     FactNeed::Profiles => {
       let baseline = baseline.to_owned();

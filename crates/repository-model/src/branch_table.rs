@@ -8,11 +8,11 @@ use domain_policy::declared_needs::NeedFacts;
 use domain_policy::facts::{RemoteBranch, Repository};
 use domain_policy::regenerate;
 use domain_policy::stack::build_ancestors;
-use domain_types::branch_names::to_final_branch_name;
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::commit::Commit;
 use domain_types::conflict::RegenerateFile;
 use domain_types::landed::LandedBranch;
-use domain_types::landing::{LandingFix, NeedState};
+use domain_types::landing::{LandingFix, NeedState, Subject};
 use domain_types::repository_view::LandedByView;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
@@ -203,6 +203,69 @@ impl BranchTable {
   /// The stack branch of the stack of `root`, while the stack forks (it has members)
   pub fn stack(&self, root: &str) -> Option<&StackBranchUpdate> {
     self.stack_branches.iter().find(|stack| stack.root == root && !stack.members.is_empty())
+  }
+
+  /// The branches of the stack of `name`: the ones it is built on, it, and the ones built on it
+  pub fn stack_of(&self, name: &str) -> Vec<String> {
+    let base = |branch: &str| self.branch(branch).and_then(|info| info.stack.as_ref()).and_then(|stack| stack.effective_base.clone());
+    let mut stack = vec![name.to_string()];
+    let mut below = base(name);
+    while let Some(branch) = below.filter(|branch| !stack.contains(branch)) {
+      below = base(&branch);
+      stack.push(branch);
+    }
+    loop {
+      let above: Vec<String> = self
+        .branches
+        .iter()
+        .filter(|info| !stack.contains(&info.name) && base(&info.name).is_some_and(|parent| stack.contains(&parent)))
+        .map(|info| info.name.clone())
+        .collect();
+      if above.is_empty() {
+        return stack;
+      }
+      stack.extend(above);
+    }
+  }
+
+  /// The pushed source branches whose robots count whoever started them (a reviewer's Safe Merge from the merge request):
+  /// each virtual branch and stack branch the remote has, `{prefix}/virtual/<name>` and `{prefix}/stack/<root>`, but a
+  /// branch the baseline has whole, which nothing is left to land of
+  #[must_use]
+  pub fn robot_sources(&self) -> Vec<String> {
+    let branches = self.branches.iter().map(|branch| branch.name.as_str());
+    let stacks = self.stack_branches.iter().map(|stack| stack.root.as_str());
+    self.pushed_sources(&self.remote, branches, stacks)
+  }
+
+  /// Of `robot_sources` by `remote` (the session's, which a push moved since the sync), those whose robot may hold a
+  /// push or a start of `subject`: the branches of its stack and the stack branches of the stacks they are members of
+  #[must_use]
+  pub fn robot_sources_of(&self, subject: &Subject, remote: &RemoteFacts) -> Vec<String> {
+    let branches = self.stack_of(subject.name());
+    let stacks: Vec<&str> = self
+      .stack_branches
+      .iter()
+      .filter(|stack| stack.root == subject.name() || stack.members.iter().any(|member| branches.contains(member)))
+      .map(|stack| stack.root.as_str())
+      .collect();
+    self.pushed_sources(remote, branches.iter().map(String::as_str), stacks)
+  }
+
+  fn pushed_sources<'a>(&self, remote: &RemoteFacts, branches: impl IntoIterator<Item = &'a str>, stacks: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let pushed = |fact: Option<&RemoteFact>| fact.is_some_and(|fact| fact.remote_tip.is_some());
+    let branches = branches
+      .into_iter()
+      .filter(|name| !self.in_baseline.contains(*name) && pushed(remote.branches.get(*name)))
+      .filter_map(|name| to_final_branch_name(&self.prefix, name).ok());
+    let stacks = stacks
+      .into_iter()
+      .filter(|root| pushed(remote.stacks.get(*root)))
+      .filter_map(|root| to_stack_branch_name(&self.prefix, root).ok());
+    let mut sources: Vec<String> = branches.chain(stacks).collect();
+    sources.sort();
+    sources.dedup();
+    sources
   }
 }
 

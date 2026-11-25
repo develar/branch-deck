@@ -608,7 +608,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     )
   } else {
     let table = grouping_table(context, &grouping, &all_stacks);
-    let read = read_robots(context, environment);
+    let read = read_robots(context, environment, &table.robot_sources());
     let mut facts = OneShot::new(session_key(context), TableState::default(), table.clone());
     know_robots(&mut facts, &context.git, read.robots);
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch

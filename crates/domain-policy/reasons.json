@@ -83,7 +83,8 @@
       "carried": {
         "commits": ["l1"],
         "amended": []
-      }
+      },
+      "startedBy": null
     },
     "mode": "rebaseAutosquash",
     "target": "master"
@@ -98,7 +99,8 @@
         "robotId": "r",
         "wholeStack": false
       },
-      "carried": null
+      "carried": null,
+      "startedBy": null
     },
     "mode": "rebaseAutosquash",
     "target": "master"

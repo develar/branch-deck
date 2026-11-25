@@ -343,14 +343,14 @@ impl TestFactSources {
 impl FactSources for TestFactSources {
   /// A fake Patronus that doesn't know the repository answers with no request: its gate holds that answer, as its route
   /// of the robots holds the answer of one that does (a test of what git tells of the remote holds what the service says)
-  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
+  fn robots<'a>(&'a self, key: &'a SessionKey, ask: domain_types::patronus::RobotsAsk, background: bool) -> Read<'a, PatronusRobotsResult> {
     Box::pin(async move {
       let unasked = self.state().is_ok_and(|state| space_of(&state, &key.worktree).ok().flatten().is_none());
       if unasked && let Err(error) = self.gate(key, HeldAnswer::Robots, "list the robots").await {
         return PatronusRobotsResult::from(PatronusAvailability::Error { message: error.message });
       }
       self
-        .robots_read(key, |repository| &repository.patronus_list_calls, self.services.robots(key, since, background))
+        .robots_read(key, |repository| &repository.patronus_list_calls, self.services.robots(key, ask, background))
         .await
     })
   }

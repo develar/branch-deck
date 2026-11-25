@@ -98,13 +98,20 @@ pub fn every_branch_landed(what: &str, landed: &[(Subject, &PatronusRobot)]) -> 
   format!("every branch of {what} landed in {target} with the {pushes} of {}", join_names(&by))
 }
 
+/// " that Jane Doe started": who started a robot of someone else, after what it is of; nothing for the user's own
+pub fn started_by_words(robot: &PatronusRobot) -> String {
+  robot.started_by.as_ref().map_or_else(String::new, |name| format!(" that {name} started"))
+}
+
 /// "A Safe Push of auth is running on test/virtual/auth: a push moves the branch it took its commit from, …. Wait until
-/// it merges, or <remedy> (<url>)": the robot runs on `name` itself; `source` is the branch it took its commit from
+/// it merges, or <remedy> (<url>)": the robot runs on `name` itself; `source` is the branch it took its commit from. Of a
+/// robot someone else started: "A Safe Push of auth that Jane Doe started is running …"
 pub fn own_hold_words(name: &str, robot: &PatronusRobot, source: Option<&str>, remedy: &str) -> String {
   let mode = push_mode_name(robot.push_mode);
   let source = source.map_or_else(String::new, |branch| format!(" on {branch}"));
+  let started_by = started_by_words(robot);
   format!(
-    "A {mode} of {name} is running{source}: a push moves the branch it took its commit from, so it won't land and fails the {mode} at the end. Wait until it merges, or {remedy} ({})",
+    "A {mode} of {name}{started_by} is running{source}: a push moves the branch it took its commit from, so it won't land and fails the {mode} at the end. Wait until it merges, or {remedy} ({})",
     robot.url
   )
 }
@@ -113,9 +120,10 @@ pub fn own_hold_words(name: &str, robot: &PatronusRobot, source: Option<&str>, r
 /// `by`, a branch built on `name` or its whole stack, lands `carried` of it
 pub fn span_hold_words(name: &str, by: &Subject, robot: &PatronusRobot, carried: Option<&Carried>) -> String {
   format!(
-    "A {} of {} is running: it lands {} with it{}, a push won't land ({})",
+    "A {} of {}{} is running: it lands {} with it{}, a push won't land ({})",
     push_mode_name(robot.push_mode),
     by.words(),
+    started_by_words(robot),
     carried_words(name, carried),
     carried_ids(carried),
     robot.url
@@ -128,8 +136,13 @@ pub fn span_hold_words(name: &str, by: &Subject, robot: &PatronusRobot, carried:
 pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
   let mode = push_mode_name(robot.push_mode);
   format!(
-    "a {mode} of {} is running on it: a push moves the branch it took its commit from and fails the {mode} at the end; wait until it merges ({})",
+    "a {mode} of {}{} is running on it: a push moves the branch it took its commit from and fails the {mode} at the end; wait until it merges ({})",
     Subject::WholeStack { root: root.to_string() }.words(),
+    started_by_words(robot),
     robot.url
   )
 }
+
+#[cfg(test)]
+#[path = "push_guard_test.rs"]
+mod push_guard_test;

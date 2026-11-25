@@ -127,6 +127,8 @@ pub struct FakePatronus {
   pub pull_request_review: Mutex<Option<serde_json::Value>>,
   /// The robots of the list instead of the two built in
   pub robots: Mutex<Option<Vec<serde_json::Value>>>,
+  /// A list of this `sourceBranch` fails (500), the others are answered
+  pub failing_source: Mutex<Option<String>>,
   /// The robots `fetch-updates` answers instead of the built-in one
   pub updates: Mutex<Option<Vec<serde_json::Value>>>,
   /// The ids of the canceled robots, in order
@@ -263,6 +265,20 @@ impl FakePatronus {
     tokio::task::spawn_blocking(in_current_span(move || hook(&body))).await.expect("the review hook")
   }
 
+  /// Whose robots the lists asked since the last call, sorted: `owner=<owner>`, `sourceBranch=<branch>` or `everyone`
+  pub fn take_list_kinds(&self) -> Vec<String> {
+    let mut kinds: Vec<String> = std::mem::take(&mut *self.list_queries.lock().unwrap())
+      .into_iter()
+      .map(|query| match (query.get("owner"), query.get("sourceBranch")) {
+        (Some(owner), _) => format!("owner={owner}"),
+        (None, Some(branch)) => format!("sourceBranch={branch}"),
+        (None, None) => "everyone".to_string(),
+      })
+      .collect();
+    kinds.sort();
+    kinds
+  }
+
   /// The robots of the list; none until set when `state_only`
   fn listed_robots(&self) -> Vec<serde_json::Value> {
     self.robots.lock().unwrap().clone().unwrap_or_else(|| {
@@ -344,15 +360,17 @@ impl FakePatronus {
 }
 
 /// Whether a list with `query` holds `robot`, as Patronus filters: `owner=me` keeps the robots of the user (id 1) and
-/// no owner everyone's; `targetBranch` with or without `refs/heads/`; `[start, end)` only with an `end` (a list
-/// without one is answered whole, as the tests set it)
+/// no owner everyone's; `sourceBranch` and `targetBranch` with or without `refs/heads/`; `[start, end)` only with an
+/// `end` (a list without one is answered whole, as the tests set it)
 fn list_filter(query: &HashMap<String, String>, robot: &serde_json::Value) -> bool {
   if query.get("owner").map(String::as_str) == Some("me") && robot["owner"]["id"].as_str().is_some_and(|id| id != "1") {
     return false;
   }
-  if let Some(target) = query.get("targetBranch") {
-    let strip = |branch: &str| branch.strip_prefix("refs/heads/").unwrap_or(branch).to_string();
-    if robot["targetBranch"].as_str().is_some_and(|branch| strip(branch) != strip(target)) {
+  let strip = |branch: &str| branch.strip_prefix("refs/heads/").unwrap_or(branch).to_string();
+  for (parameter, field) in [("sourceBranch", "sourceBranch"), ("targetBranch", "targetBranch")] {
+    if let Some(wanted) = query.get(parameter)
+      && robot[field].as_str().is_none_or(|branch| strip(branch) != strip(wanted))
+    {
       return false;
     }
   }
@@ -536,6 +554,9 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
         fake.list_queries.lock().unwrap().push(query.clone());
         fake.last_query.lock().unwrap().clone_from(&query);
+        if query.get("sourceBranch").is_some_and(|branch| fake.failing_source.lock().unwrap().as_ref() == Some(branch)) {
+          return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "INTERNAL", "description": "the list failed"}))).into_response();
+        }
         let listed: Vec<serde_json::Value> = fake.listed_robots().into_iter().filter(|robot| list_filter(&query, robot)).collect();
         let mut robots = fake.hooked(listed).await;
         if fake.list_profiles.load(Ordering::SeqCst) {

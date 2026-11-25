@@ -164,6 +164,27 @@ fn a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot() {
   assert_error(&output, exit_code, (2, "unknown_branch"));
 }
 
+/// A Safe Merge someone else started from the merge request of the pushed branch (a reviewer after the approval) is
+/// the robot of the branch, though no list of the user's robots has it: `brd robot` reports it with who started it, as
+/// the session of the app shows it
+#[test_log::test]
+fn robot_reports_a_safe_merge_someone_else_started_on_the_branch() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.sync();
+  git(&space.repo, &["push", "--quiet", "origin", AUTH]);
+  let mut reviewers = bd_cli::remote_fixture_test::robot("reviewers", "RUNNING", "auth", &space.local_tip(AUTH));
+  reviewers["owner"] = json!({"type": "USER", "id": "2", "name": "Jane Doe"});
+  reviewers["type"] = json!("SPACE_SAFE_MERGE");
+  // the details answer the owner too
+  space.fake.details.lock().unwrap().insert("reviewers".to_string(), reviewers.clone());
+  space.set_robots(vec![reviewers]);
+  let output = space.robot_ok(&["auth"]);
+  assert_eq!(
+    (output["robot"]["id"].clone(), output["robot"]["state"].clone(), output["robot"]["started_by"].clone()),
+    (json!("reviewers"), json!("running"), json!("Jane Doe"))
+  );
+}
+
 /// D7: a merged Safe Push lists the open pull requests of the branches it landed whole besides its own (auth, which
 /// login is built on, its pull request at the tip of auth), which the app closes; its own pull request is Patronus' to
 /// close, and brd closes none: nothing is written to GitHub. A robot that didn't merge lists none

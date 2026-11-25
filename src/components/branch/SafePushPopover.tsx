@@ -51,7 +51,6 @@ import type {
 } from "@/lib/bindings"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { formatCommitCount } from "@/lib/commit"
-import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, mergeOf } from "@/lib/merge-pull-request"
@@ -73,6 +72,7 @@ import {
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
+import { formatReplacedRobot } from "@/presenters/actions"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { DetailPart, LandingRefused } from "@/presenters/landing"
 import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRefusalDetail, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
@@ -556,7 +556,7 @@ function Lines({
       <ReviewLine read={read} pullRequest={pullRequest} show={show} />
       {read.replaces !== null && (
         <Line tone="warning" testId="safe-push-replaces">
-          {`Cancels the ${formatPushMode(read.mode)} of ${read.subject} running on ${formatShortHash(read.replaces.sourceRevision ?? "")}.`}
+          {formatReplacedRobot(read.mode, read.subject, read.replaces)}
         </Line>
       )}
       {dismisses !== undefined && (

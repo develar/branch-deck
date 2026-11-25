@@ -5105,9 +5105,10 @@ push from a terminal moved since refuses nothing before the push, the remote ref
 for a remote that moved, D4); a plan that pushes nothing (a restart over a remote that has the branch) takes no lock.
 Its run: admitted per ref (`Resource::Ref` of each ref its plan pushes, of the branch while it pushes none, the robot
 it restarts, the base it retargets), after the sync of the session that runs
-(`WaitingForSync`), then the user's robots one full list (`robots_for_checks`, the Patronus view of the table derived of
-them, `push_guard::guard_facts`, so a robot the IDE or `brd` started since the session's list holds; none for an unapplied
-branch), its refusal in their words, then the witness, the lock for the full witness and the freeze (one ref goes
+(`WaitingForSync`), then the robots of the full window asked now (`robots_for_checks`: the user's and, whoever started
+them, those of the pushed branches that may hold it, `BranchTable::robot_sources_of`; the Patronus view of the table
+derived of them, `push_guard::guard_facts`, so a robot the IDE, `brd` or a reviewer started since the session's list
+holds; none for an unapplied branch), its refusal in their words, then the witness, the lock for the full witness and the freeze (one ref goes
 without `--atomic`), the effects. After a wait (the sync, the pushes of its ref it queued behind) it is decided again on
 what they left, leased on the remote head the session has now (`ExpectRemote::OfSession`), and goes while the user
 accepted what it asks. Its outcome (`OperationResult::Push`: the statuses it went over once more, the robot it

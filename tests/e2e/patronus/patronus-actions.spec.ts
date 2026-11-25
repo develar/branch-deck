@@ -45,14 +45,14 @@ import {
 } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
-import { hoverStatusChip, openBranchPreview } from "../helpers/review-status-helpers"
+import { hoverStatusChip, openBranchPreview, openLandingOverview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, resizeReportsDelivered, waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -78,6 +78,18 @@ function chip(page: Page, branchName: string) {
 /** The toast whose text has `text` */
 function toastWith(page: Page, text: string): Locator {
   return page.locator("[data-slot=toast]", { hasText: text })
+}
+
+/** Push Branch of the More actions menu of `branchName` is disabled, its tooltip `reason`; the menu closed after */
+async function expectPushHeldInMenu(page: Page, branchName: string, reason: string) {
+  await findBranchRow(page, branchName)
+    .getByRole("button", { name: `More actions for ${branchName}` })
+    .click()
+  const push = page.getByRole("menu", { name: `More actions for ${branchName}` }).getByRole("menuitem", { name: "Push Branch P" })
+  await expect(push).toBeDisabled()
+  await push.hover()
+  await expect(openTooltip(page).filter({ hasText: "is running" })).toHaveText(reason)
+  await page.keyboard.press("Escape")
 }
 
 /** "Safe Push" of the branch menu (the right-click): a click, which starts at once when there is nothing to say */
@@ -2234,12 +2246,7 @@ test.describe("Patronus actions", () => {
       await row.focus()
       await page.keyboard.press("p")
 
-      await row.getByRole("button", { name: "More actions for JIRA-456" }).click()
-      const push = page.getByRole("menu", { name: "More actions for JIRA-456" }).getByRole("menuitem", { name: "Push Branch P" })
-      await expect(push).toBeDisabled()
-      await push.hover()
-      await expect(openTooltip(page).filter({ hasText: "is running" })).toHaveText("A Safe Push of JIRA-456 is running: wait until it merges, or restart it on the current branch")
-      await page.keyboard.press("Escape")
+      await expectPushHeldInMenu(page, "JIRA-456", "A Safe Push of JIRA-456 is running: wait until it merges, or restart it on the current branch")
       expect(pushes).toHaveLength(0)
       expect(await pushedBranches(repo)).toEqual([])
     })
@@ -2327,5 +2334,42 @@ test.describe("Patronus actions", () => {
       await expect(notPushed).toBeVisible()
       expect((await repo.getPatronusLog()).requests.list).toBe(2)
     })
+  })
+})
+
+test.describe("a Safe Push someone else started", () => {
+  test("should show a Safe Merge a colleague started on a pushed branch with who started it, and refuse its push while it runs", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    await pushBranchFromRow(page, "JIRA-456")
+    await repo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
+    await runAndWaitForSync(page, () => syncFromMenu(page))
+    // a reviewer starts Safe Merge from the merge request of the pushed branch: no list of the user's robots has it
+    await repo.setPatronus(availableRobots(robot("JIRA-456", "reviewers-robot", { name: "JIRA-456 fix the pool", startedBy: "Jane Doe" })))
+    const overview = await openLandingOverview(page)
+    await runAndWaitForAnswer(page, "refresh_facts", () => overview.getByTestId("patronus-refresh").click())
+    await page.keyboard.press("Escape")
+    await expectClosed(overview)
+    const queries = (await repo.getPatronusLog()).requests.listQueries
+    expect(queries.some(query => query.sourceBranch === virtualBranch("JIRA-456") && query.owner === undefined)).toBe(true)
+
+    const details = await hoverStatusChip(page, chip(page, "JIRA-456"), "patronus-popover")
+    await expect(details.getByTestId("patronus-name")).toHaveText("JIRA-456 fix the pool")
+    await expect(details.getByTestId("patronus-started-by")).toHaveText("Jane Doe")
+    await page.keyboard.press("Escape")
+    await expectClosed(details)
+    await page.mouse.move(0, 0)
+
+    const pushes = await recordCommand(page, "execute")
+    await expectPushHeldInMenu(page, "JIRA-456", "A Safe Push of JIRA-456 that Jane Doe started is running: wait until it merges, or restart it on the current branch")
+    // P does nothing on the row
+    const row = findBranchRow(page, "JIRA-456")
+    await row.focus()
+    await page.keyboard.press("p")
+    expect(pushes).toHaveLength(0)
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
   })
 })

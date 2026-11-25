@@ -7,7 +7,9 @@
 //! a base, the merge profiles, the review readiness and the sign-ins answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
-use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
+use domain_types::patronus::{
+  BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch, RobotsAsk,
+};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::review_request::{ClosedReviewsResult, ReviewRequestsResult};
 use domain_types::sign_in::AuthStatus;
@@ -20,10 +22,11 @@ use std::pin::Pin;
 pub type Read<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub trait FactSources: Send + Sync + 'static {
-  /// The user's robots of the repository of `key` started since `since` (Unix seconds), else of the service's whole
-  /// window, with the GitHub repository its branches are mirrored to; `background`: not asked by the user, so skipped
-  /// while Patronus backs off after a failure
-  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult>;
+  /// The robots of `ask` of the repository of `key`: the user's, and those of the pushed branches `ask.sources` whoever
+  /// started them, started since `ask.since` (Unix seconds), else of the service's whole window, with the GitHub
+  /// repository its branches are mirrored to; `background`: not asked by the user, so skipped while Patronus backs off
+  /// after a failure
+  fn robots<'a>(&'a self, key: &'a SessionKey, ask: RobotsAsk, background: bool) -> Read<'a, PatronusRobotsResult>;
 
   /// The robots of `known` whose status changed since; the others are not in the answer
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult>;

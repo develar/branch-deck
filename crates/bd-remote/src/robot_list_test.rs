@@ -46,6 +46,11 @@ impl Fixture {
 
   /// The robots a read at `now` gives, `id status` each, newest first; a service of its own, as each `bd` process has
   fn read(&self, now: u32) -> Vec<String> {
+    self.read_of(now, &[])
+  }
+
+  /// `read` of the pushed branches `sources`
+  fn read_of(&self, now: u32, sources: &[String]) -> Vec<String> {
     let token = Arc::clone(&self.token);
     let service = PatronusService::new(self.client.clone(), move |_| token.lock().unwrap().clone());
     let source = RobotSource {
@@ -55,6 +60,7 @@ impl Fixture {
       prefix: "test-user",
       cache: &self.cache,
       new_api: false,
+      sources,
     };
     read_robots_at(&source, now).robots.iter().map(|robot| format!("{} {:?}", robot.id, robot.status)).collect()
   }
@@ -193,4 +199,26 @@ fn status_asks_patronus_once_while_the_kept_robots_hold() {
   assert_eq!(lists(), 2);
   bd(&space, &["status", "--no-cache"]);
   assert_eq!(lists(), 3);
+}
+
+/// `brd status` lists the robots of the pushed branches whoever started them: the first list each for the last 7 days,
+/// then one list of everyone's robots of the minutes since and the last 7 days of a branch pushed since, once
+#[test_log::test]
+fn status_lists_a_newly_pushed_branch_for_the_whole_window_once() {
+  let fixture = Fixture::new();
+  let start = unix_now();
+  let mut reviewers = robot_of("reviewers", "SUCCESS", start, 3600);
+  reviewers["owner"] = json!({"type": "USER", "id": "2", "name": "Jane Doe"});
+  fixture.list(vec![reviewers]);
+  let kinds = || fixture.fake.take_list_kinds();
+  let auth = "test-user/virtual/auth".to_string();
+  let login = "test-user/virtual/login".to_string();
+  assert_eq!(fixture.read_of(start, std::slice::from_ref(&auth)), ["reviewers Success"]);
+  assert_eq!(kinds(), ["owner=me", "sourceBranch=test-user/virtual/auth"]);
+
+  let later = start + IDLE_TTL_SECONDS;
+  assert_eq!(fixture.read_of(later, &[auth.clone(), login.clone()]), ["reviewers Success"]);
+  assert_eq!(kinds(), ["everyone", "sourceBranch=test-user/virtual/login"]);
+  fixture.read_of(later + IDLE_TTL_SECONDS, &[auth, login]);
+  assert_eq!(kinds(), ["everyone"]);
 }

@@ -522,6 +522,7 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
       by_branch.entry(name.clone()).or_insert_with(|| SpanView {
         by: facts.subject.robot_of(&facts.robot.id),
         carried: facts.carried.as_ref().and_then(|carried| carried.get(name).cloned()),
+        started_by: facts.robot.started_by.clone(),
       });
     }
   }

@@ -81,7 +81,7 @@ use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::{LandingFacts, StepSources, declared_needs_of, grouped_rows, is_unapplied, landed_states, next_steps, open_pull_requests_view};
 use repository_model::facts::{FactRecord, Needs};
 use repository_model::one_shot::OneShot;
-use repository_model::push_guard::parked_words;
+use repository_model::push_guard::{parked_words, started_by_words};
 use repository_model::refusal_words::{stack_conflict_words, stack_not_built_words, start_refusal_text};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -420,6 +420,10 @@ pub struct RobotSummary {
   pub commit: Option<String>,
   /// The robot page; open it for the user
   pub url: String,
+  /// Who started it when it is not the user (a reviewer's Safe Merge from the merge request of the branch): it holds
+  /// and lands the branch as the user's own does; absent for the user's own
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub started_by: Option<String>,
 }
 
 /// The review after landing a Safe Push with `--request-review` opens (`SafePushOutput::shown`)
@@ -1393,7 +1397,7 @@ fn plan(
     first_needs.push(FactNeed::FailedRobot(subject.clone()));
   }
   facts.read(context, &first_needs)?;
-  keep_listed(context, service, &space, listed_robots(&facts.session)?);
+  keep_listed(context, service, &space, listed_robots(&facts.session)?, &table.robot_sources_of(&subject, &table.remote));
   let landed = landed_branches(&facts.session);
   let name = landing.name.as_str();
 
@@ -2042,8 +2046,9 @@ impl Told<'_> {
         let robot = self.session.robot(robot_id);
         let why = if self.pushes { "the push fails it at the end" } else { "the start would run beside it" };
         let message = format!(
-          "A {} of an older commit of {what} is running: {why}. Once the user approved, --cancel-running cancels it first ({})",
+          "A {} of an older commit of {what}{} is running: {why}. Once the user approved, --cancel-running cancels it first ({})",
           robot.map_or("Safe Push", |robot| push_mode_name(robot.push_mode)),
+          robot.map_or_else(String::new, started_by_words),
           robot.map_or("", |robot| robot.url.as_str())
         );
         Refusal::new(ErrorCode::RobotRunning, message)
@@ -2580,6 +2585,7 @@ pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> Rob
     mode: mode_name(robot.push_mode),
     commit: robot.source_revision.as_deref().map(|revision| short.get(revision).to_string()),
     url: robot.url.clone(),
+    started_by: robot.started_by.clone(),
   }
 }
 

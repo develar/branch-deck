@@ -30,7 +30,7 @@ use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
-use operations::needs::FactNeed;
+use operations::needs::{FactNeed, RobotsOf};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use repository_model::branch_table::BranchTable;
@@ -370,16 +370,25 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   };
   // the stack that forks the branch is a branch of: the robot of the whole stack builds it too
   let stack = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name));
-  // the robots of the user as the app's session reads them (one list, kept for `brd status`)
+  // the robots as the app's session reads them (kept for `brd status`): the user's, and whoever started them those of
+  // the pushed branches whose robot builds this branch, it, those stacked on it and the stack branch of its stack
   let mut listed = None;
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
     let services = bd_services(context, environment, &service, &space, None);
     let mut facts = SessionFacts::new(context, TableState::default(), BranchTable::default(), services.sources());
-    facts.read(context, &[FactNeed::Robots])?;
+    let branches = std::iter::once(name)
+      .chain(descendants.iter().copied())
+      .filter_map(|branch| to_final_branch_name(&context.prefix, branch).ok());
+    let mut sources: Vec<String> = branches
+      .chain(stack.map(|stack| stack.branch_name.clone()))
+      .filter(|source| grouping.remote_tips.contains_key(source))
+      .collect();
+    sources.dedup();
+    facts.read(context, &[FactNeed::Robots(RobotsOf::Sources(sources.clone()))])?;
     let robots = listed.insert(listed_robots(&facts.session)?.to_vec());
-    keep_listed(context, &service, &space, robots);
+    keep_listed(context, &service, &space, robots, &sources);
     let index = RobotIndex::new(robots);
     let local_tips: HashMap<&str, &str> = grouping.listed.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str())).collect();
     let robot_of = |branch: &str| {
@@ -493,7 +502,7 @@ fn listing_of(
   let needs: &[FactNeed] = if listed.is_some() {
     &[FactNeed::PullRequests]
   } else {
-    &[FactNeed::Robots, FactNeed::PullRequests]
+    &[FactNeed::Robots(RobotsOf::Subject(Subject::branch(branch))), FactNeed::PullRequests]
   };
   facts.read(context, needs).ok()?;
   let pull_requests = facts.session.facts().pull_requests.view();

@@ -2821,9 +2821,10 @@ wait, each time that set changes: a change of the windows and a listing alike.
 ## Open Questions / Risks
 
 - Back returns the stack window to All Changes, then, once its layers are read, to its first layer to read: the layer shown is not kept.
-- Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author, and whose robot it is
-  (the list asks for `owner=me`), is to be checked in a live run; a robot not among the user's is not watched, so its
-  merge is told by the pull request, not by the app.
+- Whether Patronus starts a robot for a `/patronus merge` of someone who is not the author is to be checked in a live
+  run; Patronus makes it the robot of whoever commented, so it is among the user's robots (`owner=me`) though of a
+  branch of the author; a robot of someone else is read only on a pushed branch of the user, so the merge of another
+  person's robot is told by the pull request, not by the app.
 - GitHub refuses a review while the user has a pending one (started on github.com and not submitted): the toast says
   GitHub's words; the app does not submit or delete the pending review.
 - The search counts a request that was answered by a review moments ago until GitHub's index catches up; the review

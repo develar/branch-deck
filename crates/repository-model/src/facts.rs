@@ -1214,7 +1214,8 @@ impl RobotsFact {
     self.view.robots.get(&id) != before.as_ref()
   }
 
-  /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does).
+  /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does),
+  /// and who started it when the answer does not say it.
   /// A robot known running or canceling that finished merged or failed goes into `finished`; none while the robots are
   /// the cached frame of an earlier run (`news::tells_after` of the head as it stood before the answer)
   fn put(&mut self, seq: u32, mut robot: PatronusRobot, finished: &mut Vec<Finished>) {
@@ -1225,6 +1226,10 @@ impl RobotsFact {
     if let Some(known) = self.view.robots.get(&robot.id) {
       if robot.profile.is_none() {
         robot.profile.clone_from(&known.profile);
+      }
+      // who started a robot never changes: a poll answered before any list said who asks does not forget it
+      if robot.started_by.is_none() {
+        robot.started_by.clone_from(&known.started_by);
       }
       match robot_finished(known, &robot).filter(|_| tells) {
         Some(news::Finished::Merged) => finished.push(Finished::Merged(robot.id.clone())),

@@ -195,7 +195,7 @@ pub fn plan(context: &RepoContext, environment: &Environment) -> Result<PlanOutp
   let config = context.config()?;
   let stacks = read_stack_branches(&context.prefix, &grouping, &context.cache(), config.resolve_mode()?, config.signing()?);
   let table = grouping_table(context, &grouping, &stacks);
-  let read = read_robots(context, environment);
+  let read = read_robots(context, environment, &table.robot_sources());
   let mut facts = OneShot::new(session_key(context), TableState::default(), table.clone());
   know_robots(&mut facts, &context.git, read.robots);
   let needs_known = !grouping.branches.is_empty() && check_landing_needs(context, &mut facts)?;

@@ -92,6 +92,10 @@ pub struct SpanView {
   /// The commits of this branch the robot's commit has, as its content told; null when only the stack as it is now
   /// tells (its commit is not in the repository)
   pub carried: Option<Carried>,
+  /// Who started the robot when it is not the user (`PatronusRobot::started_by`): the words of the hold name them
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub started_by: Option<String>,
 }
 
 /// Why a push of a branch won't land
@@ -116,6 +120,10 @@ pub struct HoldView {
   pub by: RobotOf,
   /// `span`: the commits the robot lands, as its content told
   pub carried: Option<Carried>,
+  /// Who started the robot when it is not the user (`PatronusRobot::started_by`): the words of the hold name them
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub started_by: Option<String>,
 }
 
 /// What the hold of a branch means for a fix of a conflict that changes it (`domain_policy::holds::fix_hold`,

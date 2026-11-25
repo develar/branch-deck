@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ActionState, PatronusRobot, RunningOperation } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
-import { getRobotActionItems } from "@/presenters/actions"
+import { formatReplacedRobot, getRobotActionItems } from "@/presenters/actions"
 import { disabled, enabled } from "@/test-support/actions"
 
 const { calls } = vi.hoisted(() => ({
@@ -109,6 +109,17 @@ describe("getRobotActionItems", () => {
     const whole = robot({ id: "whole", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
     const [pushAndRestart] = getRobotActionItems(whole, { operations: {}, named: {}, offered: enabled("push-and-restart-robot") })
     expect(pushAndRestart).toMatchObject({ id: "push-and-restart-robot", description: "Pushes the whole air stack and starts it again on the pushed commit" })
+  })
+
+  it("names who started a running robot of someone else in what its cancel and restart stop", () => {
+    const reviewers = robot({ status: "running", finishTime: null, sourceRevision: "78ca3b88aa", startedBy: "Jane Doe" })
+    const actions = getRobotActionItems(reviewers, { operations: {}, named: {}, offered: enabled("restart-robot", "cancel-robot") })
+    expect(actions.map(it => [it.label, it.description])).toEqual([
+      ["Restart Safe Push", "Cancels the run Jane Doe started on 78ca3b88 and starts it again on the remote branch"],
+      ["Cancel Safe Push", "Started by Jane Doe"],
+    ])
+    expect(formatReplacedRobot("rebaseAutosquash", "auth", reviewers)).toBe("Cancels the Safe Push of auth that Jane Doe started, running on 78ca3b88.")
+    expect(formatReplacedRobot("rebaseAutosquash", "auth", robot({ sourceRevision: "78ca3b88aa" }))).toBe("Cancels the Safe Push of auth running on 78ca3b88.")
   })
 
   it("names what a restart of a running robot a failed required check dooms does: it cancels it, then starts it again", () => {

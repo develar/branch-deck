@@ -4,7 +4,7 @@
 //! the rules of a base, one pre-check per subject of the review, the details or the problems of one robot).
 
 use crate::facts::fill;
-use crate::needs::{FactNeed, needs, waits};
+use crate::needs::{FactNeed, RobotsOf, needs, waits};
 use domain_types::commit::Commit;
 use domain_types::error::ApiError;
 use domain_types::fixtures::{branches_grouped, land_intent, push_intent, robot};
@@ -72,8 +72,8 @@ impl Counted {
 }
 
 impl FactSources for Counted {
-  fn robots<'a>(&'a self, _key: &'a SessionKey, since: Option<u32>, _background: bool) -> Read<'a, PatronusRobotsResult> {
-    assert_eq!(since, None, "a plan reads the full list");
+  fn robots<'a>(&'a self, _key: &'a SessionKey, ask: domain_types::patronus::RobotsAsk, _background: bool) -> Read<'a, PatronusRobotsResult> {
+    assert_eq!(ask.since, None, "a plan reads the full list");
     let result = PatronusRobotsResult {
       availability: PatronusAvailability::Available,
       robots: self.robot.lock().unwrap().iter().cloned().collect(),
@@ -284,7 +284,11 @@ async fn a_check_reads_each_fact_once_side_by_side() {
   let mut session = session();
   let subject = Subject::branch("auth");
   let mut first = needs(&land_intent("auth", PatronusPushMode::RebaseAutosquash));
-  first.extend([FactNeed::FailedRobot(subject.clone()), FactNeed::Robots, FactNeed::LastProfile(subject.clone())]);
+  first.extend([
+    FactNeed::FailedRobot(subject.clone()),
+    FactNeed::Robots(RobotsOf::Subject(subject.clone())),
+    FactNeed::LastProfile(subject.clone()),
+  ]);
   fill(&mut session, &sources, &GitCommandExecutor::new(), &first).await;
   let read = BTreeMap::from([("details", 1), ("problems", 1), ("profiles", 1), ("pull_requests", 1), ("robots", 1)]);
   assert_eq!(counted.calls(), read);
@@ -345,7 +349,10 @@ async fn a_read_the_facts_already_answer_is_never_made() {
   fill(&mut session, &sources, &GitCommandExecutor::new(), &first).await;
   assert_eq!(counted.calls(), BTreeMap::from([("profiles", 1), ("pull_requests", 1), ("robots", 1)]));
 
-  assert_eq!(needs(&push_intent("auth")), [FactNeed::Robots, FactNeed::PullRequests]);
+  assert_eq!(
+    needs(&push_intent("auth")),
+    [FactNeed::Robots(RobotsOf::Subject(Subject::branch("auth"))), FactNeed::PullRequests]
+  );
   let domain_types::operation::Intent::Push(push) = push_intent("auth") else {
     unreachable!()
   };

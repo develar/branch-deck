@@ -1,28 +1,33 @@
-//! The user's robots of a repository, kept in the object cache (`patronus_robots`) so that `brd status` (`landed_by`)
-//! asks Patronus as the app does ("Load on Patronus" in `openspec/specs/branch/patronus/spec.md`), not on every call:
+//! The robots of a repository, the user's and, whoever started them, those of the pushed branches of the user, kept in
+//! the object cache (`patronus_robots`) so that `brd status` (`landed_by`) asks Patronus as the app does ("Load on
+//! Patronus" in `openspec/specs/branch/patronus/spec.md`), not on every call:
 //!
 //! - A kept list holds for a minute while a robot of it runs (the app polls a running robot once a minute) and for five
 //!   minutes while none does (a sync of the app lists at most every five minutes): only a running robot can merge.
 //! - Then the robots started since two minutes before the kept list was asked are listed, and the running robots it
 //!   knows are polled (`fetch-updates`: only the changed ones come back), both merged into it; the first list asks for
-//!   the last 7 days, and a robot started before them drops out.
+//!   the last 7 days, and a robot started before them drops out. A branch pushed since the kept list is asked for the
+//!   last 7 days once.
 //! - A token Patronus rejected is not sent again until the token file changes (another token is another key); after a
 //!   failure nothing is asked for 1 s, doubled up to 10 minutes, reset by the next answer, and the kept robots stay.
 //! - `brd push`, `brd safe-push` and `brd robot` decide on the robots: they ask for the full list every time (through
-//!   their session, `session_facts`) and keep it (`keep_listed`).
+//!   their session, `session_facts`), of the branches that may hold them, and keep it (`keep_listed`) beside the robots
+//!   of someone else on the other branches.
 //!
 //! Off Space, without a Space token or with `--no-cache` nothing is kept.
 
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::services::patronus_service;
+use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobot};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobot, RobotsAsk};
 use domain_types::session::{Fact, FactState, RobotsHead};
 use object_cache::cache::ObjectCache;
 use patronus::service::{FULL_LIST_DAYS, PatronusService};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use sync_core::patronus::SpaceRepository;
 use sync_utils::timestamp::unix_now;
 use tokio::runtime::Runtime;
@@ -55,6 +60,9 @@ pub struct ListedRobots {
   pub at: u32,
   /// Newest first
   pub robots: Vec<PatronusRobot>,
+  /// The pushed branches listed for the whole window whoever started their robots; one pushed since is asked for it
+  #[serde(default)]
+  pub sources: BTreeSet<String>,
 }
 
 /// Why Patronus is not asked now
@@ -71,14 +79,17 @@ pub enum RobotsHold {
 pub enum NextRequest {
   /// The kept answer holds
   Kept,
-  /// A list of the robots started since `since` (`None`: the last 7 days), and a poll of `poll`, the running robots
-  /// the kept list knows
-  Ask { since: Option<u32>, poll: Vec<KnownRobotStatus> },
+  /// A list of the robots `ask` (since `None`: the last 7 days), and a poll of `poll`, the running robots the kept list
+  /// knows
+  Ask { ask: RobotsAsk, poll: Vec<KnownRobotStatus> },
 }
 
-/// What a read at `now` asks of Patronus, given what is kept
-pub fn next_request(kept: Option<&KeptRobots>, now: u32) -> NextRequest {
-  let full = NextRequest::Ask { since: None, poll: Vec::new() };
+/// What a read at `now` asks of Patronus, given what is kept, of the pushed branches `sources`
+pub fn next_request(kept: Option<&KeptRobots>, sources: &[String], now: u32) -> NextRequest {
+  let full = NextRequest::Ask {
+    ask: RobotsAsk::full(sources.to_vec()),
+    poll: Vec::new(),
+  };
   let Some(kept) = kept else {
     return full;
   };
@@ -107,7 +118,12 @@ pub fn next_request(kept: Option<&KeptRobots>, now: u32) -> NextRequest {
   if since <= now.saturating_sub(FULL_LIST_SECONDS) {
     return full;
   }
-  NextRequest::Ask { since: Some(since), poll }
+  let ask = RobotsAsk {
+    since: Some(since),
+    sources: sources.to_vec(),
+    new_sources: sources.iter().filter(|source| !listed.sources.contains(*source)).cloned().collect(),
+  };
+  NextRequest::Ask { ask, poll }
 }
 
 /// The key of the robots of a repository: who asks (the server and the token, `PatronusService::identity`), the Space
@@ -130,6 +146,8 @@ pub struct RobotSource<'a> {
   pub cache: &'a ObjectCache,
   /// `RepoContext::patronus_new_api`: the list names the merge profiles
   pub new_api: bool,
+  /// The pushed branches of the table (`BranchTable::robot_sources`), whose robots count whoever started them
+  pub sources: &'a [String],
 }
 
 /// The robots `brd status` read, newest first, with how Patronus answered for the repository, as the head of the robots
@@ -173,34 +191,36 @@ impl ReadRobots {
   }
 }
 
-/// The user's robots of the repository for `brd status`, newest first: the kept ones while they hold, else what Patronus
-/// answers now merged into them (`next_request`), kept; the kept ones, or none, while it can't be asked
+/// The robots of the repository for `brd status`, newest first, the user's and those of `source.sources`: the kept ones
+/// while they hold, else what Patronus answers now merged into them (`next_request`), kept; the kept ones, or none,
+/// while it can't be asked
 pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> ReadRobots {
   let Some(identity) = source.service.identity() else {
     return ReadRobots::answered(Vec::new(), PatronusAvailability::NotLoggedIn, false, now);
   };
   let key = robots_key(&identity, source.space, source.prefix);
   let kept: Option<KeptRobots> = source.cache.get_patronus_robots(&key);
-  let (since, poll) = match next_request(kept.as_ref(), now) {
+  let (ask, poll) = match next_request(kept.as_ref(), source.sources, now) {
     NextRequest::Kept => {
       let robots = kept.and_then(|kept| kept.listed).map_or_default(|listed| listed.robots);
       return ReadRobots::answered(robots, PatronusAvailability::Available, true, now);
     }
-    NextRequest::Ask { since, poll } => (since, poll),
+    NextRequest::Ask { ask, poll } => (ask, poll),
   };
   let answer = source
     .runtime
-    .block_on(source.service.robots(&source.space.name, source.prefix, since, true, source.new_api));
+    .block_on(source.service.robots(&source.space.name, source.prefix, &ask, true, source.new_api));
   let base = kept.as_ref().and_then(|kept| kept.listed.as_ref());
   let listed_before = base.is_some();
   let availability = answer.availability.clone();
   let next = match answer.availability {
     PatronusAvailability::Available => {
-      let mut robots = if since.is_some() {
-        base.map_or_default(|listed| listed.robots.clone())
+      let (mut robots, mut sources) = if ask.since.is_some() {
+        base.map_or_default(|listed| (listed.robots.clone(), listed.sources.clone()))
       } else {
-        Vec::new()
+        (Vec::new(), BTreeSet::new())
       };
+      sources.extend(ask.sources);
       merge_robots(&mut robots, answer.robots);
       if !poll.is_empty() {
         // a failed poll keeps what the list says
@@ -212,7 +232,7 @@ pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> ReadRobots {
       robots.retain(|robot| robot.start_time > now.saturating_sub(FULL_LIST_SECONDS));
       robots.sort_by_key(|robot| std::cmp::Reverse(robot.start_time));
       KeptRobots {
-        listed: Some(ListedRobots { at: now, robots }),
+        listed: Some(ListedRobots { at: now, robots, sources }),
         asked_at: now,
         hold: None,
       }
@@ -250,9 +270,9 @@ fn merge_robots(robots: &mut Vec<PatronusRobot>, answered: Vec<PatronusRobot>) {
   }
 }
 
-/// The user's robots in the repository for `brd status`, best effort (`read_robots_at`): none without Space, a Space
-/// token or an answer of Patronus, the head saying which
-pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobots {
+/// The robots of the repository for `brd status`, the user's and those of the pushed branches `sources`, best effort
+/// (`read_robots_at`): none without Space, a Space token or an answer of Patronus, the head saying which
+pub fn read_robots(context: &RepoContext, environment: &Environment, sources: &[String]) -> ReadRobots {
   let read = || -> Result<ReadRobots, CliError> {
     let Some(space) = context.space_repository()? else {
       return Ok(ReadRobots::answered(Vec::new(), PatronusAvailability::NotPatronus, false, unix_now()));
@@ -266,6 +286,7 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobo
       prefix: &context.prefix,
       cache: &cache,
       new_api: context.patronus_new_api,
+      sources,
     };
     Ok(read_robots_at(&source, unix_now()))
   };
@@ -276,15 +297,49 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobo
 }
 
 /// The robots a command listed to decide on (the full list of the last 7 days, asked now through its session,
-/// `session_facts`), kept for `brd status`
-pub fn keep_listed(context: &RepoContext, service: &PatronusService, space: &SpaceRepository, listed: &[PatronusRobot]) {
-  if let Some(identity) = service.identity() {
-    let now = unix_now();
-    let kept = KeptRobots {
-      listed: Some(ListedRobots { at: now, robots: listed.to_vec() }),
-      asked_at: now,
-      hold: None,
-    };
-    context.cache().put_patronus_robots(&robots_key(&identity, space, &context.prefix), &kept);
+/// `session_facts`): the user's and those of the pushed branches `sources` it asked, kept for `brd status` with the kept
+/// robots of someone else on the other branches, which the narrower list did not ask
+pub fn keep_listed(context: &RepoContext, service: &PatronusService, space: &SpaceRepository, listed: &[PatronusRobot], sources: &[String]) {
+  let Some(identity) = service.identity() else {
+    return;
+  };
+  let (cache, key, now) = (context.cache(), robots_key(&identity, space, &context.prefix), unix_now());
+  let kept: Option<KeptRobots> = cache.get_patronus_robots(&key);
+  let listed = merge_listed(kept.and_then(|kept| kept.listed), listed, sources, &context.prefix, now);
+  let kept = KeptRobots {
+    listed: Some(listed),
+    asked_at: now,
+    hold: None,
+  };
+  cache.put_patronus_robots(&key, &kept);
+}
+
+/// `listed`, the full list of the user's robots and of `sources`, over the kept list `before`: of it the robots of
+/// someone else on another branch stay, and the branches it listed, while it is of the last 7 days
+pub fn merge_listed(before: Option<ListedRobots>, listed: &[PatronusRobot], sources: &[String], prefix: &str, now: u32) -> ListedRobots {
+  let mut robots = listed.to_vec();
+  let mut kept_sources: BTreeSet<String> = sources.iter().cloned().collect();
+  if let Some(before) = before.filter(|before| before.at > now.saturating_sub(FULL_LIST_SECONDS)) {
+    let others = before
+      .robots
+      .into_iter()
+      .filter(|robot| robot.is_someone_elses() && source_of(robot, prefix).is_none_or(|source| !sources.contains(&source)) && !listed.iter().any(|known| known.id == robot.id));
+    robots.extend(others);
+    kept_sources.extend(before.sources);
+  }
+  robots.sort_by_key(|robot| std::cmp::Reverse(robot.start_time));
+  ListedRobots {
+    at: now,
+    robots,
+    sources: kept_sources,
+  }
+}
+
+/// The pushed branch a robot was started on, `{prefix}/virtual/<name>` or `{prefix}/stack/<root>`
+fn source_of(robot: &PatronusRobot, prefix: &str) -> Option<String> {
+  match (&robot.branch_name, &robot.stack_root) {
+    (Some(name), _) => to_final_branch_name(prefix, name).ok(),
+    (None, Some(root)) => to_stack_branch_name(prefix, root).ok(),
+    (None, None) => None,
   }
 }

@@ -1869,6 +1869,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let own_robot = match hold {
       Some(Reason::StackHeld { robot_id, .. }) => Some(HoldView {
         kind: HoldKind::Own,
+        started_by: sources.robot(Some(&robot_id)).and_then(|robot| robot.started_by.clone()),
         by: RobotOf {
           branch: stack.root.clone(),
           robot_id,

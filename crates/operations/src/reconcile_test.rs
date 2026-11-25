@@ -447,7 +447,7 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
   let _open = (registry.sessions().hold(&key), registry.sessions().hold(&elsewhere));
   files.insert_of_another_process(record).unwrap();
   // the full list of a window (Refresh), asked before the start settled: kept by the service
-  let first = patronus.robots("ultimate", "test", None, false, false).await;
+  let first = patronus.robots("ultimate", "test", &domain_types::patronus::RobotsAsk::mine(), false, false).await;
   assert_eq!((first.availability.clone(), first.robots.len()), (PatronusAvailability::Available, 0));
   registry.reconcile_after_robots(&key, &first.robots).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
@@ -455,7 +455,7 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
   // Patronus creates the robot of the start late; the next full list, once the start settled, is the kept one
   *fake.robots.lock().unwrap() = Some(vec![listed_robot("late", SENT + 59)]);
   now.store(SENT + SETTLED_AFTER + 1, Ordering::SeqCst);
-  let kept = patronus.robots("ultimate", "test", None, false, false).await;
+  let kept = patronus.robots("ultimate", "test", &domain_types::patronus::RobotsAsk::mine(), false, false).await;
   assert_eq!((kept.robots.len(), fake.list_calls.load(Ordering::SeqCst)), (0, 1));
   assert_eq!(session_has_robot(&registry, &key, "late").await, Some(false));
   registry.reconcile_after_robots(&key, &kept.robots).await;
@@ -467,7 +467,7 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
     (session_has_robot(&registry, &key, "late").await, session_has_robot(&registry, &elsewhere, "late").await),
     (Some(true), Some(true))
   );
-  let next = patronus.robots("ultimate", "test", None, false, false).await;
+  let next = patronus.robots("ultimate", "test", &domain_types::patronus::RobotsAsk::mine(), false, false).await;
   assert_eq!(
     (
       next.robots.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>(),
@@ -509,4 +509,18 @@ async fn the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest() {
     queries.iter().map(|query| query.get("start").cloned()).collect::<Vec<_>>(),
     [Some(format_utc_timestamp(SENT - PATRONUS_COMMENT_CLOCK_SLACK))]
   );
+}
+
+/// A robot someone else started on the branch since the start was sent (a reviewer's Safe Merge from the merge
+/// request) is never the robot of the lost start of the user: the start stays unknown until the user's own robot shows
+#[test]
+fn the_robot_of_a_lost_start_is_never_one_someone_else_started() {
+  let safe_push = PatronusPushMode::RebaseAutosquash;
+  let reviewers = PatronusRobot {
+    started_by: Some("Jane Doe".to_string()),
+    ..alpha_robot("reviewers", safe_push, SENT + 30, Some(TIP))
+  };
+  assert_eq!(robot_of(&api(), safe_push, "test", std::slice::from_ref(&reviewers)), None);
+  let mine = alpha_robot("mine", safe_push, SENT + 1, Some(TIP));
+  assert_eq!(robot_of(&api(), safe_push, "test", &[reviewers, mine]).map(|robot| robot.id), Some("mine".to_string()));
 }

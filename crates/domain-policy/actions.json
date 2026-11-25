@@ -203,7 +203,8 @@
               "robotId": "r1",
               "wholeStack": false
             },
-            "carried": null
+            "carried": null,
+            "startedBy": null
           },
           "mode": "rebaseAutosquash",
           "target": "master"

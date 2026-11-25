@@ -80,6 +80,7 @@ fn a_safe_push_waits_for_a_block_the_last_commit_a_robot_that_lands_it_then_one_
   let span = SpanView {
     by: robot_of("session", "s"),
     carried: None,
+    started_by: None,
   };
   let ancestor = robot_of("auth", "a");
   let stack = BranchStack {
@@ -157,11 +158,13 @@ fn a_dry_run_waits_for_the_last_commit_and_for_the_span_hold_of_the_push_it_make
   let span = SpanView {
     by: robot_of("session", "s"),
     carried: None,
+    started_by: None,
   };
   let hold = HoldView {
     kind: HoldKind::Span,
     by: robot_of("session", "s"),
     carried: None,
+    started_by: None,
   };
   let held = BranchStart {
     span: Some(&span),
@@ -238,6 +241,7 @@ fn a_restart_is_refused_by_the_table_first_then_as_a_start_without_its_own_robot
     kind: HoldKind::Span,
     by: robot_of("session", "s"),
     carried: None,
+    started_by: None,
   };
   let restart = BranchStart {
     last_commit: Some(&own),
@@ -262,6 +266,7 @@ fn a_restart_is_refused_by_the_table_first_then_as_a_start_without_its_own_robot
   let span = SpanView {
     by: robot_of("session", "s"),
     carried: None,
+    started_by: None,
   };
   assert!(matches!(
     restart_refusal(&Start::Branch(BranchStart { span: Some(&span), ..restart }), SAFE_PUSH, &robots, None, None),
@@ -414,6 +419,7 @@ impl World {
       kind: HoldKind::Span,
       by: robot_of("oauth", "oauth-run"),
       carried: None,
+      started_by: None,
     };
     let facts = LandFacts {
       route: &PATRONUS,
@@ -684,6 +690,7 @@ fn a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_th
       kind: HoldKind::Own,
       by: robot_of("login", "old"),
       carried: None,
+      started_by: None,
     }),
     replaces: Some("old"),
     ..world()

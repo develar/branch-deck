@@ -20,7 +20,7 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, FactWait, Land, LandFact, LandingRefusal, Subject};
 use domain_types::landing_route::LandingRoute;
 use domain_types::operation::{OperationId, StartNote};
-use domain_types::patronus::{PatronusAvailability, PatronusRobot};
+use domain_types::patronus::{PatronusAvailability, PatronusRobot, RobotsAsk};
 use domain_types::session::{SyncReason, Version, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
@@ -513,7 +513,7 @@ impl StartHost for SessionStart {
 /// # Errors
 /// What Patronus answered instead: an error, a token it rejected, a repository not on Space
 pub(crate) async fn robots_since(patronus: &PatronusService, space: &str, prefix: &str, new_api: bool, since: u32) -> Result<Vec<PatronusRobot>, ApiError> {
-  let result = patronus.robots(space, prefix, Some(since), false, new_api).await;
+  let result = patronus.robots(space, prefix, &RobotsAsk::mine_since(since), false, new_api).await;
   match result.availability {
     PatronusAvailability::Available => Ok(result.robots),
     PatronusAvailability::Error { message } => Err(ApiError::new(ErrorCode::PatronusError, message)),

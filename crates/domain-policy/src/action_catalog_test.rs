@@ -107,6 +107,7 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
             kind: HoldKind::Own,
             by: robot_of("auth", "r1"),
             carried: None,
+            started_by: None,
           },
           mode: PatronusPushMode::RebaseAutosquash,
           target: s("master"),

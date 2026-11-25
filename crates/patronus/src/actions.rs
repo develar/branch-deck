@@ -103,7 +103,7 @@ impl PatronusService {
   #[instrument(skip(self))]
   pub async fn robot_details(&self, branch_prefix: &str, robot_id: &str, new_api: bool) -> Result<PatronusRobotDetails, ActionError> {
     let details = self.cached_details(robot_id).await?;
-    let robot = to_robot(&details.robot, branch_prefix, self.client());
+    let robot = to_robot(&details.robot, branch_prefix, self.client(), self.me().as_ref());
     let profile = robot_profile(&details.robot);
     // only while the details of a running robot are open
     let progress = match details.raw_checks.as_deref() {
@@ -244,7 +244,7 @@ impl PatronusService {
     let details = self.cached_details(robot_id).await?;
     let checks = failure_checks(&details)?;
     Ok(robot_failure_of(
-      to_robot(&details.robot, branch_prefix, self.client()),
+      to_robot(&details.robot, branch_prefix, self.client(), self.me().as_ref()),
       &details.robot,
       checks,
       &details.raw_problems,
@@ -258,7 +258,12 @@ impl PatronusService {
   pub async fn robot_failure_full(&self, branch_prefix: &str, robot_id: &str, teamcity: Option<&TeamCityCli>) -> Result<RobotFailure, ActionError> {
     let details = self.cached_details(robot_id).await?;
     let checks = failure_checks(&details)?;
-    let mut failure = robot_failure_of(to_robot(&details.robot, branch_prefix, self.client()), &details.robot, checks, &details.raw_problems);
+    let mut failure = robot_failure_of(
+      to_robot(&details.robot, branch_prefix, self.client(), self.me().as_ref()),
+      &details.robot,
+      checks,
+      &details.raw_problems,
+    );
     let finished = parse_status(&details.robot.status).is_finished();
     let key = format!("{robot_id}/{}", teamcity.is_some());
     let failed = if let Some(failed) = self.caches.failed_builds.get(&key).filter(|_| finished) {
@@ -596,7 +601,7 @@ impl PatronusService {
     let token = self.action_token()?;
     let response = self.client().get_robot(&token.value, robot_id).await;
     let robot = self.settle(response, &token.stamp).map_err(availability_message)?;
-    Ok(to_robot(&robot, branch_prefix, self.client()))
+    Ok(to_robot(&robot, branch_prefix, self.client(), self.me().as_ref()))
   }
 
   pub(crate) fn action_token(&self) -> Result<Token, ActionError> {

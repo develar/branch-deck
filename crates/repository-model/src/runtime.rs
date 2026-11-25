@@ -793,8 +793,8 @@ impl Actor {
           self.facts.review_requests.watched_anew();
           self.events.emit(&self.key, SessionEventKind::Watched(true));
           if let Some(table) = self.facts.table.value() {
-            let baseline = table.baseline.clone();
-            self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
+            let (baseline, robot_sources) = (table.baseline.clone(), table.robot_sources());
+            self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline, robot_sources });
           }
           self.tell_digest();
         }
@@ -1460,7 +1460,8 @@ impl Actor {
         let baseline = table.baseline.clone();
         let _ = self.facts.table.answer(observation, Ok(Arc::clone(&table)));
         self.facts.table_committed(&baseline);
-        self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
+        let robot_sources = table.robot_sources();
+        self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline, robot_sources });
         // before the patch: what the host starts on a commit runs ahead of the windows that read the table
         self.host.table_committed(&self.key, &table);
         self.derive_patronus();

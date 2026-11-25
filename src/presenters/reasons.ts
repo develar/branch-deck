@@ -29,9 +29,20 @@ function landingWait(landing: { readonly branch: string; readonly wholeStack?: b
   return `A ${formatPushMode(mode)} of ${formatLandingSubject(landing)} is running: wait until it merges`
 }
 
-function landingReason(branchName: string, by: { readonly branch: string; readonly wholeStack?: boolean }, mode: PatronusPushMode, commits: number | undefined): string {
+function landingReason(
+  branchName: string,
+  by: { readonly branch: string; readonly wholeStack?: boolean },
+  mode: PatronusPushMode,
+  commits: number | undefined,
+  startedBy?: string,
+): string {
   const what = commits === undefined ? branchName : `${formatCommitCount(commits)} of ${branchName}`
-  return `A ${formatPushMode(mode)} of ${formatLandingSubject(by)} is running: it lands ${what} with it`
+  return `A ${formatPushMode(mode)} of ${formatLandingSubject(by)}${startedByWords(startedBy)} is running: it lands ${what} with it`
+}
+
+/** " that Jane Doe started": who started a robot of someone else, after what it is of; nothing for the user's own */
+function startedByWords(startedBy: string | null | undefined): string {
+  return startedBy == null ? "" : ` that ${startedBy} started`
 }
 
 /** What the words of a hold read of it and of its robot */
@@ -42,6 +53,8 @@ interface HoldWords {
   readonly mode: PatronusPushMode
   readonly target: string
   readonly commits?: number
+  /** Who started the robot when it is not the user */
+  readonly startedBy?: string
 }
 
 /**
@@ -80,19 +93,20 @@ function holdWords(branchName: string, hold: HoldWords): string {
     case "landed":
       return `${landedWords(hold.target, hold, hold.branch === branchName && hold.wholeStack !== true)}: nothing of it is left to push`
     case "own":
-      return `A ${formatPushMode(hold.mode)} of ${branchName} is running: wait until it merges, or restart it on the current branch`
+      return `A ${formatPushMode(hold.mode)} of ${branchName}${startedByWords(hold.startedBy)} is running: wait until it merges, or restart it on the current branch`
     case "span":
-      return landingReason(branchName, hold, hold.mode, hold.commits)
+      return landingReason(branchName, hold, hold.mode, hold.commits, hold.startedBy)
   }
 }
 
 /**
  * Why a held branch offers no push (`PushHold`): "A Safe Push of auth is running: wait until it merges, or restart it
  * on the current branch", "A Safe Push of oauth is running: it lands auth with it", "Landed in master with oauth:
- * nothing of it is left to push"
+ * nothing of it is left to push"; of a robot someone else started "A Safe Push of auth that Jane Doe started is running: …"
  */
 export function formatPushHoldReason(branchName: string, hold: PushHold): string {
-  return holdWords(branchName, { ...hold, mode: hold.robot.pushMode, target: hold.robot.targetBranch })
+  const startedBy = hold.robot.startedBy
+  return holdWords(branchName, { ...hold, mode: hold.robot.pushMode, target: hold.robot.targetBranch, ...(startedBy != null && { startedBy }) })
 }
 
 function stackHeldWords(root: string, mode: PatronusPushMode): string {
@@ -114,7 +128,15 @@ const words = {
   landed: ({ by, own, target }) => landedWords(target, subjectOf(by), own),
   held: ({ branch, hold, mode, target }) => {
     const commits = hold.carried?.commits.length
-    return holdWords(branch, { kind: hold.kind, ...subjectOf(hold.by), mode, target, ...(commits !== undefined && { commits }) })
+    const startedBy = hold.startedBy
+    return holdWords(branch, {
+      kind: hold.kind,
+      ...subjectOf(hold.by),
+      mode,
+      target,
+      ...(commits !== undefined && { commits }),
+      ...(startedBy != null && { startedBy }),
+    })
   },
   noStackBranch: ({ root }) => `The ${root} stack has no stack branch: only a stack that forks builds one`,
   stackNotBuilt: ({ state, blockedBy, conflict, error }) => {

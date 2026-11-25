@@ -263,15 +263,16 @@ fn rejected(number: u32, reason: Option<String>) -> ApiError {
   )
 }
 
-/// The robot a `/patronus` comment on pull request `number` started in `mode`: of that pull request, a dry run for a
-/// dry run and a Safe Push for a Safe Push, and none of `known` (a canceled Dry Run or the replaced Safe Push of the same
+/// The robot a `/patronus` comment on pull request `number` started in `mode`: of the user (a comment of someone else on
+/// the pull request starts a robot of theirs), of that pull request, a dry run for a dry run and a Safe Push for a Safe
+/// Push, and none of `known` (a canceled Dry Run or the replaced Safe Push of the same
 /// pull request a minute before is never the new robot); the newest of them
 #[must_use]
 pub fn comment_robot(robots: Vec<PatronusRobot>, number: u32, mode: PatronusPushMode, known: &HashSet<String>) -> Option<PatronusRobot> {
   let dry_run = mode == PatronusPushMode::DryRun;
   robots
     .into_iter()
-    .filter(|robot| robot.pull_request.as_ref().is_some_and(|link| link.number == number))
+    .filter(|robot| !robot.is_someone_elses() && robot.pull_request.as_ref().is_some_and(|link| link.number == number))
     .filter(|robot| (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !known.contains(&robot.id))
     .max_by_key(|robot| robot.start_time)
 }

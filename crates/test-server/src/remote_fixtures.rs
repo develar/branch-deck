@@ -38,7 +38,8 @@ use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 
 /// `robot` as Patronus lists it, its source branch the full ref of its virtual branch or of the stack branch of its
-/// whole stack under `branch_prefix`. Its profile is in the options, where a poll and the details have it; its URL is
+/// whole stack under `branch_prefix`; of a robot someone else started (`started_by`) the owner is that person, else the
+/// user (id 1, who asks). Its profile is in the options, where a poll and the details have it; its URL is
 /// the one the client derives from its id (the pages of `PATRONUS_URL`). An empty or `~N` `sourceRevision` stays for the hook of the host, which
 /// resolves it when Patronus answers (`resolve_source_revision`)
 pub fn fixture_robot(robot: &PatronusRobot, branch_prefix: &str) -> anyhow::Result<serde_json::Value> {
@@ -60,7 +61,10 @@ pub fn fixture_robot(robot: &PatronusRobot, branch_prefix: &str) -> anyhow::Resu
     "pushMode": push_mode_name(robot.push_mode),
     "cancellationReason": robot.cancellation_reason,
     "githubPrUrl": robot.pull_request.as_ref().map(|link| link.url.clone()),
-    "owner": {"type": "USER", "id": "1", "name": "Me"},
+    "owner": match &robot.started_by {
+      Some(name) => serde_json::json!({"type": "USER", "id": format!("user-{name}"), "name": name}),
+      None => serde_json::json!({"type": "USER", "id": "1", "name": "Me"}),
+    },
   });
   if let Some(profile) = &robot.profile {
     let mut options = serde_json::Map::new();

@@ -52,7 +52,18 @@ import {
   UserCheckIcon,
   UserPlusIcon,
 } from "lucide-react"
-import type { ActionBlocker, ActionId, ActionState, Availability, NothingBeyond, OperationId, PatronusRobot, PullRequestAvailability, RunningOperation } from "@/lib/bindings"
+import type {
+  ActionBlocker,
+  ActionId,
+  ActionState,
+  Availability,
+  NothingBeyond,
+  OperationId,
+  PatronusPushMode,
+  PatronusRobot,
+  PullRequestAvailability,
+  RunningOperation,
+} from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
@@ -365,9 +376,24 @@ export interface RobotAction extends MenuItem {
   id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "start-robot-in-air" | "open-robot" | "open-robot-pull-request"
 }
 
+/** "the run", of a robot someone else started "the run Jane Doe started": what a cancel of it stops */
+function runWords(robot: PatronusRobot): string {
+  return robot.startedBy == null ? "the run" : `the run ${robot.startedBy} started`
+}
+
+/**
+ * "Cancels the Safe Push of auth running on abc1234.", of a robot someone else started "Cancels the Safe Push of auth
+ * that Jane Doe started, running on abc1234.": what a start that replaces the running robot of its subject cancels
+ */
+export function formatReplacedRobot(mode: PatronusPushMode, subject: string, replaces: PatronusRobot): string {
+  const startedBy = replaces.startedBy == null ? "" : ` that ${replaces.startedBy} started,`
+  return `Cancels the ${formatPushMode(mode)} of ${subject}${startedBy} running on ${formatShortHash(replaces.sourceRevision ?? "")}.`
+}
+
 /** What each action of a robot runs and how the facts of the robot name it */
 function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionItem {
   const mode = formatPushMode(robot.pushMode)
+  const run = runWords(robot)
   switch (id) {
     case "restart-robot":
       return {
@@ -376,8 +402,8 @@ function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionIte
         ...(robot.status === "running" && {
           description:
             robot.sourceRevision === null
-              ? "Cancels the run and starts it again on the remote branch"
-              : `Cancels the run on ${formatShortHash(robot.sourceRevision)} and starts it again on the remote branch`,
+              ? `Cancels ${run} and starts it again on the remote branch`
+              : `Cancels ${run} on ${formatShortHash(robot.sourceRevision)} and starts it again on the remote branch`,
         }),
         running: `Restarting the ${mode}`,
         onSelect: () => void restartRobot(robot),
@@ -390,14 +416,19 @@ function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionIte
       return {
         label: formatRobotRestartLabel(robot),
         description: runs
-          ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
+          ? `Cancels ${run} on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
           : `Pushes ${pushed} and starts it again on the pushed commit`,
         running: `Restarting the ${mode}`,
         onSelect: () => void restartRobot(robot),
       }
     }
     case "cancel-robot":
-      return { label: `Cancel ${mode}`, running: `Canceling the ${mode}`, onSelect: () => void cancelRobot(robot) }
+      return {
+        label: `Cancel ${mode}`,
+        ...(robot.startedBy != null && { description: `Started by ${robot.startedBy}` }),
+        running: `Canceling the ${mode}`,
+        onSelect: () => void cancelRobot(robot),
+      }
     case "copy-robot-prompt":
       return { onSelect: () => void copyRobotPrompt(robot) }
     case "copy-robot-full-prompt":

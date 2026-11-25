@@ -55,6 +55,7 @@ pub fn branch_hold(name: &str, landed: Option<&LandedByView>, robot: Option<&Pat
       kind: HoldKind::Landed,
       by: landed.by.clone(),
       carried: None,
+      started_by: None,
     });
   }
   if let Some(robot) = robot.filter(|robot| holds_pushes(robot) && robot.branch_name.as_deref() == Some(name)) {
@@ -62,12 +63,14 @@ pub fn branch_hold(name: &str, landed: Option<&LandedByView>, robot: Option<&Pat
       kind: HoldKind::Own,
       by: Subject::branch(name).robot_of(&robot.id),
       carried: None,
+      started_by: robot.started_by.clone(),
     });
   }
   running_span.map(|span| HoldView {
     kind: HoldKind::Span,
     by: span.by.clone(),
     carried: span.carried.clone(),
+    started_by: span.started_by.clone(),
   })
 }
 

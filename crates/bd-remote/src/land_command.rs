@@ -54,7 +54,7 @@ use domain_types::session::PullRequestsView;
 use operations::engine::pushes_into_target;
 use operations::land::LandHost;
 use operations::land_execute::{Accepted, Steps, execute, refusal_code};
-use operations::needs::FactNeed;
+use operations::needs::{FactNeed, RobotsOf};
 use repository_model::branch_table::BranchTable;
 use repository_model::derive::{landed_subject, landing_route_of};
 use repository_model::facts::Needs;
@@ -322,7 +322,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
   let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
   // the pull requests with the permission of the token: whether CI passed on the tip, the gate of the route; of a merge
   // the robots too, which answer off Space that Patronus lands nothing (`land::merges_on_github`)
-  let robots = (patronus.is_some() || direct == Direct::Merge).then_some(FactNeed::Robots);
+  let robots = (patronus.is_some() || direct == Direct::Merge).then(|| FactNeed::Robots(RobotsOf::Subject(subject.clone())));
   let first: Vec<FactNeed> = robots.into_iter().chain([FactNeed::PullRequests]).collect();
   facts.read(context, &first)?;
   if direct == Direct::Merge {

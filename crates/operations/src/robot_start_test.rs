@@ -247,3 +247,17 @@ async fn a_reviewed_pull_request_is_merged_plainly_and_its_robot_looked_for_only
   // right after the reply, then each tick of the ten seconds after it
   assert_eq!(lists.load(std::sync::atomic::Ordering::SeqCst), 4);
 }
+
+/// A `/patronus` comment of someone else on the pull request starts a robot of theirs: never the robot of the comment
+/// of the user
+#[test]
+fn a_comment_start_takes_no_robot_someone_else_started() {
+  let safe_push = PatronusPushMode::RebaseAutosquash;
+  let theirs = PatronusRobot {
+    started_by: Some("Jane Doe".to_owned()),
+    ..of_seven("theirs", safe_push, 20)
+  };
+  let found = |robots: Vec<PatronusRobot>| crate::robot_start::comment_robot(robots, 7, safe_push, &HashSet::new()).map(|robot| robot.id);
+  assert_eq!(found(vec![theirs.clone()]), None);
+  assert_eq!(found(vec![theirs, of_seven("mine", safe_push, 10)]), Some("mine".to_owned()));
+}

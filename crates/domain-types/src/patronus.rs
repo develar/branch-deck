@@ -1,4 +1,5 @@
-//! Patronus robots (Safe Push, Safe Merge, Dry Run) of the user's virtual branches, as the app shows them.
+//! Patronus robots (Safe Push, Safe Merge, Dry Run) of the user's virtual branches, as the app shows them: the user's
+//! own, and those someone else started on a branch of the user (a reviewer's Safe Merge from the merge request).
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +43,55 @@ pub struct PatronusRobot {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub profile: Option<PatronusRobotProfile>,
+  /// Who started the robot when it is not the user: the full name of a person (a reviewer's Safe Merge from the merge
+  /// request of the branch) or of an application; null for the user's own robot, or while unknown
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub started_by: Option<String>,
+}
+
+impl PatronusRobot {
+  /// Someone else started it, on a branch of the user: it holds and lands the branch as the user's own does, but it is
+  /// never the robot of a start of the user (a lost start, a `/patronus` comment)
+  pub const fn is_someone_elses(&self) -> bool {
+    self.started_by.is_some()
+  }
+}
+
+/// What a list of the robots asks: since when, and the pushed branches whose robots count whoever started them
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RobotsAsk {
+  /// Unix seconds; None: the full window
+  pub since: Option<u32>,
+  /// The pushed source branches of the user, `{prefix}/virtual/<name>` and `{prefix}/stack/<root>`: their robots are
+  /// listed whoever started them. Empty: only the user's own robots
+  pub sources: Vec<String>,
+  /// Of `sources`, those no full window was listed for yet (pushed since): an incremental list asks their whole window
+  pub new_sources: Vec<String>,
+}
+
+impl RobotsAsk {
+  /// The user's own robots of the full window
+  pub fn mine() -> Self {
+    Self::default()
+  }
+
+  /// The user's own robots started since `since`
+  pub fn mine_since(since: u32) -> Self {
+    Self {
+      since: Some(since),
+      ..Self::default()
+    }
+  }
+
+  /// The full window of the user's robots and of those of `sources`
+  pub const fn full(sources: Vec<String>) -> Self {
+    Self {
+      since: None,
+      sources,
+      new_sources: Vec::new(),
+    }
+  }
 }
 
 /// The merge profile of a robot, e.g. "Large Scale Change"; a known robot without one has `id` null (the default checks

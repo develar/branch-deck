@@ -143,3 +143,64 @@ fn the_statuses_of_a_table_walk_against_the_baseline_commit_of_its_sync() {
   };
   assert_eq!(of_a_frame.status_baseline(), "origin/master");
 }
+
+/// The pushed branches whose robots count whoever started them: each virtual branch and stack branch the remote has,
+/// but a branch the baseline has whole; of a subject those of its stack and the stack branch of it
+#[test]
+fn the_robot_sources_are_the_pushed_branches_and_stack_branches_not_in_the_baseline() {
+  let pushed = |tip: &str| RemoteFact {
+    remote_tip: Some(tip.to_string()),
+    ..RemoteFact::default()
+  };
+  let stack = domain_types::stack::StackBranchUpdate {
+    root: "auth".to_string(),
+    branch_name: "test/stack/auth".to_string(),
+    members: vec!["auth".to_string(), "login".to_string(), "oauth".to_string()],
+    commit_count: 3,
+    my_email: None,
+    state: domain_types::stack::StackBranchState::Built,
+    tip: Some("stack-tip".to_string()),
+    blocked_by: None,
+    conflict: None,
+    error: None,
+    remote: None,
+  };
+  let table = BranchTable {
+    prefix: "test".to_string(),
+    // login and oauth are built on auth; local stays local, landed is in the baseline
+    branches: vec![
+      placed("auth", None),
+      placed("login", Some("auth")),
+      placed("oauth", Some("auth")),
+      placed("local", None),
+      placed("landed", None),
+      placed("other", None),
+    ],
+    stack_branches: vec![stack],
+    remote: RemoteFacts {
+      branches: BTreeMap::from([
+        ("auth".to_string(), pushed("a")),
+        ("login".to_string(), pushed("l")),
+        ("oauth".to_string(), pushed("o")),
+        ("local".to_string(), RemoteFact::default()),
+        ("landed".to_string(), pushed("d")),
+        ("other".to_string(), pushed("x")),
+      ]),
+      stacks: BTreeMap::from([("auth".to_string(), pushed("s"))]),
+    },
+    in_baseline: BTreeSet::from(["landed".to_string()]),
+    ..BranchTable::default()
+  };
+  assert_eq!(
+    table.robot_sources(),
+    ["test/stack/auth", "test/virtual/auth", "test/virtual/login", "test/virtual/oauth", "test/virtual/other"]
+  );
+  let of = |name: &str| table.robot_sources_of(&domain_types::landing::Subject::branch(name), &table.remote);
+  assert_eq!(of("login"), ["test/stack/auth", "test/virtual/auth", "test/virtual/login", "test/virtual/oauth"]);
+  assert_eq!(of("other"), ["test/virtual/other"]);
+  assert_eq!(of("local"), Vec::<String>::new());
+  // the remote of the session, which a push moved since the sync
+  let mut moved = table.remote.clone();
+  moved.branches.insert("local".to_string(), pushed("p"));
+  assert_eq!(table.robot_sources_of(&domain_types::landing::Subject::branch("local"), &moved), ["test/virtual/local"]);
+}

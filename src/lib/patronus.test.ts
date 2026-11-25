@@ -45,6 +45,7 @@ describe("the robot of the whole stack", () => {
     expect(formatRobotSubject(wholeStack)).toBe("the whole air stack")
     expect(formatMergedRobotTitle(wholeStack)).toBe("Whole air stack merged into master")
     expect(describeRobot(wholeStack, "Large Scale Change")).toBe("Whole air stack → master · profile Large Scale Change")
+    expect(describeRobot({ ...wholeStack, startedBy: "Jane Doe" })).toBe("Whole air stack → master · started by Jane Doe")
     expect(formatRobotSubject(robot({ branchName: null, sourceRevision: "x" }))).toBe("IJPL-1 fix the cache")
   })
 })

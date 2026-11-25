@@ -10,7 +10,7 @@ use bd_core::error::CliError;
 use bd_core::services::session_key;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Land;
-use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult};
+use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult, RobotsAsk};
 use git_executor::git_command_executor::GitCommandExecutor;
 use operations::facts::fill;
 use operations::land::{LandHost, prepare_one_shot};
@@ -105,7 +105,7 @@ pub fn listed_robots(session: &OneShot) -> Result<&[PatronusRobot], CliError> {
 /// The robots started since `since` (Unix seconds), asked now through `sources` (the robot a `/patronus` comment
 /// started), or why Patronus listed none
 pub fn robots_since(context: &RepoContext, sources: &dyn FactSources, since: u32) -> Result<Vec<PatronusRobot>, CliError> {
-  let result = context.runtime()?.block_on(sources.robots(&session_key(context), Some(since), false));
+  let result = context.runtime()?.block_on(sources.robots(&session_key(context), RobotsAsk::mine_since(since), false));
   available(Some(&result.availability))?;
   Ok(result.robots)
 }
