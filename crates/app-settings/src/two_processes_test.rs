@@ -7,14 +7,18 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sync_utils::dir_watch::WatchConfig;
 
 /// Longer than any test: a save happens only by a flush or a drop
 const NEVER: Duration = Duration::from_hours(1);
 
-/// How long a test waits for the watch to tell a change: the event under any load of the machine
+/// The end of a wait for the watch or a look to tell a change: a hang guard far above an event under load, so a run that
+/// hears the change never reaches it, and one that hears nothing fails there, naming what it waited for
 const EVENT_DEADLINE: Duration = Duration::from_mins(1);
+
+/// How long the probe of a test of the events waits for the event of its save before it saves again
+const PROBE_EVERY: Duration = Duration::from_millis(100);
 
 /// A writer that learns of a change of the other one by the events of its watch alone, without a look
 const EVENTS_ONLY: WatchConfig = WatchConfig { recheck: None, events: true };
@@ -49,10 +53,13 @@ fn watched_writer(directory: &tempfile::TempDir, config: WatchConfig) -> Setting
   SettingsService::open_watched_as(directory.path().to_path_buf(), NEVER, config).unwrap()
 }
 
-/// The changes of another process `service` tells, in the order it tells them
+/// The changes of another process `service` tells, in the order it tells them. One told after the test let go of the
+/// receiver (the save of the IDE's own change as it drops, which takes the app's) goes nowhere
 fn external_changes(service: &SettingsService) -> Receiver<SettingsChange> {
   let (sender, receiver) = std::sync::mpsc::channel();
-  service.on_external_change(move |change| sender.send(change.clone()).unwrap());
+  service.on_external_change(move |change| {
+    let _ = sender.send(change.clone());
+  });
   receiver
 }
 
@@ -123,14 +130,35 @@ fn two_writers_that_save_at_once_lose_no_change_of_the_other() {
 }
 
 /// The writer of the IDE takes the save of the app, told by the event of its watch with no look, and tells it once with
-/// its next version. It fails with "no watch event" where the watch runs behind the writes (`FSEvents` on a loaded
-/// machine), which the looks of the writer stand in for
+/// its next version. The test begins once the stream told a save of the app (a probe, saved again until it is told):
+/// `FSEvents` registers a stream after it started and drops the changes of its first moments, which only a look finds
+/// (`dir_watch::watch_from`). It fails with "no watch event" where the watch runs behind the writes (`FSEvents` on a
+/// loaded machine), which the looks of the writer stand in for
 #[test]
 fn a_change_another_writer_saved_reaches_the_subscribers_with_the_next_version_when_its_watch_tells_the_save() {
   let directory = tempfile::tempdir().unwrap();
   let app = writer(&directory, NEVER);
   let ide = watched_writer(&directory, EVENTS_ONLY);
-  the_change_of_the_app_reaches_the_ide(&app, &ide, "no watch event: the watch of the system runs behind the writes");
+  let heard = external_changes(&ide);
+  let missing = "no watch event: the watch of the system runs behind the writes";
+  let deadline = Instant::now() + EVENT_DEADLINE;
+  let mut probe = 0;
+  'live: loop {
+    probe += 1;
+    app.set(whole("watchProbe", json!(probe)), "main").unwrap();
+    app.flush().unwrap();
+    loop {
+      match heard.recv_timeout(PROBE_EVERY) {
+        // a reread takes the file as the last save left it
+        Ok(change) if change.key == "watchProbe" && change.value == json!(probe) => break 'live,
+        // an earlier probe, told late
+        Ok(_) => {}
+        Err(RecvTimeoutError::Timeout) if Instant::now() < deadline => continue 'live,
+        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => panic!("{missing} within {EVENT_DEADLINE:?}"),
+      }
+    }
+  }
+  the_change_of_the_app_reaches_the_ide(&app, &ide, &heard, missing);
 }
 
 /// The guarantee: the watch of the IDE's writer tells nothing, and its look takes the save of the app within its recheck
@@ -139,13 +167,13 @@ fn a_change_another_writer_saved_reaches_the_subscribers_at_the_next_look_with_n
   let directory = tempfile::tempdir().unwrap();
   let app = writer(&directory, NEVER);
   let ide = watched_writer(&directory, LOOKS_ONLY);
-  the_change_of_the_app_reaches_the_ide(&app, &ide, "no look of the writer read the save");
+  the_change_of_the_app_reaches_the_ide(&app, &ide, &external_changes(&ide), "no look of the writer read the save");
 }
 
-/// The app saves a change while the IDE has one of its own, unsaved: the IDE's writer tells it once, with the version
-/// after its own change; past `EVENT_DEADLINE` the test fails with `missing`
-fn the_change_of_the_app_reaches_the_ide(app: &SettingsService, ide: &SettingsService, missing: &str) {
-  let heard = external_changes(ide);
+/// The app saves a change while the IDE has one of its own, unsaved: the IDE's writer tells it once to `heard`, with the
+/// version after its own change; past `EVENT_DEADLINE` the test fails with `missing`
+fn the_change_of_the_app_reaches_the_ide(app: &SettingsService, ide: &SettingsService, heard: &Receiver<SettingsChange>, missing: &str) {
+  let (before, _) = ide.snapshot();
   ide.set(whole("diffView", json!({ "mode": "split" })), "main").unwrap();
 
   // nothing of the IDE saves meanwhile
@@ -156,9 +184,9 @@ fn the_change_of_the_app_reaches_the_ide(app: &SettingsService, ide: &SettingsSe
   assert_eq!(change.key, "appSettings");
   assert_eq!(change.value["zoom"], json!(1.5));
   assert_eq!(change.origin, OTHER_PROCESS_ORIGIN);
-  assert_eq!(change.version, 2, "the version after the IDE's own change");
+  assert_eq!(change.version, before + 2, "the version after the IDE's own change");
   assert_eq!(ide.app().zoom.to_bits(), 1.5_f64.to_bits());
-  assert_eq!(ide.changes_since(1), [change], "a page that started after its own change catches up with it");
+  assert_eq!(ide.changes_since(before + 1), [change], "a page that started after its own change catches up with it");
   assert!(matches!(heard.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)), "one change, told once");
 }
 

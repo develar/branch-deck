@@ -126,7 +126,10 @@ machine.
   ([A watch is a hint](../design/async-patterns.md#a-watch-is-a-hint)): the guarantee with a watch that tells nothing
   (`WatchConfig { events: false }`, a look every 50 ms), the reaction to an event with the events it gives (`woken`,
   `TableWake::of_events`), and one test of the events of the system per watch, whose wait ends at a deadline with "no
-  watch event" (`the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_look`).
+  watch event" (`the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_look`). That test writes what it
+  waits for only once the stream told a write of its own (a probe, written again until it is told): `FSEvents` drops
+  the changes of a stream's first moments, so a write right after the watcher started is never told (the settings
+  writer of `two_processes_test.rs`, 80 s on the loaded Studio; `dir_watch_test.rs`).
 - **A runtime goes before the directories its work runs in**: a fixture drops its tokio runtime before its temporary
   repository (`Space` of `crates/bd-cli/src/remote_fixture_test.rs` declares it first), so the drop waits for the blocking
   work (a sync of the app, its git) while the repository is there. A git whose directory goes away under it scans the
