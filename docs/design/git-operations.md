@@ -2402,7 +2402,13 @@ One after the other, at 40 s each, they would have finished. Nothing limited the
 is never held across a git. A get that finds no free slot takes the clones lock and reserves again under it, so a slot
 that a return freed meanwhile wins over a new one; it holds the lock until its new slot is checked out or given back
 (the clone or the registration, the checkout, the `status` of a clone), never across the seed: a copy of ignored files
-(gigabytes in idea-1) that two gets may run at once. A get that reuses a slot never takes it. A slot freed during the
+(gigabytes in idea-1) that two gets may run at once. A get that reuses a slot takes it only when its wait for a slot
+made it the first of the queue (below). A get that holds the lock keeps it across the checks of each slot that its
+reserve under the lock gives it, so it keeps its turn: a busy or a dirty slot, or an idle lease with work, leaves it
+the next reserve under the lock, and it adds a slot without a second wait. Under the lock run one stop of the Bazel
+servers and one `status` for each free slot the get is given, and at most `IDLE_CHECKS_PER_GET` (2) full checks of an
+idle lease, each with the stop of the servers of its slot. The get drops the lock once the slot is its own
+(`end_checks_under_lock`), before the checkout of the slot and the clean of a lease it took over. A slot freed during the
 wait ends it: the waiting get reads the state about once a second anyway (for the holder's new slot, below), and a
 slot there that its reserve may take and has not tried (`reservable`: free, or a lease whose process is gone) cancels
 the wait (`LockWaitCanceled`); the get reserves that slot without the lock. Before, it noticed the slot only once the
@@ -2421,7 +2427,33 @@ refuses after the lock timeout (`locked`). The waiting get tells it as a step (`
 `brd lease get`) when the wait starts, when the holder or the slot it adds changes, and once a minute: the holder's
 command and pid, how long it holds the lock, and from the state the new slot it adds and the holder of its lease (its
 `preparing` lease of the same pid and start time, no worktree id yet). The output says how long it waited
-(`waited_for_clone_ms`). After a
+(`waited_for_clone_ms`).
+
+The gets that wait take their slots in the order they asked (`lease_pool::get_queue`): a file lock falls to the
+process that polls first, and a freed slot to the get that reserves first, so the order is the pool's own. A get that
+finds no free slot enters the queue with a ticket in `leases.json` (`LeaseStore::queue`): the
+id of its lease, its holder, its pid and start time, its time of entry, a heartbeat, its phase and the slots it tried.
+The ticket is written in the write of that reserve, and every later reserve of the get writes its phase in its own
+write, so a reserve and the place in the queue never part. The ticket leaves the queue in the write of the new slot,
+in the write that makes the lease `ready`, or when the get ends (the drop of its `QueuePlace`); the ticket of a gone
+process leaves in the next write of a get. The reserve of every get takes a free slot only when each waiting ticket
+ahead of it tried that slot, and an idle lease only when each waiting ticket ahead that takes idle leases over tried
+it; a get without a ticket comes after all tickets. So a new get never passes a waiting one, and a slot freed during
+a wait ends only the wait of the first waiting get that has not tried it (`claimable`). An idle lease that turns quiet
+during a wait ends the wait of the first waiting get that takes idle leases over and has not tried it: the reserve
+takes it over at once, and no other get takes it meanwhile. Only the first waiting get waits for the
+clones lock; one behind it reads the state every 200 ms (`QUEUE_LOOK`) and tells whom it waits behind
+(`GetStep::WaitBehind`: the get right ahead, its pid, how long it waits, and how many wait ahead). A get whose reserve
+gave it a slot to check, or a get in a relief without the lock, is `busy`: the queue passes it, and its next reserve
+puts it back at its place by its time of entry. A get that waits under the clones lock for a return or a clean stays
+`waiting` and writes its heartbeat, so no get behind it takes the slot it waits for. A phase that a later brd wrote
+reads as `unknown`, and the queue passes it as a busy one. A get forgets its ticket only after the write that takes it
+out; when that write fails, the drop of `QueuePlace` takes it out. A waiting get writes its heartbeat every 10 s; a
+ticket whose heartbeat is 60 s old is stale and passed over, never removed, so a get that a loaded machine held back
+gets its place back with its next heartbeat. A brd before the queue rewrites the state without the queue and takes
+slots past it; each waiting get writes its ticket again at its next look, with its time of entry.
+
+After a
 wait its turn may come minutes later, so it reads `branchdeck.leaseMinFree` again (one `config`) and scans the
 processes again; every get that adds a slot measures the free space again under the lock, so a queue never adds
 slots past the minimum. Under the lock it only measures (one `statfs`, below the minimum the names in the trash): the
@@ -2915,7 +2947,8 @@ session. After the free slots, before it takes the clones lock, the reserve now 
 `ready`, its holder gone, no host slot, no process in its slot but its Bazel servers, and quiet for an hour, its get
 and the last move of its HEAD (the mtime of `logs/HEAD`, no git), so a holder recorded as a wrapper that exits at once
 (`cargo run`, `pnpm`) does not lose the lease its agent just began. The get's `preparing` lease keeps the idle one
-(`taking_over`) while the check runs without the lock (`check_idle`), cheap things first:
+(`taking_over`) while the check runs (`check_idle`), under the clones lock only when the get took it to add a slot,
+cheap things first:
 
 1. the verdict of the check before, while it holds (`IdleCheck`: the tree work while the slot's `HEAD` and reflog are
    unchanged, the commits also while the home tip is; one `rev-parse`), so an idle lease with work costs a get one

@@ -37,6 +37,8 @@
 //!   `brd lease pick` reads
 //! - `clone_dir`: a directory tree by APFS clones, the new slot of a get on macOS, without what the clean rules delete
 //! - `free_space`: the free space of the volume of the pool, which a get checks
+//! - `get_queue`: the queue of the gets that wait for a slot, in the state of the pool: a free slot, an idle lease and
+//!   the clones lock go to the gets in the order they asked
 //! - `bazel_servers`: the Bazel servers of a slot where no process scan tells them (Windows), by the pid file of the
 //!   output base its `bazel-out` link leads to, and their stop with `bazel shutdown`
 //! - `output_bases`: the Bazel output bases of the workspaces of the pool, outside the slots, by the `bazel-out` links
@@ -54,6 +56,7 @@ pub mod check_record;
 pub mod clone_dir;
 pub mod epoch;
 pub mod free_space;
+pub mod get_queue;
 mod host_brew;
 pub mod host_cores;
 pub mod host_estimate;
@@ -77,5 +80,7 @@ pub mod trim;
 mod agent_workspace_test;
 #[cfg(test)]
 mod check_record_test;
+#[cfg(test)]
+mod get_queue_test;
 #[cfg(test)]
 mod host_git_test;

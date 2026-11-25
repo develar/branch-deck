@@ -1461,6 +1461,7 @@ fn get_on(context: &LeaseContext, environment: &bd_core::context::Environment, s
       progress: None,
       space: Some(space),
       cached_build: None,
+      queue: context.queue,
     },
   )
 }

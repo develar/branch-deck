@@ -1216,7 +1216,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `free_bytes` is the free space before the get.
 - A pool adds one slot at a time (`clones.lock` beside the state): a get that must add a slot while another adds one
   waits, and a slot a return frees meanwhile ends the wait and is leased instead (`reused: true`), within about a
-  second, while the other clone still runs; a get whose turn comes while a slot is being returned or cleaned waits for
+  second, while the other clone still runs. The gets that wait take the lock and a freed slot in the order they asked:
+  a get behind another names it on stderr (`waiting behind the get of <holder>`), and a new get never takes a slot
+  past a get that waits; a get whose turn comes while a slot is being returned or cleaned waits for
   that slot rather than clone one; the free space is checked again once its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). Under the lock a get
   first removes the slots whose add never finished (a get failed or was killed after it registered one, its tree half
   written perhaps), which no get takes or clones (`removed_unfinished`: `path`, `dir`, `errors`). The wait lasts

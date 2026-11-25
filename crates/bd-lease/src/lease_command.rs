@@ -14,6 +14,7 @@ use git_ops::revs::{RepositoryDirs, is_ancestor, ref_exists, repository_dirs, re
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
+use lease_pool::get_queue::QueueTiming;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
@@ -233,6 +234,8 @@ pub struct LeaseContext {
   pub dirs: RepositoryDirs,
   pub lock_timeout: Duration,
   pub server_stop_timeout: Duration,
+  /// The heartbeat of a get that waits in the queue of the pool, and the age of a stale one
+  pub queue: QueueTiming,
 }
 
 impl LeaseContext {
@@ -251,6 +254,7 @@ impl LeaseContext {
       dirs,
       lock_timeout: environment.lock_timeout,
       server_stop_timeout: environment.server_stop_timeout,
+      queue: QueueTiming::default(),
     })
   }
 }
@@ -833,6 +837,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     progress: Some(&timed),
     space: None,
     cached_build: Some(&pool_disk::cached_build_bytes),
+    queue: context.queue,
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
   let mut output = lease_get_output(context, &got)?;

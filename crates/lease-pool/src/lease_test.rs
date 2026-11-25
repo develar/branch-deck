@@ -165,6 +165,7 @@ fn a_state_written_before_the_cut_is_read_cut_and_written_small() {
       },
     ],
     last_returned: Some(2),
+    queue: Vec::new(),
   };
   let mut json = serde_json::to_value(&old).unwrap();
   json["slots"][0]["dirty_check"]["paths"] = serde_json::json!(whole_tree());
@@ -313,7 +314,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
       lease: Some(get.clone()),
       reclaimed: None,
     }],
-    last_returned: None,
+    ..LeaseStore::default()
   };
   pool
     .update(Duration::from_secs(5), |store| {
@@ -399,7 +400,7 @@ fn orders(slots: &[Slot]) -> (Option<String>, Vec<String>, Vec<String>, Vec<Stri
 fn reclaim(slots: &mut Vec<Slot>, index: usize, quiet_at: u64) {
   let mut store = LeaseStore {
     slots: std::mem::take(slots),
-    last_returned: None,
+    ..LeaseStore::default()
   };
   stamp_reclaimed(&mut store, index, quiet_at);
   *slots = store.slots;
@@ -409,7 +410,7 @@ fn reclaim(slots: &mut Vec<Slot>, index: usize, quiet_at: u64) {
 fn give_back(slots: &mut Vec<Slot>, index: usize, now: u64) {
   let mut store = LeaseStore {
     slots: std::mem::take(slots),
-    last_returned: None,
+    ..LeaseStore::default()
   };
   stamp_returned(&mut store, index, now);
   *slots = store.slots;
@@ -540,7 +541,7 @@ impl PoolLife {
   fn new(root: &Path, count: u64) -> Self {
     let slots = (0..count).map(|n| returning(returned_slot(root, n, None, None))).collect();
     Self {
-      store: LeaseStore { slots, last_returned: None },
+      store: LeaseStore { slots, ..LeaseStore::default() },
       epochs: (0..count).map(|_| HashSet::new()).collect(),
       leases: 0,
       now: 1_000,

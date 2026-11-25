@@ -22,6 +22,7 @@
 //! clean rules with keep 0, then their Bazel output bases, used longest ago first.
 
 use crate::free_space::{SpaceOf, available_bytes};
+use crate::get_queue::QueueTiming;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
@@ -1679,6 +1680,7 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       progress: None,
       space: options.space,
       cached_build: options.cached_build,
+      queue: QueueTiming::default(),
     },
     round,
     !options.skip_ahead,
@@ -1965,6 +1967,7 @@ fn fill_one(
       progress: Some(&report),
       space: None,
       cached_build: None,
+      queue: QueueTiming::default(),
     },
   );
   let got = match got {

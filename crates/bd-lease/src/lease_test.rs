@@ -1995,6 +1995,7 @@ impl ShrinkFixture {
         progress: Some(progress),
         space: Some(space),
         cached_build: None,
+        queue: context.queue,
       },
     )
   }

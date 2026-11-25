@@ -4,7 +4,10 @@
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: a get that reuses a slot never waits for another's checkout, and no get waits for an update. A get
 //! that adds a slot holds the clones lock of the pool (`clones.lock`, `Pool::lock_clones`) for the whole clone and its
-//! checkout, so the pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once,
+//! checkout, so the pool adds one slot at a time, and across the checks of each slot that its reserve under the lock
+//! gives it (`end_checks_under_lock`). The gets that find no free slot wait in a queue of the state (`get_queue`): only its first waiting get waits
+//! for the clones lock, and a free slot or an idle lease goes to the first waiting get that has not tried it. The
+//! `worktree` commands of the pool, which git can't run two at once,
 //! take a lock of their own (`worktrees.lock`, `Pool::worktree_command`). The order is `clones.lock`, `leases.lock`,
 //! `worktrees.lock`: a get takes the other two under the clones lock, one at a time; nothing is taken under the pool
 //! lock or the lock of the `worktree` commands (the move of an adopt holds only the latter), and a return or a clean
@@ -16,6 +19,7 @@
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
+use crate::get_queue::{Behind, Gate, QueuePlace, QueueTicket, QueueTiming, Turn, settle_queue};
 use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{
@@ -88,6 +92,9 @@ pub struct LeaseStore {
   /// slots counts then
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub last_returned: Option<u64>,
+  /// The gets that wait for a slot (`get_queue`), in no order: each ticket names its place
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub queue: Vec<QueueTicket>,
 }
 
 impl LeaseStore {
@@ -1046,7 +1053,8 @@ impl Pool {
   }
 
   /// The lock of the gets that add a slot (`clones.lock`), which a get holds from the reserve of its new slot until the
-  /// slot is checked out and clean, or given back, not across the seed: on 2026-10-24 fourteen gets cloned the idea-1 checkout at once, several ran past the
+  /// slot is checked out and clean, or given back, not across the seed, and across the checks of each slot that its
+  /// reserve under the lock gives it (`end_checks_under_lock`); only the first waiting get of the queue (`get_queue`) waits for it: on 2026-10-24 fourteen gets cloned the idea-1 checkout at once, several ran past the
   /// deadline of their caller, and the disk stalled for 1.5 h; one after the other, at 40 s each, they would have
   /// finished. Beside the state, as the pool lock: the reserve under it reads that state, and the pool directory is
   /// only config. The wait lasts while the record of the holder names a live process (`lock_file_while_held`): a holder
@@ -1138,6 +1146,8 @@ pub struct LeaseGetParams<'a> {
   /// The bytes of the build dirs of the slots of a pool as `disk.json` last measured them, for the order of the leased
   /// slots in a shrink (`ShrinkParams::cached_build`); `None`: by `leased_at` alone
   pub cached_build: Option<&'a CachedBuild<'a>>,
+  /// The heartbeat of the get while it waits in the queue (`get_queue`), and the age of a stale one
+  pub queue: QueueTiming,
 }
 
 impl LeaseGetParams<'_> {
@@ -1161,6 +1171,9 @@ pub enum GetStep {
   /// No free slot, and another get holds the clones lock while it adds a slot: told when the wait starts, when the
   /// holder or the slot it adds changes, and once a minute
   WaitForClone(CloneHolder),
+  /// No free slot, and gets that asked before this one wait in the queue of the pool (`get_queue`): told when the wait
+  /// starts, when the get right ahead changes, and once a minute
+  WaitBehind(Behind),
   /// Under the clones lock, no free slot, and the return or the clean of the slot `slot` by the process `pid` runs: the
   /// get waits for it to end rather than add a slot (`clean`: a clean, else a return)
   WaitForSlot { slot: String, pid: u32, clean: bool },
@@ -1230,6 +1243,7 @@ impl fmt::Display for GetStep {
       Self::Reserve { adding: false } => f.write_str("reserving a free slot"),
       Self::Reserve { adding: true } => f.write_str("reserving a slot freed meanwhile, else a new one"),
       Self::WaitForClone(holder) => write!(f, "no free slot; {holder}"),
+      Self::WaitBehind(behind) => write!(f, "no free slot; {behind}"),
       Self::WaitForSlot { slot, pid, clean } => write!(
         f,
         "no free slot; waiting for the {} of {slot} (pid {pid}): the slot it frees is leased rather than a new one",
@@ -1391,13 +1405,26 @@ enum Reserved {
   NoFreeSlot,
 }
 
+impl Reserved {
+  /// What the reserve makes of the ticket of the get in the queue
+  const fn turn(&self) -> Turn {
+    match self {
+      Self::NoFreeSlot | Self::Freeing { .. } => Turn::Wait,
+      Self::New { .. } => Turn::Final,
+      Self::Free { .. } | Self::TakeOver { .. } => Turn::Busy,
+    }
+  }
+}
+
 /// Lease a slot at the HEAD of the source. First the free space of the volume of the pool, when a minimum is set
 /// (`LowDiskSpace`). Under the pool lock: a free slot of this repository (a linked worktree of the same common dir, no
 /// process in it but its Bazel servers, clean slots before dirty ones), its lease recorded as `preparing`. Then,
 /// without the lock: its Bazel servers stopped (one that does not exit skips the slot as busy), one `status` (a dirty
 /// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
-/// the seed. No free slot: the clones lock (`Pool::lock_clones`), waited for while another get adds a slot; a slot freed
-/// during the wait ends it, and the get reserves that one without the lock. After a wait the minimum and the processes
+/// the seed. No free slot: the get waits at its place in the queue of the pool (`get_queue`), the first of it for the
+/// clones lock (`Pool::lock_clones`) while another get adds a slot; a slot freed or an idle lease that turned quiet
+/// during the wait ends the wait of the first waiting get that the queue gives it (`claimable`), which reserves that
+/// one without the lock. After a wait the minimum and the processes
 /// as they are now; the free space again (a trash to delete releases the lock for the delete), and the reserve again,
 /// where a slot freed meanwhile wins, and a slot whose return or clean runs is waited for. Else, under the lock until
 /// the slot is ready, a clone of a template without what the `delete` rules delete (`add_cloned_slot`), else a
@@ -1502,23 +1529,44 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let mut idle = Vec::new();
   let mut took_over = None;
   let mut idle_checks = 0;
-  // held from the reserve of a new slot until the slot is ready or given back (dropped on return)
+  // held from the reserve of a new slot until the slot is ready or given back, and across the checks of each slot
+  // reserved under it (dropped on return)
   let mut clones_lock: Option<RepositoryLock> = None;
   let mut waited_for_clone: Option<Duration> = None;
   let mut removed_unfinished = Vec::new();
+  // the ticket of the get in the queue, from its first wait for a slot; its drop takes it out of the state
+  let mut place = QueuePlace::new(&pool, params.lock_timeout, params.queue, &lease);
   loop {
     let adding = clones_lock.is_some();
     report(GetStep::Reserve { adding });
     let takes_over = take_over == TakeOver::Idle && idle_checks < IDLE_CHECKS_PER_GET;
     let reserved = pool.update(params.lock_timeout, |store| {
-      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut awaited, &mut skipped, &lease, adding, takes_over);
+      settle_queue(&mut store.queue);
+      let gate = place.gate(store);
+      let reserved = reserve(
+        store,
+        &git_common_dir,
+        &pool_dir,
+        (&scan, &gate),
+        &mut tried,
+        &mut awaited,
+        &mut skipped,
+        &lease,
+        adding,
+        takes_over,
+      );
       if matches!(reserved, Reserved::New { .. }) {
         idle = idle_leases(store);
       }
+      // the phase of the get in the queue changes in the write of its reserve
+      place.reserved(store, reserved.turn(), &tried, takes_over);
       Ok(reserved)
     })?;
+    if matches!(reserved, Reserved::New { .. }) {
+      place.left();
+    }
     let (path, reused) = match reserved {
-      Reserved::NoFreeSlot => match lock_clones(&pool, params.lock_timeout, &tried, &report)? {
+      Reserved::NoFreeSlot => match wait_turn(&pool, params.lock_timeout, &mut place, (&tried, takes_over.then_some(git_common_dir.as_path())), &report)? {
         CloneTurn::SlotFreed { waited } => {
           if let Some(waited) = waited {
             *waited_for_clone.get_or_insert_default() += waited;
@@ -1557,8 +1605,9 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             low => {
               // the delete of a trash takes minutes for a Bazel output base of tens of GB, and so do the deletes of a
               // trim and a shrink, which mark the slots of this pool under its lock: the gets behind this one go on
-              // meanwhile, and it takes its turn again
+              // meanwhile, the queue passing this one, and it waits at its place again after
               drop(lock);
+              place.busy();
               relief.relieve(git_executor, params, &pool, (&pool_dir, min_free), &low, &report);
             }
           }
@@ -1567,12 +1616,13 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       },
       Reserved::Freeing { path, lease_id, pid, clean } => {
         report(GetStep::WaitForSlot { slot: path.clone(), pid, clean });
-        wait_while_freeing(&pool, &path, &lease_id)?;
+        // the get waits at the head of the queue, its heartbeat written, so no get behind it takes the slot it waits for
+        wait_while_freeing(&pool, &path, &lease_id, &mut |store| place.keep(store))?;
         continue;
       }
       Reserved::Free { path, name, servers } => {
-        // a slot freed while the get waited for the clones lock: the next get that adds a slot goes on
-        clones_lock = None;
+        // a get that holds the clones lock keeps it across the check: a busy or a dirty slot leaves it the next reserve
+        // under the lock, where it adds a slot without another wait
         if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
           skipped.push(busy);
           continue;
@@ -1601,11 +1651,12 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           });
           continue;
         }
+        end_checks_under_lock(&mut clones_lock);
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
         (path, true)
       }
       Reserved::TakeOver { path, name, servers, old } => {
-        clones_lock = None;
+        // the clones lock stays across the check, as for a free slot
         report(GetStep::TakeOver {
           slot: path.clone(),
           holder: old.holder.clone(),
@@ -1619,6 +1670,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             idle_checks += 1;
             continue;
           }
+          // the work stays: the get reserves again with the clones lock it holds, so it adds a slot without another wait
           Ok(IdleVerdict::Work { check, fresh }) => {
             idle_checks += usize::from(fresh);
             let mut kept = *old;
@@ -1642,11 +1694,13 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             continue;
           }
         };
-        // the lease is the get's now: what fails from here frees the slot, whose work landed
+        // the lease is the get's now: what fails from here frees the slot, whose work landed. A Bazel server that does
+        // not exit leaves the get the next reserve under the clones lock, as for a free slot
         if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
           skipped.push(busy);
           continue;
         }
+        end_checks_under_lock(&mut clones_lock);
         report(GetStep::CleanTakenOver { slot: path.clone() });
         // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
         let trash = Trash::new(&pool.trash_dir());
@@ -1762,8 +1816,11 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         lease.seeded = seeded;
         lease.reused = reused;
       }
-      Ok(slot.clone())
+      let slot = slot.clone();
+      place.leave_in(store);
+      Ok(slot)
     })?;
+    place.left();
     return Ok(LeaseGot {
       slot,
       notes,
@@ -1785,6 +1842,16 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       agent_landing: config.agent_landing,
     });
   }
+}
+
+/// The end of the checks of a slot that the get reserved. A get that took the clones lock to add a slot holds it across
+/// them, so it keeps its turn: a busy or a dirty slot, or an idle lease with work, leaves it the next reserve under the
+/// lock. Under the lock run one stop of the Bazel servers and one `status` for each free slot the get is given, and at
+/// most `IDLE_CHECKS_PER_GET` full checks of an idle lease, each with the stop of the servers of its slot. Once the
+/// slot is the get's, the lock goes. The next get in the queue then adds its slot while this one moves the slot and
+/// cleans the lease it took over
+fn end_checks_under_lock(clones_lock: &mut Option<RepositoryLock>) {
+  drop(clones_lock.take());
 }
 
 /// Stop the Bazel servers of the slot `(name, path)` that the get of `lease_id` reserved, added to `stopped`: with one
@@ -2411,38 +2478,118 @@ fn delete_trash(pool: &Pool, report: &dyn Fn(GetStep)) {
   Trash::new(&pool.trash_dir()).sweep();
 }
 
-/// The turn of a get at the clones lock (`lock_clones`); `waited` is how long the get waited for it, when the wait was
-/// told (`GetStep::WaitForClone`)
+/// The turn of a get at the clones lock (`wait_turn`); `waited` is how long the get waited for it, when the wait was
+/// told (`GetStep::WaitForClone`, `GetStep::WaitBehind`)
 enum CloneTurn {
   Locked {
     lock: RepositoryLock,
     waited: Option<Duration>,
   },
-  /// A slot was freed while the get waited (`reservable`): the get reserves it without the lock
+  /// A free slot or an idle lease that the queue gives the get is there (`claimable`): the get reserves it without the
+  /// lock
   SlotFreed {
     waited: Option<Duration>,
   },
 }
 
-/// The clones lock of `pool` (`Pool::lock_clones`), or the end of the wait for it once a slot the get has not tried
-/// (`tried`) is free: the state it reads for the holder anyway (`clone_holder`, about once a second) tells it, and an
-/// error of that read is no slot. Not the modification time of the state: two writes within one tick of the clock look
-/// like none. The wait is told (`GetStep::WaitForClone`) when it starts, when the holder or the slot it adds changes (a
-/// holder that took the lock a moment ago reserves its slot next), and once a minute
-fn lock_clones(pool: &Pool, unknown_timeout: Duration, tried: &HashSet<String>, report: &dyn Fn(GetStep)) -> Result<CloneTurn> {
+/// How often a get that waits behind others in the queue looks at the state again: a slot freed meanwhile ends the
+/// wait within about a second
+const QUEUE_LOOK: Duration = Duration::from_millis(200);
+
+/// The state of `pool` without the lock; an error of the read is an empty state, which frees no slot
+fn read_state(pool: &Pool) -> LeaseStore {
+  pool.read().unwrap_or_else(|error| {
+    debug!(error = %format!("{error:#}"), "cannot read the state while waiting for a slot");
+    LeaseStore::default()
+  })
+}
+
+/// Whether `store` has a slot that the queue gives the get of `gate` and that it has not tried (`tried`): a free slot,
+/// or with `idle` (the common dir of a get that takes idle leases over) an idle lease that its reserve takes over
+/// (`is_idle_candidate`)
+fn claimable(store: &LeaseStore, gate: &Gate, (tried, idle): (&HashSet<String>, Option<&Path>)) -> bool {
+  let now = now();
+  store.slots.iter().any(|slot| {
+    (reservable(slot, tried) && gate.lets_free(&slot.path)) || idle.is_some_and(|git_common_dir| is_idle_candidate(slot, git_common_dir, tried, now) && gate.lets_idle(&slot.path))
+  })
+}
+
+/// The wait of a get that found no free slot, at its place in the queue (`get_queue`): it ends once a free slot or an
+/// idle lease that the queue gives the get is there (`claimable`), or with the clones lock, which only the first
+/// waiting get waits for (`lock_clones`). A get behind others looks at the state every `QUEUE_LOOK` and tells whom it waits behind
+/// (`GetStep::WaitBehind`) when the wait starts, when the get right ahead changes, and once a minute. Each look writes
+/// the heartbeat of the get when it is due (`QueuePlace::keep`)
+fn wait_turn(pool: &Pool, unknown_timeout: Duration, place: &mut QueuePlace<'_>, tried: (&HashSet<String>, Option<&Path>), report: &dyn Fn(GetStep)) -> Result<CloneTurn> {
   let started = Instant::now();
+  let mut waited = false;
+  // the get ahead told last, and when
+  let mut told: Option<(Behind, Instant)> = None;
+  loop {
+    let store = read_state(pool);
+    place.keep(&store);
+    let gate = place.gate(&store);
+    if claimable(&store, &gate, tried) {
+      return Ok(CloneTurn::SlotFreed {
+        waited: waited.then(|| started.elapsed()),
+      });
+    }
+    let Some(behind) = gate.behind() else {
+      let (turn, told_holder) = lock_clones(pool, unknown_timeout, place, tried, report)?;
+      waited |= told_holder;
+      let waited_for = waited.then(|| started.elapsed());
+      match turn {
+        ClonesWait::Locked(lock) => return Ok(CloneTurn::Locked { lock, waited: waited_for }),
+        ClonesWait::SlotFreed => return Ok(CloneTurn::SlotFreed { waited: waited_for }),
+        ClonesWait::Behind => continue,
+      }
+    };
+    if told.as_ref().is_none_or(|(last, at)| *last != behind || at.elapsed() >= CLONE_WAIT_TICK) {
+      report(GetStep::WaitBehind(behind.clone()));
+      told = Some((behind, Instant::now()));
+    }
+    waited = true;
+    std::thread::sleep(QUEUE_LOOK);
+  }
+}
+
+/// How the wait of the first get of the queue for the clones lock ended (`lock_clones`)
+enum ClonesWait {
+  Locked(RepositoryLock),
+  /// A free slot or an idle lease that the queue gives the get is there
+  SlotFreed,
+  /// Another get waits ahead of it again: a ticket that was busy or stale
+  Behind,
+}
+
+/// The clones lock of `pool` (`Pool::lock_clones`) for the first waiting get of the queue, or the end of the wait for it
+/// once a slot that the queue gives the get is there (`claimable`), or once another get waits ahead of
+/// it: the state it reads for the holder anyway (`clone_holder`, about once a second) tells both, and an error of that
+/// read is no slot. Not the modification time of the state: two writes within one tick of the clock look like none.
+/// The wait is told (`GetStep::WaitForClone`) when it starts, when the holder or the slot it adds changes (a holder that
+/// took the lock a moment ago reserves its slot next), and once a minute; the answer says whether it was told
+fn lock_clones(
+  pool: &Pool,
+  unknown_timeout: Duration,
+  place: &mut QueuePlace<'_>,
+  tried: (&HashSet<String>, Option<&Path>),
+  report: &dyn Fn(GetStep),
+) -> Result<(ClonesWait, bool)> {
   // the holder told last, and when
   let mut told: Option<(CloneHolder, Instant)> = None;
   let freed = Cell::new(false);
+  let behind = Cell::new(false);
   let lock = pool.lock_clones(
     unknown_timeout,
     &mut |process| {
-      let store = pool.read().unwrap_or_else(|error| {
-        debug!(error = %format!("{error:#}"), "cannot read the state while waiting for the clones lock");
-        LeaseStore::default()
-      });
-      if store.slots.iter().any(|slot| reservable(slot, tried)) {
+      let store = read_state(pool);
+      place.keep(&store);
+      let gate = place.gate(&store);
+      if claimable(&store, &gate, tried) {
         freed.set(true);
+        return;
+      }
+      if !gate.is_first() {
+        behind.set(true);
         return;
       }
       let holder = clone_holder(&store, process);
@@ -2451,12 +2598,13 @@ fn lock_clones(pool: &Pool, unknown_timeout: Duration, tried: &HashSet<String>, 
         told = Some((holder, Instant::now()));
       }
     },
-    &|| freed.get(),
+    &|| freed.get() || behind.get(),
   );
-  let waited = told.map(|_| started.elapsed());
+  let told = told.is_some();
   match lock {
-    Ok(lock) => Ok(CloneTurn::Locked { lock, waited }),
-    Err(error) if freed.get() && error.is::<LockWaitCanceled>() => Ok(CloneTurn::SlotFreed { waited }),
+    Ok(lock) => Ok((ClonesWait::Locked(lock), told)),
+    Err(error) if error.is::<LockWaitCanceled>() && freed.get() => Ok((ClonesWait::SlotFreed, told)),
+    Err(error) if error.is::<LockWaitCanceled>() && behind.get() => Ok((ClonesWait::Behind, told)),
     Err(error) => Err(error),
   }
 }
@@ -2495,7 +2643,7 @@ fn reserve(
   store: &mut LeaseStore,
   git_common_dir: &Path,
   pool_dir: &Path,
-  scan: &ProcessScan,
+  (scan, gate): (&ProcessScan, &Gate),
   tried: &mut HashSet<String>,
   awaited: &mut HashSet<String>,
   skipped: &mut Vec<SkippedSlot>,
@@ -2508,8 +2656,9 @@ fn reserve(
   }
   store.slots.retain(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir());
   for dirty in [false, true] {
+    // a slot that a get ahead in the queue has not tried is that get's
     let mut order: Vec<usize> = (0..store.slots.len())
-      .filter(|&index| reservable(&store.slots[index], tried) && store.slots[index].dirty == dirty)
+      .filter(|&index| reservable(&store.slots[index], tried) && store.slots[index].dirty == dirty && gate.lets_free(&store.slots[index].path))
       .collect();
     // stable: the slots never returned come last, in the order they joined
     order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].returned));
@@ -2547,7 +2696,7 @@ fn reserve(
       };
     }
   }
-  if take_over && let Some(reserved) = reserve_idle(store, git_common_dir, scan, tried, skipped, lease) {
+  if take_over && let Some(reserved) = reserve_idle(store, git_common_dir, (scan, gate), tried, skipped, lease) {
     return reserved;
   }
   if !may_add {
@@ -2566,7 +2715,7 @@ fn reserve(
     awaited.insert(lease_id.clone());
     return Reserved::Freeing { path, lease_id, pid, clean };
   }
-  let template = CLONE_AVAILABLE.then(|| mark_template(store, git_common_dir, scan, lease)).flatten();
+  let template = CLONE_AVAILABLE.then(|| mark_template(store, git_common_dir, (scan, gate), lease)).flatten();
   let path = next_slot_path(store, pool_dir, git_common_dir);
   store.slots.push(Slot {
     name: String::new(),
@@ -2632,15 +2781,28 @@ pub(crate) fn slot_servers<'a>(scan: &'a ProcessScan, path: &Path) -> (Vec<Proce
   (servers.into_iter().cloned().collect(), others)
 }
 
+/// Whether the get that tried `tried` may take over the lease of `slot` at `now`: an idle lease (`Lease::is_idle`),
+/// quiet (`is_quiet`), of a slot of the repository of `git_common_dir`
+fn is_idle_candidate(slot: &Slot, git_common_dir: &Path, tried: &HashSet<String>, now: u64) -> bool {
+  slot.lease.as_ref().is_some_and(|idle| idle.is_idle() && is_quiet(slot, idle, now)) && !tried.contains(&slot.path) && is_worktree_of(Path::new(&slot.path), git_common_dir)
+}
+
 /// Under the pool lock: the idle lease (`Lease::is_idle`) that was quiet longest (`is_quiet`), of a slot of this
 /// repository with no process in it but its Bazel servers, taken by the `preparing` lease of the get, which keeps the
 /// idle one as `taking_over`; a busy slot is skipped
-fn reserve_idle(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessScan, tried: &mut HashSet<String>, skipped: &mut Vec<SkippedSlot>, lease: &Lease) -> Option<Reserved> {
+fn reserve_idle(
+  store: &mut LeaseStore,
+  git_common_dir: &Path,
+  (scan, gate): (&ProcessScan, &Gate),
+  tried: &mut HashSet<String>,
+  skipped: &mut Vec<SkippedSlot>,
+  lease: &Lease,
+) -> Option<Reserved> {
   let now = now();
   let mut order: Vec<usize> = (0..store.slots.len())
     .filter(|&index| {
       let slot = &store.slots[index];
-      slot.lease.as_ref().is_some_and(|idle| idle.is_idle() && is_quiet(slot, idle, now)) && !tried.contains(&slot.path) && is_worktree_of(Path::new(&slot.path), git_common_dir)
+      is_idle_candidate(slot, git_common_dir, tried, now) && gate.lets_idle(&slot.path)
     })
     .collect();
   order.sort_by_key(|&index| store.slots[index].lease.as_ref().map_or(0, |idle| idle.leased_at));
@@ -2910,12 +3072,13 @@ fn template_marker(lease_id: &str) -> String {
 /// Under the pool lock: mark a free slot of this repository `templating` for the clone of a new slot, one without a
 /// process in it first, and among those a clean one before a dirty one, so the clone starts with the least to undo;
 /// `None` without one, and the source checkout is the template. The free slots left here are the ones the get passed
-/// over (dirty or busy): the checkout and the clean of the clone make them right
-fn mark_template(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessScan, lease: &Lease) -> Option<String> {
+/// over (dirty or busy) and none that a get ahead in the queue has yet to try: the checkout and the clean of the clone
+/// make them right
+fn mark_template(store: &mut LeaseStore, git_common_dir: &Path, (scan, gate): (&ProcessScan, &Gate), lease: &Lease) -> Option<String> {
   let index = (0..store.slots.len())
     .filter(|&index| {
       let slot = &store.slots[index];
-      slot.lease.is_none() && !is_unfinished(slot) && is_worktree_of(Path::new(&slot.path), git_common_dir)
+      slot.lease.is_none() && !is_unfinished(slot) && gate.lets_free(&slot.path) && is_worktree_of(Path::new(&slot.path), git_common_dir)
     })
     // the first of the best: no process, then clean
     .min_by_key(|&index| (!scan.inside(Path::new(&store.slots[index].path)).is_empty(), store.slots[index].dirty))?;
@@ -3495,7 +3658,7 @@ fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_
       }
       ReturnStep::WaitFor(slot) => {
         if let Some(lease) = &slot.lease {
-          wait_while_freeing(&pool, &path, &lease.id)?;
+          wait_while_freeing(&pool, &path, &lease.id, &mut |_| {})?;
         }
         waited_for = Some(*slot);
       }
@@ -3680,10 +3843,11 @@ fn holds_lease(pool: &Pool, slot: &Slot) -> Result<bool> {
 }
 
 /// Until the return or the clean of `lease_id` in `path` ends: it freed the slot, it failed (`ready` again) or its
-/// process died. No lock of the state is held: it is only read
-fn wait_while_freeing(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
+/// process died. No lock of the state is held: it is only read, and `look` hears each read
+fn wait_while_freeing(pool: &Pool, path: &str, lease_id: &str, look: &mut dyn FnMut(&LeaseStore)) -> Result<()> {
   loop {
     let store = pool.read()?;
+    look(&store);
     let returning = store
       .slots
       .iter()

@@ -13,6 +13,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
+use lease_pool::get_queue::QueueTiming;
 use lease_pool::lease::{LeaseGetParams, LeaseReturnParams, lease_get_core, lease_return_core};
 use lease_pool::lease_clean::{CleanOverrides, RETURN_CARGO_LOCK_WAIT};
 use pool_disk::report::DiskReport;
@@ -153,6 +154,7 @@ fn get_slot(git: &GitCommandExecutor, dirs: &RepositoryDirs, home: Option<&std::
       progress: None,
       space: None,
       cached_build: None,
+      queue: QueueTiming::default(),
     },
   )?;
   let lease_id = got.slot.lease.as_ref().map_or_else(String::new, |lease| lease.id.clone());
