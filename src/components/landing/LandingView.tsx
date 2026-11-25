@@ -4,6 +4,7 @@ import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { HourChart } from "@/components/landing/charts/HourChart"
 import { KindChart } from "@/components/landing/charts/KindChart"
 import { MergeTimeChart } from "@/components/landing/charts/MergeTimeChart"
@@ -11,6 +12,7 @@ import { RankedList } from "@/components/landing/charts/RankedList"
 import { Sparkline } from "@/components/landing/charts/Sparkline"
 import { TimeChart } from "@/components/landing/charts/TimeChart"
 import { WeekChart } from "@/components/landing/charts/WeekChart"
+import { LandingPlanSection } from "@/components/landing/LandingPlan"
 import { Callout } from "@/components/shared/Callout"
 import { ItemSelect } from "@/components/shared/ItemSelect"
 import { LoadingLine } from "@/components/shared/LoadingLine"
@@ -23,17 +25,22 @@ import { formatSafePushLoginCommand } from "@/lib/patronus"
 import { isWindows } from "@/lib/platform"
 import { formatShortDuration } from "@/lib/robot-eta"
 import { STATS_PERIODS, compareToEveryone, formatHour, formatRatio, formatShare, formatShareCount, formatStatsPeriod, hasMergeTimes } from "@/lib/robot-stats"
+import type { LandingSection } from "@/stores/landing-section"
+import { setLandingSection, useLandingSection } from "@/stores/landing-section"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
 /**
- * The Landing view of the main window (`openspec/specs/repository/main-views/spec.md`): how the Safe Pushes of the repository
- * went in the chosen period, from `get_robot_stats`. Read only while it shows; a new answer replaces the numbers whole,
- * nothing moves while it loads (the numbers of another period stay dimmed until those of the chosen one come), and a
- * read nobody asked for fails as a state of the view, not a toast.
+ * The Landing view of the main window (`openspec/specs/repository/main-views/spec.md`): where work goes into master, its
+ * plan ahead (Plan, the first section: `LandingPlanSection`) and its statistics back (Statistics: how the Safe Pushes of
+ * the repository went in the chosen period, from `get_robot_stats`). The statistics are read only while their section
+ * shows; a new answer replaces the numbers whole, nothing moves while it loads (the numbers of another period stay dimmed
+ * until those of the chosen one come), and a read nobody asked for fails as a state of the view, not a toast.
  */
 export function LandingView({ visible, headingRef }: { visible: boolean; headingRef: RefObject<HTMLHeadingElement | null> }) {
-  const { result, partial, progress, loading, error, period, setPeriod, refresh } = useRobotStats(visible)
+  const section = useLandingSection()
+  const statistics = section === "statistics"
+  const { result, partial, progress, loading, error, period, setPeriod, refresh } = useRobotStats(visible && statistics)
   // the first show loads this chunk after the switch: the focus the hidden branches dropped comes to the heading here
   useEffect(() => {
     if (document.activeElement === null || document.activeElement === document.body) {
@@ -49,25 +56,78 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
   const availability = result?.availability.status
   const choosable = stats !== null || (availability !== "notPatronus" && availability !== "notLoggedIn")
   return (
-    <div className="@container flex flex-col gap-2" data-testid="landing-view" aria-busy={loading}>
+    <div className="@container flex flex-col gap-2" data-testid="landing-view" data-section={section} aria-busy={statistics && loading}>
       <div className="flex min-h-9 items-center gap-3 px-1">
         <h1 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-foreground outline-none">
-          Safe Push Statistics
+          Landing
         </h1>
-        {choosable && <PeriodSelect period={period} onChange={setPeriod} />}
-        {stats !== null && (
+        <SectionSwitch section={section} />
+        {statistics && choosable && <PeriodSelect period={period} onChange={setPeriod} />}
+        {statistics && stats !== null && (
           <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-window">
             {`Into ${stats.window.target} · ${stats.window.time_zone}`}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          {loading && progress !== null && <span className="text-xs text-muted-foreground">{formatProgress(progress)}</span>}
-          <Button variant="ghost" size="sm" disabled={loading} onClick={refresh} data-testid="landing-refresh">
-            {loading ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
-            Refresh
-          </Button>
-        </div>
+        {statistics && (
+          <div className="ml-auto flex items-center gap-2">
+            {loading && progress !== null && <span className="text-xs text-muted-foreground">{formatProgress(progress)}</span>}
+            <Button variant="ghost" size="sm" disabled={loading} onClick={refresh} data-testid="landing-refresh">
+              {loading ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
+              Refresh
+            </Button>
+          </div>
+        )}
       </div>
+      {statistics ? (
+        <StatisticsSection stats={stats} result={result} loading={loading} error={error} period={period} current={current} dimmed={dimmed} partial={partial} />
+      ) : (
+        <LandingPlanSection />
+      )}
+    </div>
+  )
+}
+
+/** Plan · Statistics: the section of Landing, one option set as the switcher of the views */
+function SectionSwitch({ section }: { section: LandingSection }) {
+  return (
+    <ToggleGroup
+      aria-label="Section"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[section]}
+      onValueChange={next => {
+        const chosen = next.find(it => it !== section)
+        if (chosen !== undefined) {
+          setLandingSection(chosen as LandingSection)
+        }
+      }}
+      className="shrink-0"
+      data-testid="landing-section"
+    >
+      <ToggleGroupItem value="plan" data-testid="landing-section-plan">
+        Plan
+      </ToggleGroupItem>
+      <ToggleGroupItem value="statistics" data-testid="landing-section-statistics">
+        Statistics
+      </ToggleGroupItem>
+    </ToggleGroup>
+  )
+}
+
+/** The statistics of the chosen period: why there are none, a stale answer, the islands */
+function StatisticsSection({
+  stats,
+  result,
+  loading,
+  error,
+  period,
+  current,
+  dimmed,
+  partial,
+}: Pick<ReturnType<typeof useRobotStats>, "result" | "loading" | "error" | "period" | "partial"> & { stats: RobotStats | null; current: boolean; dimmed: boolean }) {
+  return (
+    <>
       {result?.stale === true && current && result.availability.status === "error" && (
         <Callout tone="warning" title="Patronus did not answer: the numbers are of what was read before" data-testid="landing-stale">
           {result.availability.message}
@@ -86,7 +146,7 @@ export function LandingView({ visible, headingRef }: { visible: boolean; heading
           <StatsCards stats={stats} runsLoading={stats === partial} />
         </div>
       )}
-    </div>
+    </>
   )
 }
 

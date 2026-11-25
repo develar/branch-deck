@@ -37,6 +37,8 @@ test.describe("Land Together", () => {
       const needs = popover.getByTestId("safe-push-landing-needs")
       const together = needs.getByRole("button", { name: "Land Together" })
       await expect(together).toBeFocused()
+      // its price, as the plan of Landing words it: nobody lands two pieces in one robot blind
+      await expect(needs.getByTestId("safe-push-together-price")).toHaveText("Land Together: 1 robot instead of 2 · checks unknown · a failure holds both")
       await runAndWaitForSync(page, () => together.click())
       const toast = page.locator("[data-slot=toast]", { hasText: "Stacked lane-run on stills-codec" })
       await expect(toast).toBeVisible()

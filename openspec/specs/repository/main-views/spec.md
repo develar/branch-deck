@@ -1,6 +1,6 @@
 ---
 name: Main Views
-description: Requirements for the three views of the main window, Branches, Reviews (the pull requests the user takes part in) and Landing (the Safe Push statistics): switched only by the user, the branches given back as they were left, a hidden view reading nothing, a calm view that tells a failed read as its state.
+description: Requirements for the three views of the main window, Branches, Reviews (the pull requests the user takes part in) and Landing (where work goes into master: its plan ahead and its Safe Push statistics back): switched only by the user, the branches given back as they were left, a hidden view reading nothing, a calm view that tells a failed read as its state.
 style: plain-1
 targets:
   - src/stores/main-view.ts
@@ -17,6 +17,7 @@ targets:
   - src/components/repository/ConfigurationHeader.tsx
   - src/components/repository/LandingPopover.tsx
   - src/components/landing/LandingView.tsx
+  - src/stores/landing-section.ts
   - src/components/reviews/ReviewsView.tsx
   - src/components/landing/charts/WeekChart.tsx
   - src/components/landing/charts/MergeTimeChart.tsx
@@ -50,22 +51,25 @@ Date: 2026-10-22
 ## Purpose
 
 The main window has three views of the repository: Branches, the branch tables where the work is cut into pieces;
-Reviews, every open pull request the user takes part in on GitHub ([Reviews](../reviews/spec.md)); and Landing, how those
-pieces went into master ([Safe Push Statistics](../safe-push-statistics/spec.md)). The switcher in the title bar names
-where the user is; ⌘1, ⌘2 and ⌘3 switch, as the View menu, ☰ and the palette do. What runs now stays in
-the landing overview beside the table: its steps run at their rows. Landing is for a deliberate look back, so it takes
-nothing from the work: the view changes only when the user changes it, and the branches come back as they were left.
+Reviews, every open pull request the user takes part in on GitHub ([Reviews](../reviews/spec.md)); and Landing, where
+work goes into master: its plan ahead ([Landing Plan](../../branch/landing-plan/spec.md), what lands now, next and after
+what) and its statistics back, how those pieces went ([Safe Push Statistics](../safe-push-statistics/spec.md)). The
+switcher in the title bar names where the user is; ⌘1, ⌘2 and ⌘3 switch, as the View menu, ☰ and the palette do. What
+runs now stays in the landing overview beside the table: its steps run at their rows. Landing is a deliberate look at
+the whole way, so it takes nothing from the work: the view changes only when the user changes it, and the branches come
+back as they were left.
 
 ## Goals
 
 - Never change the view for the user: a robot, a sync, an error or a start leave it as it is.
 - Give the branches back as they were: the rows, their forms, the scroll position and the focus.
-- Read the statistics and the rest of Reviews only while they show; tell a read nobody asked for as a state of the
-  view, not a toast.
+- Read the statistics (the Statistics of Landing) and the rest of Reviews only while they show; tell a read nobody
+  asked for as a state of the view, not a toast.
 
 ## Non-goals
 
-- No live view of the running robots in Landing: the landing overview shows them at their rows.
+- No second list of the branch rows in Landing: its plan shows the units on their way and their edges, a card shows its
+  row, where the actions and the commits of the branch are ([Landing](../../../../docs/design/landing.md#landing-plan)).
 - No view state across launches: every start shows the branches.
 
 ## Requirements
@@ -115,12 +119,17 @@ In the switcher the arrow keys SHALL move the focus between the views, and Enter
 
 ### Requirement: Switching: Show Statistics of the landing overview shows Landing
 
-"Show Statistics" of the landing overview SHALL close it and show Landing.
+"Show Statistics" of the landing overview SHALL close it and show the Statistics of Landing; "Show Plan" its Plan.
 
 #### Scenario: Show Statistics
 - **WHEN** the user presses "Show Statistics" in the landing overview
-- **THEN** the landing overview closes and Landing shows
+- **THEN** the landing overview closes and the Statistics of Landing show
   [@test] tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
+
+#### Scenario: Show Plan
+- **WHEN** the user presses "Show Plan" in the landing overview
+- **THEN** the landing overview closes and the Plan of Landing shows
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should switch between Plan and Statistics, and open each from the landing overview`)
 
 ### Requirement: Switching: Only the user changes the view
 
@@ -226,6 +235,18 @@ The dialogs and the inline forms MUST stay as they were across a switch.
 - **GIVEN** a dialog or an inline form open in a view
 - **WHEN** the view switches away and back
 - **THEN** the dialog or the form is as it was
+
+### Requirement: Landing: Plan and Statistics are its sections, the plan first
+
+Landing MUST have two sections, Plan (the plan of what goes into master ahead,
+[Landing Plan](../../branch/landing-plan/spec.md)) and Statistics (how the Safe Pushes went back), switched by the
+option set after its heading; every start of the window shows Plan first, and only the user changes the section (the
+switch, Show Plan or Show Statistics of the landing overview, a Status cell that opens an edge of the plan).
+
+#### Scenario: The switch of the sections
+- **WHEN** the user opens Landing, presses Statistics, then Plan
+- **THEN** the plan shows first, then the statistics, then the plan
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should switch between Plan and Statistics, and open each from the landing overview`)
 
 ### Requirement: Landing: The Period of the header is the period every island counts
 
@@ -368,8 +389,8 @@ hour label every third hour; the chart runs from the first hour with a value to 
 
 ### Requirement: Landing: The statistics are read only while Landing shows
 
-The statistics MUST be read while Landing shows: when it shows and when the window gets the focus; a hidden Landing
-reads nothing; a change of the period reads its numbers.
+The statistics MUST be read while the Statistics of Landing show: when they show and when the window gets the focus;
+a hidden Landing, or its Plan, reads nothing; a change of the period reads its numbers.
 
 #### Scenario: A focus of the window while the branches show
 - **GIVEN** Landing is hidden
@@ -377,8 +398,14 @@ reads nothing; a change of the period reads its numbers.
 - **THEN** no statistics are read
   [@test] tests/e2e/landing/statistics.spec.ts (`should read nothing while the view is hidden, and ask again on Refresh`)
 
+#### Scenario: The Plan of Landing shows
+- **GIVEN** the Plan of Landing shows
+- **WHEN** the window gets the focus
+- **THEN** no statistics are read until the user shows the Statistics
+  [@test] tests/e2e/landing/statistics.spec.ts (`should read nothing while the view is hidden, and ask again on Refresh`)
+
 #### Scenario: Landing shows and the window gets the focus
-- **WHEN** Landing shows, and again when the window gets the focus while it shows
+- **WHEN** the Statistics of Landing show, and again when the window gets the focus while they show
 - **THEN** the statistics are read
   [@test] tests/e2e/landing/statistics.spec.ts (`should read nothing while the view is hidden, and ask again on Refresh`)
 

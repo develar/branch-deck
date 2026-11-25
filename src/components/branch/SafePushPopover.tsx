@@ -19,6 +19,7 @@ import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { PriceLine } from "@/components/landing/PriceLine"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
@@ -75,6 +76,7 @@ import { useRowPart } from "@/model/store"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { DetailPart, LandingRefused } from "@/presenters/landing"
 import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRefusalDetail, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
+import { describeTogetherPrice } from "@/presenters/landing-plan"
 import { edgeActionItems, formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
 import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
@@ -392,6 +394,9 @@ function LandingNeedsLine({
 }) {
   const headline = edge === null ? null : waits ? formatLandsAfter(edge.needed, false) : describeEdgeEvidence(edge)
   const items = waits ? [] : edge === null ? gateFixItems(refused, surface) : edgeActionItems(edge, refused.refusals, refused.reason, edgeRunners(subject, surface))
+  // the price of Land Together, as the plan of Landing words it: nobody lands two pieces in one robot blind
+  const proposal = useBranchSync(state => (edge === null ? null : (state.landingPlan?.proposals.find(it => it.from === edge.from && it.onto === edge.needed) ?? null)))
+  const together = !waits && edge?.actions?.some(action => action.kind === "landTogether") === true
   // short: commits by their hash, the file by its name, the whole of each in its hover; the fix only where no button runs it
   const detail = waits && edge !== null ? describeEdge(edge) : <DetailText parts={describeRefusalDetail(refused.refusals, items.length > 0)} />
   return (
@@ -425,6 +430,7 @@ function LandingNeedsLine({
           })}
         </div>
       )}
+      {together && proposal !== null && <PriceLine risks={describeTogetherPrice(proposal.price)} lead="Land Together:" testId="safe-push-together-price" />}
     </div>
   )
 }

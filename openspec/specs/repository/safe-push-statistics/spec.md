@@ -559,12 +559,12 @@ The open of the object cache of `get_robot_stats` MUST run off the async workers
 
 ### Requirement: The app: The read waits for no sync
 
-`get_robot_stats` MUST wait for no sync: shown during one, the view reads the statistics at once.
+`get_robot_stats` MUST wait for no sync: shown during one, the Statistics of Landing read the statistics at once.
 
 #### Scenario: The Landing view shown during a held sync
 - **GIVEN** a sync is held
-- **WHEN** the Landing view is shown
-- **THEN** it reads the statistics at once, and the sync ends once
+- **WHEN** the Statistics of the Landing view are shown
+- **THEN** they read the statistics at once, and the sync ends once
   [@test] tests/e2e/landing/statistics.spec.ts (`should read the statistics of the Landing view shown during a held sync at once, the sync ending once`)
 
 ### Requirement: The app: The numbers of the lists stay while another period starts
@@ -592,12 +592,12 @@ The E2E server MUST answer `get_robot_stats` from the real core at the page's cl
 
 ### Requirement: The app: The Landing view shows the statistics
 
-The Landing view of the main window MUST show the statistics, in the period of its header
+The Statistics of the Landing view of the main window MUST show the statistics, in the period of its header
 ([Main Views](../main-views/spec.md)).
 
 #### Scenario: How the Safe Pushes went
-- **WHEN** the Landing view is shown
-- **THEN** it shows the merges against everyone else, the time lost, the failure causes and the hours
+- **WHEN** the Statistics of the Landing view are shown
+- **THEN** they show the merges against everyone else, the time lost, the failure causes and the hours
   [@test] tests/e2e/landing/statistics.spec.ts (`should show how the Safe Pushes went: the merges against everyone else, the time lost, the failure causes and the hours`)
 
 #### Scenario: The chosen period

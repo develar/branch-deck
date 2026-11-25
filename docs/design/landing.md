@@ -640,7 +640,19 @@ its own robot and a start beside it would fail. The plan says that need once, as
   Safe Push of a cycle, Land Together and "Land agent-id First". The popover says the refusal in a short detail
   (the commits by short hash and the use by file and line, their whole words on hover, no sentence that repeats a
   button); `brd` keeps the whole sentence of the gate.
-- **Next.** A Plan view of Landing draws the waves, the edges and the offers (stage 3 of the plan of 2026-11-24).
+- **The picture.** Landing is where work goes into master: its plan ahead (Plan, the first section) and its
+  statistics back. The plan of a row is one edge; the Plan of Landing shows the whole way at once: the waves as columns
+  from left to right, each unit a card (its node, the time of its robot, its size, the required checks it starts), each
+  edge between two units a curve with its evidence on hover, each offer of Land Together a dashed frame around the pair
+  with its price and the buttons of its edge, so nobody lands two pieces in one robot blind (the Safe Push popover says
+  the same price under its Land Together). The page lays it out (`layoutPlan`: a chain of needs on one row, as the lanes
+  of the stack graph keep a chain on one lane, so a curve crosses no card; a pair on one row, its frame below) and words
+  it; what is a unit, an edge, a wave, an offer, a price or an action stays Rust's. "Lands after acp-load-replay" opens
+  the Plan at its edge; a card shows its row, where the actions and the commits are. Landing used to be only a look
+  back, its non-goal "no live view of the running robots": the robots stay in the landing overview at their rows, and
+  the Plan is no second list of the rows either, it shows what no row can: the order between the pieces and the price
+  of joining two. A forked Land Together leaves the Safe Push of the whole stack as the next step of the unit, held
+  while its stack branch is not built (`StackNotBuilt`), as any whole stack.
 
 ## Alternatives Considered
 

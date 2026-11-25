@@ -130,6 +130,7 @@ export function testActions(calls: string[] = [], extra: Partial<NextStepActions
     startSubject: subject => calls.push(`startSubject ${subject.kind === "branch" ? subject.name : `stack:${subject.root}`}`),
     groupCommit: (commitId, into) => calls.push(`groupCommit ${commitId} ${into}`),
     restartRobot: robotId => calls.push(`restartRobot ${robotId}`),
+    showLandingEdge: needed => calls.push(`showLandingEdge ${needed}`),
     copyLoginCommand: record("copyLoginCommand"),
     refreshPatronus: record("refreshPatronus"),
     pickRemoteCommits: record("pickRemoteCommits"),

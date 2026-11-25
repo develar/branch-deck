@@ -25,7 +25,8 @@ import type { LandingNode } from "@/presenters/landing-node"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { getRobotEstimate } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { showMainView } from "@/stores/main-view"
+import type { LandingSection } from "@/stores/landing-section"
+import { showLanding } from "@/stores/landing-section"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface LandingPopoverProps {
@@ -128,22 +129,21 @@ function useLandingQueue(running: readonly RobotOverviewEntry[]): readonly Robot
 }
 
 /**
- * The robots of the last day in one line, their history in Activity ("Show in Activity", its Robots), and how the
- * landings went (Show Statistics, the Landing view)
+ * The robots of the last day in one line, their history in Activity ("Show in Activity", its Robots), and Landing: what
+ * goes into master next and after what (Show Plan) and how the landings went (Show Statistics)
  */
 function FinishedLine({ summary, onClose }: { summary: string | null; onClose: () => void }) {
+  const show = (section: LandingSection) => {
+    onClose()
+    showLanding(section)
+  }
   return (
     <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground" data-testid="landing-finished">
       <span className="min-w-0 flex-1">{summary}</span>
-      <Button
-        variant="ghost"
-        size="xs"
-        className="shrink-0"
-        onClick={() => {
-          onClose()
-          showMainView("landing")
-        }}
-      >
+      <Button variant="ghost" size="xs" className="shrink-0" onClick={() => show("plan")}>
+        Show Plan
+      </Button>
+      <Button variant="ghost" size="xs" className="shrink-0" onClick={() => show("statistics")}>
         Show Statistics
       </Button>
       {summary !== null && (

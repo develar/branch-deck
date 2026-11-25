@@ -159,7 +159,7 @@ describe("the words of the next step", () => {
     expect(calls).toEqual(["restartRobot r9", "groupCommit 1a2b3c4d5 flow"])
   })
 
-  it("row 1′: lands after the running Safe Push of what every need is of, a wait its status says, the start in its popover", () => {
+  it("row 1′: lands after the running Safe Push of what every need is of, a wait its status says that opens its edge in the plan", () => {
     const refused = (reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>).refusal
     const robot = { branch: "util", robotId: "r9", wholeStack: false }
     const edge = testEdge(refused, { state: { kind: "waits", robot } })
@@ -173,7 +173,7 @@ describe("the words of the next step", () => {
       description: "Uses parseFlow of util in Flow.kt: util is landing in its Safe Push, which tests it without this start: a start beside it fails too.",
     })
     waits.wait!.open(FROM_MENU)
-    expect(calls).toEqual(["openSafePush"])
+    expect(calls).toEqual(["showLandingEdge util"])
     expect(after("r1").wait?.label).toBe("Restart after util")
   })
 

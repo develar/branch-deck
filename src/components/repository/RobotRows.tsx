@@ -168,7 +168,7 @@ function RobotModeLink({ robot, mode }: { robot: PatronusRobot; mode: string }) 
 }
 
 /** "18m · ~22m", "18m · Failing" (no use waiting for it), "Canceling"; it ticks, so it is its own component */
-function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
+export function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
   const timing = useRobotTiming(entry.robot, true)
   if (entry.robot.status === "canceling") {
     return entry.chip.label

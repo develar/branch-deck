@@ -53,11 +53,18 @@ function landingView(page: Page) {
 }
 
 /**
- * Shows the Landing view by its button and waits for the statistics it asks for as it shows (`get_robot_stats`), which
- * read the history of Patronus, seconds under load: what the view says of the history is read then
+ * Shows the Landing view by its button, then its Statistics, and waits for the statistics they ask for as they show
+ * (`get_robot_stats`), which read the history of Patronus, seconds under load: what the view says of the history is read
+ * then
  */
 async function showLandingView(page: Page): Promise<void> {
-  await runAndWaitForAnswer(page, "get_robot_stats", () => page.getByTestId("main-view-landing").click())
+  await page.getByTestId("main-view-landing").click()
+  await showStatistics(page)
+}
+
+/** Shows the Statistics of the Landing view by its switch, waiting for the statistics they ask for as they show */
+async function showStatistics(page: Page): Promise<void> {
+  await runAndWaitForAnswer(page, "get_robot_stats", () => landingView(page).getByTestId("landing-section-statistics").click())
 }
 
 /** Chooses a period through the Select of the header, as the user does */
@@ -77,9 +84,17 @@ async function statisticsLists(repo: TestRepositoryBuilder): Promise<Record<stri
   return (await repo.getPatronusLog()).requests.listQueries.filter(query => "end" in query)
 }
 
+/** Landing shows, at its plan, the first section of every start: no statistics are read until they show */
+async function expectLandingShown(page: Page): Promise<void> {
+  await expect(landingView(page)).toBeVisible()
+  await expect(page.getByTestId("main-view-landing")).toHaveAttribute("aria-pressed", "true")
+  await expect(landingView(page)).toHaveAttribute("data-section", "plan")
+}
+
 async function expectStatisticsShown(page: Page): Promise<void> {
   await expect(landingView(page)).toBeVisible()
   await expect(page.getByTestId("main-view-landing")).toHaveAttribute("aria-pressed", "true")
+  await expect(landingView(page)).toHaveAttribute("data-section", "statistics")
   await expect(landingView(page).getByTestId("landing-merged")).toContainText("2")
 }
 
@@ -169,8 +184,8 @@ test.describe("Landing view", () => {
     // ⌘2 of the native menu: the focus was in the branches, it moves to the heading of the view
     await waitForTauriListener(page, "show_landing")
     await emitTauriEvent(page, "show_landing")
-    await expectStatisticsShown(page)
-    await expect(landingView(page).getByRole("heading", { level: 1, name: "Safe Push Statistics" })).toBeFocused()
+    await expectLandingShown(page)
+    await expect(landingView(page).getByRole("heading", { level: 1, name: "Landing" })).toBeFocused()
     await expect(row).toBeHidden()
 
     // ⌘1: the row as it was, focused, open or closed as before
@@ -200,7 +215,7 @@ test.describe("Landing view", () => {
   test("should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupHistory(page, setupRepo, syncAndWaitForBranches)
     await page.getByTestId("main-view-landing").click()
-    await expectStatisticsShown(page)
+    await expectLandingShown(page)
     // a sync while the view shows: it stays
     await waitForTauriListener(page, "sync_branches")
     await runAndWaitForSync(page, () => emitTauriEvent(page, "sync_branches"))
@@ -226,7 +241,7 @@ test.describe("Landing view", () => {
     await page.keyboard.press("Enter")
     // the palette runs the command it was given once its exit ended
     await expectClosed(page.getByTestId("command-palette"))
-    await expectStatisticsShown(page)
+    await expectLandingShown(page)
   })
 
   test(
@@ -314,7 +329,13 @@ test.describe("Landing view", () => {
     const repo = await setupHistory(page, setupRepo, syncAndWaitForBranches)
     // the branches show: a focus of the window reads no statistics (the same focus reads them below, once they show)
     await emitTauriEvent(page, "tauri://focus")
+    // the plan of Landing shows first: no statistics are read until they show
     await page.getByTestId("main-view-landing").click()
+    await expectLandingShown(page)
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(landingView(page).getByTestId("landing-plan")).toBeVisible()
+    expect(await statisticsLists(repo)).toHaveLength(0)
+    await showStatistics(page)
     await expectStatisticsShown(page)
     await expect(landingView(page)).toHaveAttribute("aria-busy", "false")
     // one read of the 5 weeks of 30 days: the one of the show (the E2E server keeps nothing between reads)
@@ -332,6 +353,7 @@ test.describe("Landing view", () => {
     const syncs = await pressSyncHeld(page, repo)
     // the read of the statistics is a command of its own, off the workers of the sync: it answers while the sync is held
     await page.getByTestId("main-view-landing").click()
+    await landingView(page).getByTestId("landing-section-statistics").click()
     await expectStatisticsShown(page)
     await expect(landingView(page)).toHaveAttribute("aria-busy", "false")
     expect(await statisticsLists(repo)).toHaveLength(5)
@@ -345,6 +367,7 @@ test.describe("Landing view", () => {
     const repo = await setupRepo("issue_links", { patronus: unavailableRobots({ status: "notLoggedIn" }) })
     await syncAndWaitForBranches()
     await page.getByTestId("main-view-landing").click()
+    await landingView(page).getByTestId("landing-section-statistics").click()
     await expect(landingView(page).getByTestId("landing-state")).toHaveText("Run ./safePush.cmd once to log in to PatronusCopy Command")
 
     await repo.setPatronus(unavailableRobots({ status: "notPatronus" }))
@@ -373,6 +396,7 @@ test.describe("Landing view", () => {
     await setupRepo("issue_links", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     await page.getByTestId("main-view-landing").click()
+    await landingView(page).getByTestId("landing-section-statistics").click()
     await expect(landingView(page).getByTestId("landing-state")).toHaveText("No Safe Push into master in the last 30 days")
     await choosePeriod(page, "Last 6 months")
     await expect(landingView(page).getByTestId("landing-state")).toHaveText("No Safe Push into master in the last 6 months")
@@ -408,6 +432,7 @@ test.describe("Landing view", () => {
     await page.reload()
     await syncAndWaitForBranches()
     await page.getByTestId("main-view-landing").click()
+    await landingView(page).getByTestId("landing-section-statistics").click()
     await expect(view.getByRole("combobox", { name: "Period" })).toContainText("Last 14 days")
     await expect(view.getByTestId("landing-merged")).toContainText("Merged2")
   })
@@ -418,12 +443,12 @@ test.describe("Landing view of a custom title bar", () => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupHistory(page, setupRepo, syncAndWaitForBranches)
     await page.keyboard.press("Control+Digit3")
-    await expectStatisticsShown(page)
+    await expectLandingShown(page)
     await page.keyboard.press("Control+Digit1")
     await expect(findBranchRow(page, "ABC-123")).toBeVisible()
 
     await openMainMenuView(page)
     await page.getByRole("menuitem", { name: /Landing/ }).click()
-    await expectStatisticsShown(page)
+    await expectLandingShown(page)
   })
 })

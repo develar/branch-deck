@@ -1,6 +1,6 @@
 ---
 name: Landing Plan
-description: Requirements for the needs of the starts of the branches as edges of a landing plan (`domain_policy::landing_edges`), merged by the branch they need, lifted to the root of a stack, each with its kind, its state and its actions from one builder; the row that names its first edge in one sentence, or waits while what its start needs is landing ("Lands after acp-load-replay"); the Safe Push popover of a refused start with its short detail and the actions of the edge; the start that waited offered by the toast of the merge; the plan itself (`domain_policy::landing_plan`): its units, its waves and Land Together with its price, of the footprint of each branch in the checks of Patronus.
+description: Requirements for the needs of the starts of the branches as edges of a landing plan (`domain_policy::landing_edges`), merged by the branch they need, lifted to the root of a stack, each with its kind, its state and its actions from one builder; the row that names its first edge in one sentence, or waits while what its start needs is landing ("Lands after acp-load-replay"); the Safe Push popover of a refused start with its short detail and the actions of the edge; the start that waited offered by the toast of the merge; the plan itself (`domain_policy::landing_plan`): its units, its waves and Land Together with its price, of the footprint of each branch in the checks of Patronus; its picture, the Plan of Landing: the waves as columns, the edges as curves with their evidence, each offer a frame with its price and its buttons, opened at an edge by the Status cell of a wait.
 style: plain-1
 targets:
   - crates/domain-policy/src/landing_edges.rs
@@ -22,6 +22,11 @@ targets:
   - src/lib/merge-dependents.ts
   - src/lib/landing-toast.ts
   - crates/bd-remote/src/plan.rs
+  - src/components/landing/LandingPlan.tsx
+  - src/components/landing/PriceLine.tsx
+  - src/lib/landing-plan-layout.ts
+  - src/presenters/landing-plan.ts
+  - src/stores/landing-section.ts
 ---
 
 # Landing Plan
@@ -37,7 +42,7 @@ it. The landing plan says each need once, as an edge from the piece that waits t
 waits for: a running Safe Push, a restart, a fix, or the start of what lands both. A row then says one short state,
 and a wait is shown as a wait, never as the user's step. The plan the edges make is a fact of the session, the same for
 the app and `brd plan`: what lands in one move, what lands now, next and after what, and where two pieces may land in
-one robot, with what that costs.
+one robot, with what that costs. The Plan of Landing draws it: the way into master at once, where a row says one edge.
 
 ## Goals
 
@@ -46,13 +51,13 @@ one robot, with what that costs.
   the start afterwards.
 - A commit of a branch stays in its branch: only an unassigned commit moves.
 - Landing two pieces in one robot is an offer with its price, never a silent merge of independent pieces.
+- The whole way into master in one picture: what lands now, next and after what, with the offers on it.
 
 ## Non-goals
 
 - No start by itself after the merge it waited for; the user presses it.
 - No landing together of a declared need: the need is what keeps the two apart.
-- The picture of the plan (the Plan view of Landing) comes later; the page shows the actions of an edge where the row
-  and the popover say it.
+- No second list of the branch rows in the picture: a card shows its row, where its actions and commits are.
 - No Land Together of several edges in one rewrite: a branch has one parent, the next edge is offered once the first
   lands.
 
@@ -146,7 +151,7 @@ acp-load-replay"), its hover the sentence of each edge, the slot empty, the node
   FlowCodecIntegrationEntryPoint.kt: codec is landing in its Safe Push, which tests it without this start: a start
   beside it fails too.", and its slot shows nothing
   [@test] crates/domain-policy/src/next_step_test.rs (`row_1_prime_waits_while_every_need_is_landing_in_a_running_safe_push`)
-  [@test] src/presenters/next-step.test.ts (`row 1′: lands after the running Safe Push of what every need is of, a wait its status says, the start in its popover`)
+  [@test] src/presenters/next-step.test.ts (`row 1′: lands after the running Safe Push of what every need is of, a wait its status says that opens its edge in the plan`)
   [@test] tests/e2e/next-step/lands-after.spec.ts (`should say on the row that a branch lands after the running Safe Push of what it needs, its slot empty and Start Anyway in the popover's ⋯`)
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 
@@ -208,6 +213,15 @@ MUST put them back.
 - **WHEN** the user presses Land Together in the popover of `lane-run`, which needs `stills-codec`
 - **THEN** `lane-run` is stacked on `stills-codec`, the overview lists one unit of three branches, and Undo puts the
   two units and the need back
+  [@test] tests/e2e/next-step/land-together.spec.ts (`should land a branch with the branch it needs in one robot from the Safe Push popover, one unit in the Landing overview, and undo it`)
+
+### Requirement: Popover: Land Together says its price
+
+Where the Safe Push popover offers Land Together, it MUST say its price under the actions, in the words of the plan.
+
+#### Scenario: The price in the popover
+- **WHEN** the popover of `lane-run` offers Land Together with `stills-codec`
+- **THEN** it says "Land Together: 1 robot instead of 2 · checks unknown · a failure holds both"
   [@test] tests/e2e/next-step/land-together.spec.ts (`should land a branch with the branch it needs in one robot from the Safe Push popover, one unit in the Landing overview, and undo it`)
 
 ### Requirement: Popover: The popover groups an unassigned commit and starts what lands a cycle
@@ -349,6 +363,71 @@ nothing lands; an unstack and the landing first of a declared need.
   [@test] src/presenters/next-step.test.ts (`row 1′: names the branch the build needs and runs the fix, or opens the Safe Push`)
   [@test] src/presenters/next-step.test.ts (`row 1′: says one edge in one sentence, restarts a failed robot of the branch it needs and groups an unassigned commit`)
 
+### Requirement: Picture: The waves are columns and each unit a card
+
+The Plan of Landing MUST show the waves as columns from left to right, each unit a card: its node (with the ring of a
+running robot), its name, its size, the time of its robot, the required checks it starts ("7 checks", named in the
+hover); a chain of needs on one row where it can (`layoutPlan`); the parked branches apart. A stale plan MUST say so and
+offer nothing. Every unit, wave and edge is Rust's.
+
+#### Scenario: A robot that lands, a branch next, two that wait
+- **GIVEN** `stills-codec` landing, `lane-run` (with `ui-perf-nightly`) using its `Stills`, and `lane-encode` using
+  `Bundle` of `lane-bundle`, which nothing lands
+- **WHEN** the user opens the Plan
+- **THEN** the waves are "Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After
+  lane-bundle: lane-encode", `stills-codec` with the time of its robot, `lane-run` "2 branches · 2 commits"
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
+  [@test] src/lib/landing-plan-layout.test.ts (`lays the waves of idea-1 out in columns, each chain on one row past the column between and a pair to land together on one row with its frame below`, `frames the second unit that waits for one needed unit in its own column, its price row kept free`)
+  [@test] src/presenters/landing-plan.test.ts (`names the waves, the size and the checks of a unit`)
+
+### Requirement: Picture: An edge is a curve with its evidence on hover
+
+Each edge between two units of the plan MUST be a curve to the unit it needs, its evidence in a chip halfway
+("Effect, Input +3"), the sentence of the edge and its files in the hover; an edge no curve draws (an unassigned
+commit, a cycle, a companion) a line on the card of its unit; the actions of an edge that is no offer below it, from the
+one builder.
+
+#### Scenario: The evidence of a wait
+- **WHEN** the user hovers the chip of the edge `lane-run → stills-codec`
+- **THEN** it says "Stills", its hover "Uses Stills of stills-codec in BuildLog.kt: stills-codec is landing in its Safe
+  Push, …" and `lane/src/BuildLog.kt`
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
+  [@test] src/presenters/landing-plan.test.ts (`says an edge by its evidence in a few words and its state`)
+
+### Requirement: Picture: An offer is a frame around the pair with its price and its buttons
+
+Land Together MUST show in the plan as a dashed frame around the cards of the pair, on one row, its price below as its
+risks ("1 robot instead of 2 · checks unknown · a failure holds both", each whole in its hover), then the actions of its
+edge (Land Together, "Land lane-bundle First"); its press MUST restack on fresh needs, and one undo MUST put the two
+units back. The plan offers Land Together nowhere without its price.
+
+#### Scenario: Land Together from the plan, and Undo
+- **WHEN** the user presses Land Together in the frame of `lane-encode` and `lane-bundle`
+- **THEN** `lane-bundle` is one unit of 2 branches, the frame is gone, and Undo puts the two units and the offer back
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
+  [@test] src/presenters/landing-plan.test.ts (`words the price of Land Together as its risks, one by one`)
+
+#### Scenario: A stack that forks
+- **GIVEN** `lane-run` forks into `lane-docs` and `ui-perf-nightly`
+- **WHEN** the user presses "Land Together · Safe Push Whole Stack" in its frame with `stills-codec`
+- **THEN** `stills-codec` is one unit of 4 branches whose next step is the Safe Push of its whole stack, "Safe Push ·
+  4", which its stack branch holds while it is not built (`StackNotBuilt`)
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should land a stack that forks together with the branch it needs, the Safe Push of the whole stack its next step`)
+
+### Requirement: Picture: A wait opens its edge in the plan and a card shows its row
+
+The Status cell of a start that lands after another ("Lands after stills-codec", O on its row) MUST open the Plan with
+its edge highlighted: the card of the unit that waits and the curve in primary, the other curves faded; the highlight
+goes once Landing hides. A click on a card MUST show the row of its unit in the branches, a stack expanded; a click on
+the chip of an edge highlights it.
+
+#### Scenario: Lands after stills-codec
+- **WHEN** the user clicks "Lands after stills-codec" of `lane-run`
+- **THEN** the Plan shows with the edge `lane-run → stills-codec` and the card of `lane-run` highlighted
+- **AND** a click on that card shows the row of `lane-run`, and the highlight is gone when Landing shows again
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should open the plan at the edge of a start that lands after another from its Status cell, and show the row of a unit from its card`)
+  [@test] src/presenters/next-step.test.ts (`row 1′: lands after the running Safe Push of what every need is of, a wait its status says that opens its edge in the plan`)
+
 ## User Experience
 
 - Status cell: "Lands after acp-load-replay", "Restart after acp-load-replay" (quiet).
@@ -363,8 +442,19 @@ nothing lands; an unstack and the landing first of a declared need.
   actions of the edge as `outline` buttons; "Start Anyway" in "⋯" of a wait, an `outline` button otherwise.
 - The waves: "Landing now", "Next", "After acp-load-replay"; the price of Land Together: "1 robot instead of 2", "same
   7 checks", "+ AI Assistant Tests +11", "checks unknown", "a failure holds both", "approvals count in #12", the code
-  owners it adds, "#12 and #13 become one GitHub stack".
+  owners it adds ("asks IJPL Code Platform +1 too"), "#12 and #13 become one GitHub stack".
+- The popover under the actions of an offer: "Land Together: 1 robot instead of 2 · checks unknown · a failure holds
+  both" (`PriceLine`, the same as the plan).
 - The toast of the update after a merge: "Start flow".
+- The Plan: one `Card` island on the canvas, the waves its columns (`minmax(11rem, 1fr)`, 5rem between for the curves
+  and their chips; past the room of the window the island scrolls across, the page never does), a wave titled with
+  its count; a unit a bordered card of its own on the island (`LaneNodeDot`, `RobotRing` around it, the elapsed time
+  and the ETA of `robot-eta`, a "7 checks" chip), the whole card a link to its row; a curve 1.5px in the colour of its
+  state (a wait muted, a need nothing lands `warning`, a failed robot `destructive`, a declared need dashed), 2.5px on
+  hover, the shown one in `primary` with the rest faded; the chip of an edge a pill on the curve; an offer a dashed
+  frame of `muted-foreground/50` around the pair, its price in `xs` muted text (a failure that holds both in
+  `warning`), its buttons `outline` `xs`; the parked branches a second island of name chips. Light and dark by the
+  tokens alone.
 
 ## References
 

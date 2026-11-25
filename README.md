@@ -141,7 +141,8 @@ publisher: choose More info → Run anyway.
   [outgoing](openspec/specs/repository/outgoing/spec.md#remote-commits-of-others)); a branch can land first and be reviewed after
   ([shown reviews](openspec/specs/branch/shown-reviews/spec.md)). Park a branch you keep only locally,
   and declare with `brd need` an order of landing no build sees ([parked](openspec/specs/branch/parked-branches/spec.md),
-  [declared needs](openspec/specs/branch/declared-needs/spec.md)).
+  [declared needs](openspec/specs/branch/declared-needs/spec.md)). Landing draws the plan: what lands now, next and
+  after what, and where two pieces may land in one robot at what price ([landing plan](openspec/specs/branch/landing-plan/spec.md)).
 - **Staying up to date**: Update Project fetches the baseline and rebases your commits, and says beforehand whether
   that is clean; on a conflict nothing changes, and an agent can resolve it commit by commit outside the working tree.
   Branches merged, rebased or squashed upstream are detected and archived

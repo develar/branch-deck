@@ -119,6 +119,8 @@ export interface NextStepActions {
   readonly groupCommit: (commitId: string, into: string) => void
   /** Restarts the failed robot `robotId` of the branch an edge needs (`EdgeAction.restart`) */
   readonly restartRobot: (robotId: string) => void
+  /** Shows the plan of Landing with the edge of the subject to `needed` highlighted ("Lands after codec" opens it) */
+  readonly showLandingEdge: (needed: string) => void
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
@@ -519,12 +521,13 @@ function edgeActionItem(
 /**
  * Row 1′ while every edge of its needs waits for a running Safe Push (`afterLanding`): a wait, "Lands after
  * stills-codec" ("Restart after stills-codec" of its own failed robot), its hover the sentence of each edge; it opens
- * the Safe Push popover, whose Start Anyway waits in its "⋯"
+ * the plan of Landing with that edge highlighted, where the order of the starts shows; the Safe Push popover (S) keeps
+ * Start Anyway in its "⋯"
  */
 function landsAfter(kind: Extract<StepKind, { kind: "afterLanding" }>, context: StepContext): Shown {
   const status = formatLandsAfter(kind.needed, kind.restart !== null)
   const reason = kind.edges.map(describeEdge).join("\n")
-  const item: MenuItem = { id: "lands-after", label: status, icon: ClockIcon, description: reason, onSelect: context.actions.openSafePush }
+  const item: MenuItem = { id: "lands-after", label: status, icon: ClockIcon, description: reason, onSelect: () => context.actions.showLandingEdge(kind.needed) }
   const notice = { title: `${context.subject} lands after ${kind.needed}`, description: reason }
   return { kind: "landsAfter", item, tone: "quiet", own: reason, notice, status }
 }

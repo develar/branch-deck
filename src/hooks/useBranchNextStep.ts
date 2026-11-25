@@ -18,7 +18,7 @@ import { sameJson } from "@/lib/record"
 import { restartRobot } from "@/lib/robot-run"
 import { baselineOnRemote } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
-import { stackReadinessKey } from "@/lib/whole-stack"
+import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
 import type { RobotAction } from "@/presenters/actions"
@@ -33,6 +33,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords, operationBusyOf } from "@/stores/indicators"
+import { showLandingEdge } from "@/stores/landing-section"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, linkGitHubStack, retargetPullRequest } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -190,6 +191,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
       }
     },
     ...edgeRunners(key),
+    showLandingEdge: needed => showLandingEdge({ branch: stackRootOfReadinessKey(key) ?? key, needed }),
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
