@@ -8317,9 +8317,16 @@ export type RepositoryView = {
 	facts: FactsView,
 	/**
 	 *  The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
-	 *  that its first view had already
+	 *  that its first view of their numbering (`news_line`) had already
 	 */
 	news: News[],
+	/**
+	 *  The numbering of the ids of `news`: the epoch of the open it began at. A session opened anew in place
+	 *  (`Actor::reopened`: the slot of a lease pool leased again) numbers on under the line of the open before it, so a
+	 *  window that held a view of that line tells every news past the last one it told, its view read anew in any epoch;
+	 *  another session numbers under another line, whose news a window took as told at its first view of the line
+	 */
+	newsLine?: number,
 };
 
 /**  The reading of one waiting request, by its number */

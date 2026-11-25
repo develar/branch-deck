@@ -35,7 +35,7 @@
 use crate::backend::{BackendLink, BackendSource, Reply};
 use crate::hosts::{Instances, MAIN_VIEW, label_of, open_view_of, view_of};
 use crate::link::{INTERNAL_ERROR, INVALID_PARAMS, Link, METHOD_NOT_FOUND, NO_CONSENT};
-use crate::mirror::MirrorView;
+use crate::mirror::{MirrorView, ToldNews, untold_news};
 use crate::notices::{LOGIN_ITEMS_URL, Notices, OPEN_LOGIN_ITEMS_TOOL, REVEAL_BRANCH_EVENT, REVEAL_BRANCH_TOOL};
 use crate::projects::{Projects, RECENT_PROJECTS_KEY, merged};
 use crate::resources;
@@ -265,6 +265,8 @@ struct Mirror {
   /// The demand of each view of the mirror, by its instance: the views share one subscription, so the window of the
   /// mirror gets the union of them (`Demand::union`), which the session of another prefix takes when it moves
   demands: HashMap<String, Demand>,
+  /// The last news of the session the mirror told (`untold_news`); none before its first view
+  told: Option<ToldNews>,
 }
 
 impl Mirror {
@@ -979,9 +981,12 @@ impl Server {
         instances: HashSet::new(),
         view: View::Opening,
         demands: HashMap::new(),
+        told: None,
       });
       mirror.channel.clone_from(&channel);
       mirror.view = View::Opening;
+      // a subscription anew: the news of its first view were told before it came
+      mirror.told = None;
       mirror.instances.insert(instance);
     }
     let (done, opened) = oneshot::channel();
@@ -1009,6 +1014,8 @@ impl Server {
       return;
     };
     if let Some(view) = view {
+      // the news of its first view were told before it came
+      untold_news(&mut mirror.told, view.news_line, &view.news);
       let view = MirrorView::new(view);
       self.link.respond(id, json!({ "mirror": path, "state": view.state() }));
       mirror.view = View::Live(Box::new(view));
@@ -1067,7 +1074,7 @@ impl Server {
     }
     match &mut mirror.view {
       View::Live(view) => {
-        let news = patch.changes.news.clone();
+        let news = untold_news(&mut mirror.told, view.view().news_line, &patch.changes.news);
         match view.apply(patch) {
           Ok(ops) => {
             if !ops.is_empty() {
@@ -1120,6 +1127,10 @@ impl Server {
       view.catch_up(patch);
     }
     self.link.notify("x-air-app/viewChanged", json!({ "mirror": path, "ops": view.parts() }));
+    // the news of the view and of the patches it caught up that the mirror has not told: those of the patches that came
+    // while it read, the patch into the new epoch among them
+    let news = untold_news(&mut mirror.told, view.view().news_line, &view.view().news);
+    self.notices.tell(view.view(), path, &news);
     mirror.view = View::Live(Box::new(view));
   }
 
@@ -1136,6 +1147,8 @@ impl Server {
     };
     let view = MirrorView::new(view);
     self.link.notify("x-air-app/viewChanged", json!({ "mirror": path, "ops": view.parts() }));
+    let news = untold_news(&mut mirror.told, view.view().news_line, &view.view().news);
+    self.notices.tell(view.view(), path, &news);
     mirror.view = View::Live(Box::new(view));
     self.send_demand(mirror);
   }

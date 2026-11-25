@@ -3369,8 +3369,11 @@ NOT be news.
   [@test] crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`, `a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes`)
 
 #### Scenario: The main window tells the news once
-- **WHEN** the news of a merge comes
-- **THEN** the main window tells it once (`tellRobotNews`; none of those its first view of the session had)
+- **WHEN** the news of a merge comes, also while the window reads the view of the session anew (after a patch it lacks,
+  or the session opened anew in place, which numbers its news on under its line, `newsLine`)
+- **THEN** the main window tells it once (`tellRobotNews`; none of those its first view of a numbering had: its first
+  view, the session of another prefix)
+  [@test] src/model/store.test.ts (`tells the news of a session opened anew in place that came while it read its view: the session numbers them on under its line, so none is lost or told twice`, `tells none of the news of a view read anew that it told before, and none of a view of another numbering: the session of another prefix`)
 
 #### Scenario: A successful dry run or a robot first seen merged
 - **WHEN** a dry run succeeds, or the session first sees a robot merged

@@ -105,8 +105,11 @@ interface Session {
   readonly pending: { count: number }
   /** Resolves once the subscription answered or failed */
   ready: Promise<void>
-  /** The id of the last news of the session the window told (`onSessionFacts`); null until its first view */
-  toldNews: number | null
+  /**
+   * The last news of the session the window told (`onSessionFacts`): its id of the numbering `line`
+   * (`RepositoryView.newsLine`); null until its first view
+   */
+  toldNews: { line: number; id: number } | null
   /** The version of the seed of the start the subscription began from (`adoptCachedModel`); null for none */
   readonly seed: Version | null
 }
@@ -448,7 +451,7 @@ function applyOrRefresh(target: Session, view: RepositoryView, patch: ViewPatch)
   }
   const next = applyViewPatch(view, patch)
   target.view = next
-  projectView(target.repositoryPath, view, next, patch.changes, untoldNews(target, patch.changes.news ?? []), target.seed)
+  projectView(target.repositoryPath, view, next, patch.changes, untoldNews(target, next, patch.changes.news ?? []), target.seed)
   notifyViewListeners()
 }
 
@@ -484,12 +487,12 @@ function refresh(target: Session): void {
  * `view` is of another session of the repository than the view the window holds: the session opened anew (a slot of a
  * lease pool leased again, an actor that died) or is of another prefix. Nothing of the view before shows under it, as
  * on a switch: the table goes, the window forgets what it held of the rows (`forgetRows`: the expanded rows, the
- * focus, the selected branches and commits, the open form, preview and card of a row, the path of a stack), and the
- * news of the new view were told before the window came
+ * focus, the selected branches and commits, the open form, preview and card of a row, the path of a stack). Its news
+ * are new to the window when the session opened anew in place, which numbers them on (`newsLine`); those of another
+ * session were told before the window came (`install`)
  */
 function installAnother(target: Session, view: RepositoryView): void {
   target.view = null
-  target.toldNews = null
   resetTable()
   forgetRows()
   install(target, view)
@@ -502,10 +505,9 @@ function install(target: Session, view: RepositoryView): void {
   }
   const previous = target.view
   target.view = view
-  // the news of the first view were told before the window came, or are of a session it held before
-  const news = target.toldNews === null ? [] : view.news
-  target.toldNews ??= view.news.at(-1)?.id ?? 0
-  projectView(target.repositoryPath, previous, view, null, untoldNews(target, news), target.seed)
+  // the news of a view read anew that the window has not told: those of the patches it missed, in any epoch of the
+  // numbering it told (a session opened anew in place numbers on); none of its first view of a numbering
+  projectView(target.repositoryPath, previous, view, null, untoldNews(target, view, view.news), target.seed)
   applyEarly(target)
 }
 
@@ -527,12 +529,21 @@ function applyEarly(target: Session): void {
  * Brings the store to `next`: everything for a snapshot (`changes` null), else what the patch changed. The sections
  * outside this store (the archived, unapplied and landed branches, the issue links of the project) are told too
  */
-/** Of `news`, those after the last the window told, which it tells now */
-function untoldNews(target: Session, news: readonly News[]): readonly News[] {
-  const told = target.toldNews ?? 0
-  const untold = news.filter(item => item.id > told)
+/**
+ * Of `news` of `view`, those after the last the window told of the numbering of `view` (`newsLine`), which it tells now;
+ * none of a view of another numbering (the first view of the window, the session of another prefix, a session that
+ * opened as another): its news were told before the window came, and the window counts from its last
+ */
+function untoldNews(target: Session, view: RepositoryView, news: readonly News[]): readonly News[] {
+  const line = view.newsLine ?? 0
+  const told = target.toldNews
+  if (told === null || told.line !== line) {
+    target.toldNews = { line, id: view.news.at(-1)?.id ?? 0 }
+    return []
+  }
+  const untold = news.filter(item => item.id > told.id)
   if (untold.length > 0) {
-    target.toldNews = untold.at(-1)!.id
+    target.toldNews = { line, id: untold.at(-1)!.id }
   }
   return untold
 }

@@ -540,8 +540,14 @@ pub struct RepositoryView {
   /// What the remote services answered, beside the table
   pub facts: FactsView,
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
-  /// that its first view had already
+  /// that its first view of their numbering (`news_line`) had already
   pub news: Vec<News>,
+  /// The numbering of the ids of `news`: the epoch of the open it began at. A session opened anew in place
+  /// (`Actor::reopened`: the slot of a lease pool leased again) numbers on under the line of the open before it, so a
+  /// window that held a view of that line tells every news past the last one it told, its view read anew in any epoch;
+  /// another session numbers under another line, whose news a window took as told at its first view of the line
+  #[serde(default)]
+  pub news_line: u32,
 }
 
 /// A branch as a layer of a stack of GitHub (`RepositoryView::github_layers`)

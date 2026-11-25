@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
-import type { AuthStatus, Fact, RepositoryLink, RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import type { AuthStatus, Fact, News, RepositoryLink, RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
@@ -11,6 +11,7 @@ import {
   adoptCachedModel,
   closeSession,
   followUndo,
+  onSessionFacts,
   openSession,
   requestSessionSync,
   resubscribeSession,
@@ -83,6 +84,20 @@ async function nextSync(count: number) {
 }
 
 const running: TableChanges = { sync: { kind: "running", step: "grouping" } }
+
+/** The window subscribed to the session of /repo, whose news number under the line 7: the ids of the news it tells */
+async function openTellingNews(): Promise<{ told: number[]; stop: () => void }> {
+  const told: number[] = []
+  const stop = onSessionFacts((_path, _view, _changes, news) => told.push(...news.map(item => item.id)))
+  fakeSessions.reopen("/repo", { ...emptyView(), newsLine: 7 })
+  await open()
+  return { told, stop }
+}
+
+/** The news `id`: the robot `robotId` failed */
+function failed(id: number, robotId: string): News {
+  return { id, event: { kind: "robotFailed", robotId, needsReview: false } }
+}
 const idle: TableChanges = { sync: { kind: "idle" } }
 
 beforeEach(() => {
@@ -193,6 +208,37 @@ describe("the view of the session", () => {
     expect(branchSyncStore.getState().branchOrder).toEqual(["a"])
     expect(getBranch("a")).not.toBe(record)
     expect(getSelectedBranches()).toEqual([])
+  })
+
+  it("tells the news of a session opened anew in place that came while it read its view: the session numbers them on under its line, so none is lost or told twice", async () => {
+    const { told, stop } = await openTellingNews()
+    const held = await send({ news: [failed(1, "a")] })
+    // a slot of a lease pool leased again: the robot of the new lease failed before the window read its view
+    const next: Version = { epoch: 2, seq: 1 }
+    fakeSessions.reopen("/repo", { ...emptyView(next), newsLine: 7, news: [failed(2, "b")] })
+    fakeSessions.deliver("/repo", { base: held, next: { epoch: 2, seq: 0 }, changes: {} })
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(next))
+    await send({ news: [failed(3, "c")] })
+    stop()
+    expect(told).toEqual([1, 2, 3])
+  })
+
+  it("tells none of the news of a view read anew that it told before, and none of a view of another numbering: the session of another prefix", async () => {
+    const { told, stop } = await openTellingNews()
+    await send({ news: [failed(1, "a")] })
+    // a patch the window missed, which brought the news 2
+    fakeSessions.views.set("/repo", { ...fakeSessions.view("/repo"), version: { epoch: 1, seq: 3 }, news: [failed(1, "a"), failed(2, "b")] })
+    const gap = fakeSessions.send("/repo", {})
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(gap.next))
+    expect(told).toEqual([1, 2])
+    // another session: its news were told before the window came
+    const other: Version = { epoch: 5, seq: 9 }
+    fakeSessions.reopen("/repo", { ...emptyView(other), newsLine: 3, news: [failed(1, "a"), failed(4, "d")] })
+    fakeSessions.deliver("/repo", { base: gap.next, next: { epoch: 5, seq: 0 }, changes: {} })
+    await vi.waitFor(() => expect(branchSyncStore.getState().viewVersion).toEqual(other))
+    await send({ news: [failed(5, "e")] })
+    stop()
+    expect(told).toEqual([1, 2, 5])
   })
 
   it("takes the snapshot when the base of a patch is missing, and drops a patch the snapshot already has", async () => {

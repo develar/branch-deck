@@ -2,7 +2,7 @@ use super::{Mirror, Server, View, mirror_window, path_of_uri, progress_of, tools
 use crate::backend::BackendLink;
 use crate::hosts::Instances;
 use crate::link::Link;
-use crate::mirror::MirrorView;
+use crate::mirror::{MirrorView, untold_news};
 use crate::notices::notices_test::{REPO, failed, robot, view_with, written};
 use crate::process::process_test::Brd;
 use domain_types::session::{Demand, RepositoryView, TableChanges, Version, ViewPatch};
@@ -148,6 +148,9 @@ impl Bridged {
 
   /// A mirror of `REPO` that shows `view`, its window subscribed to its channel
   fn with_mirror(self, view: RepositoryView) -> Self {
+    // as the subscription answered: the news of the view were told before the mirror came
+    let mut told = None;
+    untold_news(&mut told, view.news_line, &view.news);
     super::locked(&self.server.mirrors).insert(
       REPO.to_owned(),
       Mirror {
@@ -156,6 +159,7 @@ impl Bridged {
         instances: HashSet::from(["main:1".to_owned()]),
         view: View::Live(Box::new(MirrorView::new(view))),
         demands: HashMap::new(),
+        told,
       },
     );
     self
@@ -243,25 +247,52 @@ fn a_news_another_client_claimed_first_is_no_notification_of_the_bridge() {
   assert_eq!(bridged.ide(), Vec::<Value>::new());
 }
 
-/// A patch into another epoch of the session (a slot of a lease pool leased again, which opened it anew) changes nothing
-/// of the mirror and tells the IDE nothing, its news included: the bridge reads the view of its window anew
-/// (`get_snapshot`), and the mirror takes it in one change of every part, the version of the new epoch last
-#[test]
-fn a_patch_into_another_epoch_reads_the_view_anew() {
-  let view = view_with(&[robot("r1", Some("auth"), None)]);
-  let mut bridged = Bridged::new().with_mirror(view.clone());
-  let base = Version { epoch: 0, seq: 0 };
+/// The claims of the news the bridge sent the backend since the last look, each answered `first`; the other messages it
+/// sent are left out
+fn claimed(bridged: &mut Bridged) -> Vec<Value> {
+  let claims: Vec<Value> = bridged.backend().into_iter().filter(|message| message["method"] == "x-branch-deck/claimNews").collect();
+  for claim in &claims {
+    bridged.answer(claim, json!({ "first": true }));
+  }
+  claims.into_iter().map(|claim| claim["params"]["news"].clone()).collect()
+}
+
+/// The patch of the mirror of `REPO` from `base` to the next version, with `changes`
+fn patch_from(base: Version, changes: TableChanges) -> Value {
+  patched(&ViewPatch { base, next: base.next(), changes })
+}
+
+/// A bridge whose mirror of `REPO` shows the failed robot `r1` of `auth` in a view of the news line 9, and got the patch
+/// into the epoch 1 of a session opened anew in place: the view it shows, and the bridge, which asks the view anew
+fn handed_over() -> (RepositoryView, Bridged) {
+  let mut view = view_with(&[robot("r1", Some("auth"), None)]);
+  view.news_line = 9;
+  let bridged = Bridged::new().with_mirror(view.clone());
   bridged.frame(&patched(&ViewPatch {
-    base,
+    base: Version { epoch: 0, seq: 0 },
     next: Version { epoch: 1, seq: 0 },
-    changes: failed_robot(),
+    changes: TableChanges::default(),
   }));
-  assert_eq!(bridged.ide(), Vec::<Value>::new(), "no change of the mirror and no notification");
+  (view, bridged)
+}
+
+/// A patch into another epoch of the session (a slot of a lease pool leased again, which opened it anew) changes nothing
+/// of the mirror: the bridge reads the view of its window anew (`get_snapshot`), and the mirror takes it in one change of
+/// every part, the version of the new epoch last, then the patches that came meanwhile. The session numbers its news on
+/// under the line of the open before (`news_line`), so the failure of a robot a patch of the new epoch brought while the
+/// bridge read is a notification of the IDE once the mirror caught it up
+#[test]
+fn a_patch_into_another_epoch_reads_the_view_anew_and_tells_the_news_of_the_patches_that_came_meanwhile() {
+  let (view, mut bridged) = handed_over();
+  assert_eq!(bridged.ide(), Vec::<Value>::new(), "no change of the mirror");
   let asked = bridged.backend();
   assert_eq!(asked.len(), 1, "{asked:#?}");
   assert_eq!(asked[0]["method"], "x-branch-deck/get_snapshot");
   assert_eq!(asked[0]["params"]["window"], mirror_window(REPO));
   assert_eq!(asked[0]["params"]["args"], json!({ "params": { "repositoryPath": REPO } }));
+  // the robot fails in the new open while the bridge reads its view
+  bridged.frame(&patch_from(Version { epoch: 1, seq: 2 }, failed_robot()));
+  assert_eq!(bridged.ide(), Vec::<Value>::new(), "the patch waits for the view");
 
   let mut anew = view;
   anew.version = Version { epoch: 1, seq: 2 };
@@ -270,18 +301,76 @@ fn a_patch_into_another_epoch_reads_the_view_anew() {
   assert_eq!(changed.len(), 1, "{changed:#?}");
   assert_eq!(changed[0]["method"], "x-air-app/viewChanged");
   let ops = changed[0]["params"]["ops"].as_array().unwrap();
-  assert_eq!(ops.last().unwrap(), &json!({ "op": "part", "part": "version", "value": { "epoch": 1, "seq": 2 } }));
+  assert_eq!(ops.last().unwrap(), &json!({ "op": "part", "part": "version", "value": { "epoch": 1, "seq": 3 } }));
+  assert_eq!(claimed(&mut bridged), [json!({ "kind": "robotFailed", "robotId": "r1" })]);
+  assert_failure_told(&bridged.ide());
   // the patches of the new epoch apply to it
-  bridged.frame(&patched(&ViewPatch {
-    base: Version { epoch: 1, seq: 2 },
-    next: Version { epoch: 1, seq: 3 },
-    changes: TableChanges {
+  bridged.frame(&patch_from(
+    Version { epoch: 1, seq: 3 },
+    TableChanges {
       order: Some(vec!["auth".to_owned()]),
       ..TableChanges::default()
     },
-  }));
+  ));
   let changed = bridged.ide();
   assert_eq!(changed[0]["params"]["ops"][0], json!({ "op": "part", "part": "order", "value": ["auth"] }));
+}
+
+/// A view read anew holds the news the mirror told before it: they are not told again, only those after them, whether
+/// the view is of the same epoch (a patch after a gap) or of the next open of the line
+#[test]
+fn a_view_read_anew_tells_no_news_the_mirror_told_before_it() {
+  for epoch in [0, 1] {
+    let mut view = view_with(&[robot("r1", Some("auth"), None), robot("r2", Some("login"), None)]);
+    view.news_line = 9;
+    let mut bridged = Bridged::new().with_mirror(view.clone());
+    bridged.frame(&patch_from(Version { epoch: 0, seq: 0 }, failed_robot()));
+    assert_eq!(claimed(&mut bridged), [json!({ "kind": "robotFailed", "robotId": "r1" })]);
+    bridged.ide();
+    // a patch after one the mirror lacks
+    bridged.frame(&patched(&ViewPatch {
+      base: Version { epoch, seq: 4 },
+      next: Version { epoch, seq: 5 },
+      changes: TableChanges::default(),
+    }));
+    let asked = bridged.backend();
+    assert_eq!(asked[0]["method"], "x-branch-deck/get_snapshot", "{asked:#?}");
+    let mut anew = view;
+    anew.version = Version { epoch, seq: 5 };
+    anew.news = vec![failed(1, "r1", Some(false)), failed(2, "r2", Some(false))];
+    bridged.answer(&asked[0], json!({ "value": anew }));
+    assert_eq!(claimed(&mut bridged), [json!({ "kind": "robotFailed", "robotId": "r2" })], "epoch {epoch}");
+    let told = bridged.ide();
+    let notified: Vec<_> = told
+      .iter()
+      .filter(|message| message["method"] == "x-air-app/notify")
+      .map(|message| message["params"]["title"].clone())
+      .collect();
+    assert_eq!(notified, [json!("Safe Push of login failed")], "epoch {epoch}");
+  }
+}
+
+/// The view of another numbering (the session of another prefix, a session that opened as another): its news were told
+/// before the mirror came, and none of them is a notification
+#[test]
+fn a_view_read_anew_of_another_numbering_tells_none_of_its_news() {
+  let (view, mut bridged) = handed_over();
+  let asked = bridged.backend();
+  let mut other = view;
+  other.version = Version { epoch: 1, seq: 7 };
+  other.news_line = 1;
+  other.news = vec![failed(1, "r1", Some(false))];
+  bridged.answer(&asked[0], json!({ "value": other }));
+  assert_eq!(claimed(&mut bridged), Vec::<Value>::new());
+  // its later news are told
+  bridged.frame(&patch_from(
+    Version { epoch: 1, seq: 7 },
+    TableChanges {
+      news: vec![failed(2, "r1", Some(false))],
+      ..TableChanges::default()
+    },
+  ));
+  assert_eq!(claimed(&mut bridged), [json!({ "kind": "robotFailed", "robotId": "r1" })]);
 }
 
 /// The news of a patch: the robot `r1` of `auth` failed
@@ -303,6 +392,7 @@ fn the_session_of_a_mirror_gets_the_union_of_the_demands_of_its_views() {
     instances: HashSet::from(["main:1".to_owned(), "review:1".to_owned()]),
     view: View::Ended,
     demands: HashMap::new(),
+    told: None,
   };
   let main = Demand {
     focused: true,

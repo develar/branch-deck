@@ -87,6 +87,7 @@ impl View {
   #[must_use]
   pub fn opened(epoch: u32, state: &TableState, facts: &FactStore) -> Self {
     let mut view = Self::new(epoch);
+    view.last_sent.news_line = facts.news_numbering().0;
     let changes = view.changes(state, facts);
     let version = view.version();
     if let Err(rejected) = apply_changes(&mut view.last_sent, version, changes) {

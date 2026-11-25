@@ -231,7 +231,11 @@ sequenceDiagram
   mirror never ends for it. A patch of the session into another epoch (the session opened anew: a slot of a lease pool
   leased again), or past a patch the mirror lacks, applies to no view the mirror holds: the bridge reads the view anew
   (`get_snapshot` of the window of the mirror), the patches after it waiting, and the mirror takes it in one change of
-  every part; a session that answers no view ends the mirror with `sessionClosed`.
+  every part; a session that answers no view ends the mirror with `sessionClosed`. The news of that view and of the
+  patches it caught up are told as those of a patch (`untold_news`): each past the last one the mirror told of the
+  numbering of the view (`RepositoryView::news_line`, the epoch the session began its count at, which a session opened
+  anew in place numbers on), so none that came while it read is lost and none is told twice; a view of another
+  numbering (the first of the mirror, the session of another prefix) has its news told before the mirror came.
 - **`bd_bootstrap {view, titleBar}`** gives `settings: {values, version}` (the snapshot of the window, `window_snapshot`),
   `warmFrame` (the `CachedModel` of the repository of the main view, or null), `initData` (`{repositoryPath, roots,
   params}` of the main view, `{data, params}` of another), `titleBar: {kind: "native", checkForUpdates: false,
@@ -352,7 +356,8 @@ sequenceDiagram
     app, and the frame opens the view anew. A snapshot of the bridge would leave the page a subscription that nothing changes.
     A change to a version of another epoch (the mirror moved to the session of another prefix, or to a session opened
     anew) is no patch of the view the page holds either: the page asks for the snapshot, and takes it as the view of
-    another session, as the desktop page does.
+    another session, as the desktop page does, telling the news of a session opened anew in place past the last one it
+    told of their numbering (`newsLine`).
   - **One view for each frame**: Air holds one view for each page connection, so for each frame. A `viewOpen` while
     another runs gets `-32011 viewOpen` at once, one with the params of the view the connection holds answers that
     subscription (`held`, without a state), and one of another view waits up to 1 s for the end of the view held and

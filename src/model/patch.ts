@@ -120,6 +120,8 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     landingPlan: changes.landingPlan ?? view.landingPlan,
     facts: changes.facts == null ? view.facts : patchedFacts(view.facts, changes.facts),
     news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),
+    // a patch never changes the numbering of the news: it changes only with the epoch, whose snapshot brings it
+    newsLine: view.newsLine,
   }
 }
 

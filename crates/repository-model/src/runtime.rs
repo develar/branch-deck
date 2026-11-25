@@ -529,6 +529,9 @@ struct Actor {
   /// The session opens anew for the new lease of its slot once the message in hand is handled, before any other
   /// (`run`): the waiter of the stamp
   reopen_now: Option<Waiter>,
+  /// The numbering of the news of the open before, which a session opened anew in place numbers on (`reopened`); none:
+  /// the news number under the epoch of the open, from 1
+  numbers_news_on: Option<(u32, u32)>,
 }
 
 impl Actor {
@@ -568,6 +571,7 @@ impl Actor {
       asked: false,
       reopen_after_run: None,
       reopen_now: None,
+      numbers_news_on: None,
     }
   }
 
@@ -589,6 +593,7 @@ impl Actor {
   async fn reopened(mut self, waiter: Waiter) -> Self {
     tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it");
     let held = self.view.version();
+    let news = self.facts.news_numbering();
     // a check of the inputs in flight, or requests that wait, answer nothing of the session before: its answer goes to
     // the session of the new lease, which drops it (`InputsRead`)
     for waited in self.scheduler.abandon() {
@@ -613,6 +618,8 @@ impl Actor {
     let mut actor = Self::new(key, host, life, mailbox, events, frames);
     // the prunes of the worktree stay in order across the leases
     actor.review_prunes = review_prunes;
+    // its windows follow it into the new epoch: its news number on, so each of them tells those of the new open
+    actor.numbers_news_on = Some(news);
     actor.open(None).await;
     let hand_over = ViewPatch {
       base: held,
@@ -693,14 +700,17 @@ impl Actor {
     // a frame seeds only under a known epoch of it: one the files could not tell may be of another lease
     let seeds = frame.filter(|frame| worktree_epoch.recorded().is_some_and(|now| frame.seeds(&self.key, now)));
     self.life.opened_under(worktree_epoch);
+    let (news_line, last_news) = self.numbers_news_on.unwrap_or((epoch, 0));
     if let Some(frame) = seeds {
       (self.state, self.facts) = frame.seed();
       self.facts.robots.seed_history(history);
+      self.facts.number_news(news_line, last_news);
       self.state.synced = self.synced();
       self.view = View::seeded(epoch, &self.state, &self.facts);
       self.frames.keeps = true;
     } else {
       self.facts.robots.seed_history(history);
+      self.facts.number_news(news_line, last_news);
       self.state.synced = self.synced();
       self.view = View::opened(epoch, &self.state, &self.facts);
     }

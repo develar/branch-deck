@@ -428,6 +428,31 @@ fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
   assert_eq!(fact.view().problems.get("auth-failed"), None);
 }
 
+/// The news of a store numbered on from the numbering of the open before (`number_news`, a session opened anew in
+/// place) go on after its last id, under its line
+#[test]
+fn the_news_of_a_store_numbered_on_go_on_after_the_last_id_of_the_open_before() {
+  let mut facts = FactStore::new();
+  facts.number_news(9, 4);
+  facts.apply(
+    at(1, 0, 1),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![robot("stray", None, PatronusRobotStatus::Running, 20)]),
+    },
+  );
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: RobotsRead::Poll,
+      result: listed(vec![robot("stray", None, PatronusRobotStatus::Failure, 20)]),
+    },
+  );
+  facts.tell_failures(&robots_digest(&synced_table(), facts.robots.view(), NOTHING_ASKED));
+  assert_eq!(facts.news().iter().map(|news| news.id).collect::<Vec<_>>(), [5]);
+  assert_eq!(facts.news_numbering(), (9, 5));
+}
+
 /// A robot known running that an answer shows merged is news at once while no table is there to derive the view of
 /// what it landed of; one that failed once its problems say why, or at once when the session reads none of it (a robot of
 /// no branch of the table); a robot first seen finished is no news

@@ -456,6 +456,8 @@ pub struct FactStore {
   told_remote_tips: HashMap<String, String>,
   /// The number of the last news
   last_news: u32,
+  /// The numbering of the news (`RepositoryView::news_line`), set as the session opens (`number_news`)
+  news_line: u32,
   /// The failed robots whose news waits for their problems
   failures: BTreeSet<String>,
   /// The merged robots whose news waits for the Patronus view of the robots they merged in: what they landed and
@@ -510,6 +512,7 @@ impl FactStore {
       landed_closes: LandedCloses::default(),
       news: Vec::new(),
       last_news: 0,
+      news_line: 0,
       told_remote_tips: HashMap::new(),
       failures: BTreeSet::new(),
       merges: BTreeSet::new(),
@@ -607,6 +610,20 @@ impl FactStore {
       })
     });
     self.memo.frame_of(&keys, &robots.iter().map(|robot| robot.id.as_str()).collect())
+  }
+
+  /// The news are numbered under `line` after the id `last`: the epoch of a session that opens and 0, or the numbering of
+  /// the open before a session opened anew in place (`Actor::reopened`), so no window takes a news of the new open for
+  /// one it told
+  pub const fn number_news(&mut self, line: u32, last: u32) {
+    self.news_line = line;
+    self.last_news = last;
+  }
+
+  /// The numbering of the news, `(line, the id of the last news)`, which a session opened anew in place numbers on
+  #[must_use]
+  pub const fn news_numbering(&self) -> (u32, u32) {
+    (self.news_line, self.last_news)
   }
 
   /// The last news of the session, oldest first

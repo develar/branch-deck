@@ -6,11 +6,42 @@
 //! patch (`repository_model::patch::apply_patch`, as the page's store applies it), and the part `version` last. The news are the part `news`, the last news of the session, which the page tells by
 //! id, so a resync tells none twice.
 
-use domain_types::session::{RepositoryView, TableChanges, ViewPatch};
+use domain_types::session::{News, RepositoryView, TableChanges, ViewPatch};
 use repository_model::patch::{PatchRejected, apply_patch};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+
+/// The last news of its session a mirror told: the id `id` of the numbering `line` (`RepositoryView::news_line`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToldNews {
+  line: u32,
+  id: u32,
+}
+
+/// Of `news`, of a view of the numbering `line`, those after the last one `told` names, which the mirror tells now and
+/// `told` names from then: the news of a patch, or every news of a view read anew (`get_snapshot`, a resync), the
+/// patches that came meanwhile caught up, so none of a patch that came while the mirror read is lost and none it told
+/// before is told again, in any epoch of the line. None of a view of another numbering (the first view of the mirror,
+/// the session of another prefix): its news were told before the mirror came, and `told` names its last
+pub fn untold_news(told: &mut Option<ToldNews>, line: u32, news: &[News]) -> Vec<News> {
+  match told {
+    Some(told) if told.line == line => {
+      let untold: Vec<News> = news.iter().filter(|news| news.id > told.id).cloned().collect();
+      if let Some(last) = untold.last() {
+        told.id = last.id;
+      }
+      untold
+    }
+    _ => {
+      *told = Some(ToldNews {
+        line,
+        id: news.last().map_or(0, |news| news.id),
+      });
+      Vec::new()
+    }
+  }
+}
 
 /// The view of a mirror as brd keeps it, to which its patches apply
 pub struct MirrorView {

@@ -1103,6 +1103,21 @@ async fn a_run_of_a_session_whose_slot_holds_another_lease_syncs_nothing_and_the
   }
 }
 
+/// A session numbers its news under the epoch it opened at (`news_line`), and a session opened anew in place numbers on
+/// under the line of the open before, so the windows it hands over to the new epoch tell each news of the new open and
+/// take none of them for one they told
+#[tokio::test]
+async fn a_session_opened_anew_numbers_its_news_on_under_the_line_of_the_open_before() {
+  let (_repo, key, leases, sessions) = opened_under_lease_a().await;
+  let before = snapshot(&sessions, &key).await;
+  assert_eq!(before.news_line, before.version.epoch);
+  *leases.epoch.lock().unwrap() = lease("lease-b");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Skipped));
+  let after = snapshot(&sessions, &key).await;
+  assert_ne!(after.version.epoch, before.version.epoch, "the session opened anew");
+  assert_eq!(after.news_line, before.news_line);
+}
+
 /// A run records the time of its sync (`lastSyncTime`, which its sessions sync of themselves by) and the count of the
 /// branches of its table (`lastBranchCount`, the room of the loading table of the next start) under the lease its session
 /// opened under, also when the slot was leased again while it ran (the writer of the settings then records
@@ -2993,8 +3008,9 @@ async fn a_window_that_holds_the_seed_catches_up_by_one_patch() {
   let epoch = synced.version.epoch;
 
   // the seed the session made of the frame, of a worktree synced before (`with_frame`)
-  let (mut state, facts) = frame.seed();
+  let (mut state, mut facts) = frame.seed();
   state.synced = true;
+  facts.number_news(epoch, 0);
   let mut seed = View::seeded(epoch, &state, &facts).snapshot();
   let have = Some(Version { epoch, seq: 0 });
   let (_, joined) = sessions.subscribe_from(&key, Box::new(Window::default()), have).await.unwrap();
