@@ -346,8 +346,9 @@ simpleTest.describe("Merge of a conflicting file", () => {
 
 simpleTest.describe("Conflict resolved by words", () => {
   simpleTest("copies the commit with the result, says so on its row and shows what it committed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // `resolved_words`: `conflict_words` with the resolve by words on, as by default
-    await setupRepo("resolved_words")
+    // `resolved_words`: `conflict_words` with the resolve by words on, as by default; the sync that resolves the conflict
+    // counts it, a later one reuses the copy: the template as it is built
+    await setupRepo("resolved_words", { presynced: false })
     await syncAndWaitForBranches()
     const uiRow = findBranchRow(page, "ui")
     await expect(uiRow.getByTestId("branch-status")).not.toHaveText("merge conflict")

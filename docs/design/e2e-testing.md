@@ -201,6 +201,17 @@ Template system:
 - **Guard**: `every_template_builds` (`templates_test.rs`) builds all of them in one test process: the route tests
   build only the templates they ask for, and a change of the fixture code once broke two templates (a branch
   description with lines in `append_config`) that only the E2E tests copy
+- **Synced templates**: the E2E server keeps a copy of each template synced once beside it (`<name>.synced`,
+  `Templates::synced`, after the template itself, in the background with the others): `sync_branches` with the options
+  of the sessions of the server and the global config of a test repository builds its virtual branches and their
+  mapping notes, then `$GIT_DIR/branch-deck/` goes (the mark of a sync, which the app reads as a `brd sync` of a
+  terminal, the object cache, the report of what landed), so a repository is as before but for its refs. The first
+  sync of the page finds every copy by its note and builds none: 12 git processes where it ran 41 for `issue_links`,
+  35 for `stacked_branches` and 54 for `stack_island` (their `fast-import`, `update-ref`, `rev-list` and `merge-tree`
+  per branch), and under 14 workers its first sync took 2.1 s for 4.8 s, 2.3 s for 5.8 s (2026-11-25, a loaded Mac).
+  A test of what the very first sync of a repository does asks for the template as it is built (`presynced: false` of
+  `setupRepo`, `presynced` of `POST /repositories`); a template without a prefix of its own or without git is its own
+  copy, which `every_template_builds` lists. A route test copies the templates as they are built (`on_demand`)
 - **Git**: fixture code runs git through `git_command` (`crates/test-utils/src/git_test_utils.rs`), which removes the
   repository-local variables (`git rev-parse --local-env-vars`). Under `git rebase --exec` or a hook, an inherited
   `GIT_DIR` would otherwise send every template command into the developer's clone; `git_command_test` scans the test

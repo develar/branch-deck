@@ -11,6 +11,15 @@ export const SetupRepoOptionsSchema = z.object({
   prepopulateStore: z.boolean().default(true),
 
   /**
+   * The repository is a copy of its template synced once (`Templates::synced` of the test server): its virtual branches
+   * and their mapping notes are built, so the first sync of the page builds no copy, as the app finds a repository it
+   * synced before (no mark of a sync, no cache: only the refs). false for a test of what the very first sync of a
+   * repository does (it creates the virtual branches, their copies written)
+   * Default: true
+   */
+  presynced: z.boolean().default(true),
+
+  /**
    * Whether to create a recentProject entry for NO_REPO template
    * Default: false - NO_REPO typically used for welcome card (no recent projects)
    * Set to true for path validation tests that need a "saved but invalid" repository

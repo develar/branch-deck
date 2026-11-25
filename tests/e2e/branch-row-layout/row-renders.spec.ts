@@ -44,7 +44,8 @@ test.describe("The renders of a sync", { tag: "@webkit" }, () => {
     syncAndWaitForBranches,
   }) => {
     await recordRenders(page)
-    const repo = await setupRepo("stack_island")
+    // the first sync creates every branch: the template as it is built
+    const repo = await setupRepo("stack_island", { presynced: false })
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     // the facts of the first sync came: their patch of every next step renders the step of every row, no row

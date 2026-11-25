@@ -720,9 +720,17 @@ pub struct CreateRepositoryRequest {
   /// what it leaves behind is named by it (`AppState::made`)
   #[serde(default)]
   pub test: Option<String>,
+  /// The template synced once, so the first sync of the page finds its copies built (`Templates::synced`); false: as it
+  /// is built, for a test of what the very first sync of a repository does
+  #[serde(default = "default_presynced")]
+  pub presynced: bool,
 }
 
 const fn default_prepopulate_store() -> bool {
+  true
+}
+
+const fn default_presynced() -> bool {
   true
 }
 
@@ -776,7 +784,13 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
   let repo_dir = state.test_root_dir.path().join(&id);
   let path = repo_dir.to_string_lossy().to_string();
 
-  let template_path = state.templates.path(request.template.as_str()).await.map_err(|e| {
+  let template = request.template.as_str();
+  let template_path = if request.presynced {
+    state.templates.synced(template).await
+  } else {
+    state.templates.path(template).await
+  };
+  let template_path = template_path.map_err(|e| {
     tracing::error!("Template '{}' not found: {e:#}", request.template.as_str());
     StatusCode::BAD_REQUEST
   })?;
@@ -806,7 +820,7 @@ pub async fn create_repository(State(state): State<Arc<AppState>>, Json(request)
 
 /// The repository of a test from its template at `template`: one APFS clone of the whole tree on macOS, which shares the
 /// blocks of the template until the test writes (a copy took a tenth of a second under a full run), else a copy
-fn copy_template(template: &std::path::Path, repo_dir: &std::path::Path) -> anyhow::Result<()> {
+pub(crate) fn copy_template(template: &std::path::Path, repo_dir: &std::path::Path) -> anyhow::Result<()> {
   match lease_pool::clone_dir::clone_directory(template, repo_dir, &lease_pool::clone_dir::CloneSkips::default()) {
     Ok(()) => return Ok(()),
     Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {}
@@ -912,7 +926,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
 /// A repository's own identity (the templates set `user.name` and `user.email`) wins.
 /// The review plan, on when unset, is off here: the review windows of the other tests look as they did before it, and a
 /// test of the plan turns it on in the repository's `.git/config`, which wins (openspec/specs/branch/review-plan/spec.md)
-const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n[branchdeck]\n\treviewExperimental = false\n";
+pub(crate) const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n[branchdeck]\n\treviewExperimental = false\n";
 
 fn write_test_identity(global_config: &std::path::Path) -> Result<(), StatusCode> {
   std::fs::write(global_config, TEST_IDENTITY).map_err(|e| {
@@ -1032,7 +1046,7 @@ pub async fn sync_outside_the_app(
 
 /// The events of a sync no window shows (`sync_outside_the_app`): a terminal prints them, nothing reads them here
 #[derive(Clone)]
-struct UnreadEvents;
+pub(crate) struct UnreadEvents;
 
 impl domain_types::ProgressReporter for UnreadEvents {
   fn send(&self, _event: domain_types::SyncEvent) -> anyhow::Result<()> {

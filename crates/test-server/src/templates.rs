@@ -3,11 +3,19 @@
 //! once, and a rebuilt server builds them anew. It serves before they are built: the missing ones build in the
 //! background, all at once, and a repository waits only for its own template. A route test builds a template into its
 //! temporary directory when it first makes a repository of it.
+//!
+//! The E2E server keeps each template synced once too (`synced`; docs/design/e2e-testing.md, "Implementation
+//! Notes"): its virtual branches and their mapping notes built as the first sync of a repository of it builds them, so
+//! that sync of a test finds every copy by its note and builds none, a third of the git processes of the first sync of
+//! a template of seven branches. A test of what the very first sync of a repository does asks for the template as it
+//! is built (`presynced: false`).
 
+use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 use test_utils::repo_template::templates;
@@ -99,12 +107,17 @@ const KEPT_CACHES: usize = 2;
 /// A half-built template older than this is left by a server that stopped while it built
 const ABANDONED_BUILD: Duration = Duration::from_mins(10);
 
+/// The name of a template synced once beside the template: `issue_links.synced`
+const SYNCED: &str = ".synced";
+
 /// The templates of a server and the builds of the ones that are missing
 pub struct Templates {
   dir: PathBuf,
-  /// How each template is built and its path once built; a failed build leaves its cell empty, so the next ask tries
-  /// again
-  built: HashMap<&'static str, (TemplateBuild, OnceCell<PathBuf>)>,
+  /// How each template is built, its path once built and the path of its copy synced once (the template itself where no
+  /// sync builds it); a failed build leaves its cell empty, so the next ask tries again
+  built: HashMap<&'static str, (TemplateBuild, OnceCell<PathBuf>, OnceCell<PathBuf>)>,
+  /// Whether it keeps the copies synced once (the E2E server); a route test copies every template as it is built
+  presync: bool,
 }
 
 impl Templates {
@@ -112,7 +125,16 @@ impl Templates {
   pub fn on_demand(dir: PathBuf) -> Self {
     Self {
       dir,
-      built: TEMPLATES.iter().map(|&(name, build)| (name, (build, OnceCell::new()))).collect(),
+      built: TEMPLATES.iter().map(|&(name, build)| (name, (build, OnceCell::new(), OnceCell::new()))).collect(),
+      presync: false,
+    }
+  }
+
+  /// The templates of `dir` and their copies synced once, each built when first asked for
+  pub fn presyncing(dir: PathBuf) -> Self {
+    Self {
+      presync: true,
+      ..Self::on_demand(dir)
     }
   }
 
@@ -123,23 +145,23 @@ impl Templates {
     match cache_dir(git_version) {
       Ok(dir) => {
         tracing::info!(dir = %dir.display(), "the templates of this build");
-        Self::on_demand(dir)
+        Self::presyncing(dir)
       }
       Err(e) => {
         tracing::warn!(error = %e, "no cache of the templates beside the executable: built in the temporary directory");
-        Self::on_demand(fallback)
+        Self::presyncing(fallback)
       }
     }
   }
 
-  /// Builds every template that is not there yet, all at once, in the background: the server serves meanwhile, and a
-  /// repository waits only for its own template
+  /// Builds every template that is not there yet, and its copy synced once, all at once, in the background: the server
+  /// serves meanwhile, and a repository waits only for its own template
   pub fn build_all_in_background(self: &Arc<Self>) {
     for name in self.names() {
       let templates = Arc::clone(self);
       tokio::spawn(
         async move {
-          if let Err(e) = templates.path(name).await {
+          if let Err(e) = templates.synced(name).await {
             tracing::error!("Failed to create the template {name}: {e:#}");
           }
         }
@@ -155,13 +177,101 @@ impl Templates {
 
   /// The template `name`, built now when it is missing, or once the build in progress ends
   pub async fn path(&self, name: &str) -> anyhow::Result<PathBuf> {
-    let (&name, &(build, ref cell)) = self.built.get_key_value(name).ok_or_else(|| anyhow::anyhow!("no template {name}"))?;
+    let (&name, &(build, ref cell, _)) = self.built.get_key_value(name).ok_or_else(|| anyhow::anyhow!("no template {name}"))?;
     let dir = self.dir.clone();
     let path = cell
       .get_or_try_init(|| async move { tokio::task::spawn_blocking(in_current_span(move || build_template(&dir, name, build))).await? })
       .await?;
     Ok(path.clone())
   }
+
+  /// The template `name` synced once (`synced_template`), after the template itself; the template where no sync builds
+  /// it, and of the templates of a route test
+  pub async fn synced(&self, name: &str) -> anyhow::Result<PathBuf> {
+    let raw = self.path(name).await?;
+    if !self.presync {
+      return Ok(raw);
+    }
+    let (&name, (_, _, cell)) = self.built.get_key_value(name).ok_or_else(|| anyhow::anyhow!("no template {name}"))?;
+    let dir = self.dir.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let path = cell
+      .get_or_try_init(|| async move { tokio::task::spawn_blocking(in_current_span(move || synced_template(&dir, name, &raw, &runtime))).await? })
+      .await?;
+    Ok(path.clone())
+  }
+}
+
+/// The template `name` at `raw` synced once in `dir`, as the first sync of the app syncs a repository of it
+/// (`sync_branches` with the options of the sessions of the server, `TestSessionEnvironment::run_setup`, its global config
+/// the one of a test repository): its virtual branches and mapping notes built, without the files the sync leaves in
+/// `$GIT_DIR/branch-deck/` (the mark of a sync, which the app reads as a `brd sync` of a terminal; the object cache; the
+/// report of what landed), so a test starts from the repository as before but the copies. A template of no prefix of
+/// its own, or one no sync builds, is its own synced copy
+fn synced_template(dir: &Path, name: &str, raw: &Path, runtime: &tokio::runtime::Handle) -> anyhow::Result<PathBuf> {
+  let target = dir.join(format!("{name}{SYNCED}"));
+  if target.exists() {
+    return Ok(target);
+  }
+  let building = dir.join(format!(".{name}{SYNCED}.{}.building", std::process::id()));
+  let global_config = dir.join(format!(".{name}{SYNCED}.{}.gitconfig", std::process::id()));
+  std::fs::write(&global_config, crate::TEST_IDENTITY)?;
+  let git = GitCommandExecutor::new()
+    .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
+    .with_env("GIT_CONFIG_NOSYSTEM", "1");
+  let synced = sync_once(&git, raw, &building, runtime);
+  let _ = fs_retry::remove_file(&global_config);
+  match synced {
+    Ok(true) => {}
+    Ok(false) => return Ok(raw.to_path_buf()),
+    Err(e) => {
+      let _ = fs_retry::remove_dir_all(&building);
+      tracing::warn!(error = %e, "the template {name} is copied unsynced: its sync failed");
+      return Ok(raw.to_path_buf());
+    }
+  }
+  match fs_retry::rename(&building, &target) {
+    Ok(()) => {}
+    // another server of this build put its copy in place first
+    Err(_) if target.exists() => fs_retry::remove_dir_all(&building)?,
+    Err(e) => {
+      let _ = fs_retry::remove_dir_all(&building);
+      return Err(e.into());
+    }
+  }
+  Ok(target)
+}
+
+/// A copy of the template at `raw` in `building`, synced under the prefix of its own config: whether one was made (none
+/// without a `.git`, a commit or a prefix of its own)
+fn sync_once(git: &GitCommandExecutor, raw: &Path, building: &Path, runtime: &tokio::runtime::Handle) -> anyhow::Result<bool> {
+  let raw_path = raw.to_str().ok_or_else(|| anyhow::anyhow!("a template path that is no UTF-8: {}", raw.display()))?;
+  if !raw.join(".git").is_dir() || git_ops::revs::resolve_commit(git, raw_path, "HEAD")?.is_none() {
+    return Ok(false);
+  }
+  let prefix = crate::state::read_local_branch_prefix(git, raw_path)?.prefix;
+  if prefix.is_empty() {
+    return Ok(false);
+  }
+  let started = Instant::now();
+  let _ = fs_retry::remove_dir_all(building);
+  crate::copy_template(raw, building)?;
+  let path = building
+    .to_str()
+    .ok_or_else(|| anyhow::anyhow!("a template path that is no UTF-8: {}", building.display()))?;
+  let options = SyncOptions {
+    issue_config: IssueConfigSource::Load,
+    lost_bindings: Some(&trial_check::lost_bindings::REPLAY_RULE),
+    ..SyncOptions::default()
+  };
+  runtime.block_on(sync_branches(git, path, &prefix, crate::UnreadEvents, options))?;
+  match fs_retry::remove_dir_all(building.join(".git").join("branch-deck")) {
+    Ok(()) => {}
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+    Err(e) => return Err(e.into()),
+  }
+  tracing::info!(elapsed_ms = started.elapsed().as_millis(), "synced the template {}", raw.display());
+  Ok(true)
 }
 
 /// The template `name` in `dir`, built by `build` when it is not there: into a directory of this process first, renamed

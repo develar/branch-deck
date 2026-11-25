@@ -24,7 +24,8 @@ async function expandToPartialRow(page: Page): Promise<Locator> {
 
 test.describe("Archived Branches Table", () => {
   test.beforeEach(async ({ setupRepo, page }) => {
-    await setupRepo("archived_branches")
+    // the first sync of the repository archives what it archives: the template as it is built
+    await setupRepo("archived_branches", { presynced: false })
     // Custom sync that waits for archived branches instead of regular branches
     await syncBranches(page, ['[data-testid="archived-branches-card"]'])
   })

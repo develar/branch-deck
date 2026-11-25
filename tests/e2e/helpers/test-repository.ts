@@ -201,6 +201,7 @@ export class TestRepositoryBuilder {
   public path: string = ""
   private template: string | null = null
   private prepopulateStore: boolean = true
+  private presynced: boolean = true
 
   useTemplate(templateName: string): this {
     this.template = templateName
@@ -209,6 +210,12 @@ export class TestRepositoryBuilder {
 
   withPrepopulateStore(prepopulate: boolean): this {
     this.prepopulateStore = prepopulate
+    return this
+  }
+
+  /** The template synced once (the default), or as it is built (`presynced` of `SetupRepoOptions`) */
+  withPresynced(presynced: boolean): this {
+    this.presynced = presynced
     return this
   }
 
@@ -226,6 +233,7 @@ export class TestRepositoryBuilder {
       body: JSON.stringify({
         template: this.template,
         prepopulate_store: this.prepopulateStore,
+        presynced: this.presynced,
         test: currentTest(),
       }),
     })

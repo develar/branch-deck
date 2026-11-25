@@ -16,7 +16,7 @@ export async function setupTestRepository(page: Page, templateName: string, opti
   const parsedOptions = parseSetupOptions(options)
 
   // Create a test repository using the specified template
-  const repoBuilder = new TestRepositoryBuilder().useTemplate(templateName).withPrepopulateStore(parsedOptions.prepopulateStore)
+  const repoBuilder = new TestRepositoryBuilder().useTemplate(templateName).withPrepopulateStore(parsedOptions.prepopulateStore).withPresynced(parsedOptions.presynced)
 
   await repoBuilder.init()
 

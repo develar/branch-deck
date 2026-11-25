@@ -59,10 +59,11 @@ const SYNCED_AN_HOUR_AGO = 60 * 60 * 1000
  */
 async function syncWithoutIdentity(
   page: Page,
-  setupRepo: (templateName: string, options: { prepopulateStore: boolean }) => Promise<TestRepositoryBuilder>,
+  setupRepo: (templateName: string, options: { prepopulateStore: boolean; presynced: boolean }) => Promise<TestRepositoryBuilder>,
 ): Promise<{ repo: TestRepositoryBuilder; alert: Locator }> {
   expectErrorLog(page, /^Cannot sync the branches: Git user identity is not configured/)
-  const repo = await setupRepo("simple", { prepopulateStore: true })
+  // the sync fails as it writes the first copies, which a repository synced before has
+  const repo = await setupRepo("simple", { prepopulateStore: true, presynced: false })
   await repo.setUserNameInTerminal("")
   await page.getByTestId("ready-to-sync-button").click()
   return { repo, alert: page.getByTestId("git-setup-alert") }
@@ -232,8 +233,8 @@ test.describe("Onboarding", () => {
 
   test("syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed", async ({ page, setupRepo }) => {
     // the template sets branchdeck.branchPrefix user-name in .git/config; the window keeps the focus, so no resolve of the
-    // prefix finds the change before the click
-    const repo = await setupRepo("simple", { prepopulateStore: true })
+    // prefix finds the change before the click; it was never synced, under no prefix
+    const repo = await setupRepo("simple", { prepopulateStore: true, presynced: false })
     const card = page.getByTestId("ready-to-sync-card")
     await expect(card).toContainText("user-name/virtual/<name>")
     await repo.setBranchPrefixInTerminal("team")
