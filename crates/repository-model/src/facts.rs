@@ -82,7 +82,7 @@ use domain_policy::robot_estimate::{learn, prune};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_policy::shown::{landed_by_content, shown_news};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{BaselinePush, LandedPullRequest, LandingRefusal};
+use domain_types::landing::{BaselinePush, FoundNeeds, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
   FinishedRobot, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult,
   PatronusStartOptions, REVIEW_APPROVAL_SUBSYSTEM,
@@ -1689,8 +1689,9 @@ impl LandingNeedsFact {
   }
 }
 
-/// The landing needs of the branches of a table, by branch; a branch not listed needs nothing
-pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
+/// The landing needs of the branches of a table, by branch (a branch not listed needs nothing), with the footprints of
+/// the branches (`FoundNeeds`)
+pub type Needs = FoundNeeds;
 
 /// The robot of each branch and whole stack of the table `of`, what the robots land and landed of it, and what the rules
 /// decide over that (`patronus_view` over `match_robots`, `derive::decide_landing`): the one derivation of the session

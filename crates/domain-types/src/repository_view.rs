@@ -4,7 +4,7 @@
 //! it to its windows as a part of its view (`domain_types::session::PatronusPart`); the page reads it by branch.
 
 use crate::commit::Commit;
-use crate::landing::{LandingRefusal, Subject};
+use crate::landing::{LandingFootprints, LandingRefusal, Subject};
 use crate::reason::Reason;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -292,6 +292,10 @@ pub struct PatronusView {
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
   /// By robot id, the restart a robot of the user offers; a robot without one is not listed
   pub restarts: BTreeMap<String, RobotRestart>,
+  /// What the changes of each branch touch where it lands, as the landing needs found it with them
+  /// (`FoundNeeds::footprints`): the price of the landing plan. Only Rust's, never on the wire, as `landed_by_robot`
+  #[serde(skip)]
+  pub footprints: LandingFootprints,
 }
 
 #[cfg(test)]

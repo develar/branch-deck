@@ -22,9 +22,10 @@
 
 use crate::check::{CheckReport, CheckSession};
 use crate::dangling_references::DanglingKind;
+use crate::footprint::landing_footprints;
 use crate::lost_bindings::{self, LostBinding};
 use crate::missing_declarations::{MissingDeclaration, missing_declarations};
-use domain_types::landing::{BindingKind, LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
+use domain_types::landing::{BindingKind, FoundNeeds, LandingFix, LandingRefusal, ReferenceKind, StackCommit, Subject};
 use domain_types::patronus::LandingAllowances;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::regroup::RegroupError;
@@ -88,10 +89,11 @@ pub fn check_landing_gate(session: &CheckSession, subject: &Subject, landed: &Ha
 
 /// What the Safe Push of each branch needs that a branch outside it adds, the refusals `check_landing_gate` would give
 /// its start, from one trial check of every branch and one search of the missing declarations in `session`; `landed` as
-/// there. Only the branches with a refusal are listed. The session of the repository computes it as a fact after a sync
-/// (`landing_needs_of`), `brd status` with its sync
+/// there. Only the branches with a refusal are listed. With them the footprint of every branch (`footprint`), the price
+/// of landing two in one robot. The session of the repository computes it as a fact after a sync (`landing_needs_of`),
+/// `brd status` with its sync
 #[instrument(skip(session, landed))]
-pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
+pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result<FoundNeeds, RegroupError> {
   let chains = chains_of(session);
   let report = session.check(None)?;
   let missing = missing_declarations(session, &report)?;
@@ -112,7 +114,10 @@ pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result
       needs.insert(check.name.clone(), refusals);
     }
   }
-  Ok(needs)
+  Ok(FoundNeeds {
+    refusals: needs,
+    footprints: landing_footprints(session),
+  })
 }
 
 /// `landing_needs` in a session of the current grouping: the fact of the session of the repository, `brd status`
@@ -123,7 +128,7 @@ pub fn landing_needs_of(
   repository_path: &str,
   branch_prefix: &str,
   landed: &HashSet<String>,
-) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
+) -> Result<FoundNeeds, RegroupError> {
   let session = CheckSession::open(git_executor, repository_path, branch_prefix, cache)?;
   landing_needs(&session, landed)
 }

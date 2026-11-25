@@ -8661,6 +8661,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "commit-rules",
  "domain-types",
  "file-diffs",
  "git-executor",

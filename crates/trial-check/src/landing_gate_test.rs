@@ -28,7 +28,9 @@ pub(crate) fn repo() -> (TestRepo, String) {
 }
 
 fn needs_of(repo: &TestRepo, landed: &HashSet<String>) -> BTreeMap<String, Vec<LandingRefusal>> {
-  landing_needs_of(&GitCommandExecutor::new(), &ObjectCache::disabled(), repo.path_str(), PREFIX, landed).unwrap()
+  landing_needs_of(&GitCommandExecutor::new(), &ObjectCache::disabled(), repo.path_str(), PREFIX, landed)
+    .unwrap()
+    .refusals
 }
 
 /// The branch the start needs and its fix, of each refusal; the gate builds no declared need, which has neither

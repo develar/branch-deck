@@ -17,6 +17,8 @@
 //! that has "swipe". The message is the one that lands on the baseline: the caller strips the `(branch)` prefix, and
 //! [`MessageRules::check`] strips the leading `fixup! `, `squash! ` and `amend! `, which `brd fold` removes before a push.
 
+pub mod checks;
+
 use anyhow::{Context as _, Result, anyhow, bail};
 use fancy_regex::Regex;
 use glob::{MatchOptions, Pattern};
@@ -200,7 +202,7 @@ pub fn load_rules(checkout: &Path, check: &CommitCheck) -> Result<MessageRules, 
 /// The `commitMessageFormat` of the text of a `.patronus/config.yaml`, or why the check is skipped. Only that top-level
 /// block is parsed: the file of the IntelliJ monorepo has 750 KB of other checks
 pub fn parse_patronus_rules(text: &str) -> Result<MessageRules, String> {
-  let block = format_block(text).ok_or_else(|| format!("{PATRONUS_FILE} has no {FORMAT_KEY}"))?;
+  let block = top_level_block(text, FORMAT_KEY).ok_or_else(|| format!("{PATRONUS_FILE} has no {FORMAT_KEY}"))?;
   let document: FormatDocument = serde_saphyr::from_str(block).map_err(|error| format!("{FORMAT_KEY} of {PATRONUS_FILE} does not parse: {error}"))?;
   let format = document.format.ok_or_else(|| format!("{PATRONUS_FILE} has no {FORMAT_KEY}"))?;
   let compiled = |rules: &[RawRule]| {
@@ -240,17 +242,17 @@ pub fn parse_patronus_rules(text: &str) -> Result<MessageRules, String> {
   })
 }
 
-/// The top-level block `commitMessageFormat:` of a YAML text: its key line and every line after it up to the next
-/// top-level key or document marker. Blank lines, comments, indented lines and the `- ` items of a block sequence at the
-/// left edge belong to it
-fn format_block(text: &str) -> Option<&str> {
+/// The top-level block `<key>:` of a YAML text (`commitMessageFormat`, `checks`): its key line and every line after it up
+/// to the next top-level key or document marker. Blank lines, comments, indented lines and the `- ` items of a block
+/// sequence at the left edge belong to it
+fn top_level_block<'a>(text: &'a str, key: &str) -> Option<&'a str> {
   let mut start = None;
   let mut offset = 0;
   for line in text.split_inclusive('\n') {
     let at = offset;
     offset += line.len();
     match start {
-      None if line.strip_prefix(FORMAT_KEY).is_some_and(|rest| rest.trim_start().starts_with(':')) => start = Some(at),
+      None if line.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with(':')) => start = Some(at),
       Some(start) if ends_block(line) => return Some(&text[start..at]),
       _ => {}
     }

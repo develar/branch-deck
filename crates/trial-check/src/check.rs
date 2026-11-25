@@ -434,6 +434,11 @@ impl CheckSession {
     &self.repository_path
   }
 
+  /// The commit of the baseline the session read with its snapshot
+  pub(crate) fn baseline_commit(&self) -> &str {
+    &self.baseline_commit
+  }
+
   /// A session on the history after a rewrite that was written as objects only (a `MoveHunkMode::Trial`, which keeps
   /// HEAD's tree): each commit of `commits` (old id -> new id, oldest first, the tree of each in `trees`) replaces its
   /// old version, with its parent following and without its mapping note, so its branch is built anew; the groups, the

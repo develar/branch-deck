@@ -247,25 +247,55 @@ pub fn read_ownership(git: &GitCommandExecutor, repository_path: &str, revision:
   if paths.is_empty() {
     return Ok(OwnershipRules::default());
   }
-  let files: Vec<String> = ownership_directories(paths.iter().map(String::as_str))
-    .into_iter()
-    .map(|directory| {
-      if directory.is_empty() {
-        OWNERSHIP_FILE_NAME.to_string()
-      } else {
-        format!("{directory}/{OWNERSHIP_FILE_NAME}")
-      }
-    })
+  read_ownership_with_files(git, repository_path, revision, paths, &[]).map(|(rules, _)| rules)
+}
+
+/// A blob of a tree read by its path: its id and its text
+pub type TreeBlob = (String, String);
+
+/// `read_ownership` with the blobs of `files` of the same tree in the same `cat-file --batch` (`.patronus/config.yaml`
+/// of the landing footprint): each its id and its text, none of a file the tree lacks; the paths may be none
+#[instrument(skip(git, paths), fields(paths = paths.len()))]
+pub fn read_ownership_with_files(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  revision: &str,
+  paths: &[String],
+  files: &[&str],
+) -> Result<(OwnershipRules, Vec<Option<TreeBlob>>)> {
+  let ownership: Vec<String> = if paths.is_empty() {
+    Vec::new()
+  } else {
+    ownership_directories(paths.iter().map(String::as_str))
+      .into_iter()
+      .map(|directory| {
+        if directory.is_empty() {
+          OWNERSHIP_FILE_NAME.to_string()
+        } else {
+          format!("{directory}/{OWNERSHIP_FILE_NAME}")
+        }
+      })
+      .collect()
+  };
+  let names: Vec<String> = ownership
+    .iter()
+    .map(String::as_str)
+    .chain(files.iter().copied())
+    .map(|file| format!("{revision}:{file}"))
     .collect();
-  let names: Vec<String> = files.iter().map(|file| format!("{revision}:{file}")).collect();
   let started = Instant::now();
-  let objects = read_objects(git, repository_path, &names, NO_LIMIT, |entry| match entry {
-    BatchEntry::Object { kind: "blob", content, .. } => Some(into_text(content)),
+  let mut objects = read_objects(git, repository_path, &names, NO_LIMIT, |entry| match entry {
+    BatchEntry::Object { id, kind: "blob", content } => Some((id.to_string(), into_text(content))),
     _ => None,
   })?;
-  debug!(files = files.len(), elapsed_ms = started.elapsed().as_millis(), "read the ownership files");
-  let texts: Vec<(&str, String)> = files.iter().zip(objects).filter_map(|(file, text)| text.map(|text| (file.as_str(), text))).collect();
-  Ok(OwnershipRules::from_files(texts.iter().map(|(file, text)| (*file, text.as_str()))))
+  debug!(files = names.len(), elapsed_ms = started.elapsed().as_millis(), "read the ownership files");
+  let read = objects.split_off(ownership.len());
+  let texts: Vec<(&str, String)> = ownership
+    .iter()
+    .zip(objects)
+    .filter_map(|(file, blob)| blob.map(|(_, text)| (file.as_str(), text)))
+    .collect();
+  Ok((OwnershipRules::from_files(texts.iter().map(|(file, text)| (*file, text.as_str()))), read))
 }
 
 /// The owners of the paths that have one, in the order of the paths

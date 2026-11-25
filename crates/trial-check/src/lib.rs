@@ -17,6 +17,8 @@
 //! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
 //! - `missing_declarations`: the names a built branch uses that a commit outside it adds
 //! - `lost_bindings`: a commit that removes the import or the private declaration of a name its file still uses
+//! - `footprint`: what the changes of each branch touch where it lands, the required checks of Patronus they start and
+//!   the code owners of their paths, the price of landing two branches in one robot
 //! - `landing_gate`: what refuses the start of a Safe Push or a Dry Run of a `domain_types::landing::Subject`, for
 //!   `brd safe-push` and the app: a name what lands uses and a branch outside it adds, a dangling reference a commit
 //!   proves
@@ -37,6 +39,7 @@ pub mod dangling_fix;
 pub mod dangling_references;
 pub mod dependencies;
 pub mod diff_scan;
+pub mod footprint;
 pub mod inverted_stack;
 pub mod landing_gate;
 pub mod lost_bindings;

@@ -5576,14 +5576,39 @@ repository computes it as a fact after a sync (`landing_needs_of` through its ho
 through the object cache, [Session facts](#session-facts)), keyed by its inputs: the baseline, the tips of the
 table and the landed commits; while they stay, nothing is computed again. On the synced
 `util`/`flow`/`flow/ui` fixture it costs what a `brd check` of the synced branches costs, no `merge-tree` and no
-`fast-import` (the copies of the sync are reused): `cat-file` 4, `config` 2, `for-each-ref` 2, `log` 5, `remote` 1,
-`rev-parse` 4; with the object cache it filled `cat-file` 2 and `log` 3 (`the_landing_needs_of_every_branch`).
-`brd status` runs it on Space in its own session.
+`fast-import` (the copies of the sync are reused), and one `cat-file --batch` of the [footprint](#landing-footprint):
+`cat-file` 5, `config` 1, `for-each-ref` 1, `log` 6, `remote` 1, `rev-parse` 2; with the object cache it filled and the
+footprint remembered `cat-file` 2 and `log` 4 (`the_landing_needs_of_every_branch`). `brd status` runs it on Space in
+its own session.
 
 Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
 `crates/trial-check/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
 `crates/operations/src/land_session.rs`, `src/presenters/landing.ts`; the landing needs `crates/repository-model/src/facts.rs`,
 `crates/repository-model/src/runtime.rs`, `crates/bd-remote/src/status.rs`.
+
+#### Landing footprint
+
+The price of landing two pieces in one robot (`domain_policy::landing_plan`, [Landing plan](landing.md#landing-plan)) is
+what the changes of each branch start and touch where they land: the required checks of Patronus their paths start and
+the code owners of their paths, as the tree of the baseline has them. A check runs once any path of what lands starts it,
+so the checks of a robot that lands two branches are the union of theirs, and so are the owners: the footprint of each
+branch is enough (`domain_types::landing::LandingFootprints`).
+
+The landing needs compute it in their own `CheckSession` (`trial_check::footprint::landing_footprints`, called by
+`landing_needs`), so no surface reads git for it: the paths of each branch are those its commits change
+(`CheckSession::commit_diffs`, which the check read already, from the object cache), an unassigned commit of no
+branch. The `OWNERSHIP` files of their directories and `.patronus/config.yaml` of the baseline commit come from one
+`cat-file --batch` (`git_ops::ownership::read_ownership_with_files`), remembered in the process by the baseline commit
+and the paths, so a sync that moves neither starts no process for it (`the_landing_needs_of_every_branch`); the checks
+are parsed once per blob of the config: only its `checks` block (`commit_rules::checks`: `configurationId`, `name`,
+`optional`, `executeOnChanges`), whose rules match as Patronus matches them (the `IgnoreNode` of jgit over the full path
+of a file: the last rule that matches decides, `!` negates, a name matches at any depth, `**`, `*`, `?`, `[…]`). On the
+IntelliJ monorepo any path of `plugins/air/**` starts the seven required checks its own test of the config names
+(`UltimatePatronusConfigTest`). It fails open: a baseline without the config, one whose `checks` do not parse, or a
+read that fails leaves the checks (or the owners) unknown with the reason, never an error of the needs. A check of a
+group counts as the others, as that test counts them: the price names what may run.
+
+Code: `crates/trial-check/src/footprint.rs`, `crates/commit-rules/src/checks.rs`, `crates/git-ops/src/ownership.rs`.
 
 #### Robot restart and cancel
 

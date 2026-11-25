@@ -13,6 +13,8 @@ use crate::pull_request::{MergeMethod, PullRequestReviewEvent};
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 
 /// The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`brd safe-push`, the
 /// landing gate, the robot of the repository view): a branch with what it is built on, or the whole stack of a root.
@@ -338,6 +340,93 @@ pub enum EdgeState {
   /// It is built on what lands: the start of the branch built on both or of the whole stack lands both
   /// (`LandingFix::Start`), never a move
   Cycle,
+}
+
+/// The landing needs of the branches of a table as one check of all of them found them (`trial_check::landing_gate::
+/// landing_needs`): the refusals of the start of each branch, a branch not listed needs nothing; and what the changes of
+/// each touch where it lands (`footprints`), the price of landing two of them in one robot. Derefs to the refusals
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundNeeds {
+  pub refusals: BTreeMap<String, Vec<LandingRefusal>>,
+  #[serde(default)]
+  pub footprints: LandingFootprints,
+}
+
+impl FoundNeeds {
+  #[must_use]
+  pub const fn new() -> Self {
+    Self {
+      refusals: BTreeMap::new(),
+      footprints: LandingFootprints {
+        checks_unknown: None,
+        owners_unknown: None,
+        branches: BTreeMap::new(),
+      },
+    }
+  }
+}
+
+impl Deref for FoundNeeds {
+  type Target = BTreeMap<String, Vec<LandingRefusal>>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.refusals
+  }
+}
+
+impl DerefMut for FoundNeeds {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.refusals
+  }
+}
+
+impl From<BTreeMap<String, Vec<LandingRefusal>>> for FoundNeeds {
+  fn from(refusals: BTreeMap<String, Vec<LandingRefusal>>) -> Self {
+    Self {
+      refusals,
+      footprints: LandingFootprints::default(),
+    }
+  }
+}
+
+impl<const N: usize> From<[(String, Vec<LandingRefusal>); N]> for FoundNeeds {
+  fn from(refusals: [(String, Vec<LandingRefusal>); N]) -> Self {
+    BTreeMap::from(refusals).into()
+  }
+}
+
+impl FromIterator<(String, Vec<LandingRefusal>)> for FoundNeeds {
+  fn from_iter<I: IntoIterator<Item = (String, Vec<LandingRefusal>)>>(refusals: I) -> Self {
+    refusals.into_iter().collect::<BTreeMap<_, _>>().into()
+  }
+}
+
+/// What the changes of each branch touch where it lands (`trial_check::footprint`, docs/design/git-operations.md,
+/// "Landing footprint"): the required checks of Patronus its paths start and the code owners of its paths, as the tree of
+/// the baseline has them. A check runs once a path of what lands starts it, so the checks of a robot that lands two
+/// branches are the union of theirs, and so are the owners. Fails open: what can't be read is unknown, with the reason
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandingFootprints {
+  /// Why the checks are unknown: no `.patronus/config.yaml`, or one whose `checks` do not parse; none when known
+  #[serde(default)]
+  pub checks_unknown: Option<String>,
+  /// Why the code owners are unknown: the `OWNERSHIP` files could not be read; none when known
+  #[serde(default)]
+  pub owners_unknown: Option<String>,
+  /// By branch, of the branches with commits
+  pub branches: BTreeMap<String, BranchFootprint>,
+}
+
+/// What the changes of one branch touch where it lands
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchFootprint {
+  /// The names of the required checks its changes start, in the order of the file
+  pub checks: Vec<String>,
+  /// The code owners of its paths, sorted, each once
+  pub owners: Vec<String>,
 }
 
 impl LandingRefusal {

@@ -13,7 +13,7 @@
 use crate::action_view::{ActionSources, actions_of};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::derive::{landed_states_of, next_steps_of, open_pull_requests_view, push_view, wanted_readiness};
-use crate::facts::{FactResult, FactStore, Observation, RobotsRead, Seq};
+use crate::facts::{FactResult, FactStore, Needs, Observation, RobotsRead, Seq};
 use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{branch_status, grouped, run_sync, synced};
@@ -74,7 +74,7 @@ pub(crate) fn answer_patronus(facts: &mut FactStore, seq: u32, view: PatronusVie
   assert!(facts.patronus.begin(u64::from(seq), Duration::from_secs(u64::from(seq))));
   facts.patronus.answer(at(seq), Ok(view));
   if let Some((inputs, _)) = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default()) {
-    let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
+    let _ = facts.patronus.needs_answer(inputs, Ok(Needs::new()));
     let _ = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default());
   }
 }

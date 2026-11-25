@@ -79,7 +79,10 @@ async fn a_check_of_synced_branches() {
 /// snapshot, the config and the tips, as `brd check` reads them), one trial check of all branches, which reuses the copies
 /// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
 /// lines, and one `log` of the originals and the copies for the lost bindings, whose summaries the search of the names
-/// put in the cache; with the object cache the first filled, the second reads the changes and the summaries from it
+/// put in the cache; and the footprint of the branches: one `cat-file --batch` of the `OWNERSHIP` files and the Patronus
+/// config of the baseline, over the changes the check read already. With the object cache the first filled, the second
+/// reads the changes and the summaries from it, and the footprint reads nothing: its rules are of the same baseline and
+/// paths, so a sync that moves neither starts no process for it
 #[tokio::test]
 async fn the_landing_needs_of_every_branch() {
   let (repo, _) = landing_gate_test::repo();
@@ -87,11 +90,12 @@ async fn the_landing_needs_of_every_branch() {
   let (_dir, cache) = empty_cache();
   let landing = |git: &GitCommandExecutor| {
     let needs = landing_needs_of(git, &cache, repo.path_str(), PREFIX, &HashSet::new()).unwrap();
+    assert_eq!(needs.footprints.branches.keys().collect::<Vec<_>>(), ["flow", "ui", "util"]);
     assert_eq!(needs.keys().collect::<Vec<_>>(), ["flow", "ui"]);
   };
   let git = counting();
   landing(&git);
-  assert_processes(&git, &[("cat-file", 4), ("config", 1), ("for-each-ref", 1), ("log", 6), ("remote", 1), ("rev-parse", 2)]);
+  assert_processes(&git, &[("cat-file", 5), ("config", 1), ("for-each-ref", 1), ("log", 6), ("remote", 1), ("rev-parse", 2)]);
   let git = counting();
   landing(&git);
   assert_processes(&git, &[("cat-file", 2), ("config", 1), ("for-each-ref", 1), ("log", 4), ("remote", 1), ("rev-parse", 2)]);

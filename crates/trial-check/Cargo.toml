@@ -12,6 +12,8 @@ history-rewrite = { path = "../history-rewrite" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 domain-types = { path = "../domain-types" }
+# the checks of `.patronus/config.yaml` the changes of a branch start (`footprint`)
+commit-rules = { path = "../commit-rules" }
 sync-utils = { path = "../sync-utils" }
 object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }

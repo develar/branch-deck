@@ -30,7 +30,7 @@ use domain_policy::land::took_as_is;
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_policy::stack::build_ancestors;
-use domain_types::landing::{LandingRefusal, Subject};
+use domain_types::landing::{FoundNeeds, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{BranchPatronus, Carried, HoldKind, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch, RobotOf, SpanView, StackPatronus};
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
@@ -792,8 +792,9 @@ pub fn landed_commits(view: &PatronusView) -> HashSet<String> {
 /// others stay unknown (the needs of an earlier table, `facts::NeedsBasis::stands_for`). A missing declaration names the
 /// running Safe Push that lands the branch adding the name, as `view` holds it: its own robot, or one of a branch built on
 /// it or of its whole stack
-pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &BTreeMap<String, Vec<LandingRefusal>>, answers: impl Fn(&str) -> bool) {
+pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &FoundNeeds, answers: impl Fn(&str) -> bool) {
   let landing = landing_robots(view);
+  view.footprints = needs.footprints.clone();
   for branch in table.branches.iter().filter(|branch| answers(&branch.name)) {
     let mut refusals = needs.get(&branch.name).cloned().unwrap_or_default();
     name_landing_robots(&mut refusals, |declared_in| landing.get(declared_in).cloned());
