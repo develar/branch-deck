@@ -206,8 +206,11 @@ The contract is [Landing Routes](../../openspec/specs/branch/landing-routes/spec
   now, opens the popover), and waits and decides as a click does (one settle, `settleStart` of
   `src/hooks/useSafePush.ts`). A press waits in the repository it was pressed in: once another one opens it starts
   nothing and says so ("… is no longer the open repository"), also when the first one shows again before its plan
-  came. The start of a whole stack and `brd land` run the gate of what they land
-  themselves. A move of the baseline, a merged Safe Push, a new or restacked branch and a need of a branch gone wait
+  came. A whole stack takes the needs of its branches outside it, those of its unit in the plan
+  (`landing_edges::whole_stack_refusals`, its edges lifted to its root): its step says "Needs stills-codec" or "Lands
+  after stills-codec" where a branch's would, so the row of its root, the overview and the Plan never show a ready
+  "Safe Push · 3" its start then refuses; its start reads them fresh, and while the needs of new tips are computed the
+  start of a whole stack and `brd land` run the gate of what they land themselves. A move of the baseline, a merged Safe Push, a new or restacked branch and a need of a branch gone wait
   as for the first answer ("Checking…").
   - *Rationale:* every step waited after every sync, a flicker of 131 rows for an answer that is almost always the
     same; what must not act on a stale answer is the press, so the wait lives in the decision of the start, never in

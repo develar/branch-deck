@@ -1,7 +1,7 @@
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::derive::derive_budget_test::{answer_patronus, at, synced_facts};
 use crate::derive::{LandSources, attention_of, blocking_parent, decide_lands, land_decision, open_pull_requests_view, repository};
-use crate::facts::{FactResult, FactStore, RobotsRead};
+use crate::facts::{FactResult, FactStore, Needs, RobotsRead};
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
 use crate::table::TableState;
@@ -1966,6 +1966,17 @@ fn air_stack_session(view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(
 /// on the remote behind its build at `stack-tip`, the branches of `parked` parked, the robots `robots` listed and `view`
 /// the view a derivation answered, of another table or other robots
 fn stack_session(branches: &[(&str, Option<&str>, Vec<String>)], view: PatronusView, robots: Vec<PatronusRobot>, parked: &[(&str, &str)]) -> (TableState, FactStore) {
+  stack_session_with_needs(branches, view, robots, parked, Needs::new())
+}
+
+/// `stack_session`, the landing needs of its branches `needs`
+fn stack_session_with_needs(
+  branches: &[(&str, Option<&str>, Vec<String>)],
+  view: PatronusView,
+  robots: Vec<PatronusRobot>,
+  parked: &[(&str, &str)],
+  needs: Needs,
+) -> (TableState, FactStore) {
   let grouped: Vec<GroupedBranchInfo> = branches
     .iter()
     .map(|(name, parent, commits)| on_with(name, *parent, &commits.iter().map(String::as_str).collect::<Vec<_>>()))
@@ -2009,7 +2020,7 @@ fn stack_session(branches: &[(&str, Option<&str>, Vec<String>)], view: PatronusV
   };
   let mut facts = synced_facts(&table);
   list_robots(&mut facts, 2, robots);
-  answer_patronus(&mut facts, 3, view, &table);
+  crate::derive::derive_budget_test::answer_patronus_with_needs(&mut facts, 3, view, &table, needs);
   (state, facts)
 }
 
@@ -2262,4 +2273,52 @@ fn the_root_of_a_stack_that_forks_hosts_its_whole_stack_its_node_the_whole_stack
   let (state, facts) = air_stack_session(air_stack_view(&[], None), Vec::new(), &[("air-side", "after the release")], false);
   let steps = merged_robot_steps_of(&state, &facts);
   assert_eq!(steps["air"].hosted, None);
+}
+
+/// `branch` uses Stills, which a commit of `declared_in` adds: stack `root`, the root of what lands, on it
+fn uses_stills_of(branch: &str, root: &str, declared_in: &str) -> LandingRefusal {
+  use domain_types::landing::{LandingFix, StackCommit};
+  let commit = |id: &str, branch: &str| StackCommit {
+    id: id.to_string(),
+    subject: format!("Commit {id}"),
+    branch: branch.to_string(),
+  };
+  LandingRefusal::MissingDeclaration {
+    branch: branch.to_string(),
+    identifier: "Stills".to_string(),
+    file: "BuildLog.kt".to_string(),
+    line: 3,
+    used_by: commit("use", branch),
+    declared_by: commit("add", declared_in),
+    fix: LandingFix::Restack {
+      branch: root.to_string(),
+      onto: declared_in.to_string(),
+    },
+    landing_in: None,
+  }
+}
+
+/// The whole stack takes the needs of its branches outside it, as its unit in the landing plan: a need of a branch of
+/// the stack is met by the whole stack; the row of its root hosts row 1′ with the node of a step of the user, its start
+/// refused before it starts by the needs the view found fresh
+#[test]
+fn the_whole_stack_takes_the_needs_of_its_branches_outside_it() {
+  let needs = Needs::from([
+    ("air-child".to_string(), vec![uses_stills_of("air-child", "air", "codec")]),
+    // air-side uses what air-child adds: the whole stack lands both
+    ("air-side".to_string(), vec![uses_stills_of("air-side", "air", "air-child")]),
+  ]);
+  let branches: Vec<(&str, Option<&str>, Vec<String>)> = AIR_STACK.iter().map(|(name, parent)| (*name, *parent, air_commits(name, false))).collect();
+  let (state, facts) = stack_session_with_needs(&branches, air_stack_view(&[], None), Vec::new(), &[], needs);
+  let steps = merged_robot_steps_of(&state, &facts);
+  let whole = &steps["stack:air"];
+  match &whole.step.kind {
+    StepKind::NeedsBranch { refusals, edges } => {
+      assert_eq!(refusals, &vec![uses_stills_of("air-child", "air", "codec")]);
+      assert_eq!(edges.iter().map(|edge| (edge.from.as_str(), edge.needed.as_str())).collect::<Vec<_>>(), [("air", "codec")]);
+    }
+    other => panic!("the whole stack needs codec: {other:?}"),
+  }
+  assert_eq!(whole.node.kind, LandingNodeKind::YourStep, "no ready node a start would refuse");
+  assert_eq!(steps["air"].hosted.as_ref().map(|hosted| hosted.node.kind), Some(LandingNodeKind::YourStep));
 }

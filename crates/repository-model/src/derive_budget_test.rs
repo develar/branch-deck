@@ -71,10 +71,15 @@ pub(crate) fn synced_facts(table: &BranchTable) -> FactStore {
 
 /// Patronus answered `view` at `seq`, and the landing needs of `table` are none: the part as the session publishes it
 pub(crate) fn answer_patronus(facts: &mut FactStore, seq: u32, view: PatronusView, table: &BranchTable) {
+  answer_patronus_with_needs(facts, seq, view, table, Needs::new());
+}
+
+/// `answer_patronus`, the landing needs the check finds `needs`
+pub(crate) fn answer_patronus_with_needs(facts: &mut FactStore, seq: u32, view: PatronusView, table: &BranchTable, needs: Needs) {
   assert!(facts.patronus.begin(u64::from(seq), Duration::from_secs(u64::from(seq))));
   facts.patronus.answer(at(seq), Ok(view));
   if let Some((inputs, _)) = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default()) {
-    let _ = facts.patronus.needs_answer(inputs, Ok(Needs::new()));
+    let _ = facts.patronus.needs_answer(inputs, Ok(needs));
     let _ = facts.patronus.publish(table, None, &crate::patronus_view::ContentMemo::default());
   }
 }

@@ -8,6 +8,9 @@
 //!   binding is no edge: no branch helps, only its own commit
 //! - `landing_edges`: the edges of every branch, each lifted to the root of its stack and merged with those of the other
 //!   branches of it; a need the stack meets itself (a branch of the same stack) is dropped, as the whole stack lands it
+//! - `whole_stack_refusals`: the refusals of the start of a whole stack among those of its branches, by the same rule:
+//!   the needs of what lands outside it, each once; the next step of the whole stack and the decision of its start read
+//!   them, its edges are its unit's (`landing_edges`)
 //!
 //! The kinds: `Build` (a missing declaration, a dangling reference), the only one that may land in one robot with what
 //! it needs; `Declared` and `Companion` (`brd need`), never: the need is what keeps them apart. The state, first that
@@ -102,6 +105,43 @@ pub fn landing_edges<'a>(
     }
   }
   lifted
+}
+
+/// What refuses the start of the whole stack of `members` (its root and the branches built on it) among the refusals of
+/// the starts of its branches (`refusals`, in the order of the table): every need of a branch outside it, each once
+/// whichever start of a branch of it found it, as `landing_edges` lifts it to the root of the unit; a need of a branch
+/// of the stack is dropped (the whole stack lands it, a cycle too), and so is a declared need one branch of it only
+/// inherits from another one of it (that one's own need stands). A lost binding stays: the commit that loses it lands
+#[must_use]
+pub fn whole_stack_refusals<'a>(members: &[&str], refusals: impl IntoIterator<Item = &'a LandingRefusal>) -> Vec<LandingRefusal> {
+  let lands = |name: &str| members.contains(&name);
+  let mut kept: Vec<LandingRefusal> = Vec::new();
+  for refusal in refusals {
+    let inside = match refusal {
+      LandingRefusal::UnlandedNeed { needs, inherited_from, .. } => lands(needs) || inherited_from.as_deref().is_some_and(lands),
+      LandingRefusal::LostBinding { .. } => false,
+      _ => needed_of(refusal).is_some_and(|(needed, _)| lands(&needed)) || matches!(refusal.fix(), Some(LandingFix::Start { .. })),
+    };
+    if !inside && !kept.iter().any(|known| same_need_of_any_branch(known, refusal)) {
+      kept.push(refusal.clone());
+    }
+  }
+  kept
+}
+
+/// `a` and `b` are the same need whichever start of a branch found it (`LandingRefusal::same_need` but `branch`)
+fn same_need_of_any_branch(a: &LandingRefusal, b: &LandingRefusal) -> bool {
+  let of_no_branch = |refusal: &LandingRefusal| {
+    let mut refusal = refusal.clone();
+    match &mut refusal {
+      LandingRefusal::DanglingReference { branch, .. }
+      | LandingRefusal::MissingDeclaration { branch, .. }
+      | LandingRefusal::LostBinding { branch, .. }
+      | LandingRefusal::UnlandedNeed { branch, .. } => branch.clear(),
+    }
+    refusal
+  };
+  of_no_branch(a).same_need(&of_no_branch(b))
 }
 
 /// `edge`, of the start of a branch of the stack of `known` (`own`: of its root), merged into `known`

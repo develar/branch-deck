@@ -70,7 +70,7 @@ use domain_policy::land::{
   restart_refusal, standing, start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
-use domain_policy::landing_edges::edges_of;
+use domain_policy::landing_edges::{edges_of, landing_edges, whole_stack_refusals};
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, hosts_whole_stack, landing_node, root_own_node};
 use domain_policy::landing_plan::{PlanFacts, UnitFacts, landing_plan, landing_units, together_forks};
@@ -1506,13 +1506,18 @@ fn with_land_facts<'s, T>(
     }
     Subject::WholeStack { root } => {
       let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root && !stack.members.is_empty())?;
-      // the landing needs are of the branches: the gate of the start checks the whole stack. Its declared needs are
-      // those of every branch it lands: one robot lands them together
+      // its declared needs are those of every branch it lands: one robot lands them together; the needs of the build
+      // those of its branches outside it, as the view found them fresh (`whole_stack_found`), else the gate of the start
+      // checks it
       let declared = whole_stack_declared(sources.declared, stack);
+      let found = sources
+        .gate
+        .map(<[LandingRefusal]>::to_vec)
+        .or_else(|| whole_stack_found(sources.view, sources.landing_needs, stack));
       (
         SubjectFacts::WholeStack(landing.stack_subject(stack, Some(sources.pull_requests), sources.baseline)),
         landing.stack_robot(stack),
-        with_declared(Some(&declared), Some(sources.gate.unwrap_or_default())),
+        with_declared(Some(&declared), Some(found.as_deref().unwrap_or_default())),
         false,
       )
     }
@@ -1556,6 +1561,31 @@ pub(crate) fn stack_rest(table: &BranchTable, view: &PatronusView, repo: &Reposi
 fn view_knows_with_ancestors(table: &BranchTable, view: &PatronusView, name: &str, ancestors: &[&str]) -> bool {
   let knows = |branch: &str| table.view_knows(branch, view.branches.get(branch).and_then(|facts| facts.landed_by.as_ref()));
   knows(name) && ancestors.iter().all(|ancestor| knows(ancestor))
+}
+
+/// The branches the whole stack of `stack` lands, its root first, each once
+fn stack_members(stack: &StackBranchUpdate) -> Vec<&str> {
+  let mut members = vec![stack.root.as_str()];
+  members.extend(stack.members.iter().map(String::as_str).filter(|member| *member != stack.root));
+  members
+}
+
+/// The landing needs a start of the whole stack of `stack` breaks as the view found them of its branches
+/// (`whole_stack_refusals`): only while it knows every branch of it fresh, as a start reads only fresh needs; `None`
+/// otherwise, and the gate of the start checks it
+fn whole_stack_found(view: &PatronusView, state: &FactState, stack: &StackBranchUpdate) -> Option<Vec<LandingRefusal>> {
+  if !matches!(state, FactState::Fresh) {
+    return None;
+  }
+  let members = stack_members(stack);
+  let found: Vec<&[LandingRefusal]> = members
+    .iter()
+    .map(|member| match view.branches.get(*member).map(|facts| &facts.landing_needs) {
+      Some(LandingNeeds::Known { refusals }) => Some(refusals.as_slice()),
+      _ => None,
+    })
+    .collect::<Option<_>>()?;
+  Some(whole_stack_refusals(&members, found.into_iter().flatten()))
 }
 
 /// The declared needs a start of the whole stack of `stack` breaks: those of every branch it lands, each once, by the
@@ -1722,6 +1752,20 @@ impl StepSources<'_> {
     Some(Subject::branch(branch).robot_of(&robot.id))
   }
 
+  /// The edges of the start of the whole stack of `root` (`members`, its root first), of the needs its branches have
+  /// (`needs`), lifted to its root as its unit in the landing plan has them (`landing_edges`), but of a branch of it, with
+  /// their actions
+  fn stack_edges(&self, repo: &Repository<'_>, root: &str, members: &[&str], needs: &[(&str, &[LandingRefusal])]) -> Vec<LandingEdge> {
+    let mut edges = landing_edges(
+      needs.iter().map(|(branch, refusals)| (*branch, root, *refusals)),
+      |name| members.contains(&name).then_some(root),
+      |needed| self.failed_robot_of(needed),
+    );
+    edges.retain(|edge| !members.contains(&edge.needed.as_str()));
+    with_edge_actions(&mut edges, |edge| restack_forks(repo, edge));
+    edges
+  }
+
   /// The edges of the start of `branch` (root of what lands `root`) of `refusals`, with their actions
   /// (`edges_of`, `with_edge_actions`)
   fn edges(&self, repo: &Repository<'_>, branch: &str, root: &str, refusals: &[LandingRefusal]) -> Vec<LandingEdge> {
@@ -1837,8 +1881,36 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     // before the view names what is left of it, every branch of its stack branch
     // none landed: every branch of it, as `whole_stack_rest` leaves them
     let lands = rest.members.len();
-    let declared = whole_stack_declared(sources.declared, stack);
-    let edges = sources.edges(&repo, &stack.root, &stack.root, &declared);
+    // the needs of what it lands outside it, as its unit in the landing plan has them: those the starts of its branches
+    // found and declared, lifted to its root (`whole_stack_refusals`, `landing_edges`)
+    let members = stack_members(stack);
+    let member_needs: Vec<(&str, Needs<'_>)> = members
+      .iter()
+      .map(|member| {
+        let needs = match merged_needs.get(member) {
+          Some(refusals) => Needs::Known(refusals),
+          None => Needs::of(sources.view.branches.get(*member).map(|facts| &facts.landing_needs), sources.landing_needs),
+        };
+        (*member, needs)
+      })
+      .collect();
+    let found: Vec<(&str, &[LandingRefusal])> = member_needs
+      .iter()
+      .filter_map(|(member, needs)| match needs {
+        Needs::Known(refusals) => Some((*member, *refusals)),
+        Needs::Computing | Needs::Unknown => None,
+      })
+      .collect();
+    let refusals = whole_stack_refusals(&members, found.iter().flat_map(|(_, refusals)| refusals.iter()));
+    let edges = sources.stack_edges(&repo, &stack.root, &members, &found);
+    let computing = member_needs.iter().any(|(_, needs)| matches!(needs, Needs::Computing));
+    let needs = if !refusals.is_empty() || (!computing && !found.is_empty()) {
+      Needs::Known(&refusals)
+    } else if computing {
+      Needs::Computing
+    } else {
+      Needs::Unknown
+    };
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1870,9 +1942,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         base: sources.open_pull_requests.get(&key).map(|open| &open.base),
       }),
       target: sources.target,
-      // the landing needs are of the branches: the gate of the start checks the whole stack; the order the user declared
-      // of any branch it lands is known without a check
-      needs: if declared.is_empty() { Needs::Unknown } else { Needs::Known(&declared) },
+      needs,
       edges: &edges,
       readiness: (sources.readiness)(&key),
       stack_pull_request: None,

@@ -1330,15 +1330,17 @@ Its popover MUST offer the profile, the review, the robot of the whole stack it 
 
 ### Requirement: The Safe Push of the whole stack in the app: The start checks its gate, pushes the stack branch, starts it
 
-The start (`execute` of the `Land` of the whole stack) MUST check its landing gate first (the landing needs of the view
-are of branches: the engine runs the gate of the whole stack, `operations::land_session`), push the stack branch alone
+The start (`execute` of the `Land` of the whole stack) MUST check its landing gate first (the needs of its branches
+outside it the view found fresh, else the engine runs the gate of the whole stack, `operations::land_session`), push
+the stack branch alone
 while its remote lacks it (leased, a robot it replaces canceled first), then start the robot from it, or comment on its
 pull request.
 
 #### Scenario: Its build needs a branch outside it
 - **WHEN** the build of the whole stack needs a branch outside it
-- **THEN** the start is refused by the gate of the whole stack, with the restack and Start Anyway
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
+- **THEN** its popover says it before the start, Start Anyway its start, as the needs of its branches found it
+- **AND** while the needs of new tips are computed, the start is refused by the gate of the whole stack, with the restack and Start Anyway
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway`)
 
 #### Scenario: The start pushes the stack branch and starts the robot
 - **GIVEN** the remote of the stack branch lacks it
@@ -1397,6 +1399,11 @@ overview said.
 - **THEN** the row of the root keeps its own step: a parked branch lands the stack in pieces, a landed root offers no start as every landed branch, and the last branch of a chain shows its Safe Push, which is the whole stack
   [@test] crates/repository-model/src/derive_test.rs (`the_root_of_a_stack_that_forks_hosts_its_whole_stack_its_node_the_whole_stacks`)
   [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push Whole Stack (S), as its slot, once, and offers the root's own start as Safe Push Root Only and Dry Run Root Only, without a key`)
+
+#### Scenario: A need outside the stack
+- **WHEN** a branch of the stack needs a branch outside it
+- **THEN** the slot of the root's row says it as the overview does ("Needs stills-codec", its fix; "Lands after stills-codec" while that branch is landing, no start), never a ready "Safe Push · 3" its start refuses
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot`)
 
 ### Requirement: The Safe Push of the whole stack in the app: It is asked from the header, the root's menu and popovers
 

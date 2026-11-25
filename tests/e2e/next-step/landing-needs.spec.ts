@@ -1,16 +1,17 @@
 // @spec openspec/specs/branch/next-step/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect, expectErrorLog } from "../fixtures/test-fixtures"
-import { findBranchRow } from "../helpers/branch-helpers"
-import { availableRobots, expectPatronusStarts, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
+import { findBranchRow, getLandingNode, getRowWait } from "../helpers/branch-helpers"
+import { availableRobots, expectPatronusStarts, robot, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
+import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush, startAnyway } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { runAndWaitForAnswer, runAndWaitForSync, waitForSettledSession } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, recordCommand } from "../helpers/wait-helpers"
+import { expectClosed, holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The step of the row's slot */
 function step(page: Page, branchName: string) {
@@ -367,21 +368,59 @@ test.describe("Landing needs", () => {
     expect(await pushedBranches(repo)).toEqual(["lane-run"])
   })
 
-  test("should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway", async ({
+  test("should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // lane-run forks (ui-perf-nightly and lane-docs are built on it): its whole stack lands from its stack branch, and
+    // takes the needs of its branches outside it, as its unit in the plan: lane-run uses Stills of stills-codec
+    const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "lane-run")
+    const slot = step(page, "lane-run")
+    // the row of lane-run hosts its whole stack: its slot says the need before any press, as the overview says it of the unit
+    await expect(slot).toHaveAttribute("data-whole-stack", "lane-run")
+    await expect(slot).toHaveAttribute("data-step", "needsBranch")
+    await expect(slot.getByTestId("next-step")).toHaveText("Needs stills-codec")
+    await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
+    const overview = await openLandingOverview(page)
+    await expect(landingRow(overview, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+    await expect(getLandingNode(row)).toHaveAttribute("data-kind", (await landingRow(overview, "lane-run").getAttribute("data-kind"))!)
+    await page.mouse.move(0, 0)
+    await expectClosed(overview)
+    const starts = await recordCommand(page, "execute")
+
+    // S: the popover of the whole stack says why its build fails before the start, its start Start Anyway
+    await openSafePushWithKey(page, "lane-run")
+    const popover = safePushPopover(page)
+    await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole lane-run stack")
+    await expect(popover.getByTestId("safe-push-landing-needs").getByTestId("safe-push-landing-detail")).toHaveText(
+      /^[0-9a-f]{8} of lane-run uses Stills \(BuildLog\.kt:3\), which [0-9a-f]{8} of stills-codec adds\.$/,
+    )
+    await expect(popoverStart(page)).toHaveText("Start Anyway")
+    // the same start with the override of what refuses it, which the gate of the engine lets through
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+    expect(starts.at(-1)).toMatchObject({ intent: { subject: { kind: "wholeStack", root: "lane-run" }, allow: { allowMissing: true } } })
+    await expectPatronusStarts(repo, [wholeStackStartRequest("lane-run")])
+    expect(await remotePushes(repo)).toEqual([["stack:lane-run"]])
+  })
+
+  test("should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
     expectErrorLog(page, /^Cannot start the Safe Push of the whole lane-run stack: /)
-    // lane-run forks (ui-perf-nightly and lane-docs are built on it): its whole stack lands from its stack branch, and the
-    // landing needs of the view are of branches, so the gate of the start checks the whole stack
+    // lane-run forks (ui-perf-nightly and lane-docs are built on it): its whole stack lands from its stack branch
     const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    // the row of lane-run hosts its whole stack: its slot is the start of the whole stack, whose gate checks the build
-    await expect(step(page, "lane-run").getByTestId("safe-push-button")).toHaveText("Safe Push · 3")
+    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+    // the needs of new tips are computed: the step keeps the need before, the start reads only fresh ones, so the gate
+    // of the start checks the whole stack
+    await holdNeedsOfNewTip(page, repo)
     const starts = await recordCommand(page, "execute")
-
-    // its menu leads with the fix of the need of lane-run, then the start of the whole stack
     await findBranchRow(page, "lane-run").click({ button: "right" })
     // the start of the whole stack itself (S), not Land Together · Safe Push Whole Stack of the need above it
     await clickContextMenuItem(page, "Safe Push Whole Stack S", { exact: true })
@@ -394,12 +433,35 @@ test.describe("Landing needs", () => {
     )
     await expect(refused.getByRole("button", { name: "Stack lane-run on stills-codec" })).toBeVisible()
     expect({ pushed: await pushedBranches(repo), started: (await repo.getPatronusLog()).starts }).toEqual({ pushed: [], started: [] })
+    await repo.holdRemoteAnswers({ release: ["landingNeeds"] })
 
     // Start Anyway: the same start with the override of what refused it, planned again, which the gate lets through
     await runAndWaitForAnswer(page, "execute", () => refused.getByRole("button", { name: "Start Anyway" }).click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     expect(starts.at(-1)).toMatchObject({ intent: { subject: { kind: "wholeStack", root: "lane-run" }, allow: { allowMissing: true } } })
     await expectPatronusStarts(repo, [wholeStackStartRequest("lane-run")])
-    expect(await remotePushes(repo)).toEqual([["stack:lane-run"]])
+  })
+
+  test("should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the Safe Push of stills-codec runs, which lands what the whole lane-run stack needs: it lands after it
+    await setupRepo("landing_needs_fork", { patronus: availableRobots(robot("stills-codec", "stills-robot")) })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "lane-run")
+    const slot = step(page, "lane-run")
+    await expect(getRowWait(row)).toHaveText("Lands after stills-codec")
+    await expect(slot).toHaveAttribute("data-whole-stack", "lane-run")
+    await expect(slot).toHaveAttribute("data-step", "landsAfter")
+    await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
+    await expect(getLandingNode(row)).toHaveAttribute("data-kind", "waiting")
+    // S opens the popover of the whole stack at the row, which says what it waits for
+    await row.focus()
+    await page.keyboard.press("s")
+    const popover = safePushPopover(page)
+    await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole lane-run stack")
+    await expect(popover).toContainText("Lands after stills-codec")
   })
 })

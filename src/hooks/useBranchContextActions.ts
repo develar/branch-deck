@@ -156,9 +156,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const robotActions = robot === undefined ? [] : getRobotActionItemsNow(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the actions of that edge first ("Land Together",
-    // "Land stills-codec First"); of the whole stack a root hosts, which has no landing needs of its own (the gate of its
-    // start checks it), those of the root's own step, whose fix restacks the whole stack alike
-    ...(slotStep.landingFixes.length > 0 ? slotStep.landingFixes : nextStep.landingFixes),
+    // "Land stills-codec First"), of the whole stack a root hosts the edges of its unit
+    ...slotStep.landingFixes,
     hosts ? getHostedStackStartItem(branch.name) : null,
     getSafePushMenuItem(branch, nextStep, hosts),
     // GitHub merges its pull request once the checks pass: Cancel Auto-Merge, while Rust offers it

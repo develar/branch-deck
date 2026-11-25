@@ -1405,14 +1405,18 @@ fn plan(
   let gate = check_landing_gate(&trial, &subject, &landed_commits).map_err(regroup_error)?;
   let (dangling, warnings) = dangling_references_in(context, &trial, &gate.report, &built)?;
   let gate_refusals = gate.refusals(&trial);
-  if let Start::Branch(name) = start {
-    let needs = if gate_refusals.is_empty() {
-      Needs::new()
-    } else {
-      Needs::from([((*name).clone(), gate_refusals.clone())])
-    };
-    facts.session.landing_needs(|_| Ok(needs));
-  }
+  // of a whole stack the needs of its root, which its step reads with those of its other branches, none here: the gate
+  // checked them together
+  let gated = match start {
+    Start::Branch(name) => name.as_str(),
+    Start::WholeStack(stack) => stack.root.as_str(),
+  };
+  let needs = if gate_refusals.is_empty() {
+    Needs::new()
+  } else {
+    Needs::from([(gated.to_string(), gate_refusals.clone())])
+  };
+  facts.session.landing_needs(|_| Ok(needs));
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
   let rerun = safe_push_again(context, name, landing.stack.is_some());
   let target_check = target_fetch.map(|fetch| {

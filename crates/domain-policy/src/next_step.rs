@@ -179,7 +179,7 @@ pub enum Needs<'a> {
   /// needs of new tips are computed (the state `Stale`): the step keeps it, the start waits for the fresh needs
   /// (`land::decide`)
   Known(&'a [LandingRefusal]),
-  /// Not computed (a failed computation, a whole stack: the gate of its start checks it)
+  /// Not computed (a failed computation, of every branch of a whole stack): the gate of its start checks it
   Unknown,
 }
 

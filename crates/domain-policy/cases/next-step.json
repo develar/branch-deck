@@ -1350,6 +1350,68 @@
     }
   },
   {
+    "id": "whole-stack-needs-a-branch-outside-it",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks and auth uses a name only codec, outside the stack, adds: the whole stack takes the need of its unit, row 1′ on the row of auth; the app and bd refuse its start without Start Anyway",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/next-step/spec.md#the-table:1′",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack-in-the-app",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "landingNeeds": true
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "needsBranch"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login", "session"]
+      },
+      "hostsWholeStack": true
+    }
+  },
+  {
+    "id": "whole-stack-lands-after",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks, auth uses a name only codec adds, and codec is landing in its Safe Push: the whole stack lands after it, a wait on the row of auth",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/next-step/spec.md#the-table:1′",
+      "openspec/specs/branch/landing-plan/spec.md#rows",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "landingNeeds": true,
+      "robot": {
+        "state": "running",
+        "on": "branch:codec"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "afterLanding"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login", "session"]
+      },
+      "hostsWholeStack": true
+    }
+  },
+  {
     "id": "whole-stack-merged-robot-of-an-earlier-stack-branch",
     "group": "stack-and-whole-stack",
     "title": "a Safe Push of the whole stack merged another commit than its stack branch is at, and nothing tells it landed the stack as it is: new work, Safe Push of the whole stack lands every branch",

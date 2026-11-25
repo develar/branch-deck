@@ -1,4 +1,4 @@
-use crate::landing_edges::{edges_of, landing_edges};
+use crate::landing_edges::{edges_of, landing_edges, whole_stack_refusals};
 use domain_types::landing::{BindingKind, EdgeKind, EdgeState, LandingEdge, LandingFix, LandingRefusal, NeedState, ReferenceKind, StackCommit, Subject};
 use domain_types::repository_view::RobotOf;
 use pretty_assertions::assert_eq;
@@ -303,5 +303,68 @@ fn the_fix_of_a_need_restacks_starts_what_lands_both_or_groups_an_unassigned_com
   for (onto, ancestors, expected) in cases {
     let fix = LandingFix::for_need(&commit("d1", onto), "claude-folds", "air-home-watch", LandingFix::cycle_start(onto, ancestors, &lands));
     assert_eq!(fix, expected, "{onto}");
+  }
+}
+
+/// The start of a whole stack is refused by what its branches need outside it, each need once whichever start of a
+/// branch of it found it: a need of a branch of the stack is met by the whole stack (a cycle too), a declared need one
+/// branch only inherits from another one of it is that one's own; a lost binding stays, its commit lands
+#[test]
+fn the_whole_stack_is_refused_by_what_its_branches_need_outside_it_each_need_once() {
+  let members = ["lane-run", "lane-docs", "ui-perf-nightly"];
+  let stills = restack("lane-run", "stills-codec");
+  let lost = LandingRefusal::LostBinding {
+    branch: "lane-docs".to_string(),
+    identifier: "Stills".to_string(),
+    binding: BindingKind::Import,
+    file: FILE.to_string(),
+    line: 3,
+    removed_by: commit("r1", "lane-docs"),
+  };
+  let refusals = [
+    // the use of lane-run, as the start of each branch of the stack found it
+    missing("lane-run", "Stills", "stills-codec", stills.clone(), None),
+    of_start(missing("lane-run", "Stills", "stills-codec", stills.clone(), None), "lane-docs"),
+    of_start(missing("lane-run", "Stills", "stills-codec", stills.clone(), None), "ui-perf-nightly"),
+    // lane-docs uses what ui-perf-nightly adds: the whole stack lands both
+    missing("lane-docs", "Nightly", "ui-perf-nightly", restack("lane-docs", "ui-perf-nightly"), None),
+    declared("lane-run", "release-notes", None),
+    declared("lane-docs", "release-notes", Some("lane-run")),
+    declared("ui-perf-nightly", "lane-docs", None),
+    lost.clone(),
+  ];
+  assert_eq!(
+    whole_stack_refusals(&members, refusals.iter()),
+    vec![
+      missing("lane-run", "Stills", "stills-codec", stills, None),
+      declared("lane-run", "release-notes", None),
+      lost
+    ]
+  );
+}
+
+/// `refusal` as the start of `branch` finds it
+fn of_start(refusal: LandingRefusal, branch: &str) -> LandingRefusal {
+  match refusal {
+    LandingRefusal::MissingDeclaration {
+      identifier,
+      file,
+      line,
+      used_by,
+      declared_by,
+      fix,
+      landing_in,
+      ..
+    } => LandingRefusal::MissingDeclaration {
+      branch: branch.to_string(),
+      identifier,
+      file,
+      line,
+      used_by,
+      declared_by,
+      fix,
+      landing_in,
+    },
+    other => other,
   }
 }

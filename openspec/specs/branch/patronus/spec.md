@@ -2591,7 +2591,7 @@ before the effects of its start (`operations::land_session`, through the object 
 #### Scenario: The gate of a whole stack
 - **WHEN** the Safe Push of a whole stack starts
 - **THEN** the engine checks its gate before the effects
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway`)
 
 #### Scenario: The gate of a branch while the needs of new tips are computed
 - **WHEN** a start of a branch runs while the session computes the needs of tips a sync moved
@@ -2612,7 +2612,7 @@ of what refused it (a name the user knows is a false alarm), planned again.
   build of the whole lane-run stack fails. Stack lane-run on stills-codec to land it too." (one more refusal: "One more
   name breaks it too.")
 - **AND** its actions are "Stack lane-run on stills-codec" and "Start Anyway" below it
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway`)
   [@test] src/presenters/outcome.test.ts (`offers the fix and Start Anyway of the landing gate, Update Project of a conflict with the target, the start again of a changed plan`)
   [@test] src/presenters/landing.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`)
 
