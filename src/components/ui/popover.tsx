@@ -3,7 +3,8 @@
 // `Popover`: the root mounts at the first hover or focus of its trigger, a plain element until then (`useLazyRoot`), and
 // the roots in `PopoverContent` mount with their triggers (`EagerRootsContext`); a popover closes when its view of the
 // main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer (`hoverOpensOnMove`);
-// `controlKey` on `Popover`, the trigger named as the control of its root (`useControlRef`)
+// `controlKey` on `Popover`, the trigger named as the control of its root (`useControlRef`); the content of a trigger that
+// opens on hover takes no pointer events (`HOVER_TRIGGER`)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
@@ -40,9 +41,20 @@ function Popover({ lazy = false, controlKey, open, onOpenChange, ...props }: Omi
   )
 }
 
-function PopoverTrigger({ ref, ...props }: PopoverPrimitive.Trigger.Props) {
+/**
+ * The content of a trigger that opens on hover takes no pointer events: the trigger alone is under the pointer. Its
+ * content changes with what it says (the count and the node of the Landing button as the units change), and an element
+ * that went from under a still pointer left WebKit pointing at a node no longer in the page: the next move told the
+ * trigger no leave, so the popover its hover opened stayed open (the Landing overview, 2 of 20 runs under load)
+ */
+const HOVER_TRIGGER = "*:pointer-events-none"
+
+function PopoverTrigger({ ref, ...givenProps }: PopoverPrimitive.Trigger.Props) {
   const lazy = React.use(LazyRootContext)
   const controlRef = useControlRef(ref)
+  const given = givenProps.className
+  const props: PopoverPrimitive.Trigger.Props =
+    givenProps.openOnHover !== true ? givenProps : { ...givenProps, className: typeof given === "function" ? state => cn(given(state), HOVER_TRIGGER) : cn(given, HOVER_TRIGGER) }
   if (lazy !== null && !lazy.armed) {
     // a trigger rendered as another element than a button is one for assistive technology, as Base UI makes it
     const closed = {

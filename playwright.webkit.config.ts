@@ -22,6 +22,7 @@ export default defineConfig({
     "stacked-branches/stacked-branches.spec.ts",
     "landing/statistics.spec.ts",
     "landing/landing-plan.spec.ts",
+    "landing/landing-overview.spec.ts",
     "patronus/patronus-actions.spec.ts",
     "pull-requests/shown-reviews.spec.ts",
     "next-step/facts-without-answer.spec.ts",

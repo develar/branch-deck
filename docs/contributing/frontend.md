@@ -192,7 +192,11 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   keys with it. Its E2E test brings a trigger under the pointer with `bringUnderStillPointer` and runs the delay with
   `page.clock.fastForward`. The other way round, Chromium and WebKit tell the trigger that moved from under a still
   pointer that the pointer left it: an open submenu stays open until the next move (`hoverClosesOnMove`), which gives the
-  trigger the leave as a move, and Base UI closes the submenu only for a move away from it. The list of an open menu
+  trigger the leave as a move, and Base UI closes the submenu only for a move away from it. An element of the content
+  of a trigger that leaves the page from under a still pointer (a count, a segment of a bar that the state renders anew)
+  leaves WebKit pointing at a node no longer in the page, and the next move tells the trigger no leave: the content of a
+  popover trigger that opens on hover takes no pointer events (`HOVER_TRIGGER` of `src/components/ui/popover.tsx`), so the
+  trigger alone is under the pointer (the Landing overview stayed open, 2 of 20 runs). The list of an open menu
   never moves (`frozenMenuGroups` in `MenuItems`: an item that leaves stays disabled in its place, one that comes shows
   at the next open, the openings counted by the menu roots, `useMenuOpenings`), so only a scroll of the menu moves a
   trigger from under the pointer there; an item that takes the place of another shares its `slot`.

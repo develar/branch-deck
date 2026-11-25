@@ -22,7 +22,7 @@ import {
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, pushedToast, pushedBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { holdToast } from "../helpers/toast-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
 
@@ -116,6 +116,22 @@ test.describe("Landing overview", () => {
     await expect(running.getByTestId("robots-row").last()).toBeInViewport()
     await expect(popover.getByTestId("landing-finished")).toBeInViewport()
   })
+
+  test(
+    "should close as the pointer leaves the button, after the work the button shows changed under the still pointer",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
+      const indicator = page.getByTestId("landing-indicator")
+      const popover = await openLandingOverview(page)
+      await expect(indicator).toHaveAccessibleName("On the way to master: 6 moves are yours · 1 landing")
+      // the robot fails while the overview shows and the pointer rests on the button: its bar and its count change under it
+      await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: RUNNING.startTime + 600 }))
+      await moveClockUntil(repo, 60_000, async () => (await indicator.getAttribute("aria-label")) === "On the way to master: 7 moves are yours")
+      await page.mouse.move(0, 0)
+      await expectClosed(popover)
+    },
+  )
 
   test("should cancel a running robot from the overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
