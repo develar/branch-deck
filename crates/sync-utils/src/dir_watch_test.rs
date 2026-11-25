@@ -106,7 +106,9 @@ fn the_reads_of_a_file_of_the_directory_wake_no_waiter_on_the_watch_of_the_syste
         Ok(event) if names_of(&event).iter().any(|name| name == "probe") => break 'live,
         Ok(_) => {}
         Err(RecvTimeoutError::Timeout) if Instant::now() < deadline => continue 'live,
-        Err(_) => no_event(),
+        Err(RecvTimeoutError::Timeout) => no_event(),
+        // the thread of the watch dropped the handler: the system refused the watcher (its warning names why)
+        Err(RecvTimeoutError::Disconnected) => panic!("the watcher of the system did not start"),
       }
     }
   }
