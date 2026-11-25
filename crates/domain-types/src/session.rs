@@ -1739,10 +1739,10 @@ pub struct PullRequestsChange {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stack_pull_requests: Vec<String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub shown_reviews: BTreeMap<String, crate::pull_request::ShownReview>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_shown_reviews: Vec<String>,
 }
@@ -1826,3 +1826,7 @@ pub struct ArchivedChanges {
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_integration: Vec<String>,
 }
+
+#[cfg(test)]
+#[path = "session_test.rs"]
+mod session_test;

@@ -1045,8 +1045,9 @@ impl Server {
     if params["action"]["type"] != "x-branch-deck/viewPatched" {
       return;
     }
-    let Ok(patch) = serde_json::from_value::<ViewPatch>(params["action"]["patch"].clone()) else {
-      return tracing::warn!("a patch of the backend is no ViewPatch");
+    let patch = match serde_json::from_value::<ViewPatch>(params["action"]["patch"].clone()) {
+      Ok(patch) => patch,
+      Err(error) => return tracing::warn!(%error, "a patch of the backend is no ViewPatch"),
     };
     let label = params["window"].as_str().unwrap_or_default();
     let mut mirrors = locked(&self.mirrors);
