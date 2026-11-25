@@ -277,6 +277,17 @@ rules in one line each and links here.
   verdicts, with `pnpm test:unit`) and `harness/page-health.spec.ts` (the probe of a stuck page). Before it, the press
   of 22.8 s on the Mac Studio (2026-11-15) could be told from neither: the timeline had to be rebuilt from the list
   reporter, and every test of its 50 s took two to three times its WebKit time.
+- **A drop that never reached the page**: under load Chromium, as Playwright drives it, ends some drags on a target
+  that took its `dragenter` and its `dragover` (both cancelled with the same `dropEffect`, `takeDrag` of
+  `src/hooks/useCommitDrag.ts`) with a `dragleave` and a `dragend` and no `drop`: the release came 6 ms after the
+  `dragenter` of the Stack on chip, before the browser had the page's answer, and the sync the drop starts never came
+  (`stacked-branches.spec.ts`, 1 to 4 of 30 runs beside busy loops, about one in eight at load 200). A slow answer of
+  the page alone (a 300 ms busy `dragover`) loses nothing. `dropOn` (`tests/e2e/helpers/selection-helpers.ts`) counts
+  the `drop` and `dragend` events of the page, and when a target that took the drag (`data-drop-target="over"`) got no
+  `drop` it makes the gesture again, at most twice: the drag of the row of `startDrag`, the row of the target (the chip
+  shows only under it), the target. With the first drop of every gesture lost on purpose (a probe that stops it and
+  sends the `dragleave` and the `dragend` Chromium sends), 10 of 10 lost it without the repeat and 39 of 39 dropped
+  with it, 5 of them on the third gesture.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config

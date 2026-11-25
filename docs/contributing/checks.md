@@ -133,7 +133,10 @@ cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (d
 ## Debugging
 
 - **E2E**: a run ends with its timing (start, slowest tests, stalled actions; `tests/results/timing.json`), and a
-  failed test carries the console errors of its pages as the `page errors` attachment. Run with
+  failed test carries the console errors of its pages as the `page errors` attachment. A run with failed tests keeps
+  their evidence in `tests/failed-runs/<start>/`, which the next run does not empty: the output directory of each failed
+  test (`error-context.md`, the trace of a run with `--trace retain-on-failure`), the steps of each (`steps.json`: where
+  its time went, the action it waited in) and the timing of the run; the ten newest such runs stay. Run with
   `DEBUG_E2E=1` for the debug log of the mock server and every console line live; without it the server logs warnings
   and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which `.cargo/config.toml` forces to debug), and a green run
   prints none. Global setup installs Chromium when the version of Playwright has none; "Executable doesn't exist" of

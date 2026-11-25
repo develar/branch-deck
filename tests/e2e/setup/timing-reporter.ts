@@ -2,6 +2,8 @@ import { writeFileSync } from "fs"
 import type { FullResult, Reporter, TestCase, TestResult, TestStep } from "@playwright/test/reporter"
 import { PAGE_HEALTH } from "../helpers/page-health"
 import type { PageHealth } from "../helpers/page-health"
+import { keepFailedRun, outputDirOf } from "./failed-runs"
+import type { FailedTest } from "./failed-runs"
 import { MachineSampler, SAMPLE_MS } from "./machine-sampler"
 import { describeStall, stallContext, type TimedAction } from "./stall-context"
 
@@ -55,6 +57,8 @@ export default class TimingReporter implements Reporter {
   private readonly actions: TimedAction[] = []
   private readonly profiles: Profile[] = []
   private readonly machine = new MachineSampler()
+  /** The failed tests, whose evidence the end of the run keeps (`keepFailedRun`) */
+  private readonly failed: FailedTest[] = []
   /** What the pages of each test said of their main thread (`page-health.ts`), by the title of the test */
   private readonly health = new Map<string, PageHealth>()
 
@@ -68,6 +72,10 @@ export default class TimingReporter implements Reporter {
     this.firstTest = Math.min(this.firstTest, start)
     this.lastEnd = Math.max(this.lastEnd, start + result.duration)
     this.tests.push({ title, ms: result.duration })
+    const outputDir = outputDirOf(result.attachments)
+    if ((result.status === "failed" || result.status === "timedOut") && outputDir !== null) {
+      this.failed.push({ title: `${title} (line ${test.location.line})`, outputDir })
+    }
     const health = result.attachments.find(attachment => attachment.name === PAGE_HEALTH)?.body
     if (health !== undefined) {
       this.health.set(title, JSON.parse(health.toString()) as PageHealth)
@@ -118,6 +126,12 @@ export default class TimingReporter implements Reporter {
     } catch {
       // no results directory: a run that listed nothing
     }
+    const kept = keepFailedRun(
+      this.started,
+      this.failed,
+      this.profiles.filter(profile => this.failed.some(test => test.title === profile.title)),
+      timing,
+    )
     const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`
     const lines = [
       `Timing: start ${s(timing.startMs)}, tests ${s(timing.testsMs)}; ${this.tests.length} tests, ${s(testTime)} of test time`,
@@ -131,6 +145,9 @@ export default class TimingReporter implements Reporter {
         `Stalled actions (≥ ${s(STALL_MS)} and ${STALL_RATIO}× the median action, ${median} ms), each with what stood in it, the page or the machine:`,
         ...stalls.slice(0, SLOWEST).map(it => describeStall(it, it.context, s)),
       )
+    }
+    if (kept !== null) {
+      lines.push(`The failed tests (error-context, trace, steps) are kept in ${kept}`)
     }
     console.log(`\n${lines.join("\n")}`)
   }

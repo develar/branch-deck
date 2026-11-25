@@ -16,7 +16,7 @@ clean = [
 # this table was allowed refuses the whole file and then applies no clean rule.
 [host]
 # What a run makes and brings back into the same paths here
-outputs = ["tests/results", "playwright-report", "target/nextest/ci/junit.xml"]
+outputs = ["tests/results", "tests/failed-runs", "playwright-report", "target/nextest/ci/junit.xml"]
 # The heavy runs, which the host runs one at a time, whatever their repository (`*` matches any characters): the whole
 # Rust suite (the workspace is a virtual manifest without default members, so a run without `-p` builds all of it, with
 # a filter `-E` or a rerun `-R` too), clippy of the workspace, every E2E and Playwright run (a single spec too, as the

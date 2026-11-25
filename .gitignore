@@ -40,6 +40,7 @@ dist-air
 src-tauri/Cargo.lock
 
 tests/results/
+tests/failed-runs/
 playwright-report/
 
 # the console bd that scripts/build-bd.mjs builds for the Windows bundle

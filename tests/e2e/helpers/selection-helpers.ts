@@ -117,8 +117,33 @@ export function getSelectedCommits(page: Page): Locator {
   return page.locator('[data-row-id][data-selected="true"]')
 }
 
+/** The `drop` and `dragend` events the page got since its first count (a capture listener the first call installs) */
+async function dragEnds(page: Page): Promise<{ drops: number; ends: number }> {
+  return page.evaluate(() => {
+    const target = window as unknown as { __e2eDragEnds?: { drops: number; ends: number } }
+    if (target.__e2eDragEnds === undefined) {
+      const counts = { drops: 0, ends: 0 }
+      target.__e2eDragEnds = counts
+      document.addEventListener("drop", () => counts.drops++, { capture: true })
+      document.addEventListener("dragend", () => counts.ends++, { capture: true })
+    }
+    return { ...target.__e2eDragEnds }
+  })
+}
+
+/**
+ * The gestures of a drop at most: under a load of 200 the gesture again lost its drop too in 1 of 20 runs (none in 40
+ * with a third)
+ */
+const DROP_ATTEMPTS = 3
+
+/** The row of the drag `startDrag` started last, which `dropOn` drags again when its drop never reached the page */
+let draggedRow: Locator | null = null
+
 /** Starts a native drag of a commit or branch row and keeps the button pressed; finish it with `dropOn` */
 export async function startDrag(page: Page, row: Locator): Promise<void> {
+  draggedRow = row
+  await dragEnds(page)
   await row.scrollIntoViewIfNeeded()
   await row.hover()
   await page.mouse.down()
@@ -127,9 +152,36 @@ export async function startDrag(page: Page, row: Locator): Promise<void> {
   await page.mouse.move(box.x + box.width / 2 + 10, box.y + box.height / 2 + 10, { steps: 4 })
 }
 
+/**
+ * Drops the drag of `startDrag` on `target`, and drags onto it once more when the drop never reached the page
+ * (docs/contributing/e2e-tests.md, "A drop that never reached the page")
+ */
 export async function dropOn(page: Page, target: Locator): Promise<void> {
-  await target.hover()
-  await page.mouse.up()
+  for (let attempt = 1; ; attempt++) {
+    const before = await dragEnds(page)
+    await target.hover()
+    const took = (await target.getAttribute("data-drop-target")) === "over"
+    // the row the target is in, read while it shows: the Stack on chip shows only while its row is under the drag
+    const rowName = await target.evaluate(element => element.closest("[data-testid=branch-row]")?.getAttribute("data-branch-name") ?? null)
+    await page.mouse.up()
+    // the drag ended: with a drop, or with its end alone
+    await expect
+      .poll(async () => {
+        const now = await dragEnds(page)
+        return now.ends > before.ends || now.drops > before.drops
+      })
+      .toBe(true)
+    if (!took || attempt === DROP_ATTEMPTS || draggedRow === null || (await dragEnds(page)).drops > before.drops) {
+      return
+    }
+    // the gesture again: the drag of the row, the row of the target (a target in a row, the Stack on chip, shows while
+    // the row is under the drag), the target
+    await page.mouse.move(0, 0)
+    await startDrag(page, draggedRow)
+    if (rowName !== null) {
+      await page.locator(`[data-testid="branch-row"][data-branch-name="${rowName}"]`).hover()
+    }
+  }
 }
 
 /**

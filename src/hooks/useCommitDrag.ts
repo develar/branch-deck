@@ -148,8 +148,7 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
   if (drag === null) {
     return { canDrop: false, isOver: false, refusal: null, dropProps: {} }
   }
-  const enter = (event: DragEvent) => {
-    event.stopPropagation()
+  const enter = () => {
     // a drag that ended elsewhere leaves a stale depth
     depthRef.current = isOver ? depthRef.current + 1 : 1
     setIsOver(true)
@@ -167,12 +166,11 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
       isOver,
       refusal,
       dropProps: {
-        onDragEnter: enter,
-        // no `preventDefault`: the browser shows that nothing drops here
-        onDragOver: event => {
-          event.stopPropagation()
-          event.dataTransfer.dropEffect = "none"
+        onDragEnter: event => {
+          refuseDrag(event)
+          enter()
         },
+        onDragOver: refuseDrag,
         onDragLeave: leave,
       },
     }
@@ -183,14 +181,10 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
     refusal: null,
     dropProps: {
       onDragEnter: event => {
-        event.preventDefault()
-        enter(event)
+        takeDrag(event)
+        enter()
       },
-      onDragOver: event => {
-        event.preventDefault()
-        event.stopPropagation()
-        event.dataTransfer.dropEffect = "move"
-      },
+      onDragOver: takeDrag,
       onDragLeave: leave,
       onDrop: event => {
         event.preventDefault()
@@ -209,4 +203,22 @@ export function useCommitDropTarget(targetKey: string, onDrop: (drag: CommitDrag
       },
     },
   }
+}
+
+/**
+ * The answer of a target that takes the drag, the same to its `dragenter` as to every `dragover` (HTML: a target is
+ * the drop target only once its `dragenter` is cancelled): Chromium drops by the last answer the page gave, and a
+ * release under load can come before the page answered the `dragover` after the `dragenter`, so the `dragenter` alone
+ * decides then (a drop on the Stack on chip was lost as a `dragleave` and a `dragend`)
+ */
+function takeDrag(event: DragEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  event.dataTransfer.dropEffect = "move"
+}
+
+/** The answer of a target that refuses the drag, the same to its `dragenter` and to every `dragover`: no `preventDefault`, so the browser shows that nothing drops here */
+function refuseDrag(event: DragEvent): void {
+  event.stopPropagation()
+  event.dataTransfer.dropEffect = "none"
 }
