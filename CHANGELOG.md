@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.25.0](https://github.com/develar/branch-deck/compare/v1.24.0...v1.25.0) (2026-11-25)
+
+
+### Features
+
+* **app:** one need of the unit shows once: a branch of a stack whose root's row hosts its whole stack says a need of that unit as a quiet state, "Needs stills-codec with lane-run", whose press shows the root's row, not a second slot of the same need; the state a step waits in reads whole in the Status column up to 16rem ("Lands after stills-codec") ([dbcdcce](https://github.com/develar/branch-deck/commit/dbcdcce04c227a27e0044ff464b6a92f47d1547d))
+* **app:** the row of the root of a stack that forks hosts its whole stack: its slot, S, the preview and the first start of its ⋯ are "Safe Push · 4" of the whole stack, its node and Status cell the whole stack's as the landing overview and the Plan say it of the unit, the root alone "Safe Push Root Only" of its ⋯; an island leaves the slot, the node and the cell of the root to its header, a straight chain and a stack that lands in pieces keep their rows, brd status says hosts_whole_stack ([a717c18](https://github.com/develar/branch-deck/commit/a717c1816bc1dd3c0f96bba6c25af7fd3445c412))
+* **app:** the whole stack takes the needs of its branches outside it, as its unit in the landing plan, so the row of its root, the overview, the Plan and brd status say "Needs stills-codec" or "Lands after stills-codec" where they said a ready "Safe Push · 3" its start then refused; its start reads them fresh, its gate checks it while the needs of new tips are computed ([2ea588b](https://github.com/develar/branch-deck/commit/2ea588b541a8188c948114641c7b816571a1f830))
+* **lease:** the keeper of brd-host prunes the build dirs of leases ahead of the minimum free space ([8156412](https://github.com/develar/branch-deck/commit/815641291525694c644e8113f657ed1c9e14ac98))
+* **review-plan:** `brd review-plan` names the entries of the API that decide its verdict, so an agent reads why a change breaks without walking every entry ([ea52f66](https://github.com/develar/branch-deck/commit/ea52f662d931cc76b8402e57e8761e4d72d4cccf))
+* **review-plan:** a concern is named by code, not by a word of the sentence a code span of prose quotes, and files of one name in several directories by that name, so jps-bridge has no concern "simple" or "outputs" and its 36 BUILD.bazel of a repeated edit are "BUILD.bazel", not "Root" ([d2c2a89](https://github.com/develar/branch-deck/commit/d2c2a8918d186b0358fb76223c9cb5be6f56c717))
+* **review-plan:** the generated files of a generator's run fold in the plan of an agent, and a root of generated files alone is no module, so the plan of jps-bridge is 1.2 MB, not 11.7 MB ([8b75cd4](https://github.com/develar/branch-deck/commit/8b75cd455dcc6a0def41159b05e960c74266372e))
+* **review:** the owner chips of a review stay a few rows, the others under N More with their search, so the tree of a change of hundreds of owners keeps its place ([73f274a](https://github.com/develar/branch-deck/commit/73f274a88631836299c64132f804c94c99ba9b6c))
+
+
+### Bug Fixes
+
+* **app:** the content of a popover trigger that opens on hover takes no pointer events, so the Landing overview closes as the pointer leaves its button also after the button changed under the still pointer ([d4b130d](https://github.com/develar/branch-deck/commit/d4b130d2ab949b9b88b0d6c978d9e4deede99bc0))
+* **e2e:** a list the page shows is polled, never read once (lint:arch e2e-list-read-once), the hover of the rail of a review waits for its reading line, the owner chips for the answer of the owners, and the derive budgets count instructions on macOS, so a loaded machine fails none of them ([d1bd2e9](https://github.com/develar/branch-deck/commit/d1bd2e9b92ef2761cb4f361a0f7336823e434051))
+* **e2e:** a page is handed to a test once its text font loaded, and the disk usage test waits for the walk of the slots as long as the test lets it ([0cab604](https://github.com/develar/branch-deck/commit/0cab604c88250024ab9ee92422f2a878c5aa0423))
+* **e2e:** the copy of the cells of a file waits for its cells, the owner chip tests for the plan of the head before a key, and the warm start of a landed root for what landed before its frame ([83b1550](https://github.com/develar/branch-deck/commit/83b155046ba41306e9c7e55bb4dd65cb85b65366))
+* **news:** a news that comes while a window reads its view anew is told once: the session numbers its news under a line that a session opened anew in place numbers on, and the mirror of the IDE and the main window tell each news past the last one they told of that line, from a patch or from a view read anew, in any epoch ([cecfc6e](https://github.com/develar/branch-deck/commit/cecfc6ead43888145946409e930a0a72115aaba2))
+
+
+### Performance Improvements
+
+* **review-plan:** the modules of a review read each file once, so a plan of a generator's run over thousands of modules walks no file per module ([2595fe0](https://github.com/develar/branch-deck/commit/2595fe00be4ee92839e53a64f846eddd979ec35a))
+
 ## [1.24.0](https://github.com/develar/branch-deck/compare/v1.23.0...v1.24.0) (2026-11-25)
 
 
