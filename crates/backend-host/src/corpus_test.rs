@@ -35,6 +35,9 @@ const BUILD: &str = "0.0.0-corpus";
 /// fails there with the frames it had instead of at the timeout of nextest
 const WAIT: Duration = Duration::from_secs(20);
 
+/// How soon the fixture asks again whether a session rests, while it has something in flight
+const LOOK_AGAIN: Duration = Duration::from_millis(10);
+
 /// The methods of a frame no line expects that the runner passes over
 const PASSED: &[&str] = &["action", "x-branch-deck/event", "x-branch-deck/callEvent"];
 
@@ -71,10 +74,12 @@ impl Fixture {
     serde_json::to_value(model.view).unwrap()
   }
 
-  /// The session of the repository synced and quiet, as one that a window of an earlier start left: a subscriber of
+  /// The session of the repository synced and at rest, as one that a window of an earlier start left: a subscriber of
   /// the runner keeps it open with the demand of the corpus, which the windows of the corpus ask again, so neither the
   /// sync nor a read of a fact moves its view between the lines (the clocks of the sessions stand still); the
-  /// subscriber, outside the host, takes no `serverSeq`
+  /// subscriber, outside the host, takes no `serverSeq`. At rest is what the session says (`Sessions::quiet`): two asks
+  /// in a row find nothing of the actor and no read of a fact in flight, and the actor handled nothing else between
+  /// them; a silence of the patches is no such fact (a read of a fact came after 500 ms without a patch under load)
   pub(crate) async fn settled(&self) -> repository_model::session::SubscriptionId {
     let key = self.ctx.session_key_now(&self.repo).await.unwrap();
     let (patches, mut patched) = tokio::sync::mpsc::unbounded_channel();
@@ -85,10 +90,22 @@ impl Fixture {
     self.ctx.sessions.set_demand(subscription, &demand);
     self.ctx.sessions.sync(&key, domain_types::session::SyncReason::Manual).wait().await.unwrap();
     let deadline = tokio::time::Instant::now() + WAIT;
-    while tokio::time::timeout(Duration::from_millis(500), patched.recv()).await.is_ok() {
-      assert!(tokio::time::Instant::now() < deadline, "the session of the fixture never settles");
+    let mut rested = None;
+    loop {
+      let quiet = self.ctx.sessions.quiet(&key).await.expect("the session of the fixture is open");
+      if quiet.rests() && rested.is_some_and(|handled: u64| quiet.handled == handled + 1) {
+        return subscription;
+      }
+      assert!(
+        tokio::time::Instant::now() < deadline,
+        "the session of the fixture rests not in {WAIT:?}, a hang guard: {quiet:?}"
+      );
+      rested = quiet.rests().then_some(quiet.handled);
+      if !quiet.rests() {
+        // what is in flight answers: a patch, or another look shortly
+        let _ = tokio::time::timeout(LOOK_AGAIN, patched.recv()).await;
+      }
     }
-    subscription
   }
 
   /// Another repository of the server, of `template`: its path

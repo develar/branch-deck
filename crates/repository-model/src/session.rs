@@ -105,6 +105,10 @@ pub enum SessionEventKind {
   Robots { digest: RobotsDigest, version: Version },
   /// The subjects whose review readiness is asked changed (`ReadinessFact::digest`)
   Readiness(ReadinessDigest),
+  /// A test asks whether the facts of the session rest (`Sessions::quiet`): the scheduler answers `reply` once it took
+  /// every event the actor sent before this one, with whether no read of the session is in flight; with no task of the
+  /// session, `true`
+  Quiet { reply: oneshot::Sender<bool> },
   /// A window asks to read a fact again (`refresh`), of `subject` for a family read by subject; `reply` gets the version
   /// of the view after the patch of that read, `None` when nothing was asked
   Refresh {
@@ -136,6 +140,27 @@ impl EventSink {
 /// A window's subscription to the patches of a session, unique within the registry (`u32`: a number in TypeScript)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SubscriptionId(pub u32);
+
+/// What one ask of `Sessions::quiet` found of a session
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quiet {
+  /// The messages its actor handled so far, the ask included: a second ask that finds one more found it handle nothing
+  /// else between them
+  pub handled: u64,
+  /// Nothing of the actor is in flight or due: no run or check of the inputs, no patch that waits for its interval, no
+  /// end of a run that waits for the view of its robots
+  pub actor: bool,
+  /// The scheduler of the facts took every event the actor sent before the ask, and no read of the session is in flight
+  pub facts: bool,
+}
+
+impl Quiet {
+  /// Whether neither the actor nor the facts had anything in flight
+  #[must_use]
+  pub const fn rests(&self) -> bool {
+    self.actor && self.facts
+  }
+}
 
 /// The window that went away; the session drops its subscription
 #[derive(Debug)]
@@ -749,6 +774,17 @@ impl Sessions {
   /// another); `None` for a session that is not open
   pub async fn view_version(&self, key: &SessionKey) -> Option<Version> {
     self.ask(key, Message::ViewVersion).await
+  }
+
+  /// Whether the open session of `key` rests now, for a test that waits until neither a sync nor a read of a fact moves
+  /// its view any more (`Quiet`); `None` when no session of `key` is open. One answer is a look: the session rests once
+  /// two answers in a row rest and the actor handled nothing between them (`Quiet::handled`)
+  pub async fn quiet(&self, key: &SessionKey) -> Option<Quiet> {
+    let (facts, facts_rest) = oneshot::channel();
+    let actor = self.ask(key, |reply| Message::Quiet { reply, facts }).await?;
+    // a scheduler that went answers nothing: no read of it moves the view
+    let facts = facts_rest.await.unwrap_or(true);
+    Some(Quiet { facts, ..actor })
   }
 
   /// The guard of the writes of an operation of the session of `key` into the files of the lease of its worktree (the

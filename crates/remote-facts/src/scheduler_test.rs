@@ -732,6 +732,33 @@ async fn closed_while_listing() -> (Harness, oneshot::Receiver<Option<Version>>)
   (session, refresh)
 }
 
+impl Harness {
+  /// Whether the task of the session answers that no read of it is in flight, once it took the events before
+  async fn quiet(&self) -> bool {
+    let (reply, answer) = oneshot::channel();
+    self.send(SessionEventKind::Quiet { reply }).await;
+    answer.await.unwrap()
+  }
+}
+
+/// A session rests for the facts while no read of it is in flight: a list held is one, its answer ends it; a session
+/// with no task (no window ever watched it) rests
+#[tokio::test]
+async fn the_facts_of_a_session_rest_while_no_read_of_it_is_in_flight() {
+  let session = Harness::watched().await;
+  assert!(session.quiet().await, "the first reads answered");
+  session.hold_lists(true);
+  let refresh = session.ask_refresh(FactRefreshReason::Manual).await;
+  assert!(!session.quiet().await, "the list in flight");
+  session.hold_lists(false);
+  session.release().await;
+  assert!(refresh.await.unwrap().is_some());
+  assert!(session.quiet().await, "the list answered");
+
+  let unwatched = Harness::new();
+  assert!(unwatched.quiet().await, "no task");
+}
+
 /// Nothing at all was asked of the session since `closed_while_listing`: no read of the robots, of GitHub or of the
 /// review requests
 fn asked_nothing(session: &Harness) {

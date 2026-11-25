@@ -100,6 +100,11 @@ machine.
 - **No sleep to wait**: wait for the state (a file a fake writes, a channel, `held`/`go` marks of a wrapped git as in
   `update_held_in_its_replay`, the exit of a process by its pid and start, `process_scan::is_running`). A wait of the code under test is a value of the test's environment
   (`Environment::lock_timeout` of the brd tests is 200 ms, the app's 10 s).
+- **No silence is a state**: a test or a fixture that needs a session at rest asks it (`Sessions::quiet`: two asks in a
+  row find nothing of the actor and no read of a fact in flight, and the actor handled nothing else between them;
+  `Fixture::settled` of `crates/backend-host/src/corpus_test.rs`), never "500 ms without a patch": under `taskpolicy
+  -b` a read of a fact came after such a silence in 3 of 6 runs of `page_test`, which then saw the view move between
+  two subscribes.
 - **Wait for the answer, not for a count before it**: a fake counts a call before the code under test has its answer, so a test that goes on at the count races the code (`counted` of `crates/repository-model/src/session_test.rs` saw the read of the inputs, and the next open joined the check that had not answered). The test waits for the outcome of its request, and a fake that answers late after its count (`late_answer`) makes the race happen in every run.
 - **A FIFO releases a waiting reader only while its writer stays**: on macOS a reader that waits in its `open` of a FIFO
   misses a writer that opens and closes before the reader runs again, and waits for the next writer (about 1 in 200

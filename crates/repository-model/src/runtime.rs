@@ -119,6 +119,12 @@ pub(crate) enum Message {
   Snapshot(oneshot::Sender<RepositoryView>),
   /// The version of the view at its last patch, without the view
   ViewVersion(oneshot::Sender<Version>),
+  /// Whether the session rests (`Sessions::quiet`): `reply` hears of the actor, and `facts` goes to the scheduler of the
+  /// facts behind every event the actor sent before
+  Quiet {
+    reply: oneshot::Sender<crate::session::Quiet>,
+    facts: oneshot::Sender<bool>,
+  },
   /// The view of the frame the session was seeded from (`Sessions::open_seeded`), none for a session not seeded
   Seed(oneshot::Sender<Option<RepositoryView>>),
   /// The table of the last successful sync with the memo and the remote branches as the session knows them
@@ -502,6 +508,8 @@ struct Actor {
   held: Option<HeldEnd>,
   /// The check or the run in flight keeps the session alive
   in_flight: Option<Busy>,
+  /// The messages handled so far (`Sessions::quiet`)
+  handled: u64,
   /// The last fetch of each remote branch whose pull request showed a head it lacked
   moved: MovedFetches,
   frames: FrameSaves,
@@ -552,6 +560,7 @@ impl Actor {
       last_flush: None,
       held: None,
       in_flight: None,
+      handled: 0,
       moved: MovedFetches::default(),
       frames,
       epoch: None,
@@ -762,6 +771,7 @@ impl Actor {
   }
 
   fn handle(&mut self, message: Message) {
+    self.handled += 1;
     match message {
       Message::Subscribe { id, subscriber, have, reply } => {
         self.subscribers.push((id, subscriber));
@@ -797,6 +807,15 @@ impl Actor {
       }
       Message::ViewVersion(reply) => {
         let _ = reply.send(self.view.version());
+      }
+      Message::Quiet { reply, facts } => {
+        self.events.emit(&self.key, SessionEventKind::Quiet { reply: facts });
+        let actor = self.flush_at.is_none() && self.held.is_none() && self.in_flight.is_none() && self.scheduler.is_idle();
+        let _ = reply.send(crate::session::Quiet {
+          handled: self.handled,
+          actor,
+          facts: false,
+        });
       }
       Message::FrameDue => {
         self.frames.due = false;

@@ -2295,6 +2295,7 @@ fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec
       } => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Readiness(digest) => format!("readiness {:?}", digest.subjects.iter().map(|subject| subject.key.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Refresh { .. } => "refresh".to_owned(),
+      SessionEventKind::Quiet { .. } => "quiet".to_owned(),
     });
   }
   kinds
@@ -2307,6 +2308,43 @@ fn auth_robot_listed() -> PatronusRobotsResult {
     robots: vec![robot("auth-robot", Some("auth"), PatronusRobotStatus::Running, 10)],
     github_repository: None,
   }
+}
+
+/// A session rests once its sync ended: the actor has nothing in flight, and its ask of the facts goes to the scheduler
+/// behind every event the actor sent before (here the window and the committed table), which answers whether a read is
+/// in flight; a second ask finds the actor handled that ask alone between them. Without a scheduler the facts rest
+#[tokio::test]
+async fn a_session_whose_sync_ended_rests_and_its_ask_of_the_facts_comes_behind_its_events() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let (mut events, key) = (sessions.events().unwrap(), key("/repo"));
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window)).await.unwrap();
+  let synced = sessions.sync(&key, SyncReason::Manual);
+  synced.wait().await.unwrap();
+
+  let scheduler = async {
+    let mut before = Vec::new();
+    loop {
+      match events.recv().await.unwrap().kind {
+        SessionEventKind::Quiet { reply } => {
+          reply.send(false).unwrap();
+          return before;
+        }
+        kind => before.push(format!("{kind:?}").split([' ', '(', '{']).next().unwrap().to_owned()),
+      }
+    }
+  };
+  let (first, before) = tokio::join!(sessions.quiet(&key), scheduler);
+  assert_eq!(before, ["Watched", "TableCommitted"]);
+  let first = first.unwrap();
+  assert!(first.actor && !first.facts && !first.rests(), "{first:?}");
+
+  drop(events);
+  let second = sessions.quiet(&key).await.unwrap();
+  assert!(second.rests(), "no scheduler: no read in flight");
+  assert_eq!(second.handled, first.handled + 1);
 }
 
 /// The scheduler hears what the facts of a session are asked by: a window watches it, its table is committed, the

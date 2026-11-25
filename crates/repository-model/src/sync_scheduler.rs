@@ -144,7 +144,6 @@ impl<W> SyncScheduler<W> {
   }
 
   /// Whether nothing is in flight and nothing waits
-  #[cfg(test)]
   pub(crate) const fn is_idle(&self) -> bool {
     matches!(self.phase, Phase::Idle)
   }

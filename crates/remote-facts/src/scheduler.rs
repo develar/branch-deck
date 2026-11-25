@@ -212,10 +212,16 @@ struct SessionTask {
   closed: Arc<AtomicBool>,
 }
 
-/// An event no task takes: a refresh of it asked nothing
+/// An event no task takes: a refresh of it asked nothing, and no read of it is in flight
 fn answer_unasked(kind: SessionEventKind) {
-  if let SessionEventKind::Refresh { reply, .. } = kind {
-    let _ = reply.send(None);
+  match kind {
+    SessionEventKind::Refresh { reply, .. } => {
+      let _ = reply.send(None);
+    }
+    SessionEventKind::Quiet { reply } => {
+      let _ = reply.send(true);
+    }
+    _ => {}
   }
 }
 
@@ -540,6 +546,10 @@ impl SessionFacts {
         self.read_details();
       }
       SessionEventKind::Readiness(digest) => self.readiness_told(digest),
+      // every read holds the inbox until its answer is in it, beside the one of the dispatcher
+      SessionEventKind::Quiet { reply } => {
+        let _ = reply.send(self.inbox.strong_count() <= 1);
+      }
       SessionEventKind::Refresh { family, reason, subject, reply } => match family {
         FactFamily::Robots => {
           let reason = match reason {
