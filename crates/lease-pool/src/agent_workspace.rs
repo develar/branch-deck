@@ -3,7 +3,8 @@
 //! commit with `brd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`,
 //! `branchdeck.agentPullRequest` (off by default) to push the branch after the pick and open its pull request, which the
 //! Push route of the repository turns off (`LandingSetting::agent_pull_request_off`).
-//! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
+//! In a slot whose holder is gone, the session of `brd` becomes the holder (`rebind_holder`), its one write, to the state
+//! of the pool. The git is read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
 //! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now, and with a home
 //! branch one `diff-tree` since the fork point beside the `status`, with one `cat-file` only when it names a build config
 //! file (`build_config`); in the shared checkout with the lease on, one more `git config` for the pool directory.
@@ -11,7 +12,7 @@
 //! report.
 
 use crate::build_config::build_config_changed;
-use crate::lease::{IdleStatus, LeaseHome, SlotState, StatusScan, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
+use crate::lease::{IdleStatus, LeaseHome, Rebinder, SlotState, StatusScan, canonical_path, lease_status_core, pool_dir, rebind_holder, reclaimed_refusal};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
@@ -69,6 +70,8 @@ pub struct AgentWorkspace {
   pub shared_checkout: Option<String>,
   /// The lease of this slot (`WorkspaceKind::Lease`)
   pub this_lease: Option<ActiveLease>,
+  /// The holder of `this_lease` was gone, and the session of this `brd` became it (`rebind_holder`)
+  pub holder_rebound: bool,
   /// In a lease: the branch its home checkout has checked out now (`None`: a detached HEAD), when it is not the branch
   /// of the get: `brd lease pick` refuses until it is back
   pub home_switched: Option<Option<String>>,
@@ -83,9 +86,10 @@ pub struct AgentWorkspace {
   pub pool_unusable: Option<String>,
 }
 
-/// What `brd workspace` answers for `directory`; `home` is the home directory of the default pool
-#[instrument(skip(git))]
-pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&Path>) -> Result<AgentWorkspace> {
+/// What `brd workspace` answers for `directory`; `home` is the home directory of the default pool. A session that runs it
+/// in a slot whose holder is gone becomes the holder (`rebind_holder` of `rebinder`)
+#[instrument(skip(git, rebinder))]
+pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&Path>, rebinder: &Rebinder<'_>) -> Result<AgentWorkspace> {
   let Some(dirs) = repository_dirs(git, directory)? else {
     // no working tree to edit: the global settings, for what they say
     let config = repository_config_from_entries(&read_config_entries(git, "")?, OriginFacts::default());
@@ -99,6 +103,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       subdir: String::new(),
       shared_checkout: None,
       this_lease: None,
+      holder_rebound: false,
       home_switched: None,
       build_config_changed: Vec::new(),
       active_leases: Vec::new(),
@@ -110,6 +115,10 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
   if let Some(refusal) = reclaimed_refusal(Path::new(&dirs.git_common_dir), &dirs.top_level, true, None)? {
     bail!(refusal);
   }
+  // a resumed session in its slot holds its lease again; a failure leaves the lease as it was
+  let holder_rebound = rebind_holder(Path::new(&dirs.git_common_dir), &dirs.top_level, rebinder)
+    .inspect_err(|error| warn!("Cannot make this session the holder of the lease: {error:#}"))
+    .is_ok_and(|rebound| rebound.is_some());
   let config = repository_config_from_entries(&read_config_entries(git, &dirs.top_level)?, OriginFacts::default());
   let top_level = canonical_path(Path::new(&dirs.top_level));
 
@@ -199,6 +208,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     subdir: subdir(directory, &top_level),
     top_level: Some(top_level),
     shared_checkout,
+    holder_rebound,
     this_lease,
     home_switched,
     build_config_changed,

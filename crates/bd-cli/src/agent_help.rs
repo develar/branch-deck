@@ -430,7 +430,10 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    commits, only when the user said so. `brd lease status` lists the slots and their leases from the pool state
    (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work` or `busy`, `reclaimed`, `free_bytes`; `brd lease list` is the same).
    `busy`: the holder process of the lease is gone, but a process of another session works in its slot (`processes`):
-   the session of the lease lives as another process, a resumed one: never return that lease.
+   the session of the lease lives as another process, a resumed one: never return that lease. A resumed session
+   becomes the holder of its lease again with `brd workspace` or a command that writes the worktree or its branch,
+   run inside the worktree (`holder_rebound`), not with `-C` from outside nor with a command of the pool, and not from
+   a shell that owns a terminal (a tab, a pane of tmux).
    The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still

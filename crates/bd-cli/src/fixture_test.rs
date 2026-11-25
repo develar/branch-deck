@@ -783,11 +783,8 @@ pub fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, Stri
   )
 }
 
-/// The pid of a process that has exited, and its start while it ran (none where the system won't tell it): a sleep
-/// (`ping` on Windows, which has no `sleep`) whose start is read while it runs, then killed and reaped. Never a child
-/// that ends by itself: one that exits before the read is a zombie, which has no start, and a loaded host lets it
-/// (`sync-utils` `an_exited_child_that_is_not_reaped_yet_has_no_start`)
-pub fn gone_process() -> (u32, Option<u64>) {
+/// A child that waits a minute and prints nothing: a `sleep`, or a `ping` on Windows, which has no `sleep`
+pub fn waiting_process() -> std::process::Child {
   let mut command = if cfg!(windows) {
     let mut command = std::process::Command::new("ping");
     command.args(["-n", "60", "127.0.0.1"]);
@@ -797,7 +794,15 @@ pub fn gone_process() -> (u32, Option<u64>) {
     command.arg("60");
     command
   };
-  let mut child = command.stdout(std::process::Stdio::null()).spawn().unwrap();
+  command.stdout(std::process::Stdio::null()).spawn().unwrap()
+}
+
+/// The pid of a process that has exited, and its start while it ran (none where the system won't tell it): a
+/// `waiting_process` whose start is read while it runs, then killed and reaped. Never a child
+/// that ends by itself: one that exits before the read is a zombie, which has no start, and a loaded host lets it
+/// (`sync-utils` `an_exited_child_that_is_not_reaped_yet_has_no_start`)
+pub fn gone_process() -> (u32, Option<u64>) {
+  let mut child = waiting_process();
   let pid = child.id();
   let started = sync_utils::process_scan::process_started(pid);
   child.kill().unwrap();

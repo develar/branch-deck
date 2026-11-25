@@ -241,6 +241,7 @@ fn server(pid: u32, started: Option<u64>) -> ProcessInfo {
     argv: vec!["bazel(fake)".to_string(), "--workspace_directory=/slot".to_string()],
     started,
     terminal: false,
+    session_leader: false,
   }
 }
 

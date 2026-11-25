@@ -1308,6 +1308,14 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`, and
   `holder_unknown` for a lease whose get recorded no holder process: never checked, the user returns it);
   `--dry-run` writes nothing. Output `lease_reclaim`.
+- A resumed session runs as another process than the holder its get recorded. In a slot whose holder is gone,
+  `brd workspace` and every command that writes the worktree or the branch of the slot, run inside it, make the
+  session of brd the holder (`lease_pool::lease::rebind_holder`: `holder_pid`, `holder_started`, a compare-and-swap
+  under the pool lock), and `brd workspace` says `holder_rebound: true`. Not for a read, a command of the pool (`get`,
+  `reclaim`, `clean`, `trim`, `adopt`, a `return` by `--lease-id` or `--holder`), a brd that `-C` points into the slot
+  from outside, a shell that owns a terminal (a session leader with a controlling terminal) between the session and
+  brd, a host slot, a lease a get takes over, or a slot with the `reclaimed` record; a live holder costs one read of
+  the state.
 - In a slot whose lease was taken over, a write of another session than the one that holds it now (a resumed
   session of the old holder) and its `brd workspace` are `lease_reclaimed` (exit 4): the message names both leases, the
   home branch and the old branch, which stays; `next_steps` is `brd lease get --holder <old holder> -C <home>`.
@@ -2299,7 +2307,8 @@ by the test `schema_lists_every_output`. `COMMAND_OUTPUTS` in `schema.rs` is the
 ### `brd workspace`
 
 Run by an agent before its first edit or commit (the skill says so; the contract
-[brd workspace](../../openspec/specs/cli/workspace/spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
+[brd workspace](../../openspec/specs/cli/workspace/spec.md)). In a slot whose holder is gone, its session becomes the
+holder (`holder_rebound`, as below), its one write, to `leases.json`. The git is read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
 lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
 checked out now. In a lease with a home branch, one `diff-tree` since the fork point runs beside the `status`, and one
@@ -2328,7 +2337,8 @@ commits land on (the main worktree, or the source of this lease); in a lease `ho
 `switched_to` when the shared checkout has another branch checked out now (`null`: detached), and
 `build_config_changed` when the home branch changed the build config since the lease forked (the cargo config and the
 toolchain at any depth, the `profile` table of a `Cargo.toml`, the `[host]` table of `.branchdeck.toml`), which the
-lease has in another form: its builds use the old config until `brd lease pick` moves it onto the tip; `lease_id` and `holder` this slot's lease;
+lease has in another form: its builds use the old config until `brd lease pick` moves it onto the tip; `lease_id` and `holder` this slot's lease,
+`holder_rebound` when its holder was gone and this session became it;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
 lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone, as `brd lease
 status` shows it); in a slot taken

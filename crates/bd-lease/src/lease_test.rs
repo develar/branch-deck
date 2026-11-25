@@ -14,15 +14,16 @@ use domain_types::worktree_epoch::WorktreeEpoch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
 use lease_pool::epoch::worktree_epoch;
+use lease_pool::host_slots::HOST_HOLDER_PREFIX;
 use lease_pool::landed_work::{LandedCommit, Proof};
-use lease_pool::lease::GetStep;
+use lease_pool::lease::{GetStep, Rebinder, Rebound, StatusScan, lease_status_with, rebind_holder, rebind_session};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use sync_utils::process_scan::{Ancestors, ProcessInfo, ProcessScan};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::history::HistoryCommit;
-#[cfg(unix)]
 use test_utils::killed::Killed;
 
 /// A repository with a commit on master, the home directory its pool lives in and the global git config of bd
@@ -1611,12 +1612,7 @@ impl FakeServer {
     let mut server = Self { child, _ready: ready };
     let deadline = std::time::Instant::now() + SERVER_STATE;
     let pid = server.pid();
-    while !ready_file.exists()
-      || !sync_utils::process_scan::ProcessScan::scan()
-        .inside(Path::new(workspace))
-        .iter()
-        .any(|process| process.pid == pid)
-    {
+    while !ready_file.exists() || !ProcessScan::scan().inside(Path::new(workspace)).iter().any(|process| process.pid == pid) {
       assert!(server.running(), "the fake server exited before it was ready");
       assert!(std::time::Instant::now() < deadline, "the fake server never showed up");
       std::thread::sleep(Duration::from_millis(20));
@@ -1789,7 +1785,7 @@ fn fake_maintenance(cwd: &str) -> std::process::Child {
     .spawn()
     .unwrap();
   let deadline = std::time::Instant::now() + Duration::from_mins(1);
-  while !sync_utils::process_scan::ProcessScan::scan().git_maintenance().contains(&child.id()) {
+  while !ProcessScan::scan().git_maintenance().contains(&child.id()) {
     assert!(std::time::Instant::now() < deadline, "the fake maintenance never showed up");
     std::thread::sleep(Duration::from_millis(20));
   }
@@ -2493,6 +2489,273 @@ fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   assert_eq!(fixture.status()["slots"][0]["lease"]["idle"], json!({ "state": "idle" }));
 }
 
+/// A live process that a fake list names as the session of brd, with its start
+fn live_process() -> (Killed, u64) {
+  let child = Killed(bd_cli::fixture_test::waiting_process());
+  let started = sync_utils::process_scan::process_started(child.id()).unwrap();
+  (child, started)
+}
+
+/// A lease of the holder `resumed` whose holder is gone (`make_lease_idle`), its slot, and a live process for the
+/// session of a fake list
+fn idle_lease_and_session() -> (Fixture, String, (Killed, u64)) {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "resumed"]));
+  bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&path));
+  (fixture, path, live_process())
+}
+
+/// A process of a fake list: whether it has a controlling terminal and whether it leads its session
+fn info(pid: u32, parent: u32, name: &str, started: u64, (terminal, session_leader): (bool, bool)) -> ProcessInfo {
+  ProcessInfo {
+    pid,
+    parent,
+    group: 0,
+    name: name.to_string(),
+    cwd: None,
+    argv: vec![name.to_string()],
+    started: Some(started),
+    terminal,
+    session_leader,
+  }
+}
+
+/// The ancestors of this process as `brd` in a fake list, run by `between` (each a name, whether it has a controlling
+/// terminal and whether it leads its session, the parent first), below the session `session` (its pid, start and
+/// terminal), which leads its own
+fn ancestors_below(between: &[(&str, bool, bool)], session: (u32, u64, bool)) -> Option<Ancestors> {
+  let me = std::process::id();
+  // pids no other process of the list has
+  let link = |index: usize| u32::try_from(index).unwrap() + me.max(session.0) + 1;
+  let mut processes = vec![info(me, if between.is_empty() { session.0 } else { link(0) }, "brd", 3, (false, false))];
+  for (index, (name, terminal, leader)) in between.iter().enumerate() {
+    let parent = if index + 1 == between.len() { session.0 } else { link(index + 1) };
+    processes.push(info(link(index), parent, name, 2, (*terminal, *leader)));
+  }
+  processes.push(info(session.0, 1, "claude", session.1, (session.2, true)));
+  ProcessScan::Done {
+    processes,
+    own: std::collections::HashSet::new(),
+  }
+  .ancestors()
+}
+
+/// `rebind_holder` of the slot at `path` by a `brd` in `cwd` with the ancestors `ancestors`
+fn rebind(fixture: &Fixture, path: &str, cwd: &Path, ancestors: &dyn Fn() -> Option<Ancestors>) -> Option<Rebound> {
+  let rebinder = Rebinder {
+    cwd,
+    lock_timeout: Duration::from_secs(10),
+    ancestors,
+  };
+  rebind_holder(&fixture.repo.path().join(".git"), path, &rebinder).unwrap()
+}
+
+/// The lease of the slot at `path` in `brd lease status`
+fn lease_of(fixture: &Fixture, path: &str) -> Value {
+  let status = fixture.status();
+  let slot = status["slots"].as_array().unwrap().iter().find(|slot| slot["path"] == json!(slot_path(path))).cloned();
+  slot.unwrap_or_else(|| panic!("no slot {path}: {status}"))["lease"].clone()
+}
+
+/// Change the entry of the slot at `path` in the state file
+fn change_slot(fixture: &Fixture, path: &str, change: &dyn Fn(&mut Value)) {
+  let mut state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
+  change(
+    state["slots"]
+      .as_array_mut()
+      .unwrap()
+      .iter_mut()
+      .find(|entry| entry["path"] == json!(slot_path(path)))
+      .unwrap(),
+  );
+  std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
+}
+
+/// A session that runs `brd` in the slot of a lease whose holder is gone becomes its holder: a shell that inherits the
+/// terminal of the session runs `brd` and leads no session, as the command shell of an agent with a TUI in a tab of a
+/// terminal. The list of the processes is read only for a gone holder
+#[test]
+fn a_session_in_its_slot_becomes_the_holder_of_a_lease_whose_holder_is_gone() {
+  let (fixture, path, (session, started)) = idle_lease_and_session();
+  let got_id = lease_of(&fixture, &path)["lease_id"].clone();
+  assert_eq!(lease_of(&fixture, &path)["idle"], json!({ "state": "idle" }));
+  let reads = std::cell::Cell::new(0);
+  let ancestors = || {
+    reads.set(reads.get() + 1);
+    ancestors_below(&[("zsh", true, false)], (session.id(), started, true))
+  };
+  let below = Path::new(&path).join("sub");
+  std::fs::create_dir_all(&below).unwrap();
+  assert_eq!(
+    rebind(&fixture, &path, &below, &ancestors),
+    Some(Rebound {
+      lease_id: got_id.as_str().unwrap().to_string(),
+      holder_pid: session.id(),
+      holder_started: started,
+    })
+  );
+  let lease = lease_of(&fixture, &path);
+  assert_eq!(
+    (&lease["holder_pid"], &lease["holder_alive"], lease.get("idle")),
+    (&json!(session.id()), &json!(true), None),
+    "{lease}"
+  );
+  // the holder lives: one read of the state, no list of the processes and no lock
+  assert_eq!(rebind(&fixture, &path, &below, &ancestors), None);
+  assert_eq!(reads.get(), 1);
+}
+
+/// A shell that leads its session with a controlling terminal between the session and `brd` is a person's shell in a
+/// tab of a terminal, and a chain of shells alone names no session: neither rebinds
+#[test]
+fn a_shell_that_owns_a_terminal_between_the_session_and_brd_rebinds_nothing() {
+  let (fixture, path, (session, started)) = idle_lease_and_session();
+  let slot = Path::new(&path);
+  let pid = session.id();
+  let below = |between: &'static [(&'static str, bool, bool)], terminal: bool| move || ancestors_below(between, (pid, started, terminal));
+  assert_eq!(rebind(&fixture, &path, slot, &below(&[("bash", false, false), ("zsh", true, true)], true)), None);
+  assert_eq!(rebind(&fixture, &path, slot, &below(&[("zsh", true, true)], false)), None);
+  let me = std::process::id();
+  let shells = || {
+    ProcessScan::Done {
+      processes: vec![info(me, me + 1, "brd", 3, (false, false)), info(me + 1, 1, "zsh", 2, (false, true))],
+      own: std::collections::HashSet::new(),
+    }
+    .ancestors()
+  };
+  assert_eq!(rebind(&fixture, &path, slot, &shells), None, "no session");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(false));
+  // a shell that only inherits the terminal leads no session, and it does
+  assert!(rebind(&fixture, &path, slot, &below(&[("bash", false, false), ("zsh", true, false)], true)).is_some());
+}
+
+/// A brd that `-C` points into the slot from outside, a lease that a get takes over, before the read of brd or between
+/// its read and its write, a slot with the record of a takeover and a host slot rebind nothing
+#[test]
+fn a_brd_outside_the_slot_a_takeover_a_reclaimed_slot_and_a_host_slot_rebind_nothing() {
+  let (fixture, path, (session, started)) = idle_lease_and_session();
+  let ancestors = || ancestors_below(&[], (session.id(), started, false));
+  let slot = Path::new(&path);
+  assert_eq!(rebind(&fixture, &path, fixture.repo.path(), &ancestors), None, "a coordinator");
+
+  let take_over = |slot: &mut Value| slot["lease"]["taking_over"] = slot["lease"].clone();
+  change_slot(&fixture, &path, &take_over);
+  assert_eq!(rebind(&fixture, &path, slot, &ancestors), None, "a get takes it over");
+  let give_back = |slot: &mut Value| {
+    slot["lease"].as_object_mut().unwrap().remove("taking_over");
+  };
+  change_slot(&fixture, &path, &give_back);
+  // the get reserves the lease after the read of brd: the compare-and-swap finds it taken
+  let racing = || {
+    change_slot(&fixture, &path, &take_over);
+    ancestors()
+  };
+  assert_eq!(rebind(&fixture, &path, slot, &racing), None, "a get between the read and the write");
+  change_slot(&fixture, &path, &give_back);
+
+  change_slot(&fixture, &path, &|slot| {
+    slot["reclaimed"] = json!({ "lease_id": "old", "holder": "gone-agent", "leased_at": 1, "at": 2 });
+  });
+  assert_eq!(rebind(&fixture, &path, slot, &ancestors), None, "the lease of a takeover");
+  change_slot(&fixture, &path, &|slot| {
+    slot.as_object_mut().unwrap().remove("reclaimed");
+    slot["lease"]["holder"] = json!(format!("{HOST_HOLDER_PREFIX}1"));
+  });
+  assert_eq!(rebind(&fixture, &path, slot, &ancestors), None, "a host slot");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(false));
+}
+
+/// A get passes over a lease whose session became its holder again and takes over the other idle lease, whose work
+/// landed as well
+#[test]
+fn a_get_passes_over_a_rebound_lease_and_takes_over_an_idle_one() {
+  let fixture = Fixture::new();
+  let rebound = path_of(&fixture.get(&["--holder", "resumed"]));
+  let idle = fixture.get(&["--holder", "idle"]);
+  for path in [&rebound, &path_of(&idle)] {
+    bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(path));
+  }
+  let (session, started) = live_process();
+  assert!(rebind(&fixture, &rebound, Path::new(&rebound), &|| ancestors_below(&[], (session.id(), started, false))).is_some());
+  let got = fixture.get(&["--holder", "next"]);
+  assert_eq!(got["took_over"]["lease_id"], idle["lease_id"], "{got}");
+  assert_eq!(lease_of(&fixture, &rebound)["holder"], json!("resumed"));
+}
+
+/// A write that `-C` points into the slot from outside and a command of the pool run in the slot rebind nothing: the
+/// reclaim run in the slot returns its idle lease
+#[test]
+fn a_command_of_the_pool_and_a_write_from_outside_rebind_nothing() {
+  let (fixture, path, _) = idle_lease_and_session();
+  let lease_id = lease_of(&fixture, &path)["lease_id"].clone();
+  let (exit_code, output) = fixture.run(&["-C", &path, "--prefix", PREFIX, "lease", "pick"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(false), "a write from outside");
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "reclaim", "--idle"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["reclaimed"][0]["lease_id"], lease_id, "{output}");
+}
+
+/// A rebind whose write of the state fails is a warning: `brd workspace` answers, and the holder stays as it was
+#[cfg(unix)]
+#[test]
+fn a_failed_rebind_fails_no_command() {
+  use std::os::unix::fs::PermissionsExt;
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "resumed"]));
+  bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&path));
+  assert!(Ancestors::of_this_process().as_ref().and_then(rebind_session).is_some(), "the session of the test rebinds");
+  let state_dir = fixture.state_file().parent().unwrap().to_path_buf();
+  let set_mode = |mode: u32| std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(mode)).unwrap();
+  set_mode(0o555);
+  let probe = std::fs::File::create(state_dir.join("probe"));
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["workspace"]);
+  set_mode(0o755);
+  assert!(probe.is_err(), "the state dir takes no new file");
+  assert_eq!((exit_code, output.get("holder_rebound")), (0, None), "{output}");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(false));
+}
+
+/// `brd workspace` and a command that writes, run in the slot, make the session of brd the holder of a lease whose
+/// holder is gone; a read and a `brd -C <slot>` from outside do not. The session is the one of this test process, as
+/// the rule finds it in the list of its ancestors (`rebind_session`), on macOS and Linux always
+#[test]
+fn brd_workspace_and_a_write_in_the_slot_rebind_the_holder_and_a_read_does_not() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&["--holder", "resumed"]));
+  let slot = Path::new(&path);
+  let make_idle = || bd_cli::fixture_test::make_lease_idle(&fixture.state_file(), &slot_path(&path));
+  make_idle();
+  let (exit_code, output) = fixture.run_in(slot, &["lease", "status"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = fixture.run(&["-C", &path, "workspace"]);
+  assert_eq!((exit_code, output.get("holder_rebound")), (0, None), "{output}");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(false), "a read and a brd from outside");
+
+  let session = Ancestors::of_this_process().as_ref().and_then(rebind_session);
+  #[cfg(unix)]
+  assert!(session.is_some(), "the session of the test process");
+  let rebinds = session.is_some();
+  let (exit_code, output) = fixture.run_in(slot, &["workspace"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output.get("holder_rebound"), rebinds.then_some(&json!(true)), "{output}");
+  let listed = output["active_leases"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|lease| lease["path"] == json!(slot_path(&path)))
+    .unwrap();
+  assert_eq!((&listed["holder_alive"], listed.get("idle").is_some()), (&json!(rebinds), !rebinds), "{output}");
+  if let Some((pid, _)) = session {
+    assert_eq!(lease_of(&fixture, &path)["holder_pid"], json!(pid));
+  }
+
+  make_idle();
+  let (exit_code, output) = fixture.run_in(slot, &["--prefix", PREFIX, "lease", "pick"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(lease_of(&fixture, &path)["holder_alive"], json!(rebinds), "the write rebinds");
+}
+
 /// The `idle` of a lease in `status`, by the path of its slot
 fn idle_of(status: &Value, path: &str) -> Value {
   let path = slot_path(path);
@@ -2541,14 +2804,13 @@ fn an_idle_lease_with_a_process_of_another_session_in_its_slot_is_busy() {
 /// The status scans the processes once, and only when a lease has a gone holder; `--processes` always
 #[test]
 fn the_status_scans_the_processes_only_for_a_lease_whose_holder_is_gone() {
-  use lease_pool::lease::{StatusScan, lease_status_with};
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&["--holder", "resumed"]));
   let git_common_dir = fixture.repo.path().join(".git");
   let scans = std::cell::Cell::new(0);
   let scan = || {
     scans.set(scans.get() + 1);
-    sync_utils::process_scan::ProcessScan::Unavailable
+    ProcessScan::Unavailable
   };
   let count = |mode: StatusScan| {
     let before = scans.get();

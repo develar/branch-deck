@@ -50,7 +50,7 @@ use sync_core::lease_state::forget_lease_state;
 use sync_utils::fs_retry;
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
-use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
+use sync_utils::process_scan::{Ancestors, ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use sync_utils::size::parse_size;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument, warn};
@@ -4340,6 +4340,104 @@ pub fn reclaimed_refusal(git_common_dir: &Path, top_level: &str, mutates: bool, 
       }
     }
     Some(_) => Ok(None),
+  }
+}
+
+/// The `brd` that may become the holder of the lease of its slot (`rebind_holder`)
+pub struct Rebinder<'a> {
+  /// The working directory of `brd`: a `brd` that `-C` points into the slot from outside (a coordinator) rebinds
+  /// nothing
+  pub cwd: &'a Path,
+  /// The wait for the pool lock
+  pub lock_timeout: Duration,
+  /// The ancestors of `brd`, read only once the holder is gone: `Ancestors::of_this_process`, and a list of a test
+  pub ancestors: &'a dyn Fn() -> Option<Ancestors>,
+}
+
+impl<'a> Rebinder<'a> {
+  /// A `brd` in `cwd` among the processes of this system
+  pub fn of_system(cwd: &'a Path, lock_timeout: Duration) -> Self {
+    Self {
+      cwd,
+      lock_timeout,
+      ancestors: &Ancestors::of_this_process,
+    }
+  }
+}
+
+/// The holder a rebind recorded for a lease
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rebound {
+  pub lease_id: String,
+  pub holder_pid: u32,
+  pub holder_started: u64,
+}
+
+/// Whether the lease of `slot` may get a new holder: `ready`, of an agent (no host slot), its holder gone, no get
+/// taking it over, and no `reclaimed` record in the slot, as a resumed session of a lease a takeover took would else
+/// take the lease of another session and pass `reclaimed_refusal`
+fn rebindable(slot: &Slot) -> Option<&Lease> {
+  slot
+    .lease
+    .as_ref()
+    .filter(|lease| lease.is_idle() && lease.taking_over.is_none() && slot.reclaimed.is_none())
+}
+
+/// The session of the `brd` of `ancestors` that may hold a lease (`Ancestors::session`, with its start), unless a
+/// process between them owns a terminal: it leads its session and has a controlling terminal, as the shell that a tab of
+/// a terminal, a pane of tmux or the terminal of an IDE starts, so a person runs `brd`. A command shell of an agent that
+/// only inherits the terminal of its TUI leads no session, and the session itself may have a terminal
+pub fn rebind_session(ancestors: &Ancestors) -> Option<(u32, u64)> {
+  if ancestors.below_session()?.iter().any(|process| process.terminal && process.session_leader) {
+    return None;
+  }
+  let session = ancestors.session()?;
+  Some((session.pid, session.started?))
+}
+
+/// Make the session of the `brd` of `rebinder` the holder of the lease of the slot `top_level` (`holder_pid`,
+/// `holder_started`), when its holder is gone (`rebindable`), `brd` runs inside the slot, and its session runs it as
+/// an agent runs a command (`rebind_session`): a resumed session runs as another process, and without it the lease
+/// stays idle while the session works. The state is read first, and the scan and the pool lock come only for a gone
+/// holder; the write is a compare-and-swap of the lease under the lock. `None`: nothing changed
+pub fn rebind_holder(git_common_dir: &Path, top_level: &str, rebinder: &Rebinder<'_>) -> Result<Option<Rebound>> {
+  let path = canonical_path(Path::new(top_level));
+  let pool = Pool::new(Path::new(&canonical_path(git_common_dir)));
+  let store = pool.read()?;
+  let Some(lease_id) = store.slots.iter().find(|slot| slot.path == path).and_then(rebindable).map(|lease| lease.id.clone()) else {
+    return Ok(None);
+  };
+  if !Path::new(&canonical_path(rebinder.cwd)).starts_with(&path) {
+    return Ok(None);
+  }
+  let Some((holder_pid, holder_started)) = (rebinder.ancestors)().as_ref().and_then(rebind_session) else {
+    return Ok(None);
+  };
+  pool.update(rebinder.lock_timeout, |store| {
+    let Some(slot) = store.slots.iter_mut().find(|slot| slot.path == path) else {
+      return Ok(None);
+    };
+    if rebindable(slot).is_none_or(|lease| lease.id != lease_id) {
+      return Ok(None);
+    }
+    let Some(lease) = slot.lease.as_mut() else { return Ok(None) };
+    lease.holder_pid = Some(holder_pid);
+    lease.holder_started = Some(holder_started);
+    Ok(Some(Rebound {
+      lease_id,
+      holder_pid,
+      holder_started,
+    }))
+  })
+}
+
+/// `rebind_holder` before a command of `brd` that writes, by the processes of this system: a failure is a warning, and
+/// the command goes on
+pub fn rebind_before_write(git_common_dir: &Path, top_level: &str, cwd: &Path, lock_timeout: Duration) {
+  match rebind_holder(git_common_dir, top_level, &Rebinder::of_system(cwd, lock_timeout)) {
+    Ok(Some(rebound)) => tracing::info!(lease_id = %rebound.lease_id, holder_pid = rebound.holder_pid, "this session became the holder of the lease of its slot"),
+    Ok(None) => {}
+    Err(error) => warn!("Cannot make this session the holder of the lease: {error:#}"),
   }
 }
 

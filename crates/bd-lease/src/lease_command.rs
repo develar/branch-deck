@@ -19,7 +19,7 @@ use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, IdleStatus, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome,
   LeaseReclaimParams, LeaseRefusal, LeaseReturnParams, PATH_LIMIT, Pool, Reclaimed, ReclaimedLease, SkipReason, SlotState, StatusScan, StoppedServer, canonical_path,
-  lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
+  lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at, rebind_before_write, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, RETURN_CARGO_LOCK_WAIT, parse_age};
 use schemars::JsonSchema;
@@ -480,6 +480,13 @@ pub fn refuse_reclaimed(git_common_dir: &Path, top_level: &str, mutates: bool, l
     Some(refusal) => Err(refusal_error(&refusal)),
     None => Ok(()),
   }
+}
+
+/// Before a command that writes in the worktree `top_level`: the session of this `brd` becomes the holder of the lease
+/// of the slot when its holder is gone and `brd` runs in the slot (`rebind_holder`). A failure is a warning, and the
+/// command goes on
+pub fn rebind_holder_of_command(git_common_dir: &Path, top_level: &str, environment: &Environment) {
+  rebind_before_write(git_common_dir, top_level, &environment.cwd, environment.lock_timeout);
 }
 
 /// The lease of a session at `top_level`, a worktree of the pool; none elsewhere and for a host slot of `bd-host`, which

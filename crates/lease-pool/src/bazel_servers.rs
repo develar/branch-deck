@@ -114,6 +114,7 @@ pub(crate) fn server(workspace: &Path, output_base: &Path) -> Option<ProcessInfo
     ],
     started: Some(started),
     terminal: false,
+    session_leader: false,
   };
   if server.started_at().is_none_or(|started_at| started_at > written + PID_FILE_SLACK) {
     debug!(pid, pid_file = %pid_file.display(), "the pid of a Bazel pid file is a process that started later");

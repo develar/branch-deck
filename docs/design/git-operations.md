@@ -2602,7 +2602,8 @@ nothing but LFS puts the content back after a checkout of the blobs.
    slot (`idle_leases`, which checks no process), and `brd lease status` says `holder_alive` and `idle`. The status
    and `brd workspace` scan the processes once, and only when a lease has a gone holder: a process of another session
    in its slot makes it `busy`, since a resumed session runs as another process; its Bazel servers alone do not, as a
-   get stops them itself.
+   get stops them itself. A rebind of the holder (below) reads only the list of the processes, without their working
+   directories and arguments, and only for a gone holder of its own slot.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. The verdict is kept with its proof (`DirtyCheck`, no git:
@@ -2949,6 +2950,20 @@ process list; a chain cut below the init process refuses nothing), is `lease_rec
 leases, the home branch, the old branch and `brd lease get` as the next step; `brd workspace`, the first command of a
 session, refuses too, a read passes. A session whose new holder died too can't be told from the old one, and nothing
 is refused there; the slot is idle again.
+
+A resumed session of a live lease runs as another process than the holder its get recorded, so without more its lease
+stays idle while it works, and a get could take it over in an hour with no process of it in the slot. `brd workspace`
+and every command that writes the worktree or the branch of its slot, past `refuse_reclaimed`, make the session of brd
+the holder (`rebind_holder`); a command of the pool (a get, a reclaim, a clean, a trim, an adopt, a return by id or
+holder) does not, as it writes other slots. Only inside the slot (the working directory of brd, so a coordinator's
+`-C` changes nothing), only a `ready` lease of an agent whose holder is gone and that no get takes over, only without
+the `reclaimed` record, which would else let a resumed session of the old holder take the lease of the new one, and
+only when no process between the session and brd owns a terminal: it leads its session and has a controlling
+terminal, as the shell of a tab, of a pane of tmux or of the terminal of an IDE does, so the shell of a person takes no
+lease, while the command shell of an agent that only inherits the terminal of its TUI leads none. The state is read
+first; the list of the processes (`Ancestors::of_this_process`, without their working directories and arguments) and
+the pool lock come only for a gone holder, and the write is a compare-and-swap of the lease. A lease got by a takeover
+keeps the record and is never rebound, and neither is a session that works only through `-C`.
 
 Where the commits of a lease land is part of the lease: the get records the source checkout and the branch it had
 checked out (`source`, `source_branch`) and prints them as `home` with the session's `next`. Before, the get printed

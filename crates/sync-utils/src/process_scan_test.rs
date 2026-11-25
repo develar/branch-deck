@@ -106,6 +106,7 @@ fn process(pid: u32, parent: u32, argv: &[&str]) -> crate::process_scan::Process
     argv: argv.iter().map(|arg| (*arg).to_string()).collect(),
     started: Some(1),
     terminal: false,
+    session_leader: false,
   }
 }
 
@@ -531,4 +532,27 @@ fn a_process_has_a_terminal_only_when_its_session_has_one() {
   let terminal = |pid: u32| processes.iter().find(|process| process.pid == pid).map(|process| process.terminal);
   assert_eq!(terminal(detached.id()), Some(false));
   assert_eq!(terminal(tab.child.id()), Some(true));
+}
+
+/// A process leads its session only when it started it: the shell of a terminal tab and a command in a session of its
+/// own do, and a command of that shell, which inherits its terminal, does not
+#[cfg(unix)]
+#[test]
+fn a_process_leads_its_session_only_when_it_started_it() {
+  let detached = test_utils::session::spawn_in_session(std::process::Command::new("sleep").arg("30"));
+  let tab = test_utils::session::spawn_in_terminal(std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]));
+  let shell = tab.child.id();
+  let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
+  let processes = loop {
+    let ProcessScan::Done { processes, .. } = ProcessScan::scan() else { panic!("no scan") };
+    if processes.iter().any(|process| process.parent == shell && process.name == "sleep") {
+      break processes;
+    }
+    assert!(std::time::Instant::now() < deadline, "the shell started no sleep");
+    std::thread::yield_now();
+  };
+  let facts = |found: &dyn Fn(&crate::process_scan::ProcessInfo) -> bool| processes.iter().find(|process| found(process)).map(|process| (process.terminal, process.session_leader));
+  assert_eq!(facts(&|process| process.pid == detached.id()), Some((false, true)), "a session of its own");
+  assert_eq!(facts(&|process| process.pid == shell), Some((true, true)), "the shell of a tab");
+  assert_eq!(facts(&|process| process.parent == shell && process.name == "sleep"), Some((true, false)), "its command");
 }

@@ -26,7 +26,7 @@ use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_reclaim, lease_return, lease_status,
-  refuse_drop_of_home_commits, refuse_reclaimed, refuse_update_in_lease, reword_home_ref,
+  rebind_holder_of_command, refuse_drop_of_home_commits, refuse_reclaimed, refuse_update_in_lease, reword_home_ref,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::land_command::{LandArgs, land};
@@ -625,9 +625,18 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
   };
   let operation_id = out.operation_id;
   let guard = reclaim_guard(&cli.command);
-  // in a slot taken over from a dead holder only the session that holds it now works (`lease_reclaimed`)
-  let check_reclaimed =
-    |git_common_dir: &std::path::Path, top_level: &str| guard.map_or(Ok(()), |(mutates, lease_id)| refuse_reclaimed(git_common_dir, top_level, mutates, lease_id));
+  let rebinds = rebinds_holder(&cli.command);
+  // in a slot taken over from a dead holder only the session that holds it now works (`lease_reclaimed`); a resumed
+  // session that writes in its slot holds its lease again
+  let check_reclaimed = |git_common_dir: &std::path::Path, top_level: &str| {
+    guard.map_or(Ok(()), |(mutates, lease_id)| {
+      refuse_reclaimed(git_common_dir, top_level, mutates, lease_id)?;
+      if mutates && rebinds {
+        rebind_holder_of_command(git_common_dir, top_level, environment);
+      }
+      Ok(())
+    })
+  };
   let context = || {
     RepoContext::resolve(environment, &options)
       .map(|context| context.with_operation_id(operation_id))
@@ -874,6 +883,20 @@ fn reclaim_guard(command: &Command) -> Option<(bool, Option<&str>)> {
       command: LeaseCommand::Return(args),
     }) => Some((true, args.lease_id.as_deref())),
     _ => Some((!reads_only(command), None)),
+  }
+}
+
+/// Whether a command that writes makes the session of brd the holder of the lease of its slot (`rebind_holder_of_command`):
+/// one that writes the worktree or the branch of that slot. Not a command of the pool (a get, a reclaim, a clean, a trim,
+/// an adopt), which writes other slots, nor a return of a lease named by its id or holder, which a coordinator runs
+const fn rebinds_holder(command: &Command) -> bool {
+  match command {
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Return(args),
+    }) => args.lease_id.is_none() && args.holder.is_none(),
+    Command::Lease(LeaseArgs { command: LeaseCommand::Pick(_) }) => true,
+    Command::Lease(_) => false,
+    _ => true,
   }
 }
 

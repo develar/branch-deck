@@ -36,6 +36,10 @@ pub struct ProcessInfo {
   /// Whether it has a controlling terminal, as `ps -o tty` shows one: an interactive shell, the command of a terminal tab;
   /// a command that a coding agent runs, a daemon and a service have none. `false` on Windows and where unknown
   pub terminal: bool,
+  /// Whether it leads its session (`PROC_FLAG_SLEADER` on macOS, its session id its pid on Linux): with `terminal`, the
+  /// shell that a tab of a terminal, a pane of tmux or the terminal of an IDE starts owns that terminal, while a command
+  /// that only inherits it leads none. `false` on Windows and where unknown
+  pub session_leader: bool,
 }
 
 const WORKSPACE_DIRECTORY: &str = "--workspace_directory=";
@@ -161,15 +165,33 @@ pub struct Ancestors {
 }
 
 impl Ancestors {
+  /// The ancestors of this process from the list of the processes without their working directories and arguments
+  /// (`process_tree`), which a full `ProcessScan::scan` reads too and which take most of its time; `None` where the
+  /// system tells no list
+  pub fn of_this_process() -> Option<Self> {
+    ProcessScan::Unavailable.ancestors()
+  }
+
   /// The process this one works for: the nearest ancestor that is no shell or wrapper (`RUNNERS`), the coding agent or
   /// the terminal; `None` when the chain has none below the init process, or when the system won't tell its start (a
   /// service that runs the command on Windows), since a holder must be told from a process that got its pid later
   pub fn session(&self) -> Option<&ProcessInfo> {
+    self.links.get(self.session_at()?).filter(|process| process.started.is_some())
+  }
+
+  /// The processes between this one and its session (`session`), the parent first: the shells and wrappers that run
+  /// it; `None` when the chain has no session below the init process
+  pub fn below_session(&self) -> Option<&[ProcessInfo]> {
+    self.session()?;
+    Some(&self.links[..self.session_at()?])
+  }
+
+  /// Where the nearest ancestor that is no shell or wrapper is among the links
+  fn session_at(&self) -> Option<usize> {
     self
       .links
       .iter()
-      .find(|process| !RUNNERS.iter().any(|runner| runner.eq_ignore_ascii_case(&process.name)))
-      .filter(|process| process.started.is_some())
+      .position(|process| !RUNNERS.iter().any(|runner| runner.eq_ignore_ascii_case(&process.name)))
   }
 
   /// Whether the process `pid`, started at `started` when known, is one of them: `None` when it is not among the links
@@ -707,6 +729,7 @@ mod platform {
             argv: Vec::new(),
             started: Some(start_time(&info)),
             terminal: has_terminal(&info),
+            session_leader: info.pbi_flags & PROC_FLAG_SLEADER != 0,
           })
         })
         .collect(),
@@ -716,6 +739,9 @@ mod platform {
   pub(super) fn started(pid: u32) -> Option<u64> {
     bsd_info(pid).map(|info| start_time(&info))
   }
+
+  /// `PROC_FLAG_SLEADER` of `pbi_flags` (`sys/proc_info.h`), which libc does not name: the process leads its session
+  const PROC_FLAG_SLEADER: u32 = 0x20;
 
   /// `e_tdev`, the device of the controlling terminal of its session, is one: `NODEV` (all bits set) when it has none
   const fn has_terminal(info: &libc::proc_bsdinfo) -> bool {
@@ -1103,6 +1129,7 @@ mod platform {
             argv: Vec::new(),
             started: Some(stat.started),
             terminal: stat.terminal,
+            session_leader: stat.session == pid,
           })
         })
         .collect(),
@@ -1197,6 +1224,8 @@ mod platform {
     group: u32,
     /// Field 22, `starttime`: clock ticks since boot
     started: u64,
+    /// Field 6, `session`: the id of its session, which is the pid of its leader
+    session: u32,
     /// Field 7, `tty_nr`, names a device: the process has a controlling terminal
     terminal: bool,
     /// Fields 14 and 15, `utime` and `stime`: clock ticks of CPU
@@ -1227,6 +1256,7 @@ mod platform {
         parent: fields.get(1)?.parse().ok()?,
         group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
+        session: fields.get(3)?.parse().ok()?,
         terminal: fields.get(4)?.parse::<i64>().ok()? != 0,
         cpu_ticks: fields.get(11)?.parse::<u64>().ok()?.saturating_add(fields.get(12)?.parse::<u64>().ok()?),
         children_ticks: fields.get(13)?.parse::<u64>().ok()?.saturating_add(fields.get(14)?.parse::<u64>().ok()?),
@@ -1279,6 +1309,7 @@ mod platform {
         argv: Vec::new(),
         started: None,
         terminal: false,
+        session_leader: false,
       });
       // SAFETY: as for the first entry
       read = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) };

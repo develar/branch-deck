@@ -11,7 +11,7 @@ use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::NOTES_LINK;
 use lease_pool::agent_workspace::{ActiveLease, AgentWorkspace, WorkspaceKind, agent_workspace};
-use lease_pool::lease::LeaseRefusal;
+use lease_pool::lease::{LeaseRefusal, Rebinder};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::Path;
@@ -50,6 +50,10 @@ pub struct WorkspaceOutput {
   /// The holder of this slot's lease
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder: Option<String>,
+  /// The holder process of this slot's lease was gone, and your session became it: a resumed session works in its
+  /// slot, so the lease is no longer idle and no get takes it over; omitted otherwise
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub holder_rebound: bool,
   /// The local changes of the shared checkout, which a lease does not have: ask the user when the task needs them
   #[serde(skip_serializing_if = "Option::is_none")]
   pub local_changes: Option<usize>,
@@ -122,7 +126,8 @@ pub fn workspace_with(git: &GitCommandExecutor, environment: &Environment, direc
   if !directory.is_dir() {
     return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
   }
-  let answer = agent_workspace(git, &directory.to_string_lossy(), environment.home.as_deref()).map_err(|error| match error.downcast_ref::<LeaseRefusal>() {
+  let rebinder = Rebinder::of_system(&environment.cwd, environment.lock_timeout);
+  let answer = agent_workspace(git, &directory.to_string_lossy(), environment.home.as_deref(), &rebinder).map_err(|error| match error.downcast_ref::<LeaseRefusal>() {
     Some(refusal) => refusal_error(refusal),
     None => CliError::from(error),
   })?;
@@ -171,6 +176,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     home: this_lease.map(|lease| LeaseHomeOutput::new(&lease.home, answer.home_switched.clone(), answer.build_config_changed)),
     lease_id: this_lease.map(|lease| lease.lease_id.clone()),
     holder: this_lease.map(|lease| lease.holder.clone()),
+    holder_rebound: answer.holder_rebound,
     local_changes: answer.local_changes,
     active_leases: answer.active_leases.into_iter().map(active_lease).collect(),
     next,
