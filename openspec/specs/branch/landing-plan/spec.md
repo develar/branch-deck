@@ -21,6 +21,7 @@ targets:
   - src/components/branch/SafePushPopover.tsx
   - src/lib/merge-dependents.ts
   - src/lib/landing-toast.ts
+  - crates/bd-remote/src/plan.rs
 ---
 
 # Landing Plan
@@ -261,6 +262,18 @@ the whole stack holds a parked branch; the branches of a stack whose own node ne
   [@test] crates/domain-policy/src/landing_plan_test.rs (`the_plan_of_idea_1_lands_two_robots_now_three_branches_next_and_two_units_after_them`)
   [@test] crates/domain-policy/src/landing_plan_test.rs (`a_stack_that_holds_a_parked_branch_takes_the_node_of_its_root`)
   [@test] crates/repository-model/src/derive_test.rs (`the_view_carries_the_units_of_the_landing_plan_by_name_and_a_patch_none_that_stayed`)
+
+### Requirement: Units: `brd plan` prints the plan the app derives
+
+`brd plan` MUST print, read only, the plan of the session over what `brd status` reads: the units, the edges with their
+kind, state, evidence and actions (each with its command), the waves, the parked branches, and the proposals of Land
+Together with their price and their `command` (`brd restack <from> <onto>`), which waits for the user's approval.
+
+#### Scenario: The plan of flow and util
+- **WHEN** on Space `flow` uses a name `util` adds and `ui` is built on `flow`, and the agent runs `brd plan`
+- **THEN** it prints the units `flow` (with `ui`) and `util`, the open edge with Land Together and Land util First, the
+  waves `next: util`, `after util: flow`, and the proposal with its price and command; HEAD stays
+  [@test] crates/bd-remote/src/plan_test.rs (`plan_prints_the_units_the_edge_the_waves_and_land_together_with_its_price_and_command`)
 
 ### Requirement: Waves: The units land in the order of their edges
 

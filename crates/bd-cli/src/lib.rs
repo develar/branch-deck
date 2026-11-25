@@ -9,7 +9,7 @@ pub mod schema;
 pub mod unattended;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, CLOSE_REVIEW_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY,
+  AGENT_HELP, CHECK_HELP, CLOSE_REVIEW_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PLAN_HELP, PUSH_HELP, READ_ONLY,
   REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UNATTENDED_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::flag_names::{renamed_in, unknown_argument};
@@ -31,6 +31,7 @@ use bd_lease::lease_command::{
 use bd_lease::workspace_command::workspace;
 use bd_remote::land_command::{LandArgs, land};
 use bd_remote::operation_command::{OperationArgs, OperationCommand, forget};
+use bd_remote::plan::plan;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
@@ -106,6 +107,9 @@ enum Command {
   /// The branches and the unassigned commits ahead of the baseline
   #[command(after_help = "Outputs and refusals: `brd status --help`", after_long_help = STATUS_HELP)]
   Status(StatusArgs),
+  /// The landing plan: the units, the needs between them, the waves and the offers to land two in one robot
+  #[command(after_help = "Outputs and refusals: `brd plan --help`", after_long_help = PLAN_HELP)]
+  Plan,
   /// Every commit ahead of the baseline, with dependency edges and file overlap between branches
   Commits(CommitsArgs),
   /// Move commits between branches by a plan: one rewrite of their subjects
@@ -641,6 +645,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       .and_then(|context| status_brief(&context, args, environment))
       .and_then(|output| printed(out, &output)),
     Command::Status(args) => context().and_then(|context| status(&context, args, environment)).and_then(|output| printed(out, &output)),
+    Command::Plan => context().and_then(|context| plan(&context, environment)).and_then(|output| printed(out, &output)),
     Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| printed(out, &output)),
     Command::Commits(args) if args.marks.mark_stats => context().and_then(|context| mark_stats(&context, &args.marks)).and_then(|output| printed(out, &output)),
     Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| printed(out, &output)),
@@ -809,6 +814,7 @@ fn printed<T: Serialize>(out: &mut Out<'_>, value: &T) -> Result<i32, CliError> 
 const fn reads_only(command: &Command) -> bool {
   match command {
     Command::Status(_)
+    | Command::Plan
     | Command::Commits(_)
     | Command::ReviewPlan(_)
     | Command::Suggest(_)

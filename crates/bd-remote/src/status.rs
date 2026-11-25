@@ -612,16 +612,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     let mut facts = OneShot::new(session_key(context), TableState::default(), table.clone());
     know_robots(&mut facts, &context.git, read.robots);
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
-    let needs = if args.brief || context.space_repository()?.is_none() {
-      None
-    } else {
-      landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(facts.view()))
-        .inspect_err(|error| debug!(error = %format!("{error:#}"), "no landing needs"))
-        .ok()
-    };
-    let needs_known = needs.is_some();
-    let found = needs.map(|needs| {
-      facts.landing_needs(|_| Ok(needs));
+    let needs_known = !args.brief && check_landing_needs(context, &mut facts)?;
+    let found = needs_known.then(|| {
       facts
         .view()
         .branches
@@ -823,6 +815,22 @@ fn companion_needs_of(context: &RepoContext, grouping: &BranchGrouping) -> BTree
   unlanded_companions(&read_companion_needs(&context.git, &context.repository, &config, &context.prefix, &needed))
 }
 
+/// The landing needs of every branch of `facts` (and their footprints) into its view, on Space: one trial session of
+/// every branch (`landing_needs_of`); whether they are known, a check that failed leaving them unknown
+pub(crate) fn check_landing_needs(context: &RepoContext, facts: &mut OneShot) -> Result<bool, CliError> {
+  if context.space_repository()?.is_none() {
+    return Ok(false);
+  }
+  let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(facts.view()))
+    .inspect_err(|error| debug!(error = %format!("{error:#}"), "no landing needs"))
+    .ok();
+  let known = needs.is_some();
+  if let Some(needs) = needs {
+    facts.landing_needs(|_| Ok(needs));
+  }
+  Ok(known)
+}
+
 /// What `brd status` says each branch needs before its Safe Push starts, by branch: the declared needs of `declared`
 /// first, then what the landing gate found (`found`, Space only)
 fn with_declared_needs(found: Option<HashMap<String, Vec<LandingRefusal>>>, declared: &BTreeMap<String, Vec<LandingRefusal>>) -> LandingNeedsOf {
@@ -853,7 +861,7 @@ impl LandingNeedsOf {
 
 /// An unapply of this repository keeps a branch of this name (`{prefix}/unapplied/<name>`), as the listing of the
 /// grouping has it
-fn unapplied_branch(grouping: &BranchGrouping, prefix: &str, name: &str) -> bool {
+pub(crate) fn unapplied_branch(grouping: &BranchGrouping, prefix: &str, name: &str) -> bool {
   grouping
     .listed
     .iter()
@@ -864,7 +872,7 @@ fn unapplied_branch(grouping: &BranchGrouping, prefix: &str, name: &str) -> bool
 /// The route of the repository into master as the app's session decides it (`domain_policy::landing_route::route`),
 /// over what the grouping read of git (the push URLs of its listing) and the setting of the command's config; GitHub is
 /// not asked, so the gate of a push into a repository on GitHub waits for it, as the steps that need a pull request do
-fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<LandingRoute, CliError> {
+pub(crate) fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<LandingRoute, CliError> {
   let setting = context
     .config()?
     .landing()
@@ -884,10 +892,8 @@ fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<L
   }))
 }
 
-/// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `brd status` read:
-/// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran),
-/// the route of the repository; no pull request, readiness or why a robot failed, which the steps that need them wait
-/// for
+/// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `brd status` read
+/// (`with_status_sources`)
 fn next_steps_of_status(
   grouping: &BranchGrouping,
   table: &BranchTable,
@@ -897,6 +903,31 @@ fn next_steps_of_status(
   declared: &BTreeMap<String, Vec<LandingRefusal>>,
   route: &LandingRoute,
 ) -> HashMap<String, NextStepSummary> {
+  with_status_sources(grouping, table, facts, head, needs_known, declared, route, next_steps)
+    .into_iter()
+    // off Space a row has no slot: nothing to say
+    .filter(|(_, view)| view.step.kind != StepKind::Hidden)
+    .map(|(key, view)| {
+      let what = stack_root_of_readiness_key(&key).map_or_else(|| key.clone(), |root| Subject::whole_stack(root).words());
+      (key, NextStepSummary::new(&view.step, &what, facts.robots()).with_status(&view.status))
+    })
+    .collect()
+}
+
+/// What `decide` makes of the step sources of `table` over what `brd status` and `brd plan` read: the robots and how
+/// Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran), the route of
+/// the repository; no pull request, readiness or why a robot failed, which the steps that need them wait for
+#[expect(clippy::too_many_arguments, reason = "what the commands read, each its own fact")]
+pub(crate) fn with_status_sources<T>(
+  grouping: &BranchGrouping,
+  table: &BranchTable,
+  facts: &OneShot,
+  head: Fact<RobotsHead>,
+  needs_known: bool,
+  declared: &BTreeMap<String, Vec<LandingRefusal>>,
+  route: &LandingRoute,
+  decide: impl FnOnce(&StepSources<'_>) -> T,
+) -> T {
   let rows = grouped_rows(table);
   let robots = RobotsView {
     head,
@@ -944,15 +975,7 @@ fn next_steps_of_status(
     view_state: &view_state,
     declared,
   };
-  next_steps(&sources)
-    .into_iter()
-    // off Space a row has no slot: nothing to say
-    .filter(|(_, view)| view.step.kind != StepKind::Hidden)
-    .map(|(key, view)| {
-      let what = stack_root_of_readiness_key(&key).map_or_else(|| key.clone(), |root| Subject::whole_stack(root).words());
-      (key, NextStepSummary::new(&view.step, &what, facts.robots()).with_status(&view.status))
-    })
-    .collect()
+  decide(&sources)
 }
 
 fn store_lines(problems: &[StoreLineProblem]) -> Vec<StoreLine> {

@@ -41,6 +41,7 @@ fn schema_lists_every_output() {
       "operation_forget",
       "park",
       "pick",
+      "plan",
       "push",
       "reapply",
       "request_review",

@@ -4,6 +4,7 @@ description: Requirements for bd, the command line a coding agent uses to read t
 style: plain-1
 targets:
   - crates/bd-core/src/text_input.rs
+  - crates/bd-remote/src/plan.rs
   - crates/bd-remote/src/operation_command.rs
   - crates/operations/src/journal.rs
   - crates/bd-core/src/operation_record.rs
@@ -1413,6 +1414,18 @@ commits; it MUST NOT go with `--branch` or `--stats`.
 #### Scenario: Brief with a filter or stats
 - **WHEN** `--brief` is given with `--branch` or `--stats`
 - **THEN** the command is refused
+
+### Requirement: `brd plan`: It prints the landing plan, read only
+
+`brd plan` MUST print the landing plan of the repository (`units`, `edges`, `waves`, `parked`, `proposals`, `stale`,
+`checks_unknown`) and write nothing; `brd schema plan` MUST describe every field it prints; the agent help MUST name it,
+and the `command` of a proposal MUST wait for the user's approval like a `fix` of `brd status`.
+
+#### Scenario: Read only, every field in the schema
+- **WHEN** the agent runs `brd plan`
+- **THEN** every field it prints is in `brd schema plan` and HEAD does not move
+  [@test] crates/bd-remote/src/plan_test.rs (`plan_prints_the_units_the_edge_the_waves_and_land_together_with_its_price_and_command`)
+  [@test] crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 
 ### Requirement: `brd commits`: It prints every commit ahead of the baseline
 
@@ -6790,3 +6803,4 @@ Together with `brd help agent` and `brd help update` it MUST name only commands 
 - **WHEN** the helps are compared with the commands and options of the CLI
 - **THEN** `brd help worktrees` names none that doesn't exist
   [@test] crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+

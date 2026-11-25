@@ -265,18 +265,24 @@ fn status_branch<'a>(status: &'a Value, name: &str) -> &'a Value {
   status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
 }
 
-/// On Space `brd status` says what the Safe Push of each branch needs of a branch outside what it lands, as
-/// `brd safe-push` would refuse it: `flow` uses a name `util` adds, `ui` is built on `flow`; `util` needs nothing
-#[test_log::test]
-fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
-  let space = Space::new(&[]);
-  let brd = bd_in(&space.repo);
+/// On `space`: `util` adds `controlUrl`, `flow` uses it, `ui` is built on `flow`; the short id of the commit of `util`
+pub(crate) fn util_flow_ui(space: &Space) -> String {
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100)[..8].to_string();
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
   commit_all(&space.repo, "(flow) Start with controlUrl", 1_700_000_200);
   write(&space.repo, "src/c/Ui.kt", "package c\n\nfun show() = 1\n");
   commit_all(&space.repo, "(flow/ui) Show the start", 1_700_000_300);
+  declares
+}
+
+/// On Space `brd status` says what the Safe Push of each branch needs of a branch outside what it lands, as
+/// `brd safe-push` would refuse it: `flow` uses a name `util` adds, `ui` is built on `flow`; `util` needs nothing
+#[test_log::test]
+fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
+  let space = Space::new(&[]);
+  let brd = bd_in(&space.repo);
+  let declares = util_flow_ui(&space);
   sync(&space);
 
   let status = covered_status(&space);

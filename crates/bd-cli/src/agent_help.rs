@@ -1,12 +1,12 @@
 /// What the reading commands write, for `brd --help` and `brd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: `brd status`, `brd commits`, `brd suggest`, `brd check`, `brd robot`, `brd robot-stats`, `brd schema`,
+    "Read only: `brd status`, `brd plan`, `brd commits`, `brd suggest`, `brd check`, `brd robot`, `brd robot-stats`, `brd schema`,
 `brd version`, `brd describe <branch>` without a setter, `brd update --status` without
 --materialize, `brd lease status`, `brd workspace`, and
-`brd group`, `brd rename`, `brd restack`, `brd unstack`, `brd stack-together`, `brd update` (also with its --continue), `brd pick`, `brd fold`,
+`brd group`, `brd rename`, `brd restack`, `brd unstack`, `brd stack-together`, `brd update` (also --continue), `brd pick`, `brd fold`,
 `brd drop`, `brd unapply`, `brd reapply`, `brd move-hunk` and `brd reword` with --dry-run
-write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
+write no ref, config, index or working tree: at most git objects (a trial sync, a replay, a move) and the
 object cache (none with --no-cache); `brd check --build` runs its command in a temporary copy of each tree.
 `brd push --dry-run`, `brd safe-push --dry-run` and `brd request-review --dry-run` sync first."
   };
@@ -110,12 +110,12 @@ Workflow: the commits into pull requests
    its `body` into it. `brd push --help`: the refusals and the stack branches.
 5. Safe Push (Patronus). First, always, `brd safe-push <branch> --dry-run`; show the user `lands` (a stacked branch lands
    what it is built on, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
-   `brd safe-push <b>` (`--patronus-dry-run`: a Dry Run). `brd safe-push --help`: the fields of --dry-run, every
+   `brd safe-push <b>` (`--patronus-dry-run`: a Dry Run). `brd safe-push --help`: its fields, every
    refusal. Any route: `brd land --help`.
 6. Review. `brd request-review <b> --dry-run` names whom; once approved, run it without
    (`brd request-review --help`). After landing: `brd close-review --help`.
-7. Robot. `brd robot <branch>` (`--full` after a failure: why and what to fix; `brd robot --help`).
-8. Stats: `brd robot-stats --help`.
+7. Robot. `brd robot <branch>` (`--full` after a failure: why, what to fix; `brd robot --help`).
+8. Stats: `brd robot-stats --help`; plan: `brd plan --help`.
 
 Other tasks
 - Before the first edit of a session: `brd workspace` says where to work, how to write a subject and whether the
@@ -462,6 +462,20 @@ commits are left (`brd safe-push --help`); `parked`: it stays local until the us
 branches `brd unapply` took out; `stacks`: the stack branch of each stack that forks (`brd push --help`);
 `prefix_source`: where the branch prefix came from. `next_step.status`: what the app's Status cell says of the branch,
 the main fact first (`robot_running` before `blocked`): a Safe Push that runs is said even where the step is `settled`.
+";
+
+/// `brd plan --help`: the fields of the landing plan
+pub const PLAN_HELP: &str = "\
+`brd plan` prints the landing plan of the repository, read only: the same plan the app derives. `units`: what lands
+into master in one move, a lone branch or a stack (`branches`, root first; `node` whose next step is the unit's;
+`kind`; `checks`: the required checks of Patronus its changes start). `edges`: what a unit needs of another, one per
+pair and kind (`build` a name or a use, `declared`, `companion`), `state` (`waits` for the robot `robot`, `needed_failed`,
+`open`, `unassigned`, `cycle`), the `names` and `files` as evidence, and `actions` with their `command`. `waves`:
+`landing` now, `next`, then `after` the units of `after`. `proposals`: Land Together, the unit `from` stacked on `onto`
+so one robot lands both, with its `price` (`robots` 2 → `together` 1, `checks` `same`/`added`/`unknown`,
+`failure_holds_both`, `approvals_in`, `owners_added`, off Patronus `github_stack`) and its `command`
+(`brd restack <from> <onto>`). Show the user the proposal and its price, and run a `command` only after they approve;
+`stale`: the needs were not checked, nothing is offered. Off Space only the order the user declared is known.
 ";
 
 /// `brd suggest --help`: the fields of the plan
@@ -1053,6 +1067,9 @@ command prints and what each of its refusals asks.
   `brd safe-push <branch> --dry-run` and show the user what it lands: the Safe Push of a stacked branch lands the
   branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack, its side branches included,
   in one robot.
+- `brd plan` prints the landing plan: what lands now, next and after what, and where two pieces may land in one robot
+  (`proposals`, each with its price and `command`). Show the user a proposal with its price; run its `command` only
+  after they approve, never to merge pieces that need nothing of each other.
 - `brd land` of a repository that lands by a push (`route: push`) pushes into master itself, without a robot and without
   the CI of a pull request: run `brd land <branch> --dry-run`, show the user `lands` and `confirmations`, and run it only
   once they approved, as any push; never pass --allow-checks-not-passed or --bypass-rules on your own. After it, `brd update`.

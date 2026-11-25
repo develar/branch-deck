@@ -3,6 +3,7 @@
 //! whole Cli, with the fixtures and the fakes of bd-cli
 //! - `status`, `branch_stats`, `numstat`: `brd status`, its statistics and line counts
 //! - `landed`: the branches whose commits merged Safe Pushes landed
+//! - `plan`: `brd plan`, the landing plan of the repository: its units, edges, waves and offers to land together
 //! - `session_facts`: the facts of the remote a command decides on, read into a one-shot session as the app's session
 //!   reads them (`operations::facts::fill`)
 //! - `push_command`, `push_refusals`: `brd push` through the engine of the operations, and what its push refuses and
@@ -22,6 +23,7 @@ pub mod land_command;
 pub mod landed;
 pub mod numstat;
 pub mod operation_command;
+pub mod plan;
 pub mod push_command;
 pub mod push_refusals;
 pub mod regenerate_refusal;
@@ -40,6 +42,8 @@ pub mod status;
 mod land_test;
 #[cfg(test)]
 mod landed_test;
+#[cfg(test)]
+mod plan_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

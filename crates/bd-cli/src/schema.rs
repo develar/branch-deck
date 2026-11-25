@@ -13,6 +13,7 @@ use bd_lease::trim_command::LeaseTrimOutput;
 use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::land_command::LandOutput;
 use bd_remote::operation_command::OperationForgetOutput;
+use bd_remote::plan::PlanOutput;
 use bd_remote::push_command::PushOutput;
 use bd_remote::request_review_command::RequestReviewOutput;
 use bd_remote::robot_command::RobotOutput;
@@ -92,6 +93,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("safe-push", &["safe_push"]),
   ("squash", &["squash"]),
   ("stack-together", &["rewrite"]),
+  ("plan", &["plan"]),
   ("status", &["status", "status_brief"]),
   ("suggest", &["suggest"]),
   ("sync", &["sync"]),
@@ -212,6 +214,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("robot".to_string(), schema_for!(RobotOutput)),
     ("safe_push".to_string(), schema_for!(SafePushOutput)),
     ("squash".to_string(), schema_for!(SquashOutput)),
+    ("plan".to_string(), schema_for!(PlanOutput)),
     ("status".to_string(), schema_for!(StatusOutput)),
     ("status_brief".to_string(), schema_for!(StatusBrief)),
     ("suggest".to_string(), schema_for!(SuggestOutput)),

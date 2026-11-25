@@ -408,6 +408,45 @@ what they listed.
    "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
   ```
 
+### `brd plan`
+
+The landing plan of the repository, read only: the same plan the app's session derives
+(`repository_model::derive::landing_plan_of`, [Landing](../design/landing.md#landing-plan)), over what `brd status`
+reads (the grouping without a sync, the robots, on Space the landing needs and the footprint of each branch).
+
+- `units`: what lands into master in one move, in the order of the table: `name` (the branch, the root of a stack),
+  `branches` (root first; a parked branch is in none), `commit_count`, `node` (whose next step is the unit's: the
+  branch, `stack:<root>` of a stack that forks, else the last branch of its chain), `kind` (`ready`, `your_step`,
+  `needs_fix`, `landing`, `waiting`, `parked`, `in_master`), `fixes` (branches of a stack whose own node needs a fix),
+  `checks` (the required checks of Patronus its changes start; absent while unknown).
+- `edges`: what a unit needs of another, one per pair and kind, lifted to the root of each unit: `from`, `needed` (of an
+  unassigned commit its short id), `kind` (`build`, `declared`, `companion`), `state` (`waits` for `robot`,
+  `needed_failed`, `open`, `unassigned`, `cycle`), `names` and `files` (the evidence), `refusals`, `refuses`, and
+  `actions`, the primary first, each `kind` with its `command` (`land_together`: `brd restack <root> <branch>`;
+  `land_first`, `restart`, `start`: `brd safe-push …`; `group`: `move <commit> into <branch>`; `unstack`).
+- `waves`: the units on their way in the order they land: `landing` (their robots run), `next` (nothing they need is on
+  the way), `after` (`after`: the units they need, in earlier waves).
+- `parked`: the parked branches.
+- `proposals`: Land Together, offered only along an `open` edge of the build between units that neither land nor failed:
+  `from` stacked on `onto` (of `onto_unit`), `forks` (the stack they make forks: `--whole-stack` lands both), `command`
+  (`brd restack <from> <onto>`) and `price`: `robots` 2 and `together` 1, `checks` (`same` with `count`, `added` with
+  `count` and `added`, `unknown` with `reason`), `failure_holds_both`, `approvals_in` (the pull request whose approvals
+  count), `owners_added` (the code owners the wider diff asks), off Patronus `github_stack`. Show the user a proposal
+  and its price; run its `command` only after they approve.
+- `stale`: the landing needs were computed for other tips, nothing is offered; `checks_unknown`: why the checks are
+  unknown (no `.patronus/config.yaml`, off Space).
+
+  ```json
+  {"schema":2,…,"stale":false,"units":[{"name":"flow","branches":["flow","ui"],"commit_count":2,"node":"ui",
+    "kind":"your_step","checks":["Air Plugin Tests"]},{"name":"util","branches":["util"],…}],
+   "edges":[{"from":"flow","needed":"util","kind":"build","state":"open","names":["controlUrl"],
+    "files":["src/b/Use.kt"],"refusals":2,"refuses":["ui","flow"],"actions":[{"kind":"land_together",
+    "command":"brd restack flow util"},{"kind":"land_first","command":"brd safe-push util"}]}],
+   "waves":[{"kind":"next","units":["util"]},{"kind":"after","after":["util"],"units":["flow"]}],"parked":[],
+   "proposals":[{"from":"flow","onto":"util","onto_unit":"util","forks":false,"command":"brd restack flow util",
+    "price":{"robots":2,"together":1,"checks":{"kind":"same","count":1},"failure_holds_both":true,"owners_added":[]}}]}
+  ```
+
 ### `brd commits [<id>…] [--files] [--patch] [--branch <b> | --unassigned] [--include-generated] [--brief [--depth N]]`
 
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
