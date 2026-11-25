@@ -76,11 +76,14 @@ export interface LandRun {
   readonly mode: SafePushMode
   /**
    * `checking`: the plan of a click, then the checks of the operation (the target, the landing gate, the retarget, the
-   * cancel of the robot it replaces); `waiting`: another holder of the repository lock; then its push and its robot
+   * cancel of the robot it replaces); `waiting`: another holder of the repository lock, or an operation of the session it
+   * waits behind in the queue (an Update Project); then its push and its robot
    */
   readonly step: "checking" | "waiting" | "pushing" | "starting"
   /** While it waits for another holder of the repository lock: whom for, as the view names it ("Waiting for `brd pick` (pid 4242, for 12 s)") */
   readonly waitingFor: string | null
+  /** While it waits in the queue of the session behind another operation (an Update Project): its operation, whose busy state names that one */
+  readonly queued: RunningOperation | null
   /** The operation; null while the click waits for its plan */
   readonly op: OperationId | null
   /** The virtual branches its push sends, root first (the refs it reserves); empty without a push */
@@ -138,6 +141,7 @@ function landOperationIn(operations: Readonly<Record<string, RunningOperation>>,
 function slotStep(step: OperationStep): LandRun["step"] {
   switch (step.kind) {
     case "waitingForLock":
+    case "queued":
       return "waiting"
     case "pushing":
       return "pushing"
@@ -165,13 +169,14 @@ function landRunOf(operation: RunningOperation | undefined, asking: SafePushMode
       mode,
       step: slotStep(operation.step),
       waitingFor: presentOperationLockWait(operation),
+      queued: operation.step.kind === "queued" ? operation : null,
       op: operation.id,
       pushes: pushedBranches(operation),
       by: presentOtherProcess(operation),
       lost: operation.step.kind === "startUnknown" ? operation : null,
     }
   }
-  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [], by: null, lost: null }
+  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, queued: null, op: null, pushes: [], by: null, lost: null }
 }
 
 /** The start of the subject `key` that runs in the selected repository */

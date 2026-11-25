@@ -25,7 +25,7 @@
 use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, NotRun, Planned, StartHost, StartServices, Steps};
 use crate::land_session::{SessionStart, StartFetch, pull_request_start, session_start};
-use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
+use crate::registry::{Admitted, Ahead, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
 use crate::run_frame::{self, SyncWait, wait_for_facts};
 use crate::witness::{Witness, check, plan_changed};
@@ -371,8 +371,9 @@ impl Holding {
 /// robot, `pull_request_start`)
 /// with its steps in the view and its progress and outcome to `events`, on
 /// the table of the last sync and what the operations it queued behind left (the push of its branch pressed just before
-/// it: the start pushes nothing more), after the sync of the writes of the session (`SyncWait::Writes`: the one an
-/// Update Project before it asked, which rebuilds the branches it pushes), the target fetched meanwhile
+/// it: the start pushes nothing more), behind an Update Project before it, its fetch too, and after the sync of the
+/// writes of the session (`SyncWait::Writes`: the one that Update Project asked, which rebuilds the branches it pushes;
+/// not for a start that pushes into the target, which updates after its push), the target fetched meanwhile
 /// (`StartFetch`); a plan whose branches a sync moved before its first effect is decided once more on the table of
 /// that sync (`run_frame::catch_up`); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
 /// guard (`land_direct::update_after`): its steps and, after the start's `Done`, its outcome go to `events`, while the
@@ -395,8 +396,11 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   let fetch = StartFetch::default();
   run(registry, key, request, Arc::clone(&events), async |guard| {
     // A start lands the table of the last sync, and the one the sync of a write of the session (an Update Project, a
-    // rewrite) commits: that sync rebuilds the branches it pushes; it waits for no other sync
-    let facts = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Writes);
+    // rewrite) commits: that sync rebuilds the branches it pushes; it waits for no other sync. Behind an Update Project
+    // admitted before it through its fetch too, which holds no HEAD yet; but a start that pushes into the target holds
+    // the tracking ref of the target, which the fetch of that update asks for, and runs its own update after its push
+    let ahead = if prefetch { Ahead::head_and_update() } else { Ahead::head() };
+    let facts = wait_for_facts(sessions, key, guard, ahead, SyncWait::Writes);
     let fetched = async {
       if prefetch {
         // an error of the fetch is a note of the check that reads it
@@ -405,7 +409,7 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
     };
     // a sync of the writes that failed leaves the table of the last one: the witness tells the branches it moved
     let (facts, ()) = tokio::join!(facts, fetched);
-    let mut waited = facts.waited;
+    let mut waited = facts?.waited;
     // planned over the host that needs no Patronus, then run over the host of the route its plan decided: a robot of
     // Patronus needs its service (`session_start` refuses where there is none), a push into the target does not
     let (mut host, mut run) = pull_request_start(services, sessions, key).await?;

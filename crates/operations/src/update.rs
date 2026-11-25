@@ -14,7 +14,9 @@
 //! `Registry::cancel` stops (`canceled`, nothing changed but the fetch). The sync that shows what the fetch and the move
 //! changed is asked last (`SyncReason::AfterRewrite`), after every update whose fetch finished, and the operation ends
 //! with that request: a rewrite queued behind it runs beside that sync, and an operation that plans on the table (a
-//! start, a push) waits for it (`Sessions::after_writes`), as it rebuilds the branches they push. The answer of an applied update comes once that
+//! start, a push) waits for it (`Sessions::after_writes`), as it rebuilds the branches they push. A start and a restart
+//! wait behind the update from its admission on, its fetch too (`registry::Ahead::head_and_update`): the update answers
+//! before its sync ends, and the wait for the sync of the writes after it is the one for that sync. The answer of an applied update comes once that
 //! sync ended (`Outcome::version_after`), its undo the token `update:<previous>..<new>` (`UndoKind::Update`). The fetch
 //! is the first effect: a failure from it on is the failed effect of an outcome, the effects after it skipped.
 

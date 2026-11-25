@@ -1,14 +1,16 @@
-//! The prologue shared by operations whose plans depend on the session's branches: wait for earlier rewrites, then for
+//! The prologue shared by operations whose plans depend on the session's branches: wait for earlier rewrites (a start, a
+//! restart: and an Update Project, its fetch too), then for
 //! the sync of the writes of the session (`Sessions::after_writes`: the one an Update Project, a rewrite or a fetch asked
 //! as it ended, which moves the branches the plan pushes), and for any running sync where the caller's plan depends on
 //! what a sync reads besides, before deciding again on those facts.
 
 use crate::engine::Hosts;
-use crate::registry::RunningGuard;
-use domain_types::error::ApiError;
-use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationStep, Outcome, Resource};
+use crate::registry::{Ahead, RunningGuard};
+use domain_types::error::{ApiError, ErrorCode};
+use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationStep, Outcome};
 use domain_types::session::{SyncReason, SyncState};
 use repository_model::session::{SessionKey, Sessions};
+use std::sync::atomic::Ordering;
 use tracing::debug;
 
 /// What an operation found while waiting for facts that can change its plan
@@ -31,10 +33,18 @@ pub enum SyncWait {
   Writes,
 }
 
-/// Waits behind operations holding `resources`, then for the syncs `sync` names; the operation's admission may have
-/// queued too. A sync asked later is not waited for
-pub async fn wait_for_facts(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, resources: Vec<Resource>, sync: SyncWait) -> Waited {
-  let behind = guard.wait_behind(resources, OperationStep::Checking).await;
+/// Waits behind the operations `ahead` of it (`RunningGuard::wait_behind`), then for the syncs `sync` names; the
+/// operation's admission may have queued too. A sync asked later is not waited for. Behind an Update Project the wake-up
+/// comes with its answer, which an applied update sends before its sync ends: the wait for the sync of the writes after
+/// it is the one for the branches that sync rebuilds, as the update asked it before its answer
+///
+/// # Errors
+/// `canceled` once the user stopped the wait behind the operations ahead of it: nothing was done
+pub async fn wait_for_facts(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, ahead: Ahead, sync: SyncWait) -> Result<Waited, ApiError> {
+  let behind = guard.wait_behind(ahead, OperationStep::Checking).await;
+  if guard.canceled().load(Ordering::SeqCst) {
+    return Err(ApiError::new(ErrorCode::Canceled, "The wait for the operations before it was stopped; nothing was done"));
+  }
   let stepper = guard.stepper();
   let running = match sync {
     SyncWait::Running => wait_for_running_sync(sessions, key, &stepper).await,
@@ -42,10 +52,10 @@ pub async fn wait_for_facts(sessions: &Sessions, key: &SessionKey, guard: &Runni
   };
   // a write asked while a focus check ran, or as the follow-up of a run no write asked: the running sync may not be it
   let writes = wait_for_writes(sessions, key, &stepper).await;
-  Waited {
+  Ok(Waited {
     waited: behind || running.waited || writes.waited || guard.queued(),
     failed: writes.failed.or(running.failed),
-  }
+  })
 }
 
 /// Waits for the sync of the writes of the session of `key` that has not ended (`Sessions::after_writes`), with the

@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useClosePreview } from "@/hooks/useClosePreview"
-import { useOperationWords } from "@/hooks/useOperationWords"
+import { useOperationWords, useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import type { ActionId } from "@/lib/bindings"
@@ -20,6 +20,7 @@ import { transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { getStartActionItems } from "@/presenters/actions"
+import { presentOperationBusy } from "@/presenters/operations"
 import type { Branch } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
 import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
@@ -114,8 +115,11 @@ export function SafePushButton({
   const blocker = step?.safePushBlocker ?? null
   const disabled = blocker !== null || starting !== null
   const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
-  // whom its wait for the repository lock is for, as the view names the holder: every window says it
-  const waiting = starting?.waitingFor ?? null
+  // whom its wait for the repository lock is for, as the view names the holder, or the operation it waits behind in the
+  // queue ("Queued behind Updating the project"): every window says it
+  const queued = starting?.queued ?? null
+  const queueWords = useOperationWordsWhile(queued !== null)
+  const waiting = starting?.waitingFor ?? (queued === null ? null : presentOperationBusy(queued, queueWords))
   // another process runs the start (an agent's `brd safe-push`): its words take the place of its step
   const elsewhere = starting?.by ?? null
   // a start whose answer was lost: its actions beside the slot, as Rust offers them

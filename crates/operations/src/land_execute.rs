@@ -51,7 +51,7 @@ use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::github_stack::stack_writes;
 use domain_policy::holds::is_active;
 use domain_types::RemoteStatusUpdate;
-use domain_types::branch_names::{review_branch_names, to_final_branch_name};
+use domain_types::branch_names::{BranchKind, managed_branch_kind, review_branch_names, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{BaselinePush as PushedCopy, Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
@@ -66,6 +66,7 @@ use domain_types::repository_view::HoldKind;
 use domain_types::session::Version;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::rebuilt_branch::{MovedBranch, rebuilt_with_the_same_commits};
 use github::service::GitHubService;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLocked, lock_repository_in};
 use patronus::service::PatronusService;
@@ -1358,9 +1359,9 @@ impl Run<'_> {
     landed
   }
 
-  /// Before the start, once: a pushed branch that moved since its push (a rewrite after the lock), a robot of what it
-  /// lands that started meanwhile, a pull request of the comment that closed skip it (`plan_changed`); and the user
-  /// stopped it
+  /// Before the start, once: a pushed branch that moved since its push to other commits (a rewrite after the lock, not a
+  /// rebuild of the same commits onto another base: `changed_since_the_push`), a robot of what it lands that started
+  /// meanwhile, a pull request of the comment that closed skip it (`plan_changed`); and the user stopped it
   async fn before_start(&mut self) -> Option<EffectStatus> {
     if std::mem::replace(&mut self.checked, true) {
       return None;
@@ -1369,19 +1370,18 @@ impl Run<'_> {
       return Some(self.skip(canceled()));
     }
     if let Some(sent) = &self.pushed {
-      let tips: BTreeMap<String, Option<String>> = sent
+      let pushed: Vec<(String, String)> = sent
         .prepared
         .branches()
         .iter()
-        .map(|branch| (format!("refs/heads/{}", branch.push.full_name), Some(branch.push.tip.clone())))
+        .map(|branch| (format!("refs/heads/{}", branch.push.full_name), branch.push.tip.clone()))
         .collect();
-      let names: Vec<String> = tips.keys().cloned().collect();
       let (git, path) = (self.services.git.clone(), self.services.repository_path.clone());
-      match blocking(move || read_refs(&git, &path, &names).map_err(git_failure)).await {
+      let (baseline, prefix) = (self.services.push.baseline.clone(), self.services.prefix.clone());
+      match blocking(move || changed_since_the_push(&git, &path, (&baseline, &prefix), &pushed)).await {
         Err(error) => return Some(self.fail(error)),
-        Ok(read) if read != tips => {
-          let moved: Vec<String> = read.iter().filter(|(name, tip)| tips.get(*name) != Some(tip)).map(|(name, _)| short(name)).collect();
-          let changed = changed_before_start(&format!("{} changed after the push", moved.join(", ")), &self.planned.plan);
+        Ok(changed) if !changed.is_empty() => {
+          let changed = changed_before_start(&format!("{} changed after the push", changed.join(", ")), &self.planned.plan);
           return Some(self.skip(changed));
         }
         Ok(_) => {}
@@ -1415,6 +1415,53 @@ impl Run<'_> {
     }
     None
   }
+}
+
+/// The branches of a push that changed since it (`pushed`: each ref with the commit it pushed, parents first), by their
+/// short names: one `for-each-ref` of their tips; while some moved, one `rev-list` of the moved virtual branches and one
+/// of each moved stack branch of a whole stack (`git_ops::rebuilt_branch`) above `baseline`. A branch rebuilt onto
+/// another base with the same commits (the sync of an Update Project onto the new baseline) changed nothing the start
+/// lands, which lands the pushed commits: the remote status has the remote branch up to date with it. All the moved
+/// branches of a group that is no such rebuild changed, and one deleted
+fn changed_since_the_push(git: &GitCommandExecutor, path: &str, (baseline, prefix): (&str, &str), pushed: &[(String, String)]) -> Result<Vec<String>, ApiError> {
+  let names: Vec<String> = pushed.iter().map(|(name, _)| name.clone()).collect();
+  let read = read_refs(git, path, &names).map_err(git_failure)?;
+  let moved: Vec<(&str, MovedBranch)> = pushed
+    .iter()
+    .filter_map(|(name, tip)| {
+      let now = read.get(name).cloned().flatten();
+      (now.as_ref() != Some(tip)).then(|| {
+        let moved = MovedBranch {
+          pushed: tip.clone(),
+          now: now.unwrap_or_default(),
+        };
+        (name.as_str(), moved)
+      })
+    })
+    .collect();
+  if moved.is_empty() {
+    return Ok(Vec::new());
+  }
+  let names = |group: &[(&str, MovedBranch)]| group.iter().map(|(name, _)| short(name)).collect::<Vec<_>>();
+  if moved.iter().any(|(_, branch)| branch.now.is_empty()) {
+    return Ok(names(&moved));
+  }
+  let is_stack = |name: &str| name.strip_prefix("refs/heads/").and_then(|name| managed_branch_kind(name, prefix)) == Some(BranchKind::Stack);
+  let (stacks, branches): (Vec<_>, Vec<_>) = moved.into_iter().partition(|(name, _)| is_stack(name));
+  let mut changed = Vec::new();
+  for group in std::iter::once(branches)
+    .chain(stacks.into_iter().map(|stack| vec![stack]))
+    .filter(|group| !group.is_empty())
+  {
+    let tips: Vec<MovedBranch> = group.iter().map(|(_, branch)| branch.clone()).collect();
+    if !rebuilt_with_the_same_commits(git, path, baseline, &tips).map_err(git_failure)? {
+      changed.extend(names(&group));
+    }
+  }
+  if changed.is_empty() {
+    debug!("the pushed branches were rebuilt onto another base with the same commits: the start lands the pushed commits");
+  }
+  Ok(changed)
 }
 
 /// The first 7 characters of a commit id, as a message names it

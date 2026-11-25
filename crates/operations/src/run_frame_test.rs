@@ -2,7 +2,7 @@ use super::{SyncWait, wait_for_facts};
 use crate::engine::run;
 use crate::events::NoEvents;
 use crate::push::push_test::{Fixture, fixture, registry_on, test_host};
-use crate::registry::{Answer, OperationRequest};
+use crate::registry::{Ahead, Answer, OperationRequest};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::operation::{Intent, OperationStep, Resource};
 use domain_types::repository_view::PatronusView;
@@ -102,7 +102,7 @@ fn operation_waiting_for_facts(fixture: &Fixture, sync: SyncWait) -> (impl Futur
   let sessions = Arc::clone(fixture.registry.sessions());
   let key = fixture.key.clone();
   let operation = run(&fixture.registry, &fixture.key, request(Intent::FetchBaseline), Arc::new(NoEvents), async move |guard| {
-    let waited = wait_for_facts(&sessions, &key, guard, vec![Resource::Head], sync).await;
+    let waited = wait_for_facts(&sessions, &key, guard, Ahead::head(), sync).await?;
     reported.send(waited.waited).expect("the test is waiting for the result");
     Err(ApiError::new(ErrorCode::Canceled, "test operation complete"))
   });

@@ -39,7 +39,7 @@
 use crate::engine::{Hosts, outcome_of, run, runs_only_in_bd};
 use crate::events::EventSink;
 use crate::land_session::when_session_answers;
-use crate::registry::{Answer, OperationRequest, Registry, RunningGuard, Stepper};
+use crate::registry::{Ahead, Answer, OperationRequest, Registry, RunningGuard, Stepper};
 use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::{Witness, plan_changed, read_refs, under_its_lease};
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability};
@@ -354,7 +354,7 @@ async fn fixed_on_fresh_needs(sessions: &Arc<Sessions>, key: &SessionKey, guard:
     return Err(changed("what the start needs changed: nothing needs this fix any more"));
   }
   guard.hold(vec![Resource::Head], OperationStep::Checking).await?;
-  let _ = wait_for_facts(sessions, key, guard, Vec::new(), SyncWait::Running).await;
+  wait_for_facts(sessions, key, guard, Ahead::default(), SyncWait::Running).await?;
   match sessions.read(key, stands).await.flatten() {
     Some(true) => Ok(()),
     Some(false) => Err(changed("what the start needs changed: nothing needs this fix any more")),

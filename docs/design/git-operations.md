@@ -3924,8 +3924,7 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   parents, read with the branch): the tree the copy gets, its message and its author keep that commit, `unchanged`,
   and its note is written anew. A fold, a squash, a drop or a reword below the original gives it new trees and a new
   committer and carries no note to it (see "Squash"), while what its copy holds stays; written again, the copy
-  would get a newer date and a new id, a push of the same commits, and a Safe Push that raced the rewrite would start
-  no robot (`plan_changed`, "changed after the push"). The check costs the merge the copy runs anyway, no process more
+  would get a newer date and a new id and a push of the same commits. The check costs the merge the copy runs anyway, no process more
   (`process_budget_test::a_sync_after_a_fold_below_a_branch_writes_only_the_folded_branch`). With
   `commit.gpgsign` only a note says that a copy is signed, so a commit without one is copied again.
 - **Deterministic copies.** The committer date is the newest committer date of the original, the originals below it
@@ -5174,7 +5173,12 @@ data of the code (the refusals of the gate, `ErrorDetails::Landing`; the commit 
    (one that finished meanwhile is done as it is: the facts, or its status, one request, say so), the push of the
    frozen commits (its end into the session), then the
    late witness of the pushed branches (one `for-each-ref`: a branch a rewrite moved since its push skips the start as
-   `plan_changed`, the outcome naming the cancel and the push it made), the robots and the pull requests the facts hold
+   `plan_changed`, the outcome naming the cancel and the push it made; but a branch rebuilt onto another base with the
+   same commits, as the sync of an Update Project rebuilds it onto the new baseline, lets it go on the pushed commits:
+   one `rev-list --left-right --cherry-mark` of the moved virtual branches above the baseline, and one of each moved
+   stack branch of a whole stack, `git_ops::rebuilt_branch`, finds the same patches in the same order, each with the
+   author, time and message of its pushed commit, so the remote status has the remote branch up to date; a reorder of
+   two commits of one version is not told apart), the robots and the pull requests the facts hold
    now (no request: a robot of what it lands that started meanwhile, a pull request of the comment that closed, skip
    it too), and the start: through the API, or a `/patronus` comment whose reply is read on the clock of the session
    (`robot_start`, every 3 s for a minute; the app looks for the robot of an accepted comment every 15 s for 5 minutes
@@ -5197,7 +5201,8 @@ for left, while the user accepted every confirmation of it (`Accepted::decided_a
 creation of a pull request or a review request pressed while the push of its branch sends is one push, then its last
 effect; a plan that changed under a click without a wait is `plan_changed`, worded by what the user asked
 (`witness::plan_changed`: "What the push of auth was decided on changed before it began; nothing was done: push
-again"). A start waits for no sync but the sync of the writes of the session (`SyncWait::Writes`: the one an Update
+again"). A start waits behind an Update Project of the process admitted before it, its fetch too (but a start that
+pushes into the target), and for no sync but the sync of the writes of the session (`SyncWait::Writes`: the one an Update
 Project or a rewrite before it asked, which rebuilds the branch it lands), its target fetched meanwhile, once
 (`land_session::StartFetch`, onto which every check of the start replays), and the facts of its plan that the plan
 of the click had answered and that sync made the session read again (the review of the commits it rebuilt), within a

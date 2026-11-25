@@ -25,7 +25,7 @@ use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::pull_request_start;
-use crate::registry::{Answer, OperationRequest, Registry};
+use crate::registry::{Ahead, Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
 use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
@@ -737,7 +737,7 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
   }
   let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited);
+    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, Ahead::head(), SyncWait::Running).await?.waited);
     let start = pull_request_start(services, sessions, key).await?;
     // decided again once admitted: an operation it waited for changed what it decides on; what it holds more is held
     // before its first effect

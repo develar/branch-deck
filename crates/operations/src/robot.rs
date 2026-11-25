@@ -24,7 +24,7 @@ use crate::engine::{Holding, Replan, check_admitted, outcome_of, remote_holds, r
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
-use crate::registry::{Answer, OperationRequest, Registry};
+use crate::registry::{Ahead, Answer, OperationRequest, Registry};
 use crate::robot_start::patronus_failure;
 use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
@@ -363,7 +363,8 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
   let request = restart_request(robot_id, planned.as_ref());
   let mut holding = Holding::new(request.resources.clone());
   run(registry, key, request, events, async |guard| {
-    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running).await.waited);
+    // behind an Update Project through its fetch too: its sync rebuilds the branches the restart pushes
+    let mut replan = Replan::after(wait_for_facts(sessions, key, guard, Ahead::head_and_update(), SyncWait::Running).await?.waited);
     let start = session_start(services, sessions, key).await?;
     // decided again once admitted: an operation it waited for changed what it decides on; refused before its push and
     // its restart where the session offers the restart not; what the plan holds more than its admission (a robot the

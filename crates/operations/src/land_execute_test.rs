@@ -375,15 +375,7 @@ async fn a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_wh
   let frozen = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
   let rewritten = fixture.repo.rev_parse("test/virtual/beta").unwrap();
   let host = Fixture::host(fixture.planned(replace_and_start()));
-  let path = fixture.repo.path().to_path_buf();
-  let steps = Steps::new(
-    Arc::new(|_| {}),
-    Arc::new(move |_: &TransferProgress| {
-      let moved = git_command().args(["update-ref", ALPHA, &rewritten]).current_dir(&path).status().unwrap();
-      assert!(moved.success());
-    }),
-    Arc::new(AtomicBool::new(false)),
-  );
+  let steps = moving_while_the_push_sends(&fixture.repo, vec![(ALPHA, rewritten)]);
   let started = fixture.run(&host, &steps).await.unwrap();
   let [canceled, pushed, start] = statuses(&started).try_into().unwrap();
   assert_eq!((canceled, pushed), (&EffectStatus::Done, &EffectStatus::Done));
@@ -392,6 +384,55 @@ async fn a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_wh
     "{start:?}"
   );
   assert_eq!((fixture.remote_alpha(), fixture.starts()), (Some(frozen), 0));
+}
+
+/// The steps of a start that move each of `refs` of `repo` to its commit while the push sends (at each tick of its
+/// progress), after the lock
+fn moving_while_the_push_sends(repo: &TestRepo, refs: Vec<(&'static str, String)>) -> Steps {
+  let path = repo.path().to_path_buf();
+  Steps::new(
+    Arc::new(|_| {}),
+    Arc::new(move |_: &TransferProgress| {
+      for (name, tip) in &refs {
+        let moved = git_command().args(["update-ref", name, tip]).current_dir(&path).status().unwrap();
+        assert!(moved.success());
+      }
+    }),
+    Arc::new(AtomicBool::new(false)),
+  )
+}
+
+/// The commit of `alpha` copied onto a new commit of the baseline, with its author, time and message, as the sync of an
+/// Update Project rebuilds it: the new baseline and the copy, not on any ref yet
+fn alpha_rebuilt_on_a_new_baseline(repo: &TestRepo) -> (String, String) {
+  let base = repo.git(&["commit-tree", "origin/master^{tree}", "-p", "origin/master", "-m", "Upstream change"]);
+  let author = repo.git(&["log", "-1", "--format=%an%x00%ae%x00%ad", "--date=raw", "test/virtual/alpha"]);
+  let [name, email, date] = author.split('\0').collect::<Vec<_>>().try_into().unwrap();
+  let message = repo.git(&["log", "-1", "--format=%B", "test/virtual/alpha"]);
+  let env = [("GIT_AUTHOR_NAME", name), ("GIT_AUTHOR_EMAIL", email), ("GIT_AUTHOR_DATE", date)];
+  let output = git_command()
+    .args(["commit-tree", "test/virtual/alpha^{tree}", "-p", &base, "-m", &message])
+    .envs(env)
+    .current_dir(repo.path())
+    .output()
+    .unwrap();
+  assert!(output.status.success(), "{output:?}");
+  (base, String::from_utf8(output.stdout).unwrap().trim().to_owned())
+}
+
+/// The sync of an Update Project rebuilds the virtual branch onto the new baseline while its push sends: the same
+/// commits on another base, so the start goes on, its robot on the commit the push sent
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rebuild_onto_a_new_baseline_while_the_push_sends_starts_on_the_pushed_commits() {
+  let fixture = fixture().await;
+  let frozen = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
+  let (base, copy) = alpha_rebuilt_on_a_new_baseline(&fixture.repo);
+  let host = Fixture::host(fixture.planned(replace_and_start()));
+  let steps = moving_while_the_push_sends(&fixture.repo, vec![("refs/remotes/origin/master", base), (ALPHA, copy.clone())]);
+  let started = fixture.run(&host, &steps).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done, &EffectStatus::Done]);
+  assert_eq!(fixture.repo.rev_parse("test/virtual/alpha").unwrap(), copy, "rebuilt");
+  assert_eq!((fixture.remote_alpha(), fixture.starts()), (Some(frozen), 1));
 }
 
 /// What refuses a start before its first effect does nothing: a fingerprint the plan no longer has, a ref that moved

@@ -1,12 +1,14 @@
-use crate::events::EventSink;
+use crate::engine::run;
+use crate::events::{EventSink, NoEvents};
 use crate::journal::read;
 use crate::land_execute::Accepted;
 use crate::push::push_test::{AGENT_PUSH, OFFLINE, TestLease, host_under, registry_of, registry_on, sync_as_another_process};
-use crate::registry::Registry;
 use crate::registry::registry_test::{Heard, operations_until, view_operations};
+use crate::registry::{Ahead, OperationRequest, Registry};
 use crate::rewrite::execute_rewrite;
+use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::update::{execute_dismiss, execute_fetch, execute_update};
-use domain_types::error::ErrorCode;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, RunningOperation};
@@ -101,6 +103,20 @@ impl Fixture {
   /// The fetch lock, held by the test as an agent's `brd update` that fetches the baseline holds it
   fn hold_the_fetch(&self) -> RepositoryLock {
     hold_fetch_as_another_process(&self.clone.path().join(".git"), "refs/remotes/origin/master", "brd update").unwrap()
+  }
+
+  /// An applied update whose fetch waits for the fetch lock the test holds, beside `during`, which runs once that fetch
+  /// waits and drops the lock it gets: what `during` answered
+  async fn update_during<T>(&self, during: impl AsyncFnOnce(RepositoryLock) -> T) -> T {
+    let held = self.hold_the_fetch();
+    let heard = Arc::new(Heard::default());
+    let during = async {
+      self.until(|operations| operation_of(operations, &Intent::FetchBaseline).is_some()).await;
+      during(held).await
+    };
+    let (updated, answer) = tokio::join!(self.update(true, &heard), during);
+    assert!(matches!(updated.result, OperationResult::Update(_)), "{updated:?}");
+    answer
   }
 
   /// The repository lock, held by the test as another process holds it (an agent's push)
@@ -290,21 +306,18 @@ async fn an_update_during_a_fetch_goes_on_from_that_fetch() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rewrite_during_the_fetch_of_an_update_runs_at_once_and_the_update_moves_what_it_left() {
   let fixture = fixture().await;
-  let held = fixture.hold_the_fetch();
-  let heard = Arc::new(Heard::default());
-  let during = async {
-    fixture.until(|operations| operation_of(operations, &Intent::FetchBaseline).is_some()).await;
-    let moved = fixture.move_button_into_auth().await;
-    assert!(matches!(moved.result, OperationResult::Rewrite(_)), "{moved:?}");
-    assert_eq!(
-      fixture.clone.git(&["rev-parse", "HEAD~2"]),
-      fixture.upstream.git(&["rev-parse", "HEAD~1"]),
-      "not updated yet"
-    );
-    drop(held);
-  };
-  let (updated, ()) = tokio::join!(fixture.update(true, &heard), during);
-  assert!(matches!(updated.result, OperationResult::Update(_)), "{updated:?}");
+  fixture
+    .update_during(async |held| {
+      let moved = fixture.move_button_into_auth().await;
+      assert!(matches!(moved.result, OperationResult::Rewrite(_)), "{moved:?}");
+      assert_eq!(
+        fixture.clone.git(&["rev-parse", "HEAD~2"]),
+        fixture.upstream.git(&["rev-parse", "HEAD~1"]),
+        "not updated yet"
+      );
+      drop(held);
+    })
+    .await;
   assert_eq!(fixture.subjects(), ["(auth) Add button", "(auth) Add login"]);
   assert_eq!(fixture.clone.git(&["rev-parse", "HEAD~2"]), fixture.upstream.head());
 }
@@ -919,4 +932,86 @@ async fn a_start_whose_branch_another_process_rebuilt_lands_that_build_after_the
   assert_ne!(repo.rev_parse("test/virtual/alpha").unwrap(), before, "the other process rebuilt the branch");
 
   assert_lands_the_rebuild(&repo, (&registry, &key), start).await;
+}
+
+/// An operation of the test of `intent`, holding nothing, that waits for its facts behind the operations `ahead` of it
+/// as a start does (`run_frame::wait_for_facts`, `SyncWait::Writes`): whether it waited and the HEAD of the table it
+/// would decide on then, or how its wait ended
+async fn waiting_for_facts(fixture: &Fixture, intent: Intent, ahead: Ahead) -> Result<(bool, Option<String>), ApiError> {
+  let sessions = Arc::clone(fixture.registry.sessions());
+  let key = fixture.key.clone();
+  let request = OperationRequest {
+    intent,
+    resources: Vec::new(),
+    step: OperationStep::Checking,
+    moves: Vec::new(),
+  };
+  let mut seen = None;
+  let answer = run(&fixture.registry, &fixture.key, request, Arc::new(NoEvents), async |guard| {
+    let waited = wait_for_facts(&sessions, &key, guard, ahead, SyncWait::Writes).await?;
+    seen = Some((waited.waited, sessions.read(&key, |state, _| state.header().head.clone()).await));
+    Err(ApiError::new(ErrorCode::Canceled, "the operation of the test ends"))
+  })
+  .await;
+  match (seen, answer) {
+    (Some(seen), _) => Ok(seen),
+    (None, Err(error)) => Err(error),
+    (None, Ok(outcome)) => panic!("{outcome:?}"),
+  }
+}
+
+/// The start of auth, its operation `Queued` behind the update among `operations`
+fn queued_behind_the_update(operations: &[RunningOperation], start: &Intent) -> bool {
+  let update = operations.iter().find(|operation| matches!(operation.intent, Intent::UpdateProject { .. }));
+  update.is_some_and(|update| operation_of(operations, start).is_some_and(|it| it.step == OperationStep::Queued { behind: update.id.clone() }))
+}
+
+/// A start pressed during the fetch of an update, which holds no HEAD then, waits behind the update in the queue (its
+/// step `Queued` behind it), not only behind its check: it decides on the table of the sync the update asked, which
+/// rebuilt its branches onto the new baseline, never on the table before the update. A push of a branch, which waits
+/// only behind the holders of HEAD, runs during the fetch at once
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_during_the_fetch_of_an_update_waits_for_it_and_decides_on_the_table_of_its_sync() {
+  let fixture = fixture().await;
+  let before = fixture.clone.head();
+  let start = land_intent("auth", PatronusPushMode::RebaseAutosquash);
+  let (waited, head) = fixture
+    .update_during(async |held| {
+      let pushed = waiting_for_facts(&fixture, land_intent("ui", PatronusPushMode::DryRun), Ahead::head()).await.unwrap();
+      assert_eq!(pushed, (false, Some(before.clone())), "a push waits for no fetch");
+      let release = async {
+        fixture.until(|operations| queued_behind_the_update(operations, &start)).await;
+        assert_eq!(fixture.clone.head(), before, "nothing moved before the fetch went");
+        drop(held);
+      };
+      let (seen, ()) = tokio::join!(waiting_for_facts(&fixture, start.clone(), Ahead::head_and_update()), release);
+      seen.unwrap()
+    })
+    .await;
+  assert_ne!(fixture.clone.head(), before, "the update moved the branch");
+  assert!(waited);
+  assert_eq!(head, Some(fixture.clone.head()), "the table of the sync of the update");
+}
+
+/// Stop (`Registry::cancel`) ends the wait of a start behind the fetch of an update: the start is `canceled`, nothing
+/// done, and the update goes on
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_ends_the_wait_of_a_start_behind_the_fetch_of_an_update() {
+  let fixture = fixture().await;
+  let before = fixture.clone.head();
+  let start = land_intent("auth", PatronusPushMode::RebaseAutosquash);
+  fixture
+    .update_during(async |held| {
+      let stop = async {
+        let operations = fixture.until(|operations| queued_behind_the_update(operations, &start)).await;
+        assert!(fixture.registry.cancel(&operation_of(&operations, &start).unwrap().id));
+      };
+      let (stopped, ()) = tokio::join!(waiting_for_facts(&fixture, start.clone(), Ahead::head_and_update()), stop);
+      let error = stopped.unwrap_err();
+      assert_eq!(error.code, ErrorCode::Canceled, "{error:?}");
+      assert_eq!(fixture.clone.head(), before, "stopped during the fetch");
+      drop(held);
+    })
+    .await;
+  assert_ne!(fixture.clone.head(), before, "the update went on");
 }

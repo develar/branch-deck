@@ -117,7 +117,11 @@ operations over the actions the surfaces offer.
    request pushes first, which may retarget it too.
 4. **A rewrite and a remote action run side by side**, but a push: it waits behind the rewrites of the process admitted
    before it (`RunningGuard::wait_behind`, its step `Queued`, holding no HEAD, so a rewrite after it runs at once) and
-   for the sync they end with, then is decided again on what they left: it sends the branches as they leave them.
+   for the sync they end with, then is decided again on what they left: it sends the branches as they leave them. A
+   start and a restart wait so behind an Update Project admitted before them also while it fetches and holds nothing
+   (`registry::Ahead::head_and_update`): its sync rebuilds the branches they push. The wake-up is the answer of the
+   update, which comes before that sync ends; the wait for the sync of the writes after it is the wait for it. Stop
+   (`cancel_operation`) ends a wait in the queue: the operation is `canceled`, nothing done.
 5. **A plan decided once admitted runs on what its operation holds** (`engine::Holding::cover`): a start (each of its
    plans, the one after an update of its baseline too), a push, a pull request intent (creation, review request, link
    of a stack), a restart and a close are admitted at once with what their plan as the session has it needs, by one
@@ -317,8 +321,10 @@ Update Project (⌘T, `runUpdateProject`), the Fetch of a merge toast (`runFetch
 - **The fetch** is the operation `FetchBaseline`, holding the tracking ref of the baseline: a Fetch of any window
   during the fetch of an update joins it, and the fetch of an update during a Fetch joins that one, so one transfer
   serves both; the fetch lock joins a fetch of another process (an agent's `brd update`).
-- **The update** holds nothing while its fetch runs, so a park, an Unstack or an Undo during the network runs at once;
-  then it holds HEAD (`Resource::Head`, `RunningGuard::hold`): it waits behind the rewrites of the process before it
+- **The update** holds nothing while its fetch runs, so a park, an Unstack or an Undo during the network runs at once,
+  and so does a push; a start or a restart pressed then waits behind the update all the same (its Safe Push slot
+  "Queued behind Updating the project", with Stop), as its sync rebuilds what they push (Conflicts, 4), but a start that pushes into the target, which
+  holds the tracking ref the fetch needs and updates after its push itself. Then it holds HEAD (`Resource::Head`, `RunningGuard::hold`): it waits behind the rewrites of the process before it
   (its step `queued`, the run's `waiting`), and a rewrite pressed during its check or its move waits behind it, never
   refused. A second ⌘T joins it. Its check runs before the repository lock, its wait for another holder is its step
   `waitingForLock`, stopped by `cancel_operation`.

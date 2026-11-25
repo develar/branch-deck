@@ -128,11 +128,7 @@ pub fn ids_by_key<'a>(git_executor: &GitCommandExecutor, repository_path: &str, 
 pub fn walk_commits_with_messages(git_executor: &GitCommandExecutor, repository_path: &str, options: &[&str], revs: &[&str]) -> Result<Vec<(WalkedCommit, String)>> {
   let output = git_executor.cmd(&walk_args(MESSAGE_WALK_FORMAT, options, revs), repository_path).bytes()?;
   Ok(
-    String::from_utf8_lossy(&output)
-      .split('\x01')
-      // the newline rev-list ends each commit's format with
-      .map(|record| record.trim_start_matches('\n'))
-      .filter(|record| !record.is_empty())
+    walk_records(&String::from_utf8_lossy(&output))
       .filter_map(|record| {
         let (fields, message) = record.rsplit_once('\0')?;
         Some((parse_line(fields)?, message.to_string()))
@@ -141,8 +137,14 @@ pub fn walk_commits_with_messages(git_executor: &GitCommandExecutor, repository_
   )
 }
 
+/// The records of a walk whose format ends each commit by `\x01`, which no message holds, without the newline rev-list
+/// ends each commit's format with
+pub(crate) fn walk_records(output: &str) -> impl Iterator<Item = &str> {
+  output.split('\x01').map(|record| record.trim_start_matches('\n')).filter(|record| !record.is_empty())
+}
+
 /// `rev-list` with `format`: the revs follow `--end-of-options` and come before `--`
-fn walk_args<'a>(format: &'a str, options: &[&'a str], revs: &[&'a str]) -> Vec<&'a str> {
+pub(crate) fn walk_args<'a>(format: &'a str, options: &[&'a str], revs: &[&'a str]) -> Vec<&'a str> {
   let mut args = vec!["rev-list", "--no-commit-header", format];
   args.extend_from_slice(options);
   args.push("--end-of-options");

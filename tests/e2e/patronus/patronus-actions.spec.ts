@@ -52,7 +52,7 @@ import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip, resizeReportsDelivered, waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -429,6 +429,20 @@ async function safePushWhileLocked(page: Page, setupRepo: Parameters<typeof setu
 async function expectJiraStarted(page: Page, repo: TestRepositoryBuilder, patch: Parameters<typeof startRequest>[1] = {}): Promise<void> {
   await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
   expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456", patch)])
+}
+
+/** Someone landed a change into the master of the remote, which the user's master lacks */
+async function landIntoMaster(repo: TestRepositoryBuilder): Promise<void> {
+  await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+}
+
+/** Update Project pressed, then the Safe Push of JIRA-456 while the update is at `step`: both went to the session */
+async function safePushDuringUpdate(page: Page, step: "waiting" | "fetch"): Promise<void> {
+  const executions = await recordCommand(page, "execute")
+  await page.getByTestId("update-project-button").click()
+  await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", step)
+  await slotSafePush(page, "JIRA-456").click()
+  await expect.poll(() => executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject", "land"])
 }
 
 /** The source branches of the starts that reached the fake Patronus, in order */
@@ -1190,16 +1204,11 @@ test.describe("Patronus actions", () => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     const before = await repo.revision(virtualBranch("JIRA-456"))
     // someone landed a change into master; an agent holds the repository lock, so Update Project waits for it holding HEAD
-    await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+    await landIntoMaster(repo)
     await repo.holdRepositoryLock(true)
-    const executions = await recordCommand(page, "execute")
-    await page.getByTestId("update-project-button").click()
-    await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "waiting")
-
     // the click meanwhile goes to the session: the start waits behind the update, then for the sync the update asks,
     // which rebuilds JIRA-456 onto the new master (held here): nothing is pushed or started on the build before it
-    await slotSafePush(page, "JIRA-456").click()
-    await expect.poll(() => executions.map(call => (call.intent as { kind: string }).kind)).toEqual(["updateProject", "land"])
+    await safePushDuringUpdate(page, "waiting")
     await repo.holdRemoteAnswers({ hold: ["sync"] })
     await repo.holdRepositoryLock(false)
     await repo.arrival("sync")
@@ -1210,6 +1219,56 @@ test.describe("Patronus actions", () => {
     await expectJiraStarted(page, repo)
     expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(before)
     await expectPushedToRemote(repo, ["JIRA-456"])
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  })
+
+  test("should start the Safe Push pressed during the fetch of Update Project once its sync rebuilt the branch: one push of the rebuilt branch, one start", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const before = await repo.revision(virtualBranch("JIRA-456"))
+    // someone landed a change into master; an agent's `brd update` fetches the baseline, so the fetch of Update Project
+    // waits for it, holding no HEAD yet
+    await landIntoMaster(repo)
+    await repo.holdFetchLock(true)
+    // the click goes to the session: the start waits behind the update through its fetch, its row says so
+    await safePushDuringUpdate(page, "fetch")
+    const slot = slotSafePush(page, "JIRA-456")
+    await expect(slot).toHaveAttribute("aria-busy", "true")
+    await expect(slot).toHaveAccessibleName("Queued behind Updating the project")
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+
+    // the fetch goes, the update rebuilds JIRA-456 onto the new master, and the start pushes that build once and starts
+    await repo.holdFetchLock(false)
+    await expectJiraStarted(page, repo)
+    expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(before)
+    await expectPushedToRemote(repo, ["JIRA-456"])
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
+    await expect(toastWith(page, "Cannot start")).toHaveCount(0)
+  })
+
+  test("should start the Safe Push whose branch Update Project rebuilt onto the new master while its push sent, on the pushed commits", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const pushed = await repo.revision(virtualBranch("JIRA-456"))
+    const pushes = await holdRemotePushes(repo)
+    await slotSafePush(page, "JIRA-456").click()
+    await pushes.arrived()
+
+    // Update Project while the push sends: its sync rebuilds JIRA-456 onto the new master, the same commits
+    await landIntoMaster(repo)
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
+    expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(pushed)
+
+    // the push ends: the start goes on with the pushed commits, no "Cannot start"
+    await pushes.release()
+    await expectJiraStarted(page, repo)
+    expect((await repo.getRemoteBranches())[virtualBranch("JIRA-456")]).toEqual(pushed)
     await expect(toastWith(page, "Cannot start")).toHaveCount(0)
   })
 

@@ -76,6 +76,8 @@
 //!
 //! Safe Push:
 //! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
+//! - `rebuilt_branch`: whether branches that moved since their push are the pushed commits rebuilt onto another base,
+//!   which a start lands as it pushed them
 //!
 //! The network:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch, `git lfs`), whose variants with
@@ -135,6 +137,7 @@ pub mod pick;
 pub mod push_contents;
 pub mod pushed_tracking;
 pub mod reapply;
+pub mod rebuilt_branch;
 pub mod ref_transaction;
 pub mod remote_command;
 pub mod replay;
