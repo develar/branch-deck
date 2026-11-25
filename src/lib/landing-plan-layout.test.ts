@@ -63,6 +63,11 @@ describe("edgeCurve", () => {
     expect(curve.middle).toEqual({ x: 150, y: 70 })
   })
 
+  it("meets the cards at the middle of their headers, whatever their height", () => {
+    const curve = edgeCurve({ left: 0, top: 0, width: 100, height: 40 }, { left: 200, top: 100, width: 100, height: 90 }, 18)
+    expect(curve.path).toBe("M100 18C150 18 150 118 200 118")
+  })
+
   it("bows out on the right of a card that waits in the same column", () => {
     const curve = edgeCurve({ left: 0, top: 0, width: 100, height: 40 }, { left: 0, top: 100, width: 100, height: 40 })
     expect(curve.path).toBe("M100 20C140 20 140 120 100 120")

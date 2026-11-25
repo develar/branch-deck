@@ -41,9 +41,16 @@ import type { ShownEdge } from "@/stores/landing-section"
 import { showLandingEdge, useShownEdge } from "@/stores/landing-section"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
-/** The narrowest column of a wave, and the room between two for the curves and their chips */
-const COLUMN_MIN_REM = 11
-const COLUMN_GAP_REM = 5
+/**
+ * The narrowest and the widest column of a wave, and the room between two for the curves and their chips: a plan of few
+ * units keeps its cards narrow and leaves the rest of the island empty, a frame hugs its pair; past the room of the
+ * island the columns keep their narrowest and the picture scrolls across
+ */
+const COLUMN_MIN_REM = 10
+const COLUMN_MAX_REM = 18
+const COLUMN_GAP_REM = 4.5
+/** The middle of the first line of a card from its top (its `py-2` and a 20px line): where the curves meet it */
+const HEADER_ANCHOR_PX = 18
 /** The padding of the picture inside its island, each side */
 const PADDING_REM = 1.5
 
@@ -99,7 +106,7 @@ function curvesOf(drawn: readonly DrawnEdge[], boxes: ReadonlyMap<string, PlanBo
   return drawn.flatMap(it => {
     const from = boxes.get(it.edge.from)
     const to = boxes.get(it.needed)
-    return from === undefined || to === undefined ? [] : [{ ...it, curve: edgeCurve(to, from) }]
+    return from === undefined || to === undefined ? [] : [{ ...it, curve: edgeCurve(to, from, HEADER_ANCHOR_PX) }]
   })
 }
 
@@ -163,16 +170,21 @@ function PlanCard({ plan, units, overview }: { plan: LandingPlan; units: Readonl
     }
   }, [shows, shownUnit, cards])
   const emphasized = hovered ?? (shownIndex === -1 ? null : shownIndex)
+  // the ends of the emphasized edge stay as they are, the rest fades
+  const emphasizedEdge = emphasized === null ? null : (plan.edges[emphasized] ?? null)
+  const ends = emphasizedEdge === null ? null : new Set([emphasizedEdge.from, unitOf.get(emphasizedEdge.needed) ?? emphasizedEdge.needed])
   const style: CSSProperties = {
-    gridTemplateColumns: `repeat(${layout.columns}, minmax(${COLUMN_MIN_REM}rem, 1fr))`,
+    gridTemplateColumns: `repeat(${layout.columns}, minmax(${COLUMN_MIN_REM}rem, ${COLUMN_MAX_REM}rem))`,
+    justifyContent: "start",
     gridTemplateRows: `auto repeat(${layout.rows}, auto)`,
     columnGap: `${COLUMN_GAP_REM}rem`,
     padding: `0.75rem ${PADDING_REM}rem`,
     minWidth: `${layout.columns * COLUMN_MIN_REM + (layout.columns - 1) * COLUMN_GAP_REM + 2 * PADDING_REM}rem`,
+    alignItems: "start",
   }
   return (
     <Card className="gap-0 py-0" data-testid="landing-plan-card">
-      <div className={cn("overflow-x-auto transition-opacity", plan.stale && "opacity-60")}>
+      <ScrollAcross dimmed={plan.stale}>
         <div ref={container} role="group" aria-label="Landing plan" className="relative grid gap-y-2" style={style}>
           {plan.waves.map((wave, column) => (
             <div
@@ -192,7 +204,15 @@ function PlanCard({ plan, units, overview }: { plan: LandingPlan; units: Readonl
             const proposal = plan.proposals[frame.pair]!
             const edge = plan.edges.find(it => proposalOf(it, [proposal]) !== undefined)
             return (
-              <ProposalFrame key={`frame:${proposal.from}`} proposal={proposal} edge={edge ?? null} columnStart={frame.columnStart} columnEnd={frame.columnEnd} row={frame.row} />
+              <ProposalFrame
+                key={`frame:${proposal.from}`}
+                proposal={proposal}
+                edge={edge ?? null}
+                columnStart={frame.columnStart}
+                columnEnd={frame.columnEnd}
+                row={frame.row}
+                faded={ends !== null && !(ends.has(proposal.from) && ends.has(proposal.ontoUnit))}
+              />
             )
           })}
           <EdgeCurves curves={curves} emphasized={emphasized} shownIndex={shownIndex} />
@@ -211,6 +231,7 @@ function PlanCard({ plan, units, overview }: { plan: LandingPlan; units: Readonl
                 edges={own}
                 drawn={drawnEdges}
                 shown={shownUnit === name}
+                faded={ends !== null && !ends.has(name)}
                 style={{ gridColumn: cell.column + 1, gridRow: cell.row + 2 }}
                 cardRef={element => {
                   if (element !== null) {
@@ -223,10 +244,50 @@ function PlanCard({ plan, units, overview }: { plan: LandingPlan; units: Readonl
               />
             )
           })}
-          <EdgeChips curves={curves} shownIndex={shownIndex} onHover={setHovered} />
+          <EdgeChips curves={curves} shownIndex={shownIndex} emphasized={emphasized} onHover={setHovered} />
         </div>
-      </div>
+      </ScrollAcross>
     </Card>
+  )
+}
+
+/**
+ * The picture's own scroller across, past the room of the island at the narrowest window: a fade at each side that has
+ * more says so, and the focus a key moves stays clear of the fades (`scroll-padding`), the browser scrolling it into view
+ */
+function ScrollAcross({ dimmed, children }: { dimmed: boolean; children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState<{ readonly left: boolean; readonly right: boolean }>({ left: false, right: false })
+  useLayoutEffect(() => {
+    const element = scroller.current
+    if (element === null) {
+      return
+    }
+    const read = () => {
+      const left = element.scrollLeft > 1
+      const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1
+      setMore(kept => (kept.left === left && kept.right === right ? kept : { left, right }))
+    }
+    read()
+    const sizes = observeSize(read)
+    sizes.observe(element)
+    if (element.firstElementChild !== null) {
+      sizes.observe(element.firstElementChild)
+    }
+    element.addEventListener("scroll", read, { passive: true })
+    return () => {
+      sizes.disconnect()
+      element.removeEventListener("scroll", read)
+    }
+  }, [])
+  return (
+    <div className="relative" data-testid="plan-scroll" data-more-left={more.left || undefined} data-more-right={more.right || undefined}>
+      <div ref={scroller} className={cn("scroll-px-10 overflow-x-auto overscroll-x-contain transition-opacity", dimmed && "opacity-60")}>
+        {children}
+      </div>
+      {more.left && <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-30 w-16 bg-linear-to-r from-card to-transparent" />}
+      {more.right && <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-30 w-16 bg-linear-to-l from-card to-transparent" />}
+    </div>
   )
 }
 
@@ -316,7 +377,17 @@ function EdgeCurves({ curves, emphasized, shownIndex }: { curves: readonly EdgeO
  * The chip of each drawn edge halfway along its curve: its evidence in a few words ("Effect, Input +3"), the whole edge
  * in its hover (the names, where the branch it needs stands, the files); a click shows it as a Status cell does
  */
-function EdgeChips({ curves, shownIndex, onHover }: { curves: readonly EdgeOnCurve[]; shownIndex: number; onHover: (index: number | null) => void }) {
+function EdgeChips({
+  curves,
+  shownIndex,
+  emphasized,
+  onHover,
+}: {
+  curves: readonly EdgeOnCurve[]
+  shownIndex: number
+  emphasized: number | null
+  onHover: (index: number | null) => void
+}) {
   return curves.map(({ edge, index, curve }) => {
     const { middle } = curve
     const sentence = describeEdge(edge)
@@ -331,6 +402,7 @@ function EdgeChips({ curves, shownIndex, onHover }: { curves: readonly EdgeOnCur
               className={cn(
                 "absolute z-20 max-w-[4.5rem] -translate-x-1/2 -translate-y-1/2 truncate rounded-full border bg-card px-1.5 text-[11px] leading-[18px] outline-none hover:text-foreground focus-visible:bd-focus",
                 shownIndex === index ? "border-primary text-foreground" : "border-border text-muted-foreground",
+                emphasized !== null && emphasized !== index && "opacity-40",
               )}
               style={{ left: middle.x, top: middle.y }}
               onPointerEnter={() => onHover(index)}
@@ -370,6 +442,7 @@ function UnitCard({
   edges,
   drawn,
   shown,
+  faded,
   style,
   cardRef,
 }: {
@@ -379,6 +452,8 @@ function UnitCard({
   edges: readonly LandingEdge[]
   drawn: ReadonlySet<LandingEdge>
   shown: boolean
+  /** Another edge is emphasized: the card fades, as the curves off it do */
+  faded: boolean
   style: CSSProperties
   cardRef: (element: HTMLElement | null) => () => void
 }) {
@@ -391,14 +466,16 @@ function UnitCard({
     <div
       ref={cardRef}
       className={cn(
-        "relative z-10 flex min-w-0 flex-col gap-1 rounded-lg border bg-card px-3 py-2 transition-colors hover:border-muted-foreground/40",
+        "relative z-10 flex min-w-0 flex-col gap-1 rounded-lg border bg-card px-3 py-2 transition-[border-color,opacity] hover:border-muted-foreground/40",
         shown ? "border-primary" : "border-border",
+        faded && "opacity-40",
       )}
       style={style}
       data-testid="plan-unit"
       data-unit={unit.name}
       data-kind={kind}
       data-shown={shown || undefined}
+      data-faded={faded || undefined}
     >
       <div className="flex min-w-0 items-center gap-2">
         <LaneNodeDot kind={kind} ring={running ? <RobotRing around className={robotRingColor(isFailingEntry(robot))} /> : null} />
@@ -469,7 +546,7 @@ function EdgeLine({ edge, drawn }: { edge: LandingEdge; drawn: boolean }) {
   useIndicatorClaim(surface)
   const busy = useSurfaceBusy(surface)
   const sentence = describeEdge(edge)
-  const items = edgeActionItems(edge, [], sentence, edgeRunners(edge.from, surface))
+  const items = edgeActionItems(edge, [], sentence, edgeRunners(edge.from, surface, { reveal: false }))
   if (drawn && items.length === 0) {
     return null
   }
@@ -518,23 +595,37 @@ function ActionButtons({ items, busy }: { items: readonly MenuItem[]; busy: stri
  * then the actions of its edge (Land Together, Land … First); Land Together restacks on fresh needs, one undo puts it
  * back, and the plan follows the view
  */
-function ProposalFrame({ proposal, edge, columnStart, columnEnd, row }: { proposal: LandTogether; edge: LandingEdge | null; columnStart: number; columnEnd: number; row: number }) {
+function ProposalFrame({
+  proposal,
+  edge,
+  columnStart,
+  columnEnd,
+  row,
+  faded,
+}: {
+  proposal: LandTogether
+  edge: LandingEdge | null
+  columnStart: number
+  columnEnd: number
+  row: number
+  faded: boolean
+}) {
   const surface = `landing-plan:${proposal.from}`
   useIndicatorClaim(surface)
   const busy = useSurfaceBusy(surface)
-  const risks = describeTogetherPrice(proposal.price)
-  const items = edge === null ? [] : edgeActionItems(edge, [proposal.fixes], describeEdge(edge), edgeRunners(proposal.from, surface))
+  const risks = describeTogetherPrice(proposal.price, proposal.forks)
+  const items = edge === null ? [] : edgeActionItems(edge, [proposal.fixes], describeEdge(edge), edgeRunners(proposal.from, surface, { reveal: false }))
   const span = `${columnStart + 1} / ${columnEnd + 2}`
   return (
     <>
       <div
         aria-hidden
-        className="pointer-events-none -m-1.5 rounded-xl border border-dashed border-muted-foreground/50"
+        className={cn("pointer-events-none -m-1.5 self-stretch rounded-xl border border-dashed border-muted-foreground/50 transition-opacity", faded && "opacity-40")}
         style={{ gridColumn: span, gridRow: `${row + 2} / ${row + 4}` }}
         data-testid="plan-proposal-frame"
       />
       <div
-        className="relative z-10 flex min-w-0 flex-col gap-1.5 px-1 pt-0.5 pb-1"
+        className={cn("relative z-10 flex min-w-0 flex-col gap-1.5 px-1 pt-0.5 pb-1 transition-opacity", faded && "opacity-40")}
         style={{ gridColumn: span, gridRow: row + 3 }}
         data-testid="plan-proposal"
         data-from={proposal.from}

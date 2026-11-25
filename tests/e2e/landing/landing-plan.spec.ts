@@ -4,6 +4,7 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, getRowWait } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
+import { safePushPopover } from "../helpers/safe-push-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed } from "../helpers/wait-helpers"
@@ -56,6 +57,8 @@ test.describe("Landing plan", () => {
     "should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the islands at their narrowest (the main panel beside Activity): four waves scroll across
+      await page.setViewportSize({ width: 800, height: 900 })
       const repo = await setupRepo("landing_needs", { patronus: availableRobots(STILLS) })
       await addOpenNeed(repo)
       await syncAndWaitForBranches()
@@ -70,6 +73,16 @@ test.describe("Landing plan", () => {
       await expect(unitCard(page, "stills-codec").getByTestId("plan-unit-robot")).toBeVisible()
       await expect(unitCard(page, "lane-run")).toContainText("2 branches · 2 commits")
 
+      // past the room of the island the picture scrolls across, a fade says so, and the focus a key moves scrolls to it
+      const scroll = plan(page).getByTestId("plan-scroll")
+      await expect(scroll).toHaveAttribute("data-more-right", "true")
+      await expect(unitCard(page, "lane-encode")).not.toBeInViewport({ ratio: 1 })
+      await unitCard(page, "lane-encode").getByRole("button", { name: "lane-encode" }).focus()
+      await expect(unitCard(page, "lane-encode")).toBeInViewport({ ratio: 1 })
+      await expect(scroll).toHaveAttribute("data-more-left", "true")
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await expect(scroll).not.toHaveAttribute("data-more-right")
+
       // the edge of the wait and its evidence; the one nothing lands
       const waits = edgeChip(page, "lane-run", "stills-codec")
       await expect(waits).toHaveAttribute("data-state", "waits")
@@ -77,6 +90,10 @@ test.describe("Landing plan", () => {
       await waits.hover()
       await expect(page.getByTestId("plan-edge-hover")).toContainText("Uses Stills of stills-codec in BuildLog.kt: stills-codec is landing in its Safe Push")
       await expect(page.getByTestId("plan-edge-hover")).toContainText("lane/src/BuildLog.kt")
+      // its two ends stay as they are, the rest fades
+      await expect(unitCard(page, "lane-bundle")).toHaveAttribute("data-faded", "true")
+      await expect(unitCard(page, "lane-run")).not.toHaveAttribute("data-faded")
+      await expect(unitCard(page, "stills-codec")).not.toHaveAttribute("data-faded")
       await expect(edgeChip(page, "lane-encode", "lane-bundle")).toHaveAttribute("data-state", "open")
 
       // Land Together, framed around the pair with its price; one unit after the restack, and the plan follows
@@ -87,14 +104,15 @@ test.describe("Landing plan", () => {
       await runAndWaitForSync(page, () => proposal.getByRole("button", { name: "Land Together" }).click())
       const toast = page.locator("[data-slot=toast]", { hasText: "Stacked lane-encode on lane-bundle" })
       await expect(toast).toBeVisible()
+      // the plan stays where the user pressed it, and follows the view
+      await expect(plan(page)).toBeVisible()
       await expect(unitCard(page, "lane-encode")).toHaveCount(0)
       await expect(unitCard(page, "lane-bundle")).toContainText("2 branches · 2 commits")
       await expect(plan(page).getByTestId("plan-proposal")).toHaveCount(0)
       expect(await waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run"])
 
-      // one undo puts the two units and the offer back (the toast shows the row it undid; the plan follows it too)
+      // one undo puts the two units and the offer back
       await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
-      await page.getByTestId("main-view-landing").click()
       await expect(proposal).toBeVisible()
       expect(await waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After lane-bundle: lane-encode"])
     },
@@ -145,24 +163,35 @@ test.describe("Landing plan", () => {
     await showPlan(page)
     await expect(page.getByTestId("landing-view")).toHaveAttribute("data-section", "plan")
   })
-  test("should land a stack that forks together with the branch it needs, the Safe Push of the whole stack its next step", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should land a stack that forks together with the branch it needs, the Safe Push of the whole stack its next step and the action of its toast", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     // landing_needs_fork: lane-run forks (lane-docs, ui-perf-nightly) and uses Stills of stills-codec, which nothing lands
     await setupRepo("landing_needs_fork", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     await page.getByTestId("main-view-landing").click()
     const proposal = plan(page).locator('[data-testid="plan-proposal"][data-from="lane-run"]')
     await expect(proposal).toHaveAttribute("data-onto", "stills-codec")
+    await expect(proposal.getByTestId("plan-price")).toContainText("1 robot instead of 2, the whole stack")
     await runAndWaitForSync(page, () => proposal.getByRole("button", { name: "Land Together · Safe Push Whole Stack" }).click())
-    await expect(page.locator("[data-slot=toast]", { hasText: "Stacked lane-run on stills-codec" })).toBeVisible()
-    // one unit of the four, whose next step is the Safe Push of its whole stack: built by the sync of the restack, it
-    // lands all four in one robot (a stack branch that is not built holds it: `StackNotBuilt`)
-    await page.getByTestId("main-view-landing").click()
+    // one unit of the four, which lands from the Safe Push of its whole stack: built by the sync of the restack
+    await expect(plan(page)).toBeVisible()
     await expect(unitCard(page, "stills-codec")).toContainText("4 branches · 4 commits")
     await expect(unitCard(page, "lane-run")).toHaveCount(0)
     const overview = await openLandingOverview(page)
     const row = landingRow(overview, "stills-codec")
     await expect(row.getByTestId("landing-row-reason")).toHaveText("Safe Push lands 4 branches: Patronus checks the approvals when the robot starts")
     await expect(row.getByTestId("next-step")).toHaveText("Safe Push · 4")
-    await expect(row.getByTestId("next-step")).toBeEnabled()
+    await page.mouse.move(0, 0)
+    await expectClosed(overview)
+    // the toast of the restack offers that start, as Rust offers it, beside its Undo
+    const toast = page.locator("[data-slot=toast]", { hasText: "Stacked lane-run on stills-codec" })
+    await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible()
+    const start = toast.getByRole("button", { name: "Safe Push Whole Stack" })
+    await expect(start).toBeEnabled()
+    await start.click()
+    await expect(safePushPopover(page)).toHaveAttribute("aria-label", /whole stills-codec stack/)
   })
 })

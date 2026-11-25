@@ -651,8 +651,13 @@ its own robot and a start beside it would fail. The plan says that need once, as
   the Plan at its edge; a card shows its row, where the actions and the commits are. Landing used to be only a look
   back, its non-goal "no live view of the running robots": the robots stay in the landing overview at their rows, and
   the Plan is no second list of the rows either, it shows what no row can: the order between the pieces and the price
-  of joining two. A forked Land Together leaves the Safe Push of the whole stack as the next step of the unit, held
-  while its stack branch is not built (`StackNotBuilt`), as any whole stack.
+  of joining two. A press of Land Together in the Plan keeps the Plan, which follows the view. A Land Together whose
+  stack forks lands from the Safe Push of the whole stack: its price says so ("1 robot instead of 2, the whole stack"),
+  and the toast of its restack offers "Safe Push Whole Stack" beside Undo, as Rust offers that action
+  (`safe-push-whole-stack`, disabled while the stack branch is not built: `StackNotBuilt`), rather than the button
+  starting it by itself: the restack and the start stay two decisions, the second seeing the stack the first made. The
+  slot of the root's row stays the root's own start, as for every stack that forks without an island: its whole stack
+  starts from the root's menu, the island header and the Landing overview.
 
 ## Alternatives Considered
 

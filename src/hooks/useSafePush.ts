@@ -3,6 +3,7 @@ import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useSourceMemo } from "@/hooks/useSourceMemo"
+import type { LandingFixOptions } from "@/hooks/useStackActions"
 import { runLandingFix } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
@@ -675,9 +676,10 @@ function revealStartRow(place: StartPlace): void {
  * at the row with the needs as they are. The start of a cycle's fix is a click of the Safe Push of what lands both; a
  * fix no rewrite runs here (the group of an unassigned commit) opens the popover at once. The
  * whole stack reads no needs of the view (the gate of its start checks what it lands): its fix runs as asked. `surface`
- * the popover that runs it, whose indicator shows it
+ * the popover that runs it, whose indicator shows it; `options` whether it shows the row after it, and whether its toast
+ * offers the Safe Push of the whole stack a Land Together made
  */
-export function requestLandingFix(branchName: string, refusal: LandingRefusal, surface?: string): void {
+export function requestLandingFix(branchName: string, refusal: LandingRefusal, surface?: string, options: Pick<LandingFixOptions, "reveal" | "offerWholeStack"> = {}): void {
   const fix = landingFixOf(refusal)
   // the popover itself, whatever the step holds back now (a readiness asked again for the tip that moved): it reads the
   // start with the needs as they are, and says what it waits for; where the start of the subject shows (the whole stack
@@ -695,7 +697,7 @@ export function requestLandingFix(branchName: string, refusal: LandingRefusal, s
     return
   }
   const fixes = stackRootOfReadinessKey(branchName) === null ? { fixes: refusal } : {}
-  if (fix == null || !runLandingFix(fix, { ...fixes, onPlanChanged: popover, ...(surface !== undefined && { surface }) })) {
+  if (fix == null || !runLandingFix(fix, { ...fixes, ...options, onPlanChanged: popover, ...(surface !== undefined && { surface }) })) {
     popover()
   }
 }

@@ -37,8 +37,6 @@ export function formatCheckCount(checks: readonly string[] | null | undefined): 
 export interface PriceRisk {
   readonly text: string
   readonly title?: string
-  /** It holds both back where the other alone would pass: said in `warning` */
-  readonly warns?: true
 }
 
 /** "same 7 checks", "+ AI Assistant Tests +11", "checks unknown": the checks of two units in one robot */
@@ -60,14 +58,19 @@ export function describeChecksPrice(checks: ChecksPrice): PriceRisk {
 }
 
 /**
- * The price of Land Together, a risk at a time in the order the plan names them: "1 robot instead of 2", the checks, "a
+ * The price of Land Together, a risk at a time in the order the plan names them: "1 robot instead of 2" ("…, the whole
+ * stack" of a stack that forks, `LandTogether.forks`), the checks, "a
  * failure holds both", "approvals count in #12", the code owners the wider diff asks, "#12 and #13 become one GitHub stack"
  */
-export function describeTogetherPrice(price: TogetherPrice): PriceRisk[] {
-  const robots: PriceRisk = { text: `${price.together} ${price.together === 1 ? "robot" : "robots"} instead of ${price.robots}` }
+export function describeTogetherPrice(price: TogetherPrice, forks = false): PriceRisk[] {
+  const together = `${price.together} ${price.together === 1 ? "robot" : "robots"} instead of ${price.robots}`
+  // a stack that forks lands whole from its stack branch: the start that lands both is the Safe Push of the whole stack
+  const robots: PriceRisk = forks
+    ? { text: `${together}, the whole stack`, title: "The stack they make forks: the Safe Push of its whole stack lands both, once the sync built its stack branch" }
+    : { text: together }
   const risks: PriceRisk[] = [robots, describeChecksPrice(price.checks)]
   if (price.failureHoldsBoth) {
-    risks.push({ text: "a failure holds both", title: "One robot, one verdict: a failed check of either fails the start of both", warns: true })
+    risks.push({ text: "a failure holds both", title: "One robot, one verdict: a failed check of either fails the start of both" })
   }
   if (price.approvalsIn != null) {
     risks.push({ text: `approvals count in #${price.approvalsIn}`, title: `Patronus counts the approvals of pull request #${price.approvalsIn} for the start that lands both` })
@@ -87,8 +90,8 @@ export function describeTogetherPrice(price: TogetherPrice): PriceRisk[] {
 }
 
 /** The price in one line: "1 robot instead of 2 · same 7 checks · a failure holds both" */
-export function formatTogetherPrice(price: TogetherPrice): string {
-  return describeTogetherPrice(price)
+export function formatTogetherPrice(price: TogetherPrice, forks = false): string {
+  return describeTogetherPrice(price, forks)
     .map(risk => risk.text)
     .join(" · ")
 }

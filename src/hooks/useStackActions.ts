@@ -3,13 +3,14 @@ import type { LandingFix, LandingRefusal, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { logError } from "@/lib/errors"
+import { FROM_MENU } from "@/lib/menu"
 import { countMoved } from "@/lib/move-summary"
 import type { RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { formatMoveUnstackAction } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { showUndoToast } from "@/lib/undo-toast"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, wholeStackRootIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
@@ -27,6 +28,13 @@ export interface LandingFixOptions extends StackOperationOptions {
   fixes?: LandingRefusal
   /** The engine refused it because the facts changed (`plan_changed`: the fresh needs no longer refuse with it) */
   onPlanChanged?: () => void
+  /** Shows the row of the branch after it (the default); false keeps the view the user pressed it in (the Plan of Landing) */
+  reveal?: boolean
+  /**
+   * Land Together of a stack that forks (`EdgeAction.landTogether.forks`): its toast offers the Safe Push of the whole
+   * stack it made, as Rust offers it (`safe-push-whole-stack`: enabled once the sync built its stack branch)
+   */
+  offerWholeStack?: boolean
 }
 
 function stackSuccessTitle(title: string, suffix: string): string {
@@ -43,7 +51,10 @@ async function runStackOperation(
   rewrite: (repositoryPath: string) => RewriteIntent,
   /** `suffix` is " (3 commits)", or empty when no commit moved */
   successTitle: (suffix: string) => string,
-  revealBranch: string,
+  /** The branch whose row it shows after it; null keeps the view the user pressed it in */
+  revealBranch: string | null,
+  /** Runs with the id of its toast: an action the toast offers once it is known */
+  withToast?: (toastId: string) => void,
 ): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
   const done = await runRewriteIntent({ ...spec, repositoryPath }, rewrite(repositoryPath))
@@ -55,16 +66,19 @@ async function runStackOperation(
     toast.add({ type: "info", title: "Nothing to change" })
     return true
   }
-  requestReveal({ branchName: revealBranch, commitIds: [] })
+  if (revealBranch !== null) {
+    requestReveal({ branchName: revealBranch, commitIds: [] })
+  }
   // a change of the stack parents alone moves no commit
   const moved = countMoved(done.result.answer)
-  showUndoToast(
+  const toastId = showUndoToast(
     repositoryPath,
     successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`),
     () => undoRegroup(repositoryPath, undo.token, "Cannot undo the change", "Undoing the change"),
     undefined,
     done.outcome,
   )
+  withToast?.(toastId)
   return true
 }
 
@@ -100,13 +114,53 @@ export async function restackBranch(branchName: string, parent: string | null, o
     repositoryPath =>
       parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName, ...fixes }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent, ...fixes }),
     suffix => stackSuccessTitle(parent === null ? `Unstacked ${branchName}` : `Stacked ${branchName} on ${parent}`, suffix),
-    branchName,
+    options.reveal === false ? null : branchName,
+    parent !== null && options.offerWholeStack === true ? toastId => void offerWholeStackStart(toastId, parent) : undefined,
   )
   // a collapsed root stacked on another branch heads no stack of its own anymore
   if (done && parent !== null) {
     forgetCollapsedStack(branchName)
   }
   return done
+}
+
+/**
+ * The toast of a Land Together that made a stack that forks offers the start that lands it, "Safe Push Whole Stack" of
+ * the whole stack of `branch` (now one stack with it): as Rust offers that action (`safe-push-whole-stack`) and
+ * disables it with its reason (its stack branch not built yet, `StackNotBuilt`; the readiness still to come), followed
+ * while the toast is open; Undo stays the toast's own action. One toast for the event. The builder of the actions of the
+ * whole stack is imported when asked: its module reaches this one through the start of a Safe Push
+ */
+async function offerWholeStackStart(toastId: string, branch: string): Promise<void> {
+  const { getWholeStackStartItems } = await import("@/hooks/useWholeStackActions")
+  const offer = () => {
+    const root = wholeStackRootIn(branchSyncStore.getState(), branch)
+    const item = root === null ? undefined : getWholeStackStartItems(root).find(it => it.id === "safe-push-whole-stack")
+    toast.update(toastId, {
+      data: {
+        secondaryAction:
+          item === undefined
+            ? undefined
+            : {
+                label: item.label,
+                disabled: item.disabled === true,
+                onClick: () => {
+                  toast.close(toastId)
+                  // the start opens at the row of the root, in the branches: shown first, whichever view pressed it
+                  requestReveal({ branchName: root ?? branch, commitIds: [] })
+                  item.onSelect(FROM_MENU)
+                },
+              },
+      },
+    })
+  }
+  offer()
+  const unsubscribe = branchSyncStore.subscribe((state, previous) => {
+    if (state.nextSteps !== previous.nextSteps || state.actions !== previous.actions || state.stackBranches !== previous.stackBranches) {
+      offer()
+    }
+  })
+  toast.update(toastId, { onClose: unsubscribe })
 }
 
 /** Stacks all selected branches oldest-first as one rewrite and forgets the collapsed state of its new children */

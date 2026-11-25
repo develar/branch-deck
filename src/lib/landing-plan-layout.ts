@@ -149,16 +149,17 @@ export interface PlanCurve {
 
 /**
  * The curve from the card of the unit an edge needs (`needed`, a wave to the left) to the card of the unit that waits
- * (`waits`): from the middle of the right side of the first to the middle of the left side of the other, a cubic whose
- * handles run level; when the unit that waits stands in the same column or to the left (a cycle of needs), the curve
- * leaves and enters on the right sides, bowing out
+ * (`waits`): from the right side of the first to the left side of the other, at `anchor` from the top of each (the
+ * middle of its header; the middle of the card without one), a cubic whose handles run level; when the unit that
+ * waits stands in the same column or to the left (a cycle of needs), the curve leaves and enters on the right sides,
+ * bowing out
  */
-export function edgeCurve(needed: PlanBox, waits: PlanBox): PlanCurve {
+export function edgeCurve(needed: PlanBox, waits: PlanBox, anchor: number | null = null): PlanCurve {
   const startX = needed.left + needed.width
-  const startY = needed.top + needed.height / 2
+  const startY = needed.top + (anchor ?? needed.height / 2)
   const forward = waits.left > startX + 8
   const endX = forward ? waits.left : waits.left + waits.width
-  const endY = waits.top + waits.height / 2
+  const endY = waits.top + (anchor ?? waits.height / 2)
   const reach = forward ? Math.max(24, (endX - startX) / 2) : 40
   const control1 = { x: startX + reach, y: startY }
   const control2 = forward ? { x: endX - reach, y: endY } : { x: Math.max(startX, endX) + reach, y: endY }

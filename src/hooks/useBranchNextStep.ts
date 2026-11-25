@@ -209,11 +209,12 @@ export type EdgeRunners = Pick<NextStepActions, "fixLanding" | "startSubject" | 
  * What the actions of an edge of the step of `key` run, on the row and in the popover of its start (`surface`, whose
  * indicator shows a rewrite it runs): Land Together and an unstack on fresh landing needs while they still ask for it
  * (the engine decides it, `RewriteIntent.fixes`), Land X First and the start of a cycle as a click of that Safe Push,
- * the group of an unassigned commit, the restart of the failed robot of the branch it needs
+ * the group of an unassigned commit, the restart of the failed robot of the branch it needs; a Land Together whose stack
+ * forks offers the Safe Push of the whole stack on its toast; `options.reveal` false keeps the view it was pressed in
  */
-export function edgeRunners(key: string, surface?: string): EdgeRunners {
+export function edgeRunners(key: string, surface?: string, options: { readonly reveal?: boolean } = {}): EdgeRunners {
   return {
-    fixLanding: refusal => requestLandingFix(key, refusal, surface),
+    fixLanding: (refusal, forks) => requestLandingFix(key, refusal, surface, { ...options, offerWholeStack: forks === true }),
     startSubject: subject => void requestSafePush(subject.kind === "branch" ? subject.name : stackReadinessKey(subject.root), { mode: "rebaseAutosquash", via: "click" }),
     groupCommit: (commitId, into) => {
       const commit = branchSyncStore.getState().unassignedCommits.find(it => it.originalHash === commitId)

@@ -217,7 +217,8 @@ MUST put them back.
 
 ### Requirement: Popover: Land Together says its price
 
-Where the Safe Push popover offers Land Together, it MUST say its price under the actions, in the words of the plan.
+Where the Safe Push popover offers Land Together, it MUST say its price under the actions in the words of the plan, one
+muted sentence that wraps between words.
 
 #### Scenario: The price in the popover
 - **WHEN** the popover of `lane-run` offers Land Together with `stills-codec`
@@ -365,10 +366,10 @@ nothing lands; an unstack and the landing first of a declared need.
 
 ### Requirement: Picture: The waves are columns and each unit a card
 
-The Plan of Landing MUST show the waves as columns from left to right, each unit a card: its node (with the ring of a
-running robot), its name, its size, the time of its robot, the required checks it starts ("7 checks", named in the
-hover); a chain of needs on one row where it can (`layoutPlan`); the parked branches apart. A stale plan MUST say so and
-offer nothing. Every unit, wave and edge is Rust's.
+The Plan of Landing MUST show the waves as columns from left to right, 10 to 18rem wide, each unit a card at the top of
+its row: its node (with the ring of a running robot), its name, its size, the time of its robot, the required checks it
+starts ("7 checks"); a chain of needs on one row where it can (`layoutPlan`); the parked branches apart. A stale plan
+MUST say so and offer nothing. Every unit, wave and edge is Rust's.
 
 #### Scenario: A robot that lands, a branch next, two that wait
 - **GIVEN** `stills-codec` landing, `lane-run` (with `ui-perf-nightly`) using its `Stills`, and `lane-encode` using
@@ -376,30 +377,36 @@ offer nothing. Every unit, wave and edge is Rust's.
 - **WHEN** the user opens the Plan
 - **THEN** the waves are "Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After
   lane-bundle: lane-encode", `stills-codec` with the time of its robot, `lane-run` "2 branches · 2 commits"
+
+#### Scenario: The narrowest islands
+- **GIVEN** the four waves wider than the island
+- **WHEN** the Plan shows
+- **THEN** a fade on the right says it scrolls, and the focus moved to a card past it scrolls the card into view
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
   [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
   [@test] src/lib/landing-plan-layout.test.ts (`lays the waves of idea-1 out in columns, each chain on one row past the column between and a pair to land together on one row with its frame below`, `frames the second unit that waits for one needed unit in its own column, its price row kept free`)
   [@test] src/presenters/landing-plan.test.ts (`names the waves, the size and the checks of a unit`)
 
 ### Requirement: Picture: An edge is a curve with its evidence on hover
 
-Each edge between two units of the plan MUST be a curve to the unit it needs, its evidence in a chip halfway
-("Effect, Input +3"), the sentence of the edge and its files in the hover; an edge no curve draws (an unassigned
-commit, a cycle, a companion) a line on the card of its unit; the actions of an edge that is no offer below it, from the
-one builder.
+Each edge between two units of the plan MUST be a curve between the headers of their cards, its evidence in a chip
+halfway ("Effect, Input +3"), the sentence of the edge and its files in the hover, which fades every card, curve and
+frame off the edge; an edge no curve draws (an unassigned commit, a cycle, a companion) a line on the card of its unit;
+the actions of an edge that is no offer below it, from the one builder.
 
 #### Scenario: The evidence of a wait
 - **WHEN** the user hovers the chip of the edge `lane-run → stills-codec`
 - **THEN** it says "Stills", its hover "Uses Stills of stills-codec in BuildLog.kt: stills-codec is landing in its Safe
-  Push, …" and `lane/src/BuildLog.kt`
+  Push, …" and `lane/src/BuildLog.kt`, the cards of `lane-run` and `stills-codec` as they are and the others faded
   [@test] tests/e2e/landing/landing-plan.spec.ts (`should show the waves of the plan: the running robot now, what is ready next, what waits after what, each edge with its evidence on hover, and Land Together framed with its price, undone in one step`)
   [@test] src/presenters/landing-plan.test.ts (`says an edge by its evidence in a few words and its state`)
 
 ### Requirement: Picture: An offer is a frame around the pair with its price and its buttons
 
-Land Together MUST show in the plan as a dashed frame around the cards of the pair, on one row, its price below as its
-risks ("1 robot instead of 2 · checks unknown · a failure holds both", each whole in its hover), then the actions of its
-edge (Land Together, "Land lane-bundle First"); its press MUST restack on fresh needs, and one undo MUST put the two
-units back. The plan offers Land Together nowhere without its price.
+Land Together MUST show in the plan as a dashed frame around the cards of the pair, on one row, its price below as one
+sentence of its risks (each whole in its hover), then the actions of its edge; its press MUST restack on fresh needs
+and keep the Plan, and one undo MUST put the two units back. Of a stack that forks the price MUST say it lands as the
+whole stack, and the toast of the restack MUST offer "Safe Push Whole Stack" beside Undo, as Rust offers it.
 
 #### Scenario: Land Together from the plan, and Undo
 - **WHEN** the user presses Land Together in the frame of `lane-encode` and `lane-bundle`
@@ -409,10 +416,14 @@ units back. The plan offers Land Together nowhere without its price.
 
 #### Scenario: A stack that forks
 - **GIVEN** `lane-run` forks into `lane-docs` and `ui-perf-nightly`
-- **WHEN** the user presses "Land Together · Safe Push Whole Stack" in its frame with `stills-codec`
+- **WHEN** the user presses "Land Together · Safe Push Whole Stack" in its frame with `stills-codec`, whose price
+  says "1 robot instead of 2, the whole stack"
 - **THEN** `stills-codec` is one unit of 4 branches whose next step is the Safe Push of its whole stack, "Safe Push ·
   4", which its stack branch holds while it is not built (`StackNotBuilt`)
-  [@test] tests/e2e/landing/landing-plan.spec.ts (`should land a stack that forks together with the branch it needs, the Safe Push of the whole stack its next step`)
+- **AND** the toast "Stacked lane-run on stills-codec" offers "Safe Push Whole Stack" beside Undo, whose press opens
+  the start of the whole stack at the row of `stills-codec`
+  [@test] tests/e2e/landing/landing-plan.spec.ts (`should land a stack that forks together with the branch it needs, the Safe Push of the whole stack its next step and the action of its toast`)
+  [@test] src/presenters/landing-plan.test.ts (`words the price of Land Together as its risks, one by one`)
 
 ### Requirement: Picture: A wait opens its edge in the plan and a card shows its row
 
@@ -444,17 +455,20 @@ the chip of an edge highlights it.
   7 checks", "+ AI Assistant Tests +11", "checks unknown", "a failure holds both", "approvals count in #12", the code
   owners it adds ("asks IJPL Code Platform +1 too"), "#12 and #13 become one GitHub stack".
 - The popover under the actions of an offer: "Land Together: 1 robot instead of 2 · checks unknown · a failure holds
-  both" (`PriceLine`, the same as the plan).
+  both" (`PriceLine`, one muted sentence, the same as the plan); of a stack that forks "1 robot instead of 2, the whole
+  stack".
 - The toast of the update after a merge: "Start flow".
-- The Plan: one `Card` island on the canvas, the waves its columns (`minmax(11rem, 1fr)`, 5rem between for the curves
-  and their chips; past the room of the window the island scrolls across, the page never does), a wave titled with
-  its count; a unit a bordered card of its own on the island (`LaneNodeDot`, `RobotRing` around it, the elapsed time
-  and the ETA of `robot-eta`, a "7 checks" chip), the whole card a link to its row; a curve 1.5px in the colour of its
-  state (a wait muted, a need nothing lands `warning`, a failed robot `destructive`, a declared need dashed), 2.5px on
-  hover, the shown one in `primary` with the rest faded; the chip of an edge a pill on the curve; an offer a dashed
-  frame of `muted-foreground/50` around the pair, its price in `xs` muted text (a failure that holds both in
-  `warning`), its buttons `outline` `xs`; the parked branches a second island of name chips. Light and dark by the
-  tokens alone.
+- The Plan: one `Card` island on the canvas, the waves its columns (`minmax(10rem, 18rem)`, the rest of the island
+  empty; 4.5rem between for the curves and their chips; past the room of the island it scrolls across, a fade of the
+  card colour at the side that has more, `scroll-padding` keeping the focus clear of it; the page never scrolls across),
+  a wave titled with its count; a unit a bordered card of its own on the island, at the top of its row (`LaneNodeDot`,
+  `RobotRing` around it, the elapsed time and the ETA of `robot-eta`, a "7 checks" chip), the whole card a link to its
+  row; a curve between the headers of its cards, 1.5px in the colour of its state (a wait muted, a need nothing lands
+  `warning`, a failed robot `destructive`, a declared need dashed), 2.5px on hover, the shown one in `primary`; the
+  hover or the show of an edge fades the cards, curves, chips and frames off it to 40%; the chip of an edge a pill on the
+  curve; an offer a dashed frame of `muted-foreground/50` around the pair, its price one `xs` muted sentence, its
+  buttons `outline` `xs`; the parked branches a second island of name chips. Light and dark by the tokens alone.
+- The toast of a Land Together that forks: "Stacked lane-run on stills-codec" with Undo and "Safe Push Whole Stack".
 
 ## References
 

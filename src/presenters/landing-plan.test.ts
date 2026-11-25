@@ -51,6 +51,8 @@ describe("the words of the landing plan", () => {
 
   it("words the price of Land Together as its risks, one by one", () => {
     expect(formatTogetherPrice(PRICE)).toBe("1 robot instead of 2 · same 7 checks · a failure holds both")
+    // a stack that forks lands from the Safe Push of its whole stack
+    expect(formatTogetherPrice(PRICE, true)).toBe("1 robot instead of 2, the whole stack · same 7 checks · a failure holds both")
     const wide = describeTogetherPrice({
       ...PRICE,
       checks: { kind: "added", count: 9, added: ["AI Assistant Tests", "Air Tests", "Fleet Tests"] },

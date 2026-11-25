@@ -111,8 +111,11 @@ export interface NextStepActions {
   readonly linkStack: () => void
   /** Opens the pull request of the whole stack of `root` (row 7, "In #12") */
   readonly openStackPullRequest: (root: string) => void
-  /** Runs the fix of what the Safe Push needs, of `refusal` (`LandingFix`): the restack of the root of what it lands */
-  readonly fixLanding: (refusal: LandingRefusal) => void
+  /**
+   * Runs the fix of what the Safe Push needs, of `refusal` (`LandingFix`): the restack of the root of what it lands;
+   * `forks` of a Land Together whose stack forks, which lands from the Safe Push of the whole stack
+   */
+  readonly fixLanding: (refusal: LandingRefusal, forks?: boolean) => void
   /** The start of `subject` instead (`LandingFix.start` of a cycle): its Safe Push, or its popover */
   readonly startSubject: (subject: Subject) => void
   /** Groups the unassigned commit `commitId` into the branch `into` (`LandingFix.moveCommit`), the only move a fix offers */
@@ -505,7 +508,7 @@ function edgeActionItem(
       const fix: LandingFix =
         action.kind === "landTogether" ? { kind: "restack", branch: action.branch, onto: action.onto } : { kind: "unstack", branch: action.branch, from: action.from }
       const refusal = refusals.find(it => sameJson(landingFixOf(it), fix))
-      return refusal === undefined ? null : item("landing-fix", Layers2Icon, () => actions.fixLanding(refusal))
+      return refusal === undefined ? null : item("landing-fix", Layers2Icon, () => actions.fixLanding(refusal, action.kind === "landTogether" && action.forks))
     }
     case "landFirst":
       return item("land-first", ShieldCheckIcon, () => actions.startSubject({ kind: "branch", name: action.branch }))

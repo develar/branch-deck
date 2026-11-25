@@ -430,7 +430,7 @@ function LandingNeedsLine({
           })}
         </div>
       )}
-      {together && proposal !== null && <PriceLine risks={describeTogetherPrice(proposal.price)} lead="Land Together:" testId="safe-push-together-price" />}
+      {together && proposal !== null && <PriceLine risks={describeTogetherPrice(proposal.price, proposal.forks)} lead="Land Together:" testId="safe-push-together-price" />}
     </div>
   )
 }
