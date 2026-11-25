@@ -2652,7 +2652,7 @@ Step](../next-step/spec.md#what-the-safe-push-needs)), and the slot MUST say "Ne
 ### Requirement: Starting a Safe Push or a Dry Run: The popover shows the reason of the gate with its fix
 
 The popover of the start (S, a click, Dry Run) MUST then open first (a confirm reason, `landing`) and show the reason
-before the start, in the words of the toast, with the fix as its button, which restacks and leaves the popover open to
+before the start, short ([Landing Plan](../landing-plan/spec.md#popover)), with the fix as its button, which restacks and leaves the popover open to
 read the start again.
 
 #### Scenario: The fix in the popover

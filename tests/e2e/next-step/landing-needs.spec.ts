@@ -342,9 +342,10 @@ test.describe("Landing needs", () => {
 
     const popover = await openSafePushWithKey(page, "ui-perf-nightly")
     const needs = popover.getByTestId("safe-push-landing-needs")
-    await expect(needs).toContainText(
-      "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of ui-perf-nightly fails. Stack lane-run on stills-codec to land it too.",
-    )
+    // short: the commits by their hashes, the file by its name; the fix is its button, never a sentence beside it
+    const detail = needs.getByTestId("safe-push-landing-detail")
+    await expect(detail).toHaveText(/^[0-9a-f]{8} of lane-run uses Stills \(BuildLog\.kt:3\), which [0-9a-f]{8} of stills-codec adds\.$/)
+    await expect(detail.getByTitle("Name lossy stills")).toHaveText(/ of stills-codec$/)
     await expect(popoverStart(page)).toHaveText("Start Anyway")
     // the fix restacks the root of what lands; the popover reads the start again, which lands stills-codec too
     await runAndWaitForSync(page, () => needs.getByRole("button", { name: "Stack lane-run on stills-codec" }).click())

@@ -74,7 +74,8 @@ import {
 import { useRowPart } from "@/model/store"
 import { landingRefusalsOf } from "@/presenters/land"
 import type { LandingRefused } from "@/presenters/landing"
-import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
+import type { DetailPart } from "@/presenters/landing"
+import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRefusalDetail, describeRegenerate, formatLandingFix, formatLandsAfter } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
 import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
@@ -388,7 +389,9 @@ function LandingNeedsLine({
   const fix = refused.fix
   const label = formatLandingFix(fix)
   const headline = edge === null ? null : waits ? formatLandsAfter(edge.needed, false) : describeEdgeEvidence(edge)
-  const detail = waits && edge !== null ? describeEdge(edge) : refused.reason
+  // short: commits by their hash, the file by its name, the whole of each in its hover; the fix only where no button runs it
+  const fixShown = fix?.kind === "restack" && label !== null
+  const detail = waits && edge !== null ? describeEdge(edge) : <DetailText parts={describeRefusalDetail(refused.refusals, fixShown)} />
   return (
     <div className="flex flex-col gap-1.5" data-testid="safe-push-landing-needs" data-waits={waits ? "true" : undefined}>
       {headline !== null && (
@@ -399,7 +402,7 @@ function LandingNeedsLine({
       <Line tone={headline === null ? "warning" : "muted"} testId="safe-push-landing-detail">
         {detail}
       </Line>
-      {!waits && fix?.kind === "restack" && label !== null && (
+      {!waits && fixShown && (
         <Button
           ref={fixRef}
           size="xs"
@@ -414,6 +417,19 @@ function LandingNeedsLine({
         </Button>
       )}
     </div>
+  )
+}
+
+/** The short detail of a refusal: each shortened piece with its whole in the hover */
+function DetailText({ parts }: { parts: readonly DetailPart[] }) {
+  return parts.map((part, index) =>
+    part.title === undefined ? (
+      <span key={index}>{part.text}</span>
+    ) : (
+      <span key={index} title={part.title} className="underline decoration-dotted underline-offset-2">
+        {part.text}
+      </span>
+    ),
   )
 }
 

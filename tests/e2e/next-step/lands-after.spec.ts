@@ -76,7 +76,7 @@ test.describe("Lands after", () => {
   })
 
   test(
-    "should say a need nothing lands in one headline, focus its fix before Start Anyway and wrap a long path inside the popover",
+    "should say a need nothing lands in one headline and a short detail, focus its fix before Start Anyway and keep the popover narrow",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       await setupRepo("landed_need", { patronus: availableRobots() })
@@ -87,17 +87,22 @@ test.describe("Lands after", () => {
       const popover = await openSafePushWithKey(page, "flow")
       const needs = popover.getByTestId("safe-push-landing-needs")
       await expect(needs.getByTestId("safe-push-landing-headline")).toHaveText("Uses Codec of codec in FlowCodecIntegrationEntryPoint.kt")
-      await expect(needs.getByTestId("safe-push-landing-detail")).toContainText(
-        "flow/src/main/kotlin/org/example/platform/landing/pipeline/codec/integration/FlowCodecIntegrationEntryPoint.kt",
+      // short: the file by its name and line, its whole path in the hover; the commits by their hashes
+      const detail = needs.getByTestId("safe-push-landing-detail")
+      await expect(detail).toHaveText(/^[0-9a-f]{8} of flow uses Codec \(FlowCodecIntegrationEntryPoint\.kt:3\), which [0-9a-f]{8} of codec adds\.$/)
+      await expect(detail.getByTitle("flow/src/main/kotlin/org/example/platform/landing/pipeline/codec/integration/FlowCodecIntegrationEntryPoint.kt:3")).toHaveText(
+        "FlowCodecIntegrationEntryPoint.kt:3",
       )
       // the fix first: Start Anyway stays, never the focused default
       await expect(needs.getByRole("button", { name: "Stack flow on codec" })).toBeFocused()
       await expect(popover.getByTestId("safe-push-start")).toHaveText("Start Anyway")
-      // the long path wraps: nothing of the line goes past the popover
+      // nothing of the lines goes past the popover
       const box = (await safePushPopover(page).boundingBox())!
-      const detail = (await needs.getByTestId("safe-push-landing-detail").boundingBox())!
-      expect(detail.x + detail.width).toBeLessThanOrEqual(box.x + box.width)
-      expect(await needs.getByTestId("safe-push-landing-detail").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      for (const line of [detail, needs.getByTestId("safe-push-landing-headline")]) {
+        const lineBox = (await line.boundingBox())!
+        expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(box.x + box.width)
+        expect(await line.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      }
     },
   )
 })

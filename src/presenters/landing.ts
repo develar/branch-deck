@@ -51,6 +51,62 @@ function describeMore(rest: readonly LandingRefusal[]): string {
   return `${namesBreak}${needsHold}`
 }
 
+/** A piece of the short detail of a refusal: its text, and the whole of what it shortens in the hover (`title`) */
+export interface DetailPart {
+  readonly text: string
+  readonly title?: string
+}
+
+/**
+ * The detail of the first of `refusals` under the headline of the popover, short, in one or two lines: commits by their
+ * short hash ("1a2b3c4d of flow", the subject in the hover), the file by its name and line ("Flow.kt:3", the path in the
+ * hover), then the count of the others; the fix only where no button of the popover runs it (`fixShown`: the restack)
+ */
+export function describeRefusalDetail(refusals: readonly LandingRefusal[], fixShown: boolean): DetailPart[] {
+  const [first] = refusals
+  if (first === undefined) {
+    return []
+  }
+  const commit = (it: StackCommit): DetailPart => ({
+    text: it.branch === "" ? `${formatShortHash(it.id)} (unassigned)` : `${formatShortHash(it.id)} of ${it.branch}`,
+    title: it.subject,
+  })
+  const place = (file: string, line: number): DetailPart => ({ text: `${fileName(file)}:${line}`, title: `${file}:${line}` })
+  const text = (value: string): DetailPart => ({ text: value })
+  // a declared need words its own fix (the unstack of a branch that inherits it)
+  const fix = fixShown || first.kind === "unlandedNeed" ? null : landingFixOf(first)
+  const tail = [describeMore(refusals.slice(1)).trim(), fix === null ? "" : describeFix(fix)].filter(part => part !== "").join(" ")
+  const after = tail === "" ? [] : [text(` ${tail}`)]
+  switch (first.kind) {
+    case "missingDeclaration":
+      return [commit(first.usedBy), text(` uses ${first.identifier} (`), place(first.file, first.line), text("), which "), commit(first.declaredBy), text(" adds."), ...after]
+    case "danglingReference": {
+      const change = first.reference === "removed" ? "removes" : first.reference === "changed" ? "changes" : "declares again"
+      return [
+        commit(first.removedBy),
+        text(` ${change} ${first.identifier}, still used at `),
+        place(first.file, first.line),
+        text("; "),
+        commit(first.fixedBy),
+        text(" changes that use."),
+        ...after,
+      ]
+    }
+    case "lostBinding": {
+      const binding = first.binding === "import" ? "the import" : "the declaration"
+      return [
+        commit(first.removedBy),
+        text(` removes ${binding} of ${first.identifier}, still used at `),
+        place(first.file, first.line),
+        text(". Keep it in that commit."),
+        ...after,
+      ]
+    }
+    case "unlandedNeed":
+      return [text(describeUnlandedNeed(first, first.branch)), ...after]
+  }
+}
+
 /**
  * One refusal in the words of `brd safe-push`: "“Add the lane run” of lane-run uses StillEncoding (tests.rs:7), which
  * “Name lossy stills” of stills-codec adds: git merges it, but the build of ui-perf-nightly fails. Stack lane-run on

@@ -2,7 +2,7 @@
 // @spec openspec/specs/branch/declared-needs/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, NeedState, StackCommit } from "@/lib/bindings"
-import { describeLandingRefusals, formatLandingFix, formatNeeded } from "@/presenters/landing"
+import { describeLandingRefusals, describeRefusalDetail, formatLandingFix, formatNeeded } from "@/presenters/landing"
 import { DECLARED_DOCS } from "@/test-support/landing-refusal"
 
 const USES: StackCommit = { id: "a25430833a277000", subject: "IJAI-4382 lane-run shows each scenario", branch: "lane-run" }
@@ -128,5 +128,18 @@ describe("describeLandingRefusals", () => {
 
   it("starts when nothing refuses it", () => {
     expect(describeLandingRefusals([], "auth")).toBeNull()
+  })
+})
+
+describe("describeRefusalDetail", () => {
+  it("says the first refusal short: the commits by their hashes, the file by its name, each whole in its hover, the fix only without its button", () => {
+    const text = (parts: ReturnType<typeof describeRefusalDetail>) => parts.map(part => part.text).join("")
+    const shown = describeRefusalDetail([MISSING, MISSING], true)
+    expect(text(shown)).toBe("a2543083 of lane-run uses Stills (tests.rs:7), which ecebf000 of stills-codec adds. One more name breaks it too.")
+    expect(shown.filter(part => part.title !== undefined).map(part => part.title)).toEqual([USES.subject, "avl-guest/src/lane/build_log/tests.rs:7", DECLARES.subject])
+    // no button runs the group of an unassigned commit: the detail says it
+    const unassigned: LandingRefusal = { ...MISSING, declaredBy: { ...DECLARES, branch: "" }, fix: { kind: "moveCommit", commit: { ...DECLARES, branch: "" }, into: "lane-run" } }
+    expect(text(describeRefusalDetail([unassigned], false))).toBe("a2543083 of lane-run uses Stills (tests.rs:7), which ecebf000 (unassigned) adds. Group ecebf000 into lane-run.")
+    expect(text(describeRefusalDetail([DECLARED_DOCS], false))).toBe(text([{ text: describeLandingRefusals([DECLARED_DOCS], DECLARED_DOCS.branch)!.reason }]))
   })
 })
