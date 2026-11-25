@@ -1,4 +1,5 @@
 use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, Usages};
+use crate::fan_in::verdict_entries;
 use crate::fan_in_test::{Counts, by_name, outside, typed};
 use crate::interdiff::PairState;
 use crate::shown::{FormMark, ShownForm};
@@ -142,23 +143,32 @@ fn the_usages_at_the_head_rank_the_card() {
 
 /// The verdict of the plan over its removed and changed entries: `Breaks` when one has a use left outside that can
 /// break, whatever the others; `Unknown` without an index or when only the name ties a use of one; `NoUseBreaks` when
-/// every one is unbroken, the addition asked nothing; `Pending` in the plan sent while the index is asked
+/// every one is unbroken, the addition asked nothing; `Pending` in the plan sent while the index is asked. The entries
+/// that decide it are those with a use that can break, else those whose uses are unknown, none when no use breaks
 #[test]
 fn the_verdict_says_whether_a_use_left_outside_breaks() {
   let (repo, base, head) = api_repo();
   let (removed, changed, narrowed) = (format!("{head}^:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:4"));
   let params = range(&repo, &base, &head);
-  let verdict = |index: &dyn SymbolIndex| plan_of(&repo, Some(index), &params).unwrap().verdict;
+  let verdict = |index: &dyn SymbolIndex| {
+    let plan = plan_of(&repo, Some(index), &params).unwrap();
+    let by: Vec<(ApiChangeKind, u32)> = verdict_entries(&plan.api)
+      .into_iter()
+      .map(|at| (plan.api[at as usize].kind, plan.api[at as usize].line))
+      .collect();
+    (plan.verdict, by)
+  };
   let breaks = Counts::of(&[(removed.as_str(), 0), (changed.as_str(), 2), (narrowed.as_str(), 0)]);
-  assert_eq!(verdict(&breaks), BreakVerdict::Breaks);
+  assert_eq!(verdict(&breaks), (BreakVerdict::Breaks, vec![(ApiChangeKind::Changed, 3)]));
   let by_name_only = Counts::hits([
     (removed.as_str(), vec![]),
     (changed.as_str(), vec![]),
     (narrowed.as_str(), vec![by_name("src/Use.kt", 1, "call")]),
   ]);
-  assert_eq!(verdict(&by_name_only), BreakVerdict::Unknown);
+  assert_eq!(verdict(&by_name_only).0, BreakVerdict::Unknown);
+  assert_eq!(verdict(&by_name_only).1.iter().map(|(_, line)| *line).collect::<Vec<_>>(), [4]);
   let unbroken = Counts::of(&[(removed.as_str(), 0), (changed.as_str(), 0), (narrowed.as_str(), 0)]);
-  assert_eq!(verdict(&unbroken), BreakVerdict::NoUseBreaks);
+  assert_eq!(verdict(&unbroken), (BreakVerdict::NoUseBreaks, vec![]));
 
   let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::for_scans());
   let sources = PlanSources {

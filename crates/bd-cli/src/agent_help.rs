@@ -1090,7 +1090,8 @@ commit) and judge it by the JSON:
   check it. A `removed` unit's `moved_to` and an `added` one's `moved_from` name the other place of the same code:
   one move between files, read once at its new place; its removal is no loss.
 - Never skip a removal (`removed`, `deletedFile`, `deletedFiles`); `verdict: breaks` is a use left outside that can
-  break (`api[].usages.outside_sites`).
+  break: `verdict_by` names those entries of `api`, their `usages.outside_sites` where. A list that ends at 20
+  generated files counts the rest (`files_omitted`, `slices_omitted`, `stopsOmitted`); pass them by their kind.
 - Report only the changes of behaviour, each with its file, its lines and what observably changes, or say there is none.
 "
   )

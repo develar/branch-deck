@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 41` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 42` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -81,7 +81,8 @@
 //! their new places;
 //! version 41 the generated files past the first 20 of `files`, `order`, the slices of the unit `generated` and the
 //! stops and paths of each step left out, each list with the count of them (`review_plan_fold`), no module of the
-//! review of generated files alone and no dependency change of a generated manifest
+//! review of generated files alone and no dependency change of a generated manifest;
+//! version 42 the `verdict_by` of the plan, the entries of `api` that decide its `verdict`
 
 use crate::mark_reviewed_command::refused;
 use crate::review_plan_fold::{StepsOutput, cut_generated, fold_steps};
@@ -97,6 +98,7 @@ use review_plan::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, Usage
 use review_plan::brief::ReviewBrief;
 use review_plan::concerns::{Concern, ConcernEdges};
 use review_plan::dependencies::DependencyChange;
+use review_plan::fan_in::verdict_entries;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, MessageChange, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
@@ -112,7 +114,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 41;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 42;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -196,6 +198,10 @@ pub struct ReviewPlanOutput {
   /// a use left outside that can break; `unknown` when the usages of one are `null`, not `complete` or tied by the name
   /// alone (`by_name`); `noUseBreaks` when every one is `unbroken`, also when `api` holds additions alone
   pub verdict: BreakVerdict,
+  /// The entries of `api` that decide `verdict`, by their place: those with a use left outside that can break (their
+  /// `usages.outside_sites` say where), else those whose uses are unknown, cut or tied by the name alone; empty when no
+  /// use breaks
+  pub verdict_by: Vec<u32>,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too): the most `breaks` first, then
   /// the `untested` ones, then in tree order; of the generated files (`mechanical: "generated"`) the first 20
   pub files: Vec<FileFactsOutput>,
@@ -644,6 +650,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     interdiff: plan.interdiff.as_ref().map(|interdiff| interdiff_output(interdiff, &short)),
     branch: plan.branch,
     title: plan.title,
+    verdict_by: verdict_entries(&plan.api),
     api: plan.api.into_iter().map(api_output).collect(),
     verdict: plan.verdict,
     files: files.into_iter().map(file_output).collect(),

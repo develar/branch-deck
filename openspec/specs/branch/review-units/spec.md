@@ -634,14 +634,14 @@ MUST NOT change with it.
 
 ### Requirement: In `brd`: `brd review-plan` prints the units
 
-`brd review-plan` MUST print `units` (`"schema": 41`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
+`brd review-plan` MUST print `units` (`"schema": 42`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
 `test`, `line`, its `slices`, its `fingerprint` and, of a body changed in a rename the index has not proven, `renamed`,
 of a declaration renamed so, `renamed_from`, of a declaration moved whole to another file, `moved_from` or `moved_to`;
 of a slice that holds nothing but declarations moved whole to other files, `moved_out`.
 
 #### Scenario: The units of a range
 - **WHEN** `brd review-plan` runs on a range
-- **THEN** it prints `units` (`"schema": 41`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
+- **THEN** it prints `units` (`"schema": 42`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
   `line`, its `slices` and its `fingerprint`
 - **AND** `kind` is `shape` with `changes`, `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles`
   with `directory`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, or `other` with `reason`

@@ -183,6 +183,14 @@ fn prints_the_api_and_the_files_of_a_range() {
   );
   // the uses of the changed `open` are unknown, so is whether one left outside breaks
   assert_eq!(output["verdict"], json!("unknown"), "{output}");
+  // unknown without an index: the changed `open`, whose uses no index counted, decides it
+  let decided: Vec<&Value> = output["verdict_by"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|at| &output["api"][usize::try_from(at.as_u64().unwrap()).unwrap()]["name"])
+    .collect();
+  assert_eq!(decided, [&json!("open")], "{output}");
   // the units: the change of the form of `open`, then the new file, each with its block and lines from 1
   let units: Vec<(&Value, &Value, &Value, &Value)> = output["units"]
     .as_array()

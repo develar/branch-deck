@@ -6433,6 +6433,8 @@ recipe MUST be a field or value of that output.
 - **THEN** it runs `brd review-plan` and reads its `reading` first, then its `units` in their order
 - **AND** it passes only the `mechanical` units, each of their kinds named as the output spells it, reads every
   other kind of unit, a move where it stands now and every removal
+- **AND** it reads why a verdict breaks by `verdict_by` and the `outside_sites` of those entries, and passes the
+  generated files a list counts past its first 20 by their kind
 - **AND** it reports only the changes of behaviour, each with its file, its lines and what observably changes, or
   says there is none
 - **AND** a new kind of unit or of mechanical change, or a name in backticks the output does not print, fails the test
@@ -6803,4 +6805,3 @@ Together with `brd help agent` and `brd help update` it MUST name only commands 
 - **WHEN** the helps are compared with the commands and options of the CLI
 - **THEN** `brd help worktrees` names none that doesn't exist
   [@test] crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
-

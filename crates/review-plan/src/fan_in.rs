@@ -253,3 +253,21 @@ pub fn verdict_of(api: &[ApiChange]) -> BreakVerdict {
   }
   verdict
 }
+
+/// The entries of `api` that decide `verdict_of`, by their place: those with a use left outside that can break, else
+/// those whose uses are unknown, cut at the limit or tied by the name alone; none when no use breaks
+pub fn verdict_entries(api: &[ApiChange]) -> Vec<u32> {
+  let removals = || api.iter().enumerate().filter(|(_, change)| change.kind != ApiChangeKind::Added);
+  let place = |(at, _): (usize, &ApiChange)| u32::try_from(at).unwrap_or(u32::MAX);
+  let breaking: Vec<u32> = removals()
+    .filter(|(_, change)| change.usages.as_ref().is_some_and(|usages| usages.outside > 0))
+    .map(place)
+    .collect();
+  if !breaking.is_empty() {
+    return breaking;
+  }
+  removals()
+    .filter(|(_, change)| !change.usages.as_ref().is_some_and(|usages| usages.unbroken))
+    .map(place)
+    .collect()
+}
