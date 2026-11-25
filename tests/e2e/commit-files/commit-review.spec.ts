@@ -66,6 +66,9 @@ async function headerNameLefts(code: Locator): Promise<number[]> {
  * (a part of the diffs): the text the view puts on the clipboard, and the text of each of those cells
  */
 async function copyOfCells(scope: Locator, cells: string, count: number): Promise<{ text: string; lines: string[] }> {
+  // the cells of a file come with its painter, after the cells of another file the test waited for: the selection
+  // needs the last `count` of them
+  await expect(scope.locator(cells).nth(count - 1)).toBeAttached()
   return scope.evaluate(
     (element, [selector, last]) => {
       const cells = [...element.querySelectorAll(selector)].slice(-last)

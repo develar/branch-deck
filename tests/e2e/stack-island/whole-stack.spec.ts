@@ -1350,6 +1350,8 @@ test.describe("Whole stack", () => {
     const repo = await setupAirLandedWithBazel(page, setupRepo, () => Promise.resolve(), { warmStart: true })
     const close = island(page, "air").getByRole("button", { name: "Close Pull Request #12…" })
     await expect(close).toBeEnabled()
+    // the frame holds what its session knew: what landed the root comes after the merge, under load after the button
+    await expect(island(page, "air").getByTestId("orphaned-stack-pull-request")).toContainText("#12 no longer matches the air stack: bazel landed")
 
     // the next start shows the frame its session saved, what landed the root with it, its first sync held
     await repo.holdRemoteAnswers({ hold: ["sync"] })

@@ -29,7 +29,7 @@ import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, holdCommandCalls, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -1337,8 +1337,16 @@ async function showChanges(window: Page, review: ReturnType<Page["getByTestId"]>
 /** The review window of #7 from Your Turn, its changes shown */
 async function openOwnedChanges(page: Page): Promise<{ window: Page; review: ReturnType<Page["getByTestId"]> }> {
   await expect(getYourTurnCard(page)).toBeVisible()
-  const { window, review, fetched } = await openRequestReview(page, 7)
+  let planned!: Promise<unknown>
+  const { window, review, fetched } = await openRequestReview(page, 7, {
+    beforeLoad: async window => {
+      planned = nextAnswer(window, "get_review_plan")
+    },
+  })
   await fetched
+  // a file counts as opened once the plan of the head is read: until then the overview of the plan will head the changes,
+  // and a key pressed before it moved past a first file the window never counted (under load the plan came seconds later)
+  await planned
   await showChanges(window, review)
   return { window, review }
 }
