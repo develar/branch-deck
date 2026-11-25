@@ -223,6 +223,17 @@ fn the_summary_reads_the_lines_of_its_window_and_the_ended_runs_that_the_agent_k
     .expect("a broken line");
   history.note_base_pack("checkout-1", 500, now_ms - 60_000);
   let (_goes_on, _lock) = runs.create(&spec("1-2")).expect("a run that goes on");
+  let waiting = |at_ms| lease_pool::host_series::TurnMinute {
+    at_ms,
+    cores: 20,
+    busy: Some(Cores(50)),
+    queue: 1,
+    cause: Some(lease_pool::host_series::IdleCause::Drain),
+    ..lease_pool::host_series::TurnMinute::default()
+  };
+  for at_ms in [now_ms - 2 * DAY_MS, now_ms - 120_000, now_ms - 60_000] {
+    crate::series::append(&home.history_dir(), &waiting(at_ms)).expect("a minute of the series");
+  }
 
   let Reply::Stats { report } = stats(&home, 1, now_ms).expect("the summary") else {
     panic!("a summary")
@@ -231,6 +242,8 @@ fn the_summary_reads_the_lines_of_its_window_and_the_ended_runs_that_the_agent_k
   assert_eq!((report.runs, report.heavy, report.days), (2, 2, 1));
   assert_eq!(report.bytes.base, 500);
   assert_eq!(report.commands.len(), 1);
+  let series = report.series.expect("the minutes of the window");
+  assert_eq!((series.minutes, series.waiting, series.idle), (2, 2, Some(Cores(150))));
   assert_eq!(stats(&home, 91, now_ms).unwrap_err().code, Code::BadRequest);
 }
 

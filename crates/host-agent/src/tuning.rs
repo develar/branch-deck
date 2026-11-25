@@ -63,6 +63,12 @@ pub(crate) fn drain_bar() -> Duration {
   from_env("BD_HOST_TEST_DRAIN_BAR_MS", lease_pool::host_turn::DRAIN_BAR)
 }
 
+/// How often the sampler of the host writes a minute of the series of the heavy turn
+/// (`lease_pool::host_series::EVERY`)
+pub(crate) fn series_every() -> Duration {
+  from_env("BD_HOST_TEST_SERIES_MS", lease_pool::host_series::EVERY)
+}
+
 /// How long a heavy run waits for the heavy turn of the host: `BD_HOST_TEST_HEAVY_WAIT_MS`, else 2 h
 pub(crate) fn heavy_wait() -> Duration {
   from_env("BD_HOST_TEST_HEAVY_WAIT_MS", Duration::from_hours(2))

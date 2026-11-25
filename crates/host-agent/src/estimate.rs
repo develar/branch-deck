@@ -34,10 +34,7 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
     None
   });
   let runs = Runs::new(home.runs_dir());
-  let wall_of_entry = |entry: &TurnEntry| {
-    let spec = runs.get(&entry.ticket.run).ok()?.spec().ok()?;
-    wall(&dir, &entry.repo, &measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()))
-  };
+  let wall_of_entry = |entry: &TurnEntry| entry_wall(&runs, &dir, entry);
   let now = epoch_ms(SystemTime::now());
   let start = if ask.heavy {
     let asked = Asked {
@@ -84,6 +81,24 @@ fn light_start(dir: &Path, now_ms: u64, wall: &dyn Fn(&TurnEntry) -> Option<u64>
       unknown_ahead: 0,
     }),
   }
+}
+
+/// The key of the measures of the command of `entry`, an entry of the heavy turn, by the spec of its run in `runs`
+fn entry_key(runs: &Runs, entry: &TurnEntry) -> Option<String> {
+  let spec = runs.get(&entry.ticket.run).ok()?.spec().ok()?;
+  Some(measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()))
+}
+
+/// The wall in milliseconds of the command of `entry`, an entry of the heavy turn in `dir`, by its last runs ([`wall`])
+pub(crate) fn entry_wall(runs: &Runs, dir: &Path, entry: &TurnEntry) -> Option<u64> {
+  wall(dir, &entry.repo, &entry_key(runs, entry)?)
+}
+
+/// The wall in milliseconds of the command of `entry` by its last passed runs, of 3 at least
+/// (`host_cores::passed_wall`); `None` without them
+pub(crate) fn entry_passed_wall(runs: &Runs, dir: &Path, entry: &TurnEntry) -> Option<u64> {
+  let wall = lease_pool::host_cores::passed_wall(dir, &entry.repo, &entry_key(runs, entry)?).ok().flatten()?;
+  Some(u64::try_from(wall.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// The wall in milliseconds that the last runs of `command_key` in `repo` lead to expect: of the passed runs

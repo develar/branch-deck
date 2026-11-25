@@ -48,6 +48,7 @@ mod run;
 mod run_env;
 mod run_git;
 mod run_requests;
+mod series;
 pub mod serve;
 pub mod setup;
 mod slots;

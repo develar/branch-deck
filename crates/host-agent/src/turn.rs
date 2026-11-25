@@ -378,14 +378,16 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, file: &crate::cores::CoresFi
 }
 
 /// Samples the busy cores of the whole host every `every` into `host.json` of the heavy turn, for the admissions
-/// (`lease_pool::host_turn::note_host`): the runs miss what no run counts. A host that tells no CPU ticks notes nothing,
-/// and a note that fails says so in the log once
+/// (`lease_pool::host_turn::note_host`): the runs miss what no run counts. Each sample goes to the writer of the series
+/// of the heavy turn too, on a thread of its own (`crate::series::start`), without a wait. A host that tells no CPU ticks
+/// notes nothing, and a note that fails says so in the log once
 pub(crate) fn sample_host(home: &Home, every: Duration) {
   let cores = std::thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX));
   let Some(mut before) = sync_utils::host_cpu::host_ticks() else { return };
   let mut said = false;
   // the samples of the last 30 s: an exclusive run reads the most of them
   let mut window = lease_pool::host_turn::HostWindow::default();
+  let feed = crate::series::start(home, cores);
   loop {
     std::thread::sleep(every);
     let Some(after) = sync_utils::host_cpu::host_ticks() else { continue };
@@ -393,8 +395,7 @@ pub(crate) fn sample_host(home: &Home, every: Duration) {
       before = after;
       continue;
     };
-    window.push(now_ms(), busy);
-    if let Err(error) = lease_pool::host_turn::note_host_window(&heavy_dir(home), &window)
+    if let Err(error) = note_sample(&heavy_dir(home), &mut window, now_ms(), busy, &feed)
       && !said
     {
       crate::log::log(&format!("cannot note the busy cores of the host for the heavy turn: {error:#}"));
@@ -402,6 +403,15 @@ pub(crate) fn sample_host(home: &Home, every: Duration) {
     }
     before = after;
   }
+}
+
+/// Notes the sample `busy` at `at_ms` into `window` and `host.json` of `dir`, then hands it to the writer of the series
+/// through `feed`, which never waits
+pub(crate) fn note_sample(dir: &Path, window: &mut lease_pool::host_turn::HostWindow, at_ms: u64, busy: Cores, feed: &crate::series::SeriesFeed) -> anyhow::Result<()> {
+  window.push(at_ms, busy);
+  let noted = lease_pool::host_turn::note_host_window(dir, window);
+  feed.push(busy);
+  noted
 }
 
 /// The line of a run that took the heavy turn after `waited`, with `busy` of the `cores` of the host by the sample that

@@ -85,73 +85,124 @@ pub struct StartEstimate {
 /// When `asked` would take the heavy turn of `sight`, with `wall` the wall in milliseconds of the command of an entry of
 /// the turn by its last runs (`None` when it has none)
 pub fn estimate(sight: &Sight, asked: &Asked<'_>, wall: &dyn Fn(&TurnEntry) -> Option<u64>) -> StartEstimate {
-  let cores = sight.cores;
-  let now = sight.now_ms;
-  let load = Load {
-    outside: sight.outside.unwrap_or_else(|| sight.turn.light_cores()),
-    window: sight.window,
-    sampled: sight.sampled,
-    light: &sight.turn.light,
-    now_ms: now,
-  };
-  let mut unknown = 0u32;
-  // each holder, and each run admitted on the way, with the time of its end
-  let mut running: Vec<(u64, TurnEntry)> = sight
-    .turn
-    .holders
-    .iter()
-    .map(|holder| {
-      let end = wall(holder).map_or_else(
-        || {
-          unknown += 1;
-          now
-        },
-        |wall| holder.since_ms.saturating_add(wall).max(now),
-      );
-      (end, holder.clone())
-    })
-    .collect();
-  let mut at = now;
+  let mut play = Play::of(sight, wall);
   let (ahead, since_ms) = place(sight, asked);
   let run = entry_of(asked, since_ms);
   for (index, entry) in ahead.iter().copied().chain(std::iter::once(&run)).enumerate() {
     let last = index == ahead.len();
+    if play.until_admitted(entry) {
+      if !last {
+        let end = wall(entry).map_or_else(
+          || {
+            play.unknown += 1;
+            play.at
+          },
+          |wall| play.at.saturating_add(wall),
+        );
+        play.running.push((end, entry.clone()));
+      }
+    } else {
+      // an exclusive run that a busy host keeps out: the runs behind its drain pass it
+      play.unknown += 1;
+    }
+  }
+  play.estimate()
+}
+
+/// When the run at `position` of the queue of `sight` would take the heavy turn, the head of the queue or the run that
+/// passes an exclusive head whose drain ended, by the walls of the holders, `wall` as for [`estimate`]: the runs before
+/// it in the queue take nothing here. An exclusive run that a busy host keeps out once no holder is left starts at the
+/// end of the last holder, as its drain begins there; it counts in `unknown_ahead` of no holder. The start `S` of the
+/// backfill of `host_series`, which nothing acts on
+pub fn head_start(sight: &Sight, position: usize, wall: &dyn Fn(&TurnEntry) -> Option<u64>) -> StartEstimate {
+  let mut play = Play::of(sight, wall);
+  if let Some(entry) = sight.turn.queue.get(position)
+    && !play.until_admitted(entry)
+    && !entry.exclusive
+  {
+    play.unknown += 1;
+  }
+  play.estimate()
+}
+
+/// The heavy turn of a sight played forward: the holders and the runs admitted on the way with the time of each end
+struct Play<'a> {
+  load: Load<'a>,
+  cores: u32,
+  now: u64,
+  at: u64,
+  running: Vec<(u64, TurnEntry)>,
+  /// The holders and the runs whose wall is unknown, and the exclusive runs that cannot start
+  unknown: u32,
+}
+
+impl<'a> Play<'a> {
+  /// The play of `sight` at its time, each holder ending after the wall of its command (`wall`), at once without one
+  fn of(sight: &'a Sight, wall: &dyn Fn(&TurnEntry) -> Option<u64>) -> Self {
+    let now = sight.now_ms;
+    let mut unknown = 0u32;
+    let running = sight
+      .turn
+      .holders
+      .iter()
+      .map(|holder| {
+        let end = wall(holder).map_or_else(
+          || {
+            unknown += 1;
+            now
+          },
+          |wall| holder.since_ms.saturating_add(wall).max(now),
+        );
+        (end, holder.clone())
+      })
+      .collect();
+    Self {
+      load: Load {
+        outside: sight.outside.unwrap_or_else(|| sight.turn.light_cores()),
+        window: sight.window,
+        sampled: sight.sampled,
+        light: &sight.turn.light,
+        now_ms: now,
+      },
+      cores: sight.cores,
+      now,
+      at: now,
+      running,
+      unknown,
+    }
+  }
+
+  /// Moves the time to the admission of `entry` by the rule of the turn (`host_turn::admits`), holder end by holder end,
+  /// or the bound of the load of the host on a free turn. Answers `false` for an exclusive run that a busy host keeps out
+  /// once no holder is left: the time is then the end of the last holder
+  fn until_admitted(&mut self, entry: &TurnEntry) -> bool {
     loop {
-      running.retain(|(end, _)| *end > at);
-      let holders: Vec<TurnEntry> = running.iter().map(|(_, holder)| holder.clone()).collect();
+      let at = self.at;
+      self.running.retain(|(end, _)| *end > at);
+      let holders: Vec<TurnEntry> = self.running.iter().map(|(_, holder)| holder.clone()).collect();
       let waited_out = at.saturating_sub(entry.since_ms) >= millis_of_bound();
-      if admits(entry, &holders, &load, cores, waited_out) {
-        if !last {
-          let end = wall(entry).map_or_else(
-            || {
-              unknown += 1;
-              at
-            },
-            |wall| at.saturating_add(wall),
-          );
-          running.push((end, entry.clone()));
-        }
-        break;
+      if admits(entry, &holders, &self.load, self.cores, waited_out) {
+        return true;
       }
       // the next end of a holder, else the bound of the load of the host on a free turn
-      let next = running
+      let next = self
+        .running
         .iter()
         .map(|(end, _)| *end)
         .min()
         .or_else(|| (!entry.exclusive && !waited_out).then(|| entry.since_ms.saturating_add(millis_of_bound())));
       match next {
-        Some(next) if next > at => at = next,
-        // an exclusive run that a busy host keeps out: the runs behind its drain pass it
-        _ => {
-          unknown += 1;
-          break;
-        }
+        Some(next) if next > at => self.at = next,
+        _ => return false,
       }
     }
   }
-  StartEstimate {
-    start_in_ms: at.saturating_sub(now),
-    unknown_ahead: unknown,
+
+  const fn estimate(&self) -> StartEstimate {
+    StartEstimate {
+      start_in_ms: self.at.saturating_sub(self.now),
+      unknown_ahead: self.unknown,
+    }
   }
 }
 

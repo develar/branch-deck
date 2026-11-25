@@ -752,16 +752,26 @@ pub(crate) fn host_sample(dir: &Path, now_ms: u64) -> Option<HostSample> {
 }
 
 /// The busy cores of the whole host by its last sample at most 10 s old at `now_ms`; `None` without one
-fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
+pub(crate) fn host_busy(dir: &Path, now_ms: u64) -> Option<Cores> {
   host_sample(dir, now_ms).map(|sample| sample.busy)
 }
 
 /// The most busy cores of the whole host over the last 30 s at `now_ms`, when its samples span them; `None` without
 /// such a window
 pub(crate) fn host_window(dir: &Path, now_ms: u64) -> Option<Cores> {
-  host_sample(dir, now_ms)
-    .filter(|sample| sample.window_ms >= QUIET_WINDOW_MIN_MS)
-    .and_then(|sample| sample.window_max)
+  host_sample(dir, now_ms).and_then(window_of)
+}
+
+/// The most busy cores of the samples of `sample`, when they span 30 s
+fn window_of(sample: HostSample) -> Option<Cores> {
+  sample.window_max.filter(|_| sample.window_ms >= QUIET_WINDOW_MIN_MS)
+}
+
+/// The busy cores of the last sample of the host and the most of its last 30 s ([`host_window`]) at `now_ms`, from one
+/// read of `host.json`, so both are of one sample; `None` without a fresh sample
+pub(crate) fn host_now(dir: &Path, now_ms: u64) -> (Option<Cores>, Option<Cores>) {
+  let sample = host_sample(dir, now_ms);
+  (sample.map(|sample| sample.busy), sample.and_then(window_of))
 }
 
 /// The busy cores of the whole host by its last sample of at most 10 s ago, as the admissions read it; `None` without one
@@ -809,7 +819,7 @@ pub(crate) fn admits(entry: &TurnEntry, holders: &[TurnEntry], load: &Load<'_>, 
 
 /// The position of the run that may pass the exclusive run at the head of `queue`: the first that is not exclusive. The
 /// exclusive runs between them wait for a quiet host as the head does; `None` when the head is no exclusive run
-fn passer(queue: &[TurnEntry]) -> Option<usize> {
+pub(crate) fn passer(queue: &[TurnEntry]) -> Option<usize> {
   queue.first().filter(|head| head.exclusive)?;
   queue.iter().position(|entry| !entry.exclusive)
 }
@@ -1299,4 +1309,4 @@ pub(crate) fn one_line(command: &[String]) -> String {
 
 #[cfg(test)]
 #[path = "host_turn_test.rs"]
-mod host_turn_test;
+pub(crate) mod host_turn_test;

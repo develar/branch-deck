@@ -309,6 +309,10 @@ pub struct StatsReport {
   pub bytes: BytesTotals,
   /// The bytes of each UTC day with a run or a pack of a base, the oldest first
   pub by_day: Vec<DayBytes>,
+  /// The idle cores while heavy runs waited, by cause, and the dry backfill, by the series of the heavy turn
+  /// (`host_series::aggregate`); `None` without a minute in the window, and from an agent of a build before the series
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub series: Option<crate::host_series::SeriesTotals>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -694,6 +698,9 @@ impl StatsReport {
         hours(other.wait_ms)
       ));
     }
+    if let Some(series) = &self.series {
+      lines.push(series.line(self.days));
+    }
     let bytes = &self.bytes;
     lines.push(format!(
       "  bytes: packs {}, output {}, fetched {}, packs of bases {}",
@@ -731,12 +738,12 @@ fn size(bytes: u64) -> String {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
-const fn is_false(value: &bool) -> bool {
+pub(crate) const fn is_false(value: &bool) -> bool {
   !*value
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
-const fn is_zero(value: &u32) -> bool {
+pub(crate) const fn is_zero(value: &u32) -> bool {
   *value == 0
 }
 

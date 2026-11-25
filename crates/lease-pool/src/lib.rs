@@ -61,6 +61,7 @@ pub mod host_git;
 pub mod host_history;
 pub mod host_refs;
 pub mod host_runs;
+pub mod host_series;
 pub mod host_slots;
 pub mod host_turn;
 pub mod landed_work;

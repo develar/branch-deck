@@ -24,6 +24,44 @@ fn heavy_turn(agent: &super::Agent<'_>) -> (Option<String>, Vec<String>) {
   )
 }
 
+/// The sampler of `serve` writes a minute of the heavy turn into the series of its day while a heavy run holds cores or
+/// waits: the holder with what it counts, the head of the queue, and why it waits
+#[test]
+fn serve_writes_the_series_of_the_heavy_turn_while_heavy_runs_hold_or_wait() {
+  let world = World::new(3, &[]);
+  // the busy cores of this machine are a quiet host of 1000 cores, so its load admits the first run at once
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "1000"), ("BD_HOST_TEST_HOST_SAMPLE_MS", "200"), ("BD_HOST_TEST_SERIES_MS", "500")]);
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "19-1", &marks, &gate));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["19-1"]);
+  agent.start(heavy(&world, "19-2", &marks, &gate));
+  let history = world.home.path().join(".cache/brd-host/history");
+  let minutes = || -> Vec<serde_json::Value> {
+    fs::read_dir(&history)
+      .into_iter()
+      .flatten()
+      .filter_map(Result::ok)
+      .filter(|entry| entry.file_name().to_string_lossy().starts_with("turn-"))
+      .flat_map(|entry| fs::read_to_string(entry.path()).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>())
+      .filter_map(|line| serde_json::from_str(&line).ok())
+      .collect()
+  };
+  eventually("a minute names the holder and the head that waits for the whole host", || {
+    minutes().iter().any(|minute| {
+      minute["holders"][0]["run"] == "19-1"
+        && minute["holders"][0]["whole"] == true
+        && minute["head"]["run"] == "19-2"
+        && minute["cause"] == "whole_host"
+        && minute["cores"] == 1000
+    })
+  });
+  // a cancel ends the second run before it takes the turn
+  assert!(matches!(agent.reply(&Request::Cancel { run: "19-2".to_owned() }), Reply::Done { .. }));
+  assert_eq!(agent.follow("19-2").end, Reply::Exit { code: 130 }, "{}", agent.dump("19-2"));
+  fs::write(&gate, "").expect("the gate opens");
+  assert_eq!(agent.follow("19-1").end, Reply::Exit { code: 0 }, "{}", agent.dump("19-1"));
+}
+
 /// A heavy run of `world` whose command marks its start in `marks` and waits for `gate`
 fn heavy(world: &World, run: &str, marks: &Path, gate: &Path) -> RunSpec {
   RunSpec {

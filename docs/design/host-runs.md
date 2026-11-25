@@ -364,6 +364,7 @@ and the phases stay. So `brd-host runs` lists the finished runs with their exit,
 
 ### The history of the runs
 
+The series of the heavy turn by the minute is in [The series of the heavy turn](#the-series-of-the-heavy-turn).
 On 2026-11-24 the heavy queue was the bottleneck of the Studio: in 22.6 h its 144 runs waited 3189 min for the heavy
 turn against 346 min of commands, the median wait 37 min, and the checkout, the prepare, the slot and the pack took
 about a minute in all. `brd-host runs` shows the runs of the last day, one at a time, and the rules of the queue that
@@ -407,6 +408,50 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   ran their command, the cores, the 30 commands that waited longest and the rest in one entry, so the reply stays far
   below the 1 MiB of a message, and the bytes by day. A command fails when it ran and exited with a code other than 0
   and 130 (a cancel). The aggregate lives on the side of the agent: `host-link` and `host-client` reach no pool.
+
+### The series of the heavy turn
+
+The agent kept no series of the host: `host.json` holds the last sample only, and the line of a wait comes once a
+minute into the log of each waiting run, which goes with the run. On 2026-11-25, 428 of the 949 waiting minutes of a
+day had no line left, so a check of the admission rested on the 27 % that a script could rebuild. So `serve` writes one
+`TurnMinute` (`lease_pool::host_series`) a minute while a heavy run holds cores or waits.
+
+- **Where**: `~/.cache/brd-host/history/turn-<YYYY-MM-DD>.jsonl`, a file of each UTC day, beside the history of the
+  runs. A day stops at 4 MiB (`DAY_BYTES`, about three busy days), and the hourly cleanup removes the days more than
+  30 days old (`KEEP_DAYS`). A minute of a busy host is about 1 KiB.
+- **A minute**: the mean and the most busy cores of the samples of the minute, the live cores of the runs that are not
+  heavy, the busy cores outside the heavy runs as an admission counts them, each holder with what it counts and its
+  last sample, the length of the queue, the head with its need and whether it fits, the drain of an exclusive head and
+  the run that may pass it, and why no run started (`IdleCause`): an exclusive run holds, an exclusive head drains,
+  waits for the holders or for a quiet host, the run needs the whole host, a holder whose command runs counts the whole
+  host (no measure in its grace, or a measure of the whole host), the holders count cores before their command (their
+  slot, checkout or prepare), or the cores. The cause is of the run that can start: the head, or the run
+  that may pass an exclusive head whose drain ended, as the rule of the turn reads it (`admits`, `passer`).
+- **A dry backfill**: the runs that the backfill of a run behind the head would start now, each with its cores, its
+  passed wall `W` and the estimated start `S` of the head (`host_estimate::head_start`). The rule: a run behind the
+  head, scanned to the end of the queue, not exclusive, of a measure below the whole host, admitted now with the head
+  left out and no load bound, of a passed wall of at most 30 min (`BACKFILL_WALL`), with `1.25 W` within `S`; no
+  unknown wall before the head, no drain, no exclusive holder, and a head passed fewer than 4 times. Behind an
+  exclusive head whose drain ended, the head is the run that may pass it. The writer keeps the dry starts from minute to
+  minute (`DryState`), as a real backfill would leave its traces: a started run leaves the candidates, holds its cores
+  for the next candidate and for `S` until its `W` ends, and counts a pass of its head with the passes of the short
+  runs; a run that leaves the queue leaves the state. Without it the same run shadowed the candidates behind it each
+  minute and a head took more than 4 dry passes. The state is in memory: a restart of `serve` begins with none. Nothing
+  acts on it: a day of minutes tells how often a backfill would start and how wrong `S` was, against the same queue,
+  before any admission changes.
+- **A thread of its own**: the minute reads `turn.json`, the drain, the marks and the walls of each run, which can take
+  seconds on a slow volume, and the admissions count a sample of `host.json` only while it is 10 s old at most. So the
+  sampler hands each sample to the writer of the series through a queue of 64 without a wait (`SeriesFeed`); a writer
+  that lags loses samples, never the sampler. A panic of a minute is caught and ends that minute only, and a failure
+  is said in the log once per state (a read, a write, a full day), again after a minute is written.
+- **One reader of the turn**: the writer reads `turn.json` without its lock, as `brd-host runs` does, so it holds no
+  look back and a supervisor of an older build never meets the series.
+- **Later builds**: each enum of a minute (`IdleCause`, `MinuteDrain`) reads a value that it does not know as
+  `other`, so a summary of a later agent reads in this client, and a line of a later agent counts after a downgrade.
+- **The summary**: `brd-host stats` reads the days of its window and gives the minutes in which heavy runs waited, the
+  idle cores of the host then (its cores less the mean busy cores of each minute), the same by cause, and the runs that
+  the dry backfill started (`host_series::aggregate`). Its line names the days that it covers: at most the 30 that the
+  series keeps, also for `--days 90`.
 
 ### Waiting in bounded calls
 

@@ -2,7 +2,7 @@ use super::*;
 use pretty_assertions::assert_eq;
 use sync_utils::cores::Cores;
 
-fn params(dir: &Path) -> TurnParams<'_> {
+pub(crate) fn params(dir: &Path) -> TurnParams<'_> {
   TurnParams {
     dir,
     lock_timeout: Duration::from_secs(10),
@@ -14,7 +14,7 @@ fn params(dir: &Path) -> TurnParams<'_> {
 }
 
 /// The command of each request of the tests
-fn command() -> Vec<String> {
+pub(crate) fn command() -> Vec<String> {
   vec!["cargo".to_owned(), "nextest".to_owned(), "run".to_owned(), "--workspace".to_owned()]
 }
 
@@ -1194,7 +1194,7 @@ fn age_holder(dir: &Path, run: &str, admitted_ago: Duration, recent: Option<Rece
 }
 
 /// Notes `tenths` as the live cores of the run `run` of the tests
-fn note_live(params: &TurnParams<'_>, run: &str, command: &[String], tenths: u32) {
+pub(crate) fn note_live(params: &TurnParams<'_>, run: &str, command: &[String], tenths: u32) {
   let pid = std::process::id();
   note_use(
     params,

@@ -117,11 +117,12 @@ impl History {
     append_private(&dir.join(name))?.write_all(&bytes)
   }
 
-  /// Removes the months whose every line is more than 90 days before `now_ms`. Answers a log line for each
+  /// Removes the months whose every line is more than 90 days before `now_ms`, and the days of the series of the heavy
+  /// turn past their age (`crate::series::expire`). Answers a log line for each
   pub(crate) fn expire(&self, now_ms: u64) -> Vec<String> {
     let oldest = month_of(now_ms.saturating_sub(u64::from(KEEP_DAYS) * DAY_MS));
-    let Ok(entries) = fs::read_dir(self.dir()) else { return Vec::new() };
-    let mut lines = Vec::new();
+    let mut lines = crate::series::expire(&self.dir(), now_ms);
+    let Ok(entries) = fs::read_dir(self.dir()) else { return lines };
     for entry in entries.filter_map(Result::ok) {
       let name = entry.file_name().to_string_lossy().into_owned();
       let Some(month) = name.strip_suffix(LINES).map(|month| month.strip_prefix(BASES).unwrap_or(month)) else {
@@ -196,7 +197,14 @@ pub(crate) fn stats(home: &Home, days: u32, now_ms: u64) -> Result<Reply, Refusa
       Err(error) => log(&format!("the summary of the runs skips {}: {error}", run.path().display())),
     }
   }
-  let report = aggregate(&lines, &bases, since_ms, now_ms, days);
+  let mut report = aggregate(&lines, &bases, since_ms, now_ms, days);
+  let (minutes, unread_minutes) = crate::series::read(&history.dir(), since_ms, now_ms);
+  if unread_minutes > 0 {
+    log(&format!(
+      "the summary of the runs skips {unread_minutes} minute(s) of the series of the heavy turn that do not parse"
+    ));
+  }
+  report.series = (!minutes.is_empty()).then(|| lease_pool::host_series::aggregate(&minutes));
   serde_json::to_value(report)
     .map(|report| Reply::Stats { report })
     .map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
