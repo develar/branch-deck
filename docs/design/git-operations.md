@@ -2702,7 +2702,8 @@ same tree takes several minutes.
    `update-index -q --refresh` with the default check and `core.fsmonitor=false` hashes only the entries the patch
    left. Every later git runs with the default check and finds the unchanged files unchanged by their stat data.
 5. `checkout --force --detach <source HEAD>` (parallel, as above) writes the diff from the template's index, the
-   untracked files of the template go (`remove_untracked`, below), and one `status` must find nothing. The template's changes, staged
+   untracked files of the template go (`remove_untracked`, below), and the last `status` of that clean must find no
+   change: one `status` per add when nothing untracked is left. The template's changes, staged
    files and untracked files never reach the lease; its ignored files stay as the warm cache. The seed runs as for
    any get, so the return removes the seeded files also when the source template carried them.
 
@@ -3119,8 +3120,10 @@ local changes and a process of another session in the slot refuse it; with
 stay for the next lease. `remove_untracked` (`git_ops::lease_slot`, every discard of a slot and the clean of a clone)
 lists the untracked files with one `status` in the untracked mode of the repository, whose untracked cache serves that
 mode alone (2 s in a slot of idea-1; `clean -fd` walks every directory, 49 s, and `ls-files --others` 54 s), and with
-none runs nothing more. Else it removes the untracked `.gitignore` files it lists, runs one `clean -fd`, and one more
-`status` must find nothing, at most four passes: a `clean` judges what is ignored by the ignore files as it finds them
+none runs nothing more. Each of its `status` may write the index of the slot (`GIT_OPTIONAL_LOCKS=1`), so the
+untracked cache and the fsmonitor token stay, and it answers the local changes of its last `status`. Else it removes
+the untracked `.gitignore` files it lists, runs one `clean -fd`, and one more `status` must find nothing, at most four
+passes: a `clean` judges what is ignored by the ignore files as it finds them
 when it starts, so it deleted an untracked `.gitignore` and kept the file that file hid, which then made the slot dirty
 (a clone of such a template was rolled back); a `.gitignore` inside an untracked directory, one entry in the `normal`
 mode, is found by the pass after

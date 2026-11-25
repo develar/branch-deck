@@ -1,6 +1,8 @@
-use crate::lease_slot::{CheckoutWorkers, SlotMove, attach_new_branch, linked_worktree, move_clean_slot, register_slot, unlock_slot};
-use std::path::PathBuf;
-use test_utils::git_test_utils::TestRepo;
+use crate::lease_slot::{
+  CheckoutWorkers, SlotMove, UntrackedFiles, attach_new_branch, clean_cloned_slot, discard_slot_changes, linked_worktree, move_clean_slot, register_slot, unlock_slot,
+};
+use std::path::{Path, PathBuf};
+use test_utils::git_test_utils::{TestRepo, append_config};
 use test_utils::process_budget::{assert_processes, counting};
 
 /// A repository with a commit, and the path of a slot that is not there yet in a directory of its own
@@ -178,4 +180,63 @@ fn a_new_branch_is_attached_in_one_transaction_and_an_existing_one_fails_it() {
   fixture.repo.git(&["checkout", "--quiet", "--detach", &fixture.first]);
   assert!(attach_new_branch(fixture.repo.git_executor(), slot, "feature", &fixture.first).is_err());
   assert_eq!(fixture.head(), (fixture.first.clone(), "HEAD".to_string()));
+}
+
+/// The `opendir` calls of one `status` that may not write the index (the executor's default) in `repo`, from its trace2
+/// in `trace`: how many directories the untracked cache did not answer
+fn opened_directories(repo: &TestRepo, trace: &Path) -> u64 {
+  std::fs::write(trace, "").unwrap();
+  repo.git(&["status", "--porcelain=v1", "-z", "--untracked-files=normal"]);
+  std::fs::read_to_string(trace)
+    .unwrap()
+    .lines()
+    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    .filter(|event| event["event"] == "data" && event["category"] == "read_directory" && event["key"] == "opendir")
+    .filter_map(|event| event["value"].as_str().and_then(|value| value.parse().ok()))
+    .next_back()
+    .unwrap_or_else(|| panic!("no read_directory in the trace"))
+}
+
+/// The clean of a clone and the discard of a return list the untracked files with a `status` that writes the index of
+/// the slot: the next `status` finds the untracked cache filled. The clean answers the changes its last `status` found,
+/// so a clone needs no second `status`
+#[test]
+fn the_clean_of_a_clone_and_a_discard_leave_the_untracked_cache_warm() {
+  let repo = TestRepo::new();
+  append_config(repo.path(), &[("core.untrackedCache", "true")]);
+  let files: Vec<(String, String)> = (0..20).map(|n| (format!("dir{n}/sub/file.txt"), format!("{n}\n"))).collect();
+  let files: Vec<(&str, &str)> = files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
+  repo.create_commit_with_files("Add the directories", &files);
+  let trace = tempfile::tempdir().unwrap();
+  let trace = trace.path().join("trace2.json");
+  // the counters of `read_directory` are nested deeper than the 2 levels trace2 keeps by default
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", trace.as_os_str()), ("GIT_TRACE2_EVENT_NESTING", std::ffi::OsStr::new("10"))]);
+  // git leaves a directory changed in the second of the index write out of the cache; a real slot's are older
+  let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+  for (dir, _) in &files {
+    for dir in Path::new(dir).ancestors().skip(1).filter(|dir| !dir.as_os_str().is_empty()) {
+      std::fs::File::open(repo.path().join(dir)).unwrap().set_modified(hour_ago).unwrap();
+    }
+  }
+  let empty_cache = || {
+    repo.git(&["update-index", "--no-untracked-cache"]);
+    repo.git(&["update-index", "--untracked-cache"]);
+  };
+
+  std::fs::write(repo.path().join("dir0/sub/file.txt"), "changed\n").unwrap();
+  std::fs::write(repo.path().join("left.txt"), "left\n").unwrap();
+  empty_cache();
+  assert!(opened_directories(&repo, &trace) > 40, "an empty cache opens every directory");
+  let changes = clean_cloned_slot(repo.git_executor(), repo.path_str(), UntrackedFiles::Normal).unwrap();
+  assert_eq!(changes, ["dir0/sub/file.txt"]);
+  assert!(!repo.path().join("left.txt").exists());
+  let warm = opened_directories(&repo, &trace);
+  assert!(warm <= 2, "a status after the clean opened {warm} directories");
+
+  std::fs::write(repo.path().join("left.txt"), "left\n").unwrap();
+  empty_cache();
+  discard_slot_changes(repo.git_executor(), repo.path_str(), UntrackedFiles::Normal).unwrap();
+  assert_eq!(repo.git(&["status", "--porcelain"]), "");
+  let warm = opened_directories(&repo, &trace);
+  assert!(warm <= 2, "a status after the discard opened {warm} directories");
 }

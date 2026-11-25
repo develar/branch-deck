@@ -164,23 +164,33 @@ fn is_notes(path: &str) -> bool {
 /// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones nor the notes
 /// of the lease (`NOTES_LINK`, what is in it). One
 /// `status --porcelain=v1 -z` with the `untracked` mode of the repository; its own `core.fsmonitor` and
-/// `core.untrackedCache` apply. The one `status` that may write the index (`GIT_OPTIONAL_LOCKS=1`, against the
-/// executor's default): the refreshed stat data, the fsmonitor token and the untracked cache stay in the slot's index,
-/// so the next `status` and the checkout start warm. Without the write, a slot of idea-1 (1.4M files) idle for days
-/// walked its whole tree on every `status`, 2-5 min each; after one write a `status` took 2 s and a checkout without
-/// changes 1-3 s instead of 4-10 s. Only a slot of the pool, with no other process in it, is asked
+/// `core.untrackedCache` apply. It may write the index (`slot_status`). Only a slot of the pool, with no other process
+/// in it, is asked
 pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
+  Ok(changed_paths(slot_status(git_executor, slot, untracked)?))
+}
+
+/// The entries of one `status --porcelain=v1 -z` of `slot` in the `untracked` mode of the repository, a `status` that
+/// may write the index (`GIT_OPTIONAL_LOCKS=1`, against the executor's default): the refreshed stat data, the
+/// fsmonitor token and the untracked cache stay in the slot's index, so the next `status` and the checkout start warm.
+/// Without the write, a slot of idea-1 (1.4M files) idle for days walked its whole tree on every `status`, 2-5 min
+/// each; after one write a `status` took 2 s and a checkout without changes 1-3 s instead of 4-10 s. Every `status` of
+/// this file runs here
+fn slot_status(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<([u8; 2], String)>> {
   let output = git_executor
     .cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot)
     .env(&[("GIT_OPTIONAL_LOCKS", "1")])
     .bytes()?;
-  Ok(
-    status_entries(&output)
-      .into_iter()
-      .filter(|(code, path)| !(code == b"??" && is_notes(path)))
-      .map(|(_, path)| path)
-      .collect(),
-  )
+  Ok(status_entries(&output))
+}
+
+/// The paths of the entries of a `status`, without the notes of the lease (`NOTES_LINK`, what is in it)
+fn changed_paths(entries: Vec<([u8; 2], String)>) -> Vec<String> {
+  entries
+    .into_iter()
+    .filter(|(code, path)| !(code == b"??" && is_notes(path)))
+    .map(|(_, path)| path)
+    .collect()
 }
 
 /// The entries of a `status --porcelain=v1 -z`: the two status letters and the path (of a rename or a copy, the new one)
@@ -376,8 +386,9 @@ pub fn refresh_cloned_index(git_executor: &GitCommandExecutor, slot: &str, git_d
 }
 
 /// Remove the untracked files of `slot` that a clone brought from its template, not the ignored ones (the warm build
-/// outputs): `remove_untracked`
-pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
+/// outputs): `remove_untracked`. The local changes that are left, as `slot_changes` names them, come from its last
+/// `status`, so a clone needs no other
+pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
   remove_untracked(git_executor, slot, untracked)
 }
 
@@ -391,13 +402,14 @@ const UNTRACKED_PASSES: usize = 4;
 /// then one `clean -fd`, and one more `status` checks that nothing is left: a `clean` judges what is ignored by the
 /// ignore files as it finds them when it starts, so it deleted an untracked `.gitignore` and kept the file that
 /// `.gitignore` hid, untracked from then on. A `.gitignore` inside an untracked directory (one entry in the `normal`
-/// mode) is found so, by the pass after
-fn remove_untracked(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
+/// mode) is found so, by the pass after. Each `status` may write the index (`slot_status`). The answer is the local
+/// changes of the last pass, without the notes of the lease (`slot_changes`): the tracked files that differ
+fn remove_untracked(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
   for _ in 0..UNTRACKED_PASSES {
-    let output = git_executor.cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot).bytes()?;
-    let found: Vec<String> = status_entries(&output).into_iter().filter(|(code, _)| code == b"??").map(|(_, path)| path).collect();
+    let entries = slot_status(git_executor, slot, untracked)?;
+    let found: Vec<&str> = entries.iter().filter(|(code, _)| code == b"??").map(|(_, path)| path.as_str()).collect();
     if found.is_empty() {
-      return Ok(());
+      return Ok(changed_paths(entries));
     }
     for path in found.iter().filter(|path| Path::new(path).file_name().is_some_and(|name| name == ".gitignore")) {
       fs_retry::remove_file(Path::new(slot).join(path))?;
@@ -510,7 +522,7 @@ fn head_commits_without(git_executor: &GitCommandExecutor, slot: &str, not: &[&s
 /// keep the next lease warm)
 pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
   IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || git_executor.execute_command(&["reset", "--quiet", "--hard", "HEAD"], slot).map(drop))?;
-  remove_untracked(git_executor, slot, untracked)
+  remove_untracked(git_executor, slot, untracked).map(drop)
 }
 
 /// Start git's maintenance as a commit would, once a return freed its slot: `maintenance run --auto --detach` in the

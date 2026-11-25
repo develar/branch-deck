@@ -1415,7 +1415,7 @@ fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
   assert_eq!(serde_json::to_value(&got).unwrap()["skipped"][0]["reason"], "idle_with_work", "{got:?}");
   assert_git_processes(
     &context.git,
-    &[("checkout", 1), ("config", 1), ("rev-parse", 3), ("status", 2), ("update-index", 1), ("worktree", 2)],
+    &[("checkout", 1), ("config", 1), ("rev-parse", 3), ("status", 1), ("update-index", 1), ("worktree", 2)],
   );
 }
 
@@ -1986,8 +1986,8 @@ fn a_lease_pick_that_returns() {
 
 /// `brd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
 /// config, `worktree add --force --no-checkout --lock` and its `worktree unlock` once the clone is in place (no
-/// `worktree prune`), the refresh of the copied index, one `checkout` of the diff, the `status` of the clean in the
-/// untracked mode of the repository, which runs no `clean -fd` with nothing untracked, and the `status` of the clone
+/// `worktree prune`), the refresh of the copied index, one `checkout` of the diff, and one `status` in the untracked
+/// mode of the repository: the clean finds nothing untracked, so it runs no `clean -fd`, and no change
 #[cfg(target_os = "macos")]
 #[test]
 fn a_lease_get_of_a_new_slot_by_a_clone() {
@@ -1998,7 +1998,7 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
   assert!(matches!(got.created_by, Some(bd_lease::lease_command::CreatedByOutput::Clone)), "{got:?}");
   assert_git_processes(
     &context.git,
-    &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 2)],
+    &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 1), ("update-index", 1), ("worktree", 2)],
   );
 }
 
@@ -2031,7 +2031,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
   if cfg!(target_os = "macos") {
     assert_git_processes(
       &context.git,
-      &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 2)],
+      &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("status", 1), ("update-index", 1), ("worktree", 2)],
     );
   } else {
     assert_git_processes(&context.git, &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("worktree", 1)]);
@@ -2062,7 +2062,7 @@ fn a_lease_get_that_removes_an_unfinished_slot() {
   if cfg!(target_os = "macos") {
     assert_git_processes(
       &context.git,
-      &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 3)],
+      &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 1), ("update-index", 1), ("worktree", 3)],
     );
   } else {
     assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("worktree", 2)]);
@@ -2093,7 +2093,7 @@ fn a_lease_get_of_a_new_slot_with_files_of_git_lfs() {
         ("config", 1),
         ("lfs", 1),
         ("rev-parse", 2),
-        ("status", 2),
+        ("status", 1),
         ("update-index", 1),
         ("worktree", 2),
       ],

@@ -1200,7 +1200,8 @@ pub enum GetStep {
   RemoveUnfinished { slots: Vec<String> },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
-  /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
+  /// The `status` of the slot: of a reserved free slot, or of the clean of a clone after its checkout
+  /// (`clean_cloned_slot`), which looks for the untracked files and the local changes at once
   Status { slot: String },
   /// The APFS clone of `template` into the new slot, and its registration
   Clone { template: String, slot: String },
@@ -3049,9 +3050,9 @@ enum Cloned {
 ///    main checkout), `<path>.cloning` renamed to `<path>`;
 /// 3. the template's index copied in, with the stat data of the cloned files, and refreshed (`refresh_cloned_index`):
 ///    the checkout of step 4 then writes only the files that differ;
-/// 4. `checkout --force` to the commit, its untracked files removed (`clean_cloned_slot`), one `status`: the changes
-///    and the untracked files of the template never reach the lease, and its ignored files stay as the warm cache. A
-///    tracked file under a skipped path comes back with the checkout
+/// 4. `checkout --force` to the commit, then its untracked files removed (`clean_cloned_slot`), whose last `status`
+///    must find no change: the changes and the untracked files of the template never reach the lease, and its ignored
+///    files stay as the warm cache. A tracked file under a skipped path comes back with the checkout
 fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<(), Cloned> {
   let path = request.path;
   let slot = display_path(path);
@@ -3110,9 +3111,10 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
     commit: request.commit.to_string(),
   });
   checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers, request.lfs).map_err(registered)?;
-  clean_cloned_slot(git_executor, &slot, request.untracked).map_err(registered)?;
+  // the `status` of the clean lists the untracked files and the changes that are left, so no second `status` walks
+  // the tree
   (request.progress)(GetStep::Status { slot: slot.clone() });
-  let changes = slot_changes(git_executor, &slot, request.untracked).map_err(registered)?;
+  let changes = clean_cloned_slot(git_executor, &slot, request.untracked).map_err(registered)?;
   if !changes.is_empty() {
     return Err(registered(anyhow!(
       "The clone of {} kept {} local change(s), e.g. {}",
