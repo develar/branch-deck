@@ -6,7 +6,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { expectOverviewLaidOut } from "../helpers/diff-helpers"
 import { MARKS_SUBJECT, openMarksReview } from "../helpers/marks-helpers"
 import { turnOnReviewPlan } from "../helpers/review-plan-helpers"
-import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
+import { availableReviewRequests, openRequestReview, reviewRequest, waitForReviewReading } from "../helpers/review-request-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { checkForUpdatesFromMenu, TITLE_BARS, toastWith, useTitleBar } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
@@ -148,6 +148,7 @@ test.describe("ResizeObserver loops", () => {
     await window.keyboard.press("d")
     await expect(review.getByTestId("commit-review")).toBeVisible()
     await window.keyboard.press("Escape")
+    await waitForReviewReading(review)
     const card = window.getByTestId("commit-card")
     const subject = review.getByTestId("review-commits").getByTestId("review-commit").first().getByTestId("review-commit-subject")
     for (let round = 0; round < 3; round++) {

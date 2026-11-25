@@ -277,11 +277,9 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       const repo = await setupRepo("issue_links")
       await syncAndWaitForBranches()
       // a row above it and one below
-      expect(await page.getByTestId("branch-row").evaluateAll(rows => rows.slice(2, 5).map(row => row.getAttribute("data-branch-name")))).toEqual([
-        "feature-docs",
-        "feature-db",
-        "feature-ui",
-      ])
+      await expect
+        .poll(() => page.getByTestId("branch-row").evaluateAll(rows => rows.slice(2, 5).map(row => row.getAttribute("data-branch-name"))))
+        .toEqual(["feature-docs", "feature-db", "feature-ui"])
       const pushes = await recordCommand(page, "execute")
       await repo.holdRepositoryLock(true)
       const push = getPushButton(findBranchRow(page, "feature-db"))

@@ -110,7 +110,7 @@ test.describe("Title bar", () => {
     expect(controlsBox.x + controlsBox.width).toBeCloseTo(headerBox.x + headerBox.width, 0)
 
     // the Segoe Fluent glyphs of the caption buttons: ChromeMinimize, ChromeMaximize, ChromeClose
-    expect(await controls.getByRole("button").evaluateAll(buttons => buttons.map(it => it.textContent?.codePointAt(0)?.toString(16)))).toEqual(["e921", "e922", "e8bb"])
+    await expect.poll(() => controls.getByRole("button").evaluateAll(buttons => buttons.map(it => it.textContent?.codePointAt(0)?.toString(16)))).toEqual(["e921", "e922", "e8bb"])
     await controls.getByRole("button", { name: "Minimize" }).click()
     await controls.getByRole("button", { name: "Maximize" }).click()
     // a maximized window offers Restore
@@ -367,7 +367,7 @@ test.describe("Custom title bar on Linux", () => {
     await syncAndWaitForBranches()
     const end = header(page).locator("[data-testid=window-controls][data-side=end]")
     await expect(end).toHaveAttribute("data-style", "gnome")
-    expect(await end.getByRole("button").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual(["Close"])
+    await expect.poll(() => end.getByRole("button").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual(["Close"])
     await expect(header(page).locator("[data-testid=window-controls][data-side=start]")).toHaveCount(0)
     // flush with the right edge, a 47px cell; out of the tab order, as native window buttons are
     const headerBox = await boxOf(header(page))
@@ -383,13 +383,15 @@ test.describe("Custom title bar on Linux", () => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     const start = header(page).locator("[data-testid=window-controls][data-side=start]")
-    expect(await start.getByRole("button").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual(["Close"])
-    expect(
-      await header(page)
-        .locator("[data-testid=window-controls][data-side=end]")
-        .getByRole("button")
-        .evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label"))),
-    ).toEqual(["Minimize", "Maximize"])
+    await expect.poll(() => start.getByRole("button").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual(["Close"])
+    await expect
+      .poll(() =>
+        header(page)
+          .locator("[data-testid=window-controls][data-side=end]")
+          .getByRole("button")
+          .evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label"))),
+      )
+      .toEqual(["Minimize", "Maximize"])
     const closeBox = await boxOf(start)
     expect(closeBox.x).toBe(0)
     expect((await boxOf(page.getByTestId("main-menu-button"))).x).toBeGreaterThan(closeBox.x + closeBox.width)

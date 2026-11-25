@@ -744,7 +744,8 @@ test.describe("Branch review window", () => {
     // each), the 7 of build/ of Build Tools, the lock file at the root of no owner: 33 chips with All
     await setupRepo("generated_range")
     await syncAndWaitForBranches()
-    await openReviewOf(page, "jps-bridge")
+    // the owners of 3008 files take seconds under load (beside a full run, past the 5 s of a look): their answer first
+    await runAndWaitForAnswer(page, "get_file_owners", () => openReviewOf(page, "jps-bridge"))
     const tree = page.getByRole("tree", { name: "Changed files" })
     const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
     const more = page.getByTestId("branch-review-more-owners")

@@ -38,7 +38,7 @@ const FRAME_TREE = ["docs@0", "auth@0", "session@1", "login@1", "oauth@2"]
 async function startWarmWithTheSyncHeld(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("stacked_branches", { warmStart: true, remoteAnswers: { hold: ["sync"] }, waitForSync: false })
   await expect(page.locator("[data-cached=true]")).toBeVisible()
-  expect(await branchTree(page)).toEqual(FRAME_TREE)
+  await expect.poll(() => branchTree(page)).toEqual(FRAME_TREE)
   return repo
 }
 
@@ -54,7 +54,7 @@ test.describe("The warm start", () => {
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     await expect(page.locator("[data-cached]")).toHaveCount(0)
-    expect(await branchTree(page)).toEqual(FRAME_TREE)
+    await expect.poll(() => branchTree(page)).toEqual(FRAME_TREE)
     // after the rows too, the page reads no prefix of its own: the view of the session names it
     const asked = await page.evaluate(() => Object.keys((window as unknown as { __ipcStats: FirstRowsIpc }).__ipcStats.invokes))
     expect(asked).toContain("subscribe_view")
@@ -88,7 +88,7 @@ test.describe("The warm start", () => {
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "1")
     // the window records the run it never saw: the time of the sync and the room of the loading table at the next start
     await waitForStorePersistence(page, "repositoryState", states => (states as LastSyncs | undefined)?.[repo.path!]?.lastBranchCount === FRAME_TREE.length)
-    expect(await branchTree(page)).toEqual(FRAME_TREE)
+    await expect.poll(() => branchTree(page)).toEqual(FRAME_TREE)
   })
 
   test("ends the first sync once: a reload of the window after it ends no run", async ({ page, setupRepo }) => {
@@ -102,7 +102,7 @@ test.describe("The warm start", () => {
     // the catch-up from the seed to the table of this run, whose end the page before the reload saw: no run ended here
     await expect(page.locator("[data-cached]")).toHaveCount(0)
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", "0")
-    expect(await branchTree(page)).toEqual(FRAME_TREE)
+    await expect.poll(() => branchTree(page)).toEqual(FRAME_TREE)
   })
 
   test("says the close of a pull request of a stack that is no more waits for the first sync on the rows of the frame", async ({ page, setupRepo }) => {
@@ -149,7 +149,7 @@ test.describe("The warm start", () => {
     const unstacks = await recordRewrites(page, "unstack")
     // the row says it waits for the sync, and nothing moved
     const more = await unstackOauthFromMenuWaiting(page, "Unstacking oauth after the sync")
-    expect(await branchTree(page)).toEqual(FRAME_TREE)
+    await expect.poll(() => branchTree(page)).toEqual(FRAME_TREE)
     await expect.poll(() => unstacks.length).toBe(1)
     // the Unstack of its menu, which runs, says it as its row does: in the palette of the row
     await findBranchRow(page, "oauth").focus()
@@ -212,7 +212,7 @@ test.describe("The warm start", () => {
       // palette has the menu of oauth as it is now (React gave up rendering the two menus again, "Maximum update depth
       // exceeded", and the window went blank)
       await releaseTheSyncOfTheUnstack(page, repo)
-      expect(await branchTree(page)).toEqual(["docs@0", "oauth@0", "auth@0", "session@1", "login@1"])
+      await expect.poll(() => branchTree(page)).toEqual(["docs@0", "oauth@0", "auth@0", "session@1", "login@1"])
       await expect(actions.getByRole("option", { name: /^Review Changes/ })).toBeVisible()
       await expect(actions.getByRole("option", { name: /^Unstack/ })).toHaveCount(0)
       await expect(menu).toHaveAttribute("data-closed")

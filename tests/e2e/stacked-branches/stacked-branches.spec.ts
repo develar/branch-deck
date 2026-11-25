@@ -195,9 +195,9 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "login"), 1)
 
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
     // a graph, not a staircase: the chain auth → login → oauth stays on lane 0, session forks off it on lane 1
-    expect(await lanes(page)).toEqual(["docs@0", "auth@0", "session@1", "login@0", "oauth@0"])
+    await expect.poll(() => lanes(page)).toEqual(["docs@0", "auth@0", "session@1", "login@0", "oauth@0"])
     const authX = await nodeX(page, "auth")
     expect(Math.abs((await nodeX(page, "oauth")) - authX)).toBeLessThanOrEqual(1)
     expect(Math.round((await nodeX(page, "session")) - authX)).toBe(16)
@@ -325,7 +325,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("stack-chip")).toHaveCount(1)
 
     await chip.click()
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0"])
     await expect(chip).toHaveAttribute("data-stack", "collapsed")
     // where the hidden rows are on their way into master, in the colour of their nodes: neither Patronus nor GitHub, so
     // their push is the user's step
@@ -344,9 +344,9 @@ test.describe("Stacked branches", () => {
     await waitForStorePersistence(page, "recentProjects", projects => (projects as { collapsedStacks?: string[] }[] | undefined)?.[0]?.collapsedStacks?.includes("auth") === true)
     await page.reload()
     await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="auth"]'])
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0"])
     await getStackChip(findBranchRow(page, "auth")).click()
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 
   test("should name in the chip of a collapsed stack only the robots that failed on its branches as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -378,7 +378,7 @@ test.describe("Stacked branches", () => {
     await findBranchRow(page, "oauth").focus()
 
     await page.keyboard.press("Alt+ArrowLeft")
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0"])
     // the focus moves from the hidden row to the root
     await expect(findBranchRow(page, "auth")).toBeFocused()
     await page.keyboard.press("Alt+ArrowRight")
@@ -389,7 +389,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("branch-row")).toHaveCount(5)
     await openContextMenu(page, findBranchRow(page, "login"))
     await clickContextMenuItem(page, "Collapse Stack")
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0"])
   })
 
   test("should block the children of a parent that doesn't build", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -468,7 +468,7 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
     const chip = getStackChip(findBranchRow(page, "auth"))
     await chip.click()
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0"])
     // the fix first, the robot that lands login and oauth beside it, with its ring
     await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 1 to fix")
     await expect(chip.getByTestId("stack-chip-landing")).toHaveText("· 2 landing")
@@ -531,7 +531,7 @@ test.describe("Stacked branches", () => {
   }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
 
     // the chip shows over the row under the pointer, and a drop on it stacks instead of moving the commits
     await startDrag(page, findBranchRow(page, "docs"))
@@ -555,7 +555,7 @@ test.describe("Stacked branches", () => {
     await refused.hover()
     await expect(page.getByTestId("drag-target-status")).toHaveText("Cannot stack auth on oauth: oauth is stacked on it")
     await dropOn(page, refused)
-    expect(await branchTree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+    await expect.poll(() => branchTree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     // the unstack zone of the drag bar makes it a root again
     await startDrag(page, findBranchRow(page, "docs"))
@@ -570,7 +570,7 @@ test.describe("Stacked branches", () => {
     await setupRepo("stacked_issues")
     await syncAndWaitForBranches()
     // docs is stacked on ABC-1 by the stack parents, its prefix names no parent
-    expect(await branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+    await expect.poll(() => branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
     await waitForStepFacts(page.getByTestId("next-step-slot"))
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
@@ -2157,7 +2157,7 @@ test.describe("Stacked branches", () => {
       await expect(moved.getByRole("button", { name: "Unstack from IJPL-257337" })).toBeVisible()
       await expect(alone).toHaveAttribute("data-action", "unstack")
       await expect(alone).toContainText("To land perf-part-2 alone: it applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.")
-      expect(await branchTree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
+      await expect.poll(() => branchTree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
 
       // the review of the new tip waits: until it answers, the popover says so and shows no review of the whole stack
       await repo.holdRemoteAnswers({ hold: ["readiness"] })

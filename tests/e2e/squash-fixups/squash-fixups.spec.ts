@@ -147,7 +147,7 @@ test.describe("Squash fixups", () => {
     await syncAndWaitForBranches()
     // auth began first, so its fixup, the newest commit but one, does not lift it above docs and search
     const rows = ["search@0", "docs@0", "auth@0", "session@1"]
-    expect(await branchTree(page)).toEqual(rows)
+    await expect.poll(() => branchTree(page)).toEqual(rows)
     const authRow = findBranchRow(page, "auth")
     // the badge of a collapsed row opens the confirmation as well
     await authRow.getByTestId("branch-fixup-count").click()
@@ -165,7 +165,7 @@ test.describe("Squash fixups", () => {
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
     await verifyCommitCount(authRow, 1)
     // every commit above the target got a new committer time: no row moved under the pointer
-    expect(await branchTree(page)).toEqual(rows)
+    await expect.poll(() => branchTree(page)).toEqual(rows)
     expect(await offset()).toBe(before)
   })
   // openspec/specs/commit/commit-row/spec.md: the reword in the app checks the fixups as `bd reword` does

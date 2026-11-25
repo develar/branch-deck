@@ -370,24 +370,20 @@ What the page no longer derives the session derives on every patch, so its time 
 the next step, the node and the actions of every row and whole stack) and the whole first patch of the view (every
 part derived and compared from nothing), as below. In a release build on the Mac Studio, three
 runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms).
-The test measures the CPU work of its thread, on which the derive runs alone (`test_utils::cpu_time::thread_work`: the
-CPU time on macOS and Linux, the cycles on Windows, whose CPU time counts ticks of 15.6 ms; the CPU time of the process
-is the same to 0.01 %), in units of a fixed work of the same kind on that thread (a map of 2,000 branch names, its
+The test measures the CPU work of the derive, which runs alone on its thread (`test_utils::cpu_time::thread_work`: the
+instructions the process retired on macOS, the CPU time of the thread on Linux, the cycles on Windows, whose CPU time
+counts ticks of 15.6 ms), in units of a fixed work of the same kind on that thread (a map of 2,000 branch names, its
 clone and their comparison) measured right before and right after each derive, in each of 21 rounds, and the median
-round decides. A loaded machine adds preemptions to the wall time, not work to the thread, a slower machine or build
-does the reference slower too, and the references beside a derive follow it to a core of the other speed (with one
-reference apart from the derives, 44 of 120 throttled copies failed; where the wall time and its budget of 40 ms
-failed 79 of 80). The ratio differs by system, the heap of Windows makes the reference dearer, so the budgets are a
-flush within 2.1 units and the first patch within 3.5 on macOS and Linux, 1.55 and 3.0 on Windows (`BUDGETS`): each
-between the slowest run there, under load too, and a derive that takes twice its work. A full test run beside it
-(load 81 on the Studio's 20 cores) still made the derive dearer against the reference for a while, through the caches
-and the memory it shares with the other processes: one first patch measured 3.63 units, which 38 spinning and copying
-processes beside it never brought back (2.58–3.11). So a measurement over its budget is taken again, at most three
-times: the test passes when one of them is within, the best of three, and every one is printed. A regression just over
-a budget therefore passes more often than once in a single measurement; one of twice the work, where the budgets sit
-0.7–1.5 units below it, fails all three. Beside a loop of real suites and 26 burners the fixed test
-passed 20 of 20, and a derive of twice the work failed every measurement, 4 of 4 under that load and 2 of 2 quiet.
-The table of the calibration
+round decides. A slower machine or build does the reference slower too, and the references beside a derive follow it to
+a core of the other speed. On macOS the count is the work alone: an instruction is retired once however long it waits,
+so a loaded machine changes no unit (a flush 1.06 and a first patch 1.94 units for each of 30 copies at once beside 16
+busy loops, load 89–128, the same as quiet), and the budgets are a flush within 1.5 units and the first patch within
+2.7, between the work now and twice it (2.12 and 3.88). Time and cycles grow on a loaded machine through the caches and
+the memory it shares with the other processes: in time units the first patch measured 2.45–2.81 quiet and 3.4–3.9
+beside full test runs (load 40–90), over a budget of 3.5, which failed the test on 2026-11-25. So on Linux and Windows
+the budgets are wider (a flush within 2.1 units and the first patch within 3.5 on Linux, 1.55 and 3.0 on Windows), each
+between the slowest run there and a derive of twice the work, and a measurement over its budget is taken again, at most
+three times, the best of three deciding, every one printed. The table of the calibration
 on arm64 (the developer Mac, Linux in Docker, Windows in the Parallels VM) is in the test; the x86 runners of CI were
 not measured.
 

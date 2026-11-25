@@ -12,16 +12,18 @@ function step(page: Page, branchName: string) {
   return findBranchRow(page, branchName).getByTestId("next-step-slot")
 }
 
-/** The branches and the commits of each unit of the Landing overview, by its row */
-async function overviewUnits(page: Page): Promise<string[]> {
+/**
+ * The Landing overview lists a unit of each of `units`, by the branch of its row, and no other: the rows come with the
+ * facts of the landing after the popover opened under load, so each is waited for, never read once as it opens
+ */
+async function expectOverviewUnits(page: Page, units: readonly string[]): Promise<void> {
   const popover = await openLandingOverview(page)
-  const rows = popover.getByTestId("landing-row")
-  // the units render after the popover under load: read them once the first is in
-  await expect(rows.first()).toBeAttached()
-  const units = await rows.evaluateAll(elements => elements.map(element => element.getAttribute("data-branch-name") ?? ""))
+  for (const unit of units) {
+    await expect(landingRow(popover, unit)).toBeVisible()
+  }
+  await expect(popover.getByTestId("landing-row")).toHaveCount(units.length)
   await page.mouse.move(0, 0)
   await expectClosed(popover)
-  return units.toSorted()
 }
 
 test.describe("Land Together", () => {
@@ -33,7 +35,7 @@ test.describe("Land Together", () => {
       await setupRepo("landing_needs", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
-      expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
+      await expectOverviewUnits(page, ["lane-run", "stills-codec"])
 
       const popover = await openSafePushWithKey(page, "lane-run")
       const needs = popover.getByTestId("safe-push-landing-needs")
@@ -48,7 +50,7 @@ test.describe("Land Together", () => {
       await expect.poll(() => findBranchRow(page, "lane-run").getAttribute("data-depth")).toBe("1")
       await expect(safePushPopover(page).getByTestId("safe-push-landing-needs")).toHaveCount(0)
       await page.keyboard.press("Escape")
-      expect(await overviewUnits(page)).toEqual(["stills-codec"])
+      await expectOverviewUnits(page, ["stills-codec"])
       const overview = await openLandingOverview(page)
       await expect(landingRow(overview, "stills-codec")).toContainText("3 branches")
       await page.mouse.move(0, 0)
@@ -57,7 +59,7 @@ test.describe("Land Together", () => {
       // one undo puts the two units back, the need with them
       await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
       await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
-      expect(await overviewUnits(page)).toEqual(["lane-run", "stills-codec"])
+      await expectOverviewUnits(page, ["lane-run", "stills-codec"])
     },
   )
 

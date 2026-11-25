@@ -2,13 +2,15 @@
 //! perf:table` (120 lone branches and three stacks of seven that fork, 141 rows, robots running on ten): the next step
 //! and the node of every subject, as a flush of the session derives them twice (the readiness it asks, then the patch),
 //! and the whole first patch of the view. Budgets of the derivation (docs/design/rendering-performance.md, B10 of
-//! docs/design/rust-domain-authority.md): the CPU work of the test thread decides each (`test_utils::cpu_time::thread_work`:
-//! its CPU time, its cycles on Windows), in units of a reference work on that thread (`reference_work`), the median of
-//! several rounds. The derive runs on that thread alone (no pool, no task), a loaded machine adds preemptions to the
-//! wall time of a run, not work to its thread, and a slower machine does the reference slower too, so neither fails a
-//! budget and a slower derive still does; the counts are printed. A loaded machine still makes the derive dearer than
-//! the reference for a while (the caches and the memory it shares with the other processes): a measurement over its
-//! budget is taken again, at most `REPEATS` times, the best of them decides: the test fails only when every one is over.
+//! docs/design/rust-domain-authority.md): the CPU work of the test decides each (`test_utils::cpu_time::thread_work`: the
+//! instructions the process retired on macOS, the CPU time of the thread on Linux, its cycles on Windows), in units of a
+//! reference work on that thread (`reference_work`), the median of several rounds. The derive runs on that thread alone
+//! (no pool, no task). On macOS the count is of the work alone: the same build measures the same units on a quiet and on
+//! a loaded machine (1.06 and 1.94 for each of 30 copies at once beside 16 busy loops, load 89–128), so a budget fails
+//! only for more work. The time of Linux and the cycles of Windows grow on a loaded machine through the caches and the
+//! memory it shares with the other processes (a first patch of 3.4–3.9 time units beside a full test run, 2.45–2.81
+//! quiet): there a measurement over its budget is taken again, at most `REPEATS` times, the best of them decides; the
+//! counts are printed.
 
 use crate::action_view::{ActionSources, actions_of};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
@@ -31,18 +33,25 @@ use std::time::Duration;
 use test_utils::cpu_time::thread_work;
 
 /// The budgets in units of the reference work (`reference_work`) on the same thread, the median of 21 rounds, debug
-/// builds of 2026-11-10. The ratio of a derive to the reference differs by system: the heap of Windows makes the
-/// reference dearer. Each budget lies between the slowest run measured on its system and a derive that takes twice its
-/// CPU work (a spin of as much again at the end of each derive):
+/// builds of 2026-11-10 (macOS: of 2026-11-25, in instructions). The ratio of a derive to the reference differs by system
+/// and by counter: the heap of Windows makes the reference dearer, and an instruction counts no wait for the memory.
+/// Each budget lies between the slowest run measured on its system and a derive that takes twice its CPU work (a spin of
+/// as much again at the end of each derive; twice the instructions on macOS):
 ///
 /// | | flush | patch | flush, twice | patch, twice |
 /// |---|---|---|---|---|
-/// | macOS arm64 (the developer Mac) | 1.34–1.40; 1.36–1.52 for 180 copies, 60 at once at background priority | 2.45–2.52; 2.53–2.81 | 2.81–2.89 | 4.88–5.07 |
+/// | macOS arm64 (the developer Mac), instructions | 1.06–1.07 for 30 copies at once beside 16 busy loops | 1.94–1.95 | 2.12 | 3.88 |
 /// | Linux arm64 (ubuntu 26.04 in the Docker of `OrbStack`) | 1.25–1.45; 0.97–1.65 for 60 copies, 30 at once | 2.23–2.52; 2.11–2.87 | 2.79–2.80 | 4.26–4.50 |
 /// | Windows arm64 (the Parallels VM), in cycles | 1.04–1.16; 1.01–1.05 for 16 copies at once | 2.04–2.22; 1.94–2.05 | 2.12–2.13 | 4.17–4.18 |
 ///
 /// The x86 runners of CI (Linux and Windows) were not measured: their budgets are those of the same system on arm64
-const BUDGETS: (f64, f64) = if cfg!(windows) { (1.55, 3.0) } else { (2.1, 3.5) };
+const BUDGETS: (f64, f64) = if cfg!(target_os = "macos") {
+  (1.5, 2.7)
+} else if cfg!(windows) {
+  (1.55, 3.0)
+} else {
+  (2.1, 3.5)
+};
 /// The derivations of all rows of one flush take at most this many units
 const BUDGET: f64 = BUDGETS.0;
 /// The whole first patch of the view (every part derived and compared from nothing, and the view moved to it) takes at
@@ -51,7 +60,13 @@ const PATCH_BUDGET: f64 = BUDGETS.1;
 /// The rounds of the samples of the derives; the median decides
 const RUNS: usize = 21;
 /// What `thread_work` counts
-const WORK: &str = if cfg!(windows) { "cycles" } else { "ns" };
+const WORK: &str = if cfg!(target_os = "macos") {
+  "instructions"
+} else if cfg!(windows) {
+  "cycles"
+} else {
+  "ns"
+};
 
 pub(crate) fn at(seq: u32) -> Observation {
   Observation {
@@ -429,11 +444,12 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
 
 /// The budget of the view of the robots as they are (`patronus_view::view_of`) over `session` with 46 robots, made again
 /// whenever the robots, the table or the remote branches change before their derivation answers, in units of the
-/// reference work: the developer Mac measured 0.87–0.92 units of a rebuild (about 2 ms in a debug build; 9.5 before the
-/// view built the rules' input of the table once instead of once per branch), 0.22–0.23 of a publish over the view it
-/// kept; twice the work is 1.8. Linux and Windows were not measured: the budget of macOS, whose ratios are the highest of
-/// the derive's (`BUDGETS`)
-const REBUILD_BUDGET: f64 = 1.5;
+/// reference work: the developer Mac measured 0.87–0.92 time units of a rebuild (about 2 ms in a debug build; 9.5 before
+/// the view built the rules' input of the table once instead of once per branch), 0.22–0.23 of a publish over the view
+/// it kept, twice the work 1.8; in instructions (2026-11-25) 0.49 of a rebuild, 0.13 of a publish, twice the work 0.98.
+/// Linux and Windows were not measured: the time budget of macOS, whose ratios are the highest of the derive's
+/// (`BUDGETS`)
+const REBUILD_BUDGET: f64 = if cfg!(target_os = "macos") { 0.75 } else { 1.5 };
 
 /// The view of the robots as they are over the 141 rows of `session` and 46 robots (10 running on branches, 3 on the
 /// whole stacks, 33 merged on the tips of others) is made within its budget, and a publish of the same inputs and

@@ -99,7 +99,9 @@ test.describe("Landing overview", () => {
     const running = popover.getByTestId("landing-running")
     await expect(running.getByRole("heading")).toHaveText("Landing · 2 · 1 dry run")
     await expect(running.getByTestId("robots-row-state")).toHaveText(["30m · ~10m", "18m · ~22m", /^Dry Run · 35m/])
-    expect(await running.getByTestId("robots-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name")))).toEqual(["ABC-123", "JIRA-456", "feature-auth"])
+    await expect
+      .poll(() => running.getByTestId("robots-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name"))))
+      .toEqual(["ABC-123", "JIRA-456", "feature-auth"])
 
     // below its button, as a dropdown, never beside it, and above the bottom of the window: the line of the last day
     // stays, the sections scroll
@@ -132,14 +134,16 @@ test.describe("Landing overview", () => {
     const row = popover.getByTestId("landing-your-move").getByTestId("robots-row")
     // the actions of the branch menu and the robot details, in their order and under their names
     await expect(row.getByRole("button", { name: "Restart Safe Push of ABC-123" })).toBeVisible()
-    expect(await row.locator("button[aria-label]").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label")))).toEqual([
-      "Restart Safe Push of ABC-123",
-      "Start in Air… of ABC-123",
-      "Copy Prompt for Agent of ABC-123",
-      "Copy Prompt with CI Details of ABC-123",
-      "Open Safe Push of ABC-123 in Patronus",
-      "Open Pull Request #7 of ABC-123",
-    ])
+    await expect
+      .poll(() => row.locator("button[aria-label]").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label"))))
+      .toEqual([
+        "Restart Safe Push of ABC-123",
+        "Start in Air… of ABC-123",
+        "Copy Prompt for Agent of ABC-123",
+        "Copy Prompt with CI Details of ABC-123",
+        "Open Safe Push of ABC-123 in Patronus",
+        "Open Pull Request #7 of ABC-123",
+      ])
     await row.getByRole("button", { name: "Open Pull Request #7 of ABC-123" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url])
     // ↗ opens the robot; a Safe Push goes without its mode

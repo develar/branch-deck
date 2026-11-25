@@ -1241,16 +1241,16 @@ test.describe("The review plan in the branch review", () => {
     await syncAndWaitForBranches()
     await expect.poll(() => plans.calls.length).toBe(1)
     // the review as it was: the story of the tree with its commits, the column, the diffs and the file on screen
-    expect(await treeCommits(window)).toEqual(["add the cache", "scale the helper"])
-    expect(await commitColumn(window)).toEqual(["All Changes2 commits"])
-    expect(await reviewedPaths(window)).toEqual(shownPaths)
+    await expect.poll(() => treeCommits(window)).toEqual(["add the cache", "scale the helper"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits"])
+    await expect.poll(() => reviewedPaths(window)).toEqual(shownPaths)
     await expect(position).toHaveText(shownPosition!)
     await expect(window.getByTestId("branch-review-body")).toHaveAttribute("aria-busy", "true")
 
     // the plan of the new head comes: the new review shows in one change, at the same file
     plans.release()
     await expect.poll(() => treeCommits(window)).toEqual(["read the cache twice", "add the cache", "scale the helper"])
-    expect(await commitColumn(window)).toEqual(["All Changes3 commits"])
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes3 commits"])
     await expect(window.getByTestId("branch-review-body")).not.toHaveAttribute("aria-busy")
     await expect(window.getByRole("treeitem", { name: "Reader.kt" })).toHaveAttribute("aria-selected", "true")
   })
@@ -1264,7 +1264,7 @@ test.describe("The review plan in the branch review", () => {
     const plans = await holdCommandCalls(window, "get_review_plan")
     await markReviewed(window)
     await expect.poll(() => plans.calls.length).toBe(1)
-    expect(await treeCommits(window)).toEqual(["add the cache", "scale the helper"])
+    await expect.poll(() => treeCommits(window)).toEqual(["add the cache", "scale the helper"])
     plans.release()
 
     // a commit on top, then a sync: Since Your Review is its range, the files of that commit alone

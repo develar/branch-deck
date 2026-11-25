@@ -85,12 +85,9 @@ test.describe("Reviews view", () => {
     // Your Turn's rows lead the view, then the sections in their order
     const sections = reviewsView(page).locator("[data-testid^=reviews-section-]")
     await expect(sections).toHaveCount(4)
-    expect(await sections.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-testid")))).toEqual([
-      "reviews-section-waiting",
-      "reviews-section-team",
-      "reviews-section-reviewed",
-      "reviews-section-authored",
-    ])
+    await expect
+      .poll(() => sections.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-testid"))))
+      .toEqual(["reviews-section-waiting", "reviews-section-team", "reviews-section-reviewed", "reviews-section-authored"])
     await expect(section(page, "waiting").getByTestId("review-request-title")).toHaveText(["Rework the session store"])
     // a team's request is nobody's move in particular: no mark, its size in the tooltip of its meta
     await expect(entryRow(page, "team", 201).getByTestId("review-request-meta")).toHaveText("#201 · carol · requested from ide-platform")
@@ -456,7 +453,9 @@ test.describe("Reviews view", () => {
     const reviewed = section(page, "reviewed")
     // the move leads the section, then three more rows
     await expect(reviewed.getByTestId("review-request-row")).toHaveCount(4)
-    expect(await reviewed.getByTestId("review-request-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-review-number")))).toEqual(["210", "211", "212", "213"])
+    await expect
+      .poll(() => reviewed.getByTestId("review-request-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-review-number"))))
+      .toEqual(["210", "211", "212", "213"])
     await expect(reviewed.getByTestId("review-entry-mark").first()).toHaveAttribute("data-mark", "move")
     await expect(entryRow(page, "reviewed", 211).getByRole("img", { name: "You approved 11111111" })).toBeVisible()
     // the issue key of the title muted, the rest the words

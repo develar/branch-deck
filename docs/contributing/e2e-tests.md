@@ -49,6 +49,12 @@ rules in one line each and links here.
   on the clock of the session) is an entry of its `ALLOWLIST` with its count. A 5 s poll after the press failed where
   the push, the update and the sync of one landing took longer under load (`merge-pull-request.spec.ts`,
   `push-to-master.spec.ts`).
+- **A list the page shows is polled**, never read once: `await expect.poll(() => branchTree(page)).toEqual([…])`, not
+  `expect(await branchTree(page))`. The page shows a list (the rows, the units of the Landing overview, the items of a
+  menu) once the facts it is of came, seconds after the last state the test waited for under load: the Landing overview
+  of `land-together.spec.ts`, read as it opened, was empty in 20 of 20 runs beside 14 busy loops. `pnpm lint:arch`
+  (`e2e-list-read-once`) refuses an `expect(await …)` of an `evaluateAll`, `allTextContents` or `allInnerTexts`, or of
+  a function of the spec or of `tests/e2e/helpers` that reads one.
 - **Close a read toast** before acting where it lies (`closeToast` of `tests/e2e/helpers/toast-helpers.ts`): the toasts
   lie above menus and dialogs at the bottom right, and a click or hover under one waits until it times out (5 s, 10 s
   with an action); six tests spent 7-9 s each this way, which the timing summary names as stalled actions.

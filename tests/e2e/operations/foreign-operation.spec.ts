@@ -178,11 +178,9 @@ test.describe("Operations of another process of the repository", () => {
       const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
       // the second row: a row above it and one below
       await expect(page.getByTestId("branch-row")).toHaveCount(7)
-      expect(await page.getByTestId("branch-row").evaluateAll(rows => rows.slice(0, 3).map(row => row.getAttribute("data-branch-name")))).toEqual([
-        "JIRA-456",
-        "ABC-123",
-        "feature-docs",
-      ])
+      await expect
+        .poll(() => page.getByTestId("branch-row").evaluateAll(rows => rows.slice(0, 3).map(row => row.getAttribute("data-branch-name"))))
+        .toEqual(["JIRA-456", "ABC-123", "feature-docs"])
       const agent = await repo.setForeignOperation(safePushOf("ABC-123"))
       const slot = slotSafePush(page, "ABC-123")
       await expect(slot).toHaveText("bd: Safe Push of ABC-123…")

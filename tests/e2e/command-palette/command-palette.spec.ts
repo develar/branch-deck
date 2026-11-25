@@ -238,7 +238,7 @@ test.describe("Command palette of a stack", () => {
     await expect(unstack).toBeVisible()
     await syncFromMenu(page)
     await expect(unstack).toBeVisible()
-    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+    await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 })
 

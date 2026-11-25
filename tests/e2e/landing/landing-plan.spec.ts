@@ -69,7 +69,7 @@ test.describe("Landing plan", () => {
       await expect(page.getByTestId("main-view-landing")).toHaveAttribute("aria-pressed", "true")
       await expect(page.getByTestId("landing-section-plan")).toHaveAttribute("aria-pressed", "true")
       await expect(plan(page)).not.toHaveAttribute("data-stale")
-      expect(await waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After lane-bundle: lane-encode"])
+      await expect.poll(() => waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After lane-bundle: lane-encode"])
       await expect(unitCard(page, "stills-codec").getByTestId("plan-unit-robot")).toBeVisible()
       await expect(unitCard(page, "lane-run")).toContainText("2 branches · 2 commits")
 
@@ -109,12 +109,12 @@ test.describe("Landing plan", () => {
       await expect(unitCard(page, "lane-encode")).toHaveCount(0)
       await expect(unitCard(page, "lane-bundle")).toContainText("2 branches · 2 commits")
       await expect(plan(page).getByTestId("plan-proposal")).toHaveCount(0)
-      expect(await waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run"])
+      await expect.poll(() => waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run"])
 
       // one undo puts the two units and the offer back
       await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
       await expect(proposal).toBeVisible()
-      expect(await waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After lane-bundle: lane-encode"])
+      await expect.poll(() => waves(page)).toEqual(["Landing now: stills-codec", "Next: lane-bundle", "After stills-codec: lane-run", "After lane-bundle: lane-encode"])
     },
   )
 

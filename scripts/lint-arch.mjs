@@ -77,6 +77,11 @@
 //   under load. A write the operation makes while
 //   it waits for the test (a start from a pull request reads the reply of the bot on the clock of the session) is an
 //   entry of ALLOWLIST with its reason and its `count`.
+// - `e2e-list-read-once`: an `expect(await …)` of tests/e2e whose value is a list the page shows, read once: an
+//   `evaluateAll`, `allTextContents` or `allInnerTexts` in it, or a call of a function that reads one, of the same file
+//   or of tests/e2e/helpers (`listReaders`). The page shows a list once the facts it is of came, which a loaded machine
+//   brings seconds after the last state the test waited for (the Landing overview of `land-together.spec.ts` read
+//   empty in 20 of 20 runs under load): `await expect.poll(() => read()).toEqual(…)` waits for it.
 // The focus is one token, `bd-focus` of src/index.css (docs/design/ui-theme.md, "Focus"), never a look of its own:
 // - `focus-ring`: a class of src (its tests aside) whose variants name a focus (`focus:`, `focus-visible:`,
 //   `focus-within:`, `group-focus-visible/…:`, `has-[…:focus-visible]:`) and whose utility draws a ring, an outline, a
@@ -503,6 +508,36 @@ const POLL = /(?<![\w$])expect\s*\.\s*poll\s*\(/g
 /** The reads of the remote of a repository and of what an operation wrote at a fake, in the callback of a poll */
 const REMOTE_READ =
   /(?<![\w$])(?:getRemoteBranches|getRemotePushes|remotePushes|pushedBranches|revision|gitHubWrites|gitHubMutations|getArrivedAnswers)\s*\(|(?<![\w$])gitHubRequests\s*\([^,()]+,\s*["'](?:POST|PATCH|PUT|DELETE)["']|\)\s*\.\s*(?:starts|restarts|cancels)(?![\w$])/
+/** A read of a list the page shows, of every element of a locator */
+const LIST_READ = /\.\s*(?:evaluateAll|allTextContents|allInnerTexts)\s*\(/
+/** An `expect` whose value is awaited at once: what it asserts is read once */
+const EXPECT_AWAITED = /(?<![\w$.])expect\s*\(\s*await\s/g
+/** The declaration of a function, its name the first group */
+const FUNCTION_DECLARED = /(?<![\w$])function\s+([\w$]+)\s*\(/g
+
+/**
+ * The names of the functions of `text` (without comments) whose body reads a list the page shows (`LIST_READ`), so that
+ * an `expect(await name(…))` reads it once
+ */
+export function listReaders(text) {
+  const names = new Set()
+  for (const declared of text.matchAll(FUNCTION_DECLARED)) {
+    const open = text.indexOf("{", declared.index + declared[0].length + argumentsAt(text, declared.index + declared[0].length - 1).length)
+    let depth = 0
+    for (let index = open; index !== -1 && index < text.length; index++) {
+      if (text[index] === "{") {
+        depth++
+      } else if (text[index] === "}" && --depth === 0) {
+        if (LIST_READ.test(text.slice(open, index))) {
+          names.add(declared[1])
+        }
+        break
+      }
+    }
+  }
+  return names
+}
+
 /** The sources whose timers are polls unless they say otherwise: the stores and the hooks, their tests aside */
 const TIMED = /^src\/(?:stores|hooks)\/(?!.*\.test\.tsx?$)/
 
@@ -662,7 +697,7 @@ function callAllowed(file, command, callers) {
  * The findings of one source: `{ file, line, rule, text }`; `registry` (`readRegistry`) and `callers`
  * (`APP_COMMAND_CALLERS`) say who calls a command
  */
-export function findProblems(file, source, { registry = OWN_REGISTRY, callers = APP_COMMAND_CALLERS } = {}) {
+export function findProblems(file, source, { registry = OWN_REGISTRY, callers = APP_COMMAND_CALLERS, readers = new Set() } = {}) {
   const text = withDotMessage(withoutComments(source))
   const lines = text.split("\n")
   const sourceLines = source.split("\n")
@@ -756,6 +791,15 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
   }
   if (file.startsWith("tests/e2e/")) {
+    const reading = new Set([...readers, ...listReaders(text)])
+    const callsReader = value => [...value.matchAll(/(?<![\w$.])([\w$]+)\s*\(/g)].some(call => reading.has(call[1]))
+    for (const found of text.matchAll(EXPECT_AWAITED)) {
+      const value = argumentsAt(text, text.indexOf("(", found.index))
+      if (LIST_READ.test(value) || callsReader(value)) {
+        const line = text.slice(0, found.index).split("\n").length
+        problems.push({ file, line, rule: "e2e-list-read-once", text: sourceLines[line - 1].trim() })
+      }
+    }
     for (const found of text.matchAll(POLL)) {
       if (REMOTE_READ.test(argumentsAt(text, found.index + found[0].length - 1))) {
         const line = text.slice(0, found.index).split("\n").length
@@ -786,6 +830,8 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
   const held = new Map()
   const problems = []
   const registry = readRegistry(root)
+  // the functions of the helpers of the E2E tests that read a list the page shows, for `e2e-list-read-once` in every spec
+  const readers = new Set(globSync("tests/e2e/helpers/**/*.ts", { cwd: root }).flatMap(file => [...listReaders(withoutComments(readFileSync(join(root, file), "utf8")))]))
   // the modules that call each command of the app, by its name in the registry
   const called = new Map()
   // `/` on every platform, as the allowlist names a file
@@ -798,7 +844,7 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
         called.set(command.name, (called.get(command.name) ?? new Set()).add(file))
       }
     }
-    for (const problem of findProblems(file, source, { registry, callers })) {
+    for (const problem of findProblems(file, source, { registry, callers, readers })) {
       const allowed = allowlist.findIndex(entry => entry.file === problem.file && entry.rule === problem.rule)
       if (allowed === -1) {
         problems.push(`${problem.file}:${problem.line}: ${problem.rule}: ${problem.text}`)

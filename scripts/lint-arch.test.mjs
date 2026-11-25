@@ -164,6 +164,27 @@ test("a poll of an e2e test that reads the remote or what an operation wrote at 
   assert.deepEqual(rules("src/lib/example.ts"), [])
 })
 
+test("an expect of a list the page shows that reads it once is refused, a poll of it or a read of one element not", () => {
+  const source = [
+    "async function units(page: Page): Promise<string[]> {",
+    '  return page.getByTestId("landing-row").evaluateAll(rows => rows.map(row => row.id))',
+    "}",
+    'expect(await page.getByTestId("branch-row").allTextContents()).toEqual(["auth"])',
+    'expect(await units(page)).toEqual(["auth"])',
+    'expect(await branchTree(page)).toEqual(["auth@0"])',
+    "expect(",
+    "  await rows.evaluateAll(rows => rows.length),",
+    ").toBe(2)",
+    // a poll waits for the list; one element is read by a web-first expect or after one
+    'await expect.poll(() => units(page)).toEqual(["auth"])',
+    'expect(await row.getAttribute("data-depth")).toBe("1")',
+    "expect(await remotePushes(repo)).toEqual([])",
+  ].join("\n")
+  const rules = file => findProblems(file, source, { readers: new Set(["branchTree"]) }).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("tests/e2e/landing/example.spec.ts"), ["4 e2e-list-read-once", "5 e2e-list-read-once", "6 e2e-list-read-once", "7 e2e-list-read-once"])
+  assert.deepEqual(rules("src/lib/example.ts"), [])
+})
+
 test("an allowlist entry of a poll of a write names the exact count of its findings", t => {
   const root = mkdtempSync(join(tmpdir(), "lint-arch-"))
   t.after(() => rmSync(root, { recursive: true, force: true }))

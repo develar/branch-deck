@@ -504,7 +504,7 @@ async function listWhileTheMenuShows(
 
   await repo.holdRemoteAnswers({ release: ["pullRequests"] })
   await expect(create).toBeEnabled()
-  expect(await itemWords(menu)).toEqual(words)
+  await expect.poll(() => itemWords(menu)).toEqual(words)
   expect(await itemAt(page, pointer)).toBe("Rename…")
   return { menu, words }
 }
@@ -531,7 +531,7 @@ test.describe("Places of the menu before the answers", () => {
     // Patronus answers, then checks the approvals: the same items in the same places, Safe Push enabled
     await repo.holdRemoteAnswers({ release: ["robots"] })
     await expect(safePush).toBeEnabled()
-    expect(await itemWords(menu)).toEqual(words)
+    await expect.poll(() => itemWords(menu)).toEqual(words)
     expect(await itemAt(page, pointer)).toMatch(/^Push Branch/)
   })
 
@@ -563,12 +563,13 @@ test.describe("Places of the menu before the answers", () => {
     await expect(merge).toBeEnabled()
     await expect(requestReview).toBeEnabled()
     const answered = words.map(word => (word.startsWith("Merge") ? "Merge #7S" : word === "Create Pull Request…" ? "Open Pull Request #7O" : word))
-    expect(await itemWords(menu)).toEqual(answered)
+    await expect.poll(() => itemWords(menu)).toEqual(answered)
     expect(await itemAt(page, pointer)).toBe("Rename…")
     // the next open shows the same
     await page.keyboard.press("Escape")
     await expectClosed(menu)
-    expect(await itemWords(await openRowMenu(page))).toEqual(answered)
+    const reopened = await openRowMenu(page)
+    await expect.poll(() => itemWords(reopened)).toEqual(answered)
   })
 
   test("should show the open of a closed pull request GitHub lists while the menu shows at its next open, the items under the pointer where they were", async ({
@@ -616,6 +617,7 @@ test.describe("Places of the menu before the answers", () => {
 
     await repo.holdRemoteAnswers({ release: ["robots", "pullRequests"] })
     await waitForStepFacts(slot(page))
-    expect(await itemWords(await openRowMenu(page))).toEqual(words)
+    const reopened = await openRowMenu(page)
+    await expect.poll(() => itemWords(reopened)).toEqual(words)
   })
 })

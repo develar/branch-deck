@@ -53,7 +53,7 @@ async function parkWithForm(page: Page, open: () => Promise<void>, note: string)
 /** Parks lint from its menu, with no note: the Parked card shows, lint its one row */
 async function parkLint(page: Page): Promise<void> {
   await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
-  expect(await parkedRows(page)).toEqual(["lint"])
+  await expect.poll(() => parkedRows(page)).toEqual(["lint"])
 }
 
 test.describe("Parked branches", () => {
@@ -73,7 +73,7 @@ test.describe("Parked branches", () => {
     await parkWithForm(page, () => findBranchRow(page, "docs").click({ button: "right" }), "waits for the fix of IJPL-1")
 
     // the row moves into the Parked card, says why, and is no move of the user
-    expect(await parkedRows(page)).toEqual(["docs"])
+    await expect.poll(() => parkedRows(page)).toEqual(["docs"])
     await expect(parkedCard(page)).toContainText("1 branch")
     const row = findBranchRow(page, "docs")
     await expect(row.getByTestId("parked-status")).toHaveText("Parked")
@@ -196,7 +196,7 @@ test.describe("Parked branches", () => {
     const parks = await recordRewrites(page, "park")
     const undos = await recordRewrites(page, "undo")
     await parkWithForm(page, () => findBranchRow(page, "docs").click({ button: "right" }), "")
-    expect(await parkedRows(page)).toEqual(["docs"])
+    await expect.poll(() => parkedRows(page)).toEqual(["docs"])
     const repositoryPath = parks[0]!.repositoryPath
 
     // another repository opens; the Undo of the toast is still the park of the first one: its token, in its repository
@@ -228,7 +228,7 @@ test.describe("Parked branches", () => {
     await expect(dragBar(page).getByTestId("unpark-drop-zone")).toHaveCount(0)
     await runAndWaitForSync(page, () => dropAt(page, parkZone))
 
-    expect(await parkedRows(page)).toEqual(["docs"])
+    await expect.poll(() => parkedRows(page)).toEqual(["docs"])
     await expect(findBranchRow(page, "docs").getByTestId("parked-status")).toHaveText("Parked")
     await expect(toast(page, "Parked docs")).toBeVisible()
     await expect(dragBar(page)).toHaveCount(0)
@@ -245,7 +245,7 @@ test.describe("Parked branches", () => {
 
     // Undo of the unpark parks it again
     await runAndWaitForSync(page, () => toast(page, "Unparked docs").getByRole("button", { name: "Undo" }).click())
-    expect(await parkedRows(page)).toEqual(["docs"])
+    await expect.poll(() => parkedRows(page)).toEqual(["docs"])
 
     // a row of the Parked card drags its commits onto a branch of the table as any row
     await startDrag(page, findBranchRow(page, "docs"))
@@ -268,7 +268,7 @@ test.describe("Parked branches", () => {
     expect((await parkedRows(page)).toSorted()).toEqual(["api", "cli", "core", "docs", "lint", "web"])
     const parkedBoth = toast(page, "Parked ").filter({ hasText: "core" }).filter({ hasText: "docs" })
     await runAndWaitForSync(page, () => parkedBoth.getByRole("button", { name: "Undo" }).click())
-    expect(await parkedRows(page)).toEqual(["lint"])
+    await expect.poll(() => parkedRows(page)).toEqual(["lint"])
   })
 
   // the header of the card and the unpark apart from the park of a selection: one test of both took 30 s under load
@@ -293,7 +293,7 @@ test.describe("Parked branches", () => {
     await startDrag(page, findBranchRow(page, "core"))
     await expect(unparkZone).toHaveAttribute("data-drop-target", "ready")
     await runAndWaitForSync(page, () => dropAt(page, unparkZone))
-    expect(await parkedRows(page)).toEqual(["lint"])
+    await expect.poll(() => parkedRows(page)).toEqual(["lint"])
     await expect(findBranchRow(page, "web").getByTestId("parked-status")).toHaveCount(0)
     await expect(toast(page, "Unparked core")).toBeVisible()
   })

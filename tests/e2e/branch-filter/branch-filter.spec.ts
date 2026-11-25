@@ -65,7 +65,7 @@ async function focusRow(page: Page, name: string) {
 test.describe("Branch filter", () => {
   test("should show the matches of a search and, dimmed, the branches they stack on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches)
-    expect(await shownRows(page)).toEqual(ROW_ORDER)
+    await expect.poll(() => shownRows(page)).toEqual(ROW_ORDER)
 
     // `/` from anywhere
     await page.mouse.move(0, 0)

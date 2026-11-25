@@ -23,6 +23,7 @@ import {
   reviewFetched,
   reviewRequest,
   routeReviewFetch,
+  waitForReviewReading,
 } from "../helpers/review-request-helpers"
 import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { pressAndExpectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
@@ -752,6 +753,7 @@ test.describe("Review window", () => {
       // the commit of the rail opens its card on the hover of its subject and by I, the focus in it; Escape gives it back
       const card = window.getByTestId("commit-card")
       const railRow = rail.filter({ hasText: title })
+      await waitForReviewReading(review)
       await window.mouse.move(0, 0)
       await railRow.getByTestId("review-commit-subject").hover()
       await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
@@ -1080,7 +1082,7 @@ test.describe("Review window", () => {
       await expectClosed(page.getByRole("menu"))
       await getReviewRow(page, 101).click({ button: "right" })
       await expect(safePush).not.toHaveAttribute("aria-disabled", "true")
-      expect(await items.allTextContents()).toEqual(opened)
+      await expect.poll(() => items.allTextContents()).toEqual(opened)
 
       // the item opens the review of #101 (`open_sub_window`, seconds under load), which shows the confirmation once it
       // fetched the pull request, however long that takes

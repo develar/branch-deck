@@ -237,7 +237,7 @@ test.describe("The renames of a diff that are labels in the preview of a commit"
     // each line of the name is the row of its two lines: nothing of a line that is read is left out
     const rows = siteRows(ledger)
     await expect.poll(() => codeOf(rows)).toEqual(PAIR_LINES)
-    expect(await kindsOf(rows)).toEqual(["inline", "inline", "inline"])
+    await expect.poll(() => kindsOf(rows)).toEqual(["inline", "inline", "inline"])
     // the new name in the mark of a renamed name, the old one struck through in it, and no other changed part
     await expect(renamedNames(rows)).toHaveText(["sum", "sum", "sum"])
     await expect(deletedParts(rows)).toHaveText(["total", "total", "total"])
@@ -258,8 +258,8 @@ test.describe("The renames of a diff that are labels in the preview of a commit"
     // a real change of the file is drawn as it was: the old words struck through before the new ones, as a change
     const real = diffRows(ledger, "inline", { hasText: "fun isEmpty(): Boolean" })
     await scrollDiffsTo(ledger, real)
-    expect(await joinedText(deletedParts(real))).toBe("isEmpty")
-    expect(await joinedText(editedParts(real))).toBe("none")
+    await expect.poll(() => joinedText(deletedParts(real))).toBe("isEmpty")
+    await expect.poll(() => joinedText(editedParts(real))).toBe("none")
     await expect(renamedNames(real)).toHaveCount(0)
     await expect(real.locator(STRUCK_NAME)).toHaveCount(0)
   })
@@ -308,7 +308,7 @@ test.describe("The renames of a diff in the preview of a commit", () => {
     await expect(renamedNames(calls)).toHaveText(["connectStore", "connectStore"])
     await expect(calls.locator(STRUCK_NAME)).toHaveText(["openStore", "openStore"])
     await expect(editedParts(calls)).toHaveCount(0)
-    expect(await joinedText(deletedParts(calls.first()))).toBe("openStore")
+    await expect.poll(() => joinedText(deletedParts(calls.first()))).toBe("openStore")
   })
 })
 
@@ -363,7 +363,7 @@ test.describe("The quiet runs of a renamed local in the preview of a commit", ()
     // the real change of the file is read as before
     const real = diffRows(ledger, "inline", { hasText: "fun isEmpty(): Boolean" })
     await scrollDiffsTo(ledger, real)
-    expect(await joinedText(editedParts(real))).toBe("none")
+    await expect.poll(() => joinedText(editedParts(real))).toBe("none")
     await expect(quietSides(real)).toHaveCount(0)
   })
 

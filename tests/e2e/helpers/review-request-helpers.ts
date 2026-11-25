@@ -119,6 +119,16 @@ export async function openRequestReview(
 }
 
 /**
+ * The header of the review of a pull request says what it leaves to read (`review-reading`), the last line that comes
+ * into the header, under load after the overview drew: it moves the overview down from under a pointer that rests on it,
+ * which then opens nothing until it moves (`hoverOpensOnMove`, the card of a commit of the rail in 4 of 40 runs in
+ * WebKit). A hover of the overview waits for it first
+ */
+export async function waitForReviewReading(review: Locator): Promise<void> {
+  await expect(review.getByTestId("review-reading")).toBeVisible()
+}
+
+/**
  * The answer of the review fetch of `window` (the intent `fetchReview` of `execute`, of a stack `fetchReviewStack`), which the window asks as it opens
  * and after which Changes (D) is enabled, however long the fetch takes: under load seconds, past the 5 s of a look at
  * the tab. Asked before the window loads, so a fetch that answered before the call is not missed

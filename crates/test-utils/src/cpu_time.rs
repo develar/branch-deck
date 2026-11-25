@@ -46,10 +46,31 @@ pub fn thread_cpu_time() -> Duration {
   Duration::from_nanos((hundreds(kernel) + hundreds(user)).saturating_mul(100))
 }
 
+/// A count of the CPU work of the calling thread, for the ratio of two pieces of work on it: the instructions the process
+/// retired on macOS (`proc_pid_rusage`, `ri_instructions`), which a loaded machine changes not (its preemptions and the
+/// caches it shares add time and cycles, never instructions; under nextest a test runs alone in its process, its other
+/// threads asleep), the nanoseconds of its CPU time on Linux (`thread_cpu_time`), its CPU cycles on Windows
+/// (`QueryThreadCycleTime`), where the CPU time counts whole ticks of 15.6 ms and a piece of work of a few milliseconds
+/// would read 0 or one tick
+///
+/// # Panics
+///
+/// When macOS cannot read the usage of this process
+#[cfg(target_os = "macos")]
+#[must_use]
+#[expect(unsafe_code, reason = "proc_pid_rusage(2) of this process, which std does not offer")]
+pub fn thread_work() -> u64 {
+  // SAFETY: an all-zero rusage_info_v4 is a valid value of its plain integer fields
+  let mut usage: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+  // SAFETY: proc_pid_rusage writes one rusage_info_v4 (RUSAGE_INFO_V4) through a pointer to a local of that type
+  let done = unsafe { libc::proc_pid_rusage(libc::getpid(), libc::RUSAGE_INFO_V4, (&raw mut usage).cast()) };
+  assert_eq!(done, 0, "the usage of this process: {}", std::io::Error::last_os_error());
+  usage.ri_instructions
+}
+
 /// A count of the CPU work of the calling thread, for the ratio of two pieces of work on it: the nanoseconds of its CPU
-/// time on Unix (`thread_cpu_time`), its CPU cycles on Windows (`QueryThreadCycleTime`), where the CPU time counts whole
-/// ticks of 15.6 ms and a piece of work of a few milliseconds would read 0 or one tick
-#[cfg(unix)]
+/// time on Linux (`thread_cpu_time`); the instructions of the process on macOS, the cycles of the thread on Windows
+#[cfg(all(unix, not(target_os = "macos")))]
 #[must_use]
 pub fn thread_work() -> u64 {
   u64::try_from(thread_cpu_time().as_nanos()).unwrap_or(u64::MAX)

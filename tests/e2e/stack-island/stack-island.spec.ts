@@ -68,7 +68,7 @@ test.describe("Stack island", () => {
     const air = island(page, "air")
     await expect(air).toBeVisible()
     // the table keeps the lone branch and the small stack; the island the seven branches of air
-    expect(await rowNames(page.locator("table").first())).toEqual(["docs", "auth", "login"])
+    await expect.poll(() => rowNames(page.locator("table").first())).toEqual(["docs", "auth", "login"])
     const names = await rowNames(air)
     expect(names).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
     await expect(air.getByTestId("stack-island-size")).toHaveText("Stack · 7 branches · 14 commits")
@@ -128,7 +128,13 @@ test.describe("Stack island", () => {
     }
     // the header's actions stand in the tracks of the rows' actions: its "⋯" over theirs, though its slot is empty
     await expectColumnAligned(page.locator("[data-track=more]"))
-    expect(await columnLefts(air.getByTestId("stack-island-actions").locator("[data-track=more]"))).toEqual(await columnLefts(rowTrack("more")))
+    const headerMore = air.getByTestId("stack-island-actions").locator("[data-track=more]")
+    await expect
+      .poll(async () => {
+        const [header, rows] = await Promise.all([columnLefts(headerMore), columnLefts(rowTrack("more"))])
+        return header.join() === rows.join() ? "aligned" : `the header at ${header.join()}, the rows at ${rows.join()}`
+      })
+      .toBe("aligned")
 
     // ⌘C on a row of the island copies its full name, as in the table
     await findBranchRow(page, "bazel").focus()
@@ -566,15 +572,15 @@ test.describe("Stack island", () => {
     await expect(chip).toContainText("2 branches")
     await chip.click()
     await expect(chip).toHaveAttribute("data-stack", "collapsed")
-    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
+    await expect.poll(() => rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
     await chip.click()
-    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
+    await expect.poll(() => rowNames(air)).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
 
     // as ← in a tree: the side stack first, its root takes the focus; then the whole stack
     await findBranchRow(page, "side-test").focus()
     await page.keyboard.press("Alt+ArrowLeft")
     await expect(findBranchRow(page, "side-fix")).toBeFocused()
-    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
+    await expect.poll(() => rowNames(air)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy"])
     await page.keyboard.press("Alt+ArrowRight")
     await expect.poll(() => rowNames(air)).toContain("side-test")
     await page.keyboard.press("Alt+ArrowLeft")
