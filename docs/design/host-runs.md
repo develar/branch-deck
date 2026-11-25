@@ -172,7 +172,11 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   suite, an E2E run and a fast lane of idea-1 end within the grace or about it, and count as before. The grace is
   twice the window, so the window begins after the first 5 min, which a build or the start of the servers of a gate
   fill. A window that spans less than 5 min, whose last sample is more than a minute old, or that leaves less than a
-  fifth of the host beside it (the background of a quiet host) counts as in the grace. A supervisor of an older build
+  fifth of the host beside it (the background of a quiet host) counts as in the grace, but past the grace never below
+  the most of the samples of the last 5 min that its window holds: such a holder counted its measure or its last
+  sample before, and of 39 holder-minutes past the grace on 2026-11-25, 13 counted so, 7.8 cores (p50) below that most;
+  a fast lane of a peak of 17.3 counted its measure of 12.6. A holder without a measure, or with one of the whole host,
+  still holds the whole host then. A supervisor of an older build
   rewrites the table without `recent`: the window begins again at the next sample of the holder, so the loss costs the
   queue 5 min of what the holder counted in its grace, never an admission beside a run whose use is unknown. A run of
   the queue without a measure still needs the whole host: only a holder has samples. The risk taken: a holder quiet for

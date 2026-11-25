@@ -11,7 +11,7 @@
 //! live use of the last [`USE_WINDOW`] (5 min, `TurnEntry::recent`, which its supervisor notes at each sample) instead,
 //! a holder without a measure and one that measured the whole host too; a window that spans less, or whose last sample
 //! is older than [`USE_GAP`], or that leaves less than a fifth of the host ([`quiet`]) beside it, counts as before the
-//! grace. So a gate whose tail runs on one core for hours lets the next gate start its build beside it, and a burst
+//! grace, but never below the most of the samples of the last 5 min that it holds. So a gate whose tail runs on one core for hours lets the next gate start its build beside it, and a burst
 //! raises what it holds at its next sample. The risk taken: a holder quiet for longer than the window that bursts then
 //! runs over the runs admitted beside it, until it ends or quiets down. Only the head of the queue is admitted, so a
 //! run that is admitted later never takes the cores that a run before it waits for; the one exception is an exclusive
@@ -262,9 +262,15 @@ impl RecentUse {
   pub fn peak(&self, now_ms: u64) -> Option<Cores> {
     let spans = self.at_ms.saturating_sub(self.since_ms) >= millis(USE_WINDOW);
     let fresh = now_ms.saturating_sub(self.at_ms) <= millis(USE_GAP);
+    self.most(now_ms).filter(|_| spans && fresh)
+  }
+
+  /// The most cores of the samples of the last 5 min at `now_ms` that the window holds, by the half minute, whatever
+  /// their span and the age of the last: the least that a holder past its grace counts ([`TurnEntry::need`]); `None`
+  /// without such a sample
+  pub fn most(&self, now_ms: u64) -> Option<Cores> {
     let from = now_ms.saturating_sub(millis(USE_WINDOW));
-    let peak = self.steps.iter().filter(|&&(start, _)| start + USE_STEP_MS > from).map(|&(_, most)| most).max();
-    peak.filter(|_| spans && fresh)
+    self.steps.iter().filter(|&&(start, _)| start + USE_STEP_MS > from).map(|&(_, most)| most).max()
   }
 }
 
@@ -350,7 +356,8 @@ impl TurnEntry {
 
   /// What the entry takes of a host of `cores` at `now_ms`: a holder past its grace its use of the last 5 min
   /// ([`Self::recent_use`]); else the larger of its expectation and its live use, the whole host without a measure or
-  /// with one of the whole host
+  /// with one of the whole host. A holder past its grace counts at least the most of its samples of the last 5 min
+  /// ([`RecentUse::most`]), whatever its window: a window that counts as the grace never counts less than its peak
   pub fn need(&self, cores: u32, now_ms: u64) -> Need {
     if self.exclusive {
       return Need::Exclusive;
@@ -361,20 +368,38 @@ impl TurnEntry {
         measured: self.expected,
       };
     }
-    match self.expected {
+    let before = match self.expected {
       None => Need::Unmeasured,
       Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
       Some(expected) => match self.live {
         Some(live) if live > expected => Need::Cores { cores: live, live: true },
         _ => Need::Cores { cores: expected, live: false },
       },
+    };
+    match (before, self.past_grace_most(now_ms)) {
+      (Need::Cores { cores: counted, .. }, Some(most)) if most > counted => Need::Recent {
+        cores: most,
+        measured: self.expected,
+      },
+      (before, _) => before,
     }
+  }
+
+  /// The most of the live use of a holder past its grace over the last 5 min, its last sample too, as its window holds
+  /// it at `now_ms`; `None` in its grace and without a sample
+  fn past_grace_most(&self, now_ms: u64) -> Option<Cores> {
+    if now_ms.saturating_sub(self.since_ms) < millis(HOLD_GRACE) {
+      return None;
+    }
+    let most = self.recent.as_ref()?.most(now_ms)?;
+    Some(most.max(self.live.unwrap_or_default()))
   }
 
   /// The cores that a holder counts at `now_ms` past its grace: the most of its live use of the last 5 min
   /// ([`RecentUse::peak`]) and of its last sample, once [`HOLD_GRACE`] passed since its admission (`since_ms`);
-  /// `None`, the whole host, in its grace, without a window that counts (an entry of the queue has none), or with less
-  /// than a fifth of the host ([`quiet`]) left beside it, as that room is the background of a quiet host
+  /// `None`, the count of the grace, in its grace, without a window that counts (an entry of the queue has none), or
+  /// with less than a fifth of the host ([`quiet`]) left beside it, as that room is the background of a quiet host;
+  /// past the grace that count is at least the most of its samples of the last 5 min ([`Self::need`])
   fn recent_use(&self, cores: u32, now_ms: u64) -> Option<Cores> {
     if now_ms.saturating_sub(self.since_ms) < millis(HOLD_GRACE) {
       return None;

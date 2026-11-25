@@ -1369,6 +1369,71 @@ fn a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the
   );
 }
 
+/// A holder of a measure past its grace whose window counts as the grace still counts the most of its samples of the
+/// last 5 min: a peak that leaves less than a fifth of the host beside it, a window of less than 5 min and a last sample
+/// of over a minute ago count that most, not the measure below it. On 2026-11-25 a fast lane of a peak of 17.3 counted
+/// its measure of 12.6, and a run of 3.0 would have started beside it
+#[test]
+fn a_holder_of_a_measure_past_its_grace_counts_at_least_the_most_of_its_last_5_min() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &measured("lane", &command, 126)).unwrap(), TurnAnswer::Taken);
+  // samples of every 10 s at 10.0 over 6 min, 17.3 from 3 min to 2.5 min before the last
+  let burst = |span: Duration, ago: Duration| {
+    let last = now_ms() - millis(ago);
+    let mut recent = RecentUse::default();
+    let mut at = last - millis(span);
+    while at <= last {
+      let burst = (last - 180_000..last - 150_000).contains(&at);
+      recent.push(at, Cores(if burst { 173 } else { 100 }));
+      at += 10_000;
+    }
+    recent
+  };
+  let past_grace = HOLD_GRACE + Duration::from_mins(20);
+  let recent_of = |cores| Need::Recent {
+    cores: Cores(cores),
+    measured: Some(Cores(126)),
+  };
+  for (recent, why) in [
+    (burst(Duration::from_mins(6), Duration::from_secs(1)), "17.3 leave less than a fifth of 20"),
+    (burst(Duration::from_mins(4), Duration::from_secs(1)), "a window of 4 min"),
+    (burst(Duration::from_mins(6), Duration::from_secs(90)), "a last sample 90 s old"),
+  ] {
+    age_holder(dir.path(), "lane", past_grace, Some(recent));
+    assert_eq!(read_live(dir.path()).unwrap().holders[0].need(20, now_ms()), recent_of(173), "{why}");
+  }
+  age_holder(dir.path(), "lane", past_grace, Some(burst(Duration::from_mins(6), Duration::from_secs(1))));
+  let TurnAnswer::Queued(queue) = take(&params, &measured("next", &command, 30)).unwrap() else {
+    panic!("17.3 and 3.0 do not fit 20");
+  };
+  assert_eq!(queue.holders[0].need(20, now_ms()), recent_of(173));
+  assert!(!leave(&params, "next").unwrap());
+  assert_eq!(take(&params, &measured("lint", &command, 20)).unwrap(), TurnAnswer::Taken, "17.3 and 2.0 fit 20");
+  assert!(leave(&params, "lint").unwrap());
+
+  age_holder(dir.path(), "lane", Duration::from_mins(9), Some(burst(Duration::from_mins(6), Duration::from_secs(1))));
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Cores { cores: Cores(126), live: false },
+    "in its grace it counts its measure"
+  );
+  age_holder(dir.path(), "lane", past_grace, Some(steady(Duration::from_mins(4), Duration::from_secs(1), 50)));
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Cores { cores: Cores(126), live: false },
+    "a most below the measure leaves the measure of a window that counts as the grace"
+  );
+  age_holder(dir.path(), "lane", past_grace, Some(steady(Duration::from_mins(6), Duration::from_mins(6), 173)));
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Cores { cores: Cores(126), live: false },
+    "samples older than 5 min count no more"
+  );
+  assert!(leave(&params, "lane").unwrap());
+}
+
 /// The window of the live use keeps the most of each half minute of the last 5 min: a burst older than that counts no
 /// more, a gap of over a minute between two samples begins the window again, and so does a sample before the last
 #[test]

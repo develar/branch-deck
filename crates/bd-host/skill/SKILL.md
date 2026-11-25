@@ -88,8 +88,8 @@ processes of no run: the agent samples the whole host every 2 s); a command with
 command) takes the whole host and waits for a quiet one (at most a fifth of its cores busy), and so does one that
 measured the whole host. A measure is the level of the heavy phases of the last runs (the cores at or above which 30 %
 of their work ran), not their mean, so a gate that builds on 16 cores for minutes and runs on one for hours expects
-16. From 10 min after its start every heavy run counts its live use of the last 5 min instead, so the queue starts
-beside its quiet tail. The queue is first come first, and a head of the queue that waited 15 min starts on a free
+16. From 10 min after its start every heavy run counts its live use of the last 5 min instead, never less than its
+peak of those 5 min, so the queue starts beside its quiet tail. The queue is first come first, and a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with

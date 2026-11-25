@@ -2434,12 +2434,14 @@ a held lock MUST cost a look.
 - **AND** a burst counts at its next sample: what it holds rises with it; a holder quiet for longer than 5 min that
   bursts then runs over the runs admitted beside it, the risk taken
 - **AND** before those 10 min, while its samples span less than 5 min, when its last sample is more than 1 min old, or
-  when the most of them leaves less than a fifth of the host beside it, it counts as before
+  when the most of them leaves less than a fifth of the host beside it, it counts as before; past those 10 min never
+  less than the most of its samples of the last 5 min, its last sample too, so a holder of a measure whose peak passes
+  its measure counts that peak
 - **AND** a supervisor of an older build that rewrites `turn.json` drops `recent`: the holder counts as before until a
   new window spans 5 min
 - **AND** a run of the queue without a measure still waits for every holder, and the measure at the end of the run is
   as before
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room`, `the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room`, `a_holder_of_a_measure_past_its_grace_counts_at_least_the_most_of_its_last_5_min`, `the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min`)
 
 #### Scenario: Runs of a class
 - **WHEN** a run of `--measure-as <class>` ended with a measure, and later runs of the class with other commands wait
