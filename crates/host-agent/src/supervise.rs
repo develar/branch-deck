@@ -296,6 +296,8 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   private_dir(&stage).map_err(|error| Refusal::new(Code::AgentError, format!("cannot make {}: {error}", stage.display())))?;
   let mut phases = Phases { run, ended: Vec::new() };
 
+  // a limit of 0 since the start: the run holds no cores for a slot that never comes
+  slots::refuse_without_slots(context.repo)?;
   if spec.heavy && !take_turn(context, &mut phases, stop)? {
     return Ok(INTERRUPTED);
   }

@@ -96,6 +96,14 @@ A remote slot holds no state of its own. The commit comes from the client, and `
 bring back the rest. So a slot is lent to one run for the time of that run only. The host keeps a fixed set of warm
 slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` leases of the holders `brd-host/<n>`.
 
+- **A limit of 0**: a fill keeps the smaller of `branchdeck.hostSlots` and the limit of the last shrink (`brd-host
+  slots --local --shrink N`, `HostSlots::limit`). At 0 no slot ever comes, so the agent refuses the start of a run with
+  `no_slots` (`host_slots::SlotLimit`), naming each limit at 0 and the command that raises it, before the run exists;
+  a supervisor checks again before its heavy turn and when a wait for a slot finds the host without one. On 2026-11-25
+  a laptop of `branchdeck.hostSlots 0` took runs of `run any`, and a run of a shrink limit of 0 took the heavy turn and
+  waited 1 h for `0 of 0 lent …; the host prepares its slots`, which it never would. The estimate tells the limit
+  (`Estimate::slots`), and a set chooses no member of 0, the first one neither.
+
 - A run gets the idle slot that its affinity (`checkout-<12 hex>` of the local checkout path) used last, else the idle
   slot used longest ago, else it waits in a first-come queue. A waiting run gives back a slot that a gone run left
   itself, without waiting for the keeper.
@@ -508,7 +516,8 @@ it at the start; the run never moves after that.
 - **The choice** (`host_client::choose`): every member is asked at once, 3 s each. The rank is `start_in_ms +
   unknown_ahead × 10 min + expected_wall_ms`, a tie by the order of the set, and one line says it: `brd-host: studio:
   starts in ~12 min, runs ~4 min; local: starts now, runs ~6 min, only at once; chose local`. The first member may
-  take any run. A heavy run goes to another member only with its own measure of the command there (of its class with
+  take any run, but a member whose estimate tells a slot limit of 0 takes none. A heavy run goes to another member only
+  with its own measure of the command there (of its class with
   `--measure-as`; a member whose agent lacks `measure_as` has no estimate of such a run), so a new command
   (the scripts of a measurement of accio) stays on the Studio, and what a laptop may take is what ran there once. A
   wall that a member does not know is the longest that another member knows; a member without an estimate ranks last.

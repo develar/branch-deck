@@ -102,6 +102,7 @@ pub enum Code {
   PackFailed,
   PackMissing,
   SlotTimeout,
+  NoSlots,
   HeavyTimeout,
   Superseded,
   Busy,
@@ -128,7 +129,7 @@ pub enum Code {
 
 impl Code {
   /// Every code, in the order of the table of the spec
-  pub const ALL: [Self; 43] = [
+  pub const ALL: [Self; 44] = [
     Self::Usage,
     Self::Interrupted,
     Self::Config,
@@ -150,6 +151,7 @@ impl Code {
     Self::PackFailed,
     Self::PackMissing,
     Self::SlotTimeout,
+    Self::NoSlots,
     Self::HeavyTimeout,
     Self::Superseded,
     Self::Busy,
@@ -250,6 +252,11 @@ impl Code {
         "The pack of the commit did not come within 30 min, or sent no chunk for 2 min.",
       ),
       Self::SlotTimeout => ("slot_timeout", ExitRule::Always(Exit::NotRun), "The run got no host slot within an hour."),
+      Self::NoSlots => (
+        "no_slots",
+        ExitRule::Always(Exit::NotRun),
+        "The host keeps no slot for the runs of the repository: `branchdeck.hostSlots` of its git config is 0, or the last `brd-host slots --local --shrink` kept 0, so a run would wait for a slot forever. The message names each and how to raise it.",
+      ),
       Self::HeavyTimeout => (
         "heavy_timeout",
         ExitRule::Always(Exit::NotRun),

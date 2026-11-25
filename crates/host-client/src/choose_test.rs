@@ -20,6 +20,7 @@ fn estimate(start: u64, unknown: u32, wall: Option<u64>) -> Estimate {
     start_in_ms: start * MIN,
     unknown_ahead: unknown,
     os: "macos".to_owned(),
+    slots: Some(4),
   }
 }
 
@@ -119,6 +120,40 @@ fn the_plan_of_a_run_names_what_each_member_told_and_the_choice() {
   );
   assert_eq!(about(45_000), "~45 s");
   assert_eq!(about(65 * MIN + 1), "~1 h 5 min");
+}
+
+/// A member that keeps no slot for the runs of the repository (`Estimate::slots` 0) takes no run, the first member of the
+/// set neither, and the plan says why; an agent before the field (`None`) ranks as before
+#[test]
+fn a_member_without_a_slot_for_the_repository_takes_no_run_the_first_neither() {
+  let none = || Estimate {
+    slots: Some(0),
+    ..estimate(0, 0, Some(2))
+  };
+  let candidates = vec![
+    candidate("local", false, Answer::Estimate(none())),
+    candidate("studio", false, Answer::Estimate(estimate(12, 0, Some(4)))),
+    candidate(
+      "old",
+      false,
+      Answer::Estimate(Estimate {
+        slots: None,
+        ..estimate(30, 0, Some(4))
+      }),
+    ),
+  ];
+  for heavy in [true, false] {
+    assert_eq!(order(&candidates, heavy), ["studio", "old"], "heavy {heavy}");
+  }
+  assert_eq!(
+    plan_line(&candidates, true, Some(1)),
+    "brd-host: local: it keeps no slot for the runs of this repository (`branchdeck.hostSlots` or the limit of `brd-host slots --local --shrink` is 0 there), so no run goes there; studio: starts in ~12 min, runs ~4 min; old: starts in ~30 min, runs ~4 min; chose studio"
+  );
+  assert_eq!(
+    order(&[candidate("local", false, Answer::Estimate(none()))], false),
+    Vec::<&str>::new(),
+    "a set of one such member"
+  );
 }
 
 /// What a member of the tests does: its estimate (`None`: it never answers one), and its start, which it refuses with

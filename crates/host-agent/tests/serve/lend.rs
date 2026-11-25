@@ -8,7 +8,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
 use git_ops::revs::repository_dirs;
 use history_rewrite::repository_lock::lock_file;
-use host_link::proto::{Reply, Request, Stream};
+use host_link::proto::{EstimateAsk, Reply, Request, RunSpec, Stream};
 use lease_pool::host_slots::{HostSlotsParams, fill};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -209,6 +209,65 @@ fn the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill() {
     log.find(&gave_back).is_some_and(|at| log[at..].contains(&held_back))
   });
   assert_eq!(failed(), 1, "the keeper ticked every 100 ms, but a failed fill waits 1 min: {}", world.serve_log());
+}
+
+impl Agent<'_> {
+  /// The slot limit that the estimate of a run of `repo` tells (`Estimate::slots`)
+  fn estimated_slots(&self, repo: &TestRepo) -> Option<u32> {
+    let reply = self.reply(&Request::Estimate(EstimateAsk {
+      repo: repo.path_str().to_owned(),
+      command: vec!["true".to_owned()],
+      heavy: true,
+      ..EstimateAsk::default()
+    }));
+    let Reply::Estimate(estimate) = reply else {
+      panic!("no estimate: {reply:?}");
+    };
+    estimate.slots
+  }
+}
+
+/// A host that keeps no slot for the runs of the repository, by `branchdeck.hostSlots` 0 or by a shrink limit of 0,
+/// refuses the start of a heavy run at once with `no_slots`, which names the limit and the command that raises it:
+/// nothing ran, no run directory, no heavy turn. Its estimate tells 0 slots, so a set chooses another member; a host
+/// that keeps a slot tells its limit
+#[test]
+fn a_host_without_a_slot_for_the_repository_refuses_the_run_at_once_with_no_slots() {
+  let world = World::new(0, &[]);
+  let agent = world.serve();
+  let heavy = |run: &str| RunSpec {
+    heavy: true,
+    ..world.spec(run, "true")
+  };
+  let refused = agent.reply(&Request::Start(heavy("9-1")));
+  assert!(
+    matches!(&refused, Reply::Refused { code, message } if code == "no_slots"
+      && message.contains(&format!("`branchdeck.hostSlots` is 0 (`git -C {} config branchdeck.hostSlots 4` on the host raises it)", world.repo.path_str()))
+      && !message.contains("shrink")),
+    "{refused:?}"
+  );
+  assert!(!world.run_dir("9-1").exists(), "nothing ran");
+  assert_eq!(agent.estimated_slots(&world.repo), Some(0));
+
+  let shrunk = World::new(1, &[]);
+  edit_table(&shrunk.repo, |table| table["limit"] = json!(0));
+  let agent = shrunk.serve();
+  let refused = agent.reply(&Request::Start(RunSpec {
+    heavy: true,
+    ..shrunk.spec("9-2", "true")
+  }));
+  assert!(
+    matches!(&refused, Reply::Refused { code, message } if code == "no_slots"
+      && message.contains(&format!("the last shrink kept 0 slots (`brd-host slots --local -C {} --shrink 4` on the host raises it)", shrunk.repo.path_str()))
+      && !message.contains("hostSlots")),
+    "{refused:?}"
+  );
+  assert!(!shrunk.run_dir("9-2").exists(), "nothing ran");
+  assert_eq!(agent.estimated_slots(&shrunk.repo), Some(0));
+  edit_table(&shrunk.repo, |table| table["limit"] = json!(3));
+  assert_eq!(agent.estimated_slots(&shrunk.repo), Some(1), "the smaller of the two");
+  agent.start(shrunk.spec("9-3", "true"));
+  assert_eq!(agent.follow("9-3").end, Reply::Exit { code: 0 });
 }
 
 #[test]

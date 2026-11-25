@@ -5,7 +5,9 @@
 //!
 //! - **Eligible**: the first member, always; for a heavy run, only a member with its own measure of the command, so a
 //!   new command, such as a script of a measurement, stays on the first member, and what a laptop may take is what ran
-//!   there once; for a run that is not heavy, every member that answered.
+//!   there once; for a run that is not heavy, every member that answered. Never a member that keeps no slot for the
+//!   runs of the repository (`Estimate::slots` 0), the first one neither: its agent would refuse the run with
+//!   `no_slots`.
 //! - **Rank**: `start_in_ms + unknown_ahead × 10 min + expected_wall_ms`, the least first, a tie by the order of the set.
 //!   A wall that a member does not know is the longest that another member knows. A member without an estimate ranks
 //!   last.
@@ -65,7 +67,12 @@ impl Candidate {
   /// measure of its command, a run that is not heavy every member that answered. A member that takes runs only at once
   /// needs the start of `RunSpec::admit_now`, which an agent without estimates lacks
   fn eligible(&self, position: usize, heavy: bool) -> bool {
-    position == 0 || self.estimate().is_some_and(|estimate| !heavy || estimate.expected_cores.is_some())
+    !self.keeps_no_slot() && (position == 0 || self.estimate().is_some_and(|estimate| !heavy || estimate.expected_cores.is_some()))
+  }
+
+  /// Whether the member told that it keeps no slot for the runs of the repository
+  fn keeps_no_slot(&self) -> bool {
+    self.estimate().is_some_and(|estimate| estimate.slots == Some(0))
   }
 }
 
@@ -93,6 +100,9 @@ pub fn plan_line(candidates: &[Candidate], heavy: bool, chosen: Option<usize>) -
   let mut line = "brd-host:".to_owned();
   for (position, candidate) in candidates.iter().enumerate() {
     let told = match &candidate.answer {
+      Answer::Estimate(_) if candidate.keeps_no_slot() => {
+        "it keeps no slot for the runs of this repository (`branchdeck.hostSlots` or the limit of `brd-host slots --local --shrink` is 0 there), so no run goes there".to_owned()
+      }
       Answer::Estimate(_) if !candidate.eligible(position, heavy) => "no measure of this command there, so a heavy run does not go there".to_owned(),
       Answer::Estimate(estimate) => {
         let starts = if estimate.start_in_ms == 0 {

@@ -1261,3 +1261,19 @@ fn the_scans_of_a_slot_name_its_tree_and_the_patch_of_its_command() {
   let refused = snapshot_run(&context.git, &params, "run-2").unwrap_err();
   assert!(matches!(refusal(&refused), HostSlotRefusal::NoSlot(run) if run == "run-2"), "{refused:#}");
 }
+
+/// The slot limit of the runs of a repository is the smaller of `branchdeck.hostSlots` and the limit of the last shrink;
+/// at 0 it says why no run gets a slot, each limit that is 0 with the command that raises it
+#[test]
+fn a_slot_limit_of_0_names_each_limit_and_how_to_raise_it() {
+  use lease_pool::host_slots::SlotLimit;
+  let limit = |host_slots, shrink| SlotLimit { host_slots, shrink };
+  assert_eq!((limit(4, None).effective(), limit(4, Some(2)).effective(), limit(1, Some(3)).effective()), (4, 2, 1));
+  assert_eq!(limit(4, Some(2)).no_slots("/r/idea-1"), None);
+  assert_eq!(
+    limit(0, Some(0)).no_slots("/r/idea-1").as_deref(),
+    Some(
+      "the host keeps no slot for the runs of /r/idea-1: `branchdeck.hostSlots` is 0 (`git -C /r/idea-1 config branchdeck.hostSlots 4` on the host raises it), and the last shrink kept 0 slots (`brd-host slots --local -C /r/idea-1 --shrink 4` on the host raises it); a run there would wait for a slot forever, so nothing ran"
+    )
+  );
+}

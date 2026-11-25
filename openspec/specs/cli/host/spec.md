@@ -927,7 +927,8 @@ the earlier member, after one line of the plan on the stderr. Its report MUST na
 
 ### Requirement: run: A heavy run goes to a member only with its measure there
 
-The first member of a set MUST be eligible for every run. For a heavy run, another member MUST be eligible only with its
+The first member of a set MUST be eligible for every run, but a member whose estimate tells a slot limit of 0, the
+first one too. For a heavy run, another member MUST be eligible only with its
 own measure of the command, or of its class with `--measure-as`; for a run that is not heavy, every member that
 answered. A member whose agent lacks the feature `measure_as` MUST have no estimate of a run of a class.
 
@@ -943,6 +944,14 @@ answered. A member whose agent lacks the feature `measure_as` MUST have no estim
 - **AND** a member whose agent lacks the feature `measure_as` gets no request and has no estimate: `no estimate: its
   agent predates --measure-as, so it knows no measure of the class (`brd-host upgrade <alias>`)`
   [@test] crates/host-client/src/choose_test.rs (`a_run_of_a_class_asks_by_its_class_and_a_member_before_classes_has_no_estimate`)
+
+#### Scenario: A member without a slot for the repository
+- **WHEN** a member of a set tells `slots` 0 in its estimate, as a laptop of `branchdeck.hostSlots 0`
+- **THEN** no run goes there, the first member of the set neither, and the line of the plan says `<alias>: it keeps no
+  slot for the runs of this repository (`branchdeck.hostSlots` or the limit of `brd-host slots --local --shrink` is 0
+  there), so no run goes there`; a set whose every member is so refuses with `no_host` before anything ran
+- **AND** a member of an agent before `slots` ranks as before
+  [@test] crates/host-client/src/choose_test.rs (`a_member_without_a_slot_for_the_repository_takes_no_run_the_first_neither`)
 
 ### Requirement: run: A busy member of a set sends the run to the next one
 
@@ -2778,6 +2787,25 @@ the spec, up to 1 h (`slot_timeout`). It MUST write the queue line to the log on
 - **THEN** the run refuses with `lease_failed`
   [@test] crates/host-agent/tests/serve/lend.rs (`a_failed_lend_refuses_the_run_with_lease_failed`)
 
+### Requirement: serve: A host without a slot for the repository refuses its runs at once
+
+A host whose slot limit for the repository is 0, the smaller of `branchdeck.hostSlots` and the limit of the last
+`brd-host slots --local --shrink`, MUST refuse the start of a run with `no_slots` before the run exists, and a run that
+finds it 0 before its heavy turn or while it waits for a slot MUST end with `no_slots`, so it never holds cores of the
+heavy turn for a slot that never comes.
+
+#### Scenario: A slot limit of 0
+- **WHEN** a run starts on a host whose `branchdeck.hostSlots` of the repository is 0, or whose last shrink kept 0
+- **THEN** the agent refuses the start with `no_slots` (exit 75): `the host keeps no slot for the runs of <repo>:
+  <why>; a run there would wait for a slot forever, so nothing ran`, `<why>` each limit at 0: ``branchdeck.hostSlots`
+  is 0 (`git -C <repo> config branchdeck.hostSlots 4` on the host raises it)`` and ``the last shrink kept 0 slots
+  (`brd-host slots --local -C <repo> --shrink 4` on the host raises it)``, joined by `, and `
+- **AND** no run directory is made, and the run takes no heavy turn
+- **AND** a supervisor that finds the limit 0 before its heavy turn, or while it waits for a slot of a host that has
+  none, ends the run with the same refusal, not with a wait until `slot_timeout`
+  [@test] crates/host-agent/tests/serve/lend.rs (`a_host_without_a_slot_for_the_repository_refuses_the_run_at_once_with_no_slots`)
+  [@test] crates/bd-lease/src/host_slots_test.rs (`a_slot_limit_of_0_names_each_limit_and_how_to_raise_it`)
+
 ### Requirement: serve: A git below the floor ends the run with old_git
 
 A lend that git refuses below its floor MUST end the run with `old_git` and the hint of Branch Deck.
@@ -2959,7 +2987,7 @@ hello, and each supervisor for its whole life. Elsewhere than on macOS nothing h
 ### Requirement: serve: An estimate says when a run would start there
 
 `Request::Estimate` (feature `estimate`) MUST answer `has_commit`, `warm`, `cores`, `expected_cores`, `expected_wall_ms`,
-`start_in_ms`, `unknown_ahead` and `os`, read without a lock. A heavy run MUST take its place in the queue as a new run
+`start_in_ms`, `unknown_ahead`, `os` and `slots`, read without a lock. A heavy run MUST take its place in the queue as a new run
 would, and the holders and the runs before it MUST end after the walls of their commands, admitted by the rule of the
 turn, the load outside the heavy runs the most of the last 30 s.
 
@@ -2968,6 +2996,9 @@ turn, the load outside the heavy runs the most of the last 30 s.
 - **THEN** the request and the reply are `{"request": "estimate", "repo", "affinity", "commit", "command", "fetch",
   "heavy", "measure_as"}` and `{"reply": "estimate", …}`, `measure_as` left out without a class (feature
   `measure_as`) and the fields of a measure without one; the measures of a class count for a run of it
+- **AND** `slots` is the slot limit of the repository, the smaller of `branchdeck.hostSlots` and the limit of the last
+  shrink, left out by an agent before it and when the limit cannot be read
+  [@test] crates/host-agent/tests/serve/lend.rs (`a_host_without_a_slot_for_the_repository_refuses_the_run_at_once_with_no_slots`)
   [@test] crates/host-link/src/proto_test.rs (`an_estimate_and_its_reply_have_a_tagged_json_shape`, `the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate`)
 
 #### Scenario: The queue played forward
@@ -3345,6 +3376,7 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
 | `pack_failed` | 75 | The agent cannot land the pack: no pack, or git refused it. |
 | `pack_missing` | 75 | The pack of the commit did not come within 30 min, or sent no chunk for 2 min. |
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
+| `no_slots` | 75 | The host keeps no slot for the runs of the repository: `branchdeck.hostSlots` of its git config is 0, or the last `brd-host slots --local --shrink` kept 0, so a run would wait for a slot forever. The message names each and how to raise it. |
 | `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, or through a set of hosts whose other members can take it; never as a plain command where the client runs. |
 | `superseded` | 75 | A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`. |
 | `busy` | 75 | A member of a set that takes runs only at once (`idle_only`) had no room for the run now: nothing ran, and the client goes to the next member. |

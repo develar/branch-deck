@@ -341,6 +341,51 @@ fn slot_count(config: &LeaseConfig) -> Result<u32> {
   })
 }
 
+/// The limit of the host slots of a repository for its runs: `branchdeck.hostSlots` (4 by default) and the limit of
+/// the last shrink (`brd-host slots --local --shrink N`), of which a fill keeps the smaller ([`fill`])
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlotLimit {
+  pub host_slots: u32,
+  pub shrink: Option<u32>,
+}
+
+impl SlotLimit {
+  /// The slots that a fill keeps: the smaller of the two
+  pub fn effective(self) -> u32 {
+    self.shrink.map_or(self.host_slots, |shrink| shrink.min(self.host_slots))
+  }
+
+  /// Why no run of the repository `repo` gets a slot, with each limit that is 0 and the command that raises it; `None`
+  /// while the host keeps a slot
+  pub fn no_slots(self, repo: &str) -> Option<String> {
+    if self.effective() > 0 {
+      return None;
+    }
+    let mut zero = Vec::new();
+    if self.host_slots == 0 {
+      zero.push(format!(
+        "`branchdeck.hostSlots` is 0 (`git -C {repo} config branchdeck.hostSlots {DEFAULT_HOST_SLOTS}` on the host raises it)"
+      ));
+    }
+    if self.shrink == Some(0) {
+      zero.push(format!(
+        "the last shrink kept 0 slots (`brd-host slots --local -C {repo} --shrink {DEFAULT_HOST_SLOTS}` on the host raises it)"
+      ));
+    }
+    Some(format!(
+      "the host keeps no slot for the runs of {repo}: {}; a run there would wait for a slot forever, so nothing ran",
+      zero.join(", and ")
+    ))
+  }
+}
+
+/// The limit of the host slots of the repository of `params` for its runs, by its git config and its lend table
+pub fn slot_limit(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) -> Result<SlotLimit> {
+  let host_slots = slot_count(&lease_config(git_executor, &params.repository.top_level)?)?;
+  let shrink = params.table().read::<HostSlots>()?.limit;
+  Ok(SlotLimit { host_slots, shrink })
+}
+
 /// A size of the config, `None` when unset
 fn config_size(key: &str, value: Option<&String>) -> Result<Option<u64>> {
   value

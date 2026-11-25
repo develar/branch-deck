@@ -270,7 +270,10 @@ command that follows the run.
 
 The host keeps a fixed set of warm slots per repository (`branchdeck.hostSlots` of its git config, 4 by default). Each
 run borrows one for that run only. A run gets the slot that its affinity used last, else the one used longest ago,
-else it waits in a queue with one line a minute. After an hour it refuses with `slot_timeout`. At the end of each run
+else it waits in a queue with one line a minute. After an hour it refuses with `slot_timeout`. A host that keeps no
+slot for the repository (`branchdeck.hostSlots` 0, or a last `brd-host slots --local --shrink 0`) refuses the run at
+once with `no_slots`, and a set does not choose it; the message names the command that raises the limit, which is the
+user's to run. At the end of each run
 the slot comes back: the processes of the run stop, and its changes go. The ignored files stay as the warm cache, until
 the slot has been idle 6 hours (`branchdeck.hostSlotIdleClean`): then the keeper applies the clean rules. So
 nothing keeps or returns a slot by hand. The agent does the lend and the git of the host in process, so the host needs
@@ -327,6 +330,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `no_host` | This machine has no host file for the alias: the host was never set up from here. |
 | `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
+| `no_slots` | The host keeps no slot for the repository: nothing ran. Exit 75: run on another host or locally, and tell the user the command of the message that raises the limit. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
 | `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: wait for the later run that the message names. |
 | `busy` | A member of a set that takes runs only at once had no room: nothing ran there, and the run went to the next member. |

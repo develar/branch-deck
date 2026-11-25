@@ -64,6 +64,8 @@ impl Agent {
     }
     check_measure_class(spec.measure_as.as_deref())?;
     let repo = self.repo(&spec.repo)?;
+    // before the run exists: a run that no slot will ever take takes no heavy turn and waits for nothing
+    crate::slots::refuse_without_slots(&repo)?;
     let (run, lock) = self.runs().create(spec)?;
     if let Err(refusal) = self.spawn_supervisor(&run, &lock) {
       let _ = fs_retry::remove_dir_all(run.path());

@@ -224,6 +224,11 @@ pub struct Estimate {
   pub unknown_ahead: u32,
   /// `std::env::consts::OS` of the agent
   pub os: String,
+  /// The host slots that the host keeps for the runs of the repository, the smaller of `branchdeck.hostSlots` and the
+  /// limit of the last shrink: 0 takes no run (`no_slots`); `None` from an agent before it, or a limit that cannot be
+  /// read
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub slots: Option<u32>,
 }
 
 /// The ref of the host that a pack moves: the ref of a run, or a base of a client. Its JSON is `{"run": "<id>"}` or

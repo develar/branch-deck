@@ -388,6 +388,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | `schema` | The agent speaks another protocol. | `brd-host upgrade studio`, or setup again. |
 | `old_git` | The git of the host is too old and Homebrew cannot upgrade it. | Install or repair Homebrew on the host. |
 | `slot_timeout` | Every slot stayed busy for an hour. | `brd-host slots studio`, then try again. |
+| `no_slots` | The host keeps no slot for the repository: `branchdeck.hostSlots` is 0 there, or a shrink kept 0. | The command of the message on the host: `git -C <repo> config branchdeck.hostSlots 4`, or `brd-host slots --local -C <repo> --shrink 4`. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then run it again later or through a set, not as a plain command here. |
 | `busy` | A member of a set that takes runs only at once had no room. | Nothing ran; the run went to the next member. |
 | `superseded` | A later heavy run of the same checkout and command replaced it while it waited. | Nothing ran: follow the later run that the message names. |

@@ -66,6 +66,7 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
     start_in_ms: start.start_in_ms,
     unknown_ahead: start.unknown_ahead,
     os: std::env::consts::OS.to_owned(),
+    slots: crate::slots::effective_slots(repo),
   })
 }
 

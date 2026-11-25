@@ -454,6 +454,7 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
     start_in_ms: 720_000,
     unknown_ahead: 2,
     os: "macos".to_owned(),
+    slots: None,
   });
   let json = serde_json::to_string(&unmeasured).expect("json");
   assert_eq!(
@@ -472,6 +473,19 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
   let json = serde_json::to_string(&measured).expect("json");
   assert!(json.contains(r#""cores":20,"expected_cores":9.0,"expected_wall_ms":240000,"#), "{json}");
   assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), measured);
+  let without_slots = Reply::Estimate(Estimate {
+    slots: Some(0),
+    ..match measured {
+      Reply::Estimate(estimate) => estimate,
+      _ => unreachable!("an estimate"),
+    }
+  });
+  let json = serde_json::to_string(&without_slots).expect("json");
+  assert!(
+    json.ends_with(r#""os":"macos","slots":0}"#),
+    "the slot limit, which an agent before it sends none of: {json}"
+  );
+  assert_eq!(serde_json::from_str::<Reply>(&json).expect("parsed"), without_slots);
 
   let admitting = RunSpec {
     run: "1-2".to_owned(),

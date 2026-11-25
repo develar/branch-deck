@@ -18,7 +18,7 @@ use crate::tuning;
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_runs::queue_line;
 use lease_pool::host_slots::{
-  CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_watching, watch_lends,
+  CheckedOut, HostProcess, Lend, LendAnswer, LendRequest, Queued, checkout as checkout_slot, give_back_run, lend as lend_slot, lend_watching, slot_limit, watch_lends,
 };
 use std::time::{Duration, Instant};
 use sync_utils::process_scan::process_started;
@@ -94,6 +94,8 @@ pub(crate) fn lend(
   let watch = watch_lends(&params);
   let mut look = |chunk: Duration| match lend_watching(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}, &watch).map_err(refused)? {
     LendAnswer::Lent(lent) => Ok(Look::Got(lent)),
+    // no slot yet: one that the host prepares, or none ever, which a shrink to 0 during the wait made so
+    LendAnswer::Queued(queued) if queued.slots == 0 => refuse_without_slots(repo).map(|()| Look::Queued(queued)),
     LendAnswer::Queued(queued) => Ok(Look::Queued(queued)),
   };
   let waited = wait_in_looks(wait, stop, &mut look, &|queued: &Queued, waited| queue_line(run, queued, waited), say)?;
@@ -101,6 +103,19 @@ pub(crate) fn lend(
     Look::Got(lent) => LendAnswer::Lent(lent),
     Look::Queued(queued) => LendAnswer::Queued(queued),
   }))
+}
+
+/// Refuses with `no_slots` when the host keeps no slot for the runs of `repo`: `branchdeck.hostSlots` is 0, or the last
+/// shrink kept 0 (`lease_pool::host_slots::SlotLimit`). A limit that cannot be read refuses nothing here: the lend says
+/// why
+pub(crate) fn refuse_without_slots(repo: &Repository) -> Result<(), Refusal> {
+  let Ok(limit) = slot_limit(&repo.git, &repo.params()) else { return Ok(()) };
+  limit.no_slots(&repo.path.display().to_string()).map_or(Ok(()), |why| Err(Refusal::new(Code::NoSlots, why)))
+}
+
+/// The slot limit of `repo` for an estimate, `None` when it cannot be read
+pub(crate) fn effective_slots(repo: &Repository) -> Option<u32> {
+  slot_limit(&repo.git, &repo.params()).ok().map(lease_pool::host_slots::SlotLimit::effective)
 }
 
 /// What a give-back did, for the log of the supervisor
