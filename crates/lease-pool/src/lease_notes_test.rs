@@ -294,6 +294,47 @@ fn the_notes_expire_after_the_return_and_never_while_the_lease_is_held() {
   assert!(held_dir.is_dir() && read_notes(&pool.root, &held.id).is_some(), "the held lease keeps its notes");
 }
 
+/// The notes of a lease whose changes a get or a reclaim preserved expire `keep` after the later of the return and the
+/// preserve: a reclaim killed after the record of the preserve and before the return leaves notes without a return,
+/// which would expire at once by the time of the get
+#[test]
+fn the_notes_of_preserved_changes_expire_after_the_preserve_too() {
+  let pool = Pool::new();
+  let lease = Lease {
+    leased_at: 10,
+    ..Pool::lease("preserved")
+  };
+  pool.open(&lease);
+  let notes = read_notes(&pool.root, &lease.id).unwrap();
+  let preserved = crate::idle_changes::Preserved {
+    dir: display_path(&notes.dir.join(crate::idle_changes::PRESERVED_DIR)),
+    base: "b".repeat(40),
+    paths: 2,
+    bytes: 100,
+    staged: false,
+    expires_at: None,
+  };
+  crate::lease_notes::write_preserved(&notes, Some(&preserved)).unwrap();
+  let record = read_notes(&pool.root, &lease.id).unwrap().record;
+  let preserved_at = record.preserved_at.unwrap();
+  assert_eq!(record.preserved, Some(preserved));
+  let keep = Duration::from_hours(24);
+  assert_eq!(
+    expires_at(&record, &HashSet::new(), keep),
+    Some(preserved_at + keep.as_secs()),
+    "no return: from the preserve"
+  );
+  let returned = crate::lease_notes::NotesRecord {
+    returned_at: Some(preserved_at + 5),
+    ..record
+  };
+  assert_eq!(
+    expires_at(&returned, &HashSet::new(), keep),
+    Some(preserved_at + 5 + keep.as_secs()),
+    "the later of the two"
+  );
+}
+
 /// The files of the notes, by path, without following a link
 #[test]
 fn the_files_of_the_notes_are_listed_by_path() {

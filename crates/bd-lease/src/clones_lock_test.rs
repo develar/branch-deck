@@ -82,6 +82,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Seed { .. } => "seed",
       GetStep::TakeOver { .. } => "take over",
       GetStep::CleanTakenOver { .. } => "clean taken over",
+      GetStep::PreserveChanges { .. } => "preserve changes",
     })
     .collect();
   kinds.dedup_by(|next, previous| next == previous && matches!(*next, "wait" | "wait behind"));

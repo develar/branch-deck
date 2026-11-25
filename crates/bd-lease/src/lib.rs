@@ -28,6 +28,8 @@ mod lfs_test;
 #[cfg(test)]
 mod notes_test;
 #[cfg(test)]
+mod preserve_test;
+#[cfg(test)]
 mod takeover_test;
 #[cfg(test)]
 mod trim_test;

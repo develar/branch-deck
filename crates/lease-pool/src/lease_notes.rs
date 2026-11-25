@@ -33,6 +33,7 @@
 //! and nothing where the state of the pool can't be read. A directory without a record (a get that stopped before it
 //! wrote one) expires by its modification time.
 
+use crate::idle_changes::Preserved;
 use crate::lease::{Lease, LeaseStore, Pool, canonical_path, pool_dir};
 use crate::lease_clean::parse_age;
 use crate::trim::main_worktree;
@@ -75,6 +76,13 @@ pub struct NotesRecord {
   /// before it, whose repository its slot tells (`expire_place`)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub repository: Option<String>,
+  /// The local changes of the idle lease that a get or a reclaim preserved here as patches before it took the slot
+  /// (`idle_changes`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<Preserved>,
+  /// Unix seconds of that preserve: the notes expire after it too, so a reclaim killed before its return keeps them
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preserved_at: Option<u64>,
 }
 
 /// The notes of one lease
@@ -285,6 +293,8 @@ fn make_notes(root: &Path, slot: &Path, git_common_dir: &Path, lease: &Lease, di
     returned_at: None,
     linked,
     repository: Some(canonical_path(git_common_dir)),
+    preserved: None,
+    preserved_at: None,
   };
   write_record(root, &record)?;
   Ok(LeaseNotes { dir: dir.to_path_buf(), record })
@@ -351,6 +361,22 @@ pub(crate) fn close_notes(roots: &NotesRoots, slot: &Path, lease_id: &str) -> Op
   Some(notes)
 }
 
+/// `preserved` in the record of `notes`, at now, or none: the pointer to the patches of the changes of the lease,
+/// written before the commit point of the get or the reclaim that discards them, and taken out by a preserve that did
+/// not take the slot
+pub(crate) fn write_preserved(notes: &LeaseNotes, preserved: Option<&Preserved>) -> std::io::Result<()> {
+  let root = notes
+    .dir
+    .parent()
+    .ok_or_else(|| std::io::Error::other(format!("{} is no directory of notes", notes.dir.display())))?;
+  let record = NotesRecord {
+    preserved: preserved.cloned(),
+    preserved_at: preserved.map(|_| now_seconds()),
+    ..notes.record.clone()
+  };
+  write_record(root, &record)
+}
+
 /// Move what is at `link` (a link of an earlier lease, a directory that a return could not move or a brd before the
 /// notes left) out of the slot: a link goes, anything else into notes of its own, `left-<uuid>`, returned now. The
 /// record comes first, so the directory is never one without a record, whose age is its old modification time
@@ -373,6 +399,8 @@ fn set_aside(root: &Path, slot: &Path, git_common_dir: &Path, link: &Path) -> st
       returned_at: Some(at),
       linked: false,
       repository: Some(canonical_path(git_common_dir)),
+      preserved: None,
+      preserved_at: None,
     },
   )?;
   move_path(link, &dir).inspect_err(|_| {
@@ -446,12 +474,14 @@ pub struct ExpiredNotes {
   pub error: Option<String>,
 }
 
-/// When the notes of a lease expire: `keep` after its return; `None` while `held` names it, and for `keep` 0
+/// When the notes of a lease expire: `keep` after its return, and not before `keep` after the preserve of its changes
+/// (`preserved_at`); `None` while `held` names it, and for `keep` 0
 pub fn expires_at(record: &NotesRecord, held: &HashSet<String>, keep: Duration) -> Option<u64> {
   if keep.is_zero() || held.contains(&record.lease_id) {
     return None;
   }
-  Some(record.returned_at.unwrap_or(record.leased_at).saturating_add(keep.as_secs()))
+  let from = record.returned_at.unwrap_or(record.leased_at).max(record.preserved_at.unwrap_or(0));
+  Some(from.saturating_add(keep.as_secs()))
 }
 
 /// How long the notes of a returned lease stay: `branchdeck.leaseNotesKeep` of `config` (`0` for ever), else

@@ -21,6 +21,7 @@ use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::get_queue::{Behind, Gate, QueuePlace, QueueTicket, QueueTiming, Turn, settle_queue};
 use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
+use crate::idle_changes::{ChangesVerdict, Preserve, PreserveConfig, Preserved, preserve_changes, preserves, withdraw_preserved};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{
   CleanMode, CleanOptions, CleanOverrides, Cleaned, Trash, apply_clean_rules, apply_clean_rules_with, clone_skips, describe_size, holds_gone_runs, read_clean_rules,
@@ -224,6 +225,9 @@ pub struct Reclaimed {
   pub by_lease_id: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub by_holder: Option<String>,
+  /// The local changes of the lease, preserved as patches in its notes before its slot was discarded (`idle_changes`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<Preserved>,
 }
 
 /// The last check of an idle lease that found work (`check_idle`): a later get checks it again only when what the
@@ -250,6 +254,31 @@ pub struct IdleCheck {
   /// A git operation in progress (`rebase`, `merge`, `cherry-pick`, `revert`, `bisect`) or an open resolve session
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub operation: Option<String>,
+  /// The first `DIRTY_PROOF_PATHS` of `paths` with their stat then, as `DirtyCheck::proof`: a change restored by hand
+  /// moves them, and the next get checks the lease again
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub proof: Vec<ProofPath>,
+  /// The two ignore files of the slot then (`ignore_stats`), with `proof`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub ignores: Vec<FileStat>,
+  /// When the local changes, the only work, are quiet (Unix seconds, `idle_changes`): the verdict holds until then, and a
+  /// get or a reclaim after it preserves them and takes the slot. `None`: never, or `not_preserved` says why
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub quiet_at: Option<u64>,
+  /// Why the local changes, quiet, stay in the slot as they are (`git_ops::lease_slot::PreserveRefusal`, a lease
+  /// without notes): the verdict holds by `proof`, the path that refuses where one does, and `preserve_config`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub not_preserved: Option<String>,
+  /// The keys of the preserve the check ran with (`PreserveConfig::fingerprint`): another value ends the verdict
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preserve_config: Option<String>,
+  /// Why the last preserve failed (an edit meanwhile, a process in the slot): the next one waits for `quiet_at`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preserve_error: Option<String>,
+  /// The stat of the index of the slot with `not_preserved`: a refusal of the index (skip-worktree, an unmerged entry)
+  /// ends with a write of the index, which moves no file
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub index: Option<FileStat>,
 }
 
 /// An `IdleCheck` as the state holds it, its paths cut as it is read: a brd before the cut kept them all
@@ -267,6 +296,20 @@ struct IdleCheckRecord {
   paths_omitted: usize,
   #[serde(default)]
   operation: Option<String>,
+  #[serde(default)]
+  proof: Vec<ProofPath>,
+  #[serde(default)]
+  ignores: Vec<FileStat>,
+  #[serde(default)]
+  quiet_at: Option<u64>,
+  #[serde(default)]
+  not_preserved: Option<String>,
+  #[serde(default)]
+  preserve_config: Option<String>,
+  #[serde(default)]
+  preserve_error: Option<String>,
+  #[serde(default)]
+  index: Option<FileStat>,
 }
 
 impl From<IdleCheckRecord> for IdleCheck {
@@ -280,6 +323,13 @@ impl From<IdleCheckRecord> for IdleCheck {
       paths,
       paths_omitted,
       operation: record.operation,
+      proof: record.proof,
+      ignores: record.ignores,
+      quiet_at: record.quiet_at,
+      not_preserved: record.not_preserved,
+      preserve_config: record.preserve_config,
+      preserve_error: record.preserve_error,
+      index: record.index,
     }
   }
 }
@@ -321,10 +371,62 @@ impl IdleCheck {
     work.join(", ")
   }
 
-  /// Whether the verdict holds for the slot as `mark` and the home tip `home_tip` tell it now: the tree work while the
-  /// slot did not change (its holder is gone), the commits while the home branch did not move either
-  fn holds(&self, mark: &SlotMark, home_tip: Option<&str>) -> bool {
-    self.mark == *mark && (!self.paths.is_empty() || self.operation.is_some() || self.home_tip.as_deref() == home_tip)
+  /// The check of an idle lease whose only work is the local changes `paths` of `slot`, found now with the slot and the
+  /// home tip of `state` under `config`: with their stat proof, and when they are quiet or why they stay (`verdict`).
+  /// The proof of a verdict that a path refuses is that path alone, so its fix by hand ends the verdict
+  pub(crate) fn of_changes(slot: &Path, (mark, home_tip): (SlotMark, Option<String>), paths: Vec<String>, config: &PreserveConfig, verdict: ChangesVerdict) -> Self {
+    let (quiet_at, not_preserved, refusing) = match verdict {
+      ChangesVerdict::Quiet(quiet_at) => (quiet_at, None, None),
+      ChangesVerdict::Kept { reason, path } => (None, Some(reason), path),
+    };
+    // a verdict that a path refuses holds while that path has its stat: its fix by hand ends it, past the first changes
+    let proof = proof_of(slot, refusing.as_ref().map_or(&paths[..], std::slice::from_ref));
+    let index = not_preserved.is_some().then(|| index_stat(slot));
+    let (paths, paths_omitted) = cut_paths(paths, 0);
+    Self {
+      at: now(),
+      mark,
+      home_tip,
+      commits: Vec::new(),
+      paths,
+      paths_omitted,
+      operation: None,
+      proof,
+      ignores: ignore_stats(slot),
+      quiet_at,
+      not_preserved,
+      preserve_config: Some(config.fingerprint()),
+      preserve_error: None,
+      index,
+    }
+  }
+
+  /// This check after a preserve that failed with `error` at `now`: the next one waits `RECLAIM_RETRY`, as a reclaim
+  /// that failed does, rather than run again at each get
+  pub(crate) fn failed_preserve(&self, error: &anyhow::Error, now: u64) -> Self {
+    Self {
+      at: now,
+      quiet_at: Some(now.saturating_add(RECLAIM_RETRY.as_secs())),
+      preserve_error: Some(format!("{error:#}")),
+      ..self.clone()
+    }
+  }
+
+  /// Whether the verdict holds at `now` for the slot at `slot` as `mark` and the home tip `home_tip` tell it: the slot
+  /// did not change (its holder is gone); the local changes while one of their proof paths has its stat of then (as
+  /// `DirtyCheck::holds`), they are not quiet yet and the keys of the preserve are `config` still (`None`: not read); an operation as long as that; the commits while the home branch
+  /// did not move either
+  fn holds(&self, slot: &Path, (mark, home_tip): (&SlotMark, Option<&str>), now: u64, config: Option<&str>) -> bool {
+    if self.mark != *mark {
+      return false;
+    }
+    if !self.paths.is_empty() {
+      return proof_holds(slot, &self.proof, &self.ignores)
+        && self.index.as_ref().is_none_or(|index| *index == index_stat(slot))
+        && self.quiet_at.is_none_or(|at| now < at)
+        && config.is_none_or(|config| self.preserve_config.as_deref() == Some(config));
+    }
+    self.operation.is_some() || self.home_tip.as_deref() == home_tip
   }
 }
 
@@ -437,15 +539,8 @@ const fn inode(_metadata: &std::fs::Metadata) -> u64 {
 impl DirtyCheck {
   /// The verdict of a `status` that found `paths` changed in the slot at `slot`, read right after it: a free slot has no
   /// process in it (a busy one is skipped), so nothing writes the paths meanwhile
-  fn of(slot: &Path, paths: Vec<String>) -> Self {
-    let proof = paths
-      .iter()
-      .take(DIRTY_PROOF_PATHS)
-      .map(|path| ProofPath {
-        path: path.clone(),
-        stat: FileStat::of(&slot.join(path)),
-      })
-      .collect();
+  pub(crate) fn of(slot: &Path, paths: Vec<String>) -> Self {
+    let proof = proof_of(slot, &paths);
     let (paths, paths_omitted) = cut_paths(paths, 0);
     Self {
       mark: SlotMark::of(slot),
@@ -460,8 +555,31 @@ impl DirtyCheck {
   /// path has its stat of then. A path cleaned by hand is touched (a stray file deleted, an edit checked out), so a
   /// slot cleaned so gets its `status` again
   fn holds(&self, slot: &Path) -> bool {
-    self.mark == SlotMark::of(slot) && self.ignores == ignore_stats(slot) && self.proof.iter().any(|proof| FileStat::of(&slot.join(&proof.path)) == proof.stat)
+    self.mark == SlotMark::of(slot) && proof_holds(slot, &self.proof, &self.ignores)
   }
+}
+
+/// The first `DIRTY_PROOF_PATHS` of the changed `paths` of `slot` with their stat now
+fn proof_of(slot: &Path, paths: &[String]) -> Vec<ProofPath> {
+  paths
+    .iter()
+    .take(DIRTY_PROOF_PATHS)
+    .map(|path| ProofPath {
+      path: path.clone(),
+      stat: FileStat::of(&slot.join(path)),
+    })
+    .collect()
+}
+
+/// Whether `slot` has its changes still by their proof, no git: its ignore files are `ignores` and one path of `proof`
+/// has its stat of then
+fn proof_holds(slot: &Path, proof: &[ProofPath], ignores: &[FileStat]) -> bool {
+  ignores == ignore_stats(slot).as_slice() && proof.iter().any(|proof| FileStat::of(&slot.join(&proof.path)) == proof.stat)
+}
+
+/// The stat of the index of the slot at `slot`, in its git dir
+fn index_stat(slot: &Path) -> FileStat {
+  linked_worktree(slot).map_or_else(FileStat::default, |worktree| FileStat::of(&worktree.git_dir.join("index")))
 }
 
 /// The stat of the top-level `.gitignore` of the slot at `slot` and of `info/exclude` of its repository (in the common
@@ -843,6 +961,7 @@ fn describe_reclaimed(path: &str, reclaimed: &Reclaimed, in_progress: bool) -> S
     source_branch,
     by_lease_id,
     by_holder,
+    preserved,
     ..
   } = reclaimed;
   let home = source_branch.as_deref().unwrap_or("its home branch");
@@ -851,6 +970,15 @@ fn describe_reclaimed(path: &str, reclaimed: &Reclaimed, in_progress: bool) -> S
     _ => "`brd lease reclaim`, which left it free".to_string(),
   };
   let branch = branch.as_ref().map_or_else(String::new, |branch| format!("; its branch {branch} stays"));
+  if let Some(preserved) = preserved {
+    let staged = if preserved.staged { " and staged.patch, the index" } else { "" };
+    return format!(
+      "The lease {lease_id} of {holder} in {path} was taken over by {by}: its holder process was gone, every commit of it was on {home}, and its {} local change(s) were quiet, so they are preserved in {}: changes.patch on {}{staged}{branch}. This worktree is not yours; get a lease of your own and apply the patch there",
+      preserved.paths,
+      preserved.dir,
+      short_id(&preserved.base)
+    );
+  }
   if in_progress {
     format!(
       "The lease {lease_id} of {holder} in {path} is being taken over by {by}, which checks whether its work landed on {home}: this worktree is not yours now{branch}. Wait for `brd lease status`, then get a lease of your own"
@@ -1118,7 +1246,7 @@ pub enum SkipReason {
   /// Processes have their working directory in it, or a Bazel server of it did not exit
   Busy { processes: Vec<BusyProcess> },
   /// An idle lease, its holder gone, with work its home branch lacks: the get leaves it to the user
-  IdleWithWork { holder: String, lease_id: String, check: IdleCheck },
+  IdleWithWork { holder: String, lease_id: String, check: Box<IdleCheck> },
 }
 
 pub struct LeaseGetParams<'a> {
@@ -1235,6 +1363,9 @@ pub enum GetStep {
   TakeOver { slot: String, holder: String },
   /// The return of the idle lease the get took over: its seeded paths, its branch detached, the clean rules
   CleanTakenOver { slot: String },
+  /// The local changes of the idle lease are its only work and quiet: they become patches in its notes, without the
+  /// clones lock, before the get takes the slot (`idle_changes`)
+  PreserveChanges { slot: String, holder: String, paths: usize },
 }
 
 impl fmt::Display for GetStep {
@@ -1290,6 +1421,10 @@ impl fmt::Display for GetStep {
       Self::Seed { slot, paths } => write!(f, "copying {paths} path(s) that {WORKTREE_INCLUDE} names into {slot}"),
       Self::TakeOver { slot, holder } => write!(f, "checking whether the work of the idle lease of {holder} in {slot} landed"),
       Self::CleanTakenOver { slot } => write!(f, "returning the idle lease of {slot}: its seeded paths, its branch and the clean rules"),
+      Self::PreserveChanges { slot, holder, paths } => write!(
+        f,
+        "preserving the {paths} quiet local change(s) of the idle lease of {holder} in {slot} as patches in its notes"
+      ),
     }
   }
 }
@@ -1623,7 +1758,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       Reserved::Free { path, name, servers } => {
         // a get that holds the clones lock keeps it across the check: a busy or a dirty slot leaves it the next reserve
         // under the lock, where it adds a slot without another wait
-        if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
+        if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), (&lease.id, None), &servers, &mut stopped_servers) {
           skipped.push(busy);
           continue;
         }
@@ -1661,30 +1796,72 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           slot: path.clone(),
           holder: old.holder.clone(),
         });
-        let verdict = check_idle(git_executor, &path, &name, &old, config.untracked);
-        let landed = match verdict {
-          Ok(IdleVerdict::Landed { landed, mark }) if commit_takeover(&pool, params.lock_timeout, &path, &lease, &mark)? => landed,
+        let preserve = PreserveConfig::of(&config);
+        let verdict = check_idle(git_executor, (&path, &name), &old, (config.untracked, preserve));
+        let notes_roots = pool.notes_roots(Some(&pool_dir), params.home);
+        let kept_with = |check: IdleCheck, skipped: &mut Vec<SkippedSlot>| {
+          let mut kept = (*old).clone();
+          kept.idle_check = Some(check.clone());
+          skipped.push(SkippedSlot {
+            name: name.clone(),
+            path: path.clone(),
+            reason: SkipReason::IdleWithWork {
+              holder: kept.holder.clone(),
+              lease_id: kept.id.clone(),
+              check: Box::new(check),
+            },
+          });
+          keep_idle(&pool, params.lock_timeout, &path, &lease.id, kept);
+        };
+        let (landed, preserved) = match verdict {
+          Ok(IdleVerdict::Landed { landed, mark }) if commit_takeover(&pool, params.lock_timeout, &path, &lease, &mark)? => (landed, None),
           Ok(IdleVerdict::Landed { .. }) => {
             debug!(slot = %path, "the idle slot moved while the get checked it");
             keep_idle(&pool, params.lock_timeout, &path, &lease.id, *old);
             idle_checks += 1;
             continue;
           }
-          // the work stays: the get reserves again with the clones lock it holds, so it adds a slot without another wait
-          Ok(IdleVerdict::Work { check, fresh }) => {
+          Ok(IdleVerdict::Work { check, fresh, landed }) if preserves(&check, now()) => {
             idle_checks += usize::from(fresh);
-            let mut kept = *old;
-            kept.idle_check = Some(check.clone());
-            skipped.push(SkippedSlot {
-              name,
-              path: path.clone(),
-              reason: SkipReason::IdleWithWork {
-                holder: kept.holder.clone(),
-                lease_id: kept.id.clone(),
-                check,
-              },
+            // the patches of a large slot take minutes: the get gives the clones lock up, its ticket stays busy, and it
+            // waits at its place again after a preserve that did not take the slot
+            end_checks_under_lock(&mut clones_lock);
+            // before the commit point a Bazel server that does not exit gives the idle lease back
+            if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), (&lease.id, Some(&old)), &servers, &mut stopped_servers) {
+              skipped.push(busy);
+              continue;
+            }
+            report(GetStep::PreserveChanges {
+              slot: path.clone(),
+              holder: old.holder.clone(),
+              paths: check.paths.len() + check.paths_omitted,
             });
-            keep_idle(&pool, params.lock_timeout, &path, &lease.id, kept);
+            match preserve_changes(git_executor, &path, (&old, &check), preserve, &notes_roots, true) {
+              Ok(Preserve::Ready { preserved, dirty }) if commit_takeover_with(&pool, params.lock_timeout, (&path, &lease, &check.mark), Some((&preserved, &dirty)))? => {
+                (landed, Some(preserved))
+              }
+              Ok(Preserve::Ready { .. }) => {
+                debug!(slot = %path, "the idle slot moved while the get preserved its changes");
+                withdraw_preserved(&notes_roots, &old.id);
+                keep_idle(&pool, params.lock_timeout, &path, &lease.id, *old);
+                continue;
+              }
+              Ok(Preserve::Kept(check)) => {
+                kept_with(check, &mut skipped);
+                continue;
+              }
+              Ok(Preserve::Planned(_)) => unreachable!("a get preserves, it plans no preserve"),
+              Err(error) => {
+                warn!(slot = %path, error = %format!("{error:#}"), "cannot preserve the local changes of an idle lease");
+                kept_with(check.failed_preserve(&error, now()), &mut skipped);
+                continue;
+              }
+            }
+          }
+          // the work stays: the get reserves again with the clones lock it holds, so it adds a slot without another wait
+          Ok(IdleVerdict::Work { check, fresh, .. }) => {
+            idle_checks += usize::from(fresh);
+            kept_with(*check, &mut skipped);
             continue;
           }
           Err(error) => {
@@ -1694,9 +1871,12 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             continue;
           }
         };
-        // the lease is the get's now: what fails from here frees the slot, whose work landed. A Bazel server that does
-        // not exit leaves the get the next reserve under the clones lock, as for a free slot
-        if let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), &lease.id, &servers, &mut stopped_servers) {
+        // the lease is the get's now: what fails from here frees the slot, whose work landed and whose changes are in the
+        // notes of the lease. A Bazel server that does not exit leaves the get the next reserve under the clones lock, as
+        // for a free slot; the servers of a preserve were stopped before it
+        if preserved.is_none()
+          && let Some(busy) = stop_reserved_servers(&pool, params, (&name, &path), (&lease.id, None), &servers, &mut stopped_servers)
+        {
           skipped.push(busy);
           continue;
         }
@@ -1705,18 +1885,19 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
         let trash = Trash::new(&pool.trash_dir());
         // no wait for a lock of cargo, which only another clean holds: the get goes on, and a later clean prunes what stays.
-        // The stale objects it defers stay in place for that clean too
+        // The stale objects it defers stay in place for that clean too. The discard of preserved changes comes after the
+        // close of the notes, whose directory its `clean` would delete
         finish_return(
           git_executor,
           &path,
           &old,
-          None,
+          preserved.as_ref().map(|_| config.untracked),
           (Some(CleanOverrides::default()), Duration::ZERO),
-          (&trash, &pool.notes_roots(Some(&pool_dir), params.home)),
+          (&trash, &notes_roots),
         )
         .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
-        took_over = Some(TookOver { lease: *old, landed });
+        took_over = Some(TookOver { lease: *old, landed, preserved });
         (path, true)
       }
       Reserved::New { path, template } => {
@@ -1855,12 +2036,13 @@ fn end_checks_under_lock(clones_lock: &mut Option<RepositoryLock>) {
 }
 
 /// Stop the Bazel servers of the slot `(name, path)` that the get of `lease_id` reserved, added to `stopped`: with one
-/// that did not exit, the slot is given back free and skipped as busy
+/// that did not exit, the slot is given back, free or to its `idle` lease before the commit point of a takeover, and
+/// skipped as busy
 fn stop_reserved_servers(
   pool: &Pool,
   params: &LeaseGetParams<'_>,
   (name, path): (&str, &str),
-  lease_id: &str,
+  (lease_id, idle): (&str, Option<&Lease>),
   servers: &[ProcessInfo],
   stopped: &mut Vec<StoppedServer>,
 ) -> Option<SkippedSlot> {
@@ -1880,7 +2062,10 @@ fn stop_reserved_servers(
     return None;
   }
   debug!(slot = %path, servers = running.len(), "skipping a slot whose Bazel servers did not exit");
-  release_marker(pool, params.lock_timeout, path, lease_id);
+  match idle {
+    Some(idle) => keep_idle(pool, params.lock_timeout, path, lease_id, idle.clone()),
+    None => release_marker(pool, params.lock_timeout, path, lease_id),
+  }
   Some(SkippedSlot {
     name: name.to_string(),
     path: path.to_string(),
@@ -2831,18 +3016,20 @@ fn reserve_idle(
 enum IdleVerdict {
   /// Every commit of the lease is in its home branch and the tree is clean: `mark` is the slot as the check found it
   Landed { landed: Vec<LandedCommit>, mark: SlotMark },
-  /// Work the get leaves alone; `fresh` when this check found it, not the one before (its verdict still holds)
-  Work { check: IdleCheck, fresh: bool },
+  /// Work the get leaves alone; `fresh` when this check found it, not the one before (its verdict still holds). With
+  /// local changes alone, `landed` holds the commits of the lease that its home branch has, for a preserve that takes
+  /// the slot (`idle_changes`)
+  Work { check: Box<IdleCheck>, fresh: bool, landed: Vec<LandedCommit> },
 }
 
 /// Whether the work of the idle lease `old` of the slot at `path` (the worktree `name`) landed, cheap checks first:
 /// the verdict of the check before while it holds (`IdleCheck::holds`, one `rev-parse` of the home tip), then the check
 /// in full (`check_idle_work`)
-fn check_idle(git_executor: &GitCommandExecutor, path: &str, name: &str, old: &Lease, untracked: UntrackedFiles) -> Result<IdleVerdict> {
+fn check_idle(git_executor: &GitCommandExecutor, (path, name): (&str, &str), old: &Lease, (untracked, preserve): (UntrackedFiles, PreserveConfig)) -> Result<IdleVerdict> {
   let state = IdleState::of(git_executor, path, old)?;
-  match state.held(old) {
+  match state.held(path, old, Some(&preserve.fingerprint())) {
     Some(verdict) => Ok(verdict),
-    None => check_idle_work(git_executor, (path, name), old, untracked, state),
+    None => check_idle_work(git_executor, (path, name), old, (untracked, preserve), state),
   }
 }
 
@@ -2865,28 +3052,35 @@ impl IdleState {
     })
   }
 
-  /// The verdict of the check of `old` before, while it holds (`IdleCheck::holds`)
-  fn held(&self, old: &Lease) -> Option<IdleVerdict> {
+  /// The verdict of the check of `old` of the slot at `path` before, while it holds (`IdleCheck::holds`)
+  fn held(&self, path: &str, old: &Lease, config: Option<&str>) -> Option<IdleVerdict> {
     old
       .idle_check
       .as_ref()
-      .filter(|check| check.holds(&self.mark, self.home_tip.as_deref()))
+      .filter(|check| check.holds(Path::new(path), (&self.mark, self.home_tip.as_deref()), now(), config))
       .map(|check| IdleVerdict::Work {
-        check: check.clone(),
+        check: Box::new(check.clone()),
         fresh: false,
+        landed: Vec::new(),
       })
   }
 }
 
 /// The check in full of the idle lease `old` of the slot `(path, name)` as `state` found it: the commits on git objects
 /// only (`landed_work`), a git operation or a resolve session in progress (no git but one `show-ref`), the local
-/// changes (one `status`)
-fn check_idle_work(git_executor: &GitCommandExecutor, (path, name): (&str, &str), old: &Lease, untracked: UntrackedFiles, state: IdleState) -> Result<IdleVerdict> {
+/// changes (one `status`), with their stat proof and when they are quiet by `preserve` (`idle_changes`)
+fn check_idle_work(
+  git_executor: &GitCommandExecutor,
+  (path, name): (&str, &str),
+  old: &Lease,
+  (untracked, preserve): (UntrackedFiles, PreserveConfig),
+  state: IdleState,
+) -> Result<IdleVerdict> {
   let IdleState { mark, home_tip } = state;
   let work = |commits: Vec<WorkCommit>, paths: Vec<String>, operation: Option<String>| {
     let (paths, paths_omitted) = cut_paths(paths, 0);
     IdleVerdict::Work {
-      check: IdleCheck {
+      check: Box::new(IdleCheck {
         at: now(),
         mark: mark.clone(),
         home_tip: home_tip.clone(),
@@ -2894,8 +3088,16 @@ fn check_idle_work(git_executor: &GitCommandExecutor, (path, name): (&str, &str)
         paths,
         paths_omitted,
         operation,
-      },
+        proof: Vec::new(),
+        ignores: Vec::new(),
+        quiet_at: None,
+        not_preserved: None,
+        preserve_config: None,
+        preserve_error: None,
+        index: None,
+      }),
       fresh: true,
+      landed: Vec::new(),
     }
   };
   let landed = landed_work(git_executor, path, &old.source_head, old.source_branch.as_deref(), Purpose::TakeOver, &[])?;
@@ -2915,7 +3117,14 @@ fn check_idle_work(git_executor: &GitCommandExecutor, (path, name): (&str, &str)
   }
   let paths = slot_changes(git_executor, path, untracked)?;
   if !paths.is_empty() {
-    return Ok(work(Vec::new(), paths, None));
+    let slot = Path::new(path);
+    // by the paths of the `status` in the mode of the repository: the preserve lists each untracked file again
+    let quiet_at = preserve.quiet_at(crate::idle_changes::latest_change(slot, &paths));
+    return Ok(IdleVerdict::Work {
+      check: Box::new(IdleCheck::of_changes(slot, (mark, home_tip), paths, &preserve, ChangesVerdict::Quiet(quiet_at))),
+      fresh: true,
+      landed: landed.landed,
+    });
   }
   Ok(IdleVerdict::Landed { landed: landed.landed, mark })
 }
@@ -2945,6 +3154,13 @@ fn operation_in_progress(git_executor: &GitCommandExecutor, path: &str, name: &s
 /// (`Slot::reclaimed`). From here a get that dies leaves the slot free, as its work landed. False when the check no
 /// longer holds
 pub(crate) fn commit_takeover(pool: &Pool, timeout: Duration, path: &str, lease: &Lease, mark: &SlotMark) -> Result<bool> {
+  commit_takeover_with(pool, timeout, (path, lease, mark), None)
+}
+
+/// `commit_takeover` of the slot at `path` whose local changes the get preserved (`idle_changes`): the record names
+/// the patches, and the slot is dirty by `dirty` in the same write, so a get killed or a Bazel server that does not exit
+/// before the discard leaves a slot that no get takes and no eviction deletes; the end of the get clears it
+fn commit_takeover_with(pool: &Pool, timeout: Duration, (path, lease, mark): (&str, &Lease, &SlotMark), preserved: Option<(&Preserved, &DirtyCheck)>) -> Result<bool> {
   pool.update(timeout, |store| {
     let Some(slot) = leased_slot(store, path, &lease.id) else {
       return Ok(false);
@@ -2955,9 +3171,21 @@ pub(crate) fn commit_takeover(pool: &Pool, timeout: Duration, path: &str, lease:
     let Some(old) = slot.lease.as_mut().and_then(|current| current.taking_over.take()) else {
       return Ok(false);
     };
-    slot.reclaimed = Some(Reclaimed::of(&old, Some(lease)));
+    slot.reclaimed = Some(Reclaimed {
+      preserved: preserved.map(|(preserved, _)| preserved.clone()),
+      ..Reclaimed::of(&old, Some(lease))
+    });
+    if let Some((_, dirty)) = preserved {
+      mark_dirty(slot, dirty);
+    }
     Ok(true)
   })
+}
+
+/// `slot` dirty by `check` (`Slot::dirty_check`)
+fn mark_dirty(slot: &mut Slot, check: &DirtyCheck) {
+  slot.dirty = true;
+  slot.dirty_check = Some(check.clone());
 }
 
 /// Give the idle lease `old` back to the slot at `path` that the get of `lease_id` reserved, from the copy of the get: a
@@ -2988,6 +3216,7 @@ impl Reclaimed {
       at: now(),
       by_lease_id: by.map(|lease| lease.id.clone()),
       by_holder: by.map(|lease| lease.holder.clone()),
+      preserved: None,
     }
   }
 }
@@ -2999,6 +3228,8 @@ pub struct TookOver {
   pub lease: Lease,
   /// Its commits that its home branch was proven to have
   pub landed: Vec<LandedCommit>,
+  /// Its local changes, preserved in its notes before the get discarded them
+  pub preserved: Option<Preserved>,
 }
 
 /// The path of the next new slot: `<pool>/<n>/<repository name>`, the smallest `n` whose directory does not exist and
@@ -4861,6 +5092,9 @@ pub struct ReclaimedLease {
   pub cleaned: Vec<Cleaned>,
   /// What the trash kept: a path that could not be deleted once the slot was free
   pub trash_left: Vec<String>,
+  /// Its quiet local changes, preserved in its notes before the reclaim discarded them (with `--dry-run`: where they
+  /// would be, no patch yet)
+  pub preserved: Option<Preserved>,
 }
 
 impl ReclaimedLease {
@@ -4918,7 +5152,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     store.slots.sort_by_key(|slot| slot.lease.as_ref().map_or(0, Lease::idle_checked_at));
   }
   let mut scan: Option<ProcessScan> = None;
-  let mut untracked: Option<UntrackedFiles> = None;
+  let mut config: Option<LeaseConfig> = None;
   let trash = Trash::new(&pool.trash_dir());
   let notes_roots = pool.notes_roots(None, None);
   let now = now();
@@ -4979,7 +5213,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     };
     let mut full_check = false;
     let verdict = match IdleState::of(git_executor, &path, &checked) {
-      Ok(state) => match state.held(&checked) {
+      Ok(state) => match state.held(&path, &checked, held_config(git_executor, &git_common_dir, &mut config, &checked).as_deref()) {
         Some(verdict) => Ok(verdict),
         // past the bound of the get: a later get checks it, the ones checked longest ago first
         None if params.full_checks.is_some_and(|left| left.get() == 0) => continue,
@@ -4988,18 +5222,21 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
             left.set(left.get() - 1);
           }
           full_check = true;
-          pool_untracked(git_executor, &git_common_dir, &mut untracked).and_then(|untracked| check_idle_work(git_executor, (&path, &slot.name), &checked, untracked, state))
+          pool_config(git_executor, &git_common_dir, &mut config)
+            .and_then(|config| check_idle_work(git_executor, (&path, &slot.name), &checked, (config.untracked, PreserveConfig::of(config)), state))
         }
       },
       Err(error) => Err(error),
     };
-    let (landed, mark) = match verdict {
-      Ok(IdleVerdict::Landed { landed, mark }) => (landed, mark),
-      Ok(IdleVerdict::Work { check, fresh }) => {
+    // with the local changes the preserve checks first (`idle_changes`)
+    let (landed, mark, changes) = match verdict {
+      Ok(IdleVerdict::Landed { landed, mark }) => (landed, mark, None),
+      Ok(IdleVerdict::Work { check, landed, .. }) if preserves(&check, now) => (landed, check.mark.clone(), Some(check)),
+      Ok(IdleVerdict::Work { check, fresh, .. }) => {
         if params.apply && fresh {
-          record_idle_check(&pool, params.lock_timeout, &path, &lease.id, &check);
+          record_idle_check(&pool, params.lock_timeout, (&path, &lease.id), &check, false);
         }
-        answer.kept.push(KeptLease { path, lease, check });
+        answer.kept.push(KeptLease { path, lease, check: *check });
         continue;
       }
       Err(error) => {
@@ -5017,8 +5254,27 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       stopped_servers: Vec::new(),
       cleaned: Vec::new(),
       trash_left: Vec::new(),
+      preserved: None,
+    };
+    let preserve = |check: &IdleCheck, config: &mut Option<LeaseConfig>| {
+      let config = PreserveConfig::of(pool_config(git_executor, &git_common_dir, config)?);
+      preserve_changes(git_executor, &path, (&lease, check), config, &notes_roots, params.apply)
     };
     if !params.apply {
+      if let Some(check) = &changes {
+        match preserve(check, &mut config) {
+          Ok(Preserve::Planned(preserved)) => reclaimed.preserved = Some(preserved),
+          Ok(Preserve::Kept(check)) => {
+            answer.kept.push(KeptLease { path, lease, check });
+            continue;
+          }
+          Ok(Preserve::Ready { .. }) => unreachable!("a dry run writes no patch"),
+          Err(error) => {
+            answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
+            continue;
+          }
+        }
+      }
       answer.reclaimed.push(reclaimed);
       continue;
     }
@@ -5035,9 +5291,47 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
+    // the record of the notes before the commit point, the commit point (the slot dirty) before the discard
+    if let Some(check) = &changes {
+      match preserve(check, &mut config) {
+        Ok(Preserve::Ready { preserved, dirty }) if commit_preserved_reclaim(&pool, params.lock_timeout, (&path, &lease, &mark), (&preserved, &dirty))? => {
+          reclaimed.preserved = Some(preserved);
+        }
+        Ok(Preserve::Ready { .. }) => {
+          withdraw_preserved(&notes_roots, &lease.id);
+          failed(true);
+          answer.skipped.push(skip(IdleSkip::Changed));
+          continue;
+        }
+        Ok(Preserve::Kept(check)) => {
+          record_idle_check(&pool, params.lock_timeout, (&path, &lease.id), &check, true);
+          answer.kept.push(KeptLease { path, lease, check });
+          continue;
+        }
+        Ok(Preserve::Planned(_)) => unreachable!("a reclaim that applies plans no preserve"),
+        Err(error) => {
+          failed(true);
+          record_idle_check(&pool, params.lock_timeout, (&path, &lease.id), &check.failed_preserve(&error, now), false);
+          answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
+          continue;
+        }
+      }
+    }
+    let discard = match (&reclaimed.preserved, &config) {
+      (Some(_), Some(config)) => Some(config.untracked),
+      _ => None,
+    };
     // no wait for a lock of cargo, which only another clean holds: the slot is free all the same
-    match finish_return(git_executor, &path, &lease, None, (Some(params.clean), Duration::ZERO), (&trash, &notes_roots)) {
+    match finish_return(git_executor, &path, &lease, discard, (Some(params.clean), Duration::ZERO), (&trash, &notes_roots)) {
       Ok(finished) => reclaimed.cleaned = finished.cleaned,
+      // after the commit point of a preserve the lease never comes back: a discard cut short may have left part of
+      // the changes, which a later preserve would take for all of them. The slot stays free and dirty, as a reclaim
+      // killed there leaves it
+      Err(error) if reclaimed.preserved.is_some() => {
+        release_marker(&pool, params.lock_timeout, &path, &lease.id);
+        answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
+        continue;
+      }
       Err(error) => {
         failed(true);
         answer.skipped.push(skip(IdleSkip::Failed { error: format!("{error:#}") }));
@@ -5054,7 +5348,10 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
         slot.lease = None;
         slot.dirty = false;
         slot.dirty_check = None;
-        slot.reclaimed = Some(Reclaimed::of(&lease, None));
+        slot.reclaimed = Some(Reclaimed {
+          preserved: reclaimed.preserved.clone(),
+          ..Reclaimed::of(&lease, None)
+        });
       }
       Ok(())
     })?;
@@ -5070,14 +5367,23 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
   Ok(answer)
 }
 
-/// `status.showUntrackedFiles` of the pool of `git_common_dir` (`lease_config`), read once into `read`
-fn pool_untracked(git_executor: &GitCommandExecutor, git_common_dir: &Path, read: &mut Option<UntrackedFiles>) -> Result<UntrackedFiles> {
-  if let Some(untracked) = read {
-    return Ok(*untracked);
+/// The keys of the preserve that the recorded check of `lease` needs to hold (`IdleCheck::holds`): read only for local
+/// changes that wait for no quiet time, so a pool whose kept leases wait for one reads no config; `None` when it needs
+/// none or none can be read
+fn held_config(git_executor: &GitCommandExecutor, git_common_dir: &Path, read: &mut Option<LeaseConfig>, lease: &Lease) -> Option<String> {
+  let needed = lease.idle_check.as_ref().is_some_and(|check| !check.paths.is_empty() && check.quiet_at.is_none());
+  // a config that can't be read compares nothing: the check of the lease reads it again and fails there
+  needed
+    .then(|| pool_config(git_executor, git_common_dir, read).ok().map(|config| PreserveConfig::of(config).fingerprint()))
+    .flatten()
+}
+
+/// The config of the pool of `git_common_dir` (`lease_config`), read once into `read`
+fn pool_config<'a>(git_executor: &GitCommandExecutor, git_common_dir: &Path, read: &'a mut Option<LeaseConfig>) -> Result<&'a LeaseConfig> {
+  if read.is_none() {
+    *read = Some(lease_config(git_executor, &display_path(git_common_dir))?);
   }
-  let untracked = lease_config(git_executor, &display_path(git_common_dir))?.untracked;
-  *read = Some(untracked);
-  Ok(untracked)
+  read.as_ref().ok_or_else(|| anyhow!("The config of the pool was not read"))
 }
 
 /// Under the pool lock, with CAS on the idle lease `lease_id` of `path`: still idle and its slot as the check found it
@@ -5098,33 +5404,54 @@ fn reserve_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, m
   })
 }
 
+/// The commit point of a reclaim that preserved the local changes of `lease` in `path` (`idle_changes`), under the pool
+/// lock: the lease still `returning` by this process and the slot as the check found it (`mark`). The record of the slot
+/// names the patches, and the slot is dirty by `dirty` until the discard, so a reclaim killed or failed before it leaves
+/// a slot that no get takes and no eviction deletes. False when the reclaim no longer holds
+fn commit_preserved_reclaim(pool: &Pool, timeout: Duration, (path, lease, mark): (&str, &Lease, &SlotMark), (preserved, dirty): (&Preserved, &DirtyCheck)) -> Result<bool> {
+  let pid = std::process::id();
+  pool.update(timeout, |store| {
+    let Some(slot) = leased_slot(store, path, &lease.id) else {
+      return Ok(false);
+    };
+    let ours = slot.lease.as_ref().is_some_and(|current| current.state == LeaseState::Returning && current.pid == pid);
+    if !ours || SlotMark::of(Path::new(path)) != *mark {
+      return Ok(false);
+    }
+    slot.reclaimed = Some(Reclaimed {
+      preserved: Some(preserved.clone()),
+      ..Reclaimed::of(lease, None)
+    });
+    mark_dirty(slot, dirty);
+    Ok(true)
+  })
+}
+
 /// Record a failed reclaim of the lease `lease_id` of `path` (`Lease::reclaim_failed_at`); with `restore` the lease is
 /// `ready` again, after a reclaim that reserved it. Best effort
 fn record_failed_reclaim(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, restore: bool) {
+  update_idle_lease(pool, timeout, (path, lease_id), restore, "a failed reclaim", |lease| lease.reclaim_failed_at = Some(now()));
+}
+
+/// Record `check` on the idle lease `lease_id` of `path`, for the gets after it; with `restore` the lease is `ready`
+/// again, after a reclaim that reserved it. Best effort
+fn record_idle_check(pool: &Pool, timeout: Duration, (path, lease_id): (&str, &str), check: &IdleCheck, restore: bool) {
+  update_idle_lease(pool, timeout, (path, lease_id), restore, "the check", |lease| lease.idle_check = Some(check.clone()));
+}
+
+/// `change` of the idle lease `lease_id` of `path`, `ready` again with `restore`; a failure is a warning about `what`
+fn update_idle_lease(pool: &Pool, timeout: Duration, (path, lease_id): (&str, &str), restore: bool, what: &str, change: impl FnOnce(&mut Lease)) {
   let recorded = pool.update(timeout, |store| {
     if let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()) {
       if restore {
         lease.state = LeaseState::Ready;
       }
-      lease.reclaim_failed_at = Some(now());
+      change(lease);
     }
     Ok(())
   });
   if let Err(error) = recorded {
-    warn!(slot = %path, error = %format!("{error:#}"), "cannot record a failed reclaim of an idle lease");
-  }
-}
-
-/// Record `check` on the idle lease `lease_id` of `path`, for the gets after it; best effort
-fn record_idle_check(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, check: &IdleCheck) {
-  let recorded = pool.update(timeout, |store| {
-    if let Some(lease) = leased_slot(store, path, lease_id).and_then(|slot| slot.lease.as_mut()) {
-      lease.idle_check = Some(check.clone());
-    }
-    Ok(())
-  });
-  if let Err(error) = recorded {
-    warn!(slot = %path, error = %format!("{error:#}"), "cannot record the check of an idle lease");
+    warn!(slot = %path, error = %format!("{error:#}"), "cannot record {what} of an idle lease");
   }
 }
 

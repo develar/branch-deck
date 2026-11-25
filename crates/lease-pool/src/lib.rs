@@ -29,6 +29,8 @@
 //!   mapping notes of a sync: the one rule of the return, the takeover and `brd lease reclaim`
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `brd lease clean` apply to a slot, and its
 //!   `pick_requires_check`
+//! - `idle_changes`: the quiet local changes of an idle lease, which a get or a reclaim preserves as patches in its
+//!   notes before it takes the slot
 //! - `lease_notes`: the notes of a lease (`brd lease notes`): a directory of its own beside the state, which
 //!   `notes.local` of its worktree links to and which outlives the return until it expires
 //! - `epoch`: the epoch of a worktree, the lease its slot holds now: a record of the worktree by its path under
@@ -67,6 +69,7 @@ pub mod host_runs;
 pub mod host_series;
 pub mod host_slots;
 pub mod host_turn;
+pub mod idle_changes;
 pub mod landed_work;
 pub mod lease;
 pub mod lease_clean;

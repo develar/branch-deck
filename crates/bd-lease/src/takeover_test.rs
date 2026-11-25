@@ -66,7 +66,7 @@ fn the_check_of_an_idle_lease_keeps_the_first_hundred_local_changes() {
 }
 
 /// The slot of `brd lease status` at `path`
-fn slot_status(fixture: &Fixture, path: &str) -> Value {
+pub(crate) fn slot_status(fixture: &Fixture, path: &str) -> Value {
   let path = slot_path(path);
   fixture.status()["slots"]
     .as_array()
@@ -264,9 +264,7 @@ fn a_get_killed_while_it_checks_an_idle_lease_gives_the_lease_back() {
   killed(&fixture);
   assert_eq!(slot_status(&fixture, &path)["lease"]["holder"], json!("gone-agent"), "the status shows it back too");
   let got = fixture.get(&[]);
-  assert_ne!(path_of(&got), path, "{got}");
-  let slot = slot_status(&fixture, &path);
-  assert_eq!((&slot["state"], &slot["lease"]["holder"]), (&json!("ready"), &json!("gone-agent")), "{slot}");
+  assert_kept_beside(&fixture, &got, &path, "gone-agent");
 }
 
 /// A resumed session of the old holder in a slot taken over is refused (`lease_reclaimed`), with the next step: its
@@ -336,11 +334,7 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   let young = path_of(&fixture.get(&["--holder", "young-agent"]));
   make_idle(&fixture, &landed);
   make_idle(&fixture, &kept);
-  let state = std::fs::read(fixture.state_file()).unwrap();
-
-  let (exit_code, dry_run) = fixture.run(&["lease", "reclaim", "--idle", "--dry-run"]);
-  assert_eq!(exit_code, 0, "{dry_run}");
-  assert_eq!(std::fs::read(fixture.state_file()).unwrap(), state, "a dry run writes nothing");
+  let dry_run = reclaim_dry_run(&fixture);
   let (exit_code, reclaimed) = fixture.run(&["lease", "reclaim", "--idle"]);
   assert_eq!(exit_code, 0, "{reclaimed}");
   for output in [&dry_run, &reclaimed] {
@@ -360,6 +354,22 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   assert_eq!((&slot["state"], &slot["reclaimed"]["holder"]), (&json!("free"), &json!("landed-agent")), "{slot}");
   assert_eq!(slot_status(&fixture, &kept)["lease"]["idle"]["state"], json!("idle_with_work"));
   assert_eq!(slot_status(&fixture, &young)["state"], json!("ready"));
+}
+
+/// `brd lease reclaim --idle --dry-run`, which must succeed and write nothing
+pub(crate) fn reclaim_dry_run(fixture: &Fixture) -> Value {
+  let state = std::fs::read(fixture.state_file()).unwrap();
+  let (exit_code, dry_run) = fixture.run(&["lease", "reclaim", "--idle", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{dry_run}");
+  assert_eq!(std::fs::read(fixture.state_file()).unwrap(), state, "a dry run writes nothing");
+  dry_run
+}
+
+/// The slot at `path` is not the one of `got`, and keeps the `ready` lease of `holder`
+pub(crate) fn assert_kept_beside(fixture: &Fixture, got: &Value, path: &str, holder: &str) {
+  assert_ne!(path_of(got), path, "{got}");
+  let slot = slot_status(fixture, path);
+  assert_eq!((&slot["state"], &slot["lease"]["holder"]), (&json!("ready"), &json!(holder)), "{slot}");
 }
 
 /// A pool of a reclaimed slot and two free slots returned after its lease went quiet: `brd lease reclaim --idle`

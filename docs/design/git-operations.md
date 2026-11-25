@@ -2951,8 +2951,9 @@ and the last move of its HEAD (the mtime of `logs/HEAD`, no git), so a holder re
 cheap things first:
 
 1. the verdict of the check before, while it holds (`IdleCheck`: the tree work while the slot's `HEAD` and reflog are
-   unchanged, the commits also while the home tip is; one `rev-parse`), so an idle lease with work costs a get one
-   process, not a `status` of 1.4M files;
+   unchanged, local changes also while the stat of one of their paths is and until they are quiet, the commits also
+   while the home tip is; one `rev-parse`), so an idle lease with work costs a get one process, not a `status` of 1.4M
+   files;
 2. the commits the home branch lacks, `log HEAD --not refs/heads/<home> <leased commit>`: the home branch only, since
    the lease's own `-b` branch holds them, each proven by the landed rule of the return (`landed_work`, above);
 3. a git operation in progress in the slot's git dir (`rebase-merge`, `MERGE_HEAD`, `sequencer` …; `status` shows
@@ -2975,6 +2976,41 @@ with a CAS on each, and returns it at once; it deletes the trash of all of them 
 clean` does, so no idle lease waits for the delete of the build output of the one before it. A ready lease whose get
 recorded no holder process can't be idle, since nothing tells whether its session runs: the reclaim names it
 (`skipped`, `holder_unknown`) for the user to return, rather than leave the pool silently one slot larger.
+
+Local changes alone (`idle_changes`): on 2026-11-25 two slots of idea-1 kept the probe changes of a gone research agent
+(41 and 2 paths, no commit), and gets cloned beside them. A lease whose only work is local changes that no path touched
+for `branchdeck.leaseIdleChangesAfter` (`12h`; the mtime of each path, of a deleted one its nearest directory, each
+untracked file by itself, the later of the mtime and the ctime, so a `tar x` of old files counts now) gives its slot to
+the get or the reclaim once the changes are patches in its notes. The get gives the clones lock up first, its ticket
+busy, so the next get of the queue adds its slot meanwhile. Up to the commit point no file and no entry of the index of
+the slot changes (a `status` may refresh its stat data): a `status --untracked-files=all --no-renames` (warm where the
+repository configures `all`), the stat of each path, what a patch can't carry (an unmerged entry, a directory with
+`.git`, a changed `.gitignore`, a deletion or a type change that something else stands in for, a `filter` attribute, an
+`ls-files -v` tag of assume-unchanged or skip-worktree, no notes, changed files past the bound by their stat, before
+`add --all` writes an object of each), then a copy of the index in the git dir of the slot: its `write-tree` is the tree
+of the index, its `add --all` (`core.safecrlf=true`) and `write-tree` the tree of the slot, `diff-tree --binary` of each
+against HEAD the two patches (`changes.patch`, `staged.patch`; a gitlink in either refuses,
+`branchdeck.leasePreserveMax` bounds them). The patches hold no ignored file, and the discard puts the ignore rules of
+HEAD back before its clean: so a changed `.gitignore` refuses, as its clean would delete a file that only the new rules
+kept, and so does a deletion or a type change whose path stands in another form, or under a parent that is no directory
+now (`SlotChange::is_replaced`: a file that left the index, a directory with an ignored file in place of a file, an
+ignored file in place of a directory), which `reset --hard` would overwrite or remove. The proof of a refusal holds the
+stat of the index too, so a lifted skip-worktree bit ends it, and the patches go to `.branch-deck-preserved/`, which a
+preserve that keeps the lease removes whole. Every git of a private index runs with `core.splitIndex=false`: a split one
+would write its shared index into the git dir of the slot. The proof of each patch is a new index of HEAD, its `apply
+--cached`, and its `write-tree` equal to the tree of the slot or of its index. A second `status` then must find each
+path with its stat, so an edit during the preserve stops it, and a scan must find no process of another session in the
+slot. A preserve that does not take the slot leaves no patch and no record, and records its failure in the check, whose
+next preserve waits an hour. The record of the notes names the patches (`preserved`, `preserved_at`) before the commit
+point, so neither a killed process nor the next get loses the pointer; the notes expire after the later of the return
+and the preserve. The commit point, a CAS under the pool lock, names the patches in `Slot::reclaimed` and marks the slot
+dirty with its proof (`DirtyCheck`): a process killed or failed before the discard leaves a free slot that no get takes
+and no eviction deletes, and the lease never comes back, as a later preserve of a discard cut short would take part of
+the changes for all of them. The discard is the one of a confirmed return (`reset --hard`, then the clean of the
+untracked files), after the close of the notes, whose directory the `clean` would delete; the end of the get or of the
+reclaim clears the mark. A verdict of local changes holds by the stat of its first 8 paths and the two ignore files, as
+the proof of a dirty slot, and until the changes are quiet (`quiet_at`): a change restored by hand moves the stat, and
+the next get checks the lease again.
 
 A resumed session of the old holder must not work in the slot its lease lost. Every command of `brd` checks it in the
 resolvers of its context (`refuse_reclaimed`, one read of `leases.json`): in a slot with the record, a write of

@@ -15,6 +15,7 @@ targets:
   - crates/lease-pool/src/lease.rs
   - crates/lease-pool/src/get_queue.rs
   - crates/lease-pool/src/landed_work.rs
+  - crates/lease-pool/src/idle_changes.rs
   - crates/lease-pool/src/agent_workspace.rs
   - crates/bd-lease/src/workspace_command.rs
   - crates/git-ops/src/landed_pairing.rs
@@ -101,7 +102,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   branch, and never while it holds work that branch lacks. Below the minimum free space a get returns such a lease
   itself. On 2026-10-29 a get cloned a 16 GB slot of idea-1 (its
   checkout alone took more than 15 minutes) while six slots had a lease of a dead holder, four of them with nothing
-  unlanded.
+  unlanded. A session that died with only local changes costs the pool no slot either: once no changed path moved for
+  twelve hours, its changes become patches in its notes and its slot goes to the next get. On 2026-11-25 two slots of
+  idea-1 kept the probe changes of a gone research agent (41 paths and 2 paths, no commit) while gets cloned beside
+  them.
 
 ## Non-goals
 
@@ -411,8 +415,9 @@ for an hour, its get and the last move of its HEAD (the mtime of the slot's `log
 
 A get MUST take the lease over only when every commit of the lease that its home branch lacks (`HEAD
 ^refs/heads/<home> ^<leased commit>`, whatever other branch, its own `-b` one too, holds it) is proven on that branch
-by the landed rule of the return ([Return](#return)), the slot has no local changes, no git operation in progress and
-no open resolve session. A lease without a home branch MUST be taken over only without commits of its own.
+by the landed rule of the return ([Return](#return)), the slot has no local changes but quiet ones that the get
+preserved, no git operation in progress and no open resolve session. A lease without a home branch MUST be taken over
+only without commits of its own.
 
 #### Scenario: Commits landed, one with a conflict resolution
 - **WHEN** every commit the home branch lacks is proven on it by the landed rule of the return
@@ -427,7 +432,8 @@ no open resolve session. A lease without a home branch MUST be taken over only w
 
 #### Scenario: A git operation in progress
 - **WHEN** the git dir of the slot holds `rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`,
-  `REVERT_HEAD`, `sequencer` or `BISECT_LOG`, or the slot has local changes or an open resolve session
+  `REVERT_HEAD`, `sequencer` or `BISECT_LOG`, or the slot has local changes that are not preserved or an open resolve
+  session
 - **THEN** the get does not take the lease over
 
 #### Scenario: A lease without a home branch
@@ -460,29 +466,170 @@ is gone), then the move of a reused slot.
 
 ### Requirement: Get: An idle lease with work its home branch lacks is never taken over
 
-An idle lease with work its home branch lacks MUST NOT be taken over: the get skips it (`skipped`, `reason:
-"idle_with_work"`, `idle` with its `commits`, `paths` or `operation`), records the check in the lease (`idle_check`)
-and adds a slot, and `brd lease status` shows it as `idle_with_work`.
+An idle lease with work its home branch lacks MUST NOT be taken over: commits, a git operation, or local changes that
+are not quiet or that a patch can't carry. The get skips it (`skipped`, `reason: "idle_with_work"`, `idle` with its
+`commits`, `paths` or `operation`, and for local changes `quiet_at` or `not_preserved`), records the check in the lease
+(`idle_check`) and adds a slot, and `brd lease status` shows it as `idle_with_work`.
 
 #### Scenario: An idle lease with unlanded work
-- **GIVEN** an idle lease with commits its home branch lacks, local changes or a git operation in progress
+- **GIVEN** an idle lease with commits its home branch lacks, fresh local changes or a git operation in progress
 - **WHEN** a get runs
 - **THEN** it skips the lease, records `idle_check` and adds a slot
 - **AND** `brd lease status` shows it as `idle_with_work`
   [@test] crates/bd-lease/src/takeover_test.rs (`an_idle_lease_with_unlanded_work_is_kept_and_named`)
 
+### Requirement: Get: The quiet local changes of an idle lease are preserved in its notes
+
+A get and `brd lease reclaim` MUST preserve the local changes of an idle lease as patches in its notes and take its
+slot when the changes are its only work (every commit landed, no git operation, no resolve session) and quiet. A get
+MUST give the clones lock up before the preserve and keep its place in the queue. Each answer that names the lease MUST
+name the patches and when the notes expire (`preserved`), and so MUST the message of `lease_reclaimed`.
+
+#### Scenario: Quiet local changes are the only work
+- **GIVEN** an idle lease whose commits landed, with a staged, an unstaged and an untracked change, a deletion, a
+  binary file, a path with a space and other than ASCII, a link and a mode, all quiet
+- **WHEN** a get runs
+- **THEN** it takes the lease over, and `took_over.preserved` names the directory, the base commit, the number of the
+  changes and `staged`
+- **AND** the slot is clean at the HEAD of the source, and the record of the slot and of the notes names the patches
+- **AND** `changes.patch` on its base gives the whole tree of the files of the slot before, and `staged.patch` the
+  tree of its index
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_get_preserves_the_quiet_local_changes_of_an_idle_lease_and_takes_its_slot`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_preserves_the_quiet_changes_of_an_idle_lease`)
+
+#### Scenario: The patch on a fresh checkout
+- **WHEN** `git apply` of `changes.patch` runs in a fresh checkout of its base commit
+- **THEN** every file there is the file of the slot before, byte for byte, with its mode and its links, the untracked
+  files too
+  [@test] crates/bd-lease/src/preserve_test.rs (`the_patch_applied_to_a_fresh_checkout_of_its_base_gives_every_file_of_the_slot`)
+
+#### Scenario: The known limits
+- **GIVEN** an idle lease with quiet local changes
+- **THEN** the patches hold no ignored file; the discard keeps the ignored files, as a return does, and the clean rules
+  of the source apply to them
+- **AND** a file that only `info/exclude` or `core.excludesFile` ignores is in no patch either, and a change of those
+  files is no change that a check sees
+- **AND** a slot with a `reclaimed` record, whose resumed session never becomes the holder, is preserved too: the quiet
+  time without a change, no process in the slot and the patches in the notes stand for that session
+
+### Requirement: Get: Local changes are quiet once no changed path moved for the quiet time
+
+The local changes of an idle lease MUST be quiet once no changed path moved for `branchdeck.leaseIdleChangesAfter` (git
+config, `12h` by default, `0` never, `0s` at once): the later of the mtime and the ctime of each path, a link not
+followed, of a deleted one the nearest directory above it that exists, each untracked file listed by itself
+(`--untracked-files=all`). A lease whose changes are not quiet MUST name when they are (`quiet_at`).
+
+#### Scenario: Fresh changes, a commit beside them, the preserve off
+- **WHEN** a changed path was touched within the quiet time, the lease has a commit its home branch lacks, or the
+  key is `0`
+- **THEN** the lease stays `idle_with_work`; fresh changes name when they are quiet (`quiet_at`)
+  [@test] crates/bd-lease/src/preserve_test.rs (`the_local_changes_of_an_idle_lease_stay_while_fresh_beside_a_commit_or_with_the_preserve_off`)
+  [@test] crates/lease-pool/src/idle_changes_test.rs (`the_quiet_time_and_the_bound_of_a_preserve_come_from_the_config`, `the_latest_change_of_a_path_is_its_ctime_too_and_of_a_deleted_one_its_nearest_directory`)
+
+### Requirement: Get: Local changes that a patch can't carry stay in the slot
+
+Quiet local changes MUST stay in the slot, the lease `idle_with_work` with why (`not_preserved`), for an unmerged entry,
+a gitlink or a nested repository, a changed `.gitignore`, a deletion or a type change that something else stands in
+for, a `filter` attribute, an index entry with assume-unchanged or skip-worktree, a lease without notes, or changed
+files past `branchdeck.leasePreserveMax` (`64M`), told before `add --all` writes their objects.
+
+#### Scenario: Changes that a patch can't carry
+- **WHEN** the quiet changes hold an unmerged entry, a staged gitlink, a nested repository, a path with a filter or an
+  entry with skip-worktree, or the lease has no notes
+- **THEN** the lease stays `idle_with_work` with `not_preserved`, and the slot keeps its changes
+  [@test] crates/bd-lease/src/preserve_test.rs (`quiet_local_changes_that_a_patch_cannot_carry_keep_the_lease`)
+
+#### Scenario: Changes of the ignore rules and a file that leaves the index
+- **WHEN** a tracked `.gitignore` gains a rule for a new file, an untracked `.gitignore` ignores a file beside it, or a
+  file left the index by `git rm --cached` and stays, edited, ignored by `info/exclude`
+- **THEN** the lease stays with `not_preserved`, and the file stays as it was: the discard would delete or overwrite
+  it, and no patch holds it
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_changed_tracked_gitignore_keeps_the_lease_and_the_file_it_ignores`, `an_untracked_gitignore_keeps_the_lease_and_the_file_it_ignores`, `a_staged_deletion_of_a_file_that_stays_keeps_the_lease_and_the_file`)
+
+#### Scenario: A deleted path that something else stands in for
+- **WHEN** a deletion or a type change (`D` or `T` in either column) has its path in another form on disk, or under a
+  parent that is no directory now: a directory with an ignored file in place of a tracked file, an ignored file in
+  place of a tracked directory
+- **THEN** the lease stays with `not_preserved`, and what stands there stays
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_deleted_path_that_an_ignored_file_or_directory_stands_in_for_keeps_the_lease`)
+
+#### Scenario: Changed files past the bound
+- **WHEN** the changed files have more bytes than `branchdeck.leasePreserveMax`
+- **THEN** the lease stays with `not_preserved`, which names the largest file, and no object of them is written
+  [@test] crates/bd-lease/src/preserve_test.rs (`changes_past_the_bound_keep_the_lease_before_any_object_is_written`)
+
+### Requirement: Get: The patches of local changes carry the files and the index
+
+The patches MUST be `changes.patch`, the tree of HEAD to the tree of `add --all` (`core.safecrlf=true`) on a copy of the
+index of the slot, and `staged.patch`, the tree of HEAD to the tree of that index where it is neither, in `.branch-deck-preserved/`
+of the notes of the lease, found by its id. The proof of each MUST be an `apply --cached` on a new index of HEAD that
+gives its tree. Every git of a private index MUST run with `core.splitIndex=false`.
+
+#### Scenario: A split index and a staged version
+- **GIVEN** a slot with a split index, a file whose index holds another version than the file, and an untracked file
+- **WHEN** its changes are preserved
+- **THEN** `changes.patch` carries the file and the untracked file, `staged.patch` the version of the index, and the
+  index of the slot and its git dir stay as they were
+- **AND** patches past the bound write no file
+  [@test] crates/git-ops/src/lease_slot_test.rs (`the_patches_of_a_slot_carry_its_files_and_its_index_and_leave_its_split_index_as_it_was`)
+
+### Requirement: Get: A preserve stops at a change and marks the slot dirty before the discard
+
+Until its commit point a preserve MUST change no file and no index entry of the slot, and stop when a `status` after
+the patches finds a path, its stat or the slot moved, or a process of another session works in the slot. The record of
+the notes MUST come before the commit point, a compare-and-swap that names the patches in the record of the slot and
+marks it dirty; an outcome that keeps the lease MUST leave no patch and no record. Then the discard, and the lease MUST
+never come back.
+
+#### Scenario: An edit while the patches are written
+- **WHEN** a changed file is edited between the first `status` and the second
+- **THEN** the get keeps the lease and adds a slot, the reclaim names it `failed`, and the files stay
+  [@test] crates/bd-lease/src/preserve_test.rs (`an_edit_while_the_changes_are_preserved_keeps_the_lease_and_its_files`)
+
+#### Scenario: A process in the slot at the commit point
+- **WHEN** a process of another session works in the slot after the patches
+- **THEN** the get keeps the lease and adds a slot, and no patch and no record stay
+- **AND** the check records the failure (`preserve_error`), and the gets of the next hour try no preserve again
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_process_in_the_slot_at_the_commit_point_keeps_the_lease_and_the_next_get_waits`)
+
+#### Scenario: A discard that fails after the commit point
+- **WHEN** the discard of a get or of a reclaim fails, as a process killed there leaves it
+- **THEN** the slot is free and dirty, its record and the notes name the patches, the files stay
+- **AND** the next get passes over the slot as dirty without a `status`
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_discard_that_fails_after_the_commit_point_leaves_a_dirty_slot_and_the_patches`)
+
 ### Requirement: Get: A kept idle lease is checked again only when its verdict moved
 
-A later get MUST check a kept idle lease again only when what the verdict rests on moved: the tree work while the slot
-(its `HEAD`, the length and the mtime of its reflog) is unchanged, the commits also while the home tip is; else it costs
-one `rev-parse`. One get MUST check at most two idle leases in full for its takeover and two for its reclaim below the
-minimum, the ones checked longest ago first; the keeper checks every one.
+A later get MUST check a kept idle lease again only when what its verdict rests on moved: the slot (`HEAD`, the
+length and mtime of its reflog), for commits the home tip too, for local changes the stat of their first 8 paths
+(of a refusing path alone), their `quiet_at` and the preserve keys; else it costs one `rev-parse`. One get MUST check at most two idle
+leases in full for its takeover and two for its reclaim below the minimum, the ones checked longest ago first; the
+keeper checks every one.
 
 #### Scenario: Neither the slot nor home moved
 - **WHEN** a later get finds the slot and the home tip as the check found them
 - **THEN** it keeps the verdict for one `rev-parse`
   [@test] crates/bd-lease/src/takeover_test.rs (`a_kept_idle_lease_is_checked_again_only_when_its_slot_or_home_moved`)
   [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_passes_over_an_idle_lease_it_checked`)
+
+#### Scenario: Local changes restored by hand
+- **GIVEN** an idle lease whose fresh local changes a get found
+- **WHEN** they are restored by hand, which moves the stat of their paths but not the slot, and a get runs
+- **THEN** it checks the lease again and takes it over
+  [@test] crates/bd-lease/src/preserve_test.rs (`local_changes_restored_by_hand_are_checked_again_and_the_slot_is_taken_over`)
+
+#### Scenario: The path that refuses is fixed, or the keys change
+- **GIVEN** an idle lease whose quiet changes a path refuses past the first 8 changes, or that a get kept with the key
+  at `0`
+- **WHEN** that path is fixed by hand, or the key turns on, and a get runs
+- **THEN** it checks the lease again and takes it over
+  [@test] crates/bd-lease/src/preserve_test.rs (`the_fix_of_the_path_that_refuses_ends_the_verdict_past_the_first_eight_changes`, `the_local_changes_of_an_idle_lease_stay_while_fresh_beside_a_commit_or_with_the_preserve_off`)
+
+#### Scenario: A refusal of the index is lifted
+- **GIVEN** an idle lease whose quiet changes an index entry with skip-worktree refuses
+- **WHEN** the bit is lifted, which writes the index and moves no file, and a get runs
+- **THEN** it checks the lease again, as the proof of a refusal holds the stat of the index, and takes it over
+  [@test] crates/bd-lease/src/preserve_test.rs (`a_refusal_of_the_index_ends_with_a_write_of_the_index`)
 
 #### Scenario: Many idle leases
 - **WHEN** a get finds more than two idle leases to check
@@ -2904,15 +3051,22 @@ It MUST scan the processes once, only when such a lease exists; a slot with only
 ### Requirement: Reclaim: Reclaim applies the rule of the takeover to every idle lease
 
 `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` MUST apply the rule of the takeover to every idle
-lease of the pool, each checked anew: one whose work landed is returned as the takeover returns it, under a CAS on its
-lease, its holder still gone and its slot as the check found it, its slot free with its record, returned as the
-coldest free slot of its pool. The output is `lease_reclaim` of `brd schema`, exit 0.
+lease of the pool, each checked anew: one whose work landed is returned as the takeover returns it, its quiet local
+changes preserved first, under a CAS on its lease, its holder still gone and its slot as the check found it, its slot
+free with its record, returned as the coldest free slot of its pool. The output is `lease_reclaim` of `brd schema`,
+exit 0.
 
 #### Scenario: An idle lease whose work landed
 - **WHEN** reclaim finds an idle lease whose work landed
 - **THEN** it returns it as the takeover returns it (`reclaimed`, each with `landed`, `stopped_servers`, `cleaned`)
   [@test] crates/bd-lease/src/takeover_test.rs (`reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest`)
   [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_reclaim`)
+
+#### Scenario: An idle lease whose only work is quiet local changes
+- **WHEN** reclaim finds an idle lease whose only work is quiet local changes, with `--dry-run` or not
+- **THEN** it preserves them and returns the lease (`reclaimed` with `preserved`), the slot free and clean
+- **AND** a dry run names the directory and the number of the changes, writes nothing and no patch
+  [@test] crates/bd-lease/src/preserve_test.rs (`reclaim_preserves_the_quiet_local_changes_of_an_idle_lease_and_a_dry_run_names_them`)
 
 #### Scenario: An idle lease with work
 - **WHEN** reclaim finds an idle lease with work
@@ -4227,11 +4381,11 @@ return, whether it is held, when it expires, its bytes, with `--list` its files 
 
 ### Requirement: Notes: The notes of a returned lease expire
 
-The notes of a returned lease MUST expire `branchdeck.leaseNotesKeep` after the return (`14d` by default, `0` for ever;
-without a return from its get), deleted by `brd lease trim` (`expired_notes`; `--plan` only names them) and the keeper
-of a host in every place of the notes, never while the pool holds the lease, where its state can't be read, nor
-anything else of the pool directory. A directory without a record MUST expire by its modification time. `brd lease
-disk` MUST count them.
+The notes of a returned lease MUST expire `branchdeck.leaseNotesKeep` (`14d` by default, `0` for ever) after the later
+of the return (else the get) and a preserve of its changes, deleted by `brd lease trim` (`expired_notes`; `--plan`
+only names them) and the keeper of a host in every place of the notes, never while the pool holds the lease or where
+its state can't be read. A directory without a record MUST expire by its modification time. `brd lease disk` MUST
+count them.
 
 #### Scenario: The trim deletes expired notes
 - **GIVEN** the notes of a lease returned 15 days ago and of a lease held for 15 days
@@ -4240,6 +4394,11 @@ disk` MUST count them.
   lease keeps its notes
   [@test] crates/bd-lease/src/notes_test.rs (`the_notes_of_a_returned_lease_expire_through_the_trim_and_never_while_held`)
   [@test] crates/lease-pool/src/lease_notes_test.rs (`the_notes_expire_after_the_return_and_never_while_the_lease_is_held`)
+
+#### Scenario: The notes of preserved changes
+- **GIVEN** the notes of a lease whose changes were preserved, returned or not
+- **THEN** they expire `branchdeck.leaseNotesKeep` after the later of the return and the preserve
+  [@test] crates/lease-pool/src/lease_notes_test.rs (`the_notes_of_preserved_changes_expire_after_the_preserve_too`)
 
 #### Scenario: The disk report
 - **WHEN** a lease has notes and `brd lease disk` runs

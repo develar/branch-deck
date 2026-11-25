@@ -97,6 +97,13 @@ fn idle_lease(paths: Vec<String>, paths_omitted: usize) -> Lease {
       paths,
       paths_omitted,
       operation: None,
+      proof: Vec::new(),
+      ignores: Vec::new(),
+      quiet_at: None,
+      not_preserved: None,
+      preserve_config: None,
+      preserve_error: None,
+      index: None,
     }),
     ..Lease::marker("idle", "idle", LeaseState::Ready)
   }

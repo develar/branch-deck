@@ -1,7 +1,7 @@
 //! `brd lease notes`: where the notes of a lease of the pool are, held or returned, and their files
 //! (openspec/specs/cli/lease/spec.md, "Notes"; the core is `lease_pool::lease_notes`). Read only
 
-use crate::lease_command::{LeaseContext, lease_error};
+use crate::lease_command::{LeaseContext, PreservedOutput, lease_error};
 use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
@@ -64,6 +64,12 @@ pub struct NotesOutput {
   pub expires_at: Option<u64>,
   /// The bytes on disk of the directory
   pub bytes: u64,
+  /// The local changes of the idle lease that a get or a reclaim preserved here as patches before it took the slot
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<PreservedOutput>,
+  /// Unix seconds of that preserve: the notes expire `keep_seconds` after it at the earliest
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserved_at: Option<u64>,
   /// With --list: the files, by path from `path`, the first 1000
   #[serde(skip_serializing_if = "Option::is_none")]
   pub files: Option<Vec<NoteFileOutput>>,
@@ -146,6 +152,12 @@ fn notes_output(notes: &LeaseNotes, held: &HashSet<String>, keep: Duration, list
     held: held.contains(&record.lease_id),
     expires_at: expires_at(record, held, keep),
     bytes: notes.bytes(),
+    preserved: record.preserved.as_ref().map(|preserved| PreservedOutput {
+      // the expiry of the notes as it is now
+      expires_at: expires_at(record, held, keep),
+      ..PreservedOutput::of(preserved)
+    }),
+    preserved_at: record.preserved_at,
     files,
     files_omitted,
   }

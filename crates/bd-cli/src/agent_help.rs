@@ -269,7 +269,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    user, never pass --min-free 0 on your own. Before it adds a slot the get takes over an idle lease, one whose
    holder process has been gone for an hour, when every commit of it is on its home branch (by a pick, a patch id,
    the identity and the twin of `brd update`, the mapping note of a sync) and its tree is clean: `took_over` names its
-   holder, its lease and the commits it found landed (`landed`, each with its `proof`). One with work its home branch
+   holder, its lease and the commits it found landed (`landed`, each with its `proof`). When its only work is local
+   changes that nothing touched for `branchdeck.leaseIdleChangesAfter` (12h), the get takes it over once they are
+   patches in its notes (`took_over.preserved`: `changes.patch` on `base`, `staged.patch`). One with other work its home branch
    lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` (which checks no process: `brd lease status`
    says `busy` for one a session works in) name it with its `commits`, `paths` or
    `operation`; tell the user, never give it up with `brd lease return --confirm-preserved` on your own. `brd lease reclaim --idle`

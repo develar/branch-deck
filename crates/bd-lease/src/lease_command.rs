@@ -16,6 +16,7 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
 use lease_pool::get_queue::QueueTiming;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
+use lease_pool::idle_changes::Preserved;
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, IdleStatus, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome,
@@ -313,7 +314,8 @@ pub struct LeaseGetOutput {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
   /// The idle lease the get took over: its holder process was gone, its work had landed on its home branch, its tree
-  /// was clean. A resumed session of that holder is refused in the slot (`lease_reclaimed`)
+  /// was clean or its quiet local changes are patches in its notes (`preserved`). A resumed session of that holder is
+  /// refused in the slot (`lease_reclaimed`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub took_over: Option<TookOverOutput>,
   /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool: with work their
@@ -597,8 +599,8 @@ fn idle_output(idle: &[IdleLease]) -> Vec<IdleLeaseOutput> {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct IdleOutput {
   /// `idle`: no check found work in it yet, a get takes it over once its work landed and it was quiet for an hour;
-  /// `idle_with_work`: a check found work its home branch lacks (`commits`, `paths`, `operation`), which no get touches:
-  /// tell the user; `busy`: processes of another session work in the slot (`processes`), so the session of the lease
+  /// `idle_with_work`: a check found work its home branch lacks (`commits`, `paths`, `operation`), which no get touches
+  /// but quiet local changes that it preserves (`quiet_at`, `not_preserved`): tell the user; `busy`: processes of another session work in the slot (`processes`), so the session of the lease
   /// lives as another process: never return the lease or take its slot, the work fields stay as a check found them
   pub state: IdleStateOutput,
   /// Unix seconds of the check that found the work
@@ -619,6 +621,54 @@ pub struct IdleOutput {
   /// The processes of a `busy` lease that work in its slot, its Bazel servers left out
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub processes: Vec<ProcessOutput>,
+  /// Unix seconds when the local changes, its only work, are quiet (`branchdeck.leaseIdleChangesAfter`): a get or a
+  /// reclaim after it preserves them as patches in the notes of the lease and takes the slot
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub quiet_at: Option<u64>,
+  /// Why the quiet local changes stay in the slot as they are: an unmerged entry, a gitlink or a nested repository, a
+  /// path with a filter, an entry of the index that git does not check, a lease without notes, a patch past
+  /// `branchdeck.leasePreserveMax`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub not_preserved: Option<String>,
+  /// Why the last preserve of the quiet local changes failed (an edit meanwhile, a process in the slot): the next one
+  /// waits for `quiet_at`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserve_error: Option<String>,
+}
+
+/// The local changes of an idle lease, preserved as patches in its notes before its slot was discarded
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PreservedOutput {
+  /// The directory of the patches: `changes.patch` (`git apply` on `base` gives the files of the slot), and
+  /// `staged.patch` where the index held another version (`git apply --cached` on `base`)
+  pub dir: String,
+  /// The commit both patches apply to; omitted for a dry run
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub base: Option<String>,
+  /// How many local changes
+  pub paths: u32,
+  /// The bytes of the patches; omitted for a dry run
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub bytes: Option<u64>,
+  /// `staged.patch` is there
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub staged: bool,
+  /// Unix seconds after which a trim deletes the notes (`branchdeck.leaseNotesKeep` at the preserve); omitted: never
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub expires_at: Option<u64>,
+}
+
+impl PreservedOutput {
+  pub fn of(preserved: &Preserved) -> Self {
+    Self {
+      dir: preserved.dir.clone(),
+      base: (!preserved.base.is_empty()).then(|| preserved.base.clone()),
+      paths: u32::try_from(preserved.paths).unwrap_or(u32::MAX),
+      bytes: (preserved.bytes > 0 || !preserved.base.is_empty()).then_some(preserved.bytes),
+      staged: preserved.staged,
+      expires_at: preserved.expires_at,
+    }
+  }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
@@ -640,6 +690,9 @@ impl IdleOutput {
         paths_omitted: 0,
         operation: None,
         processes: Vec::new(),
+        quiet_at: None,
+        not_preserved: None,
+        preserve_error: None,
       },
       Some(check) => Self {
         state: IdleStateOutput::IdleWithWork,
@@ -656,6 +709,9 @@ impl IdleOutput {
         paths_omitted: omitted_with(&check.paths, check.paths_omitted),
         operation: check.operation.clone(),
         processes: Vec::new(),
+        quiet_at: check.quiet_at,
+        not_preserved: check.not_preserved.clone(),
+        preserve_error: check.preserve_error.clone(),
       },
     }
   }
@@ -687,6 +743,9 @@ pub struct TookOverOutput {
   /// Its commits beyond the commit it was leased at, each with the proof that its home branch has it, newest first
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed: Vec<LandedCommitOutput>,
+  /// Its quiet local changes, its only work, preserved in its notes before the get discarded them
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<PreservedOutput>,
 }
 
 /// The record of a slot whose lease was taken from its dead holder
@@ -703,6 +762,9 @@ pub struct ReclaimedOutput {
   pub by_lease_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub by_holder: Option<String>,
+  /// The local changes of the lease, preserved in its notes before its slot was discarded
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<PreservedOutput>,
 }
 
 impl ReclaimedOutput {
@@ -714,6 +776,7 @@ impl ReclaimedOutput {
       at: reclaimed.at,
       by_lease_id: reclaimed.by_lease_id.clone(),
       by_holder: reclaimed.by_holder.clone(),
+      preserved: reclaimed.preserved.as_ref().map(PreservedOutput::of),
     }
   }
 }
@@ -897,7 +960,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
               path: skipped.path.clone(),
               holder: holder.clone(),
               lease_id: lease_id.clone(),
-              idle: IdleOutput::of(Some(check)),
+              idle: IdleOutput::of(Some(&**check)),
             }),
             SkipReason::Dirty { .. } | SkipReason::Busy { .. } => None,
           },
@@ -915,6 +978,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
       leased_at: took_over.lease.leased_at,
       branch: took_over.lease.branch.clone(),
       landed: landed_output(&took_over.landed),
+      preserved: took_over.preserved.as_ref().map(PreservedOutput::of),
     }),
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
@@ -1482,7 +1546,8 @@ pub struct LeaseReclaimOutput {
   pub repository: String,
   /// With --dry-run: nothing was written, `reclaimed` is what a reclaim would return
   pub dry_run: bool,
-  /// The idle leases returned, their work landed on their home branch: their slots are free
+  /// The idle leases returned, their work landed on their home branch and their quiet local changes preserved in their
+  /// notes (`preserved`): their slots are free
   pub reclaimed: Vec<ReclaimedLeaseOutput>,
   /// The idle leases left alone, with the work their home branch lacks (`idle_with_work`): the user decides; their
   /// holder may resume, or `brd lease return --lease-id <id> --confirm-preserved` gives the work up once the user said
@@ -1514,6 +1579,10 @@ pub struct ReclaimedLeaseOutput {
   pub cleaned: Vec<CleanedOutput>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub trash_left: Vec<String>,
+  /// Its quiet local changes, its only work, preserved in its notes before the reclaim discarded them; with --dry-run
+  /// where they would be, without `base` and `bytes`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preserved: Option<PreservedOutput>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1551,6 +1620,7 @@ fn reclaimed_output(reclaimed: &[ReclaimedLease]) -> Vec<ReclaimedLeaseOutput> {
       stopped_servers: stopped_output(&reclaimed.stopped_servers),
       cleaned: cleaned_output(&reclaimed.cleaned),
       trash_left: reclaimed.trash_left.clone(),
+      preserved: reclaimed.preserved.as_ref().map(PreservedOutput::of),
     })
     .collect()
 }

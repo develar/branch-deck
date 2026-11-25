@@ -1399,6 +1399,42 @@ fn a_lease_get_that_takes_over_an_idle_lease() {
   assert_git_processes(&context.git, &idle_lease_processes(&[("reset", 1), ("rev-parse", 7)]));
 }
 
+/// A get that takes over an idle lease whose commit landed and whose quiet local change it preserves in its notes: the
+/// check as for a takeover, then the preserve (one `status` that lists each untracked file, the attributes, the flags of
+/// the index, HEAD, the trees of the index and of `add --all`, the patch and the gitlink check of their diff, its proof
+/// on a new index, the second `status`), the discard (`reset --hard`, the `status` of the untracked files) and the move
+#[test]
+fn a_lease_get_that_preserves_the_quiet_changes_of_an_idle_lease() {
+  let (repo, _home, environment, context) = idle_landed_lease();
+  repo.git(&["config", "branchdeck.leaseIdleChangesAfter", "0s"]);
+  let pool = Pool::new(std::path::Path::new(&context.dirs.git_common_dir));
+  let slot = pool.read().unwrap().slots[0].path.clone();
+  std::fs::write(std::path::Path::new(&slot).join("left.txt"), "left\n").unwrap();
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert!(got.took_over.as_ref().is_some_and(|took_over| took_over.preserved.is_some()), "{got:?}");
+  // the preserve: `status` twice, `check-attr`, `ls-files -v`, `log -1` of HEAD, `write-tree` of the index, of `add
+  // --all` and of the proof, `diff-tree` of the gitlinks and of the patch, `read-tree` and `apply --cached` of the
+  // proof; the discard: `reset --hard`, then `status`, `clean` and `status` of the untracked file; the move
+  assert_git_processes(
+    &context.git,
+    &idle_lease_processes(&[
+      ("add", 1),
+      ("apply", 1),
+      ("check-attr", 1),
+      ("clean", 1),
+      ("diff-tree", 2),
+      ("log", 4),
+      ("ls-files", 1),
+      ("read-tree", 1),
+      ("reset", 2),
+      ("rev-parse", 7),
+      ("status", 5),
+      ("write-tree", 3),
+    ]),
+  );
+}
+
 /// A get that passes over an idle lease whose work a get before it found: one `rev-parse` of the home tip, as the slot
 /// did not move, then a new slot by a clone (`a_lease_get_of_a_new_slot_by_a_clone`, macOS only)
 #[cfg(target_os = "macos")]

@@ -1207,8 +1207,11 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`bazel shutdown` on Windows;
   `stopped_servers`). No free slot: an idle lease, its holder process gone for an hour, is taken over when every commit its home branch lacks is
   proven there (the landed rule of the return) and its tree is clean (`took_over`: `lease_id`, `holder`, `branch`,
-  which stays, `landed` with the proof of each commit); one with work is skipped (`reason: "idle_with_work"`, `idle`
-  with `commits`, `paths`, `operation`) and never touched, the user decides. Else a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
+  which stays, `landed` with the proof of each commit); one whose only work is local changes untouched for
+  `branchdeck.leaseIdleChangesAfter` (`12h`) is taken over once they are patches in its notes (`took_over.preserved`:
+  `dir`, `base`, `paths`, `bytes`, `staged`, `expires_at`); one with other work is skipped (`reason: "idle_with_work"`,
+  `idle` with `commits`, `paths`, `operation`, `quiet_at`, `not_preserved`, `preserve_error`) and never touched, the
+  user decides. Else a new one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the
   source without what the `delete` clean rules delete, then the diff checked out (`created_by: "clone"`,
   `cloned_from`), else a full checkout (`created_by: "checkout"`); with a new slot, `idle_leases` names the leases
   whose holder process is gone, each with its `lease_id` and `idle` (`idle` or `idle_with_work`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
@@ -1306,7 +1309,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `trash_bytes`; no `git status`, and one scan of the processes only when a lease has a gone holder. `--processes`
   adds the processes in each slot.
 - `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
-  work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`), keeps the ones with
+  work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`, and `preserved` for quiet
+  local changes, a dry run naming where they would go), keeps the ones with
   work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`, and
   `holder_unknown` for a lease whose get recorded no holder process: never checked, the user returns it);
   `--dry-run` writes nothing. Output `lease_reclaim`.
