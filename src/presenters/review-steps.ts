@@ -561,7 +561,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
 const NOT_JOINED: readonly JoinedUnit[] = []
 const NO_MARKS: readonly StoryRef[] = []
 
-/** Whether the name of a concern is an identifier the code spells: a token, a declaration, a replacement, a file or a directory */
+/** Whether the name of a concern is an identifier the code spells: a token, a declaration, a replacement, a file, the name of files or a directory */
 function isCodeName(name: ConcernName): boolean {
   return name.source !== "rest" && !(name.source === "directory" && name.directory === "") && !(name.source === "declaration" && name.name.includes(" "))
 }

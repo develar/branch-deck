@@ -10,7 +10,7 @@ import { FORM_WORDS } from "@/presenters/review-plan"
 /** What no evidence joined, as a group of the tree and the heading of its part of the story */
 export const OTHER_CHANGES = "Other changes"
 
-/** "proxy", "grep → accio", "open", "guide.md", "docs/guide", "Root", "Other changes" */
+/** "proxy", "grep → accio", "open", "guide.md", "BUILD.bazel" of several directories, "docs/guide", "Root", "Other changes" */
 export function formatConcernName(name: ConcernName): string {
   switch (name.source) {
     case "token":
@@ -21,6 +21,8 @@ export function formatConcernName(name: ConcernName): string {
       return name.name
     case "file":
       return name.path.slice(name.path.lastIndexOf("/") + 1)
+    case "files":
+      return name.name
     case "directory":
       return name.directory === "" ? "Root" : name.directory
     case "rest":

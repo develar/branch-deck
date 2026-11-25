@@ -2090,6 +2090,8 @@ export type ConcernName =
 { source: "declaration"; name: string } | 
 /**  The one file of its own parts, beside the generated files that follow it */
 { source: "file"; path: string } | 
+/**  The one name of its files, in several directories (`BUILD.bazel` of 35 modules) */
+{ source: "files"; name: string } | 
 /**  The directory its files share, `""` for the root */
 { source: "directory"; directory: string } | 
 /**  What no evidence joined */

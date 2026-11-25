@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 42` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 43` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -82,7 +82,8 @@
 //! version 41 the generated files past the first 20 of `files`, `order`, the slices of the unit `generated` and the
 //! stops and paths of each step left out, each list with the count of them (`review_plan_fold`), no module of the
 //! review of generated files alone and no dependency change of a generated manifest;
-//! version 42 the `verdict_by` of the plan, the entries of `api` that decide its `verdict`
+//! version 42 the `verdict_by` of the plan, the entries of `api` that decide its `verdict`;
+//! version 43 the name `files` of a concern, the one name of its files in several directories
 
 use crate::mark_reviewed_command::refused;
 use crate::review_plan_fold::{StepsOutput, cut_generated, fold_steps};
@@ -114,7 +115,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 42;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 43;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]

@@ -205,7 +205,8 @@ object names an entry (`"ijproxy": {`, `[mcp_servers.ijproxy]`).
 
 ### Requirement: Edges: A sentence a config or a literal quotes joins by its compound names
 
-Of a sentence a config or a literal quotes (a string with a space) only its compound names MUST count, with `_`, `-`,
+Of a sentence a config, a literal or a code span of prose quotes (a string or a span with a space: a heading an
+OpenSpec delta quotes, the title of a test a link of a spec names) only its compound names MUST count, with `_`, `-`,
 a digit or a capital past the first letter (`sessions-window-show`, `toolWindowId`).
 
 #### Scenario: Sentences of configs, text files and string literals
@@ -213,6 +214,12 @@ a digit or a capital past the first letter (`sessions-window-show`, `toolWindowI
   same compound name
 - **THEN** the shared words join nothing
 - **AND** the compound name joins its two configs
+  [@test] crates/review-plan/src/concerns_test.rs (`a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
+
+#### Scenario: A sentence a code span of prose quotes
+- **WHEN** two Markdown files quote in a code span sentences that share words (`### Requirement: A kestrel plugin: A
+  section loads its layout`, `a kestrel plugin states the layout of its section`)
+- **THEN** the shared words join nothing
   [@test] crates/review-plan/src/concerns_test.rs (`a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
 
 ### Requirement: Edges: One shared token bridges no two concerns
@@ -422,7 +429,8 @@ A removed and an added token of the same nodes MUST name the concern `replacemen
 ### Requirement: Order, Identity, Name: Without a token, a declaration, a file or a directory names it
 
 A concern no token names MUST be named by its first changed declaration; else by its one file (`file`: a source with
-the generated copies that follow it); else by the directory its files share.
+the generated copies that follow it); else by the one name of its files in several directories (`files`:
+`BUILD.bazel` of 35 modules a repeated edit joined); else by the directory its files share.
 
 #### Scenario: A changed declaration
 - **WHEN** no token names the concern and it changes a declaration
@@ -434,8 +442,14 @@ the generated copies that follow it); else by the directory its files share.
 - **THEN** the concern is named by its one file, `file`
   [@test] crates/review-plan/src/concerns_test.rs (`a_source_and_its_generated_copies_are_named_by_the_file`)
 
+#### Scenario: Files of one name in several directories
+- **WHEN** no token, declaration or one file names the concern, and its files have one name in several directories
+- **THEN** it is named by that name, `files`, never by the root they share
+  [@test] crates/review-plan/src/concerns_test.rs (`files_of_one_name_in_several_directories_are_named_by_it`)
+  [@test] src/presenters/review-concerns.test.ts (`names a concern by its evidence, and says why its parts are together`)
+
 #### Scenario: Files of one directory
-- **WHEN** no token, declaration or one file names the concern
+- **WHEN** no token, declaration, one file or one name of its files names the concern
 - **THEN** it is named by the directory its files share
 
 ### Requirement: Order, Identity, Name: A concern says what it does to its name
@@ -499,7 +513,7 @@ unchanged.
 
 ### Requirement: In `brd`: `brd review-plan` prints the concerns
 
-`brd review-plan` MUST print `concerns` (`"schema": 34`): per concern its `id`, `name`, its `change` (since 34), its
+`brd review-plan` MUST print `concerns` (`"schema": 43`): per concern its `id`, `name`, its `change` (since 34), its
 `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`,
 `token`, `rest`, its `detail` and `joins`, the most joins first) and its `fingerprint`.
 
@@ -512,7 +526,7 @@ unchanged.
 #### Scenario: The sources of a name
 - **WHEN** `brd review-plan` prints the `name` of a concern
 - **THEN** it is `source` `token` with `token`, `replacement` with `removed` and `added`, `declaration` with `name`,
-  `file` with `path`, `directory` with `directory`, or `rest`
+  `file` with `path`, `files` with `name` (since 43), `directory` with `directory`, or `rest`
 
 #### Scenario: What a concern does to its name
 - **WHEN** `brd review-plan` prints the `change` of a concern
@@ -859,6 +873,17 @@ led here, each measured on the same corpora:
   on Java (a group per file 81.4, purity LB95 89.6 against 87.1), 73.8 on this repository (72.9, purity 90.9 against
   89.6), 80.0 on tangled-ccs (80.8), and 76.0 on idea-1 by the commit of a line (77.8), whose purity falls to 79.5
   (82.6): Other changes of one file there holds the lines of several commits.
+
+- The names of jps-bridge (2026-11-25, `results/bd-v11-base`, `bd-v11`): `simple`, `composition`, `mechanisms`,
+  `outputs` and `example` were words of the sentences the code spans of its Markdown quote, the headings of an OpenSpec
+  delta and the titles of tests its links to tests name; "Root" the 35 `BUILD.bazel` of a repeated edit. Of a span
+  that quotes a sentence only its compound names count now, and files of one name are named by it. The concerns
+  named by a plain word, base → change: this repository 108 → 89 of 485, idea-1 99 → 92 of 615, tangled-ccs 115 → 114,
+  Java 23 the same; 11 concerns of idea-1 and 1 of tangled-ccs are `files` (`README.md`, `mod.rs`). Recall / purity
+  LB95: this repository 70.7 / 91.2 → 70.9 / 91.4, idea-1 by the commit of a line 66.9 / 82.6 → 66.9 / 82.9,
+  tangled-ccs 76.7 / 98.4 and Java 46.0 / 93.2 the same; pair precision of this repository 95.9 → 95.5. Where a
+  sentence gave the name before, the name of a test function a link of a spec names may give it now (26 → 30 names
+  of more than 40 letters on this repository).
 
 A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
 three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one

@@ -12,10 +12,10 @@
 //!   a hub is no evidence. The files of a group.
 //! - **Soft edges**: a rare token that the changed lines of two or more files all remove, or all add (`node_tokens`):
 //!   a name of code, never a word of prose or a comment, of a source file only a name the change declares or a word of
-//!   a string; in at most `MAX_TOKEN_NODES` nodes and a quarter of a larger range, no keyword, common word or common
-//!   key of a config (`STOP_WORDS`), no part of a changed path. Two nodes join by the cosine of their rare tokens; a
-//!   soft edge joins two concerns only when one is a single node or two tokens join them, so one shared word bridges
-//!   nothing.
+//!   a string; of a sentence a string or a span of prose quotes only its compound names (`compound`); in at most
+//!   `MAX_TOKEN_NODES` nodes and a quarter of a larger range, no keyword, common word or common key of a config
+//!   (`STOP_WORDS`), no part of a changed path. Two nodes join by the cosine of their rare tokens; a soft edge joins
+//!   two concerns only when one is a single node or two tokens join them, so one shared word bridges nothing.
 //! - **The rest**, off by default (it costs more purity than it adds recall): a node joined to nothing goes to the
 //!   largest concern of its file, a test to the largest of its subject. What is left is the last concern, `Rest`.
 //! - **Consequences** follow the largest concern of their cause, folded at its end, the rest on or off: a generated file
@@ -25,10 +25,10 @@
 //! - **The order** is that of the units, the story: each concern at its first part. **The identity**: `id` the
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
 //! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else its
-//!   one file (a source with its generated copies), else the directory its files share. **What it does** to its name
-//!   (`ConcernChange`): to the declaration of that name it adds, removes, changes the form or the body of; one
-//!   identifier in the place of another; the files it adds or deletes whole; the page words it as the verb of its
-//!   title.
+//!   one file (a source with its generated copies), else the one name of its files in several directories, else the
+//!   directory its files share. **What it does** to its name (`ConcernChange`): to the declaration of that name it
+//!   adds, removes, changes the form or the body of; one identifier in the place of another; the files it adds or
+//!   deletes whole; the page words it as the verb of its title.
 //! - **The main row** of a file in several concerns is in the one whose parts of it change the most lines (`elsewhere`
 //!   of the others), so that the tree lists each file once and the others point to it.
 
@@ -264,6 +264,8 @@ pub enum ConcernName {
   Declaration { name: String },
   /// The one file of its own parts, beside the generated files that follow it
   File { path: String },
+  /// The one name of its files, in several directories (`BUILD.bazel` of 35 modules)
+  Files { name: String },
   /// The directory its files share, `""` for the root
   Directory { directory: String },
   /// What no evidence joined
@@ -808,7 +810,8 @@ fn node_tokens(path: &str, lines: &[&str], declared: &HashSet<String>) -> BTreeS
       continue;
     }
     let code: Vec<&str> = if prose && !(markdown && (line.starts_with("    ") || trimmed.starts_with("```"))) {
-      line.split('`').skip(1).step_by(2).collect()
+      // a span that quotes a sentence (a heading, the title of a test) counts its compound names alone, as a literal does
+      line.split('`').skip(1).step_by(2).flat_map(literal_runs).collect()
     } else if !prose && !source {
       config_code(line)
     } else {
@@ -1148,11 +1151,15 @@ fn name_of(
   } else {
     ConcernChange::Mixed
   };
-  // a source with its generated copies is named by its file, more than one file by the directory they share
+  // a source with its generated copies is named by its file, files of one name in several directories by that name,
+  // other files by the directory they share
   let mut own = of.iter().map(|&node| nodes[node].path);
   let path = own.next().unwrap_or_default();
+  let file_name = |path: &str| path.rsplit_once('/').map_or(path, |(_, name)| name).to_string();
   let name = if own.all(|other| other == path) {
     ConcernName::File { path: path.to_string() }
+  } else if parts.iter().all(|part| file_name(&part.path) == file_name(path)) {
+    ConcernName::Files { name: file_name(path) }
   } else {
     ConcernName::Directory {
       directory: shared_directory(parts.iter().map(|part| part.path.as_str())),

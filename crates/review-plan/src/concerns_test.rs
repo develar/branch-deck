@@ -394,6 +394,9 @@ fn a_sentence_a_config_quotes_joins_by_its_compound_names_alone() {
       ("h/eight.json", "{\n  \"k6\": {\"placement\": \"right\", \"answers\": [], \"parameters\": {}}\n}\n"),
       ("i/nine.ts", "export const nine = step('Show the kestrel layout on the left side')\n"),
       ("j/ten.ts", "export const ten = step('A kestrel layout shows on the side')\n"),
+      // the heading of a spec quoted as code by a delta and the title of a test its link names: sentences too
+      ("k/eleven.md", "- FROM: `### Requirement: A kestrel plugin: A section loads its layout`\n"),
+      ("l/twelve.md", "  [@test] Layout.kt (`a kestrel plugin states the layout of its section`)\n"),
     ],
   );
   let plan = plan_of_range(&repo, &base, &head);
@@ -411,7 +414,9 @@ fn a_sentence_a_config_quotes_joins_by_its_compound_names_alone() {
           "g/seven.json",
           "h/eight.json",
           "i/nine.ts",
-          "j/ten.ts"
+          "j/ten.ts",
+          "k/eleven.md",
+          "l/twelve.md"
         ]
       )
     ]
@@ -512,6 +517,22 @@ fn a_source_and_its_generated_copies_are_named_by_the_file() {
   };
   assert_eq!(concerns(&plan), [(file, vec!["docs/guide.md", "AGENTS.md"])]);
   assert_eq!(plan.concerns[0].change, ConcernChange::Mixed);
+}
+
+/// Files of one name in several directories, joined by their group and no token or declaration, are a concern named by
+/// that name: measured on a generator's run over the monorepo, the 35 build files of one repeated edit were "Root"
+#[test]
+fn files_of_one_name_in_several_directories_are_named_by_it() {
+  let build = |visibility: &str| format!("jvm_library(\n    name = \"lib\",\n    visibility = [\"//visibility:{visibility}\"],\n)\n");
+  let repo = TestRepo::new();
+  let paths = ["app/BUILD.bazel", "lib/core/BUILD.bazel", "tools/BUILD.bazel"];
+  let before: Vec<(&str, String)> = paths.iter().map(|path| (*path, build("private"))).collect();
+  let base = repo.create_commit_with_files("Add", &before.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let after: Vec<(&str, String)> = paths.iter().map(|path| (*path, build("public"))).collect();
+  let head = repo.create_commit_with_files("Open the libraries", &after.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let plan = plan_of_range(&repo, &base, &head);
+  let files = ConcernName::Files { name: "BUILD.bazel".to_string() };
+  assert_eq!(concerns(&plan), [(files, paths.to_vec())]);
 }
 
 /// A user of the module `app`, before and after it keeps a store of the module `store`
