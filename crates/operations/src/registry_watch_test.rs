@@ -37,6 +37,9 @@ const EVENTS_ONLY: WatchConfig = WatchConfig { recheck: None, events: true };
 /// A test of the events it gives the task itself: neither an event of the system nor a look
 const GIVEN_EVENTS: WatchConfig = WatchConfig { recheck: None, events: false };
 
+/// How long the probe of a test of the events of the system waits for the event of its write before it writes again
+const PROBE_EVERY: Duration = Duration::from_millis(100);
+
 /// A window: each patch it gets wakes the test
 struct Window(mpsc::UnboundedSender<()>);
 
@@ -291,9 +294,11 @@ async fn an_event_of_any_name_of_the_directory_reads_the_registry_and_syncs_for_
   drop(child);
 }
 
-/// The event path of the system: the watch tells that a record left the registry, with no look of the task. It fails
-/// with "no watch event" where the watch runs behind the writes (`FSEvents` on a loaded machine), which the looks of the
-/// app stand in for
+/// The event path of the system: the watch tells that a record left the registry, with no look of the task. The test
+/// begins once the stream told a write of its own (a probe, another record, written again until the window shows it):
+/// the watcher starts on a thread of its own, and `FSEvents` drops the changes of a stream's first moments, which only
+/// a look finds. It fails with "no watch event" where the watch runs behind the writes (`FSEvents` on a loaded
+/// machine), which the looks of the app stand in for
 #[tokio::test(flavor = "multi_thread")]
 async fn the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_look() {
   let directory = tempfile::tempdir().unwrap();
@@ -302,15 +307,26 @@ async fn the_watch_of_the_system_tells_that_a_record_left_the_registry_with_no_l
   let (registry, key, mut patched) = watched(Arc::new(IdleHost::default()), directory.path(), EVENTS_ONLY).await;
   // the first read of the subscription, the one read without an event
   after_patches(&registry, &key, &mut patched, "the subscription read no registry", |operations| operations.len() == 1).await;
+  let missing = "no watch event: the watch of the system runs behind the writes";
+  let deadline = tokio::time::Instant::now() + DEADLINE;
+  'live: for probe in 1_u32.. {
+    let record = record(&format!("probe{probe}"), &agent(&child), &safe_push("probe"), unix_now());
+    file.insert_of_another_process(record).unwrap();
+    loop {
+      if view_operations(registry.sessions(), &key).await.len() > 1 {
+        break 'live;
+      }
+      if tokio::time::timeout(PROBE_EVERY, patched.recv()).await.is_err() {
+        assert!(tokio::time::Instant::now() < deadline, "{missing} within {DEADLINE:?}");
+        continue 'live;
+      }
+    }
+  }
 
   file.remove(&id("bd")).unwrap();
-  after_patches(
-    &registry,
-    &key,
-    &mut patched,
-    "no watch event: the watch of the system runs behind the writes",
-    <[RunningOperation]>::is_empty,
-  )
+  after_patches(&registry, &key, &mut patched, missing, |operations| {
+    operations.iter().all(|operation| operation.id != id("bd"))
+  })
   .await;
   drop(child);
 }

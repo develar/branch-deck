@@ -30,7 +30,9 @@ const HOST_REQUESTS: &str = include_str!("../../../docs/design/backend-protocol/
 /// The build of the host of the corpus
 const BUILD: &str = "0.0.0-corpus";
 
-/// How long the runner waits for a frame of the host
+/// How long the runner waits for a frame of the host: a hang guard, as a frame follows a few git processes at most (a
+/// step took 5.5 s with each git 0 to 2 s late), so a run that gets its frame never reaches it, and one that gets none
+/// fails there with the frames it had instead of at the timeout of nextest
 const WAIT: Duration = Duration::from_secs(20);
 
 /// The methods of a frame no line expects that the runner passes over
@@ -171,9 +173,19 @@ impl Link {
 
   /// The next frame of the host, as the JSON a socket carries
   pub(crate) async fn next(&self) -> Value {
+    self.next_after(&[]).await
+  }
+
+  /// The next frame of the host after `frames`, the ones a wait took before it, which a failure names
+  async fn next_after(&self, frames: &[Value]) -> Value {
     let frame = tokio::time::timeout(WAIT, self.link.next())
       .await
-      .unwrap_or_else(|_| panic!("the host wrote nothing; it passed over {:#?}", self.passed))
+      .unwrap_or_else(|_| {
+        panic!(
+          "the host wrote nothing in {WAIT:?}, a hang guard; it passed over {:#?}, and the wait took {frames:#?}",
+          self.passed
+        )
+      })
       .expect("the connection ended");
     match frame {
       Frame::Text(text) => serde_json::from_str(&text).unwrap(),
@@ -207,7 +219,7 @@ impl Link {
   pub(crate) async fn until(&self, done: impl Fn(&Value) -> bool) -> Vec<Value> {
     let mut frames = Vec::new();
     loop {
-      let frame = self.next().await;
+      let frame = self.next_after(&frames).await;
       let last = done(&frame);
       frames.push(frame);
       if last {

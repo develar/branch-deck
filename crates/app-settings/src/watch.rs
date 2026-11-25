@@ -4,13 +4,14 @@
 //! directory (the temporary file of a rename over one of them), of the directory itself, a lost event (`need_rescan`)
 //! and an error ask for both files, and the writer looks at both files every `dir_watch::RECHECK` without an event
 //! (`write_loop`), as a watch may tell nothing for long under load. Its own writes are read again too, and find nothing
-//! new. A directory the system refuses to watch is only logged: the looks stand in for it.
+//! new. The watcher starts and stops on a thread of its own (`dir_watch::Watch`), so neither the open of a writer nor its
+//! drop waits for fseventsd; a directory the system refuses to watch is only logged there: the looks stand in for it.
 
 use crate::file::{REPOSITORY_STATE_FILE_NAME, SETTINGS_FILE_NAME};
-use notify::{Event, RecommendedWatcher};
+use notify::Event;
 use std::path::Path;
-use sync_utils::dir_watch::{self, Fingerprints, Wake, WatchedDir};
-use tracing::{debug, warn};
+use sync_utils::dir_watch::{self, Fingerprints, Wake, Watch, WatchedDir};
+use tracing::debug;
 
 /// The settings files of the directory, in the order of the bits of a `Wake` and of a look
 pub(crate) const NAMES: [&str; 2] = [SETTINGS_FILE_NAME, REPOSITORY_STATE_FILE_NAME];
@@ -50,22 +51,18 @@ impl Changed {
   }
 }
 
-/// The first look at the settings files of `directory`, then its watcher (`dir_watch::watch_from`; the directory is
-/// created when missing), which calls `wake` with the settings files each event may have changed; no watcher when the
-/// system refused it. Without `events` (a test of the looks alone) its events reach nothing
-pub fn watch(directory: &Path, events: bool, wake: impl Fn(Changed) + Send + 'static) -> (Fingerprints, Option<RecommendedWatcher>) {
+/// The first look at the settings files of `directory`, then its watch (`dir_watch::watch_from`; the directory is
+/// created when missing), which calls `wake` with the settings files each event may have changed once its watcher
+/// started on its thread. Without `events` (a test of the looks alone) its events reach nothing
+pub fn watch(directory: &Path, events: bool, wake: impl Fn(Changed) + Send + 'static) -> (Fingerprints, Watch) {
   let dir = WatchedDir::new(directory);
   let paths = NAMES.iter().map(|name| directory.join(name)).collect();
-  let (fingerprints, watched) = dir_watch::watch_from(directory, paths, move |event: notify::Result<Event>| {
+  dir_watch::watch_from(directory, paths, move |event: notify::Result<Event>| {
     let changed = if events { Changed::of(&dir, &event) } else { Changed::default() };
     if changed != Changed::default() {
       wake(changed);
     }
-  });
-  let watcher = watched
-    .inspect_err(|error| warn!("cannot watch {}: {error}; the files are looked at every {:?}", directory.display(), dir_watch::RECHECK))
-    .ok();
-  (fingerprints, watcher)
+  })
 }
 
 #[cfg(test)]

@@ -213,7 +213,7 @@ across or handed to a call of git: a memo is locked to look up and to keep, neve
 A watch of the file system is a hint that something changed, never the guarantee that a change is told: on 2026-11-15,
 with fseventsd at 100 % CPU for days, a watch of the operations registry told no change of the file for 28 s and more,
 four of eight E2E sessions heard the stamp of a new lease only in one late batch, and every wait for an event hung until
-the timeout of its runner. Two rules hold for every watch (`sync_utils::dir_watch`, the one helper of the `notify`
+the timeout of its runner. Three rules hold for every watch (`sync_utils::dir_watch`, the one helper of the `notify`
 watches):
 
 1. **Anything that may be a change is a wake.** An event names what may have changed, not all of it: `FSEvents` drops
@@ -234,10 +234,18 @@ watches):
    changed or its last read is 2 s old (0.14 ms with the read at a load of 64), so a window of each watched repository
    shows an operation of another process or syncs for a stamp of `brd` within 2 s with no event at all, and an event
    of another file of the directory reads nothing.
+3. **No caller waits for the start or the stop of a watcher.** `FSEvents` starts and stops a stream through
+   fseventsd: on the loaded Studio (2026-11-25) a start took up to 1.4 s and a stop up to 5.2 s (median 157 ms and
+   262 ms, under a millisecond on a quiet machine), and at the peak of a run of the whole workspace every test that
+   opened a settings writer took 17 to 113 s, and a window that followed a prefix waited more than 20 s: the move of
+   its channel stopped the watch of the session it left and started the one of the new session under the lock of the
+   watches. A `dir_watch::Watch` starts its watcher on a thread of its own and stops it there once dropped; as an
+   event is a hint, a watcher that starts late loses nothing that the looks do not find.
 
 A test of a watch says which path it tests: the guarantee with a watch that tells nothing (`WatchConfig { events:
 false }`, looks every 50 ms), the reaction to an event with events it gives itself (no look, no event of the system),
-and one test of the events of the system, which fails in seconds with "no watch event" instead of hanging
+and one test of the events of the system, which writes what it waits for only once the stream told a write of its own
+(a probe, written again until it is told) and fails with "no watch event" instead of hanging
 ([Fast Rust Tests](../contributing/rust-tests.md), "No test waits for FSEvents").
 
 | Watch | Rule 1 | Rule 2 | Since 2026-11-15 |

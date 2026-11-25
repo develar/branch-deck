@@ -45,14 +45,13 @@ use crate::merge::{Unsaved, changed_keys};
 use crate::watch::{Changed, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
 use domain_types::worktree_epoch::WorktreeEpoch;
-use notify::RecommendedWatcher;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use sync_utils::dir_watch::{Fingerprints, WatchConfig};
+use sync_utils::dir_watch::{Fingerprints, Watch, WatchConfig};
 use sync_utils::page_writes::{PageWrite, PageWrites};
 use sync_utils::span::in_current_span;
 use tracing::{debug, warn};
@@ -383,8 +382,9 @@ impl Shared {
 pub struct SettingsService {
   shared: Arc<Shared>,
   writer: Option<JoinHandle<()>>,
-  /// The watch of the directory for the writes of another process; none when the system refused it
-  watcher: Option<RecommendedWatcher>,
+  /// The watch of the directory for the writes of another process, whose watcher starts and stops on a thread of its
+  /// own; `None` once the drop stopped it
+  watcher: Option<Watch>,
 }
 
 impl SettingsService {
@@ -434,15 +434,13 @@ impl SettingsService {
       .spawn(in_current_span(move || write_loop(&writer_shared, fingerprints)))?;
     // values the load moved wait for the debounce, as a change does
     shared.wake.notify_one();
-    if watcher.is_some() || config.recheck.is_some() {
-      // what another process saved between the load and the start of the watch and of the looks
-      shared.lock().reread = Changed::BOTH;
-      shared.wake.notify_one();
-    }
+    // what another process saved between the load and the start of the watch and of the looks
+    shared.lock().reread = Changed::BOTH;
+    shared.wake.notify_one();
     Ok(Self {
       shared,
       writer: Some(writer),
-      watcher,
+      watcher: Some(watcher),
     })
   }
 

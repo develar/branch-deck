@@ -94,7 +94,7 @@ fn the_reads_of_a_file_of_the_directory_wake_no_waiter_on_the_watch_of_the_syste
   let registry = dir.path().join("operations.json");
   std::fs::write(&registry, "{}").unwrap();
   let (sender, events) = std::sync::mpsc::channel();
-  let _watcher = crate::dir_watch::watch(dir.path(), sender).unwrap();
+  let _watch = crate::dir_watch::watch(dir.path(), sender);
   let watched = WatchedDir::new(dir.path());
   let deadline = Instant::now() + Duration::from_secs(30);
   let no_event = || -> ! { panic!("no watch event within 30 s: the watch of the system runs behind the writes") };

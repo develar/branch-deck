@@ -16,11 +16,19 @@
 //! look, whatever woke it. Its first look comes before its watcher (`watch_from`): `FSEvents` registers a stream after
 //! `FSEventStreamStart` returned and from "now", so it drops a change of its first moments without telling it, and a
 //! first look after the watcher could take that change as where it starts.
+//!
+//! The watcher starts and stops on a thread of its own (`Watch`), never on the caller's: `FSEvents` starts and stops a
+//! stream through fseventsd, which on the loaded Studio took up to 1.4 s for a start and 5.2 s for a stop (median 157 ms
+//! and 262 ms, under a millisecond on a quiet machine), and much longer at the peak of a run of the whole workspace,
+//! where a window that subscribed or followed a prefix waited for them under the lock of the registry watches. As an
+//! event is a hint, a watcher that starts late loses nothing that the looks do not find.
 
+use crate::span::in_current_span;
 use notify::event::{AccessKind, AccessMode};
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use tracing::warn;
 
 /// How often a waiter on a watch looks again without an event. A look of the operations registry with its stamp and
 /// journal that reads the registry too (a read of `operations.json` with three records, then two stats; since
@@ -148,29 +156,63 @@ const fn changes_nothing(kind: EventKind) -> bool {
   )
 }
 
-/// The non-recursive watch of `dir` (made when missing), which gives each event to `handler`; an error when the system
-/// refused one, which the looks of the waiter every `RECHECK` stand in for. For a waiter that reads what it watches at
-/// each look (`TableWake` reads its table): one that compares the stat of files has its `Fingerprints` only from
-/// `watch_from`, which takes them before it starts the watcher
-///
-/// # Errors
-/// The directory cannot be made, or the system refused the watch
-pub fn watch(dir: &Path, handler: impl EventHandler) -> notify::Result<RecommendedWatcher> {
-  std::fs::create_dir_all(dir).map_err(notify::Error::io)?;
+/// A watch of the system that runs while this lives: its watcher starts on a thread of its own, which stops it once this
+/// is dropped, so neither the start nor the stop waits for the daemon of the system (fseventsd) on the caller's thread.
+/// Its handler may get an event shortly after the drop, while the thread stops the watcher
+#[derive(Debug)]
+pub struct Watch {
+  /// The thread stops the watcher when this sender goes
+  _stop: Option<std::sync::mpsc::Sender<()>>,
+}
+
+/// The non-recursive watch of `dir`, which gives each event to `handler`. The directory is made when missing before this
+/// returns; the watcher starts on the thread of the watch, and a watch that the system refused is logged there and
+/// drops `handler` (a channel it sends to ends), which the looks of the waiter stand in for. For a waiter that reads
+/// what it watches at each look (`TableWake` reads its table): one that compares the stat of files has its
+/// `Fingerprints` only from `watch_from`, which takes them before it starts the watcher
+pub fn watch(dir: &Path, handler: impl EventHandler) -> Watch {
+  if let Err(error) = std::fs::create_dir_all(dir) {
+    warn!(dir = %dir.display(), %error, "cannot make the directory to watch: the looks of its waiter stand in for the events");
+    return Watch { _stop: None };
+  }
+  let (stop, stopped) = std::sync::mpsc::channel::<()>();
+  let watched = dir.to_path_buf();
+  let started = std::thread::Builder::new().name("dir-watch".to_owned()).spawn(in_current_span(move || {
+    match start_watcher(&watched, handler) {
+      // the end of the watch: its sender went
+      Ok(watcher) => {
+        let _ = stopped.recv();
+        drop(watcher);
+      }
+      Err(error) => warn!(dir = %watched.display(), %error, "cannot watch the directory: the looks of its waiter stand in for the events"),
+    }
+  }));
+  match started {
+    Ok(_thread) => Watch { _stop: Some(stop) },
+    Err(error) => {
+      warn!(dir = %dir.display(), %error, "cannot start the thread of a watch: the looks of its waiter stand in for the events");
+      Watch { _stop: None }
+    }
+  }
+}
+
+/// The watcher of the system on `dir`, started on this thread, which waits for the daemon of the system
+fn start_watcher(dir: &Path, handler: impl EventHandler) -> notify::Result<RecommendedWatcher> {
   let mut watcher = notify::recommended_watcher(handler)?;
   watcher.watch(dir, RecursiveMode::NonRecursive)?;
   Ok(watcher)
 }
 
 /// The first look at `paths`, then the watch of `dir` (`watch`): a change after the look is told by an event or found by
-/// the next look, also one in the first moments of the stream, which `FSEvents` drops without telling it. A waiter that
-/// looks at files starts its watch this way, never with a first look after the watcher
-pub fn watch_from(dir: &Path, paths: Vec<PathBuf>, handler: impl EventHandler) -> (Fingerprints, notify::Result<RecommendedWatcher>) {
+/// the next look, also one in the first moments of the stream, which `FSEvents` drops without telling it, and one before
+/// the watcher started on its thread. A waiter that looks at files starts its watch this way, never with a first look
+/// after the watcher
+pub fn watch_from(dir: &Path, paths: Vec<PathBuf>, handler: impl EventHandler) -> (Fingerprints, Watch) {
   watch_from_with(dir, paths, handler, watch)
 }
 
 /// `watch_from` with `start` as the start of the watcher, the seam of the test of the order
-pub(crate) fn watch_from_with<H, W>(dir: &Path, paths: Vec<PathBuf>, handler: H, start: impl FnOnce(&Path, H) -> notify::Result<W>) -> (Fingerprints, notify::Result<W>) {
+pub(crate) fn watch_from_with<H, W>(dir: &Path, paths: Vec<PathBuf>, handler: H, start: impl FnOnce(&Path, H) -> W) -> (Fingerprints, W) {
   let fingerprints = Fingerprints::new(paths);
   let watcher = start(dir, handler);
   (fingerprints, watcher)

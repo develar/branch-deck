@@ -873,11 +873,12 @@ pub fn watches_started() -> u64 {
 }
 
 /// The file events of the table and the pool, for a lend that waits, or of the heavy turn (`host_turn`) for a run that
-/// waits for it; `None` inside when the system refused a watch. An event is a hint (`sync_utils::dir_watch`): a change
-/// of one of the files wakes a wait, and so does anything that may be one, which the next look of the caller reads
+/// waits for it, from a watcher that starts and stops on a thread of its own (`sync_utils::dir_watch::Watch`); a watch
+/// the system refused ends the events (the thread drops their sender). An event is a hint (`sync_utils::dir_watch`): a
+/// change of one of the files wakes a wait, and so does anything that may be one, which the next look of the caller reads
 pub(crate) struct TableWake {
   events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
-  _watcher: Option<notify::RecommendedWatcher>,
+  _watch: Option<sync_utils::dir_watch::Watch>,
   dir: sync_utils::dir_watch::WatchedDir,
   /// The names of the files of `dir` whose change wakes a wait
   files: &'static [&'static str],
@@ -888,12 +889,9 @@ impl TableWake {
   pub(crate) fn start(dir: &Path, files: &'static [&'static str]) -> Self {
     WATCHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (sender, events) = std::sync::mpsc::channel();
-    let watcher = sync_utils::dir_watch::watch(dir, sender)
-      .inspect_err(|error| warn!(dir = %dir.display(), %error, "cannot watch the host slots: a wait looks every 5 s"))
-      .ok();
     Self {
       events,
-      _watcher: watcher,
+      _watch: Some(sync_utils::dir_watch::watch(dir, sender)),
       dir: sync_utils::dir_watch::WatchedDir::new(dir),
       files,
     }
@@ -904,7 +902,7 @@ impl TableWake {
   pub(crate) fn of_events(dir: &Path, files: &'static [&'static str], events: std::sync::mpsc::Receiver<notify::Result<notify::Event>>) -> Self {
     Self {
       events,
-      _watcher: None,
+      _watch: None,
       dir: sync_utils::dir_watch::WatchedDir::new(dir),
       files,
     }

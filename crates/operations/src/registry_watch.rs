@@ -37,7 +37,7 @@ use crate::registry::JournalListener;
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::operation::RunningOperation;
 use domain_types::session::SyncReason;
-use notify::{Event, RecommendedWatcher};
+use notify::Event;
 use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::OperationPatch;
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
-use sync_utils::dir_watch::{self, Fingerprints, WatchConfig, WatchedDir};
+use sync_utils::dir_watch::{self, Fingerprints, Watch, WatchConfig, WatchedDir};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tokio::sync::Notify;
@@ -236,8 +236,10 @@ struct RepositoryWatch {
   /// The sessions, each with the number of its subscriptions that watch
   keys: HashMap<SessionKey, Watching>,
   wake: Arc<Wake>,
-  /// `None` when the system refused a watch: the looks every `RECHECK` stand in for it
-  _watcher: Option<RecommendedWatcher>,
+  /// The watch of the directory, whose watcher starts and stops on a thread of its own: the subscribe of a window and
+  /// the follow of a prefix, which start and end this under the lock of the watches, never wait for fseventsd. A watch
+  /// the system refused is logged there, and the looks every `RECHECK` stand in for it
+  _watch: Watch,
   task: tokio::task::AbortHandle,
 }
 
@@ -407,38 +409,28 @@ fn start(sessions: &Arc<Sessions>, registry: &ProcessRegistry, watches: Watches)
   let config = watches.config;
   // the first look, before the watcher (`dir_watch::watch_from`): a change after it is told by an event or found by the
   // next look, also one in the first moments of the stream, which `FSEvents` drops
-  let (fingerprints, watcher) = watcher(registry, &wake, config.events);
+  let (fingerprints, watch) = watcher(registry, &wake, config.events);
   let span = tracing::info_span!(parent: None, "registry_watch", registry = %registry.dir().display());
   let _entered = span.enter();
   let task = tokio::spawn(run(Arc::clone(sessions), registry.clone(), watches, Arc::clone(&wake), fingerprints, config.recheck).in_current_span());
   RepositoryWatch {
     keys: HashMap::new(),
     wake,
-    _watcher: watcher,
+    _watch: watch,
     task: task.abort_handle(),
   }
 }
 
-/// The watcher of the directory of `registry`, which asks `wake` for a look at each event of the directory; `None` when
-/// the system refused it. Without `events` (a test) its events reach nothing
-fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> (Fingerprints, Option<RecommendedWatcher>) {
+/// The first look at the files of `registry`, then the watch of its directory, which asks `wake` for a look at each
+/// event of the directory once its watcher started on its thread. Without `events` (a test) its events reach nothing
+fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>, events: bool) -> (Fingerprints, Watch) {
   let handler = Arc::clone(wake);
   let dir = WatchedDir::new(registry.dir());
-  let (fingerprints, watched) = dir_watch::watch_from(registry.dir(), watched_paths(registry.dir()), move |event: notify::Result<Event>| {
+  dir_watch::watch_from(registry.dir(), watched_paths(registry.dir()), move |event: notify::Result<Event>| {
     if events {
       woken(&handler, &dir, &event);
     }
-  });
-  let watcher = watched
-    .inspect_err(|error| {
-      warn!(
-        "cannot watch {}: {error}; the registry is looked at every {:?}",
-        registry.dir().display(),
-        dir_watch::RECHECK
-      );
-    })
-    .ok();
-  (fingerprints, watcher)
+  })
 }
 
 /// Asks `wake` for a look when `event` may be a change of the registry, the stamp or the journal (`WatchedDir::wake_of`):
