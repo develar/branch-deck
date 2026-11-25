@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, getRowWait } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, mergeRunningRobot, robot, startRequest } from "../helpers/patronus-helpers"
-import { openSafePushWithKey, safePushPopover } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, safePushPopover, startAnywayFromMore } from "../helpers/safe-push-helpers"
 import { runAndWaitForAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import { holdToast } from "../helpers/toast-helpers"
 import { recordCommand } from "../helpers/wait-helpers"
@@ -41,12 +41,7 @@ test.describe("Lands after", () => {
       await expect(needs.getByTestId("safe-push-landing-headline")).toHaveText("Lands after codec")
       await expect(popover.getByTestId("safe-push-start")).toHaveCount(0)
       const starts = await recordCommand(page, "execute")
-      await popover.getByRole("button", { name: "More actions for the Safe Push of flow" }).click()
-      // enabled once the plan of the start loaded
-      const startAnyway = page.getByRole("menuitem", { name: "Start Anyway" })
-      await expect(startAnyway).toBeEnabled()
-      await runAndWaitForAnswer(page, "execute", () => startAnyway.click())
-      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+      await startAnywayFromMore(page, popover, "flow")
       expect(starts).toEqual([
         expect.objectContaining({ intent: expect.objectContaining({ subject: { kind: "branch", name: "flow" }, allow: expect.objectContaining({ allowMissing: true }) }) }),
       ])

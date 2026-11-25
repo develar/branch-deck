@@ -1412,6 +1412,39 @@
     }
   },
   {
+    "id": "whole-stack-needs-a-failed-branch",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks, auth uses a name only codec adds, and the Safe Push of codec failed: the edge of the whole stack is the restart of codec, row 1′ on the row of auth",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/next-step/spec.md#the-table:1′",
+      "openspec/specs/branch/landing-plan/spec.md#rows",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "subject": "wholeStack",
+      "landingNeeds": true,
+      "robot": {
+        "state": "failure",
+        "on": "branch:codec"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "needsBranch"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login", "session"]
+      },
+      "hostsWholeStack": true
+    }
+  },
+  {
     "id": "whole-stack-merged-robot-of-an-earlier-stack-branch",
     "group": "stack-and-whole-stack",
     "title": "a Safe Push of the whole stack merged another commit than its stack branch is at, and nothing tells it landed the stack as it is: new work, Safe Push of the whole stack lands every branch",

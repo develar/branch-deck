@@ -6,7 +6,7 @@ import { availableRobots, expectPatronusStarts, robot, startRequest, wholeStackS
 import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
 import { addRecentProject, switchRepository } from "../helpers/repository-switch-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush, startAnyway } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush, startAnyway, startAnywayFromMore } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { runAndWaitForAnswer, runAndWaitForSync, waitForSettledSession } from "../helpers/sync-helpers"
@@ -442,13 +442,13 @@ test.describe("Landing needs", () => {
     await expectPatronusStarts(repo, [wholeStackStartRequest("lane-run")])
   })
 
-  test("should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot", async ({
+  test("should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot and Start Anyway in the popover's ⋯", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
     // the Safe Push of stills-codec runs, which lands what the whole lane-run stack needs: it lands after it
-    await setupRepo("landing_needs_fork", { patronus: availableRobots(robot("stills-codec", "stills-robot")) })
+    const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots(robot("stills-codec", "stills-robot")) })
     await syncAndWaitForBranches()
     const row = findBranchRow(page, "lane-run")
     const slot = step(page, "lane-run")
@@ -457,11 +457,55 @@ test.describe("Landing needs", () => {
     await expect(slot).toHaveAttribute("data-step", "landsAfter")
     await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", "waiting")
-    // S opens the popover of the whole stack at the row, which says what it waits for
+    // S opens the popover of the whole stack at the row, which says what it waits for and starts only from its "⋯": a
+    // start beside that robot fails
     await row.focus()
     await page.keyboard.press("s")
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole lane-run stack")
-    await expect(popover).toContainText("Lands after stills-codec")
+    const needs = popover.getByTestId("safe-push-landing-needs")
+    await expect(needs).toHaveAttribute("data-waits", "true")
+    await expect(needs.getByTestId("safe-push-landing-headline")).toHaveText("Lands after stills-codec")
+    await expect(popover.getByTestId("safe-push-start")).toHaveCount(0)
+    const starts = await recordCommand(page, "execute")
+    await startAnywayFromMore(page, popover, "the whole lane-run stack")
+    expect(starts.at(-1)).toMatchObject({ intent: { subject: { kind: "wholeStack", root: "lane-run" }, allow: { allowMissing: true } } })
+    await expectPatronusStarts(repo, [wholeStackStartRequest("lane-run")])
+  })
+
+  test("should offer the fix of what the whole stack needs outside it in the slot of the root's row, and land it together on the press", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // nothing lands stills-codec: the edge of the unit is open, its fix the restack of the root onto it
+    await setupRepo("landing_needs_fork", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const button = step(page, "lane-run").getByTestId("next-step")
+    await expect(button).toHaveText("Needs stills-codec")
+    await button.hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Uses Stills of stills-codec in BuildLog.kt. Stack lane-run on stills-codec to land it too.")
+    await runAndWaitForSync(page, () => button.click())
+    // one unit: stills-codec heads the stack that forks, and its row hosts the whole stack, which needs nothing now
+    await expect(page.getByText("Stacked lane-run on stills-codec")).toBeVisible()
+    await expect.poll(() => depths(page)).toEqual(["stills-codec@0", "lane-run@1", "ui-perf-nightly@2"])
+    await expect(step(page, "stills-codec")).toHaveAttribute("data-whole-stack", "stills-codec")
+    await expect(slotSafePush(page, "stills-codec")).toHaveText("Safe Push · 4")
+  })
+
+  test("should offer the restart of the failed Safe Push of what the whole stack needs in the slot of the root's row", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the Safe Push of stills-codec failed: the edge of the unit waits for its restart
+    const failed = robot("stills-codec", "stills-robot", { status: "failure", finishTime: 1704142800 })
+    const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots(failed) })
+    await syncAndWaitForBranches()
+    const slot = step(page, "lane-run")
+    await expect(slot).toHaveAttribute("data-whole-stack", "lane-run")
+    await expect(slot).toHaveAttribute("data-step", "needsBranch")
+    await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
+    const restart = slot.getByTestId("next-step")
+    await expect(restart).toHaveText("Restart stills-codec")
+    // the press restarts the robot of stills-codec, which lands what the whole stack needs
+    await runAndWaitForAnswer(page, "execute", () => restart.click())
+    expect((await repo.getPatronusLog()).restarts).toEqual([failed.id])
   })
 })

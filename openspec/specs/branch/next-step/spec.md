@@ -915,9 +915,15 @@ its step takes rows 0 and 1′ as a branch's, so its root's row, the overview, t
 
 #### Scenario: What it needs is landing
 - **WHEN** a running Safe Push lands the branch the whole stack needs
-- **THEN** its step is "Lands after stills-codec", a wait: no start in the slot of the row of its root
+- **THEN** its step is "Lands after stills-codec", a wait: no start in the slot of the row of its root, Start Anyway only in the "⋯" of its popover
   [@test] crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot and Start Anyway in the popover's ⋯`)
+
+#### Scenario: The fix of the edge in the slot
+- **WHEN** nothing lands the branch the whole stack needs, or its Safe Push failed
+- **THEN** the slot of the root's row offers the action of the edge, "Needs stills-codec" (Stack lane-run on stills-codec, which lands it together) or "Restart stills-codec", and its press runs it
+  [@test] crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should offer the fix of what the whole stack needs outside it in the slot of the root's row, and land it together on the press`, `should offer the restart of the failed Safe Push of what the whole stack needs in the slot of the root's row`)
 
 #### Scenario: A need of a branch of the stack
 - **WHEN** a branch of the stack needs another branch of it

@@ -1403,7 +1403,7 @@ overview said.
 #### Scenario: A need outside the stack
 - **WHEN** a branch of the stack needs a branch outside it
 - **THEN** the slot of the root's row says it as the overview does ("Needs stills-codec", its fix; "Lands after stills-codec" while that branch is landing, no start), never a ready "Safe Push · 3" its start refuses
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot and Start Anyway in the popover's ⋯`)
 
 ### Requirement: The Safe Push of the whole stack in the app: It is asked from the header, the root's menu and popovers
 

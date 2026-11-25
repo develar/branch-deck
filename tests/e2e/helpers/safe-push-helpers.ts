@@ -157,3 +157,15 @@ export async function startAnyway(page: Page, branchName: string, allow: Record<
   await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
   expect(starts).toEqual([expect.objectContaining({ intent: expect.objectContaining({ subject: { kind: "branch", name: branchName }, allow: expect.objectContaining(allow) }) })])
 }
+
+/**
+ * Start Anyway of the "⋯" of the open popover of a start that waits for the landing of what it needs (`subject`, "flow",
+ * "the whole lane-run stack"), once the plan of the start loaded: its start, past the wait, and the toast that it started
+ */
+export async function startAnywayFromMore(page: Page, popover: Locator, subject: string): Promise<void> {
+  await popover.getByRole("button", { name: `More actions for the Safe Push of ${subject}` }).click()
+  const startAnyway = page.getByRole("menuitem", { name: "Start Anyway" })
+  await expect(startAnyway).toBeEnabled()
+  await runAndWaitForAnswer(page, "execute", () => startAnyway.click())
+  await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+}
