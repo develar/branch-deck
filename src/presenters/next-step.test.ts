@@ -177,6 +177,22 @@ describe("the words of the next step", () => {
     expect(after("r1").wait?.label).toBe("Restart after util")
   })
 
+  it("row 1′: a branch of a stack whose root's row hosts its whole stack says a need of the unit as a state that shows the root's row", () => {
+    const refused = (reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>).refusal
+    const calls: string[] = []
+    const step = presentNextStep(
+      testStep({ kind: "withStack", root: "lane-run", needed: "util", edges: [testEdge(refused)] }, { wait: true }),
+      testContext({ actions: testActions(calls) }),
+    )
+    expect(step).toMatchObject({ kind: "withStack", tone: "quiet" })
+    expect(step.wait).toMatchObject({
+      label: "Needs util with lane-run",
+      description: "Uses parseFlow of util in Flow.kt. Stack flow on util to land it too.\nIt lands with the whole lane-run stack, whose row fixes it",
+    })
+    step.wait!.open(FROM_MENU)
+    expect(calls).toEqual(["showBranch lane-run"])
+  })
+
   it("row 1′: while the fix runs on the row, or waits in the session for the fresh needs, its item of the slot and of ⋯ are disabled", () => {
     const refused = reasonOf("landingRefused") as Extract<Reason, { code: "landingRefused" }>
     const busy = { id: "rewrite", label: "Stacking flow on util" }

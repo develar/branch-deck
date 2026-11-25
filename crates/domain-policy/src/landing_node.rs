@@ -276,9 +276,13 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
       }
     }
     StepKind::ChangesRequested { .. } | StepKind::ChangesRequestedUnjudged { .. } => LandingNodeKind::NeedsFix,
-    StepKind::OtherBase { .. } | StepKind::Awaiting { .. } | StepKind::AwaitingUnjudged { .. } | StepKind::AfterLanding { .. } | StepKind::Settled | StepKind::Hidden => {
-      LandingNodeKind::Waiting
-    }
+    StepKind::OtherBase { .. }
+    | StepKind::Awaiting { .. }
+    | StepKind::AwaitingUnjudged { .. }
+    | StepKind::AfterLanding { .. }
+    | StepKind::WithStack { .. }
+    | StepKind::Settled
+    | StepKind::Hidden => LandingNodeKind::Waiting,
     // nobody knows yet whether it can land: never a node that a later answer turns into another
     StepKind::Pending { .. } | StepKind::Unavailable { .. } => return waits(NodeLabel::Step { step: Box::new(step) }),
   };

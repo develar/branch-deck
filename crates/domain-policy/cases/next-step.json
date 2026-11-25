@@ -1445,6 +1445,34 @@
     }
   },
   {
+    "id": "whole-stack-need-of-a-branch-of-it",
+    "group": "stack-and-whole-stack",
+    "title": "the stack of auth forks and login uses a name only codec adds: the need is one edge of the unit, which the row of auth shows and fixes; login says it as a state, Needs codec with auth, its own start refused without Start Anyway",
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/next-step/spec.md#the-table:1′",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
+      "branch": "login",
+      "landingNeeds": true
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "withStack"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login"]
+      },
+      "hostsWholeStack": false
+    }
+  },
+  {
     "id": "whole-stack-merged-robot-of-an-earlier-stack-branch",
     "group": "stack-and-whole-stack",
     "title": "a Safe Push of the whole stack merged another commit than its stack branch is at, and nothing tells it landed the stack as it is: new work, Safe Push of the whole stack lands every branch",

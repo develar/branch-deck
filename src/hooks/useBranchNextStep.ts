@@ -31,6 +31,7 @@ import { getRequestReviewItem } from "@/presenters/review"
 import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
+import { requestReveal } from "@/stores/commit-move"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords, operationBusyOf } from "@/stores/indicators"
 import { showLandingEdge } from "@/stores/landing-section"
@@ -192,6 +193,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     },
     ...edgeRunners(key),
     showLandingEdge: needed => showLandingEdge({ branch: stackRootOfReadinessKey(key) ?? key, needed }),
+    showBranch: name => requestReveal({ branchName: name, commitIds: [], focus: true }),
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),

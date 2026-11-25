@@ -10541,6 +10541,12 @@ export type StepKind =
  */
 { kind: "afterLanding"; needed: string; robot: RobotOf; edges: LandingEdge[]; restart: string | null } | 
 /**
+ *  Row 1′ of a branch of a stack that forks whose root's row hosts its whole stack, one unit of the landing plan: every
+ *  need of its start is an edge of the unit (`edges`, the first `needed`), which the row of `root` shows once and
+ *  fixes; a state here ("Needs stills-codec with lane-run"), its click the row of the root
+ */
+{ kind: "withStack"; root: string; needed: string; edges: LandingEdge[] } | 
+/**
  *  Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
  *  also the one before a start, drops them, so they come in first (Pick Remote Commits)
  */

@@ -32,6 +32,7 @@ export function StepWaitStatus({ wait, showKeys }: { wait: StepWait; showKeys: b
               type="button"
               className={cn("flex h-6 max-w-full items-center gap-2 rounded-sm text-sm outline-none hover:underline focus-visible:bd-focus", toneClass[wait.tone])}
               data-testid="step-wait"
+              data-step-wait
               data-tone={wait.tone}
               onClick={event => {
                 // the row toggles on a click

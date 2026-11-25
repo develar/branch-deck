@@ -282,6 +282,17 @@ pub struct StepFacts<'a> {
   /// The pull requests of the branches as GitHub listed them: the layers below the pull request of a layer of a stack
   /// of GitHub, which its merge merges too (`github_stack::layers_below`); `None` before a listing
   pub listed: Option<&'a BTreeMap<String, PullRequest>>,
+  /// Of a branch of a stack that forks whose root's row hosts its whole stack: that unit, whose edges the row of its
+  /// root shows (`StepKind::WithStack`); `None` otherwise
+  pub unit: Option<StackUnit<'a>>,
+}
+
+/// The whole stack a branch of it lands inside, one unit of the landing plan whose root's row hosts it
+#[derive(Clone, Copy, Debug)]
+pub struct StackUnit<'a> {
+  pub root: &'a str,
+  /// The edges of the whole stack (`landing_edges`, lifted to its root)
+  pub edges: &'a [LandingEdge],
 }
 
 /// The robot of the row, as its slot shows it, and the Status cell (`row_status`)
@@ -676,11 +687,31 @@ fn gated(facts: &StepFacts<'_>, gate: &RouteGate, general: Option<StepBlocker>, 
 /// Row 1′ of `refusals`, the needs of the subject: a wait for the landing of what they need while every edge of them
 /// waits for a running Safe Push (`after_landing`), else the need, its edges for the words
 fn needs_step(facts: &StepFacts<'_>, refusals: &[LandingRefusal], general: Option<StepBlocker>, dry_run: Option<StepBlocker>) -> NextStep {
-  let kind = after_landing(facts, refusals).unwrap_or_else(|| StepKind::NeedsBranch {
-    refusals: refusals.to_vec(),
-    edges: facts.edges.to_vec(),
-  });
+  let kind = after_landing(facts, refusals)
+    .or_else(|| with_stack(facts, refusals))
+    .unwrap_or_else(|| StepKind::NeedsBranch {
+      refusals: refusals.to_vec(),
+      edges: facts.edges.to_vec(),
+    });
   step(StepRow::OnePrime, kind, general, dry_run)
+}
+
+/// The need of a branch of a stack whose root's row hosts its whole stack (`StackUnit`): while every edge of its needs is
+/// an edge of the unit, which the row of the root shows once and fixes, the branch says it as a state, "Needs
+/// stills-codec with lane-run" (`StepKind::WithStack`); a need the unit lacks (of a branch of the stack, a lost binding)
+/// is its own
+fn with_stack(facts: &StepFacts<'_>, refusals: &[LandingRefusal]) -> Option<StepKind> {
+  let unit = facts.unit?;
+  let first = facts.edges.first()?;
+  let carried = facts.edges.iter().all(|edge| unit.edges.iter().any(|it| it.needed == edge.needed && it.kind == edge.kind));
+  if !carried || refusals.iter().any(|refusal| matches!(refusal, LandingRefusal::LostBinding { .. })) {
+    return None;
+  }
+  Some(StepKind::WithStack {
+    root: unit.root.to_string(),
+    needed: first.needed.clone(),
+    edges: facts.edges.to_vec(),
+  })
 }
 
 /// The wait of a subject whose every need is of an edge that waits for a running Safe Push (`EdgeState::Waits`): it

@@ -209,6 +209,10 @@ pub enum StepKind {
     edges: Vec<LandingEdge>,
     restart: Option<String>,
   },
+  /// Row 1′ of a branch of a stack that forks whose root's row hosts its whole stack, one unit of the landing plan: every
+  /// need of its start is an edge of the unit (`edges`, the first `needed`), which the row of `root` shows once and
+  /// fixes; a state here ("Needs stills-codec with lane-run"), its click the row of the root
+  WithStack { root: String, needed: String, edges: Vec<LandingEdge> },
   /// Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
   /// also the one before a start, drops them, so they come in first (Pick Remote Commits)
   PickRemoteCommits { count: u32 },
@@ -285,7 +289,8 @@ impl StepKind {
       | Self::OtherBase { .. }
       | Self::AutoMerging { .. }
       | Self::MergeHeld { .. }
-      | Self::AfterLanding { .. } => true,
+      | Self::AfterLanding { .. }
+      | Self::WithStack { .. } => true,
       Self::CreatePullRequest { stack, .. } => stack.is_some(),
       Self::RobotPullRequest { number } => number.is_some(),
       Self::Hidden

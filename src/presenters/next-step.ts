@@ -57,6 +57,7 @@ export type NextStepKind =
   | "pending"
   | "needsBranch"
   | "landsAfter"
+  | "withStack"
   | "pickRemoteCommits"
   | "updateProject"
   | "restart"
@@ -124,6 +125,8 @@ export interface NextStepActions {
   readonly restartRobot: (robotId: string) => void
   /** Shows the plan of Landing with the edge of the subject to `needed` highlighted ("Lands after codec" opens it) */
   readonly showLandingEdge: (needed: string) => void
+  /** Shows the row of the branch `name` ("Needs codec with lane" shows the row of lane, which fixes it) */
+  readonly showBranch: (name: string) => void
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
@@ -535,6 +538,21 @@ function landsAfter(kind: Extract<StepKind, { kind: "afterLanding" }>, context: 
   return { kind: "landsAfter", item, tone: "quiet", own: reason, notice, status }
 }
 
+/**
+ * Row 1′ of a branch of a stack that forks whose root's row hosts its whole stack, every need of it one of the unit
+ * (`withStack`): a state, "Needs stills-codec with lane-run", its hover the sentence of each edge and where it is fixed;
+ * it shows the row of the root, whose slot shows the need once and fixes it. Its Safe Push popover (S) says the need of
+ * its own start beside it
+ */
+function withStack(kind: Extract<StepKind, { kind: "withStack" }>, context: StepContext): Shown {
+  const status = `Needs ${kind.needed} with ${kind.root}`
+  const edges = kind.edges.map(describeEdge).join("\n")
+  const reason = `${edges}\nIt lands with ${formatWholeStack(kind.root)}, whose row fixes it`
+  const item: MenuItem = { id: "with-stack", label: status, icon: Layers2Icon, description: reason, onSelect: () => context.actions.showBranch(kind.root) }
+  const notice = { title: `${context.subject} needs ${kind.needed} with ${kind.root}`, description: reason }
+  return { kind: "withStack", item, tone: "quiet", own: reason, notice, status }
+}
+
 /** Row 7: the pull request that collects the approvals, or "In #12" of the whole stack whose own Safe Push they count for */
 function createPullRequest(kind: Extract<StepKind, { kind: "createPullRequest" }>, context: StepContext): Shown {
   const { subject, actions } = context
@@ -645,6 +663,8 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       return needsBranch(kind, context)
     case "afterLanding":
       return landsAfter(kind, context)
+    case "withStack":
+      return withStack(kind, context)
     case "pickRemoteCommits": {
       // row 1″: a push, also the one before a start, would drop the work of someone else on the remote branch
       const commits = formatCommitCount(kind.count)

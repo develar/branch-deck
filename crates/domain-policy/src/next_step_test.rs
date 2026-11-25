@@ -1,6 +1,6 @@
 use crate::facts::RemoteBranch;
 use crate::landing_edges::edges_of;
-use crate::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
+use crate::next_step::{Listing, Needs, PatronusStanding, StackUnit, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot, whole_stack_robot_of};
 use domain_types::landing::{Landed, LandedBy, LandingEdge, LandingFix, LandingRefusal, NeedState, Subject};
@@ -59,6 +59,8 @@ pub(crate) struct Fixture {
   pub merge_methods: Option<MergeMethods>,
   /// The edges of `needs`, as the session derives them (`landing_edges::edges_of`): `with` derives them again
   pub edges: Vec<LandingEdge>,
+  /// The whole stack it lands inside, whose root's row hosts it: its root and its edges
+  pub unit: Option<(String, Vec<LandingEdge>)>,
 }
 
 pub(crate) fn fresh<T>(value: T) -> Fact<T> {
@@ -131,6 +133,7 @@ impl Fixture {
       route: LandingRoute::Patronus { gate: RouteGate::Open },
       merge_methods: None,
       edges: Vec::new(),
+      unit: None,
     }
   }
 
@@ -184,6 +187,7 @@ impl Fixture {
       repository: self.repository,
       lands: self.lands,
       listed: None,
+      unit: self.unit.as_ref().map(|(root, edges)| StackUnit { root, edges }),
     }
   }
 
@@ -738,6 +742,38 @@ fn row_1_prime_waits_while_every_need_is_landing_in_a_running_safe_push() {
     });
   });
   assert!(matches!(open.step().kind, StepKind::NeedsBranch { .. }));
+}
+
+/// Row 1′ of a branch of a stack that forks whose root's row hosts its whole stack: a need the unit carries (an edge of
+/// the whole stack) is a state on the branch, "Needs codec with lane", which the root's row shows once and fixes; a need
+/// the unit lacks is its own row 1′, and a need that is landing stays the wait it is
+#[test]
+fn row_1_prime_of_a_branch_of_a_hosted_whole_stack_is_a_state_while_the_unit_carries_its_need() {
+  let needs = Fixture::branch().with(|it| {
+    it.needs = Some(LandingNeeds::Known {
+      refusals: vec![missing_declaration()],
+    });
+  });
+  let unit_edges = edges_of("lane", "lane", &[missing_declaration()], |_| None);
+  let carried = needs.clone().with(|it| it.unit = Some(("lane".to_string(), unit_edges.clone())));
+  let step = carried.step();
+  assert_eq!(
+    shape(&step),
+    (
+      StepRow::OnePrime,
+      StepKind::WithStack {
+        root: "lane".to_string(),
+        needed: "codec".to_string(),
+        edges: edges_of("auth", "auth", &[missing_declaration()], |_| None),
+      },
+      None,
+      None
+    )
+  );
+  assert!(step.wait, "a state: the status says it, the slot shows none");
+  // the unit needs another branch: the need is the branch's own
+  let other = needs.with(|it| it.unit = Some(("lane".to_string(), edges_of("lane", "lane", &[missing_declaration_of("other")], |_| None))));
+  assert!(matches!(other.step().kind, StepKind::NeedsBranch { .. }));
 }
 
 fn missing_declaration_of(branch: &str) -> LandingRefusal {

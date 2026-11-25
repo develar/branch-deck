@@ -20,7 +20,8 @@ pub struct NextStepSummary {
   /// Patronus can't judge them, `11` a Safe Push; `no slot` off Space
   pub row: String,
   /// `pending`, `unavailable`, `settled`, `needs_branch`, `after_landing` (every need of its start is landing in a running
-  /// Safe Push: it starts after it, `lands_after`), `restart`, `robot_pull_request`, `retarget`, `other_base`,
+  /// Safe Push: it starts after it, `lands_after`), `with_stack` (a branch of a stack that forks whose every need is one of
+  /// its whole stack, which the root's row shows and fixes), `restart`, `robot_pull_request`, `retarget`, `other_base`,
   /// `draft`, `create_pull_request`, `changes_requested`, `request_review`, `awaiting`, `changes_requested_unjudged`,
   /// `awaiting_unjudged`, `safe_push` or `hidden`
   pub step: String,
@@ -157,6 +158,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::Unavailable { .. } => "unavailable",
     StepKind::NeedsBranch { .. } => "needs_branch",
     StepKind::AfterLanding { .. } => "after_landing",
+    StepKind::WithStack { .. } => "with_stack",
     StepKind::PickRemoteCommits { .. } => "pick_remote_commits",
     StepKind::Restart { .. } => "restart",
     StepKind::RobotPullRequest { .. } => "robot_pull_request",
@@ -224,6 +226,7 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::Unavailable { .. }
     | StepKind::NeedsBranch { .. }
     | StepKind::AfterLanding { .. }
+    | StepKind::WithStack { .. }
     | StepKind::PickRemoteCommits { .. }
     | StepKind::Restart { .. }
     | StepKind::SafePush
@@ -293,6 +296,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     | StepKind::Settled
     | StepKind::NeedsBranch { .. }
     | StepKind::AfterLanding { .. }
+    | StepKind::WithStack { .. }
     | StepKind::Restart { .. }
     | StepKind::RobotPullRequest { .. }
     | StepKind::Retarget { .. }

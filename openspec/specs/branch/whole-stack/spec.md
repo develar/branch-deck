@@ -1340,7 +1340,7 @@ pull request.
 - **WHEN** the build of the whole stack needs a branch outside it
 - **THEN** its popover says it before the start, Start Anyway its start, as the needs of its branches found it
 - **AND** while the needs of new tips are computed, the start is refused by the gate of the whole stack, with the restack and Start Anyway
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say once, on the root's row, what the whole stack needs outside it, the branches built on it a state that shows that row, and start it anyway from its popover past the refusal`, `should refuse the Safe Push of a whole stack in the gate of its start while the needs of new tips are computed, with the restack and Start Anyway`)
 
 #### Scenario: The start pushes the stack branch and starts the robot
 - **GIVEN** the remote of the stack branch lacks it
@@ -1403,7 +1403,7 @@ overview said.
 #### Scenario: A need outside the stack
 - **WHEN** a branch of the stack needs a branch outside it
 - **THEN** the slot of the root's row says it as the overview does ("Needs stills-codec", its fix; "Lands after stills-codec" while that branch is landing, no start), never a ready "Safe Push · 3" its start refuses
-  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal`, `should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot and Start Anyway in the popover's ⋯`)
+  [@test] tests/e2e/next-step/landing-needs.spec.ts (`should say once, on the root's row, what the whole stack needs outside it, the branches built on it a state that shows that row, and start it anyway from its popover past the refusal`, `should say on the root's row that the whole stack lands after the running Safe Push of what it needs, with no start in its slot and Start Anyway in the popover's ⋯`)
 
 ### Requirement: The Safe Push of the whole stack in the app: It is asked from the header, the root's menu and popovers
 

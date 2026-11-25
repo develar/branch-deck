@@ -75,7 +75,7 @@ use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, hosts_whole_stack, landing_node, root_own_node};
 use domain_policy::landing_plan::{PlanFacts, UnitFacts, landing_plan, landing_units, together_forks};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
-use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
+use domain_policy::next_step::{Listing, Needs, PatronusStanding, StackUnit, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::{github_repository_known, layer_base_of};
 use domain_policy::push::{
@@ -1841,7 +1841,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
   // in the order of the stacks, then of the rows: collected into the map at once
   let mut steps = Vec::with_capacity(sources.rows.len() + sources.table.stack_branches.len());
   // the whole stacks first, by root, their node and their step: the row of the root of each may host it
-  let mut hosted: HashMap<String, (LandingNode, NextStep)> = HashMap::new();
+  let mut hosted: HashMap<String, (LandingNode, NextStep, Vec<LandingEdge>)> = HashMap::new();
   for stack in sources.table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
     let key = stack_readiness_key(&stack.root);
     let facts = sources.view.stacks.get(&stack.root);
@@ -1950,6 +1950,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(lands).unwrap_or(u32::MAX),
       listed: Some(&sources.pull_requests.pull_requests),
+      unit: None,
     };
     // a whole stack has no Status cell: its start asks of the generated files of its stack branch
     let node = NodeFacts {
@@ -1974,10 +1975,18 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       hosted: None,
     };
     // the row of its root may host it: its slot, S, its node and its Status cell show it (`hosts_whole_stack`)
-    hosted.insert(stack.root.clone(), (view.node.clone(), view.step.clone()));
+    hosted.insert(stack.root.clone(), (view.node.clone(), view.step.clone(), edges.clone()));
     steps.push((key, view));
   }
-  for (name, row) in sources.rows {
+  // the roots that host their whole stack, decided first: a branch of such a stack says a need of the unit as a state,
+  // which the row of its root shows once and fixes (`StepKind::WithStack`)
+  let mut hosting_roots: HashSet<&str> = HashSet::with_capacity(hosted.len());
+  let roots_first = sources
+    .rows
+    .iter()
+    .filter(|(name, _)| hosted.contains_key(name))
+    .chain(sources.rows.iter().filter(|(name, _)| !hosted.contains_key(name)));
+  for (name, row) in roots_first {
     let facts = sources.view.branches.get(name);
     let landing = facts.map(|facts| &facts.landing);
     let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
@@ -2046,6 +2055,11 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       merge_methods: sources.pull_requests.merge_methods,
       lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
       listed: Some(&sources.pull_requests.pull_requests),
+      unit: ancestors
+        .first()
+        .filter(|root| hosting_roots.contains(**root))
+        .and_then(|root| hosted.get(*root))
+        .map(|(_, _, edges)| StackUnit { root: ancestors[0], edges }),
     };
     // the generated files the words merged that its copy holds, and how what lands from its root gets the commit the copy
     // lacks
@@ -2066,7 +2080,10 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     // slot shows
     let hosting = hosted
       .get(name.as_str())
-      .filter(|(stack_node, stack_step)| hosts_whole_stack(&node, stack_node, stack_step));
+      .filter(|(stack_node, stack_step, _)| hosts_whole_stack(&node, stack_node, stack_step));
+    if hosting.is_some() {
+      hosting_roots.insert(name.as_str());
+    }
     let view = NextStepView {
       step: next_step(&step),
       node: landing_node(&node),
@@ -2075,7 +2092,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       hold: hold.map(|(hold, _)| hold.clone()),
       fix_hold: hold.map(|(hold, _)| fix_hold(hold, sources.robots.failing.contains(&hold.by.robot_id))),
       push: PushSlot::default(),
-      hosted: hosting.map(|(stack_node, stack_step)| HostedStack {
+      hosted: hosting.map(|(stack_node, stack_step, _)| HostedStack {
         node: root_own_node(&node).unwrap_or_else(|| stack_node.clone()),
         status: hosting_row_status(&node, stack_step),
       }),

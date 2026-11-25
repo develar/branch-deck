@@ -602,7 +602,9 @@ shows.
   later.
 - **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
-- **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
+- **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The state a
+  step waits in ("Lands after stills-codec", `data-step-wait`) is at most 16rem: it stands for the step, whose slot is
+  empty then, and a truncated "Lands after stills-co…" told nothing. The labels of
   the steps fit (`openspec/specs/branch/next-step/spec.md`); the cap is a backstop. A step with actions beside its slot (`data-beside-slot`:
   Open in Patronus and Forget This Start of a start whose answer was lost, Stop Waiting of a wait for the lock) is as
   wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks. They

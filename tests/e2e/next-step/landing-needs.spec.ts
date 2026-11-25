@@ -368,7 +368,7 @@ test.describe("Landing needs", () => {
     expect(await pushedBranches(repo)).toEqual(["lane-run"])
   })
 
-  test("should say on the root's row and in the popover what the whole stack needs outside it before the start, and start it anyway past the refusal", async ({
+  test("should say once, on the root's row, what the whole stack needs outside it, the branches built on it a state that shows that row, and start it anyway from its popover past the refusal", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -384,6 +384,21 @@ test.describe("Landing needs", () => {
     await expect(slot).toHaveAttribute("data-step", "needsBranch")
     await expect(slot.getByTestId("next-step")).toHaveText("Needs stills-codec")
     await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
+    // one need of the unit, shown once: the branches built on lane-run say it as a state that shows the row of lane-run
+    const stack = ["lane-run", "lane-docs", "ui-perf-nightly"]
+    const needsSlots = page
+      .locator('[data-testid="branch-row"]')
+      .getByTestId("next-step-slot")
+      .getByTestId("next-step")
+      .filter({ hasText: /^Needs / })
+    await expect(needsSlots).toHaveCount(1)
+    for (const member of stack.slice(1)) {
+      await expect(step(page, member)).toHaveAttribute("data-step", "withStack")
+      await expect(getRowWait(findBranchRow(page, member))).toHaveText("Needs stills-codec with lane-run")
+      await expect(getRowWait(findBranchRow(page, member))).toHaveAttribute("data-tone", "quiet")
+    }
+    await getRowWait(findBranchRow(page, "lane-docs")).click()
+    await expect(row).toBeFocused()
     const overview = await openLandingOverview(page)
     await expect(landingRow(overview, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", (await landingRow(overview, "lane-run").getAttribute("data-kind"))!)
@@ -453,6 +468,17 @@ test.describe("Landing needs", () => {
     const row = findBranchRow(page, "lane-run")
     const slot = step(page, "lane-run")
     await expect(getRowWait(row)).toHaveText("Lands after stills-codec")
+    // the state reads whole in the room of the empty step, at the width of a laptop and of a narrow window
+    for (const width of [1280, 960]) {
+      await page.setViewportSize({ width, height: 720 })
+      await expect
+        .poll(() =>
+          getRowWait(row)
+            .locator("span")
+            .evaluate(span => span.scrollWidth <= span.clientWidth),
+        )
+        .toBe(true)
+    }
     await expect(slot).toHaveAttribute("data-whole-stack", "lane-run")
     await expect(slot).toHaveAttribute("data-step", "landsAfter")
     await expect(slot.getByTestId("safe-push-button")).toHaveCount(0)
