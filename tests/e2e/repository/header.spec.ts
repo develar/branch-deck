@@ -160,10 +160,8 @@ test.describe("Repository selector", () => {
       if (activation === "click") {
         await add.click()
       } else {
-        // With no options, the first Tab stop inside the open popup is its footer button.
-        if (!(await add.evaluate(element => element === document.activeElement))) {
-          await page.keyboard.press("Tab")
-        }
+        // With no options, the popup gives its footer button the focus once it opened: a look before that saw the
+        // focus still on the selector, and a Tab then left the popup for the folder button
         await expect(add).toBeFocused()
         await page.keyboard.press(activation)
       }
