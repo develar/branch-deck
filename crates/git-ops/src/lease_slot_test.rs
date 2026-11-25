@@ -1,5 +1,6 @@
 use crate::lease_slot::{
-  CheckoutWorkers, SlotMove, UntrackedFiles, attach_new_branch, clean_cloned_slot, discard_slot_changes, linked_worktree, move_clean_slot, register_slot, unlock_slot,
+  CHANGES_PATCH, CheckoutWorkers, LfsFiles, PreserveRefusal, STAGED_PATCH, SlotMove, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, discard_slot_changes,
+  linked_worktree, move_clean_slot, preserve_slot_changes, register_slot, slot_change_entries, unlock_slot,
 };
 use std::path::{Path, PathBuf};
 use test_utils::git_test_utils::{TestRepo, append_config};
@@ -239,4 +240,57 @@ fn the_clean_of_a_clone_and_a_discard_leave_the_untracked_cache_warm() {
   assert_eq!(repo.git(&["status", "--porcelain"]), "");
   let warm = opened_directories(&repo, &trace);
   assert!(warm <= 2, "a status after the discard opened {warm} directories");
+}
+
+/// The names in the git dir of a worktree, but the private copies of a preserve that are gone again
+fn git_dir_names(git_dir: &Path) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(git_dir)
+    .unwrap()
+    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    .collect();
+  names.sort();
+  names
+}
+
+/// The patches of the local changes of a slot with a split index: `changes.patch` carries the files, `staged.patch` the
+/// version the index held where it differs from the file, the proof passes, and the index of the slot, its shared
+/// index and its git dir stay as they were. A bound below the patch writes none
+#[test]
+fn the_patches_of_a_slot_carry_its_files_and_its_index_and_leave_its_split_index_as_it_was() {
+  let fixture = Fixture::new();
+  append_config(fixture.repo.path(), &[("core.splitIndex", "true")]);
+  fixture.register(false);
+  let slot = fixture.slot.to_str().unwrap();
+  let git = fixture.repo.git_executor();
+  checkout_slot(git, slot, &fixture.head, None, CheckoutWorkers::default(), LfsFiles::Content).unwrap();
+  std::fs::write(fixture.slot.join("README.md"), "# Staged\n").unwrap();
+  git.execute_command(&["add", "README.md"], slot).unwrap();
+  std::fs::write(fixture.slot.join("README.md"), "# In the file\n").unwrap();
+  std::fs::write(fixture.slot.join("new.txt"), "new\n").unwrap();
+  let git_dir = linked_worktree(&fixture.slot).unwrap().git_dir;
+  assert!(git_dir_names(&git_dir).iter().any(|name| name.starts_with("sharedindex.")), "{:?}", git_dir_names(&git_dir));
+  let names = git_dir_names(&git_dir);
+  let index = std::fs::read(git_dir.join("index")).unwrap();
+  let changes = slot_change_entries(git, slot).unwrap();
+
+  let patches = fixture.dir.path().join("patches");
+  let preserved = preserve_slot_changes(git, slot, &patches, 1 << 20).unwrap().unwrap();
+  assert_eq!((&preserved.base, preserved.staged), (&fixture.head, true));
+  let changed = std::fs::read_to_string(patches.join(CHANGES_PATCH)).unwrap();
+  assert!(changed.contains("+# In the file") && changed.contains("+new"), "{changed}");
+  let staged = std::fs::read_to_string(patches.join(STAGED_PATCH)).unwrap();
+  assert!(staged.contains("+# Staged") && !staged.contains("new.txt"), "{staged}");
+  assert_eq!(
+    (git_dir_names(&git_dir), std::fs::read(git_dir.join("index")).unwrap()),
+    (names, index),
+    "the git dir stays"
+  );
+  assert_eq!(slot_change_entries(git, slot).unwrap(), changes, "the slot stays");
+
+  let small = fixture.dir.path().join("small");
+  assert_eq!(
+    preserve_slot_changes(git, slot, &small, 10).unwrap(),
+    Err(PreserveRefusal::TooLarge { max: 10, largest: None })
+  );
+  assert!(!small.join(CHANGES_PATCH).exists());
 }

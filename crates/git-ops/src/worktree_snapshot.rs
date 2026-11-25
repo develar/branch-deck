@@ -420,9 +420,8 @@ fn write_commit(git: &GitCommandExecutor, repo: &str, head: &Head, base_tree: &s
 fn commit_from_index_copy(git: &GitCommandExecutor, worktree: &str, git_dir: &Path, head: &Head, entries: &[StatusEntry], text: CommitText<'_>) -> Result<WrittenTree> {
   let copy = IndexCopy::of(git_dir, &git_dir.join("index"))?;
   // a git dir that `canonicalize` gave (`lease_slot::linked_worktree`) is verbatim on Windows, which git refuses
-  let index_path = sync_utils::paths::without_verbatim(&copy.path);
-  let index_env = index_path.to_str().ok_or_else(|| anyhow!("The index copy is no UTF-8 path: {}", copy.path.display()))?;
-  let in_copy = [("GIT_INDEX_FILE", index_env)];
+  let index_env = copy.env_path()?;
+  let in_copy = [("GIT_INDEX_FILE", index_env.as_str())];
   if !copy.copied {
     git.cmd(&["read-tree", &head.commit], worktree).env(&in_copy).output()?;
   }
@@ -455,16 +454,16 @@ fn commit_from_index_copy(git: &GitCommandExecutor, worktree: &str, git_dir: &Pa
 /// A copy of the index of a worktree in a private directory of its git dir (mode 0700, a random name), removed with the
 /// lock file git makes beside it when the copy goes: never a name of the shared temporary directory, which a link
 /// planted there would redirect
-struct IndexCopy {
+pub(crate) struct IndexCopy {
   _dir: tempfile::TempDir,
-  path: PathBuf,
+  pub(crate) path: PathBuf,
   /// False when the worktree had no index: the copy does not exist yet
   copied: bool,
 }
 
 impl IndexCopy {
   /// A copy of `index` (an APFS clone where it can be) in `git_dir`
-  fn of(git_dir: &Path, index: &Path) -> Result<Self> {
+  pub(crate) fn of(git_dir: &Path, index: &Path) -> Result<Self> {
     let dir = tempfile::Builder::new()
       .prefix("branch-deck-index-")
       .tempdir_in(git_dir)
@@ -475,6 +474,21 @@ impl IndexCopy {
       std::fs::copy(index, &path).with_context(|| format!("Cannot copy the index {} to {}", index.display(), path.display()))?;
     }
     Ok(Self { _dir: dir, path, copied })
+  }
+
+  /// A private place for a new index in `git_dir`, no file yet: a `read-tree` writes it
+  pub(crate) fn empty(git_dir: &Path) -> Result<Self> {
+    Self::of(git_dir, &git_dir.join("branch-deck-no-index"))
+  }
+
+  /// The path of the copy for `GIT_INDEX_FILE`: without the verbatim prefix that `canonicalize` gives on Windows, which
+  /// git refuses
+  pub(crate) fn env_path(&self) -> Result<String> {
+    let path = sync_utils::paths::without_verbatim(&self.path);
+    path
+      .to_str()
+      .map(str::to_string)
+      .ok_or_else(|| anyhow!("The index copy is no UTF-8 path: {}", self.path.display()))
   }
 }
 
@@ -488,6 +502,12 @@ pub struct WrittenPatch {
 /// --no-renames`), streamed into a new file beside `target` (created anew, mode 0600, never through a link), then
 /// renamed onto `target`
 pub fn write_tree_patch(git: &GitCommandExecutor, repo: &str, before: &str, after: &str, target: &Path) -> Result<WrittenPatch> {
+  write_tree_patch_within(git, repo, (before, after), target, u64::MAX)?.ok_or_else(|| anyhow!("The patch {} has no bound", target.display()))
+}
+
+/// `write_tree_patch` of the trees `(before, after)` while the patch has at most `max` bytes; `None`, and no file at
+/// `target`, for a larger one: git is stopped at the bound, so no patch past it is written
+pub fn write_tree_patch_within(git: &GitCommandExecutor, repo: &str, (before, after): (&str, &str), target: &Path, max: u64) -> Result<Option<WrittenPatch>> {
   let dir = target.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
   let mut file = tempfile::Builder::new()
     .prefix(".branch-deck-patch-")
@@ -497,15 +517,22 @@ pub fn write_tree_patch(git: &GitCommandExecutor, repo: &str, before: &str, afte
   git
     .cmd(&["diff-tree", "-r", "-p", "--binary", "--full-index", "--no-renames", before, after], repo)
     .stream(|chunk| {
-      file.write_all(chunk).with_context(|| format!("Cannot write the patch {}", file.path().display()))?;
       bytes += chunk.len() as u64;
+      if bytes > max {
+        return Ok(ControlFlow::Break(()));
+      }
+      file.write_all(chunk).with_context(|| format!("Cannot write the patch {}", file.path().display()))?;
       Ok(ControlFlow::Continue(()))
     })?;
+  if bytes > max {
+    // the drop of the file deletes it
+    return Ok(None);
+  }
   file.flush()?;
   let (_, path) = file.keep().map_err(|error| anyhow!("Cannot keep the patch: {error}"))?;
   if let Err(error) = sync_utils::fs_retry::rename(&path, target) {
     let _ = sync_utils::fs_retry::remove_file(&path);
     bail!("Cannot move the patch to {}: {error}", target.display());
   }
-  Ok(WrittenPatch { bytes })
+  Ok(Some(WrittenPatch { bytes }))
 }

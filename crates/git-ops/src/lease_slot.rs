@@ -3,7 +3,8 @@
 //! `reset --merge` moves a clean slot to the commit of a get or a run by the diff of the two commits, `checkout
 //! --force` writes every file of a new slot (or of a slot whose diff git refused), `clean -fd` clears the untracked
 //! files a cloned slot got from its template, `reset --hard` and `clean -fd` discard the changes of a return the agent
-//! confirmed or of a give-back. The worktree safety scan exempts exactly these argument lists in this file
+//! confirmed, of a give-back, or of an idle lease whose changes are proven patches in its notes
+//! (`preserve_slot_changes`, which reads the slot only, on private copies of its index). The worktree safety scan exempts exactly these argument lists in this file
 //! (`worktree_safety_test.rs`, "Lease" in docs/design/git-operations.md). Every write of a slot's index waits for a
 //! lock of another process and removes one that no process owns (`IndexLock`): a git killed in a slot leaves its
 //! `index.lock`, and the next write there would fail on it.
@@ -167,20 +168,18 @@ fn is_notes(path: &str) -> bool {
 /// `core.untrackedCache` apply. It may write the index (`slot_status`). Only a slot of the pool, with no other process
 /// in it, is asked
 pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
-  Ok(changed_paths(slot_status(git_executor, slot, untracked)?))
+  Ok(changed_paths(slot_status(git_executor, slot, &[untracked.arg()])?))
 }
 
-/// The entries of one `status --porcelain=v1 -z` of `slot` in the `untracked` mode of the repository, a `status` that
-/// may write the index (`GIT_OPTIONAL_LOCKS=1`, against the executor's default): the refreshed stat data, the
+/// The entries of one `status --porcelain=v1 -z` of `slot` with `options` (the `untracked` mode of the repository), a
+/// `status` that may write the index (`GIT_OPTIONAL_LOCKS=1`, against the executor's default): the refreshed stat data, the
 /// fsmonitor token and the untracked cache stay in the slot's index, so the next `status` and the checkout start warm.
 /// Without the write, a slot of idea-1 (1.4M files) idle for days walked its whole tree on every `status`, 2-5 min
 /// each; after one write a `status` took 2 s and a checkout without changes 1-3 s instead of 4-10 s. Every `status` of
 /// this file runs here
-fn slot_status(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<([u8; 2], String)>> {
-  let output = git_executor
-    .cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot)
-    .env(&[("GIT_OPTIONAL_LOCKS", "1")])
-    .bytes()?;
+fn slot_status(git_executor: &GitCommandExecutor, slot: &str, options: &[&str]) -> Result<Vec<([u8; 2], String)>> {
+  let args = [&["status", "--porcelain=v1", "-z"][..], options].concat();
+  let output = git_executor.cmd(&args, slot).env(&[("GIT_OPTIONAL_LOCKS", "1")]).bytes()?;
   Ok(status_entries(&output))
 }
 
@@ -406,7 +405,7 @@ const UNTRACKED_PASSES: usize = 4;
 /// changes of the last pass, without the notes of the lease (`slot_changes`): the tracked files that differ
 fn remove_untracked(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
   for _ in 0..UNTRACKED_PASSES {
-    let entries = slot_status(git_executor, slot, untracked)?;
+    let entries = slot_status(git_executor, slot, &[untracked.arg()])?;
     let found: Vec<&str> = entries.iter().filter(|(code, _)| code == b"??").map(|(_, path)| path.as_str()).collect();
     if found.is_empty() {
       return Ok(changed_paths(entries));
@@ -525,6 +524,276 @@ pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str, untra
   remove_untracked(git_executor, slot, untracked).map(drop)
 }
 
+/// A local change of a slot as `slot_change_entries` lists it: the two letters of `status --porcelain=v1` and the path
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotChange {
+  pub code: [u8; 2],
+  pub path: String,
+}
+
+impl SlotChange {
+  /// An unmerged entry of the index (`DD`, `AU`, `UD`, `UA`, `DU`, `AA`, `UU`)
+  pub const fn is_unmerged(&self) -> bool {
+    matches!(&self.code, b"DD" | b"AU" | b"UD" | b"UA" | b"DU" | b"AA" | b"UU")
+  }
+
+  /// The one rule of what the discard of a slot would take away unseen: a deletion or a type change (`D` or `T` in
+  /// either column) whose path is still there in another form in the slot at `root` (a file that left the index by `git
+  /// rm --cached`, a directory in place of a file), or under a parent that is no directory now (a file in place of a
+  /// directory of HEAD). `reset --hard` writes the version of HEAD there and removes what stands in its place, which
+  /// may be ignored and so in no patch
+  pub fn is_replaced(&self, root: &Path) -> bool {
+    if !self.code.iter().any(|code| matches!(code, b'D' | b'T')) {
+      return false;
+    }
+    root.join(&self.path).symlink_metadata().is_ok()
+      || Path::new(&self.path)
+        .ancestors()
+        .skip(1)
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .any(|parent| root.join(parent).symlink_metadata().is_ok_and(|metadata| !metadata.is_dir()))
+  }
+}
+
+/// Every local change of `slot`, each untracked file by itself (`--untracked-files=all`) and a rename as a deletion and
+/// an addition (`--no-renames`), without the notes of the lease: the `status` of the preserve of the changes of an idle
+/// lease, before its patches and after them. It changes no file and no entry of the index; it may refresh the stat data
+/// of the index, as every `status` of the pool may (`slot_status`). In a repository that configures another mode, git's
+/// untracked cache serves no such `status` and stays as it was
+pub fn slot_change_entries(git_executor: &GitCommandExecutor, slot: &str) -> Result<Vec<SlotChange>> {
+  Ok(
+    slot_status(git_executor, slot, &[UntrackedFiles::All.arg(), "--no-renames"])?
+      .into_iter()
+      .filter(|(code, path)| !(code == b"??" && is_notes(path)))
+      .map(|(code, path)| SlotChange { code, path })
+      .collect(),
+  )
+}
+
+/// Why the local changes of a slot are not preserved as a patch (`preserve_refusal`, `preserve_slot_changes`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreserveRefusal {
+  /// An unmerged entry of the index: a patch carries no conflict
+  Unmerged(String),
+  /// A gitlink or a nested repository: a patch carries its commit, not its files
+  Repository(String),
+  /// A path that a filter of the attributes converts (Git LFS): a patch would carry what the filter made of it
+  Filtered(String),
+  /// An entry of the index with the bit assume-unchanged or skip-worktree: no `status` tells what its file holds
+  Hidden(String),
+  /// A changed ignore file (`.gitignore` at any depth): the discard puts the ignore rules of HEAD back first, and its
+  /// `clean` would delete a file that only the changed rules kept, which no patch holds
+  IgnoreRules(String),
+  /// A deletion or a type change whose path stands in another form (`SlotChange::is_replaced`): no patch holds what
+  /// stands there, which the discard would overwrite or delete
+  Replaced(String),
+  /// The changes have more bytes than the bound; `largest` names their largest file where the stat told it
+  TooLarge { max: u64, largest: Option<String> },
+}
+
+impl std::fmt::Display for PreserveRefusal {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Unmerged(path) => write!(f, "an unmerged entry: {path}"),
+      Self::Repository(path) => write!(f, "a gitlink or a nested repository: {path}"),
+      Self::Filtered(path) => write!(f, "a path with a filter: {path}"),
+      Self::Hidden(path) => write!(f, "an entry of the index that git does not check (assume-unchanged or skip-worktree): {path}"),
+      Self::IgnoreRules(path) => write!(f, "a changed ignore file, whose ignored files no patch holds: {path}"),
+      Self::Replaced(path) => write!(f, "a deleted or retyped path that something else stands in for: {path}"),
+      Self::TooLarge { max, largest: None } => write!(f, "the changes have more than {max} bytes (branchdeck.leasePreserveMax)"),
+      Self::TooLarge { max, largest: Some(path) } => write!(f, "the changes have more than {max} bytes (branchdeck.leasePreserveMax), the largest: {path}"),
+    }
+  }
+}
+
+impl PreserveRefusal {
+  /// The path that refuses, if one does
+  pub fn path(&self) -> Option<&str> {
+    match self {
+      Self::Unmerged(path) | Self::Repository(path) | Self::Filtered(path) | Self::Hidden(path) | Self::IgnoreRules(path) | Self::Replaced(path) => Some(path),
+      Self::TooLarge { largest, .. } => largest.as_deref(),
+    }
+  }
+}
+
+/// What makes the local changes `changes` of `slot` (`slot_change_entries`) no patch, by reads only: an unmerged
+/// entry, a nested repository or a gitlink (a directory with `.git`), a changed `.gitignore`, a deletion or a type
+/// change that something else stands in for (`SlotChange::is_replaced`), a path with a `filter` attribute, an entry of the index that git does not check (one `ls-files -v`,
+/// read until the first such entry). `None`: a patch can carry them
+pub fn preserve_refusal(git_executor: &GitCommandExecutor, slot: &str, changes: &[SlotChange]) -> Result<Option<PreserveRefusal>> {
+  if let Some(change) = changes.iter().find(|change| change.is_unmerged()) {
+    return Ok(Some(PreserveRefusal::Unmerged(change.path.clone())));
+  }
+  let root = Path::new(slot);
+  if let Some(change) = changes
+    .iter()
+    .find(|change| change.path.ends_with('/') || root.join(&change.path).join(".git").symlink_metadata().is_ok())
+  {
+    return Ok(Some(PreserveRefusal::Repository(change.path.clone())));
+  }
+  if let Some(change) = changes.iter().find(|change| Path::new(&change.path).file_name().is_some_and(|name| name == ".gitignore")) {
+    return Ok(Some(PreserveRefusal::IgnoreRules(change.path.clone())));
+  }
+  if let Some(change) = changes.iter().find(|change| change.is_replaced(root)) {
+    return Ok(Some(PreserveRefusal::Replaced(change.path.clone())));
+  }
+  let attributes = crate::attributes::read_attributes(git_executor, slot, None, &["filter"], changes.iter().map(|change| change.path.as_str()))?;
+  if let Some(filtered) = attributes.into_iter().find(|attribute| !matches!(attribute.value.as_str(), "unspecified" | "unset")) {
+    return Ok(Some(PreserveRefusal::Filtered(filtered.path)));
+  }
+  Ok(hidden_entry(git_executor, slot)?.map(PreserveRefusal::Hidden))
+}
+
+/// The first entry of the index of `slot` that git does not check: `ls-files -v -z` tags it with a lowercase letter
+/// (assume-unchanged) or `S` (skip-worktree). git is stopped there
+fn hidden_entry(git_executor: &GitCommandExecutor, slot: &str) -> Result<Option<String>> {
+  let mut at_tag = true;
+  let mut found: Option<Vec<u8>> = None;
+  git_executor.cmd(&["ls-files", "-v", "-z"], slot).stream(|chunk| {
+    for &byte in chunk {
+      match (&mut found, byte) {
+        (Some(path), 0) if !path.is_empty() => return Ok(std::ops::ControlFlow::Break(())),
+        (Some(path), _) => path.push(byte),
+        (None, 0) => at_tag = true,
+        (None, tag) if at_tag => {
+          at_tag = false;
+          if tag.is_ascii_lowercase() || tag == b'S' {
+            found = Some(Vec::new());
+          }
+        }
+        (None, _) => {}
+      }
+    }
+    Ok(std::ops::ControlFlow::Continue(()))
+  })?;
+  // the path follows the tag and its space
+  Ok(found.map(|path| String::from_utf8_lossy(path.strip_prefix(b" ").unwrap_or(&path)).into_owned()))
+}
+
+/// The patch of the local changes of a slot (`preserve_slot_changes`): the tree of HEAD to the tree of `add --all`
+pub const CHANGES_PATCH: &str = "changes.patch";
+/// The patch of the index of a slot where it differs from its files: the tree of HEAD to the tree of the index
+pub const STAGED_PATCH: &str = "staged.patch";
+
+/// The patches `preserve_slot_changes` wrote and proved
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreservedPatches {
+  /// HEAD of the slot, which both patches apply to
+  pub base: String,
+  /// The tree of the slot as `add --all` stages it: `CHANGES_PATCH` on `base` gives it
+  pub tree: String,
+  /// `STAGED_PATCH` was written: the index held a version of a file that its file no longer has
+  pub staged: bool,
+  /// The bytes of both patches
+  pub bytes: u64,
+}
+
+/// The local changes of `slot` as patches in `dir`, no file of the slot and no entry of its index changed: a copy of its
+/// index in its git dir (`IndexCopy`) gives the tree of the index (`write-tree`, no hash of a file) and, after `add
+/// --all` with `core.safecrlf=true` (a conversion that a checkout would not undo fails it), the tree of the slot. Every
+/// git of a private index runs with `core.splitIndex=false`, so no shared index of it lands in the git dir of the slot.
+/// Then `CHANGES_PATCH`, HEAD to the tree of the slot (the unstaged, staged and untracked files, links, modes,
+/// deletions), and `STAGED_PATCH` where the tree of the index is neither, both by `diff-tree --binary --full-index`, at
+/// most `max` bytes together. The proof of each: a new index read from HEAD, its `apply --cached`, and its `write-tree`
+/// is the tree of the slot or of its index (`prove_patch`). The caller bounds the bytes of the changed files first, as
+/// `add --all` writes an object of each. A gitlink in either tree refuses, as a patch carries no files of it. The ignored
+/// files are no change and stay out
+pub fn preserve_slot_changes(git_executor: &GitCommandExecutor, slot: &str, dir: &Path, max: u64) -> Result<Result<PreservedPatches, PreserveRefusal>> {
+  use crate::worktree_snapshot::{IndexCopy, read_head_commit, write_tree_patch_within};
+  let worktree = linked_worktree(Path::new(slot)).ok_or_else(|| anyhow!("{slot} is no linked worktree"))?;
+  let head = read_head_commit(git_executor, slot)?;
+  let copy = IndexCopy::of(&worktree.git_dir, &worktree.git_dir.join("index"))?;
+  let copy_path = copy.env_path()?;
+  let in_copy = [("GIT_INDEX_FILE", copy_path.as_str())];
+  // every write of a private index is whole: a split one would write its shared index into the git dir of the slot
+  let staged = git_executor
+    .cmd(&["-c", "core.splitIndex=false", "write-tree"], slot)
+    .env(&in_copy)
+    .text()?
+    .trim()
+    .to_string();
+  git_executor
+    .cmd(&["-c", "core.splitIndex=false", "-c", "core.safecrlf=true", "add", "--all"], slot)
+    .env(&in_copy)
+    .output()?;
+  let tree = git_executor
+    .cmd(&["-c", "core.splitIndex=false", "write-tree"], slot)
+    .env(&in_copy)
+    .text()?
+    .trim()
+    .to_string();
+  for changed in [&tree, &staged] {
+    if let Some(path) = gitlink_between(git_executor, slot, &head.tree, changed)? {
+      return Ok(Err(PreserveRefusal::Repository(path)));
+    }
+  }
+  std::fs::create_dir_all(dir).map_err(|error| anyhow!("Cannot make {}: {error}", dir.display()))?;
+  let too_large = || Ok(Err(PreserveRefusal::TooLarge { max, largest: None }));
+  let Some(changes) = write_tree_patch_within(git_executor, slot, (&head.tree, &tree), &dir.join(CHANGES_PATCH), max)? else {
+    return too_large();
+  };
+  let staged_patch = dir.join(STAGED_PATCH);
+  let mut bytes = changes.bytes;
+  let has_staged = staged != head.tree && staged != tree;
+  if has_staged {
+    let Some(written) = write_tree_patch_within(git_executor, slot, (&head.tree, &staged), &staged_patch, max - bytes)? else {
+      return too_large();
+    };
+    bytes += written.bytes;
+  } else if staged_patch.symlink_metadata().is_ok() {
+    // of an earlier preserve of the same lease
+    fs_retry::remove_file(&staged_patch)?;
+  }
+  if tree != head.tree {
+    prove_patch(git_executor, (slot, &worktree.git_dir), &head, &dir.join(CHANGES_PATCH), &tree)?;
+  }
+  if has_staged {
+    prove_patch(git_executor, (slot, &worktree.git_dir), &head, &staged_patch, &staged)?;
+  }
+  Ok(Ok(PreservedPatches {
+    base: head.commit,
+    tree,
+    staged: has_staged,
+    bytes,
+  }))
+}
+
+/// The proof of the patch at `patch`: on a new index of the tree of `head` in the git dir `git_dir` of `slot`, its
+/// `apply --cached` gives the tree `expected`
+fn prove_patch(git_executor: &GitCommandExecutor, (slot, git_dir): (&str, &Path), head: &crate::worktree_snapshot::Head, patch: &Path, expected: &str) -> Result<()> {
+  let proof = crate::worktree_snapshot::IndexCopy::empty(git_dir)?;
+  let proof_path = proof.env_path()?;
+  let in_proof = [("GIT_INDEX_FILE", proof_path.as_str())];
+  let patch = sync_utils::paths::without_verbatim(patch);
+  let patch = patch.to_str().ok_or_else(|| anyhow!("The patch is no UTF-8 path: {}", patch.display()))?;
+  git_executor.cmd(&["-c", "core.splitIndex=false", "read-tree", &head.tree], slot).env(&in_proof).output()?;
+  git_executor
+    .cmd(&["-c", "core.splitIndex=false", "apply", "--cached", patch], slot)
+    .env(&in_proof)
+    .output()?;
+  let applied = git_executor.cmd(&["-c", "core.splitIndex=false", "write-tree"], slot).env(&in_proof).text()?;
+  if applied.trim() != expected {
+    bail!("The patch {patch} gives the tree {} on {}, not {expected}", applied.trim(), head.commit);
+  }
+  Ok(())
+}
+
+/// The first path that is a gitlink in `before` or in `after`, of the paths that differ: one `diff-tree -r --raw -z`
+fn gitlink_between(git_executor: &GitCommandExecutor, slot: &str, before: &str, after: &str) -> Result<Option<String>> {
+  if before == after {
+    return Ok(None);
+  }
+  let output = git_executor.cmd(&["diff-tree", "-r", "-z", "--raw", "--no-renames", before, after], slot).bytes()?;
+  // `:<old mode> <new mode> <old id> <new id> <status>` NUL `<path>` NUL
+  let fields: Vec<&[u8]> = output.split(|&byte| byte == 0).collect();
+  Ok(fields.as_chunks::<2>().0.iter().find_map(|[meta, path]| {
+    let meta = String::from_utf8_lossy(meta);
+    let mut modes = meta.trim_start_matches(':').split(' ');
+    let gitlink = modes.next() == Some("160000") || modes.next() == Some("160000");
+    gitlink.then(|| String::from_utf8_lossy(path).into_owned())
+  }))
+}
+
 /// Start git's maintenance as a commit would, once a return freed its slot: `maintenance run --auto --detach` in the
 /// common dir `git_common_dir`, so the detached run keeps no slot as its working directory. `--auto` runs only the tasks
 /// whose thresholds passed (a geometric repack, loose objects), usually none; the run returns once it detached
@@ -599,6 +868,11 @@ pub struct LeaseConfig {
   /// `branchdeck.leaseNotesKeep`, as written (`14d`, `0` for ever): how long the notes of a returned lease stay before
   /// `brd lease trim` and the keeper of a host delete them (`lease_pool::lease_notes`)
   pub notes_keep: Option<String>,
+  /// `branchdeck.leaseIdleChangesAfter`, as written (`12h`, `0` for never): how long the local changes of an idle lease
+  /// stay untouched before a get or a reclaim preserves them as a patch in its notes and takes its slot
+  pub idle_changes_after: Option<String>,
+  /// `branchdeck.leasePreserveMax`, as written (`64M`): the most bytes of the patches of that preserve
+  pub preserve_max: Option<String>,
   /// `core.fileMode` is false: git keeps the modes of the index, not the executable bits of the files
   pub no_file_mode: bool,
   /// `core.symlinks` is false: git keeps a link as a file of its target
@@ -624,8 +898,8 @@ pub enum AgentLanding {
 
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
 /// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`,
-/// `branchdeck.hostSlotIdleClean`, `branchdeck.hostCores`, `branchdeck.hostJobs`,
-/// `branchdeck.agentPullRequest`, `branchdeck.landing`, `core.fileMode`, `core.symlinks`, the smudge commands of Git LFS
+/// `branchdeck.hostSlotIdleClean`, `branchdeck.hostCores`, `branchdeck.hostJobs`, `branchdeck.leaseNotesKeep`,
+/// `branchdeck.leaseIdleChangesAfter`, `branchdeck.leasePreserveMax`, `branchdeck.agentPullRequest`, `branchdeck.landing`, `core.fileMode`, `core.symlinks`, the smudge commands of Git LFS
 /// (`filter.lfs.process`, `filter.lfs.smudge`) and `lfs.storage`: one
 /// `config --type=path --show-scope --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
@@ -637,7 +911,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "--show-scope",
         "--get-regexp",
         &format!(
-          r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.hostcores|branchdeck\.hostjobs|branchdeck\.leasenoteskeep|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|{LFS_KEYS})$"
+          r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.hostslotidleclean|branchdeck\.hostcores|branchdeck\.hostjobs|branchdeck\.leasenoteskeep|branchdeck\.leaseidlechangesafter|branchdeck\.leasepreservemax|branchdeck\.agentpullrequest|branchdeck\.landing|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks|{LFS_KEYS})$"
         ),
       ],
       repository,
@@ -660,6 +934,8 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "branchdeck.hostslotmaxsize" if !value.is_empty() => config.host_slot_max_size = Some(value.to_string()),
       "branchdeck.hostslotidleclean" if !value.is_empty() => config.host_slot_idle_clean = Some(value.to_string()),
       "branchdeck.leasenoteskeep" if !value.is_empty() => config.notes_keep = Some(value.to_string()),
+      "branchdeck.leaseidlechangesafter" if !value.is_empty() => config.idle_changes_after = Some(value.to_string()),
+      "branchdeck.leasepreservemax" if !value.is_empty() => config.preserve_max = Some(value.to_string()),
       "branchdeck.hostcores" if !value.is_empty() => config.host_cores = Some(value.to_string()),
       "branchdeck.hostjobs" if !value.is_empty() => config.host_jobs = Some(value.to_string()),
       // the last value wins; a key without a value is true
