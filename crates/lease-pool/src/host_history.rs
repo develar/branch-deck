@@ -115,11 +115,14 @@ pub struct LinePhase {
   pub ms: u64,
 }
 
-/// What the command of a run used: its mean and its peak, its CPU time and its wall time
+/// What the command of a run used: its mean, its peak and its level of work, its CPU time and its wall time
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineCores {
   pub mean: Cores,
   pub peak: Cores,
+  /// The level of work (`host_cores::work_level`); `None` in a line of a build before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub level: Option<Cores>,
   pub cpu_ms: u64,
   pub wall_ms: u64,
 }
@@ -377,7 +380,8 @@ pub struct CommandStats {
   /// The phase `command` of the runs that ran it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub command_ms: Option<Spread>,
-  /// The 80th percentile of the mean cores of its runs, as the heavy turn expects them
+  /// The 80th percentile of the levels of work of its runs, each at least its mean, as the heavy turn expects them
+  /// (`host_cores::expected`); the mean of a run without a level
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cores: Option<Cores>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -517,8 +521,11 @@ fn commands(lines: &[&HistoryLine]) -> (Vec<CommandStats>, Option<OtherCommands>
   let mut commands: Vec<CommandStats> = by
     .into_iter()
     .map(|((repo, command_key), runs)| {
-      let mut means: Vec<Cores> = runs.iter().filter_map(|line| line.cores.map(|cores| cores.mean)).collect();
-      means.sort_unstable();
+      let mut levels: Vec<Cores> = runs
+        .iter()
+        .filter_map(|line| line.cores.map(|cores| cores.level.map_or(cores.mean, |level| level.max(cores.mean))))
+        .collect();
+      levels.sort_unstable();
       CommandStats {
         repo: repo.to_owned(),
         command_key: command_key.to_owned(),
@@ -529,7 +536,7 @@ fn commands(lines: &[&HistoryLine]) -> (Vec<CommandStats>, Option<OtherCommands>
         wait_ms: runs.iter().map(|line| line.wait_ms()).sum(),
         wait: Spread::of(runs.iter().map(|line| line.wait_ms()).collect()),
         command_ms: Spread::of(runs.iter().filter(|line| line.ran_command()).map(|line| line.phase_ms("command")).collect()),
-        cores: nearest_rank(&means, 80),
+        cores: nearest_rank(&levels, 80),
         peak: runs.iter().filter_map(|line| line.cores.map(|cores| cores.peak)).max(),
       }
     })

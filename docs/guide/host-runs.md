@@ -177,7 +177,8 @@ brd-host run any --max 9m -- pnpm lint:backend
   quiet one.
 - The run that measures a command waits for the whole host, as no measure says what it needs, and after 15 min in the
   queue it starts whatever the load. It holds the whole host for its first 10 min, then what it used in the last 5 min,
-  so the queue starts beside its quiet phases. Measure this Mac while it is quiet: a run beside more load than
+  so the queue starts beside its quiet phases; every heavy run counts so after its first 10 min, and before them the level
+  of the heavy phases of its last runs, not their mean. Measure this Mac while it is quiet: a run beside more load than
   `hostCores` leaves room for adds no measure, and its log says why. Run to this Mac through the set only, where it
   starts at once or answers `busy`. On a short disk, `git config --global branchdeck.hostSlots 2` keeps fewer warm slots.
 - A set takes no `--exclusive`: a measurement names the host it measures.

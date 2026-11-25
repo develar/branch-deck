@@ -8,9 +8,72 @@ fn measure(run: &str, mean: u32, wall_ms: u64, at_ms: u64) -> Measure {
     run: run.to_owned(),
     mean: Cores(mean),
     peak: Cores(mean + 10),
+    level: None,
     wall_ms,
     at_ms,
   }
+}
+
+/// Samples of every 10 s for `minutes`, each at `tenths` cores
+fn phase(start_ms: u64, minutes: u64, tenths: u32) -> impl Iterator<Item = (u64, Cores)> {
+  (1..=minutes * 6).map(move |sample| (start_ms + sample * 10_000, Cores(tenths)))
+}
+
+/// The level of work is the live cores at or above which 30 % of the core seconds ran: of a bursty run, a gate of
+/// 90 min of builds on 17 cores for 2 min at three times and one core between, the cores of its bursts, far above its
+/// mean; of a steady run its level; of no work none
+#[test]
+fn the_level_of_work_of_a_bursty_run_is_its_bursts_and_of_a_steady_one_its_level() {
+  let minute = 60_000;
+  let gate: Vec<(u64, Cores)> = phase(0, 2, 170)
+    .chain(phase(2 * minute, 40, 10))
+    .chain(phase(42 * minute, 2, 170))
+    .chain(phase(44 * minute, 40, 10))
+    .chain(phase(84 * minute, 2, 170))
+    .chain(phase(86 * minute, 4, 10))
+    .collect();
+  let cpu: u64 = gate.iter().map(|&(_, cores)| u64::from(cores.0) * 10_000).sum();
+  let mean = Cores::of(Duration::from_millis(cpu / 10), Duration::from_mins(90));
+  assert_eq!((work_level(gate), mean), (Some(Cores(170)), Cores(21)), "30 % of 186 core minutes ran on 17 cores");
+  assert_eq!(work_level(phase(0, 5, 120)), Some(Cores(120)), "a steady run");
+  let mixed = phase(0, 3, 140).chain(phase(3 * 60_000, 2, 100));
+  assert_eq!(work_level(mixed), Some(Cores(140)), "42 of 62 core minutes ran on 14 cores");
+  assert_eq!(work_level(phase(0, 5, 0)), None, "no work");
+  assert_eq!(work_level([]), None);
+}
+
+/// A command whose last runs have a level of work is expected at the 80th percentile of their levels, each at least
+/// its mean; a measure of a build before the level, or one that a supervisor of such a build rewrote, counts its mean
+#[test]
+fn the_expectation_of_a_command_is_of_the_levels_of_its_runs_and_of_the_mean_without_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let timeout = Duration::from_secs(10);
+  let add = |run: &str, mean: u32, level: Option<u32>| {
+    let measure = Measure {
+      level: level.map(Cores),
+      ..measure(run, mean, 600_000, 1_000)
+    };
+    record(dir.path(), timeout, MIN_WALL, REPO, "gate", measure, true).unwrap();
+  };
+  add("old", 10, None);
+  assert_eq!(expected(dir.path(), REPO, "gate").unwrap(), Some(Cores(10)), "the mean of a measure without a level");
+  add("bursty", 10, Some(160));
+  assert_eq!(expected(dir.path(), REPO, "gate").unwrap(), Some(Cores(160)), "a bursty run expects its bursts");
+  add("below", 120, Some(100));
+  assert_eq!(expected(dir.path(), REPO, "gate").unwrap(), Some(Cores(160)));
+  let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
+  let entries = &table["commands"][key(REPO, "gate")];
+  assert_eq!((entries[0].get("level"), &entries[1]["level"]), (None, &serde_json::json!(16.0)));
+
+  let steady = tempfile::tempdir().unwrap();
+  for (run, mean) in [("r1", 120), ("r2", 118)] {
+    let measure = Measure {
+      level: work_level(phase(0, 5, mean)),
+      ..measure(run, mean, 300_000, 1_000)
+    };
+    record(steady.path(), timeout, MIN_WALL, REPO, "nextest", measure, true).unwrap();
+  }
+  assert_eq!(expected(steady.path(), REPO, "nextest").unwrap(), Some(Cores(120)), "a steady command as by its mean");
 }
 
 /// Every run adds its measure to its command, of the last 5 the second largest mean is expected: a command that got

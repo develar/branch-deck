@@ -38,7 +38,8 @@ impl Drop for Spinner {
 }
 
 /// A sample counts the CPU time of the processes of the command group since the sample before, and the end the larger of
-/// it and the CPU time of the reaped children: a command that computes shows its cores live and in its measure. The
+/// it and the CPU time of the reaped children, with the level of work of its samples: a command that computes shows its
+/// cores live and in its measure. The
 /// assertions are on the CPU time that counts, never on the live cores, a rate over the wall time of a loaded host
 #[test]
 fn the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure() {
@@ -62,6 +63,11 @@ fn the_samples_count_the_cpu_of_the_command_group_and_the_end_its_measure() {
   assert!(file.ended);
   assert!(file.cpu_ms >= 300 && file.peak >= file.mean, "{file:?}");
   assert_eq!(file.samples.len(), 2, "one last sample at the end");
+  assert_eq!(
+    file.level,
+    lease_pool::host_cores::work_level(file.samples.iter().map(|sample| (sample.ms, sample.cores))),
+    "the end notes the level of work of its samples"
+  );
   assert_eq!(file.run_cores(), RunCores { mean: file.mean, peak: file.peak });
 }
 

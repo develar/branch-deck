@@ -15,7 +15,9 @@
 //!   ancestor of it is still looked at. An exec loses the reaped children of the process on macOS, and the credit with
 //!   it. A sample counts at most the cores of the machine;
 //! - at the end, the mean is the larger of the CPU time of the samples and the CPU time of the reaped children of the
-//!   supervisor (`RUSAGE_CHILDREN`), over the wall time of the command; the peak is the most of one sample.
+//!   supervisor (`RUSAGE_CHILDREN`), over the wall time of the command; the peak is the most of one sample; the level
+//!   of work the live cores at or above which 30 % of the core seconds of the samples ran
+//!   (`lease_pool::host_cores::work_level`).
 //!
 //! Each sample rewrites `cores.json` of the run, which `brd-host runs` reads, and the live cores go to the heavy turn
 //! (`lease_pool::host_turn::note_use`); the end adds the measure to the measures of the command
@@ -44,6 +46,9 @@ pub(crate) struct Sample {
 pub(crate) struct CoresFile {
   pub(crate) mean: Cores,
   pub(crate) peak: Cores,
+  /// The level of work of the command at its end (`lease_pool::host_cores::work_level`), what its later runs expect
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub(crate) level: Option<Cores>,
   pub(crate) cpu_ms: u64,
   pub(crate) wall_ms: u64,
   /// The command ended, and `mean` is its measure
@@ -178,6 +183,7 @@ impl Sampler {
     self.note(self.cpu.max(children));
     self.file.ended = true;
     self.file.peak = self.file.peak.max(self.file.mean);
+    self.file.level = lease_pool::host_cores::work_level(self.file.samples.iter().map(|sample| (sample.ms, sample.cores)));
     &self.file
   }
 

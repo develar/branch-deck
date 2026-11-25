@@ -1372,7 +1372,8 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
   holder of the build before holds it), then `  run <id> of <repository> holds <cores> for <time> (measured): <command>` for each holder, with
   `(live, above its measure)` when it uses more, `holds the whole host for <time> (no measure)` or `(measured
   <cores>)` for one that takes the whole host, and `holds <cores> for <time> (no measure: it held the whole host for its
-  first 10 min, now its live use of the last 5 min)` for one without a measure past its grace; `  run <id> of <repository> waits <time> for <cores> (measured):
+  first 10 min, now its live use of the last 5 min)` for one without a measure past its grace, `(measured <cores>: it
+  held that for its first 10 min, now its live use of the last 5 min)` for one of a measure; `  run <id> of <repository> waits <time> for <cores> (measured):
   <command>` or `for the whole host (no measure; a command whose text changes every run never gets one:
   `--measure-as <class>` gives it one)`, of a run of a class `for the whole host (no measure of the class <class>
   yet)`, for each run that waits; and `  run <id> of <repository>, not heavy,
@@ -2392,7 +2393,7 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, waiting up to 2 h, and give
 them back after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive head: while it
 fits beside the holders and the load of the host, or on a free turn of a quiet host or after 15 min. A new run MUST
-join last, a short one ahead of those it may pass. Without a measure it MUST take the whole host, a holder for 10 min;
+join last, a short one ahead of those it may pass. A holder MUST count its measure, else the whole host, for 10 min;
 a held lock MUST cost a look.
 
 #### Scenario: Two heavy runs and one that is not heavy
@@ -2408,25 +2409,27 @@ a held lock MUST cost a look.
   global git config of the host, else the cores that the system counts)
 - **THEN** each in its order is admitted while the expected cores of the holders, the live cores of the runs that are
   not heavy and its own fit `<cores>`, and runs beside them
-- **AND** a holder counts the larger of its expected cores and the live cores of its last sample, so a command that got
-  heavier holds more at once
+- **AND** a holder in its first 10 min counts the larger of its expected cores and the live cores of its last sample,
+  so a command that got heavier holds more at once
   [@test] crates/lease-pool/src/host_turn_test.rs (`heavy_runs_of_a_measure_share_the_cores_while_they_fit`, `the_live_use_of_a_holder_and_of_the_runs_that_are_not_heavy_count`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_whole_host`)
 
-#### Scenario: A holder without a measure past its grace
-- **WHEN** a heavy run without a measure holds the turn, 10 min passed since its admission, and its supervisor noted
-  its live cores at each sample of the last 5 min, none more than 1 min after the one before (`recent` of its entry,
-  the most of each half minute)
-- **THEN** it counts the most of those samples, and of its last sample, instead of the whole host, and the head of the
-  queue is admitted beside it while it fits, as beside a holder of a measure
-- **AND** a burst counts at its next sample: what it holds rises with it
+#### Scenario: A holder past its grace
+- **WHEN** a heavy run that is not exclusive holds the turn, 10 min passed since its admission, and its supervisor
+  noted its live cores at each sample of the last 5 min, none more than 1 min after the one before (`recent` of its
+  entry, the most of each half minute)
+- **THEN** it counts the most of those samples, and of its last sample, instead of its expected cores, or of the whole
+  host without a measure or with one of `<cores>` or more, and the head of the queue is admitted beside it while it
+  fits
+- **AND** a burst counts at its next sample: what it holds rises with it; a holder quiet for longer than 5 min that
+  bursts then runs over the runs admitted beside it, the risk taken
 - **AND** before those 10 min, while its samples span less than 5 min, when its last sample is more than 1 min old, or
-  when the most of them leaves less than a fifth of the host beside it, it holds the whole host as before
-- **AND** a supervisor of an older build that rewrites `turn.json` drops `recent`: the holder holds the whole host until
-  a new window spans 5 min
+  when the most of them leaves less than a fifth of the host beside it, it counts as before
+- **AND** a supervisor of an older build that rewrites `turn.json` drops `recent`: the holder counts as before until a
+  new window spans 5 min
 - **AND** a run of the queue without a measure still waits for every holder, and the measure at the end of the run is
   as before
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room`, `the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room`, `the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min`)
 
 #### Scenario: Runs of a class
 - **WHEN** a run of `--measure-as <class>` ended with a measure, and later runs of the class with other commands wait
@@ -2518,7 +2521,8 @@ a held lock MUST cost a look.
   of the host> cores, as the command measured <cores>`; each holder is `run <id>
   of <repository> holds <cores> for <time> (<command>, measured)`, `(<command>, live, above its measure)`, `holds
   the whole host for <time> (<command>, no measure)`, or past its grace `(<command>, no measure: it held the whole host
-  for its first 10 min, now its live use of the last 5 min)`; without a holder `no heavy run holds cores`; without a fresh
+  for its first 10 min, now its live use of the last 5 min)` and `(<command>, measured <cores>: it held that for its
+  first 10 min, now its live use of the last 5 min)`; without a holder `no heavy run holds cores`; without a fresh
   sample of the host, `runs that are not heavy use <cores>` instead of the busy cores, and only when they use cores
 - **AND** after the wait it says `took the heavy turn of the host after <n> s`, and with a fresh sample of the host `,
   the host busy with <cores> of its <cores of the host> cores`, the sample that its admission read
@@ -2643,9 +2647,9 @@ not heavy MUST wait for its end before its lend, in the step `exclusive`, up to 
 ### Requirement: serve: A run measures the cores of its command
 
 The supervisor of every run MUST sample the CPU of its command group, of the Bazel servers of its slot and of their
-descendants, each with the CPU of its reaped children, every 10 s, and at the end measure the mean and the peak. A
-command of 10 s or more MUST add its measure to the last 5 of its repository and command, by a key without the paths
-of the directories that the run fetches.
+descendants, each with the CPU of its reaped children, every 10 s, and at the end measure the mean, the peak and the
+level of work. A command of 10 s or more MUST add its measure to the last 5 of its repository and command, by a key
+without the paths of the directories that the run fetches.
 
 #### Scenario: The samples of a run
 - **WHEN** the command of a run runs
@@ -2653,7 +2657,8 @@ of the directories that the run fetches.
   `live`, of a run that is not heavy in `light`
 - **AND** at the end its log says `the command used <mean> cores on average and <peak> at its peak, of the <cores> of
   the host`: the mean is the larger of the sampled CPU and the CPU of the reaped children of the supervisor over the
-  wall time, the peak the most of one sample
+  wall time, the peak the most of one sample, and the level of work, in `level` of `cores.json` of the run, the live
+  cores at or above which 30 % of the core seconds of its samples ran
 - **AND** a process that started before the command, such as a Bazel server of the slot that a later sample finds,
   counts from that sample on, and a sample counts at most the cores of the machine
 - **AND** a process that started and ended between two samples, a compiler or a test, counts in the process that
@@ -2666,11 +2671,14 @@ of the directories that the run fetches.
 
 #### Scenario: The measure follows the command
 - **WHEN** a run of a command ends, a cancelled one too
-- **THEN** its measure joins the last 5 of the command, and the next run expects the second largest of their means
-  (the largest of up to 4), so a command that got heavier is expected heavier at its next run, and one that got lighter
-  frees its cores within a few runs
+- **THEN** its measure joins the last 5 of the command, and the next run expects the second largest of their levels of
+  work, each at least its mean (the largest of up to 4), so a command that got heavier is expected heavier at its next
+  run, and one that got lighter frees its cores within a few runs
+- **AND** a run that builds on 17 cores for minutes and runs on one core for hours expects 17, not its mean; a steady
+  run its level, about its mean
+- **AND** a measure without a level, of an older build or that a supervisor of one rewrote, counts its mean
 - **AND** a command of less than 10 s adds no measure, and a command without a measure for 30 days is forgotten
-  [@test] crates/lease-pool/src/host_cores_test.rs (`the_expectation_of_a_command_follows_its_last_runs`, `a_command_without_a_measure_for_30_days_is_forgotten`)
+  [@test] crates/lease-pool/src/host_cores_test.rs (`the_expectation_of_a_command_follows_its_last_runs`, `a_command_without_a_measure_for_30_days_is_forgotten`, `the_level_of_work_of_a_bursty_run_is_its_bursts_and_of_a_steady_one_its_level`, `the_expectation_of_a_command_is_of_the_levels_of_its_runs_and_of_the_mean_without_one`)
 
 #### Scenario: The key of the measures of a command
 - **WHEN** two runs of a command differ only by the directories that they fetch (`--fetch`), such as `zsh -lc "mkdir

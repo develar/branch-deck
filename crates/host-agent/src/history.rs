@@ -75,6 +75,7 @@ impl History {
       cores: run.cores().map(|cores| LineCores {
         mean: cores.mean,
         peak: cores.peak,
+        level: cores.level,
         cpu_ms: cores.cpu_ms,
         wall_ms: cores.wall_ms,
       }),

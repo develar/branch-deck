@@ -90,6 +90,7 @@ fn the_summary_splits_the_waits_from_the_work_and_groups_the_commands() {
   lines[0].cores = Some(LineCores {
     mean: Cores(80),
     peak: Cores(150),
+    level: Some(Cores(120)),
     cpu_ms: 32 * MIN,
     wall_ms: 4 * MIN,
   });
@@ -164,7 +165,7 @@ fn the_summary_splits_the_waits_from_the_work_and_groups_the_commands() {
     })
   );
   assert_eq!(e2e.command_ms, Some(Spread { p50: 4 * MIN, p90: 6 * MIN }));
-  assert_eq!((e2e.cores, e2e.peak), (Some(Cores(80)), Some(Cores(150))));
+  assert_eq!((e2e.cores, e2e.peak), (Some(Cores(120)), Some(Cores(150))), "the level of work, as the turn expects");
   assert_eq!((nextest.runs, nextest.failed), (1, 0));
   assert_eq!(report.other, None);
 

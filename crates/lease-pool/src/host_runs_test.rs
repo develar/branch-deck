@@ -36,7 +36,7 @@ fn the_queue_line_names_the_wait_the_runs_ahead_the_lent_slots_the_quarantine_an
 }
 
 /// The line of a wait names what the run waits for, what each holder holds and why, a holder without a measure past its
-/// grace its live use, what the runs that are not heavy use, and the runs ahead
+/// grace its live use, one of a measure too, what the runs that are not heavy use, and the runs ahead
 #[test]
 fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
   let entry = |run: &str, repo: &str, command: &str, since_ms: u64, expected: Option<u32>| TurnEntry {
@@ -58,12 +58,21 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     recent: None,
   };
   assert_eq!(
-    holds_text(Need::Recent(Cores(12))),
+    holds_text(Need::Recent { cores: Cores(12), measured: None }),
     (
       "holds 1.2".to_owned(),
       "no measure: it held the whole host for its first 10 min, now its live use of the last 5 min".to_owned()
     ),
     "a holder without a measure past its grace"
+  );
+  assert_eq!(
+    holds_text(Need::Recent {
+      cores: Cores(12),
+      measured: Some(Cores(160))
+    })
+    .1,
+    "measured 16.0: it held that for its first 10 min, now its live use of the last 5 min",
+    "a holder of a measure past its grace"
   );
   let now_ms = 1_000_000_000;
   let live = TurnEntry {

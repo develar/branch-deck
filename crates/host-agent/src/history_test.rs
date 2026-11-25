@@ -80,6 +80,7 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     .write_cores(&CoresFile {
       mean: Cores(75),
       peak: Cores(120),
+      level: None,
       cpu_ms: 7500,
       wall_ms: 1000,
       ended: true,
@@ -132,6 +133,7 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     Some(LineCores {
       mean: Cores(75),
       peak: Cores(120),
+      level: None,
       cpu_ms: 7500,
       wall_ms: 1000
     })

@@ -419,7 +419,7 @@ fn measure_end(context: &Context<'_>, of: &turn::TurnRun<'_>, sampler: &mut Samp
     context.say(&why);
     return;
   }
-  if let Err(refusal) = turn::record(context.home, of, file.mean, file.peak, Duration::from_millis(file.wall_ms), passed) {
+  if let Err(refusal) = turn::record(context.home, of, &file, passed) {
     supervisor(&format!("run {}: {refusal}", of.run));
   }
 }

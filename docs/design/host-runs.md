@@ -149,21 +149,27 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
   the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
   from joining a host they already load.
-- **A holder without a measure**: it holds the whole host only until its use is known. On 2026-11-24 the first run of
-  the class `accio-typing-gate` held the whole Studio for over 2 h at 0.6 of its 20 cores on average (18.3 at its
-  peak, its late phases on one core), and the heavy runs behind it ended with `heavy_timeout`. So from 10 min after its
-  admission (`UNMEASURED_GRACE`) it counts the most of its live use of the last 5 min (`USE_WINDOW`), its own
-  supervisor noting each sample into `recent` of its entry, the most of each half minute; a burst counts at its next
-  sample, as the live use of a measured holder above its measure does. Not its peak since its start: that is the
-  burst of its build, 18.3 of 20, and frees nothing. The window is 5 min, longer than the lull between two bursts of a
-  test run (a link, the start of the next binary), short enough that a tail on one core frees the cores within
-  minutes; the grace is twice the window, so the window begins after the first 5 min, which a build or the start of
-  the servers of a gate fill, and a short new command ends and is measured before it counts by its use. A window that
-  spans less than 5 min, whose last sample is more than a minute old, or that leaves less than a fifth of the host
-  beside it (the background of a quiet host) holds the whole host still. A supervisor of an older build rewrites the
-  table without `recent`: the window begins again at the next sample of the holder, so the loss costs the queue 5 min
-  of the whole host, never an admission beside a run whose use is unknown. A run of the queue without a measure still
-  needs the whole host: only a holder has samples. Its measure at its end is as before.
+- **A holder past its grace**: a holder counts its expectation only until its use is known. On 2026-11-24 the first
+  run of the class `accio-typing-gate` held the whole Studio for over 2 h at 0.6 of its 20 cores on average (18.3 at
+  its peak, its late phases on one core), and the heavy runs behind it ended with `heavy_timeout`. So from 10 min after
+  its admission (`HOLD_GRACE`) a holder that is not exclusive counts the most of its live use of the last 5 min
+  (`USE_WINDOW`), its own supervisor noting each sample into `recent` of its entry, the most of each half minute,
+  instead of the larger of its expectation and its live use; without a measure, or with one of the whole host, it held
+  the whole host until then. A burst counts at its next sample. Not its peak since its start: that is the burst of
+  its build, 18.3 of 20, and frees nothing. The window is 5 min, longer than the lull between two bursts of a test run
+  (a link, the start of the next binary), short enough that a tail on one core frees the cores within minutes. The
+  samples of the runs of 2026-11-24 (`cores.json` of each run on the Studio) bear it out: past a grace of 10 min, the
+  gates held 1.5 to 5.2 cores on average with a window of 5 min, 2.5 to 7.5 with one of 10 min and 1.0 to 4.0 with one
+  of 3 min, and a burst of 8 cores or more after a window under 4 came 0 to 2 times a run with either window; a test
+  suite, an E2E run and a fast lane of idea-1 end within the grace or about it, and count as before. The grace is
+  twice the window, so the window begins after the first 5 min, which a build or the start of the servers of a gate
+  fill. A window that spans less than 5 min, whose last sample is more than a minute old, or that leaves less than a
+  fifth of the host beside it (the background of a quiet host) counts as in the grace. A supervisor of an older build
+  rewrites the table without `recent`: the window begins again at the next sample of the holder, so the loss costs the
+  queue 5 min of what the holder counted in its grace, never an admission beside a run whose use is unknown. A run of
+  the queue without a measure still needs the whole host: only a holder has samples. The risk taken: a holder quiet for
+  longer than the window that bursts then runs over the runs admitted beside it while the burst lasts; the window
+  holds back the next admission for 5 min after it, and a gate's bursts last minutes against hours of its tail.
 - **A busy free turn**: as the runs that are not heavy wait for no heavy run, a host of steady light runs is never
   quiet. On 2026-11-21 a UI lane of idea-1 without a measure waited 2 h at a free turn of the Studio, busy with 20 of
   its 20 cores outside the heavy runs, and ended with `heavy_timeout`; the runs behind it waited too. So the head of the
@@ -234,8 +240,21 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   the reaped children of the supervisor (`RUSAGE_CHILDREN`) over the wall time. Neither alone was enough: on 2026-11-19 a
   cold `cargo build -p git-ops` used 221 s of CPU in 108 s (2.0 cores) and the run measured 0.8, as the samples missed
   each rustc between two of them and `RUSAGE_CHILDREN` lost the build, since `zsh -c` execs its last command and macOS
-  drops the reaped children of a process at its exec. Each run of 10 s or more adds its mean to the last 5 of its
-  repository and command, in `cores.json` beside the turn, and a command is expected to use their 80th percentile. The
+  drops the reaped children of a process at its exec. Each run of 10 s or more adds its measure to the last 5 of its
+  repository and command, in `cores.json` beside the turn, and a command is expected to use the 80th percentile of
+  their levels of work (`host_cores::work_level`): the live cores at or above which 30 % of the core seconds of its
+  samples ran, at least its mean. Not the mean: a gate of `accio-typing-gate` builds, tests and lints on 16 to 18
+  cores for 1 to 3 min a few times and runs on one core for the rest, a mean of 0.4 to 1.4 of 20 in 1 to 3 h, and five
+  gates admitted at 1.0 built at once, 4 to 5 times the cores of the host, the E2E runs beside them took 39 min
+  instead of 5 at a mean of 1.5, and the timing tests of nextest failed. The share is 30 %, not a half: by the samples
+  of 2026-11-24, a half of the work of the one gate that ran alone ran on 7.5 cores or more and 30 % on 15.9 or more,
+  of the gates that ran beside each other 2.9 to 6.5 and 5.8 to 10.5; a test suite of Branch Deck has 12.6 to 13.0
+  against its mean of 12.0 to 12.2, an E2E run 14.3 to 14.9 against 12.5, a fast lane of idea-1 16.0 to 17.4 against
+  12.7 to 13.9, and a peak (a sample of 10 s) would cost them 15.6 to 17.8. Once its grace ended a holder counts its
+  live use (above), so a high expectation keeps the next gate out only for the first 10 min of a gate, never for its
+  hours. A run that ran beside others measures less than it needs, the level as the mean: its bursts get fewer cores
+  for longer. A measure of a build before the level, or that a supervisor of such a build rewrote, has none, and its
+  mean counts. The
   key (`host_link::heavy::measure_key`) is the key of the supersede with each path of a directory that the run fetches
   as one word: an agent writes the outputs of each run to a directory of its own (`--fetch out/air/light1` and `mkdir
   -p out/air/light1 && … > out/air/light1/run.json`, then `light5`), and on 2026-11-21 the measure of one lane did not
@@ -253,8 +272,8 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   `HistoryLine::measure_as`). A run that waits reads the measures again at each look, so a
   run of its command that ends meanwhile counts. So the stats follow the changes, never a calibration of once: a command that got heavier is
   expected heavier at its next run, one that got lighter (a faster fast lane) frees its cores within a few runs, and a
-  cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use, so a run that
-  grows past its expectation holds more at once, for the admissions that follow, not only at its end.
+  cancelled run counts by its own measure. A holder holds the larger of its expectation and its live use in its grace,
+  so a run that grows past its expectation holds more at once, for the admissions that follow, not only at its end.
 - **A starved run adds no measure** (`lease_pool::host_cores::starved`): beside each sample the supervisor notes the busy
   cores of the whole host by the sample of `serve` (`host.json`), less the run's own, and at the end it keeps no measure
   and no wall when their mean and the run's mean exceed the cores of the host (`branchdeck.hostCores`), the room that

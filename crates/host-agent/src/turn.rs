@@ -361,15 +361,16 @@ pub(crate) fn note_use(home: &Home, of: &TurnRun<'_>, live: Cores) -> Result<(),
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot note the cores of the run in the heavy turn: {error:#}")))
 }
 
-/// Adds the measure `mean` and `peak` of the command of the run `of`, which ran `wall`, to the measures of its command,
-/// and the wall to the walls of its passed runs when it `passed` (`lease_pool::host_cores::record`): a command shorter
-/// than `tuning::min_wall` adds none
-pub(crate) fn record(home: &Home, of: &TurnRun<'_>, mean: Cores, peak: Cores, wall: Duration, passed: bool) -> Result<(), Refusal> {
+/// Adds the measure of `file`, the mean, the peak and the level of work of the command of the run `of` and its wall,
+/// to the measures of its command, and the wall to the walls of its passed runs when it `passed`
+/// (`lease_pool::host_cores::record`): a command shorter than `tuning::min_wall` adds none
+pub(crate) fn record(home: &Home, of: &TurnRun<'_>, file: &crate::cores::CoresFile, passed: bool) -> Result<(), Refusal> {
   let measure = Measure {
     run: of.run.to_owned(),
-    mean,
-    peak,
-    wall_ms: u64::try_from(wall.as_millis()).unwrap_or(u64::MAX),
+    mean: file.mean,
+    peak: file.peak,
+    level: file.level,
+    wall_ms: file.wall_ms,
     at_ms: now_ms(),
   };
   lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &of.measure_key(), measure, passed)
@@ -527,7 +528,7 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
     let mark = table.marks.get(&waiting.ticket.run).copied().unwrap_or_default();
     let need = match waiting.need(cores, now_ms) {
       // an entry of the queue has no window of its use, and a measure decides
-      Need::Cores { cores, .. } | Need::Recent(cores) => match mark.short_ms {
+      Need::Cores { cores, .. } | Need::Recent { cores, .. } => match mark.short_ms {
         Some(wall) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
         None => format!("{cores} (measured)"),
       },

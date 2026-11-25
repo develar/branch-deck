@@ -414,7 +414,7 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
   // before its first look the other run of the command ends with its measure, and the second look stops
   let stop = || match looks.fetch_add(1, Ordering::SeqCst) {
     0 => {
-      record(&home, &run("earlier", &light1, &fetch1), Cores(15), Cores(136), Duration::from_mins(1), true).unwrap();
+      record(&home, &run("earlier", &light1, &fetch1), &ended(Cores(15), Cores(136), Duration::from_mins(1)), true).unwrap();
       false
     }
     _ => true,
@@ -434,6 +434,17 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
     (Some("waiting"), Some(1.5)),
     "the look after the measure expects it"
   );
+}
+
+/// The cores of a command that ended after `wall` with `mean` and `peak`, without samples
+fn ended(mean: Cores, peak: Cores, wall: Duration) -> crate::cores::CoresFile {
+  crate::cores::CoresFile {
+    mean,
+    peak,
+    wall_ms: u64::try_from(wall.as_millis()).unwrap(),
+    ended: true,
+    ..crate::cores::CoresFile::default()
+  }
 }
 
 /// A run whose command passed 3 times in at most 2 min is short: its first ask says which runs it went ahead of and
@@ -456,7 +467,7 @@ fn a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both() {
   let at_once = || true;
   let mut quiet = |_: &str| {};
   for (earlier, passed) in [("lint-1", true), ("lint-2", true), ("lint-failed", false)] {
-    record(&home, &run(earlier, &lint), Cores(60), Cores(90), Duration::from_secs(50), passed).unwrap();
+    record(&home, &run(earlier, &lint), &ended(Cores(60), Cores(90), Duration::from_secs(50)), passed).unwrap();
   }
   assert_eq!(take(&home, &run("holder", &e2e), Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
   assert_eq!(take(&home, &run("long", &e2e), Duration::from_mins(1), &at_once, &mut quiet).unwrap(), None, "it waits");
@@ -468,7 +479,7 @@ fn a_short_run_says_whom_it_went_ahead_of_and_the_lines_mark_both() {
   );
   assert!(!said.iter().any(|line| line.starts_with("a short run")), "{said:?}");
   assert!(!leave(&home, "not-yet").unwrap(), "it leaves the queue");
-  record(&home, &run("lint-3", &lint), Cores(60), Cores(90), Duration::from_secs(40), true).unwrap();
+  record(&home, &run("lint-3", &lint), &ended(Cores(60), Cores(90), Duration::from_secs(40)), true).unwrap();
   let mut said = Vec::new();
   assert_eq!(
     take(&home, &run("lint", &lint), Duration::from_mins(1), &at_once, &mut |line| said.push(line.to_owned())).unwrap(),

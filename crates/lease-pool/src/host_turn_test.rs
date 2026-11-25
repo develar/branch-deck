@@ -1235,17 +1235,27 @@ fn a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use
   age_holder(
     dir.path(),
     "gate",
-    UNMEASURED_GRACE + Duration::from_mins(1),
+    HOLD_GRACE + Duration::from_mins(1),
     Some(steady(Duration::from_mins(6), Duration::from_secs(1), 10)),
   );
-  assert_eq!(read_live(dir.path()).unwrap().holders[0].need(20, now_ms()), Need::Recent(Cores(10)));
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Recent { cores: Cores(10), measured: None }
+  );
   assert_eq!(take(&params, &measured("nextest", &command, 80)).unwrap(), TurnAnswer::Taken, "1.0 and 8.0 of 20");
 
   note_live(&params, "gate", &command, 150);
   let TurnAnswer::Queued(queue) = take(&params, &measured("e2e", &command, 40)).unwrap() else {
     panic!("15.0, 8.0 and 4.0 do not fit 20");
   };
-  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Recent(Cores(150)), "a burst counts at once");
+  assert_eq!(
+    queue.holders[0].need(20, now_ms()),
+    Need::Recent {
+      cores: Cores(150),
+      measured: None
+    },
+    "a burst counts at once"
+  );
   assert!(leave(&params, "nextest").unwrap());
   assert!(!leave(&params, "e2e").unwrap());
   let TurnAnswer::Queued(queue) = take(&params, &request("unknown", &command)).unwrap() else {
@@ -1263,7 +1273,7 @@ fn a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_l
   let params = params(dir.path());
   let command = command();
   gate_takes_the_free_turn(&params, &command);
-  let past_grace = UNMEASURED_GRACE + Duration::from_mins(110);
+  let past_grace = HOLD_GRACE + Duration::from_mins(110);
   for (recent, why) in [
     (steady(Duration::from_mins(6), Duration::from_secs(1), 160), "16.0 leave less than a fifth of 20"),
     (steady(Duration::from_mins(4), Duration::from_secs(1), 10), "a window of 4 min"),
@@ -1276,7 +1286,14 @@ fn a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_l
     assert_eq!(queue.holders[0].need(20, now_ms()), Need::Unmeasured, "{why}");
   }
   age_holder(dir.path(), "gate", past_grace, Some(steady(Duration::from_mins(6), Duration::from_secs(1), 150)));
-  assert_eq!(read_live(dir.path()).unwrap().holders[0].need(20, now_ms()), Need::Recent(Cores(150)), "15.0 leave a fifth");
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Recent {
+      cores: Cores(150),
+      measured: None
+    },
+    "15.0 leave a fifth"
+  );
 
   let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
   table["holders"][0].as_object_mut().unwrap().remove("recent");
@@ -1295,9 +1312,61 @@ fn a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_l
   assert!(leave(&params, "gate").unwrap());
   assert!(!leave(&params, "lint").unwrap());
 
-  assert_eq!(take(&params, &measured("measured", &command, 40)).unwrap(), TurnAnswer::Taken);
-  note_live(&params, "measured", &command, 30);
-  assert_eq!(read_live(dir.path()).unwrap().holders[0].recent, None, "a holder of a measure keeps no window");
+  assert_eq!(take(&params, &measurement("ab", &command)).unwrap(), TurnAnswer::Taken);
+  note_live(&params, "ab", &command, 30);
+  assert_eq!(read_live(dir.path()).unwrap().holders[0].recent, None, "an exclusive holder keeps no window");
+}
+
+/// A holder of a measure counts the larger of its measure and its live use in its grace of 10 min, so the head waits
+/// beside its build; past the grace it counts the most of its live use of the last 5 min, so the head starts beside its
+/// quiet tail, and a burst raises what it holds at its next sample. A holder that measured the whole host does the same
+/// past its grace
+#[test]
+fn a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the_last_5_min() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &measured("gate", &command, 160)).unwrap(), TurnAnswer::Taken);
+  note_live(&params, "gate", &command, 10);
+  let tail = || Some(steady(Duration::from_mins(6), Duration::from_secs(1), 10));
+  age_holder(dir.path(), "gate", Duration::from_mins(9), tail());
+  let TurnAnswer::Queued(queue) = take(&params, &measured("next", &command, 160)).unwrap() else {
+    panic!("16.0 and 16.0 do not fit 20 in its grace");
+  };
+  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Cores { cores: Cores(160), live: false });
+
+  age_holder(dir.path(), "gate", HOLD_GRACE + Duration::from_mins(50), tail());
+  assert_eq!(
+    read_live(dir.path()).unwrap().holders[0].need(20, now_ms()),
+    Need::Recent {
+      cores: Cores(10),
+      measured: Some(Cores(160))
+    }
+  );
+  assert_eq!(take(&params, &measured("next", &command, 160)).unwrap(), TurnAnswer::Taken, "1.0 and 16.0 of 20");
+  note_live(&params, "gate", &command, 120);
+  let TurnAnswer::Queued(queue) = take(&params, &measured("lint", &command, 10)).unwrap() else {
+    panic!("12.0, 16.0 and 1.0 do not fit 20");
+  };
+  assert_eq!(
+    queue.holders[0].need(20, now_ms()),
+    Need::Recent {
+      cores: Cores(120),
+      measured: Some(Cores(160))
+    },
+    "a burst counts at once"
+  );
+  assert!(leave(&params, "next").unwrap());
+  assert!(!leave(&params, "lint").unwrap());
+  assert!(leave(&params, "gate").unwrap());
+
+  assert_eq!(take(&params, &measured("whole", &command, 200)).unwrap(), TurnAnswer::Taken);
+  age_holder(dir.path(), "whole", HOLD_GRACE + Duration::from_mins(1), tail());
+  assert_eq!(
+    take(&params, &measured("next", &command, 160)).unwrap(),
+    TurnAnswer::Taken,
+    "a holder that measured the whole host counts its use past its grace"
+  );
 }
 
 /// The window of the live use keeps the most of each half minute of the last 5 min: a burst older than that counts no

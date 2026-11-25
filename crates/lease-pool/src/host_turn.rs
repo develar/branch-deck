@@ -6,13 +6,14 @@
 //! The turn holds cores, not one run: the head of the queue is admitted while the cores that the holders are expected
 //! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
 //! without a measure of its command (`TurnEntry::expected` is `None`), or one whose command measured the whole host,
-//! takes the whole host: it waits for no holder, and no heavy run joins it. A holder without a measure holds the whole
-//! host only until its use is known ([`TurnEntry::need`]): from [`UNMEASURED_GRACE`] (10 min) after its admission it
-//! counts the most of its live use of the last [`USE_WINDOW`] (5 min, `TurnEntry::recent`, which its supervisor notes at
-//! each sample), as a measured holder counts its live use above its measure; a window that spans less, or whose last
-//! sample is older than [`USE_GAP`], or that leaves less than a fifth of the host ([`quiet`]) beside it, holds the
-//! whole host still. So the first run of a class whose tail runs on one core for hours lets the queue beside it, and a
-//! burst raises what it holds at its next sample. Only the head of the queue is admitted, so a
+//! takes the whole host: it waits for no holder, and no heavy run joins it. A holder counts its expectation only until
+//! its use is known ([`TurnEntry::need`]): from [`HOLD_GRACE`] (10 min) after its admission it counts the most of its
+//! live use of the last [`USE_WINDOW`] (5 min, `TurnEntry::recent`, which its supervisor notes at each sample) instead,
+//! a holder without a measure and one that measured the whole host too; a window that spans less, or whose last sample
+//! is older than [`USE_GAP`], or that leaves less than a fifth of the host ([`quiet`]) beside it, counts as before the
+//! grace. So a gate whose tail runs on one core for hours lets the next gate start its build beside it, and a burst
+//! raises what it holds at its next sample. The risk taken: a holder quiet for longer than the window that bursts then
+//! runs over the runs admitted beside it, until it ends or quiets down. Only the head of the queue is admitted, so a
 //! run that is admitted later never takes the cores that a run before it waits for; the one exception is an exclusive
 //! run at the head whose drain ended (below).
 //!
@@ -27,9 +28,10 @@
 //! entries takes the earliest join of them for its [`LOAD_BOUND`], so a head that it passed on a busy free turn waits
 //! no new bound. The pass counters and the classes are in `passes.json` beside the table, by the id of the run, which a
 //! supervisor of an older build does not rewrite; a run that supersedes a waiting one takes its counter. A run without
-//! a measure is never short: it takes the whole host. A holder counts the larger of its
+//! a measure is never short: it takes the whole host. A holder in its grace counts the larger of its
 //! expectation and its live use (`live`, which its supervisor notes at each sample), so a command that got heavier
-//! holds more at once; the runs that are not heavy note theirs into `light`.
+//! holds more at once; the runs that are not heavy note theirs into `light`. The expectation is the level of the heavy
+//! phases of the last runs of the command, not their mean (`host_cores::expected`).
 //!
 //! The samples of the runs miss what no run counts, and the agent samples the busy cores of the whole host every 2 s
 //! into `host.json` ([`note_host`]). An admission counts the larger of `light` and the busy cores of the host outside
@@ -108,11 +110,12 @@ pub const DRAIN_BAR: Duration = Duration::from_mins(15);
 /// the heavy runs, before a free turn admits it whatever that load ([`admits`]): the runs that are not heavy wait for no
 /// heavy run, so on a host of steady light runs a run of the whole host would wait for the whole of its 2 h
 pub const LOAD_BOUND: Duration = Duration::from_mins(15);
-/// How long a holder without a measure holds the whole host from its admission, whatever its use ([`TurnEntry::need`]):
-/// twice [`USE_WINDOW`], so the window that frees its cores begins after its first 5 min, which a build or the start of
-/// the servers of a gate fills, and a short new command ends and is measured before it counts by its use
-pub const UNMEASURED_GRACE: Duration = Duration::from_mins(10);
-/// The span of the live samples of a holder without a measure whose most it counts once its grace ended: longer than the
+/// How long a holder counts its expectation from its admission, the whole host without a measure, whatever its use
+/// ([`TurnEntry::need`]): twice [`USE_WINDOW`], so the window that frees its cores begins after its first 5 min, which a
+/// build or the start of the servers of a gate fills, and a run of minutes (a test suite, an E2E run) ends before it
+/// counts by its use
+pub const HOLD_GRACE: Duration = Duration::from_mins(10);
+/// The span of the live samples of a holder whose most it counts once its grace ended: longer than the
 /// lull between two bursts of a test run (a link, the start of the next binary), short enough that a tail on one core
 /// frees the cores within minutes
 pub const USE_WINDOW: Duration = Duration::from_mins(5);
@@ -214,14 +217,14 @@ pub struct TurnEntry {
   /// of an older build that rewrites the table drops it, and only the lines lose it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_as: Option<String>,
-  /// The live use of the last 5 min of a holder without a measure, which its supervisor notes at each sample: what it
-  /// holds once its grace ended ([`UNMEASURED_GRACE`]); a supervisor of an older build that rewrites the table drops
-  /// it, and the holder holds the whole host until a new window spans 5 min
+  /// The live use of the last 5 min of a holder that is not exclusive, which its supervisor notes at each sample: what
+  /// it holds once its grace ended ([`HOLD_GRACE`]); a supervisor of an older build that rewrites the table drops it,
+  /// and the holder counts as in its grace until a new window spans 5 min
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recent: Option<RecentUse>,
 }
 
-/// The live samples of a holder without a measure over the last [`USE_WINDOW`], the most of each half minute
+/// The live samples of a holder over the last [`USE_WINDOW`], the most of each half minute
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecentUse {
   /// The first sample since which none was more than [`USE_GAP`] after the one before: the window counts once its
@@ -277,9 +280,9 @@ pub enum Need {
   Cores { cores: Cores, live: bool },
   /// The whole host: its command has no measure yet
   Unmeasured,
-  /// These cores, the most of its live use of the last 5 min: a holder without a measure past its grace
-  /// ([`UNMEASURED_GRACE`])
-  Recent(Cores),
+  /// These cores, the most of its live use of the last 5 min: a holder past its grace ([`HOLD_GRACE`]), with the
+  /// measure of its command, if any, which it counted before
+  Recent { cores: Cores, measured: Option<Cores> },
   /// The whole host: its command measured these cores, the cores of the host or more
   Measured(Cores),
   /// The whole host of a quiet host, for a measurement: an exclusive run
@@ -290,13 +293,13 @@ impl Need {
   /// The cores of the need on a host of `cores`
   pub const fn cores(self, cores: u32) -> Cores {
     match self {
-      Self::Cores { cores, .. } | Self::Recent(cores) => cores,
+      Self::Cores { cores, .. } | Self::Recent { cores, .. } => cores,
       Self::Unmeasured | Self::Measured(_) | Self::Exclusive => Cores::whole(cores),
     }
   }
 
   pub const fn is_whole_host(self) -> bool {
-    !matches!(self, Self::Cores { .. } | Self::Recent(_))
+    !matches!(self, Self::Cores { .. } | Self::Recent { .. })
   }
 }
 
@@ -345,14 +348,21 @@ impl TurnEntry {
     self.ticket.is_running()
   }
 
-  /// What the entry takes of a host of `cores` at `now_ms`: a holder the larger of its expectation and its live use; a
-  /// holder without a measure past its grace its use of the last 5 min ([`Self::recent_use`]), else the whole host
+  /// What the entry takes of a host of `cores` at `now_ms`: a holder past its grace its use of the last 5 min
+  /// ([`Self::recent_use`]); else the larger of its expectation and its live use, the whole host without a measure or
+  /// with one of the whole host
   pub fn need(&self, cores: u32, now_ms: u64) -> Need {
     if self.exclusive {
       return Need::Exclusive;
     }
+    if let Some(used) = self.recent_use(cores, now_ms) {
+      return Need::Recent {
+        cores: used,
+        measured: self.expected,
+      };
+    }
     match self.expected {
-      None => self.recent_use(cores, now_ms).map_or(Need::Unmeasured, Need::Recent),
+      None => Need::Unmeasured,
       Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
       Some(expected) => match self.live {
         Some(live) if live > expected => Need::Cores { cores: live, live: true },
@@ -361,12 +371,12 @@ impl TurnEntry {
     }
   }
 
-  /// The cores that a holder without a measure counts at `now_ms`: the most of its live use of the last 5 min
-  /// ([`RecentUse::peak`]) and of its last sample, once [`UNMEASURED_GRACE`] passed since its admission (`since_ms`);
+  /// The cores that a holder counts at `now_ms` past its grace: the most of its live use of the last 5 min
+  /// ([`RecentUse::peak`]) and of its last sample, once [`HOLD_GRACE`] passed since its admission (`since_ms`);
   /// `None`, the whole host, in its grace, without a window that counts (an entry of the queue has none), or with less
   /// than a fifth of the host ([`quiet`]) left beside it, as that room is the background of a quiet host
   fn recent_use(&self, cores: u32, now_ms: u64) -> Option<Cores> {
-    if now_ms.saturating_sub(self.since_ms) < millis(UNMEASURED_GRACE) {
+    if now_ms.saturating_sub(self.since_ms) < millis(HOLD_GRACE) {
       return None;
     }
     let used = self.recent.as_ref()?.peak(now_ms)?.max(self.live.unwrap_or_default());
@@ -1075,7 +1085,7 @@ pub struct UseNote<'a> {
 }
 
 /// Notes the live cores of the run of `note`: a holder's `live`, which raises what it holds once it is past its
-/// expectation, and of a holder without a measure its window too (`recent`), which it holds past its grace; a run that
+/// expectation, and its window too (`recent`), which it holds past its grace; a run that
 /// is neither a holder nor waits is a run that is not heavy, and its entry of `light` gets them. The admissions that
 /// follow count them
 pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
@@ -1085,7 +1095,7 @@ pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
     table.cores = params.cores;
     if let Some(holder) = table.holders.iter_mut().find(|holder| holder.ticket.run == note.run) {
       holder.live = Some(note.live);
-      if holder.expected.is_none() && !holder.exclusive {
+      if !holder.exclusive {
         holder.recent.get_or_insert_default().push(now_ms(), note.live);
       }
     } else if let Some(light) = table.light.iter_mut().find(|light| light.ticket.run == note.run) {

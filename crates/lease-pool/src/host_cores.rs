@@ -1,10 +1,13 @@
 //! The cores that the commands of the heavy runs of a host use (openspec/specs/cli/host/spec.md, "serve: Heavy runs share
 //! the cores of the host by their measure"; docs/design/host-runs.md, "Heavy runs"): every run whose command ran at
-//! least `MIN_WALL` adds its measure (its mean and its peak cores) to the measures of its repository and command
-//! (`host_link::heavy::measure_key`: the key of the supersede without the paths of the directories that the run
-//! fetches), the last `KEPT` of them; a command is expected to use the 80th percentile of their
-//! means (`expected`). So the measure follows the command: a command that got heavier shows at its next run, and one
-//! that got lighter frees cores within a few. A cancelled run counts by its own measure too.
+//! least `MIN_WALL` adds its measure (its mean, its peak and its level of work, [`work_level`]) to the measures of its
+//! repository and command (`host_link::heavy::measure_key`: the key of the supersede without the paths of the
+//! directories that the run fetches), the last `KEPT` of them; a command is expected to use the 80th percentile of their
+//! levels, the larger of the level and the mean of each (`expected`). The level, not the mean: a gate of 2 h that
+//! builds and tests on 16 to 18 cores for minutes and runs on one core between has a mean of 1.0, and five gates
+//! admitted by it build at once on a host of 20. A measure of a build before the level has none, and its mean counts.
+//! So the measure follows the command: a command that got heavier shows at its next run, and one that got lighter frees
+//! cores within a few. A cancelled run counts by its own measure too.
 //!
 //! A run whose command passed (exit 0) adds its wall time to the walls of its command too, the last `KEPT` of them
 //! (`walls.json`, `passed_wall`): the heavy turn reads whether a command is short by them (`host_turn::short_wall`). A
@@ -44,6 +47,11 @@ pub const KEPT: usize = 5;
 pub const PASSED_RUNS: usize = 3;
 /// The shortest command that counts: a command of seconds measures its start, not its work
 pub const MIN_WALL: Duration = Duration::from_secs(10);
+/// The share of the work of a run, in percent, that ran at its level of work or above ([`work_level`]): 30 %, the level
+/// of its heavy phases. A half (or more) of the work of a gate of the Studio ran on 2 to 8 cores between its bursts, so
+/// a higher share expects that and lets several gates build at once; a lower one is the peak of a few samples. A steady
+/// command (a test suite, an E2E run) has its level a little above its mean
+pub const WORK_SHARE_PERCENT: u64 = 30;
 /// How long a command without a new measure keeps its measures
 const FORGET_AFTER: Duration = Duration::from_hours(30 * 24);
 
@@ -106,6 +114,10 @@ pub struct Measure {
   pub mean: Cores,
   /// The most of one sample
   pub peak: Cores,
+  /// The live cores at or above which [`WORK_SHARE_PERCENT`] of its work ran ([`work_level`]); `None` from a build
+  /// before the level, or of a supervisor of such a build that rewrote the table: its mean counts
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub level: Option<Cores>,
   pub wall_ms: u64,
   /// When it ended, in Unix milliseconds
   pub at_ms: u64,
@@ -187,10 +199,36 @@ pub fn starved(outside: Option<Cores>, mean: Cores, cores: u32) -> Option<String
   })
 }
 
-/// The cores that the last runs of `command_key` in `repo` lead to expect: the 80th percentile of their means, by the
-/// nearest rank (of 5 the second largest, of up to 4 the largest); `None` without a measure
+/// The cores that the last runs of `command_key` in `repo` lead to expect: the 80th percentile of their levels of work,
+/// each the larger of its level and its mean (the mean alone of a measure without a level), by the nearest rank (of 5
+/// the second largest, of up to 4 the largest); `None` without a measure
 pub fn expected(dir: &Path, repo: &str, command_key: &str) -> Result<Option<Cores>> {
-  of_measures(dir, repo, command_key, |measure| measure.mean)
+  of_measures(dir, repo, command_key, |measure| measure.level.map_or(measure.mean, |level| level.max(measure.mean)))
+}
+
+/// The level of work of a run by its samples, each the time of its end since the start of the command in milliseconds
+/// and its live cores over the time since the sample before: the live cores at or above which
+/// [`WORK_SHARE_PERCENT`] of its core seconds ran. `None` for a run of no work
+pub fn work_level(samples: impl IntoIterator<Item = (u64, Cores)>) -> Option<Cores> {
+  let mut before = 0;
+  let mut work: Vec<(Cores, u64)> = samples
+    .into_iter()
+    .map(|(ms, cores)| {
+      let span = ms.saturating_sub(before);
+      before = before.max(ms);
+      (cores, u64::from(cores.0) * span)
+    })
+    .collect();
+  let total: u64 = work.iter().map(|&(_, work)| work).sum();
+  if total == 0 {
+    return None;
+  }
+  work.sort_unstable_by_key(|&(cores, _)| std::cmp::Reverse(cores));
+  let mut above = 0u64;
+  work.into_iter().find_map(|(cores, work)| {
+    above += work;
+    (u128::from(above) * 100 >= u128::from(total) * u128::from(WORK_SHARE_PERCENT)).then_some(cores)
+  })
 }
 
 /// The 80th percentile of `value` of the last measures of `command_key` in `repo`, by the nearest rank; `None` without a
