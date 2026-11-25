@@ -112,6 +112,16 @@ pub fn state_dir(git_dir: &Path) -> PathBuf {
   git_dir.join(STATE_DIR)
 }
 
+/// The directory of the files of the remote runs of brd-host in `STATE_DIR` of the git directory of a checkout: its run
+/// records and its packs (`host_client`)
+pub const HOST_DIR: &str = "host";
+
+/// The run records of the remote runs of a checkout, `<git dir>/branch-deck/host/runs`: `host_client` writes them, and
+/// the end of a lease reads which runs of its slot have no end (`lease_pool::host_cancel`)
+pub fn host_runs_dir(git_dir: &Path) -> PathBuf {
+  state_dir(git_dir).join(HOST_DIR).join("runs")
+}
+
 /// The object cache of the repository of `git_common_dir`: `$GIT_COMMON_DIR/branch-deck/cache`
 pub fn object_cache_dir(git_common_dir: &Path) -> PathBuf {
   state_dir(git_common_dir).join(OBJECT_CACHE_DIR)

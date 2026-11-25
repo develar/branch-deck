@@ -8,18 +8,14 @@
 use git_executor::git_command_executor::{GitCommandExecutor, StoppedCommand};
 use git_ops::host_client::{Scan, apply_patch, pack_commit_until, repository_name, snapshot};
 use git_ops::host_objects::show_commit;
-use git_ops::lease_slot::{NOTES_LINK, links_to_lease_notes, state_dir};
+use git_ops::lease_slot::{HOST_DIR, NOTES_LINK, host_runs_dir, links_to_lease_notes, state_dir};
 use git_ops::revs::{commit_count, repository_dirs, with_repository_dirs};
 use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};
 use sync_utils::span::in_current_span;
 
-/// The directory of the files of the runs in `STATE_DIR` of the git directory of a checkout
-const HOST_DIR: &str = "host";
-/// The directory of the run records and the patches, in `HOST_DIR`
-const RUNS_DIR: &str = "runs";
-/// The directory of the pack files, in `HOST_DIR`
+/// The directory of the pack files, in `HOST_DIR` of the git directory of a checkout
 const PACKS_DIR: &str = "packs";
 /// The directory of the logs and the patches of the runs in the notes of a lease (`Checkout::notes_dir`)
 const NOTES_DIR: &str = "brd-host";
@@ -88,7 +84,7 @@ impl Checkout {
 
   /// `branch-deck/host/runs` of the git directory: the run records and the patches
   pub(crate) fn runs_dir(&self) -> PathBuf {
-    self.host_dir().join(RUNS_DIR)
+    host_runs_dir(&self.git_dir)
   }
 
   /// `notes.local/brd-host` of the root, while the checkout is a slot of the lease pool whose `notes.local` links to the

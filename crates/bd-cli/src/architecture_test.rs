@@ -162,7 +162,7 @@ const UNREACHABLE: &[Unreachable] = &[
       "host-client",
       "host-agent",
     ],
-    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run",
+    why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run; the end of a lease cancels the runs of brd-host that it leaves through the `brd-host` binary in a child process (`host_cancel`), never through the client in process",
   },
   Unreachable {
     from: "pool-disk",

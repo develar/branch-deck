@@ -13,6 +13,7 @@
 //! - `fetch`, `record`: the files that come back, and the record of a run that says which ones may come, its log and
 //!   its end
 //! - `wait`: the wait of a run in calls of at most `--max`, the state of the run as it changes, and its end
+//! - `unfinished`: the cancel of the runs of a checkout whose end it has not finished, which the end of a lease asks for
 //! - `phases`: the steps of a run for a person
 //! - `report`: the report of a run and the hello as JSON, for `--report-fd` and `hello --json`
 //! - `setup`: makes a host ready over ssh; `process` is the seam of its children
@@ -46,6 +47,7 @@ pub mod report;
 pub mod run;
 pub mod setup;
 mod state;
+pub mod unfinished;
 pub mod upgrade;
 pub mod wait;
 

@@ -14,6 +14,8 @@
 //!   holders `brd-host/<n>`, and the lend table that lends each to one run at a time, gives it back, cleans and shrinks
 //!   it
 //! - `host_git`: the floor of the version of the git of a host that serves remote runs
+//! - `host_cancel`: the cancel of the runs of `brd-host` that a lease leaves, by the `brd-host` binary in a child process,
+//!   at every end of a lease
 //! - `host_history`: the history of the ended runs of a host, the place and the wait of a heavy run in the queue, and
 //!   the summary of `brd-host stats`
 //! - `host_refs`: the refs that keep the commits of the runs of a host and the bases of its clients (`ingest`), and
@@ -60,6 +62,7 @@ pub mod epoch;
 pub mod free_space;
 pub mod get_queue;
 mod host_brew;
+pub mod host_cancel;
 pub mod host_cores;
 pub mod host_estimate;
 pub mod host_git;

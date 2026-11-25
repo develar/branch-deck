@@ -17,6 +17,7 @@ use host_client::process::{Call, OsProcesses, Processes};
 use host_client::report::{HelloRefusal, HelloReport, REPORT_SCHEMA, RunReport, command_exit_code};
 use host_client::run::{RunOptions, RunRequest};
 use host_client::setup::{LOCAL_ALIAS, LOCAL_BIND, LocalAgent, LocalSetupRequest, Prepared, SetupRequest};
+use host_client::unfinished::Unfinished;
 use host_client::upgrade::{UpgradeRequest, UpgradeWay, Upgraded};
 use host_client::wait::{DEFAULT_MAX, WaitRequest};
 use host_client::{Build, Client, OutputSink, affinity, request_exit};
@@ -79,6 +80,17 @@ enum Command {
   },
   /// Asks the host to interrupt a run, and returns when the host has the request. `follow` shows its end
   Cancel { alias: String, run: String },
+  /// Cancels each run of this checkout whose end it has not finished, on the host that its record names: the end of a
+  /// lease of Branch Deck runs it for the runs that the lease leaves. The hosts go in parallel, each for at most
+  /// `--max`. The record of a cancelled run goes. Exits 0 when no such run stays, else 255
+  CancelUnfinished {
+    /// How long to wait for each host, such as `5s` (default 5s)
+    #[arg(long, value_name = "DURATION", value_parser = parse_max)]
+    max: Option<Duration>,
+    /// One JSON object on stdout
+    #[arg(long)]
+    json: bool,
+  },
   /// Copies the files of a run whose fetch failed into this checkout, by the run record of the checkout
   Fetch {
     alias: String,
@@ -646,6 +658,22 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       out.line(&block_on(client.cancel(&alias, &run))??);
       Ok(0)
     }
+    Command::CancelUnfinished { max, json } => {
+      let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
+      let client = client_with_git(&output, &say, unhashed_build())?;
+      let answer = block_on(client.cancel_unfinished(&checkout, max.unwrap_or(host_client::unfinished::DEFAULT_MAX)))??;
+      if json {
+        out.json(&UnfinishedOutput {
+          schema: REPORT_SCHEMA,
+          answer: &answer,
+        });
+      } else {
+        for line in unfinished_lines(&answer) {
+          out.line(&line);
+        }
+      }
+      Ok(if answer.not_cancelled.is_empty() { 0 } else { Exit::Refused.code() })
+    }
     Command::Fetch { alias, run, fetch } => {
       let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
       let client = client_with_git(&output, &say, unhashed_build())?;
@@ -739,6 +767,27 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       Ok(0)
     }
   }
+}
+
+/// `brd-host cancel-unfinished --json`
+#[derive(Serialize)]
+struct UnfinishedOutput<'a> {
+  schema: u32,
+  #[serde(flatten)]
+  answer: &'a Unfinished,
+}
+
+/// The lines of `brd-host cancel-unfinished`: one per run
+fn unfinished_lines(answer: &Unfinished) -> Vec<String> {
+  if answer.cancelled.is_empty() && answer.not_cancelled.is_empty() {
+    return vec!["no run of this checkout waits for its end here".to_owned()];
+  }
+  let cancelled = answer.cancelled.iter().map(|run| format!("cancelled the run {} on {}: {}", run.run, run.host, run.answer));
+  let kept = answer
+    .not_cancelled
+    .iter()
+    .map(|run| format!("cannot cancel the run {} on {}: {}: {}", run.run, run.host, run.code, run.message));
+  cancelled.chain(kept).collect()
 }
 
 /// `brd-host runs --json`

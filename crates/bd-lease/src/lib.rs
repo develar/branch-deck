@@ -19,6 +19,8 @@ mod host_objects_test;
 mod host_slots_test;
 #[cfg(test)]
 mod lease_clean_test;
+#[cfg(all(test, unix))]
+mod lease_host_runs_test;
 #[cfg(test)]
 mod lease_pick_test;
 #[cfg(test)]

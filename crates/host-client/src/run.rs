@@ -1361,7 +1361,7 @@ struct FollowState<'l> {
 }
 
 /// Sends `Cancel`. The agent answers as soon as the host has the request
-async fn cancel_on(host: &mut Host, run: &str, deadline: Duration) -> Result<String, Refusal> {
+pub(crate) async fn cancel_on(host: &mut Host, run: &str, deadline: Duration) -> Result<String, Refusal> {
   done(host, &Request::Cancel { run: run.to_owned() }, deadline).await
 }
 

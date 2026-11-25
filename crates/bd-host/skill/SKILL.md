@@ -18,7 +18,7 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 
 | Command | Who |
 |---|---|
-| `brd-host run`, `wait`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
+| `brd-host run`, `wait`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `cancel-unfinished`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
 | `brd-host upgrade <host>`, `brd-host trim <host>` | An agent, only after the user agrees: the one deploys a new agent, the other deletes worktrees, on a machine that the user shares. |
 | `brd-host setup …`, `brd-host set`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
 
@@ -259,6 +259,12 @@ command that follows the run.
 - `brd-host follow <host> <run>` follows a run from its first line. Ctrl+C, SIGTERM or SIGHUP leaves at once (130), and the
   run goes on, so stopping a follow in the background is safe.
 - `brd-host cancel <host> <run>` asks the host to interrupt a run. `follow` shows its end.
+- `brd-host cancel-unfinished [--max <duration>] [--json]` cancels each run of this checkout whose end it has not
+  finished, on the host that its record names: the hosts in parallel, each for at most `--max` (5 s by default). The
+  record of a cancelled run goes; a run of a host that did not answer stays. A return of a lease of Branch Deck runs it
+  by itself before it frees the slot (`cancelled_runs`, `uncancelled_runs` of `brd lease return`): a run that you leave
+  in a lease has no client after the return, and a heavy one would hold its place in the queue up to `heavy_timeout`.
+  Wait for the runs you need before the return.
 - Ctrl+C in `brd-host run` cancels the run on the host and shows the output to its end. A second Ctrl+C leaves at once.
 - `brd-host fetch <host> <run> [--fetch <dir>]` copies the files of a run whose copy failed (`fetch_failed`). Run it in
   the checkout of the run: the record of the run there says which files come. Without the record, only `--fetch`

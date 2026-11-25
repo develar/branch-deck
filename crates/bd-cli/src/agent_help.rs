@@ -409,7 +409,7 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    holds your commits after a `brd undo <undo_token>` (that undo moves only the branch). `brd lease pick --return
    --stop-own` passes `--stop-own` to the return. With nothing to pick onto, or once the commits landed: `brd lease return` inside it (or --workspace <dir>;
    --lease-id <id> refuses another lease, and alone returns the slot of that lease from any checkout; --holder <name>
-   returns the one lease of that holder from any checkout, and names the ids of several). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
+   returns the one lease of that holder from any checkout, and names the ids of several). It frees the slot, removes the `seeded` files and detaches a branch, which stays. First it cancels each run of `brd-host` of the worktree that has no end on its host (`cancelled_runs`): no client follows it after the return. A host that does not answer holds the return for a few seconds; the return goes on, and `uncancelled_runs` names each such run with the `brd-host cancel <host> <run>` that cancels it; a get that takes over a lease and `brd lease reclaim` do the same. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick, the patch id, the identity and the twin of `brd update` or the mapping note of a sync
    prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land

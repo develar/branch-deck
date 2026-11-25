@@ -638,6 +638,37 @@ writes its own line. The log of the agent ends the open line of a stream before 
 of another pipe. Each pipe is a source of the log (`EventLog::source`); a prepare step writes both of its pipes to the
 stderr.
 
+### The end of a lease
+
+A run of a lease of Branch Deck has no client after the end of the lease: no process of the slot follows it, and a
+later holder of the slot has no use for it. A heavy run of it keeps its place in the queue of the host up to
+`heavy_timeout`. So each end of a lease (`lease::finish_return`: the return, `pick --return`, the takeover of a get,
+the reclaim of `brd lease reclaim`, of a get and of the keeper of a host) cancels the runs of the slot that have no
+end, before it changes the slot.
+
+- **Which runs.** A run whose record in the git directory of the slot has `<run>.host` and no `<run>.end.json`. A slot
+  without such a record starts no process (`lease_pool::host_cancel::unfinished_runs`, a read of one directory). A
+  directory or a `<run>.host` that cannot be read is no slot without runs: the answer names it with
+  `records_unreadable`.
+- **Through the binary.** brd links no client of the remote runs, and the pool reaches none
+  (`crates/bd-cli/src/architecture_test.rs`). The end runs `brd-host cancel-unfinished --json --max 5s` in the slot:
+  the running binary when it is `brd-host` (the keeper of the agent), else the `brd-host` beside the real path of the
+  binary (the app bundle, which `~/.local/bin/brd` links to, or a build directory). The client sends `Cancel` to each
+  host of the runs, the hosts in parallel, each for at most `--max`, and forgets the record of each cancelled run, so a
+  later end of a lease of the slot does not cancel it again.
+- **What stays.** The client writes `<run>.host` before it sends `Start`, so an agent that knows no such run may still
+  get its start: such a run counts as cancelled only 120 s after its record, and stays before. The forget takes
+  `<run>.lock` first and keeps the lock file: a process that holds it finishes the run and keeps its record, and no
+  waiter ever locks a second file beside it.
+- **A host that does not answer** holds the end for `--max` and the 3 s of the child at most. The pipes of the child
+  are read for 0.5 s after its exit, not to their end (`run_child_lines`): a process that another thread of the keeper
+  started meanwhile can inherit them, and the reclaim of a get holds the pressure turn of the machine. The end goes on, as the
+  slot is the pool's and the cancel is a courtesy to the host: a sleeping laptop must not keep a slot leased. Its runs
+  stay in `uncancelled_runs` with the command that cancels each, and their records stay for the next end of a lease of
+  the slot, until the records expire after 7 days.
+- **Out of scope**: a rule of the agent that cancels a waiting run with no client. A client leaves a run by design
+  (`run --max` exits 124, and `wait` comes back later), so the host cannot tell an abandoned run from a waited one.
+
 ### Versions and the upgrade
 
 The hello carries the protocol schema, the version of Branch Deck (`package.json`, as `brd version` reads it) and the
@@ -751,6 +782,13 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     start needs neither, and the statistics show first whether it errs often. The admission, not the estimate, decides
     for a laptop, so two clients that read the same free laptop never both run there. No key of `[host]` names a set:
     an older end refuses the whole file for an unknown key.
+
+14. **Decision**: Each end of a lease cancels the runs of the slot without an end, through `brd-host
+    cancel-unfinished` in a child process, and goes on when a host does not answer (2026-11-25).
+    **Rationale**: An agent of the lease `idea-15` returned its lease while 4 exclusive heavy runs waited on the Studio.
+    They held the head of the heavy queue for 2 h and ended with `heavy_timeout`, the largest cause of waits there. The
+    child keeps brd free of the client, as decision 1 wants. A return that waits for a sleeping host would keep the
+    slot from the next get, so the bound is a few seconds and the answer names what stays.
 
 ## Alternatives Considered
 

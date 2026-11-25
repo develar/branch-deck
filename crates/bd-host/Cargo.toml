@@ -41,6 +41,9 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 # a repository of a process test
 test-utils = { path = "../test-utils" }
+# a lease of the pool whose return cancels its runs through this binary (`cli.rs`)
+lease-pool = { path = "../lease-pool" }
+git-ops = { path = "../git-ops" }
 
 [build-dependencies]
 serde_json.workspace = true

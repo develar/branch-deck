@@ -664,6 +664,7 @@ fn a_reclaim_leaves_the_measures_of_the_other_free_slots_valid() {
     full_checks: None,
     server_timeout: Duration::from_secs(1),
     bazel: None,
+    host_cancel: &lease_pool::host_cancel::HostCancel::NONE,
     lock_timeout: Duration::from_secs(1),
   };
   let answer = lease_pool::lease::lease_reclaim_core(&git, &reclaim).unwrap();

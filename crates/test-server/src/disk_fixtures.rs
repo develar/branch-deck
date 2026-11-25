@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use lease_pool::get_queue::QueueTiming;
+use lease_pool::host_cancel::HostCancel;
 use lease_pool::lease::{LeaseGetParams, LeaseReturnParams, lease_get_core, lease_return_core};
 use lease_pool::lease_clean::{CleanOverrides, RETURN_CARGO_LOCK_WAIT};
 use pool_disk::report::DiskReport;
@@ -150,6 +151,8 @@ fn get_slot(git: &GitCommandExecutor, dirs: &RepositoryDirs, home: Option<&std::
       min_free: Some(0),
       server_timeout: Duration::from_secs(5),
       bazel: None,
+      // the slots of the e2e server run no remote run
+      host_cancel: &HostCancel::NONE,
       lock_timeout: Duration::from_secs(10),
       progress: None,
       space: None,
@@ -175,6 +178,7 @@ fn return_slot(git: &GitCommandExecutor, slot: &str, lease_id: Option<&str>) -> 
       stop_own: false,
       server_timeout: Duration::from_secs(5),
       bazel: None,
+      host_cancel: &HostCancel::NONE,
       clean: Some(CleanOverrides::default()),
       lock_timeout: Duration::from_secs(10),
       cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,

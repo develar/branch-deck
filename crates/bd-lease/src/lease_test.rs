@@ -1991,6 +1991,7 @@ impl ShrinkFixture {
         min_free: Some(100 * GIB),
         server_timeout: context.server_stop_timeout,
         bazel: None,
+        host_cancel: &lease_pool::host_cancel::HostCancel::NONE,
         lock_timeout: context.lock_timeout,
         progress: Some(progress),
         space: Some(space),

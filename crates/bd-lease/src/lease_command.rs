@@ -15,6 +15,7 @@ use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
 use lease_pool::get_queue::QueueTiming;
+use lease_pool::host_cancel::{HostCancel, HostRuns};
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::idle_changes::Preserved;
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
@@ -237,6 +238,9 @@ pub struct LeaseContext {
   pub server_stop_timeout: Duration,
   /// The heartbeat of a get that waits in the queue of the pool, and the age of a stale one
   pub queue: QueueTiming,
+  /// The `brd-host` beside the running binary, which an end of a lease runs for the runs of brd-host that the lease
+  /// leaves (`lease_pool::host_cancel`)
+  pub host_cancel: HostCancel,
 }
 
 impl LeaseContext {
@@ -256,6 +260,7 @@ impl LeaseContext {
       lock_timeout: environment.lock_timeout,
       server_stop_timeout: environment.server_stop_timeout,
       queue: QueueTiming::default(),
+      host_cancel: HostCancel::of_binary(environment.executable.as_deref()),
     })
   }
 }
@@ -746,6 +751,62 @@ pub struct TookOverOutput {
   /// Its quiet local changes, its only work, preserved in its notes before the get discarded them
   #[serde(skip_serializing_if = "Option::is_none")]
   pub preserved: Option<PreservedOutput>,
+  /// The runs of brd-host that it left without their end, which the takeover cancelled on their hosts
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cancelled_runs: Vec<CancelledRunOutput>,
+  /// The runs of brd-host that it left without their end, which the takeover could not cancel
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncancelled_runs: Vec<UncancelledRunOutput>,
+}
+
+/// A run of `brd-host` that a lease left without its end, which the end of the lease cancelled on its host
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CancelledRunOutput {
+  pub run: String,
+  /// The alias of its host
+  pub host: String,
+  /// What the agent of the host said: it has the cancel request, the run ended already, or it knows no such run
+  pub answer: String,
+}
+
+/// A run of `brd-host` that a lease left without its end, which the end of the lease could not cancel: its record stays,
+/// and the next end of a lease of the slot tries again
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UncancelledRunOutput {
+  pub run: String,
+  /// The alias of its host
+  pub host: String,
+  /// A refusal code of brd-host, such as `timed_out` or `unreachable`; `no_brd_host` when brd found no `brd-host`
+  /// beside itself, `brd_host_failed` when `brd-host` gave no answer, `records_unreadable` when a run record of the
+  /// worktree cannot be read (its `host` empty, and its `run` too when the whole directory cannot be read)
+  pub code: String,
+  /// What went wrong, and the command that cancels the run
+  pub message: String,
+}
+
+pub(crate) fn cancelled_runs_output(runs: &HostRuns) -> Vec<CancelledRunOutput> {
+  runs
+    .cancelled
+    .iter()
+    .map(|run| CancelledRunOutput {
+      run: run.run.clone(),
+      host: run.host.clone(),
+      answer: run.answer.clone(),
+    })
+    .collect()
+}
+
+pub(crate) fn uncancelled_runs_output(runs: &HostRuns) -> Vec<UncancelledRunOutput> {
+  runs
+    .not_cancelled
+    .iter()
+    .map(|run| UncancelledRunOutput {
+      run: run.run.clone(),
+      host: run.host.clone(),
+      code: run.code.clone(),
+      message: run.message.clone(),
+    })
+    .collect()
 }
 
 /// The record of a slot whose lease was taken from its dead holder
@@ -896,6 +957,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     min_free,
     server_timeout: context.server_stop_timeout,
     bazel: None,
+    host_cancel: &context.host_cancel,
     lock_timeout: context.lock_timeout,
     progress: Some(&timed),
     space: None,
@@ -979,6 +1041,8 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
       branch: took_over.lease.branch.clone(),
       landed: landed_output(&took_over.landed),
       preserved: took_over.preserved.as_ref().map(PreservedOutput::of),
+      cancelled_runs: cancelled_runs_output(&took_over.host_runs),
+      uncancelled_runs: uncancelled_runs_output(&took_over.host_runs),
     }),
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
@@ -1071,6 +1135,14 @@ pub struct LeaseReturnOutput {
   /// starts with notes of its own
   #[serde(skip_serializing_if = "Option::is_none")]
   pub notes: Option<String>,
+  /// The runs of brd-host of the worktree without their end, which the return cancelled on their hosts before it
+  /// changed the worktree: no client follows them after the return
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cancelled_runs: Vec<CancelledRunOutput>,
+  /// The runs of brd-host of the worktree without their end, which the return could not cancel, each with the command
+  /// that cancels it; the return went on
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncancelled_runs: Vec<UncancelledRunOutput>,
   /// Whether the processes were checked; false where brd can't see them (Windows) and for a `joined` return that
   /// checked nothing
   pub processes_checked: bool,
@@ -1220,6 +1292,7 @@ pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, p
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
     bazel: None,
+    host_cancel: &context.host_cancel,
     lock_timeout: context.lock_timeout,
     cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,
     picked,
@@ -1274,6 +1347,8 @@ pub fn lease_return_after_pick(context: &LeaseContext, args: &LeaseReturnArgs, p
     clean_error: returned.clean_error.clone(),
     detached_branch: returned.detached_branch.clone(),
     notes: returned.notes.as_ref().map(|notes| notes.dir.to_string_lossy().into_owned()),
+    cancelled_runs: cancelled_runs_output(&returned.host_runs),
+    uncancelled_runs: uncancelled_runs_output(&returned.host_runs),
     processes_checked: returned.process_scan,
   })
 }
@@ -1583,6 +1658,12 @@ pub struct ReclaimedLeaseOutput {
   /// where they would be, without `base` and `bytes`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub preserved: Option<PreservedOutput>,
+  /// The runs of brd-host that it left without their end, which the reclaim cancelled on their hosts
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cancelled_runs: Vec<CancelledRunOutput>,
+  /// The runs of brd-host that it left without their end, which the reclaim could not cancel
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uncancelled_runs: Vec<UncancelledRunOutput>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1621,6 +1702,8 @@ fn reclaimed_output(reclaimed: &[ReclaimedLease]) -> Vec<ReclaimedLeaseOutput> {
       cleaned: cleaned_output(&reclaimed.cleaned),
       trash_left: reclaimed.trash_left.clone(),
       preserved: reclaimed.preserved.as_ref().map(PreservedOutput::of),
+      cancelled_runs: cancelled_runs_output(&reclaimed.host_runs),
+      uncancelled_runs: uncancelled_runs_output(&reclaimed.host_runs),
     })
     .collect()
 }
@@ -1636,6 +1719,7 @@ pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<
     full_checks: None,
     server_timeout: context.server_stop_timeout,
     bazel: None,
+    host_cancel: &context.host_cancel,
     lock_timeout: context.lock_timeout,
   };
   let reclaimed = lease_reclaim_core(&context.git, &params).map_err(lease_error)?;

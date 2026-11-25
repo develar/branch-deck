@@ -20,6 +20,7 @@ use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::get_queue::{Behind, Gate, QueuePlace, QueueTicket, QueueTiming, Turn, settle_queue};
+use crate::host_cancel::{HostCancel, HostRuns, cancel_unfinished_runs};
 use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::idle_changes::{ChangesVerdict, Preserve, PreserveConfig, Preserved, preserve_changes, preserves, withdraw_preserved};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
@@ -1264,6 +1265,9 @@ pub struct LeaseGetParams<'a> {
   pub server_timeout: Duration,
   /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
   pub bazel: Option<&'a OsStr>,
+  /// How the takeover of an idle lease and a reclaim cancel the runs of brd-host that the old lease leaves
+  /// (`host_cancel`)
+  pub host_cancel: &'a HostCancel,
   /// The wait for the pool lock and for the lock of the `worktree` commands, and for a clones lock no record names a
   /// live holder of
   pub lock_timeout: Duration,
@@ -1887,17 +1891,23 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         // no wait for a lock of cargo, which only another clean holds: the get goes on, and a later clean prunes what stays.
         // The stale objects it defers stay in place for that clean too. The discard of preserved changes comes after the
         // close of the notes, whose directory its `clean` would delete
-        finish_return(
+        let finished = finish_return(
           git_executor,
           &path,
           &old,
           preserved.as_ref().map(|_| config.untracked),
           (Some(CleanOverrides::default()), Duration::ZERO),
           (&trash, &notes_roots),
+          params.host_cancel,
         )
         .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
-        took_over = Some(TookOver { lease: *old, landed, preserved });
+        took_over = Some(TookOver {
+          lease: *old,
+          landed,
+          preserved,
+          host_runs: finished.host_runs,
+        });
         (path, true)
       }
       Reserved::New { path, template } => {
@@ -2598,6 +2608,7 @@ fn reclaim_for_get(
       full_checks: full_checks.as_ref(),
       server_timeout: params.server_timeout,
       bazel: params.bazel,
+      host_cancel: params.host_cancel,
       lock_timeout: params.lock_timeout,
     };
     match lease_reclaim_core(git_executor, &reclaim) {
@@ -3230,6 +3241,8 @@ pub struct TookOver {
   pub landed: Vec<LandedCommit>,
   /// Its local changes, preserved in its notes before the get discarded them
   pub preserved: Option<Preserved>,
+  /// What the takeover did with the runs of brd-host that the old lease left (`host_cancel`)
+  pub host_runs: HostRuns,
 }
 
 /// The path of the next new slot: `<pool>/<n>/<repository name>`, the smallest `n` whose directory does not exist and
@@ -3765,6 +3778,8 @@ pub struct LeaseReturnParams<'a> {
   pub server_timeout: Duration,
   /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
   pub bazel: Option<&'a OsStr>,
+  /// How the return cancels the runs of brd-host that the lease leaves (`host_cancel`)
+  pub host_cancel: &'a HostCancel,
   /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
   pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
@@ -3814,6 +3829,8 @@ pub struct LeaseReturned {
   pub clean_error: Option<String>,
   /// The notes of the lease, which stay (`lease_notes`); `None` for a lease without them
   pub notes: Option<LeaseNotes>,
+  /// What the return did with the runs of brd-host that the lease left (`host_cancel`)
+  pub host_runs: HostRuns,
   pub process_scan: bool,
 }
 
@@ -4058,6 +4075,10 @@ const fn joined_return(slot: Slot, landed_check: Option<LandedCheck>, process_sc
     cleaned: Vec::new(),
     clean_error: None,
     notes: None,
+    host_runs: HostRuns {
+      cancelled: Vec::new(),
+      not_cancelled: Vec::new(),
+    },
     process_scan,
   }
 }
@@ -4225,6 +4246,7 @@ fn return_once(
     (!changes.is_empty()).then_some(config.untracked),
     (params.clean, params.cargo_lock_wait),
     (trash, &pool.notes_roots(None, None)),
+    params.host_cancel,
   );
   let FinishedReturn {
     removed,
@@ -4232,6 +4254,7 @@ fn return_once(
     mut cleaned,
     clean_error,
     notes,
+    host_runs,
   } = match returned {
     Ok(finished) => finished,
     Err(error) => {
@@ -4286,6 +4309,7 @@ fn return_once(
     cleaned,
     clean_error,
     notes,
+    host_runs,
     process_scan: scan.is_available(),
   })))
 }
@@ -4344,13 +4368,14 @@ struct FinishedReturn {
   cleaned: Vec<Cleaned>,
   clean_error: Option<String>,
   notes: Option<LeaseNotes>,
+  host_runs: HostRuns,
 }
 
-/// What a reserved return does to the slot: discard the changes it may give up (`discard`: the untracked mode of the
-/// repository, when it found any), remove the seeded paths, detach HEAD, take the notes of the lease out of the slot
-/// into the place of `notes_roots` that has them (`lease_notes::close_notes`) and apply the clean rules, moving what a
-/// `delete` removes into `trash`. A cargo rule waits up to `cargo_lock_wait` for a held lock of cargo, then leaves that
-/// profile dir as it is
+/// What a reserved return does to the slot: cancel the runs of brd-host that the lease leaves (`host_cancel`), discard
+/// the changes it may give up (`discard`: the untracked mode of the repository, when it found any), remove the seeded
+/// paths, detach HEAD, take the notes of the lease out of the slot into the place of `notes_roots` that has them
+/// (`lease_notes::close_notes`) and apply the clean rules, moving what a `delete` removes into `trash`. A cargo rule
+/// waits up to `cargo_lock_wait` for a held lock of cargo, then leaves that profile dir as it is
 fn finish_return(
   git_executor: &GitCommandExecutor,
   path: &str,
@@ -4358,7 +4383,12 @@ fn finish_return(
   discard: Option<UntrackedFiles>,
   (clean, cargo_lock_wait): (Option<CleanOverrides>, Duration),
   (trash, notes_roots): (&Trash, &NotesRoots),
+  host_cancel: &HostCancel,
 ) -> Result<FinishedReturn> {
+  // first, while the slot is still as the lease left it: a run that its lease leaves has no client, and a heavy one would
+  // keep its place in the queue of its host up to `heavy_timeout`. A host that does not answer holds the end for a
+  // few seconds at most, and the end goes on (`host_cancel`)
+  let host_runs = cancel_unfinished_runs(Path::new(path), host_cancel);
   // the next lease of the slot is a worktree no sync built anything for (`lease_state`: the mark of a sync, the landed
   // state): a window that opens it shows the Ready to Sync card, never syncs it of itself, and nothing landed is
   // reported of a branch it never had. First, so a return, a takeover or a reclaim that fails after it leaves none
@@ -4401,6 +4431,7 @@ fn finish_return(
     cleaned,
     clean_error,
     notes,
+    host_runs,
   })
 }
 
@@ -5067,6 +5098,8 @@ pub struct LeaseReclaimParams<'a> {
   pub server_timeout: Duration,
   /// The program of `bazel shutdown`, which stops the servers on Windows; `None`: `bazel` of the `PATH`
   pub bazel: Option<&'a OsStr>,
+  /// How the reclaim cancels the runs of brd-host that a lease leaves (`host_cancel`)
+  pub host_cancel: &'a HostCancel,
   pub lock_timeout: Duration,
 }
 
@@ -5095,6 +5128,8 @@ pub struct ReclaimedLease {
   /// Its quiet local changes, preserved in its notes before the reclaim discarded them (with `--dry-run`: where they
   /// would be, no patch yet)
   pub preserved: Option<Preserved>,
+  /// What the reclaim did with the runs of brd-host that the lease left (`host_cancel`)
+  pub host_runs: HostRuns,
 }
 
 impl ReclaimedLease {
@@ -5255,6 +5290,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       cleaned: Vec::new(),
       trash_left: Vec::new(),
       preserved: None,
+      host_runs: HostRuns::default(),
     };
     let preserve = |check: &IdleCheck, config: &mut Option<LeaseConfig>| {
       let config = PreserveConfig::of(pool_config(git_executor, &git_common_dir, config)?);
@@ -5322,8 +5358,19 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       _ => None,
     };
     // no wait for a lock of cargo, which only another clean holds: the slot is free all the same
-    match finish_return(git_executor, &path, &lease, discard, (Some(params.clean), Duration::ZERO), (&trash, &notes_roots)) {
-      Ok(finished) => reclaimed.cleaned = finished.cleaned,
+    match finish_return(
+      git_executor,
+      &path,
+      &lease,
+      discard,
+      (Some(params.clean), Duration::ZERO),
+      (&trash, &notes_roots),
+      params.host_cancel,
+    ) {
+      Ok(finished) => {
+        reclaimed.cleaned = finished.cleaned;
+        reclaimed.host_runs = finished.host_runs;
+      }
       // after the commit point of a preserve the lease never comes back: a discard cut short may have left part of
       // the changes, which a later preserve would take for all of them. The slot stays free and dirty, as a reclaim
       // killed there leaves it

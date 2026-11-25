@@ -145,27 +145,38 @@ impl RunFiles {
   /// Takes the lock of the end of `run`, and waits for it while another process holds it: up to `until`, and while
   /// `stop` says no. Answers `None` when it did not come
   pub(crate) async fn lock(&self, run: &str, until: Option<Instant>, poll: Duration, stop: &(dyn Fn() -> bool + Sync)) -> Result<Option<RunLock>, Refusal> {
-    let path = self.0.join(format!("{run}.lock"));
-    let failed = |error: &io::Error| Refusal::new(Code::Config, format!("cannot lock {}: {error}", path.display()));
-    let file = OpenOptions::new()
-      .read(true)
-      .write(true)
-      .create(true)
-      .truncate(false)
-      .mode(0o600)
-      .open(&path)
-      .map_err(|error| failed(&error))?;
     loop {
-      match file.try_lock() {
-        Ok(()) => return Ok(Some(RunLock(file))),
-        Err(TryLockError::WouldBlock) => {}
-        Err(TryLockError::Error(error)) => return Err(failed(&error)),
+      if let Some(lock) = self.try_lock(run, true)? {
+        return Ok(Some(lock));
       }
       if stop() || until.is_some_and(|until| Instant::now() >= until) {
         return Ok(None);
       }
       sleep(poll).await;
     }
+  }
+
+  /// The lock of the end of `run` when no other process holds it, without a wait. Without `create` a missing lock file
+  /// is made by no one here: `None`, and `Ok(Some)` only for a lock that exists
+  pub(crate) fn try_lock(&self, run: &str, create: bool) -> Result<Option<RunLock>, Refusal> {
+    let path = self.0.join(format!("{run}.lock"));
+    let failed = |error: &io::Error| Refusal::new(Code::Config, format!("cannot lock {}: {error}", path.display()));
+    let file = match OpenOptions::new().read(true).write(true).create(create).truncate(false).mode(0o600).open(&path) {
+      Ok(file) => file,
+      Err(error) if !create && error.kind() == io::ErrorKind::NotFound => return Ok(None),
+      Err(error) => return Err(failed(&error)),
+    };
+    match file.try_lock() {
+      Ok(()) => Ok(Some(RunLock(file))),
+      Err(TryLockError::WouldBlock) => Ok(None),
+      Err(TryLockError::Error(error)) => Err(failed(&error)),
+    }
+  }
+
+  /// How long ago `<run>.host` was written, the moment before the client sent the start of `run`; `None` without it
+  pub(crate) fn host_age(&self, run: &str) -> Option<Duration> {
+    let modified = std::fs::metadata(self.0.join(format!("{run}.host"))).ok()?.modified().ok()?;
+    Some(modified.elapsed().unwrap_or_default())
   }
 
   pub(crate) fn write(&self, run: &str, record: &RunRecord) -> Result<(), Refusal> {
@@ -195,6 +206,55 @@ impl RunFiles {
 
   pub(crate) fn dir(&self) -> &Path {
     &self.0
+  }
+
+  /// The run files in `dir` when it exists, with the logs and the patches in it too: nothing is made and no old record
+  /// goes, so the end of a lease that reads them writes nothing beside the records it forgets (`forget_record`)
+  pub(crate) fn existing(dir: &Path) -> Option<Self> {
+    dir.is_dir().then(|| Self(dir.to_path_buf(), dir.to_path_buf()))
+  }
+
+  /// The runs whose end this checkout has not finished, each with the alias of its host: a `<run>.host` without its
+  /// `<run>.end.json`, in the order of the run ids. A record without `<run>.host`, of a client before it, names no host
+  /// and is left out
+  pub(crate) fn unfinished(&self) -> Result<Vec<(String, String)>, Refusal> {
+    let entries = std::fs::read_dir(&self.0).map_err(|error| Refusal::new(Code::Config, format!("cannot read {}: {error}", self.0.display())))?;
+    let mut runs = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+      let name = entry.file_name();
+      let Some(run) = name.to_str().and_then(|name| name.strip_suffix(".host")) else {
+        continue;
+      };
+      if !host_link::proto::is_run_id(run) || self.end(run).exists() {
+        continue;
+      }
+      if let Some(alias) = self.read_host(run)? {
+        runs.push((run.to_owned(), alias));
+      }
+    }
+    runs.sort();
+    Ok(runs)
+  }
+
+  /// Removes the record of `run` and the alias of its host: this checkout no longer follows the run, so a later end of a
+  /// lease of the slot does not cancel it again. Under the lock of the end of the run when its file exists, and never
+  /// while another process holds it: that process finishes the run, and the records stay (`false`). The lock file
+  /// stays, so a waiter never locks a new file beside one that holds the old one; it expires with the old records
+  /// (`KEEP`). The log and the patch stay, and a removal that fails is left for that expiry too
+  pub(crate) fn forget_record(&self, run: &str) -> bool {
+    let lock = if self.0.join(format!("{run}.lock")).exists() {
+      match self.try_lock(run, false) {
+        Ok(Some(lock)) => Some(lock),
+        Ok(None) | Err(_) => return false,
+      }
+    } else {
+      None
+    };
+    for path in [self.record(run), self.0.join(format!("{run}.host"))] {
+      let _ = sync_utils::fs_retry::remove_file(&path);
+    }
+    drop(lock);
+    true
   }
 }
 

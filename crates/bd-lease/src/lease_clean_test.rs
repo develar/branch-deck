@@ -106,6 +106,7 @@ fn a_return_that_meets_a_held_cargo_lock_frees_the_slot_and_names_it() {
       stop_own: false,
       server_timeout: context.server_stop_timeout,
       bazel: None,
+      host_cancel: &lease_pool::host_cancel::HostCancel::NONE,
       clean: Some(lease_pool::lease_clean::CleanOverrides::default()),
       lock_timeout: context.lock_timeout,
       cargo_lock_wait: std::time::Duration::from_millis(100),

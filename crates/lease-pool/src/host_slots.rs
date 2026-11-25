@@ -23,6 +23,7 @@
 
 use crate::free_space::{SpaceOf, available_bytes};
 use crate::get_queue::QueueTiming;
+use crate::host_cancel::HostCancel;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
@@ -1676,6 +1677,7 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       min_free: None,
       server_timeout: params.server_timeout,
       bazel: None,
+      host_cancel: &HostCancel::of_this_binary(),
       lock_timeout: params.lock_timeout,
       progress: None,
       space: options.space,
@@ -1963,6 +1965,7 @@ fn fill_one(
       min_free: None,
       server_timeout: params.server_timeout,
       bazel: None,
+      host_cancel: &HostCancel::of_this_binary(),
       lock_timeout: params.lock_timeout,
       progress: Some(&report),
       space: None,
@@ -2182,6 +2185,7 @@ fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, 
       stop_own: false,
       server_timeout: params.server_timeout,
       bazel: None,
+      host_cancel: &HostCancel::of_this_binary(),
       clean: Some(CleanOverrides::default()),
       lock_timeout: params.lock_timeout,
       cargo_lock_wait: RETURN_CARGO_LOCK_WAIT,

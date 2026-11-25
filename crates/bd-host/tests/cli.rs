@@ -368,8 +368,14 @@ fn the_report_goes_to_its_descriptor_on_every_way_out() {
 /// while it reaps a child that has exited 0, as it takes the signal as handled by its child. A failed test leaves the
 /// command for at most 60 s
 fn start_a_run_that_waits(world: &World, stderr: Stdio) -> Child {
+  start_a_run_that_waits_in(world, world.repo.path(), stderr)
+}
+
+/// `start_a_run_that_waits` of the checkout `dir`
+fn start_a_run_that_waits_in(world: &World, dir: &Path, stderr: Stdio) -> Child {
   let mut run = world
     .command()
+    .current_dir(dir)
     .args(["run", ALIAS, "--head", "--", "/bin/sh", "-c", "trap 'exit 130' INT; echo started; sleep 60"])
     .stdout(Stdio::piped())
     .stderr(stderr)
@@ -447,6 +453,139 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   assert_eq!(refused.status.code(), Some(255));
   let refused: Value = serde_json::from_slice(&refused.stdout).expect("JSON");
   assert_eq!(refused["refusal"]["code"].as_str(), Some("no_host"), "{refused}");
+}
+
+/// The end of a lease cancels the runs that the lease leaves (openspec/specs/cli/lease/spec.md, "Return: A return
+/// cancels the runs of brd-host that the lease leaves"): a lease of the pool with a run that ended, a run that waits on
+/// the agent with no client, and a run of a host that takes the connection and never answers is returned through the
+/// pool with this `brd-host`. Only the waiting run is cancelled, and it ends on the host; the silent host keeps its run,
+/// and the return ends within the bound of the cancel. The record of the ended run stays, that of the cancelled run goes
+#[test]
+fn a_return_of_a_lease_cancels_only_its_runs_without_an_end_and_a_silent_host_holds_it_within_the_bound() {
+  use git_executor::git_command_executor::GitCommandExecutor;
+  use git_ops::lease_slot::{git_dir_of, host_runs_dir};
+  use git_ops::revs::repository_dirs;
+  use lease_pool::get_queue::QueueTiming;
+  use lease_pool::host_cancel::HostCancel;
+  use lease_pool::lease::{LeaseGetParams, LeaseReturnParams, lease_get_core, lease_return_core};
+
+  let world = World::new();
+  let _agent = world.serve();
+  // the `brd-host` that the pool starts has the environment of this process: the home and the timings of the tests
+  let home = world.home.path().to_string_lossy().into_owned();
+  let mut env: Vec<(&str, &str)> = PROCESS_TEST_ENV.to_vec();
+  env.push(("HOME", &home));
+  let _env = test_utils::env_vars::EnvVars::set(&env);
+  let git = GitCommandExecutor::new();
+  let source = repository_dirs(&git, world.repo.path_str()).unwrap().expect("the repository");
+  let got = lease_get_core(
+    &git,
+    &LeaseGetParams {
+      source: &source,
+      home: Some(world.home.path()),
+      holder: Some("agent".to_owned()),
+      branch: None,
+      min_free: Some(0),
+      server_timeout: Duration::from_secs(5),
+      bazel: None,
+      host_cancel: &HostCancel::NONE,
+      lock_timeout: Duration::from_secs(10),
+      progress: None,
+      space: None,
+      cached_build: None,
+      queue: QueueTiming::default(),
+    },
+  )
+  .expect("a lease");
+  let slot = got.slot.path.clone();
+  let lease_id = got.slot.lease.as_ref().expect("the lease").id.clone();
+
+  let ended = world.command().current_dir(&slot).args(["run", ALIAS, "--head", "--", "true"]).output().expect("a run");
+  assert_eq!(ended.status.code(), Some(0), "{}", text(&ended.stderr));
+  let mut waiting = start_a_run_that_waits_in(&world, Path::new(&slot), Stdio::null());
+  // SIGKILL leaves the run going on the host, with no client and no end in the slot
+  waiting.kill().expect("the kill of the client");
+  let _ = waiting.wait();
+  let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).expect("JSON");
+  let id = listed["runs"]
+    .as_array()
+    .and_then(|runs| runs.iter().find(|run| run["exit"].is_null()))
+    .and_then(|run| run["run"].as_str())
+    .unwrap_or_else(|| panic!("the run that waits: {listed}"))
+    .to_owned();
+
+  // a host that takes the connection and never answers
+  let silent = std::net::TcpListener::bind("127.0.0.1:0").expect("a listener");
+  let address = silent.local_addr().expect("its address");
+  let hosts = world.home.path().join(".config/brd-host/hosts");
+  let local: Value = serde_json::from_str(&fs::read_to_string(hosts.join(format!("{ALIAS}.json"))).expect("the host file")).expect("JSON");
+  let silent_file = json!({
+    "alias": "silent",
+    "fingerprint": local["fingerprint"],
+    "port": address.port(),
+    "hostname": "127.0.0.1",
+    "addresses": [address.to_string()],
+    "repo": world.repo.path_str(),
+  });
+  fs::write(hosts.join("silent.json"), silent_file.to_string()).expect("the host file");
+  let runs = host_runs_dir(&git_dir_of(Path::new(&slot)).expect("the git dir of the slot"));
+  fs::write(runs.join("9-9.json"), "{}").expect("a record");
+  fs::write(
+    runs.join("9-9.host"),
+    "silent
+",
+  )
+  .expect("its host");
+  let ended_runs: Vec<String> = fs::read_dir(&runs)
+    .expect("the records")
+    .filter_map(|entry| entry.ok()?.file_name().to_str()?.strip_suffix(".end.json").map(str::to_owned))
+    .collect();
+  assert_eq!(ended_runs.len(), 1, "one run ended in the slot: {ended_runs:?}");
+
+  let workspace = repository_dirs(&git, &slot).unwrap().expect("the slot");
+  let started = Instant::now();
+  let returned = lease_return_core(
+    &git,
+    &LeaseReturnParams {
+      workspace: &workspace,
+      lease_id: Some(&lease_id),
+      find_by_lease_id: false,
+      confirm_preserved: true,
+      stop_own: false,
+      server_timeout: Duration::from_secs(5),
+      bazel: None,
+      host_cancel: &HostCancel {
+        program: Some(PathBuf::from(BD_HOST)),
+        max: Duration::from_secs(1),
+      },
+      clean: None,
+      lock_timeout: Duration::from_secs(10),
+      cargo_lock_wait: Duration::ZERO,
+      picked: &[],
+    },
+  )
+  .expect("the return");
+  let took = started.elapsed();
+  let cancelled: Vec<&str> = returned.host_runs.cancelled.iter().map(|run| run.run.as_str()).collect();
+  assert_eq!(cancelled, [id.as_str()], "only the run without an end on the agent: {:#?}", returned.host_runs);
+  let kept: Vec<(&str, &str, &str)> = returned
+    .host_runs
+    .not_cancelled
+    .iter()
+    .map(|run| (run.run.as_str(), run.host.as_str(), run.code.as_str()))
+    .collect();
+  assert_eq!(kept, [("9-9", "silent", "timed_out")], "{:#?}", returned.host_runs);
+  assert!(took < Duration::from_secs(20), "the silent host held the return past the bound of the cancel: {took:?}");
+  assert!(!runs.join(format!("{id}.host")).exists(), "the record of the cancelled run goes");
+  assert!(runs.join("9-9.host").exists() && runs.join(format!("{}.end.json", ended_runs[0])).exists());
+
+  wait_until("the end of the cancelled run on the host", || {
+    let listed: Value = serde_json::from_slice(&world.bd_host(&["runs", ALIAS, "--json"]).stdout).unwrap_or_default();
+    listed["runs"]
+      .as_array()
+      .is_some_and(|runs| runs.iter().any(|run| run["run"] == json!(id) && run["exit"] == json!(130)))
+  });
+  drop(silent);
 }
 
 /// SIGTERM to a client counts as Ctrl+C: a tool that stops the client after its timeout cancels the run on the host,

@@ -117,3 +117,38 @@ fn max_takes_seconds_minutes_and_hours_and_refuses_the_rest() {
   assert_eq!((alias.as_str(), run.as_str(), max), ("studio", "1-2", Some(Duration::from_mins(5))));
   Cli::try_parse_from(["brd-host", "wait", "studio", "1-2", "--max", "10x"]).expect_err("no duration");
 }
+
+/// `cancel-unfinished` says one line per run, the cancelled ones first, and one line when the checkout has no such run;
+/// `--max` takes a duration as `wait --max` does
+#[test]
+fn cancel_unfinished_says_a_line_per_run_and_takes_a_max() {
+  use host_client::unfinished::{CancelledRun, UncancelledRun};
+  assert_eq!(unfinished_lines(&Unfinished::default()), ["no run of this checkout waits for its end here"]);
+  let answer = Unfinished {
+    cancelled: vec![CancelledRun {
+      run: "1-1".to_owned(),
+      host: "studio".to_owned(),
+      answer: "the supervisor of the run 1-1 has the cancel request".to_owned(),
+    }],
+    not_cancelled: vec![UncancelledRun {
+      run: "2-2".to_owned(),
+      host: "laptop".to_owned(),
+      code: Code::TimedOut,
+      message: "laptop did not answer the cancel within 5.0s".to_owned(),
+    }],
+  };
+  assert_eq!(
+    unfinished_lines(&answer),
+    [
+      "cancelled the run 1-1 on studio: the supervisor of the run 1-1 has the cancel request",
+      "cannot cancel the run 2-2 on laptop: timed_out: laptop did not answer the cancel within 5.0s",
+    ]
+  );
+  let Cli {
+    command: Command::CancelUnfinished { max, json },
+  } = Cli::try_parse_from(["brd-host", "cancel-unfinished", "--json", "--max", "5s"]).expect("a command line")
+  else {
+    panic!("not a cancel-unfinished");
+  };
+  assert_eq!((max, json), (Some(Duration::from_secs(5)), true));
+}

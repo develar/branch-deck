@@ -698,9 +698,11 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "git-executor",
+ "git-ops",
  "host-agent",
  "host-client",
  "host-link",
+ "lease-pool",
  "libc",
  "pool-disk",
  "pretty_assertions",

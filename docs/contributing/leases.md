@@ -29,6 +29,8 @@ and links here; the commands are [brd lease](../../openspec/specs/cli/lease/spec
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
    `brd -C <path> lease pick --return`, which lands the last commit without moving the lease and returns it in the same
    call (`brd lease return --workspace <path>` when everything landed already); a run on the Studio keeps nothing there.
+   The return cancels each run of `brd-host` of the lease that has no end (`cancelled_runs`): wait for the runs you need
+   first.
 
 ## Worktrees
 
