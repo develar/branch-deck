@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.26.0](https://github.com/develar/branch-deck/compare/v1.25.0...v1.26.0) (2026-11-25)
+
+
+### Features
+
+* **brd-host:** `brd-host stats` gives what each exclusive command cost the host: the time its runs held and drained it, the runs that waited in those spans, and its outcomes ([39ecc79](https://github.com/develar/branch-deck/commit/39ecc793cb808b7b83ec27eba919cad463250813))
+* **brd-host:** an exclusive run at the head of the queue drains the host for at most 5 min, not 15, so a drain that finds no quiet host gives the heavy runs behind it and the new runs that are not heavy their turn 10 min sooner ([c3f6759](https://github.com/develar/branch-deck/commit/c3f6759c1e17932e841aae1651c18db4a8c2cbc6))
+* **brd-host:** serve keeps a series of the heavy turn by the minute, with why no run started and what a backfill behind the head would have started, and `brd-host stats` gives the idle cores while heavy runs waited by cause ([0b38aee](https://github.com/develar/branch-deck/commit/0b38aee31e756f33e447ca410938bc590fbef3ae))
+
+
+### Bug Fixes
+
+* **app:** a Safe Push pressed during the fetch of Update Project waits behind the update, and a branch the update rebuilt onto the new master with the same commits while the push sent no longer skips the start ("changed after the push") ([6a271eb](https://github.com/develar/branch-deck/commit/6a271ebeefcbc9ae4a63dcc2c361c8c20cac002f))
+* **brd-host:** a holder past its grace counts at least the most of its live use of the last 5 min, so a holder of a measure whose window counts as its grace no longer counts its measure while its peak is above it ([eec1c68](https://github.com/develar/branch-deck/commit/eec1c6879050a9e4dc3ecca11f2d27be347c74ab))
+* **e2e:** a drop that never reached the page is dragged again, every drop target answers its dragenter as its dragover, and a run keeps the evidence of its failed tests in tests/failed-runs ([632e843](https://github.com/develar/branch-deck/commit/632e843b15ce90b4c8c99f585d9f2d3f733f1515))
+* **e2e:** an operation admitted behind a held sync, a lock or an update is read after the answer of its intent, and an update waits at the step a hold keeps it as long as the test lets it ([713036d](https://github.com/develar/branch-deck/commit/713036d5b3ec1873dbe750b1ae88daa1203a8aff))
+* **patronus:** a Safe Push someone else started on a pushed branch of the user shows on the branch with who started it, brd robot reports it, and a push of the branch is refused while it runs ([#264](https://github.com/develar/branch-deck/issues/264)) ([99fcafa](https://github.com/develar/branch-deck/commit/99fcafa0d51a309f71093355b5775d37b2361926))
+
+
+### Performance Improvements
+
+* **e2e:** a test repository is a copy of its template synced once, so the first sync of the page finds every copy by its note and builds none (12 git processes where issue_links ran 41, stack_island 54); a test of what the very first sync does asks for the template as it is built (`presynced: false`) ([d51018e](https://github.com/develar/branch-deck/commit/d51018efa6a9b733682962c0ec2047f4f79848a4))
+
 ## [1.25.0](https://github.com/develar/branch-deck/compare/v1.24.0...v1.25.0) (2026-11-25)
 
 
