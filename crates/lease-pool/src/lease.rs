@@ -4725,6 +4725,33 @@ pub fn ready_slot_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Sl
   )
 }
 
+/// The session that holds the lease of the slot at `worktree` while it lives: the pid and the start of the holder of its
+/// ready lease (`Lease::holder_pid`, `Lease::holder_started`), the nearest ancestor of the get that is no shell, as the
+/// coding agent whose agents all take their leases so; `None` for a checkout that is no linked worktree (a main checkout)
+/// or no slot of a lease, and for a lease without a holder or whose holder is gone. From the `.git` file of the worktree
+/// and the state of the pool, no git: the default group of a run of `brd-host` (`RunSpec::group`)
+pub fn live_holder_of(worktree: &Path) -> Result<Option<(u32, u64)>> {
+  // a `.git` directory, of a main checkout, is no slot
+  let Ok(dot_git) = std::fs::read_to_string(worktree.join(".git")) else {
+    return Ok(None);
+  };
+  let Some(admin) = dot_git.lines().next().and_then(|line| line.strip_prefix("gitdir:")).map(str::trim) else {
+    return Ok(None);
+  };
+  let admin = worktree.join(admin);
+  let Ok(common) = std::fs::read_to_string(admin.join("commondir")) else {
+    return Ok(None);
+  };
+  let common = std::fs::canonicalize(admin.join(common.trim()))?;
+  let Some(lease) = ready_slot_at(&common, &worktree.to_string_lossy())?.and_then(|slot| slot.lease) else {
+    return Ok(None);
+  };
+  Ok(match (lease.holder_pid, lease.holder_started) {
+    (Some(pid), Some(started)) if lease.holder_alive() == Some(true) => Some((pid, started)),
+    _ => None,
+  })
+}
+
 /// Why a command of `brd` in the worktree `top_level` must not run: the slot's lease was taken over from a dead holder
 /// (`Slot::reclaimed`) or is being taken over, and this process is no process of the session that holds it now, as a
 /// resumed session of the old holder is not. From the state, no git; a process scan only in such a slot. A command that

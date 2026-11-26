@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-11-24
+**Updated:** 2026-11-26
 **Tags:** [host, remote-run, lease, brd-host, yonder]
 
 ## Problem
@@ -219,9 +219,13 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   them, of one class (`--measure-as`, command p50 10 min), came from the 5 to 6 agents of one orchestrating session,
   each in a checkout of its own, and the heavy runs of the other sessions waited p50 25 to 60 min behind them. Its
   agents took a hand-made `mkdir` lock instead, which leaked with a dead agent and kept the session to one run on an
-  idle host. So a run names its group (`brd-host run --group`, `BRD_HOST_GROUP`, `RunSpec::group`), which an
-  orchestrator sets once for all its agents; without one the group is its affinity, as one checkout is one agent. The
-  affinity could not be the group: it also picks the slot, the base of the packs and the supersede. The round of a run
+  idle host. So a run names its group (`brd-host run --group`, `BRD_HOST_GROUP`, `RunSpec::group`), without one
+  `brd-host run` names the session that holds the lease of the checkout while it lives (`session-<12 hex>` of the
+  holder of its `brd lease` slot, `lease::live_holder_of`, the coding agent whose subagents all take their leases so),
+  else the group is its affinity. The affinity alone made 6 leases of one session 6 groups unless the session set the
+  variable, which agents drop after a few rounds; the home checkout would make the sessions of one repository one group;
+  the session of the client outside a lease would make each `bt` run a group alone, as the runner scan does not know
+  it. The affinity could not be the group either way: it also picks the slot and the base of the packs. The round of a run
   of the queue is the count of the runs of its group before it, read from the queue at each join, never stamped. A new
   run may not pass the head (index 0), a run of its own group, or a run that 8 runs of the turns got ahead of; behind
   the last of those it joins before the first run whose round is above the count of its own group's waiting runs, else
@@ -265,6 +269,16 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   `group` and estimates the end of its queue, where it puts the run. `brd-host runs`, the line of a wait, the history
   line and `brd-host stats` (`groups`: the runs, the waits, the wait for the heavy turn and the work by group, 30 at
   most and the rest in one entry) name the group.
+- **A priority inside a group** (`brd-host run --priority high|normal|low`, `brd-host prioritize <host> <run>
+  <level>`, `host_turn::order_by_priority`): an orchestrator marks the gate that unblocks its other agents. After its
+  turn places a run, the runs of its group and its class (short, exclusive or neither) are ordered by priority over
+  their own places, first come first within one priority; `prioritize` does the same for a run that waits. So a
+  priority moves no run of another group, never moves the head, which the turns never pass either, and never puts a
+  long run in the place of a short one; it counts no pass, and a run keeps its own join, as a run of the turns does.
+  The order still changes only at a join and at a `prioritize`, so a supervisor of the build before admits right. The
+  priority is in `groups.json`; a run that supersedes keeps the priority of the run it replaces unless it names one.
+  `brd-host runs` names a priority that is not normal, and an explicit `--priority` on an agent without the feature
+  `priority` refuses with `bad_config`, as it would be lost.
 - **An exclusive run** (`brd-host run --exclusive`): a measurement such as the A/B pair of a fast lane needs a quiet
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
   is admitted only without a holder, with no run that is not heavy in its command (a run is in `light` of the turn for
@@ -378,7 +392,12 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   answers it, and its supervisor ends it with `superseded` (exit 75) before its lend: a run of the queue holds no slot
   and started no command, so nothing of it ran. The holder is never superseded, as its command may run. The later run
   says whom it replaces, and names the other runs of its checkout that wait with another command, so an agent sees a
-  second batch that it queued. An entry of an older build has no affinity and no key, and supersedes nothing.
+  second batch that it queued. An entry of an older build has no affinity and no key, and supersedes nothing. On
+  2026-11-26 one session cancelled and queued its gate again about 15 times after review amends, the same lease and
+  class on another commit, as the old gate kept its place: so a run of another commit with the same key of its measures
+  (`--measure-as`, else of its command) supersedes too, whatever its command (`host_turn::LaterRun::supersedes`, the
+  commit and the key in `groups.json`); a run of the same commit keeps the rule of the command, so an A/B of two bases
+  of one commit both run, and a waiting run of an older client, which names no commit, only by its command.
 - **A client that a signal stops** cancels its run: SIGTERM and SIGHUP count as Ctrl+C, so a tool that kills an
   agent's call at its timeout leaves no run waiting for the turn and running for nobody. A SIGKILL cannot be caught;
   the run goes on until `brd-host cancel`.
@@ -886,6 +905,13 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     They held the head of the heavy queue for 2 h and ended with `heavy_timeout`, the largest cause of waits there. The
     child keeps brd free of the client, as decision 1 wants. A return that waits for a sleeping host would keep the
     slot from the next get, so the bound is a few seconds and the answer names what stays.
+
+15. **Decision**: The default group of a heavy run is the live session that holds the lease of its checkout, a priority
+    orders only the runs of one group and class, and the gate of an amended head supersedes the waiting one
+    (2026-11-26).
+    **Rationale**: A default that an agent must set is lost after a few rounds, so the group comes from what the lease
+    already records. A priority across groups would undo the turns; one that admits rather than orders would break the
+    supervisors of the build before, which admit the head. The re-gates after amends were the manual work of a night.
 
 ## Alternatives Considered
 

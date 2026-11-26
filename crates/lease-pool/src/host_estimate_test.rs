@@ -1,5 +1,5 @@
 use super::*;
-use crate::host_turn::{DRAIN_BAR, GroupMark, Joined, TURN_PASS_BUDGET, TurnAnswer, TurnParams, TurnRequest, group_key, join, leave, read_groups, read_live};
+use crate::host_turn::{DRAIN_BAR, GroupMark, Joined, Priority, TURN_PASS_BUDGET, TurnAnswer, TurnParams, TurnRequest, group_key, join, leave, read_groups, read_live};
 use pretty_assertions::assert_eq;
 use std::path::Path;
 
@@ -58,6 +58,9 @@ fn asked<'a>(checkout: &'a str, key: &'a str, tenths: Option<u32>) -> Asked<'a> 
     expected: tenths.map(Cores),
     passed_wall: None,
     group: checkout,
+    priority: None,
+    commit: "",
+    measure_key: "",
   }
 }
 
@@ -150,22 +153,27 @@ fn a_short_run_is_placed_ahead_of_the_long_runs_as_the_queue_places_it() {
   assert_eq!(minutes(&queue, &whole), (15, 0), "a run without a measure is never short");
 }
 
-/// A run of another group takes its place by the turns of the groups, as the queue places it: behind the first waiting
-/// run of a group of many, not behind all of them; a run of that group waits behind all of them
-#[test]
-fn a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it() {
+/// The holder `a`, which ran 1 of its 5 min, and the runs `b`, `c` and `d` that wait behind it, each marked `mark`
+fn session_waits(mark: &GroupMark) -> Sight {
   let mut queue = sight(
     vec![entry("a", NOW - MIN, None)],
     vec![entry("b", NOW, None), entry("c", NOW, None), entry("d", NOW, None)],
     10,
   );
   for run in ["b", "c", "d"] {
-    let mark = GroupMark {
-      group: "session".to_owned(),
-      ..GroupMark::default()
-    };
-    queue.files.groups.runs.insert(run.to_owned(), mark);
+    queue.files.groups.runs.insert(run.to_owned(), mark.clone());
   }
+  queue
+}
+
+/// A run of another group takes its place by the turns of the groups, as the queue places it: behind the first waiting
+/// run of a group of many, not behind all of them; a run of that group waits behind all of them
+#[test]
+fn a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it() {
+  let queue = session_waits(&GroupMark {
+    group: "session".to_owned(),
+    ..GroupMark::default()
+  });
   let other = asked("checkout-mine", "key-mine", None);
   assert_eq!(minutes(&queue, &other), (14, 0), "after a and b, ahead of c and d");
   let same = Asked { group: "session", ..other };
@@ -227,6 +235,9 @@ fn estimate_then_join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> (Ve
         .is_some_and(|mark| mark.passed.iter().any(|passed| passes.get(passed).copied() == Some(TURN_PASS_BUDGET)))
   });
   let asked = Asked {
+    commit: "",
+    measure_key: "",
+    priority: None,
     repo: request.repo,
     affinity: request.affinity,
     command_key: request.command_key,
@@ -274,6 +285,9 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
     let command = usize::try_from(draw.below(2)).unwrap();
     let short = draw.below(5) == 0;
     TurnRequest {
+      commit: "",
+      measure_key: "",
+      priority: None,
       run,
       pid,
       process_started: started,
@@ -294,6 +308,9 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
     }
   };
   let holder = TurnRequest {
+    commit: "",
+    measure_key: "",
+    priority: None,
     run: "holder",
     pid,
     process_started: started,
@@ -355,4 +372,36 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
   assert!(compared > 180, "{compared}");
   assert!(crossed > 0, "the generator made the supersede of a run of another group that passed a run at its budget");
   assert_eq!(most, TURN_PASS_BUDGET, "some run reached its budget, and none went past it");
+}
+
+/// The estimate places a run by its priority and supersedes by another commit as the queue does: a high run of a group
+/// goes ahead of the runs of its group but its head, and a run of another commit with the measures of a waiting run of
+/// its checkout takes its place, while one of the same commit with another command waits behind it
+#[test]
+fn an_estimate_places_a_run_by_its_priority_and_its_commit_as_the_queue_places_it() {
+  let queue = session_waits(&GroupMark {
+    group: "session".to_owned(),
+    commit: Some("c1".to_owned()),
+    measure_key: Some("class-gate".to_owned()),
+    ..GroupMark::default()
+  });
+  let normal = Asked {
+    group: "session",
+    ..asked("checkout-mine", "key-mine", None)
+  };
+  assert_eq!(minutes(&queue, &normal), (20, 0), "after a, b, c and d");
+  let urgent = Asked {
+    priority: Some(Priority::High),
+    ..normal
+  };
+  assert_eq!(minutes(&queue, &urgent), (14, 0), "after a and its head b, ahead of c and d");
+  let amended = Asked {
+    commit: "c2",
+    measure_key: "class-gate",
+    ..asked("checkout-c", "key-another", None)
+  };
+  let amended = Asked { group: "session", ..amended };
+  assert_eq!(minutes(&queue, &amended), (14, 0), "in the place of c, which it supersedes");
+  let same_commit = Asked { commit: "c1", ..amended };
+  assert_eq!(minutes(&queue, &same_commit), (20, 0), "an A/B of one commit: behind c and d");
 }

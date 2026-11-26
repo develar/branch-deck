@@ -23,9 +23,12 @@ const CHECKOUT: &str = "checkout-0123456789ab";
 
 /// A request of this process, whose pid lives as long as the test, from a checkout of its own (the run id), so no run
 /// supersedes another
-fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+pub(crate) fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
   let pid = std::process::id();
   TurnRequest {
+    commit: "",
+    measure_key: "",
+    priority: None,
     run,
     pid,
     process_started: sync_utils::process_scan::process_started(pid),
@@ -1912,6 +1915,9 @@ fn a_run_of_the_turns_that_is_gone_or_whose_table_write_failed_counts_no_pass() 
   groups.runs.insert(
     "ghost".to_owned(),
     GroupMark {
+      commit: None,
+      measure_key: None,
+      priority: None,
       group: "ghost".to_owned(),
       passed: vec!["s2".to_owned()],
       took: false,
@@ -1938,4 +1944,143 @@ fn a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept()
   assert_eq!(note, None);
   assert_eq!(groups.runs["s2"].group, "session");
   assert_eq!(groups.runs["o1"].passed, ["s2"]);
+}
+
+/// The runs `s1` and `s2` of the group `session` wait behind its holder, and the run `x` of a checkout of its own joins
+/// between them by its turn
+fn session_and_x_wait(params: &TurnParams<'_>, command: &[String]) {
+  session_waits(params, command, &["s1", "s2"]);
+  join_all(params, &["x"], |run| of(run, "checkout-x", command));
+}
+
+/// The runs of `entries` by their ids
+fn ids(entries: &[TurnEntry]) -> Vec<&str> {
+  entries.iter().map(|entry| entry.ticket.run.as_str()).collect()
+}
+
+/// A run of a higher priority goes ahead of the runs of its group that wait with a lower one, over the places of its
+/// group only: the run of another group keeps its turn, and the head its place, as the turns never pass it
+#[test]
+fn a_high_run_goes_ahead_of_the_normal_runs_of_its_group_never_of_another_group_nor_the_head() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_and_x_wait(&params, &command);
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s2"]);
+  let high = TurnRequest {
+    priority: Some(Priority::High),
+    ..grouped("s3", "session", &command)
+  };
+  let joined = join(&params, &high).unwrap();
+  assert_eq!(ids(&joined.prioritized), ["s2"]);
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s3", "s2"], "x keeps its turn and s1 its place");
+  assert_eq!(read_groups(dir.path()).0.priority("s3"), Priority::High);
+  assert_eq!(turn_passes(dir.path(), &["s2"]), [1], "the priority counts no pass of the turns");
+}
+
+/// The priority orders the runs of one class only: a long run of a high priority never takes the place of a short run
+/// of its group, which went ahead in the short lane
+#[test]
+fn the_priority_never_moves_a_long_run_into_the_place_of_a_short_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_holds(&params, &command);
+  join_all(&params, &["long-1", "long-2"], |run| grouped(run, "a", &command));
+  join_all(&params, &["lint", "fmt"], |run| TurnRequest {
+    group: Some("a"),
+    ..short(run, &command, 40)
+  });
+  assert_eq!(queue_of(dir.path()), ["lint", "fmt", "long-1", "long-2"]);
+  let high = TurnRequest {
+    priority: Some(Priority::High),
+    ..grouped("long-3", "a", &command)
+  };
+  take(&params, &high).unwrap();
+  assert_eq!(queue_of(dir.path()), ["lint", "fmt", "long-3", "long-1", "long-2"]);
+}
+
+/// `prioritize` orders a queued run again inside its group; a later look of a run keeps the order, the head keeps its
+/// place, and a holder and a run that the turn does not name change nothing
+#[test]
+fn prioritize_moves_a_queued_run_inside_its_group_and_leaves_a_holder_as_it_is() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_and_x_wait(&params, &command);
+  join_all(&params, &["s3"], |run| grouped(run, "session", &command));
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s2", "s3"]);
+  match prioritize(&params, "s3", Priority::High).unwrap() {
+    Prioritized::Queued { from, to, ahead_of } => assert_eq!((from, to, ids(&ahead_of)), (3, 2, vec!["s2"])),
+    other => panic!("{other:?}"),
+  }
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s3", "s2"]);
+  assert_eq!(
+    queued(&take(&params, &grouped("s2", "session", &command)).unwrap()).1,
+    ["s1", "x", "s3"],
+    "a look keeps the order"
+  );
+  match prioritize(&params, "s3", Priority::Low).unwrap() {
+    Prioritized::Queued { from, to, ahead_of } => assert_eq!((from, to, ahead_of), (2, 3, vec![])),
+    other => panic!("{other:?}"),
+  }
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s2", "s3"]);
+  match prioritize(&params, "s1", Priority::Low).unwrap() {
+    Prioritized::Queued { from, to, .. } => assert_eq!((from, to), (0, 0), "the head keeps its place"),
+    other => panic!("{other:?}"),
+  }
+  assert_eq!(prioritize(&params, "holder", Priority::High).unwrap(), Prioritized::Holds);
+  assert_eq!(prioritize(&params, "nobody", Priority::High).unwrap(), Prioritized::Unknown);
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s2", "s3"]);
+}
+
+/// A request as `of_checkout` that runs `commit` and measures by the key `measure_key`
+fn of_commit<'a>(run: &'a str, command: &'a [String], commit: &'a str, measure_key: &'a str) -> TurnRequest<'a> {
+  TurnRequest {
+    commit,
+    measure_key,
+    ..of_checkout(run, command)
+  }
+}
+
+/// A later run of the checkout with another commit supersedes a waiting run of the same key of its measures, whatever
+/// its command: the gate of an amended head, with another `--base` too. The same commit with another command of the
+/// class (an A/B of two bases) and another checkout supersede nothing, and a waiting run that names no commit only by
+/// its command; the later run keeps the priority of the superseded one unless it names one
+#[test]
+fn a_run_of_another_commit_supersedes_a_waiting_run_of_its_measures_and_keeps_its_priority() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let (nextest, e2e) = (command(), vec!["pnpm".to_owned(), "e2e".to_owned()]);
+  session_holds(&params, &nextest);
+  let old = TurnRequest {
+    priority: Some(Priority::High),
+    ..of_commit("old", &e2e, "c1", "class-gate")
+  };
+  take(&params, &old).unwrap();
+  let same_commit = join(&params, &of_commit("same-commit", &nextest, "c1", "class-gate")).unwrap();
+  assert_eq!(ids(&same_commit.replaced), Vec::<&str>::new(), "one commit, two commands of the class: both run");
+  let elsewhere = TurnRequest {
+    affinity: "checkout-ba9876543210",
+    ..of_commit("elsewhere", &nextest, "c2", "class-gate")
+  };
+  assert_eq!(ids(&join(&params, &elsewhere).unwrap().replaced), Vec::<&str>::new());
+  let unnamed = TurnRequest {
+    command_key: "key-of-another-command",
+    ..of_commit("unnamed", &nextest, "", "class-gate")
+  };
+  assert_eq!(ids(&join(&params, &unnamed).unwrap().replaced), Vec::<&str>::new());
+
+  let amended = join(&params, &of_commit("amended", &nextest, "c2", "class-gate")).unwrap();
+  assert_eq!(ids(&amended.replaced), ["old", "same-commit"], "another commit of the class replaces both");
+  assert_eq!(superseded(&read_live(dir.path()).unwrap()), [("old", "amended"), ("same-commit", "amended")]);
+  assert_eq!(read_groups(dir.path()).0.priority("amended"), Priority::High, "the priority of the superseded run");
+  assert_eq!(queue_of(dir.path()), ["amended", "elsewhere", "unnamed"], "the place of the first superseded run");
+
+  let low = TurnRequest {
+    priority: Some(Priority::Low),
+    ..of_commit("again", &nextest, "c3", "class-gate")
+  };
+  assert_eq!(ids(&join(&params, &low).unwrap().replaced), ["amended"]);
+  assert_eq!(read_groups(dir.path()).0.priority("again"), Priority::Low, "a named priority wins");
 }

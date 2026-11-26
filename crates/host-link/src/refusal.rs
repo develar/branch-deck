@@ -265,7 +265,7 @@ impl Code {
       Self::Superseded => (
         "superseded",
         ExitRule::Always(Exit::NotRun),
-        "A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`.",
+        "A later heavy run of the same checkout and command, or of another commit with the same measures, came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`.",
       ),
       Self::Busy => (
         "busy",

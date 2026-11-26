@@ -240,6 +240,7 @@ impl Client<'_> {
       heavy,
       measure_as: request.measure_as.map(str::to_owned),
       group: request.group.map(str::to_owned),
+      priority: request.priority,
     };
     Ok((ask, heavy))
   }

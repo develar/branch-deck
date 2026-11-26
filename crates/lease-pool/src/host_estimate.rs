@@ -13,7 +13,7 @@
 
 use crate::host_slots::Ticket;
 use crate::host_turn::{
-  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, QueueFiles, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
+  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, Priority, QueueFiles, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
 };
 use anyhow::Result;
 use std::path::Path;
@@ -78,6 +78,12 @@ pub struct Asked<'a> {
   pub passed_wall: Option<Duration>,
   /// Its group in the heavy queue (`host_turn::group_key`): the turns of the groups place it
   pub group: &'a str,
+  /// Its priority inside its group; `None`: the priority of the run that it supersedes in its place, else normal
+  pub priority: Option<Priority>,
+  /// The commit that it runs and the key of its measures, by which it supersedes a waiting run of another commit
+  /// (`host_turn::LaterRun::supersedes`); empty: none
+  pub commit: &'a str,
+  pub measure_key: &'a str,
 }
 
 /// When the run would take the turn
@@ -232,6 +238,9 @@ pub(crate) fn place(sight: &Sight, asked: &Asked<'_>) -> (Vec<TurnEntry>, u64) {
     passed_wall: asked.passed_wall,
     measure_as: None,
     group: Some(asked.group),
+    priority: asked.priority,
+    commit: asked.commit,
+    measure_key: asked.measure_key,
   };
   let mut joined = Joined::taken();
   let position = join_queue(&mut turn, &mut files, (sight.cores, sight.drain_bar), sight.now_ms, &request, &mut joined);

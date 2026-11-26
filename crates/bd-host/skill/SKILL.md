@@ -32,7 +32,8 @@ of this machine instead of the checkout of the session, and no pack travels.
 
 ```sh
 brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--exclusive]
-               [--measure-as <class>] [--group <group>] [--nice <0-19>] [--repo <path>] [--affinity <key>]
+               [--measure-as <class>] [--group <group>] [--priority high|normal|low] [--nice <0-19>] [--repo <path>]
+               [--affinity <key>]
                [--max <duration>] [--report-fd <n>] -- <command> <args>
 ```
 
@@ -64,8 +65,10 @@ a run"). Never a `timeout` wrapper, a run in the background with a poll of a mar
 - `--measure-as <class>` makes a heavy run whose measures are those of the class, not of its command (see "Heavy
   runs"). Pass it to every heavy command whose text changes from run to run.
 - `--group <group>`, or `BRD_HOST_GROUP` in the environment, names the group of the run in the heavy queue, by
-  default its checkout (see "Heavy runs"). An orchestrator that starts several agents sets one `BRD_HOST_GROUP` for
-  all of them; never a lock of its own around `brd-host run`.
+  default the session that holds the lease of the checkout, else the checkout (see "Heavy runs"). Never one per agent
+  or per run, and never a lock of its own around `brd-host run`.
+- `--priority high|low` orders the run among the waiting runs of its group: `high` for a gate that unblocks other
+  agents. `brd-host prioritize <host> <run> <level>` changes it for a run that waits.
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
@@ -93,8 +96,10 @@ measured the whole host. A measure is the level of the heavy phases of the last 
 of their work ran), not their mean, so a gate that builds on 16 cores for minutes and runs on one for hours expects
 16. From 10 min after its start every heavy run counts its live use of the last 5 min instead, never less than its
 peak of those 5 min, so the queue starts beside its quiet tail. The queue takes turns between groups (`--group`, else
-the checkout of a run) and is first come first inside one, so the runs of an orchestrator's agents wait as one group
-and the runs of others go between them, at most 8 ahead of each run of the group; a head of the queue that waited 15 min starts on a free
+the session that holds the lease, else the checkout of a run) and is first come first inside one but for `--priority`,
+so the runs of an orchestrator's agents wait as one group and the runs of others go between them, at most 8 ahead of
+each run of the group, and a place that grows is no reason to cancel; a run of the checkout on another commit with the
+same measures replaces the waiting one, so a re-gate after an amend needs no cancel; a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with
@@ -266,6 +271,7 @@ command that follows the run.
 - `brd-host follow <host> <run>` follows a run from its first line. Ctrl+C, SIGTERM or SIGHUP leaves at once (130), and the
   run goes on, so stopping a follow in the background is safe.
 - `brd-host cancel <host> <run>` asks the host to interrupt a run. `follow` shows its end.
+- `brd-host prioritize <host> <run> high|normal|low` moves a heavy run that waits among the runs of its group.
 - `brd-host cancel-unfinished [--max <duration>] [--json]` cancels each run of this checkout whose end it has not
   finished, on the host that its record names: the hosts in parallel, each for at most `--max` (5 s by default). The
   record of a cancelled run goes; a run of a host that did not answer stays. A return of a lease of Branch Deck runs it
@@ -350,7 +356,7 @@ A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the 
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `no_slots` | The host keeps no slot for the repository: nothing ran. Exit 75: run on another host or locally, and tell the user the command of the message that raises the limit. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. Exit 75, but never run it locally: `brd-host runs <host>`, then run it again later. |
-| `superseded` | A later heavy run of the same checkout and command replaced it while it waited: nothing ran. Exit 75, but never run it again: wait for the later run that the message names. |
+| `superseded` | A later heavy run of the same checkout and command, or of another commit with the same measures (the gate of an amended head), replaced it while it waited: nothing ran. Exit 75, but never run it again: wait for the later run that the message names. |
 | `busy` | A member of a set that takes runs only at once had no room: nothing ran there, and the run went to the next member. |
 | `local_changes` | `--head` with uncommitted or untracked changes. Commit first, or run without `--head`. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |

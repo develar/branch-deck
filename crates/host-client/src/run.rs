@@ -62,7 +62,7 @@ use crate::record::{RunEnd, RunFiles, RunLock, RunRecord};
 use crate::{Client, short};
 use git_ops::host_client::{FARTHEST, Scan};
 use host_link::heavy::{is_group_name, is_measure_class, script_in};
-use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
+use host_link::proto::{PackTarget, Phase, Priority, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
 use std::fs::File;
@@ -103,6 +103,9 @@ pub struct RunRequest<'a> {
   /// The group of the run in the heavy queue (`--group`, `BRD_HOST_GROUP`): the queue takes turns between groups, so
   /// the agents of one orchestrator name one group for all their checkouts (`RunSpec::group`); `None`: its affinity
   pub group: Option<&'a str>,
+  /// The priority of the run inside its group (`--priority`, `RunSpec::priority`); `None`: the priority of the run it
+  /// supersedes, else normal
+  pub priority: Option<Priority>,
 }
 
 impl RunRequest<'_> {
@@ -365,6 +368,7 @@ impl Client<'_> {
       admit_now: options.admit_now,
       measure_as: request.measure_as.map(str::to_owned),
       group: request.group.map(str::to_owned),
+      priority: request.priority,
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     // the host of the run, by which a wait, a cancel or a fetch to the name of a set goes to it
@@ -705,6 +709,15 @@ impl Client<'_> {
         ),
       ));
     }
+    if spec.priority.is_some() && !agent.features.iter().any(|known| known == feature::PRIORITY) {
+      return Err(Refusal::new(
+        Code::BadConfig,
+        format!(
+          "the agent on {alias} predates the priorities of the heavy queue, so it would queue this run first come first: `brd-host upgrade {alias}` sends this build",
+          alias = host.alias()
+        ),
+      ));
+    }
     if spec.admit_now && !agent.features.iter().any(|known| known == feature::ESTIMATE) {
       return Err(Refusal::new(
         Code::Busy,
@@ -980,6 +993,19 @@ impl Client<'_> {
   pub async fn cancel(&self, alias: &str, run: &str) -> Result<String, Refusal> {
     let mut host = self.host(alias)?;
     cancel_on(&mut host, run, self.timing.read).await
+  }
+
+  /// Gives the run `run`, which waits in the heavy queue of the host, the priority `priority` inside its group
+  /// (`Request::Prioritize`): the message of the agent says where it moved. An agent without the feature `priority`
+  /// refuses with `agent_failed` and the upgrade to run (`featured_host`)
+  pub async fn prioritize(&self, alias: &str, run: &str, priority: Priority) -> Result<String, Refusal> {
+    let request = Request::Prioritize { run: run.to_owned(), priority };
+    self
+      .ask(&mut self.featured_host(alias, feature::PRIORITY).await?, &request, |reply| match reply {
+        Reply::Done { message } => Taken::Answer(message),
+        reply => Taken::Other(reply),
+      })
+      .await
   }
 
   /// The runs that the agent keeps, and the heavy turn of its host

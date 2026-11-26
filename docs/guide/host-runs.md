@@ -1,6 +1,6 @@
 # Runs on Another Mac (`brd-host`)
 
-**Updated:** 2026-11-24  
+**Updated:** 2026-11-26  
 **Tags:** [brd-host, host, remote-run, setup]
 
 `brd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
@@ -245,15 +245,22 @@ brd-host run studio --measure-as accio-typing-gate -- bash -c "$(cat gate.sh)" g
 
 One class is one kind of work of about one weight; a new kind of work gets a class of its own.
 
-The heavy queue takes turns between groups, first come first inside each. A run is of the group of its checkout, so
-one agent's runs wait as before. An orchestrator whose agents work in checkouts of their own names one group for all of
-them, once, in the environment it gives them, and the heavy runs of other sessions then wait behind the first waiting
-run of that group, not behind all of them. A run of the group gives way to at most 8 runs of other groups this way,
-and to 4 short runs: a run of a big backlog can wait longer than first come first, up to its 2 h:
+The heavy queue takes turns between groups, first come first inside each. A run in a lease of Branch Deck is of the
+group of the session that holds the lease (`session-<12 hex>`), so all the agents of one session, each in a lease of
+its own, are one group with nothing to set, and the heavy runs of other sessions wait behind the first waiting run of
+that group, not behind all of them. Outside a lease a run is of the group of its checkout. A run of the group gives way
+to at most 8 runs of other groups this way, and to 4 short runs: a run of a big backlog can wait longer than first come
+first, up to its 2 h. `--group` or `BRD_HOST_GROUP` names another grouping, never one per agent or per run, as each
+group takes its own turns:
 
 ```sh
 export BRD_HOST_GROUP=typing-session    # or brd-host run studio --group typing-session -- …
 ```
+
+Inside a group, `--priority high` puts a gate that unblocks the others ahead of the runs of its group that wait, and
+`--priority low` behind them; `brd-host prioritize studio <run> high` changes it for a run that waits. A priority never
+moves a run ahead of a turn of another group. A gate of the same checkout on another commit with the same measures (the
+same `--measure-as`, else the same command) replaces the gate that waits, so a re-gate after an amend needs no cancel.
 
 `brd-host runs studio` and the line of a wait name the group (`run 01M63T… in the group typing-session waits …`), and
 `brd-host stats studio` sums the waits and the work by group. The queue needs no lock of the orchestrator around its
@@ -297,7 +304,7 @@ heavy runs went first, a long `slot` that every slot was busy, a long `prepare` 
 | the code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: asleep, behind, all slots busy for an hour. | Run it here. |
 | 75 with `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | Not here: under the load of this Mac its tests fail on timeouts. `brd-host runs studio`, then run it again later. |
-| 75 with `superseded` | A later heavy run of the same checkout and command took its place while it waited: nothing ran. | Never again: `brd-host follow studio <later run>`, which the message names. |
+| 75 with `superseded` | A later heavy run of the same checkout and command, or of another commit with the same measures, took its place while it waited: nothing ran. | Never again: `brd-host follow studio <later run>`, which the message names. |
 | 124 | `brd-host wait` passed its `--max`, and the run goes on (`still_running`). | `brd-host wait studio <run>` again. |
 | 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `brd-host follow` shows its end. |
 | 255 | The link broke after the start, or a fetch failed. | The run goes on: `brd-host follow studio <run>`. |
@@ -416,7 +423,7 @@ A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, 
 | `no_slots` | The host keeps no slot for the repository: `branchdeck.hostSlots` is 0 there, or a shrink kept 0. | The command of the message on the host: `git -C <repo> config branchdeck.hostSlots 4`, or `brd-host slots --local -C <repo> --shrink 4`. |
 | `heavy_timeout` | Other heavy runs held the heavy turn for 2 hours. | `brd-host runs studio`, then run it again later or through a set, not as a plain command here. |
 | `busy` | A member of a set that takes runs only at once had no room. | Nothing ran; the run went to the next member. |
-| `superseded` | A later heavy run of the same checkout and command replaced it while it waited. | Nothing ran: follow the later run that the message names. |
+| `superseded` | A later heavy run of the same checkout and command, or of another commit with the same measures, replaced it while it waited. | Nothing ran: follow the later run that the message names. |
 | `bad_config` | `[host]` of the commit does not parse, or has a key of a later Branch Deck. | Fix the key, or update brd-host on both ends. |
 | `local_changes` | `--head` with uncommitted changes. | Commit, or drop `--head`. |
 

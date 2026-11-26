@@ -328,6 +328,8 @@ fn turn_run(command: &[String], exclusive: bool) -> crate::turn::TurnRun<'_> {
     fetch: &[],
     measure_as: None,
     group: None,
+    priority: None,
+    commit: "",
   }
 }
 

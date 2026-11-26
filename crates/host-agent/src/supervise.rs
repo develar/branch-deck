@@ -498,6 +498,8 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
     fetch: &spec.fetch,
     measure_as: spec.measure_as.as_deref(),
     group: spec.group.as_deref(),
+    priority: spec.priority.map(turn::priority_of),
+    commit: &spec.commit,
   }
 }
 

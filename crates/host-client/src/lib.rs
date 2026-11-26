@@ -290,11 +290,22 @@ impl<'a> Client<'a> {
 /// slot that its checkout used last. The hash is FNV-1a, stable across builds and platforms, unlike the hasher of the
 /// standard library. bt and `brd-host run` name the same affinity for one checkout
 pub fn affinity(checkout: &Path) -> String {
-  let hash = checkout
-    .to_string_lossy()
+  format!("checkout-{}", fnv_hex(&checkout.to_string_lossy()))
+}
+
+/// The group of the runs of a session (`RunSpec::group`): `session-<12 hex digits>` of the process of the session and
+/// its start, such as the coding agent that holds a lease of Branch Deck, so all its agents share one group of the heavy
+/// queue of a host and their runs take one turn with the runs of each other group. FNV-1a, as [`affinity`]
+pub fn session_group(pid: u32, started: u64) -> String {
+  format!("session-{}", fnv_hex(&format!("{pid}:{started}")))
+}
+
+/// The FNV-1a hash of `text` in 12 hex digits, stable across builds and platforms
+fn fnv_hex(text: &str) -> String {
+  let hash = text
     .bytes()
     .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
-  format!("checkout-{:012x}", hash & 0xffff_ffff_ffff)
+  format!("{:012x}", hash & 0xffff_ffff_ffff)
 }
 
 /// A value quoted for a POSIX shell

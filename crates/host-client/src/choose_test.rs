@@ -262,6 +262,7 @@ fn request_of<'a>(checkout: &'a std::path::Path, command: &'a [String]) -> RunRe
     fetch: &[],
     measure_as: None,
     group: None,
+    priority: None,
   }
 }
 
@@ -349,6 +350,7 @@ async fn the_estimate_of_a_run_of_a_group_names_its_group() {
   let command = command();
   let request = RunRequest {
     group: Some("typing-session"),
+    priority: None,
     ..request_of(hosts.setup.repo.path(), &command)
   };
   let (ask, _) = client.ask_of(&request, RunOptions::default()).expect("the ask");

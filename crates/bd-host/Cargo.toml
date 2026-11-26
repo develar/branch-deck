@@ -28,6 +28,8 @@ pool-disk = { path = "../pool-disk" }
 git-executor = { path = "../git-executor" }
 # the renames and removals of the skill files
 sync-utils = { path = "../sync-utils" }
+# the session that holds the lease of the checkout: the default group of a run (`lease::live_holder_of`)
+lease-pool = { path = "../lease-pool" }
 clap = { version = "4.6", features = ["derive", "env"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -41,8 +43,6 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 # a repository of a process test
 test-utils = { path = "../test-utils" }
-# a lease of the pool whose return cancels its runs through this binary (`cli.rs`)
-lease-pool = { path = "../lease-pool" }
 git-ops = { path = "../git-ops" }
 
 [build-dependencies]

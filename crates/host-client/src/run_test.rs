@@ -174,6 +174,7 @@ async fn run_by(client: &Client<'_>, setup: &Setup, fetch: &[String], options: R
     fetch,
     measure_as: None,
     group: None,
+    priority: None,
   };
   client.run(ALIAS, &request, options).await
 }
@@ -195,6 +196,7 @@ fn kind(request: &Request) -> &'static str {
     Request::Stats { .. } => "stats",
     Request::Upgrade { .. } => "upgrade",
     Request::Estimate(_) => "estimate",
+    Request::Prioritize { .. } => "prioritize",
   }
 }
 
@@ -1139,6 +1141,7 @@ async fn a_refusal_of_the_agent_exits_by_how_far_the_run_came() {
     fetch: &[],
     measure_as: None,
     group: None,
+    priority: None,
   };
   let no_host = Client::new(crate::config::Config::new(dir.path().join("config")), crate::testkit::build(), &processes, &|_| {}, &calm)
     .run(ALIAS, &request, RunOptions::default())
@@ -1295,9 +1298,13 @@ fn agent_of(features: &[&str]) -> Setup {
   fetching_agent_with(repo, hello, Vec::new())
 }
 
-/// A run with the command of the tests in the checkout of `setup` of the class `measure_as` and the group `group`, and
-/// the lines it said
-async fn run_named(setup: &Setup, measure_as: Option<&str>, group: Option<&str>, options: RunOptions) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
+/// A run with the command of the tests in the checkout of `setup` of the class `measure_as`, the group `group` and the
+/// priority `priority`, and the lines it said
+async fn run_named(
+  setup: &Setup,
+  (measure_as, group, priority): (Option<&str>, Option<&str>, Option<Priority>),
+  options: RunOptions,
+) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
   let said = Said::default();
   let say = |line: &str| said.push(line);
   let processes = FakeProcesses::default();
@@ -1310,6 +1317,7 @@ async fn run_named(setup: &Setup, measure_as: Option<&str>, group: Option<&str>,
     fetch: &[],
     measure_as,
     group,
+    priority,
   };
   let ran = setup.client(&processes, &say, &calm).run(ALIAS, &request, options).await;
   (ran, said.lines())
@@ -1317,16 +1325,43 @@ async fn run_named(setup: &Setup, measure_as: Option<&str>, group: Option<&str>,
 
 /// A run of `--measure-as` with the command of the tests in the checkout of `setup`, and the lines it said
 async fn run_of_class(setup: &Setup, class: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
-  run_named(setup, Some(class), None, RunOptions::default()).await
+  run_named(setup, (Some(class), None, None), RunOptions::default()).await
 }
 
 /// A run of `--group` with the command of the tests in the checkout of `setup`, heavy by `--heavy`, and the lines it said
 async fn run_of_group(setup: &Setup, group: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
-  let heavy = RunOptions {
+  run_named(setup, (None, Some(group), None), heavy()).await
+}
+
+/// The options of a run of `--heavy`
+fn heavy() -> RunOptions {
+  RunOptions {
     heavy: true,
     ..RunOptions::default()
-  };
-  run_named(setup, None, Some(group), heavy).await
+  }
+}
+
+/// `--priority` starts the run with its priority; an agent without the feature `priority` would queue the run first
+/// come first, so the client refuses a named priority before the start with `bad_config` (exit 75) and names the
+/// upgrade
+#[tokio::test(start_paused = true)]
+async fn a_run_of_a_priority_names_it_in_the_start_and_an_agent_before_priorities_refuses_it() {
+  let setup = agent_of(&["heavy", "exclusive", "measure_as", "group", "priority"]);
+  run_named(&setup, (None, None, Some(Priority::High)), heavy()).await.0.unwrap();
+  assert_eq!(start_spec(&setup).priority, Some(Priority::High));
+
+  let setup = agent_of(&["heavy", "exclusive", "measure_as", "group"]);
+  let failure = run_named(&setup, (None, None, Some(Priority::High)), heavy()).await.0.unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::BadConfig, Exit::NotRun));
+  assert_eq!(
+    failure.refusal.message,
+    format!("the agent on {ALIAS} predates the priorities of the heavy queue, so it would queue this run first come first: `brd-host upgrade {ALIAS}` sends this build")
+  );
+  assert!(!kinds(&setup).contains(&"start"), "{:?}", kinds(&setup));
+  let processes = FakeProcesses::default();
+  let refused = setup.client(&processes, &|_: &str| {}, &calm).prioritize(ALIAS, "1-2", Priority::Low).await.unwrap_err();
+  assert_eq!(refused.code, Code::AgentFailed, "prioritize needs the feature: {}", refused.message);
+  assert!(!kinds(&setup).contains(&"prioritize"), "{:?}", kinds(&setup));
 }
 
 /// `--group` starts the run with its group; an agent without the feature `group` queues every heavy run first come

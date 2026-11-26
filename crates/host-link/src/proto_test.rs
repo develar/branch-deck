@@ -1,6 +1,6 @@
 use crate::proto::{
-  DEFAULT_PORT, Estimate, EstimateAsk, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSlot, RunSpec, SCHEMA_VERSION, Stream,
-  VersionLine, feature, features, is_run_id,
+  DEFAULT_PORT, Estimate, EstimateAsk, FileKind, PackTarget, Phase, Piece, Priority, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSlot, RunSpec, SCHEMA_VERSION,
+  Stream, VersionLine, feature, features, is_run_id,
 };
 use crate::refusal::Code;
 use pretty_assertions::assert_eq;
@@ -19,7 +19,8 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
         feature::STATS,
         feature::ESTIMATE,
         feature::MEASURE_AS,
-        feature::GROUP
+        feature::GROUP,
+        feature::PRIORITY
       ]
     );
   } else {
@@ -33,7 +34,8 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
         feature::STATS,
         feature::ESTIMATE,
         feature::MEASURE_AS,
-        feature::GROUP
+        feature::GROUP,
+        feature::PRIORITY
       ]
     );
   }
@@ -363,9 +365,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate","measure_as","group"]"#
+    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate","measure_as","group","priority"]"#
   } else {
-    r#"["disk","trim","heavy","exclusive","stats","estimate","measure_as","group"]"#
+    r#"["disk","trim","heavy","exclusive","stats","estimate","measure_as","group","priority"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
@@ -464,6 +466,7 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
     heavy: true,
     measure_as: None,
     group: None,
+    priority: None,
   });
   let json = serde_json::to_string(&ask).expect("json");
   assert_eq!(
@@ -576,4 +579,39 @@ fn the_group_of_a_run_is_an_optional_field_of_a_start_and_an_estimate() {
   let json = serde_json::to_string(&ask).expect("json");
   assert!(json.ends_with(r#""heavy":true,"group":"typing-session"}"#), "{json}");
   assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
+}
+
+/// The priority of a run inside its group (`--priority`) is an optional field of a start and of an estimate, behind the
+/// feature `priority`, and `prioritize` is a request of its own: it changes the priority of a waiting run
+#[test]
+fn the_priority_of_a_run_is_an_optional_field_of_a_start_and_an_estimate_and_prioritize_a_request() {
+  assert!(features().contains(&feature::PRIORITY));
+  let urgent = RunSpec {
+    run: "1-2".to_owned(),
+    heavy: true,
+    priority: Some(Priority::High),
+    ..RunSpec::default()
+  };
+  let json = serde_json::to_string(&Request::Start(urgent.clone())).expect("json");
+  assert!(json.ends_with(r#","heavy":true,"priority":"high"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(urgent));
+  let plain = serde_json::to_string(&Request::Start(RunSpec::default())).expect("json");
+  assert!(!plain.contains("priority"), "{plain}");
+
+  let ask = Request::Estimate(EstimateAsk {
+    heavy: true,
+    priority: Some(Priority::Low),
+    ..EstimateAsk::default()
+  });
+  let json = serde_json::to_string(&ask).expect("json");
+  assert!(json.ends_with(r#""heavy":true,"priority":"low"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
+
+  let prioritize = Request::Prioritize {
+    run: "1-2".to_owned(),
+    priority: Priority::Normal,
+  };
+  let json = serde_json::to_string(&prioritize).expect("json");
+  assert_eq!(json, r#"{"request":"prioritize","run":"1-2","priority":"normal"}"#);
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), prioritize);
 }

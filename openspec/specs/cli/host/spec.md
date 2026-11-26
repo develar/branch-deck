@@ -709,19 +709,30 @@ without the feature `measure_as` would measure the run by its command, so the cl
 
 ### Requirement: run: --group names the group of a run in the heavy queue
 
-`--group <group>`, else `BRD_HOST_GROUP` when it is not empty, MUST name the group of a run in the heavy queue, by
-default its affinity, and its `Start` and `Estimate` MUST carry it as `group`. An agent without the feature `group`
-MUST get no `group`: it queues the run first come first, so the client does not refuse, and a heavy run says so.
+`--group <group>`, else `BRD_HOST_GROUP` when it is not empty, else the live session that holds the lease of the
+checkout, MUST name the group of a run in the heavy queue, else its affinity, and its `Start` and `Estimate` MUST carry
+it as `group`. An agent without the feature `group` MUST get no `group`: it queues the run first come first, so the
+client does not refuse, and a heavy run says so.
 
 #### Scenario: A run of a group
 - **WHEN** a run starts with `--group <group>`, or with `BRD_HOST_GROUP=<group>` set once by an orchestrator for all its
   agents
 - **THEN** its `Start` and its `Estimate` have `"group": "<group>"`, the flag over the variable
-- **AND** a run without either, or with an empty variable, has no `group`, and its group is its affinity
+- **AND** a run without either, or with an empty variable, takes the default group of its checkout (below)
   [@test] crates/bd-host/src/cli_test.rs (`group_names_the_group_of_the_run_by_the_flag_or_the_environment`)
   [@test] crates/host-client/src/run_test.rs (`a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first`)
   [@test] crates/host-client/src/choose_test.rs (`the_estimate_of_a_run_of_a_group_names_its_group`)
   [@test] crates/host-link/src/proto_test.rs (`the_group_of_a_run_is_an_optional_field_of_a_start_and_an_estimate`)
+
+#### Scenario: The default group of a run in a lease
+- **WHEN** a run without `--group` and `BRD_HOST_GROUP` starts in a slot of `brd lease` whose holder lives (its
+  `holder_pid` and `holder_started`, the coding agent that took the lease, whose subagents take their leases so too)
+- **THEN** its group is `session-<12 hex>` of that holder, so the runs of all the leases of one session take one turn
+  between the turns of other groups
+- **AND** a checkout that is no slot, a slot without a lease or whose holder is gone has no `group`, and its group is
+  its affinity; a pool whose state cannot be read says so in one line and counts as none
+  [@test] crates/bd-host/src/cli_test.rs (`a_run_takes_its_group_from_the_lease_and_names_its_priority`)
+  [@test] crates/lease-pool/src/lease_test.rs (`the_live_holder_of_a_slot_is_the_session_of_its_lease_while_it_lives`)
 
 #### Scenario: An agent without the feature group
 - **WHEN** a run of a group starts on an agent whose hello has no feature `group`
@@ -740,6 +751,27 @@ MUST get no `group`: it queues the run first come first, so the client does not 
   [@test] crates/host-client/src/run_test.rs (`a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first`)
   [@test] crates/host-link/src/heavy_test.rs (`a_group_is_named_by_the_rule_of_a_host_ref_name`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`the_heavy_queue_takes_turns_between_the_groups_of_its_runs`)
+
+### Requirement: run: --priority names the priority of a heavy run inside its group
+
+`--priority high|normal|low` MUST name the priority of a run inside its group of the heavy queue, which its `Start`
+and `Estimate` MUST carry as `priority`; without it the run keeps the priority of the waiting run it supersedes, else
+normal. A named priority on an agent without the feature `priority` MUST refuse with `bad_config` before the start.
+
+#### Scenario: A run of a priority
+- **WHEN** a run starts with `--priority high`
+- **THEN** its `Start` and its `Estimate` have `"priority": "high"`, and a run without the flag has no `priority`
+- **AND** a level other than `high`, `normal` and `low` refuses with `usage`
+  [@test] crates/bd-host/src/cli_test.rs (`a_run_takes_its_group_from_the_lease_and_names_its_priority`)
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_priority_names_it_in_the_start_and_an_agent_before_priorities_refuses_it`)
+  [@test] crates/host-link/src/proto_test.rs (`the_priority_of_a_run_is_an_optional_field_of_a_start_and_an_estimate_and_prioritize_a_request`)
+
+#### Scenario: An agent without the feature priority
+- **WHEN** a run of `--priority` starts on an agent whose hello has no feature `priority`
+- **THEN** the client refuses with `bad_config` (exit 75) before the start: `the agent on <alias> predates the
+  priorities of the heavy queue, so it would queue this run first come first: `brd-host upgrade <alias>` sends this
+  build`
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_priority_names_it_in_the_start_and_an_agent_before_priorities_refuses_it`)
 
 ### Requirement: run: Ctrl+C before the start runs nothing on the host
 
@@ -1306,6 +1338,27 @@ SIGKILL after 120 s, or no command when it has not started. It MUST return when 
 #### Scenario: A cancel before the command started
 - **WHEN** `brd-host cancel <alias> <run>` runs before the command started
 - **THEN** no command starts
+
+### Requirement: follow, cancel, fetch, forget, runs: prioritize changes the priority of a waiting run
+
+`brd-host prioritize <host> <run> high|normal|low` MUST give a heavy run that waits in the queue of the host that
+priority inside its group and order the runs of its group again, as a join does, and say where it moved. A holder MUST
+change nothing, and a run that the turn does not name MUST refuse with `unknown_run`.
+
+#### Scenario: A waiting run
+- **WHEN** `brd-host prioritize studio <run> high` names a run that waits behind runs of its group
+- **THEN** it moves ahead of those of a lower priority, never ahead of the head or of a turn of another group, and the
+  command prints `run <run> waits with the priority high in its group: place <n> of the queue, was <m>, ahead of
+  <runs>; the runs of other groups keep their turns`; its later looks keep the order
+  [@test] crates/lease-pool/src/host_turn_test.rs (`prioritize_moves_a_queued_run_inside_its_group_and_leaves_a_holder_as_it_is`)
+  [@test] crates/host-agent/src/turn_test.rs (`the_lines_name_a_priority_and_prioritize_says_where_the_run_moved`)
+
+#### Scenario: A holder, an unknown run and an older agent
+- **WHEN** the run holds the turn, the turn does not name it, or the agent has no feature `priority`
+- **THEN** a holder prints `run <run> holds the heavy turn already: its priority orders nothing`, an unknown run
+  refuses with `unknown_run`, and an older agent refuses with `agent_failed` and the upgrade before the request
+  [@test] crates/host-agent/src/turn_test.rs (`the_lines_name_a_priority_and_prioritize_says_where_the_run_moved`)
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_priority_names_it_in_the_start_and_an_agent_before_priorities_refuses_it`)
 
 ### Requirement: follow, cancel, fetch, forget, runs: cancel-unfinished cancels the runs of a checkout without an end
 
@@ -2920,6 +2973,20 @@ per group. The turns MUST keep none of the short lane's state.
   `<path> has the schema <n> of a later build of brd-host, and this one reads 1: …` or `<path> does not parse (…): …`
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`, `the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that_does_not_parse_starts_anew`, `the_groups_of_the_first_build_of_the_groups_keep_their_turns_after_an_upgrade`, `a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept`)
 
+#### Scenario: A priority inside a group
+- **WHEN** a run of `--priority high` joins after runs of its group that wait with `normal`, or `brd-host prioritize`
+  changes the priority of a waiting run
+- **THEN** after its turn places it, the runs of its group and its class (short, exclusive or neither) are ordered by
+  priority over their own places, first come first within one priority, and the join says `by its priority, goes ahead
+  of <n> run(s) of its group: <runs>`
+- **AND** the head keeps its place, the runs of other groups keep their turns, a long run never takes the place of a
+  short one, no pass of the turns or of the short lane counts, and the run keeps its own join
+- **AND** the priority is in `groups.json`; `brd-host runs` says `, priority <level> in its group` of a waiting run whose
+  priority is not normal, and an estimate places a run by the same order
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_high_run_goes_ahead_of_the_normal_runs_of_its_group_never_of_another_group_nor_the_head`, `the_priority_never_moves_a_long_run_into_the_place_of_a_short_one`)
+  [@test] crates/lease-pool/src/host_estimate_test.rs (`an_estimate_places_a_run_by_its_priority_and_its_commit_as_the_queue_places_it`)
+  [@test] crates/host-agent/src/turn_test.rs (`the_lines_name_a_priority_and_prioritize_says_where_the_run_moved`)
+
 ### Requirement: serve: An exclusive run holds a quiet host alone
 
 An exclusive run MUST be admitted only without a holder, with no run that is not heavy in its command, and when every
@@ -3084,19 +3151,20 @@ in one line of its log; a run without a sample of the host adds its measure as b
 
 ### Requirement: serve: A later heavy run of the same checkout and command supersedes the waiting one
 
-A heavy run new to the queue MUST supersede each waiting run of its repository with the same affinity and the same
-command by what it runs (`host_link::heavy::run_key`: without `nice`, `timeout`, `time`, `nohup`, `exec` or `command`
-before it, with its environment): it takes the place of the first, and each ends with `superseded` before its lend.
-A holder of the turn MUST never be superseded. The later run MUST say whom it replaced and which other runs of its
-checkout wait.
+A heavy run new to the queue MUST supersede each waiting run of its repository and affinity with the same command by
+what it runs (`host_link::heavy::run_key`), or of another commit with the same key of its measures: it takes the
+place of the first, and each ends with `superseded` before its lend. A holder of the turn MUST never be superseded.
+The later run MUST say whom it replaced and which other runs of its checkout wait.
 
 #### Scenario: The same checkout and command
 - **WHEN** a heavy run waits for the turn, and a later heavy run of the same repository, affinity and command starts
 - **THEN** the later run takes the place of the waiting one in the queue, and its log says `replaces run <id>, which
-  waited <time> for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and
+  waited <time> for the heavy turn with the same checkout and command, or of another commit with the same measures: it
+  ends with `superseded` and runs nothing, and
   this run takes its place in the queue`
 - **AND** the waiting run ends at its next look with `superseded` (exit 75), in the phase `heavy` only, with the message
-  `run <id> was superseded by run <later id> of the same checkout and command before it started: nothing ran; do not
+  `run <id> was superseded by run <later id> of the same checkout and command, or of another commit with the same
+  measures, before it started: nothing ran; do not
   run it again, here or on the client; follow <later id>: `brd-host follow <host> <later id>``, which its client and
   `brd-host follow` say with the alias, and `brd-host runs` lists it as `finished, refused superseded`
   [@test] crates/host-agent/tests/serve/heavy.rs (`a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one`)
@@ -3104,8 +3172,18 @@ checkout wait.
   [@test] crates/host-agent/src/turn_test.rs (`a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits`)
   [@test] crates/host-link/src/heavy_test.rs (`the_key_of_a_run_drops_the_wrappers_and_keeps_the_environment`)
 
+#### Scenario: The gate of an amended head
+- **WHEN** a heavy run waits, and a later heavy run of the same repository and affinity starts on another commit with
+  the same key of its measures (the class of `--measure-as`, else of its command), whatever its command
+- **THEN** it supersedes the waiting run as a run of the same command does, and keeps its priority unless it names one
+- **AND** a later run of the same commit with another command of the class, such as an A/B of two `--base`, supersedes
+  nothing, and a waiting run that names no commit, of an older client, is superseded by the same command only
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_of_another_commit_supersedes_a_waiting_run_of_its_measures_and_keeps_its_priority`)
+  [@test] crates/lease-pool/src/host_estimate_test.rs (`an_estimate_places_a_run_by_its_priority_and_its_commit_as_the_queue_places_it`)
+
 #### Scenario: Another command or another checkout
-- **WHEN** a later heavy run starts with another command of the same checkout, or the same command of another checkout
+- **WHEN** a later heavy run starts with another command of the same checkout and commit, or the same command of
+  another checkout
 - **THEN** both wait, each in its place
 - **AND** a later run of the same checkout with another command says `run <id> of this checkout also waits for the heavy
   turn, <time>: <command>. Both run, one after the other; if this run replaces it, cancel it: `brd-host cancel <host>
@@ -3787,7 +3865,7 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
 | `slot_timeout` | 75 | The run got no host slot within an hour. |
 | `no_slots` | 75 | The host keeps no slot for the runs of the repository: `branchdeck.hostSlots` of its git config is 0, or the last `brd-host slots --local --shrink` kept 0, so a run would wait for a slot forever. The message names each and how to raise it. |
 | `heavy_timeout` | 75 | The heavy run got no heavy turn of the host within 2 hours: other heavy runs held it. Run it there again later, or through a set of hosts whose other members can take it; never as a plain command where the client runs. |
-| `superseded` | 75 | A later heavy run of the same checkout and command came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`. |
+| `superseded` | 75 | A later heavy run of the same checkout and command, or of another commit with the same measures, came while this one waited for the heavy turn: nothing ran. Never run it again, here or there: the message names the later run and its `brd-host follow`. |
 | `busy` | 75 | A member of a set that takes runs only at once (`idle_only`) had no room for the run now: nothing ran, and the client goes to the next member. |
 | `still_running` | 124 | The run goes on past `--max` of `wait` or `run --max`, or another brd-host of the checkout finishes it; nothing was cancelled. The next `brd-host wait <alias> <run>` waits again. |
 | `lease_failed` | 75 | The lend failed. The message has the error of the pool. |

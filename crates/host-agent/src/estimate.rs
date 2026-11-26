@@ -45,6 +45,9 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
       expected: expected_cores,
       passed_wall: lease_pool::host_cores::passed_wall(&dir, &path, &key).ok().flatten(),
       group,
+      priority: ask.priority.map(crate::turn::priority_of),
+      commit: &ask.commit,
+      measure_key: &key,
     };
     match Sight::of(&dir, cores, now, tuning::drain_bar()) {
       Ok(sight) => {

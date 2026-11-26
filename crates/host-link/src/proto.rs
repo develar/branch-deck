@@ -85,10 +85,13 @@ pub mod feature {
   /// `RunSpec::group`: the heavy queue takes turns between the groups that the clients name; an older agent ignores
   /// the field and queues first come first
   pub const GROUP: &str = "group";
+  /// `RunSpec::priority`, `EstimateAsk::priority`, `Request::Prioritize` and the supersede of a waiting run of another
+  /// commit with the same measures (`RunSpec::commit`): a priority orders the runs of one group of the heavy queue
+  pub const PRIORITY: &str = "priority";
 }
 
 /// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats`, `estimate`,
-/// `measure_as` and `group` everywhere, `upgrade` on macOS
+/// `measure_as`, `group` and `priority` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
   let mut features = vec![
     feature::DISK,
@@ -99,6 +102,7 @@ pub fn features() -> Vec<&'static str> {
     feature::ESTIMATE,
     feature::MEASURE_AS,
     feature::GROUP,
+    feature::PRIORITY,
   ];
   if cfg!(target_os = "macos") {
     features.insert(0, feature::UPGRADE);
@@ -185,6 +189,21 @@ pub enum Request {
   /// What a run of `EstimateAsk` would meet on the host now, a hint for the choice of a member of a set of hosts: read
   /// without a lock, and nothing changes. Reply: `Reply::Estimate`. Feature `feature::ESTIMATE`
   Estimate(EstimateAsk),
+  /// Gives a heavy run that waits in the queue of the host the priority `priority` inside its group, which orders the
+  /// runs of its group again (`lease_pool::host_turn::prioritize`); a holder changes nothing. Reply: `Reply::Done`, or
+  /// `Reply::Refused` with `unknown_run` for a run that the turn does not name. Feature `feature::PRIORITY`
+  Prioritize { run: String, priority: Priority },
+}
+
+/// The priority of a heavy run inside its group (`brd-host run --priority`, `brd-host prioritize`): it orders only the
+/// runs of its group in the heavy queue, never a run of another group
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Priority {
+  High,
+  #[default]
+  Normal,
+  Low,
 }
 
 /// The run that `Request::Estimate` asks about
@@ -209,6 +228,10 @@ pub struct EstimateAsk {
   /// An older agent ignores it and estimates the place of the end, where it queues the run
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub group: Option<String>,
+  /// The priority of the run inside its group, as `RunSpec::priority` (feature `feature::PRIORITY`; an older agent
+  /// ignores it)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub priority: Option<Priority>,
 }
 
 /// What the host tells of a run of `Request::Estimate`
@@ -321,9 +344,14 @@ pub struct RunSpec {
   pub measure_as: Option<String>,
   /// The group of the run in the heavy queue (`brd-host run --group`, `BRD_HOST_GROUP`): the queue takes turns between
   /// groups, first come first inside one; `None`: its group is its affinity. A name of `heavy::is_group_name` (feature
-  /// `feature::GROUP`; the client sends it to no older agent, which queues the run first come first)
+  /// `feature::GROUP`; the client sends it to no older agent, which queues the run first come first). `brd-host run`
+  /// sends the session that holds the lease of the checkout when the user names none
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub group: Option<String>,
+  /// The priority of a heavy run inside its group (`brd-host run --priority`); `None` keeps the priority of the run it
+  /// supersedes, else normal (feature `feature::PRIORITY`; the client refuses a named priority on an older agent)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub priority: Option<Priority>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

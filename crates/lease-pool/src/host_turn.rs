@@ -448,15 +448,6 @@ impl TurnEntry {
     let used = self.recent.as_ref()?.peak(now_ms)?.max(self.live.unwrap_or_default());
     (used.saturating_add(quiet(cores)) < Cores::whole(cores)).then_some(used)
   }
-
-  /// Whether the entry is of the checkout of `request` (`same_command`: and of its command), as both name them; an
-  /// entry of an older build names neither
-  fn is_of(&self, request: &TurnRequest<'_>, same_command: bool) -> bool {
-    !request.affinity.is_empty()
-      && self.repo == request.repo
-      && self.affinity.as_deref() == Some(request.affinity)
-      && (self.command_key.as_deref() == Some(request.command_key)) == same_command
-  }
 }
 
 impl Ticket {
@@ -578,6 +569,66 @@ pub struct TurnRequest<'a> {
   pub measure_as: Option<&'a str>,
   /// The group of the run in the heavy queue (`brd-host run --group`); `None`: its affinity ([`group_key`])
   pub group: Option<&'a str>,
+  /// Its priority inside its group (`brd-host run --priority`); `None`: the priority of the run of its group that it
+  /// supersedes, else normal
+  pub priority: Option<Priority>,
+  /// The commit that it runs (`RunSpec::commit`) and the key of its measures (`host_link::heavy::measure_key`), by
+  /// which it supersedes a waiting run of another commit ([`LaterRun::supersedes`]); empty: none
+  pub commit: &'a str,
+  pub measure_key: &'a str,
+}
+
+impl TurnRequest<'_> {
+  /// The run of the request as a later run that may supersede the runs of the queue
+  pub const fn later(&self) -> LaterRun<'_> {
+    LaterRun {
+      repo: self.repo,
+      affinity: self.affinity,
+      command_key: self.command_key,
+      commit: self.commit,
+      measure_key: self.measure_key,
+    }
+  }
+}
+
+/// A run new to the queue, of which the runs of the queue that it supersedes are ([`LaterRun::supersedes`]): the
+/// enqueue and an estimate of a start ask the same rule
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaterRun<'a> {
+  pub repo: &'a str,
+  /// Its checkout (`RunSpec::affinity`): an empty one supersedes nothing
+  pub affinity: &'a str,
+  pub command_key: &'a str,
+  pub commit: &'a str,
+  pub measure_key: &'a str,
+}
+
+impl LaterRun<'_> {
+  /// Whether `entry` is of the checkout of this run, as both name it; an entry of an older build names none
+  pub fn is_of_checkout(&self, entry: &TurnEntry) -> bool {
+    !self.affinity.is_empty() && entry.repo == self.repo && entry.affinity.as_deref() == Some(self.affinity)
+  }
+
+  /// Whether this run supersedes `entry`, which waits in the queue, its group and the rest in `groups`: of its
+  /// checkout, and of its command, or of another commit with the same key of its measures (the gate of an amended head,
+  /// also with `--measure-as` and another command); two runs of one commit with two commands of one class, an A/B of
+  /// two bases, both stay
+  pub fn supersedes(&self, entry: &TurnEntry, groups: &QueueGroups) -> bool {
+    if !self.is_of_checkout(entry) {
+      return false;
+    }
+    if entry.command_key.as_deref() == Some(self.command_key) {
+      return true;
+    }
+    let Some(mark) = groups.runs.get(&entry.ticket.run) else {
+      return false;
+    };
+    let other_commit = mark
+      .commit
+      .as_deref()
+      .is_some_and(|commit| !commit.is_empty() && !self.commit.is_empty() && commit != self.commit);
+    other_commit && !self.measure_key.is_empty() && mark.measure_key.as_deref() == Some(self.measure_key)
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -609,6 +660,8 @@ pub struct Joined {
   pub passed: Vec<(TurnEntry, u32)>,
   /// What a person should know of the files of the queue that its first ask read ([`QueueFiles::notes`])
   pub notes: Vec<String>,
+  /// The runs of its group that this run went ahead of by its priority ([`order_by_priority`])
+  pub prioritized: Vec<TurnEntry>,
 }
 
 impl Joined {
@@ -668,6 +721,17 @@ pub struct GroupMark {
   /// It took the turn: its passes count after it left the queue
   #[serde(default, skip_serializing_if = "is_false")]
   pub took: bool,
+  /// Its priority inside its group (`brd-host run --priority`, `brd-host prioritize`); `None`: normal. An optional field
+  /// of the schema: a build before the priorities reads the file and drops it at its next write
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub priority: Option<Priority>,
+  /// The commit that it runs and the key of its measures (`host_link::heavy::measure_key`): a later run of its
+  /// checkout of another commit with the same key supersedes it ([`LaterRun::supersedes`]); `None` from a run that
+  /// named none
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub commit: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub measure_key: Option<String>,
 }
 
 impl QueueGroups {
@@ -687,6 +751,11 @@ impl QueueGroups {
         passer.passed.push(to.to_owned());
       }
     }
+  }
+
+  /// The priority of the run `run` inside its group: normal for a run that the file does not name
+  pub fn priority(&self, run: &str) -> Priority {
+    self.runs.get(run).and_then(|mark| mark.priority).unwrap_or_default()
   }
 
   /// How often runs of the turns went ahead of each run, by the runs that went ahead of it and wait in `queue` or took
@@ -791,6 +860,33 @@ pub fn group_key<'a>(group: Option<&'a str>, affinity: &'a str, run: &'a str) ->
     .filter(|group| !group.is_empty())
     .or_else(|| Some(affinity).filter(|affinity| !affinity.is_empty()))
     .unwrap_or(run)
+}
+
+/// The priority of a heavy run inside its group (`brd-host run --priority`, `brd-host prioritize`): it orders only the
+/// runs of its group, never a run of another group ([`order_by_priority`])
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Priority {
+  High,
+  #[default]
+  Normal,
+  Low,
+}
+
+impl Priority {
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::High => "high",
+      Self::Normal => "normal",
+      Self::Low => "low",
+    }
+  }
+}
+
+impl std::fmt::Display for Priority {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(self.as_str())
+  }
 }
 
 /// The class of a run of the queue and how often short runs passed it
@@ -1294,24 +1390,33 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
 /// them (`joined.short`, `joined.passed`); a run of the turns names each run it goes ahead of in `groups.json` and keeps
 /// its own join; `joined.beside` gets the runs of its checkout with another command. Answers the place
 pub fn join_queue(table: &mut HeavyTurn, files: &mut QueueFiles, (cores, drain_bar): (u32, Duration), now: u64, request: &TurnRequest<'_>, joined: &mut Joined) -> usize {
-  let superseded_at = table.queue.iter().position(|entry| entry.is_of(request, true));
-  let (replaced, kept): (Vec<TurnEntry>, Vec<TurnEntry>) = std::mem::take(&mut table.queue).into_iter().partition(|entry| entry.is_of(request, true));
+  let later = request.later();
+  let QueueFiles { marks, groups, drain, .. } = files;
+  let superseded_at = table.queue.iter().position(|entry| later.supersedes(entry, groups));
+  let (replaced, kept): (Vec<TurnEntry>, Vec<TurnEntry>) = std::mem::take(&mut table.queue).into_iter().partition(|entry| later.supersedes(entry, groups));
   table.queue = kept;
   table.superseded.extend(replaced.iter().map(|entry| SupersededEntry {
     ticket: entry.ticket.clone(),
     by: request.run.to_owned(),
   }));
-  joined.beside = table.queue.iter().filter(|entry| entry.is_of(request, false)).cloned().collect();
-  let QueueFiles { marks, groups, drain, .. } = files;
+  joined.beside = table.queue.iter().filter(|entry| later.is_of_checkout(entry)).cloned().collect();
   let group = group_key(request.group, request.affinity, request.run).to_owned();
   // a run that supersedes takes the place of the first run it replaces, of the same group: the runs they went ahead
   // of, and the passes of the turns that went ahead of them, which now name it, so a run that an agent starts again is
   // not passed 8 more times; of another group it takes its own turn, and those passes end with them, as they left
   let takes_place = superseded_at.is_some() && replaced.first().is_some_and(|first| groups.group_of(first) == group);
-  let mut mark = GroupMark { group, ..GroupMark::default() };
+  let mut mark = GroupMark {
+    group,
+    priority: request.priority,
+    commit: Some(request.commit).filter(|commit| !commit.is_empty()).map(str::to_owned),
+    measure_key: Some(request.measure_key).filter(|key| !key.is_empty()).map(str::to_owned),
+    ..GroupMark::default()
+  };
   for entry in &replaced {
     let replaced_mark = groups.runs.remove(&entry.ticket.run);
     if takes_place {
+      // the run that takes the place keeps the priority of the run it supersedes, unless it names its own
+      mark.priority = mark.priority.or_else(|| replaced_mark.as_ref().and_then(|replaced_mark| replaced_mark.priority));
       mark.passed.extend(replaced_mark.into_iter().flat_map(|replaced_mark| replaced_mark.passed));
       groups.pass_on(&entry.ticket.run, request.run);
     }
@@ -1375,7 +1480,69 @@ pub fn join_queue(table: &mut HeavyTurn, files: &mut QueueFiles, (cores, drain_b
     group: request.group.map(str::to_owned),
   };
   table.queue.insert(position, entry);
+  let (position, prioritized) = order_by_priority(&mut table.queue, groups, marks, position);
+  joined.prioritized = prioritized;
   position
+}
+
+/// Orders the runs of the group and the class (short, exclusive or neither) of the run at `at` of `queue` by their
+/// priority in `groups` over their own places, first come first within one priority. The head keeps its place, as the
+/// turns never pass it, and so do the runs of the other groups and classes: a priority changes no turn of a group and
+/// moves no long run into the place of a short one. A run that goes ahead keeps its join. Answers the new place of the
+/// run of `at` and the runs of its group that it went ahead of
+pub fn order_by_priority(queue: &mut [TurnEntry], groups: &QueueGroups, marks: &QueueMarks, at: usize) -> (usize, Vec<TurnEntry>) {
+  let class = |entry: &TurnEntry| (groups.group_of(entry).to_owned(), marks.of(&entry.ticket.run).short_ms.is_some(), entry.exclusive);
+  let of = class(&queue[at]);
+  let places: Vec<usize> = (1..queue.len()).filter(|&place| class(&queue[place]) == of).collect();
+  let old: Vec<TurnEntry> = places.iter().map(|&place| queue[place].clone()).collect();
+  let mut sorted = old.clone();
+  sorted.sort_by_key(|entry| groups.priority(&entry.ticket.run));
+  let run = &queue[at].ticket.run;
+  let from = old.iter().position(|entry| entry.ticket.run == *run);
+  let to = sorted.iter().position(|entry| entry.ticket.run == *run);
+  let answer = match (from, to) {
+    (Some(from), Some(to)) => (places[to], old[to.min(from)..from].to_vec()),
+    _ => (at, Vec::new()),
+  };
+  for (&place, entry) in places.iter().zip(sorted) {
+    queue[place] = entry;
+  }
+  answer
+}
+
+/// What a change of the priority of a run did ([`prioritize`])
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prioritized {
+  /// The run waits in the queue: it moved from one place to another, or stayed, ahead of these runs of its group
+  Queued { from: usize, to: usize, ahead_of: Vec<TurnEntry> },
+  /// The run holds cores of the turn: its priority no longer orders anything
+  Holds,
+  /// No run of the turn has the id
+  Unknown,
+}
+
+/// Gives the run `run` of the queue the priority `priority`, under the lock of the table: the runs of its group and its
+/// class are ordered again ([`order_by_priority`]); a holder and a run that the turn does not name change nothing
+pub fn prioritize(params: &TurnParams<'_>, run: &str, priority: Priority) -> Result<Prioritized> {
+  params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
+    let table = table.of_this_schema(params.dir)?;
+    table.prune();
+    if table.holders.iter().any(|holder| holder.ticket.run == run) {
+      return Ok(Prioritized::Holds);
+    }
+    let Some(from) = table.queue.iter().position(|entry| entry.ticket.run == run) else {
+      return Ok(Prioritized::Unknown);
+    };
+    let (mut groups, _) = read_groups(params.dir);
+    let before = groups.clone();
+    let group = groups.group_of(&table.queue[from]).to_owned();
+    groups.runs.entry(run.to_owned()).or_insert_with(|| GroupMark { group, ..GroupMark::default() }).priority = Some(priority);
+    let (to, ahead_of) = order_by_priority(&mut table.queue, &groups, &read_marks(params.dir), from);
+    if groups != before {
+      write_groups(params.dir, &groups)?;
+    }
+    Ok(Prioritized::Queued { from, to, ahead_of })
+  })
 }
 
 /// Notes in `groups.json` of `dir` that the run `run` of the queue took the turn, under the lock of the table and before

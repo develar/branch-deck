@@ -22,6 +22,9 @@ fn request<'a>(run: &'a str, command: &'a [String], tenths: Option<u32>) -> Turn
     passed_wall: None,
     measure_as: None,
     group: None,
+    priority: None,
+    commit: "",
+    measure_key: "",
   }
 }
 

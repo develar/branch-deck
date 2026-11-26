@@ -23,7 +23,7 @@ use host_client::wait::{DEFAULT_MAX, WaitRequest};
 use host_client::{Build, Client, OutputSink, affinity, request_exit};
 use host_link::digest::sha256_file;
 use host_link::identity::Fingerprint;
-use host_link::proto::{DEFAULT_PORT, RepositorySlots, RunInfo, Stream};
+use host_link::proto::{DEFAULT_PORT, Priority, RepositorySlots, RunInfo, Stream};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use serde::Serialize;
 use std::ffi::OsString;
@@ -80,6 +80,14 @@ enum Command {
   },
   /// Asks the host to interrupt a run, and returns when the host has the request. `follow` shows its end
   Cancel { alias: String, run: String },
+  /// Gives a heavy run that waits in the queue of the host a priority inside its group: it moves ahead of or behind the
+  /// runs of its group, never ahead of a turn of another group
+  Prioritize {
+    alias: String,
+    run: String,
+    #[arg(value_enum)]
+    priority: PriorityArg,
+  },
   /// Cancels each run of this checkout whose end it has not finished, on the host that its record names: the end of a
   /// lease of Branch Deck runs it for the runs that the lease leaves. The hosts go in parallel, each for at most
   /// `--max`. The record of a cancelled run goes. Exits 0 when no such run stays, else 255
@@ -237,11 +245,16 @@ struct RunArgs {
   /// every time. One class per kind of work, of letters, digits, `.`, `_` and `-`
   #[arg(long, value_name = "CLASS")]
   measure_as: Option<String>,
-  /// The group of the run in the heavy queue, which takes turns between groups: an orchestrator sets one for the runs of
-  /// all its agents, whatever their checkouts, so they wait as one and the runs of others go between them. Default: the
-  /// checkout of the run (its affinity). Of letters, digits, `.`, `_` and `-`
+  /// The group of the run in the heavy queue, which takes turns between groups: the runs of all the agents of one
+  /// session wait as one, and the runs of others go between them. Default: the session that holds the lease of Branch
+  /// Deck of this checkout while it lives, else the checkout (its affinity). Never one per agent or per run: each group
+  /// takes its own turns. Of letters, digits, `.`, `_` and `-`
   #[arg(long, value_name = "GROUP", env = "BRD_HOST_GROUP")]
   group: Option<String>,
+  /// The priority of the run inside its group (default: the priority of the waiting run of this checkout that it
+  /// supersedes, else normal): it orders only the runs of its group, never ahead of a turn of another group
+  #[arg(long, value_enum)]
+  priority: Option<PriorityArg>,
   /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
@@ -267,9 +280,47 @@ struct RunArgs {
 
 impl RunArgs {
   /// The group of the run in the heavy queue by `--group`, else by `BRD_HOST_GROUP`; an empty one names none, so the
-  /// group is the affinity
+  /// group is the default of the checkout ([`run_group`])
   fn group(&self) -> Option<&str> {
     self.group.as_deref().filter(|group| !group.is_empty())
+  }
+}
+
+/// The group of a run of `checkout` in the heavy queue: `named` (`--group`, `BRD_HOST_GROUP`), else the session that
+/// holds the lease of the checkout while it lives (`host_client::session_group`), so all the agents of one session
+/// share one group whatever their leases; `None`: the affinity of the checkout. A state of the pool that cannot be read
+/// says so through `say` and counts as none
+fn run_group(named: Option<&str>, checkout: &Path, say: &dyn Fn(&str)) -> Option<String> {
+  if let Some(group) = named {
+    return Some(group.to_owned());
+  }
+  match lease_pool::lease::live_holder_of(checkout) {
+    Ok(holder) => holder.map(|(pid, started)| host_client::session_group(pid, started)),
+    Err(error) => {
+      say(&format!(
+        "brd-host: cannot read the lease of {} for the group of the run, so its group is the checkout: {error:#}",
+        checkout.display()
+      ));
+      None
+    }
+  }
+}
+
+/// A priority of the command line (`--priority`, `brd-host prioritize`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum PriorityArg {
+  High,
+  Normal,
+  Low,
+}
+
+impl PriorityArg {
+  const fn priority(self) -> Priority {
+    match self {
+      Self::High => Priority::High,
+      Self::Normal => Priority::Normal,
+      Self::Low => Priority::Low,
+    }
   }
 }
 
@@ -529,6 +580,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
   };
   install_interrupt("Ctrl+C ends this process, and the run goes on on the host");
   let affinity = args.affinity.clone().unwrap_or_else(|| affinity(&checkout));
+  let group = run_group(args.group(), &checkout, &say);
   let request = RunRequest {
     checkout: &checkout,
     repo: args.repo.as_deref(),
@@ -536,7 +588,8 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     command: &args.command,
     fetch: &args.fetch,
     measure_as: args.measure_as.as_deref(),
-    group: args.group(),
+    group: group.as_deref(),
+    priority: args.priority.map(PriorityArg::priority),
   };
   // a name of a set goes to the member that its estimates rank first, and the report names that member
   let ran = match client.config().set_of(&args.alias) {
@@ -670,6 +723,12 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
       let client = client(&output, &say)?;
       let alias = client.host_of_run(&alias, &run, working_checkout().as_deref())?;
       out.line(&block_on(client.cancel(&alias, &run))??);
+      Ok(0)
+    }
+    Command::Prioritize { alias, run, priority } => {
+      let client = client(&output, &say)?;
+      let alias = client.host_of_run(&alias, &run, working_checkout().as_deref())?;
+      out.line(&block_on(client.prioritize(&alias, &run, priority.priority()))??);
       Ok(0)
     }
     Command::CancelUnfinished { max, json } => {

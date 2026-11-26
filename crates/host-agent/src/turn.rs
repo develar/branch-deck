@@ -30,13 +30,13 @@ use crate::slots::{self, Look};
 use crate::tuning;
 use history_rewrite::repository_lock::RepositoryLocked;
 use host_link::heavy::{measure_key, run_key};
-use host_link::proto::RunSpec;
+use host_link::proto::{Reply, RunSpec};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_cores::Measure;
 use lease_pool::host_runs::{NEVER_MEASURED, holds_text, passed_text, passes_text, run_of_repo, span, span_since, turn_line};
 use lease_pool::host_turn::{
-  Bar, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest, UseNote, join, read_live,
-  take_waiting, watch,
+  Bar, GroupMark, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, Prioritized, Priority, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest,
+  UseNote, join, read_live, take_waiting, watch,
 };
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
@@ -104,6 +104,11 @@ pub(crate) struct TurnRun<'a> {
   pub(crate) measure_as: Option<&'a str>,
   /// Its group in the heavy queue (`RunSpec::group`); `None`: its affinity
   pub(crate) group: Option<&'a str>,
+  /// Its priority inside its group (`RunSpec::priority`); `None`: the priority of the run it supersedes, else normal
+  pub(crate) priority: Option<Priority>,
+  /// The commit that it runs (`RunSpec::commit`): a later run of its checkout with another commit and the same key of
+  /// its measures supersedes it
+  pub(crate) commit: &'a str,
 }
 
 impl TurnRun<'_> {
@@ -168,6 +173,9 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     passed_wall,
     measure_as: of.measure_as,
     group: of.group,
+    priority: of.priority,
+    commit: of.commit,
+    measure_key: &cores_key,
   };
   let params = TurnParams {
     lock_timeout,
@@ -309,14 +317,15 @@ pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop:
 /// How often a run that waits for a measurement looks at the turn: the end of the holder makes no event it would see
 const MEASUREMENT_LOOK: Duration = Duration::from_millis(500);
 
-/// The lines of what the first ask of a run did to the queue at `now_ms`: each run of the same checkout and command that
-/// it superseded, each run of the checkout that waits with another command, the runs that a short run went ahead of,
-/// and what a person should know of the files of the queue (`Joined::notes`: a `groups.json` of a later build or one
-/// that does not parse), which [`take`] writes into the log of the agent too
+/// The lines of what the first ask of a run did to the queue at `now_ms`: each run of its checkout that it superseded
+/// (of the same command, or of another commit with the same measures), each other run of the checkout that waits, the
+/// runs that a short run went ahead of, the runs of its group that it went ahead of by its priority, and what a person
+/// should know of the files of the queue (`Joined::notes`: a `groups.json` of a later build or one that does not
+/// parse), which [`take`] writes into the log of the agent too
 pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
   let replaced = joined.replaced.iter().map(|entry| {
     format!(
-      "replaces run {}, which waited {} for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and this run takes its place in the queue",
+      "replaces run {}, which waited {} for the heavy turn with the same checkout and command, or of another commit with the same measures: it ends with `superseded` and runs nothing, and this run takes its place in the queue",
       entry.ticket.run,
       span_since(entry.since_ms, now_ms)
     )
@@ -343,15 +352,60 @@ pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
       passed.join(", ")
     )
   });
+  let prioritized = (!joined.prioritized.is_empty()).then(|| {
+    let passed: Vec<String> = joined.prioritized.iter().map(run_of_repo).collect();
+    format!("by its priority, goes ahead of {} run(s) of its group: {}", passed.len(), passed.join(", "))
+  });
   let notes = joined.notes.iter().cloned();
-  replaced.chain(beside).chain(ahead).chain(notes).collect()
+  replaced.chain(beside).chain(ahead).chain(prioritized).chain(notes).collect()
+}
+
+/// The priority of the heavy turn of a priority of the protocol
+pub(crate) const fn priority_of(priority: host_link::proto::Priority) -> Priority {
+  match priority {
+    host_link::proto::Priority::High => Priority::High,
+    host_link::proto::Priority::Normal => Priority::Normal,
+    host_link::proto::Priority::Low => Priority::Low,
+  }
+}
+
+/// Gives the run `run`, which waits in the heavy queue of the host, the priority `priority` inside its group
+/// (`lease_pool::host_turn::prioritize`): `Reply::Done` says where it moved; a holder answers that its priority orders
+/// nothing, and a run that the turn does not name refuses with `unknown_run`
+pub(crate) fn prioritize(home: &Home, run: &str, priority: host_link::proto::Priority) -> Result<Reply, Refusal> {
+  let priority = priority_of(priority);
+  let prioritized = lease_pool::host_turn::prioritize(&params(&heavy_dir(home), 0), run, priority)
+    .map_err(|error| Refusal::new(Code::AgentError, format!("cannot change the priority in the heavy turn of the host: {error:#}")))?;
+  let message = match prioritized {
+    Prioritized::Queued { from, to, ahead_of } => {
+      let ahead = if ahead_of.is_empty() {
+        String::new()
+      } else {
+        let runs: Vec<String> = ahead_of.iter().map(run_of_repo).collect();
+        format!(", ahead of {}", runs.join(", "))
+      };
+      format!(
+        "run {run} waits with the priority {priority} in its group: place {} of the queue, was {}{ahead}; the runs of other groups keep their turns",
+        to + 1,
+        from + 1
+      )
+    }
+    Prioritized::Holds => format!("run {run} holds the heavy turn already: its priority orders nothing"),
+    Prioritized::Unknown => {
+      return Err(Refusal::new(
+        Code::UnknownRun,
+        format!("run {run} does not wait in the heavy queue of the host: `brd-host runs <host>` shows the queue"),
+      ));
+    }
+  };
+  Ok(Reply::Done { message })
 }
 
 /// The message of the refusal `superseded` of the run `run`, which the later run `by` superseded: what happened, that
 /// nothing ran, and the follow of the later run. The client puts its alias for `<host>`
 pub(crate) fn superseded_message(run: &str, by: &str) -> String {
   format!(
-    "run {run} was superseded by run {by} of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow {by}: `brd-host follow <host> {by}`"
+    "run {run} was superseded by run {by} of the same checkout and command, or of another commit with the same measures, before it started: nothing ran; do not run it again, here or on the client; follow {by}: `brd-host follow <host> {by}`"
   )
 }
 
@@ -458,8 +512,9 @@ pub(crate) fn leave(home: &Home, run: &str) -> Result<bool, Refusal> {
 /// The heavy turn of the host without the runs whose process is gone, as JSON for `Reply::Runs`, with its first holder
 /// as `holder` too, which a client of the build before reads, the drain of an exclusive head of the queue as
 /// `head_drain` (`lease_pool::host_turn::head_drain`), and the marks of the runs of the queue as `marks`: the short runs
-/// and how often short runs passed each (`lease_pool::host_turn::read_marks`). A table that cannot be read is none, and
-/// the log says why
+/// and how often short runs passed each (`lease_pool::host_turn::read_marks`), and the runs of the queue with a priority
+/// that is not normal as `groups` (`lease_pool::host_turn::read_groups`). A table that cannot be read is none, and the
+/// log says why
 pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
   let dir = heavy_dir(home);
   let table = read_live(&dir).map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the heavy turn of the host: {error:#}")))?;
@@ -467,6 +522,8 @@ pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
   let head_drain = lease_pool::host_turn::head_drain(&dir, &table.queue, now_ms(), tuning::drain_bar());
   let mut marks = lease_pool::host_turn::read_marks(&dir).runs;
   marks.retain(|run, _| table.queue.iter().any(|entry| entry.ticket.run == *run));
+  let mut groups = lease_pool::host_turn::read_groups(&dir).0.runs;
+  groups.retain(|run, mark| mark.priority.is_some_and(|priority| priority != Priority::Normal) && table.queue.iter().any(|entry| entry.ticket.run == *run));
   let mut value = serde_json::to_value(table).map_err(|error| Refusal::new(Code::AgentError, format!("cannot write the heavy turn of the host: {error}")))?;
   if let Some(object) = value.as_object_mut() {
     if let Some(holder) = holder {
@@ -477,6 +534,9 @@ pub(crate) fn live(home: &Home) -> Result<serde_json::Value, Refusal> {
     }
     if !marks.is_empty() {
       object.insert("marks".to_owned(), serde_json::to_value(marks).unwrap_or_default());
+    }
+    if !groups.is_empty() {
+      object.insert("groups".to_owned(), serde_json::to_value(groups).unwrap_or_default());
     }
   }
   Ok(value)
@@ -504,6 +564,10 @@ struct TurnView {
   /// build before the short runs
   #[serde(default)]
   marks: BTreeMap<String, RunMark>,
+  /// The runs of the queue with a priority that is not normal, by the id of the run; none from an agent of a build
+  /// before the priorities
+  #[serde(default)]
+  groups: BTreeMap<String, GroupMark>,
 }
 
 /// The lines of the heavy turn of a reply of the agent (`Reply::Runs`) now, for `brd-host runs` ([`lines_at`])
@@ -513,7 +577,8 @@ pub fn lines(table: &serde_json::Value) -> Result<Vec<String>, Refusal> {
 
 /// The lines of the heavy turn of a reply of the agent at `now_ms`: the cores held of the cores of the host, each holder
 /// with what it holds, why, for how long and the exclusive run it started past, each run that waits with what it waits
-/// for, a short run with its wall, a run that short runs passed with how often, an exclusive head with its drain, and
+/// for, a short run with its wall, a run that short runs passed with how often, a priority in its group that is not
+/// normal, an exclusive head with its drain, and
 /// each run that is not heavy with its live cores. A reply of the build
 /// before (schema 1) has one holder and no cores, and its lines say who holds the turn and who waits. A table of another
 /// shape refuses with `link`, because the agent sent it
@@ -575,8 +640,14 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
       1 => format!(", passed by 1 short run (at most {PASS_BUDGET})"),
       passes => format!(", passed by {passes} short runs (at most {PASS_BUDGET})"),
     };
+    let priority = table
+      .groups
+      .get(&waiting.ticket.run)
+      .and_then(|mark| mark.priority)
+      .filter(|&priority| priority != Priority::Normal)
+      .map_or_else(String::new, |priority| format!(", priority {priority} in its group"));
     lines.push(format!(
-      "  run {} waits {} for {need}{passed}: {}",
+      "  run {} waits {} for {need}{passed}{priority}: {}",
       run_of_repo(waiting),
       span_since(mark.joined_ms.unwrap_or(waiting.since_ms), now_ms),
       waiting.command

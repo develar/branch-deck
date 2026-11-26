@@ -174,3 +174,30 @@ fn cancel_unfinished_says_a_line_per_run_and_takes_a_max() {
   };
   assert_eq!((max, json), (Some(Duration::from_secs(5)), true));
 }
+
+/// Without `--group` and `BRD_HOST_GROUP` the group of a run is the session that holds the lease of the checkout
+/// (`host_client::session_group` of its holder, `lease_pool::lease::live_holder_of`), else none, the affinity of the
+/// checkout; `--priority` names the priority of a run, of three levels, and `brd-host prioritize` takes a run and one
+#[test]
+fn a_run_takes_its_group_from_the_lease_and_names_its_priority() {
+  let dir = tempfile::tempdir().unwrap();
+  let quiet = |_: &str| {};
+  assert_eq!(run_group(Some("typing"), dir.path(), &quiet).as_deref(), Some("typing"), "a named group wins");
+  assert_eq!(run_group(None, dir.path(), &quiet), None, "no lease: the affinity of the checkout");
+  assert_eq!(host_client::session_group(4242, 77), host_client::session_group(4242, 77), "one session, one group");
+  assert!(host_client::session_group(4242, 77).starts_with("session-"));
+  assert_ne!(host_client::session_group(4242, 77), host_client::session_group(4242, 78));
+
+  match Cli::try_parse_from(["brd-host", "run", "studio", "--priority", "high", "--", "make"]).map(|cli| cli.command) {
+    Ok(Command::Run(args)) => assert_eq!(args.priority, Some(PriorityArg::High)),
+    other => panic!("{other:?}"),
+  }
+  assert!(
+    Cli::try_parse_from(["brd-host", "run", "studio", "--priority", "urgent", "--", "make"]).is_err(),
+    "three levels"
+  );
+  match Cli::try_parse_from(["brd-host", "prioritize", "studio", "1-2", "low"]).map(|cli| cli.command) {
+    Ok(Command::Prioritize { alias, run, priority }) => assert_eq!((alias.as_str(), run.as_str(), priority), ("studio", "1-2", PriorityArg::Low)),
+    other => panic!("{other:?}"),
+  }
+}

@@ -476,6 +476,17 @@ impl Agent {
         }
         Err(refusal) => answer(channel, Err(refusal)).await,
       },
+      Request::Prioritize { run, priority } => {
+        // who changed the order of the queue, for a run that finds its place moved
+        log(&format!(
+          "{} gives the run {run} the priority {}",
+          channel.peer().short(),
+          crate::turn::priority_of(priority)
+        ));
+        let home = self.home.clone();
+        let result = with_heartbeats(channel, &mut || {}, blocking(move || crate::turn::prioritize(&home, &run, priority))).await?;
+        answer(channel, result).await
+      }
     }
   }
 

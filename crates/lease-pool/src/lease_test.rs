@@ -3,7 +3,7 @@ use crate::epoch::slot_epochs;
 use crate::lease::stop_servers;
 use crate::lease::{
   DirtyCheck, GetStep, IdleCheck, Lease, LeaseState, LeaseStore, PATH_LIMIT, POOL_FILE, Pool, RECLAIM_ROOM, Reclaimed, Slot, SlotMark, commit_takeover, cut_paths, glob_matches,
-  is_unfinished, repository_name, seed_candidates, stamp_reclaimed, stamp_returned,
+  is_unfinished, live_holder_of, repository_name, seed_candidates, stamp_reclaimed, stamp_returned,
 };
 use crate::shrink::{next_free, shrink_order};
 use crate::trim::trim_order;
@@ -701,4 +701,54 @@ fn the_prune_of_a_leased_slot_whose_lease_changed_prunes_nothing() {
   assert_eq!(pruned.cleaned[0].profiles.pruned, 1);
   assert!(!unit.exists());
   assert!(pool.read().unwrap().slots[0].lease.as_ref().and_then(|lease| lease.pruned_at).is_some());
+}
+
+/// The live holder of a slot is the session of its ready lease while that process lives; a main checkout, a slot of
+/// no lease, a lease without a holder and one whose holder is gone have none
+#[test]
+fn the_live_holder_of_a_slot_is_the_session_of_its_lease_while_it_lives() {
+  let dir = tempfile::tempdir().unwrap();
+  let root = std::fs::canonicalize(dir.path()).unwrap();
+  let common = root.join("main/.git");
+  let admin = common.join("worktrees/slot-1");
+  std::fs::create_dir_all(&admin).unwrap();
+  std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+  let worktree = root.join("pool/1/main");
+  std::fs::create_dir_all(&worktree).unwrap();
+  std::fs::write(worktree.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+  let pid = std::process::id();
+  let started = process_started(pid).unwrap();
+  let held_by = |holder: Option<(u32, u64)>| {
+    let lease = Lease {
+      holder_pid: holder.map(|(pid, _)| pid),
+      holder_started: holder.map(|(_, started)| started),
+      ..Lease::marker("lease", "agent", LeaseState::Ready)
+    };
+    Pool::new(&common)
+      .update(Duration::from_secs(5), |store| {
+        *store = LeaseStore {
+          slots: vec![Slot {
+            name: "slot-1".to_string(),
+            path: worktree.to_string_lossy().into_owned(),
+            dirty: false,
+            dirty_check: None,
+            returned: None,
+            returned_at: None,
+            lease: Some(lease.clone()),
+            reclaimed: None,
+          }],
+          ..LeaseStore::default()
+        };
+        Ok(())
+      })
+      .unwrap();
+    live_holder_of(&worktree).unwrap()
+  };
+  assert_eq!(held_by(Some((pid, started))), Some((pid, started)));
+  assert_eq!(held_by(None), None, "a lease without a holder");
+  assert_eq!(held_by(Some((pid, started + 1))), None, "a holder whose process is gone");
+  assert_eq!(live_holder_of(&root.join("main")).unwrap(), None, "a main checkout");
+  let other = root.join("elsewhere");
+  std::fs::create_dir_all(&other).unwrap();
+  assert_eq!(live_holder_of(&other).unwrap(), None, "a directory of no checkout");
 }

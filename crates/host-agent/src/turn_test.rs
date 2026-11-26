@@ -242,7 +242,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
   assert!(
     is_shape(
       &said[0],
-      "replaces run old, which waited <time> for the heavy turn with the same checkout and command: it ends with `superseded` and runs nothing, and this run takes its place in the queue"
+      "replaces run old, which waited <time> for the heavy turn with the same checkout and command, or of another commit with the same measures: it ends with `superseded` and runs nothing, and this run takes its place in the queue"
     ),
     "{said:?}"
   );
@@ -265,7 +265,7 @@ fn a_later_run_says_whom_it_replaces_and_who_else_of_its_checkout_waits() {
   );
   assert_eq!(
     superseded_message("old", "new"),
-    "run old was superseded by run new of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow new: `brd-host follow <host> new`"
+    "run old was superseded by run new of the same checkout and command, or of another commit with the same measures, before it started: nothing ran; do not run it again, here or on the client; follow new: `brd-host follow <host> new`"
   );
 }
 
@@ -288,6 +288,8 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
     fetch: &[],
     measure_as: None,
     group: None,
+    priority: None,
+    commit: "",
   };
   assert_eq!(take(&home, &exclusive, Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
   let shown = lines(&live(&home).unwrap()).unwrap();
@@ -405,6 +407,8 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
     fetch,
     measure_as: None,
     group: None,
+    priority: None,
+    commit: "",
   };
   let never = || false;
   let mut quiet = |_: &str| {};
@@ -537,4 +541,75 @@ fn the_lines_of_the_heavy_turn_mark_a_short_run_and_the_runs_it_passed() {
     "  run 1790-05 of branch-deck waits 30 min for 9.0 (measured): pnpm lint:backend",
     "an agent before the short runs"
   );
+}
+
+/// A priority that is not normal shows in the line of a waiting run; a run that went ahead of runs of its group by its
+/// priority says whom; `prioritize` answers where a waiting run moved, that a holder's priority orders nothing, and
+/// refuses a run that the turn does not name
+#[test]
+fn the_lines_name_a_priority_and_prioritize_says_where_the_run_moved() {
+  let now = 1_000_000_000;
+  let table = serde_json::json!({
+    "schema": 2,
+    "cores": 20,
+    "queue": [{ "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/branch-deck", "command": "pnpm e2e", "since_ms": now - 60_000, "expected": 9.0 }],
+    "groups": { "1790-05": { "group": "session-0123456789ab", "priority": "high" } },
+  });
+  assert_eq!(
+    lines_at(&table, now).unwrap()[1],
+    "  run 1790-05 of branch-deck waits 60 s for 9.0 (measured), priority high in its group: pnpm e2e"
+  );
+  let ahead = TurnEntry {
+    ticket: lease_pool::host_slots::Ticket {
+      run: "1790-04".to_owned(),
+      ..lease_pool::host_slots::Ticket::default()
+    },
+    repo: "/Users/u/projects/branch-deck".to_owned(),
+    ..TurnEntry::default()
+  };
+  let joined = Joined {
+    notes: Vec::new(),
+    answer: TurnAnswer::Taken,
+    replaced: Vec::new(),
+    beside: Vec::new(),
+    short: None,
+    passed: Vec::new(),
+    prioritized: vec![ahead],
+  };
+  assert_eq!(joined_lines(&joined, now), ["by its priority, goes ahead of 1 run(s) of its group: 1790-04 of branch-deck"]);
+
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let command = vec!["pnpm".to_owned(), "e2e".to_owned()];
+  // the runs of one group, each of a checkout of its own
+  let run = |run| TurnRun {
+    group: Some("session"),
+    affinity: run,
+    run,
+    cores: 20,
+    command: &command,
+    repo: "/r/branch-deck",
+    ..TurnRun::default()
+  };
+  let (never, at_once) = (|| false, || true);
+  let mut quiet = |_: &str| {};
+  assert_eq!(take(&home, &run("holder"), Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
+  for waiting in ["s1", "s2", "s3"] {
+    assert_eq!(take(&home, &run(waiting), Duration::from_mins(1), &at_once, &mut quiet).unwrap(), None, "it waits");
+  }
+  assert_eq!(
+    prioritize(&home, "s3", host_link::proto::Priority::High).unwrap(),
+    Reply::Done {
+      message:
+        "run s3 waits with the priority high in its group: place 2 of the queue, was 3, ahead of s2 of branch-deck in the group session; the runs of other groups keep their turns"
+          .to_owned()
+    }
+  );
+  assert_eq!(
+    prioritize(&home, "holder", host_link::proto::Priority::Low).unwrap(),
+    Reply::Done {
+      message: "run holder holds the heavy turn already: its priority orders nothing".to_owned()
+    }
+  );
+  assert_eq!(prioritize(&home, "nobody", host_link::proto::Priority::Low).unwrap_err().code, Code::UnknownRun);
 }

@@ -279,7 +279,7 @@ fn a_later_heavy_run_of_the_same_checkout_and_command_supersedes_the_waiting_one
     superseded.end,
     Reply::Refused {
       code: "superseded".to_owned(),
-      message: "run 12-2 was superseded by run 12-3 of the same checkout and command before it started: nothing ran; do not run it again, here or on the client; follow 12-3: `brd-host follow <host> 12-3`".to_owned(),
+      message: "run 12-2 was superseded by run 12-3 of the same checkout and command, or of another commit with the same measures, before it started: nothing ran; do not run it again, here or on the client; follow 12-3: `brd-host follow <host> 12-3`".to_owned(),
     },
     "{}",
     agent.dump("12-2")
