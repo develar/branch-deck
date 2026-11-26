@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.28.0](https://github.com/develar/branch-deck/compare/v1.27.0...v1.28.0) (2026-11-26)
+
+
+### Features
+
+* **brd-host:** runs --json and the history name the slot of a run and how its lend chose it, and stats the share of runs that got the slot of their affinity ([50e855e](https://github.com/develar/branch-deck/commit/50e855e99574c13d9b92d74adf31e709ecab1a35)), closes [#280](https://github.com/develar/branch-deck/issues/280)
+* **brd-host:** the heavy queue takes turns between the groups of its runs, `brd-host run --group` or `BRD_HOST_GROUP`, so the many agents of one session no longer keep the heavy runs of others waiting behind all their runs ([68569e7](https://github.com/develar/branch-deck/commit/68569e7e51af4e43f17bce5265af510ced942f2a)), closes [#279](https://github.com/develar/branch-deck/issues/279)
+* **lease:** each end of a lease cancels the runs of brd-host that the lease leaves, through `brd-host cancel-unfinished` ([29a7226](https://github.com/develar/branch-deck/commit/29a7226e83e23564fc84443a84b43434c1b63b68))
+* **push:** Push Rebased Branch pushes a branch only rebuilt on a newer baseline, and a Safe Push, a Dry Run, a restart and Create Pull Request push it first ([f8284f0](https://github.com/develar/branch-deck/commit/f8284f0251c64f8327bba42538fb00de11fd9df5))
+
+
+### Bug Fixes
+
+* **brd-host:** a cancel after its command exited leaves a run complete, and stats counts the first run of a checkout by its lend and a cancel as an outcome of its own ([933e168](https://github.com/develar/branch-deck/commit/933e168f7175ce7891992d54b40f18dd28a6562d))
+* **brd-host:** a host that ran the first build of the groups keeps its heavy turn after an upgrade, and a run that an agent starts again keeps its place among the groups ([e5fa48d](https://github.com/develar/branch-deck/commit/e5fa48da764522d47179a18e1d9eba187a4ef56e))
+* **brd-host:** a short run at the end of the heavy queue no longer stops the turns of the groups, and the estimate of a start places a run exactly where its join puts it ([0ddf002](https://github.com/develar/branch-deck/commit/0ddf0023412a0d8f5878d6b3a0a9a086be7cc4af))
+* **brd-host:** stats tells per command what the warm hits, the hits on a cleaned slot and the misses of the host slots took, why a run missed the slot of its checkout, and leaves out every cancelled command ([06791d0](https://github.com/develar/branch-deck/commit/06791d029d4c8bd9c848f78bf8e6af097eb57de3))
+* **conflict-fix:** a conflict is fixed by stacking the branch on what it needs before a commit leaves its group ([66113ce](https://github.com/develar/branch-deck/commit/66113ce39c13806bf881eb11741def7175e12e27))
+
 ## [1.27.0](https://github.com/develar/branch-deck/compare/v1.26.0...v1.27.0) (2026-11-26)
 
 
