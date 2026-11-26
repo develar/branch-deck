@@ -32,8 +32,8 @@ of this machine instead of the checkout of the session, and no pack travels.
 
 ```sh
 brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--heavy] [--exclusive]
-               [--measure-as <class>] [--nice <0-19>] [--repo <path>] [--affinity <key>] [--max <duration>]
-               [--report-fd <n>] -- <command> <args>
+               [--measure-as <class>] [--group <group>] [--nice <0-19>] [--repo <path>] [--affinity <key>]
+               [--max <duration>] [--report-fd <n>] -- <command> <args>
 ```
 
 An agent starts every run that can take minutes as `brd-host run <host> --max 9m -- <command>`, in the foreground, and
@@ -63,6 +63,9 @@ a run"). Never a `timeout` wrapper, a run in the background with a poll of a mar
   an ordinary check: it stops every other run of the host while it runs.
 - `--measure-as <class>` makes a heavy run whose measures are those of the class, not of its command (see "Heavy
   runs"). Pass it to every heavy command whose text changes from run to run.
+- `--group <group>`, or `BRD_HOST_GROUP` in the environment, names the group of the run in the heavy queue, by
+  default its checkout (see "Heavy runs"). An orchestrator that starts several agents sets one `BRD_HOST_GROUP` for
+  all of them; never a lock of its own around `brd-host run`.
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
@@ -89,7 +92,9 @@ command) takes the whole host and waits for a quiet one (at most a fifth of its 
 measured the whole host. A measure is the level of the heavy phases of the last runs (the cores at or above which 30 %
 of their work ran), not their mean, so a gate that builds on 16 cores for minutes and runs on one for hours expects
 16. From 10 min after its start every heavy run counts its live use of the last 5 min instead, never less than its
-peak of those 5 min, so the queue starts beside its quiet tail. The queue is first come first, and a head of the queue that waited 15 min starts on a free
+peak of those 5 min, so the queue starts beside its quiet tail. The queue takes turns between groups (`--group`, else
+the checkout of a run) and is first come first inside one, so the runs of an orchestrator's agents wait as one group
+and the runs of others go between them; a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with

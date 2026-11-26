@@ -56,6 +56,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   };
   assert_eq!(
     holds_text(Need::Recent { cores: Cores(12), measured: None }),
@@ -89,6 +90,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     light_runs: Vec::new(),
     ahead: vec![entry("1790-03", "~/projects/idea-1", "./community/tools/bt.cmd --lane fast", now_ms - 60_000, None)],
     head_drain: None,
+    group: None,
   };
   assert_eq!(
     turn_line("1792-81", &queue, None, Duration::from_mins(3), Duration::from_mins(117), now_ms),
@@ -104,6 +106,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     light_runs: Vec::new(),
     ahead: Vec::new(),
     head_drain: None,
+    group: None,
   };
   assert_eq!(
     turn_line("c", &whole, None, Duration::ZERO, Duration::from_hours(2), now_ms),
@@ -124,10 +127,27 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     light_runs: Vec::new(),
     ahead: vec![entry("a", "/r/one", "pnpm e2e", now_ms, None), entry("b", "/r/two", "pnpm lint", now_ms, None)],
     head_drain: None,
+    group: None,
   };
   assert_eq!(
     turn_line("c", &free, None, Duration::from_secs(5), Duration::from_secs(119), now_ms),
     "run c waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, 2 runs ahead: a of one (pnpm e2e), b of two (pnpm lint)"
+  );
+  let grouped = TurnQueue {
+    group: Some("typing".to_owned()),
+    ahead: vec![
+      TurnEntry {
+        group: Some("typing".to_owned()),
+        ..entry("a", "/r/one", "pnpm e2e", now_ms, None)
+      },
+      entry("b", "/r/two", "pnpm lint", now_ms, None),
+    ],
+    ..free.clone()
+  };
+  assert_eq!(
+    turn_line("c", &grouped, None, Duration::from_secs(5), Duration::from_secs(119), now_ms),
+    "run c in the group typing waits 5 s for the heavy turn of the host, all its 20 cores, as the command measured 20.0, 119 s left: no heavy run holds cores, 2 runs ahead: a of one in the group typing (pnpm e2e), b of two (pnpm lint)",
+    "a run of --group and a run ahead of it name their group"
   );
   let busy = TurnQueue {
     outside: Some(Cores(183)),
@@ -163,6 +183,7 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   };
   assert_eq!(
     drain_line("1792-81", &holder, Duration::from_mins(2), now_ms + 180_000, now_ms),
@@ -198,6 +219,7 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
     light_runs: vec![light("1790-03", "/Users/u/projects/accio", "scripts/bench ab-run")],
     ahead: Vec::new(),
     head_drain: None,
+    group: None,
   };
   assert_eq!(
     turn_line("ab", &queue, None, Duration::from_secs(5), Duration::from_secs(119), 1_000_000_000),
@@ -239,6 +261,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   };
   let passer = TurnEntry {
     passed: Some("1788-12".to_owned()),
@@ -254,6 +277,7 @@ fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it
     light_runs: Vec::new(),
     ahead: vec![entry("1788-12", "zsh ./measure-ab.sh", true)],
     head_drain: Some(HeadDrain::Ended { ended_ms: now_ms - 240_000 }),
+    group: None,
   };
   assert_eq!(
     turn_line("1792-81", &behind, None, Duration::from_mins(20), Duration::from_mins(100), now_ms),

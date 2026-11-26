@@ -237,6 +237,11 @@ struct RunArgs {
   /// every time. One class per kind of work, of letters, digits, `.`, `_` and `-`
   #[arg(long, value_name = "CLASS")]
   measure_as: Option<String>,
+  /// The group of the run in the heavy queue, which takes turns between groups: an orchestrator sets one for the runs of
+  /// all its agents, whatever their checkouts, so they wait as one and the runs of others go between them. Default: the
+  /// checkout of the run (its affinity). Of letters, digits, `.`, `_` and `-`
+  #[arg(long, value_name = "GROUP", env = "BRD_HOST_GROUP")]
+  group: Option<String>,
   /// The niceness of the prepare steps and the command on the host, 0 to 19, or the agent's when that is higher
   #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
   nice: u8,
@@ -258,6 +263,14 @@ struct RunArgs {
   /// The command and its arguments, after `--`
   #[arg(last = true, required = true)]
   command: Vec<String>,
+}
+
+impl RunArgs {
+  /// The group of the run in the heavy queue by `--group`, else by `BRD_HOST_GROUP`; an empty one names none, so the
+  /// group is the affinity
+  fn group(&self) -> Option<&str> {
+    self.group.as_deref().filter(|group| !group.is_empty())
+  }
 }
 
 #[derive(Debug, Args)]
@@ -523,6 +536,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     command: &args.command,
     fetch: &args.fetch,
     measure_as: args.measure_as.as_deref(),
+    group: args.group(),
   };
   // a name of a set goes to the member that its estimates rank first, and the report names that member
   let ran = match client.config().set_of(&args.alias) {

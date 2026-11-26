@@ -461,8 +461,8 @@ it.
 
 ```sh
 brd-host run <alias|set> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--heavy] [--exclusive]
-                  [--measure-as <class>] [--nice <0-19>] [--repo <path>] [--affinity <key>] [--max <duration>]
-                  [--report-fd <n>] -- <command> <args>
+                  [--measure-as <class>] [--group <group>] [--nice <0-19>] [--repo <path>] [--affinity <key>]
+                  [--max <duration>] [--report-fd <n>] -- <command> <args>
 ```
 
 ### Requirement: run: The working tree ships as one commit
@@ -706,6 +706,40 @@ without the feature `measure_as` would measure the run by its command, so the cl
   or estimate with `bad_request`
   [@test] crates/host-client/src/run_test.rs (`a_run_of_a_class_is_heavy_and_an_agent_before_it_refuses_before_the_start`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`runs_of_a_class_share_its_measure_whatever_their_command`)
+
+### Requirement: run: --group names the group of a run in the heavy queue
+
+`--group <group>`, else `BRD_HOST_GROUP` when it is not empty, MUST name the group of a run in the heavy queue, by
+default its affinity, and its `Start` and `Estimate` MUST carry it as `group`. An agent without the feature `group`
+MUST get no `group`: it queues the run first come first, so the client does not refuse, and a heavy run says so.
+
+#### Scenario: A run of a group
+- **WHEN** a run starts with `--group <group>`, or with `BRD_HOST_GROUP=<group>` set once by an orchestrator for all its
+  agents
+- **THEN** its `Start` and its `Estimate` have `"group": "<group>"`, the flag over the variable
+- **AND** a run without either, or with an empty variable, has no `group`, and its group is its affinity
+  [@test] crates/bd-host/src/cli_test.rs (`group_names_the_group_of_the_run_by_the_flag_or_the_environment`)
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first`)
+  [@test] crates/host-client/src/choose_test.rs (`the_estimate_of_a_run_of_a_group_names_its_group`)
+  [@test] crates/host-link/src/proto_test.rs (`the_group_of_a_run_is_an_optional_field_of_a_start_and_an_estimate`)
+
+#### Scenario: An agent without the feature group
+- **WHEN** a run of a group starts on an agent whose hello has no feature `group`
+- **THEN** its `Start` has no `group`, the run goes on, and a heavy one says `brd-host: the agent on <alias> predates
+  the groups of the heavy queue, so this run of the group <group> waits first come first: `brd-host upgrade <alias>`
+  sends this build`
+- **AND** an older agent that gets `group` in an estimate ignores it and estimates the end of its queue, where it
+  queues the run
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first`)
+
+#### Scenario: A group that no name may be
+- **WHEN** `--group` or `BRD_HOST_GROUP` names a group of other than 1 to 128 letters, digits, `.`, `_` and `-`, the
+  first a letter or a digit, such as `a b`
+- **THEN** the client refuses with `usage` (exit 2) before it asks the host anything, and an agent refuses such a start
+  or estimate with `bad_request`
+  [@test] crates/host-client/src/run_test.rs (`a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first`)
+  [@test] crates/host-link/src/heavy_test.rs (`a_group_is_named_by_the_rule_of_a_host_ref_name`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`the_heavy_queue_takes_turns_between_the_groups_of_its_runs`)
 
 ### Requirement: run: Ctrl+C before the start runs nothing on the host
 
@@ -1425,14 +1459,17 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
   <command>` or `for the whole host (no measure; a command whose text changes every run never gets one:
   `--measure-as <class>` gives it one)`, of a run of a class `for the whole host (no measure of the class <class>
   yet)`, for each run that waits; and `  run <id> of <repository>, not heavy,
-  uses <cores>: <command>` for each run that is not heavy whose command runs
+  uses <cores>: <command>` for each run that is not heavy whose command runs; a holder or a waiting run of `--group`
+  is `run <id> of <repository> in the group <group> …`
 - **AND** `--json` has the turn as `heavy`: the `cores`, the `holders`, the `queue` and the `light` runs, without the
-  runs whose process is gone, and the first holder as `holder` too, which a client of the build before reads
+  runs whose process is gone, and the first holder as `holder` too, which a client of the build before reads; an entry
+  of a run of `--group` names it as `group`, an entry without one is of the group of its `affinity`
 - **AND** a reply of an agent of the build before, with one `holder` and no `cores`, says `heavy turn: run <id> of
   <repository> holds it <time>: <command>`, then `  run <id> of <repository> waits <time>: <command>`
   [@test] crates/bd-host/tests/cli.rs (`runs_shows_who_holds_the_heavy_turn_and_who_waits_for_how_long`, `follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent`)
   [@test] crates/host-agent/src/turn_test.rs (`the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_light_run`, `the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waiting_run`)
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_of_a_class_names_its_class_on_its_entry`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_of_a_class_names_its_class_on_its_entry`, `the_queue_takes_turns_between_groups_and_each_group_keeps_its_order`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`the_heavy_queue_takes_turns_between_the_groups_of_its_runs`)
 
 ### Requirement: follow, cancel, fetch, forget, runs: A fetch or a forget of a running run refuses
 
@@ -1994,7 +2031,7 @@ run; the hourly cleanup MUST remove a month whose every line is more than 90 day
 #### Scenario: A run directory goes
 - **WHEN** the run directory of an ended run goes, a day after its end or past the kept forgotten runs
 - **THEN** its line is in the month of its end: the run, the repository, the affinity, the commit, the command in one
-  line of at most 200 characters, the key of its measures, `heavy`, `exclusive`, its start and end, its exit and
+  line of at most 200 characters, the key of its measures, its group of `--group`, `heavy`, `exclusive`, its start and end, its exit and
   refusal, `lost`, its phases, its cores, its bytes and its queue
 - **AND** a run that goes on stays and has no line
   [@test] crates/host-agent/src/history_test.rs (`a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes`, `a_forgotten_run_past_the_kept_ones_leaves_its_line_with_its_whole_output`)
@@ -2116,7 +2153,7 @@ it still keeps, heartbeats while it reads, and answers the summary as JSON (`lea
 The summary MUST give the waits (`heavy`, `exclusive`, `git`, `slot`, `pack_wait`) against the work by phase, the heavy
 queue, the outcomes by exit and refusal, the runs that ended before their command, the cores, per command the runs,
 the failures and the p50 and p90 of its wait and its command for the 30 that waited longest and the rest in one
-entry, and the bytes by day.
+entry, the same split by group of the heavy queue, and the bytes by day.
 
 #### Scenario: A day of runs
 - **WHEN** the agent sums the runs of a window
@@ -2129,6 +2166,16 @@ entry, and the bytes by day.
 - **THEN** they are one command, with the class as `measure_as` and the command line of the last run, and its line ends
   with `: --measure-as <class>` instead of the command line
   [@test] crates/lease-pool/src/host_history_test.rs (`the_runs_of_a_class_are_one_command_named_by_the_class`)
+
+#### Scenario: The waits and the work by group
+- **WHEN** the agent sums runs of groups of the heavy queue: of `--group`, from several checkouts, and runs without one
+- **THEN** `groups` has per group, its `--group` else the affinity of its runs, the runs, the heavy runs, the waits,
+  the wait for the heavy turn and the work, the longest wait first, the groups past the 30 that waited longest in
+  `other_groups`
+- **AND** its line is `<n> run(s), <n> heavy, waited <time> (<time> for the heavy turn), worked <time>: <group>` under
+  `groups by their wait:`, and the rest `<n> other group(s): <n> run(s), waited <time>, worked <time>`
+  [@test] crates/lease-pool/src/host_history_test.rs (`the_summary_sums_the_waits_and_the_work_by_group`, `the_lines_of_a_summary`)
+  [@test] crates/host-agent/src/history_test.rs (`a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes`)
 
 #### Scenario: The cost of the exclusive commands
 - **WHEN** the agent sums a window with exclusive runs
@@ -2518,10 +2565,10 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 
 ### Requirement: serve: Heavy runs share the cores of the host by their measure
 
-Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, waiting up to 2 h, and give
-them back after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive head: while it
+Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, up to 2 h, and free them
+after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive head: while it
 fits beside the holders and the load of the host, or on a free turn of a quiet host or after 15 min. A new run MUST
-join last, a short one ahead of those it may pass. A holder MUST count its measure, else the whole host, for 10 min;
+join by its group's turn, a short one ahead of those it may pass. A holder MUST count its measure, else the whole host, for 10 min;
 a held lock MUST cost a look.
 
 #### Scenario: Two heavy runs and one that is not heavy
@@ -2654,6 +2701,8 @@ a held lock MUST cost a look.
   for its first 10 min, now its live use of the last 5 min)` and `(<command>, measured <cores>: it held that for its
   first 10 min, now its live use of the last 5 min)`; without a holder `no heavy run holds cores`; without a fresh
   sample of the host, `runs that are not heavy use <cores>` instead of the busy cores, and only when they use cores
+- **AND** a run of `--group` is `run <id> in the group <group> waits …`, and a holder or a run ahead of one `<id> of
+  <repository> in the group <group>`
 - **AND** after the wait it says `took the heavy turn of the host after <n> s`, and with a fresh sample of the host `,
   the host busy with <cores> of its <cores of the host> cores`, the sample that its admission read
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead`)
@@ -2683,6 +2732,57 @@ a held lock MUST cost a look.
 - **WHEN** `turn.json` has a schema other than the one of this build, or none, as an agent of another build wrote it
 - **THEN** each take, leave and read of the turn refuses, and the run ends with `agent_error`, never with a free turn
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_table_of_another_schema_refuses`)
+
+### Requirement: serve: The heavy queue takes turns between the groups of its runs
+
+A new heavy run MUST join behind the last entry it may not pass: the head, a run of its group, a short run, a run
+that the turns passed 8 times, and a run with no more runs of its group before it than its own group has waiting; so
+first come first inside a group and exactly first come first with one waiting run per group. The turns MUST keep
+none of the short lane's state.
+
+#### Scenario: A group of many runs and a later run of another group
+- **GIVEN** a group of many heavy runs from checkouts of their own, such as the agents of one orchestrating session
+- **WHEN** a heavy run of another group, or of a checkout without a group, joins the queue later
+- **THEN** it waits behind the first waiting run of each group before it, not behind all of them, and the runs of each
+  group keep their order
+- **AND** the head of the queue alone is admitted, as before
+  [@test] crates/lease-pool/src/host_turn_test.rs (`the_queue_takes_turns_between_groups_and_each_group_keeps_its_order`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`the_heavy_queue_takes_turns_between_the_groups_of_its_runs`)
+
+#### Scenario: Runs without a group
+- **WHEN** heavy runs of other checkouts join without `--group`, each checkout with at most one run waiting, also a
+  checkout whose run just took the turn and that joins again
+- **THEN** each is of the group of its checkout, and they wait first come first exactly as before the groups
+- **AND** a second waiting run of one checkout waits behind the first waiting runs of the other checkouts
+  [@test] crates/lease-pool/src/host_turn_test.rs (`without_groups_the_runs_of_checkouts_with_one_run_waiting_each_are_first_come_first`)
+
+#### Scenario: How often a run is passed
+- **WHEN** runs of other groups join while a run waits, any count of groups, while the head can start or not
+- **THEN** a run is passed by the turns at most 8 times, and only by a run of a group with fewer runs waiting than are
+  before it in its own group; the first waiting run of a group is passed by none
+- **AND** the count is in `groups.json` of the heavy turn, and a run that leaves the queue without the turn, a cancel
+  or a start of `admit_now` refused `busy`, gives its passes back
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_is_passed_by_the_turns_at_most_eight_times_whatever_the_count_of_groups`)
+
+#### Scenario: The short lane, the head, the supersede and the starts at once
+- **WHEN** a short run, an exclusive head, a run that supersedes or a start of `admit_now` meets the turns of the groups
+- **THEN** a run of the turns adds no pass of the short lane (`passes.json`), sets no join of its own from another run
+  and counts its load bound from its own join; a short run still joins ahead of the runs it may pass, a backlog that
+  the turns passed too, and no run of the turns goes ahead of a short run or of the head
+- **AND** a run that supersedes a run of its group takes its place and its passes; one of another group takes its own
+  turn, and the passes of the run it replaces go back; an exclusive run, its drain and its pass, and a start of
+  `admit_now` keep their rules
+  [@test] crates/lease-pool/src/host_turn_test.rs (`the_short_lane_the_head_and_the_supersede_keep_their_rules_beside_the_turns`, `a_run_that_supersedes_a_run_of_another_group_takes_its_own_turn`, `a_short_run_goes_ahead_of_the_runs_that_wait_for_more_and_runs_beside_the_holder`, `a_heavy_run_that_fits_starts_past_an_exclusive_run_whose_drain_ended`)
+  [@test] crates/host-agent/tests/serve/admit.rs (`of_two_starts_that_admit_at_once_on_a_free_host_one_runs_and_the_other_is_busy`)
+
+#### Scenario: A table that an older build rewrote
+- **WHEN** a supervisor of an older build rewrites `turn.json` without `group`, and `passes.json` without the fields it
+  does not know, as builds 1.24 to 1.27 do
+- **THEN** no turn changes, as the groups and their passes are in `groups.json`, which no older build reads or writes,
+  and only the lines lose the group
+- **AND** a run that `groups.json` does not name is of the group of its entry, its `--group`, else its affinity, else
+  alone: the queue goes on and no run is lost
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`)
 
 ### Requirement: serve: An exclusive run holds a quiet host alone
 
@@ -3159,12 +3259,13 @@ turn, the load outside the heavy runs the most of the last 30 s.
 #### Scenario: The shapes of an estimate
 - **WHEN** a client asks an agent for an estimate
 - **THEN** the request and the reply are `{"request": "estimate", "repo", "affinity", "commit", "command", "fetch",
-  "heavy", "measure_as"}` and `{"reply": "estimate", …}`, `measure_as` left out without a class (feature
-  `measure_as`) and the fields of a measure without one; the measures of a class count for a run of it
+  "heavy", "measure_as", "group"}` and `{"reply": "estimate", …}`, `measure_as` left out without a class (feature
+  `measure_as`), `group` without a group, and the fields of a measure without one; the measures of a class count for
+  a run of it
 - **AND** `slots` is the slot limit of the repository, the smaller of `branchdeck.hostSlots` and the limit of the last
   shrink, left out by an agent before it and when the limit cannot be read
   [@test] crates/host-agent/tests/serve/lend.rs (`a_host_without_a_slot_for_the_repository_refuses_the_run_at_once_with_no_slots`)
-  [@test] crates/host-link/src/proto_test.rs (`an_estimate_and_its_reply_have_a_tagged_json_shape`, `the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate`)
+  [@test] crates/host-link/src/proto_test.rs (`an_estimate_and_its_reply_have_a_tagged_json_shape`, `the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate`, `the_group_of_a_run_is_an_optional_field_of_a_start_and_an_estimate`)
 
 #### Scenario: The queue played forward
 - **WHEN** a heavy run would wait for holders and for runs of the queue
@@ -3179,6 +3280,12 @@ turn, the load outside the heavy runs the most of the last 30 s.
 - **AND** the wall of a command is the one of its passed runs, else of its measures, the failed and cancelled ones too
   [@test] crates/lease-pool/src/host_estimate_test.rs (`a_short_run_is_placed_ahead_of_the_long_runs_as_the_queue_places_it`)
   [@test] crates/lease-pool/src/host_cores_test.rs (`the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least`)
+
+#### Scenario: A run of a group in the estimate
+- **WHEN** the run is of a group, its `group` else its affinity
+- **THEN** the estimate places it by the turns of the groups, by the round and the place functions of the queue: behind
+  the first waiting run of a group of many, not behind all of them
+  [@test] crates/lease-pool/src/host_estimate_test.rs (`a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it`)
 
 ### Requirement: serve: A start that admits at once or refuses with busy
 
@@ -3586,6 +3693,9 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
   (`lease_failed`) needs a fact of the last fill in the lend table.
 - A cancel during the checkout or the scan of a slot waits for that step to end, because the pool runs that git in
   process.
+- The budget of 8 passes of the turns trades fairness for a bound: once a deep backlog of a group was passed 8 times,
+  the runs of other groups wait behind those of its runs again, as behind the short lane's budget of 4. No cap of
+  holders or cores per group: the admission by cores decides.
 
 ## References
 

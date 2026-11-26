@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, is_measure_class, measure_key, run_key, run_words, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, is_group_name, is_measure_class, measure_key, run_key, run_words, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -519,5 +519,16 @@ fn the_measure_key_of_a_class_is_of_the_class_alone() {
   }
   for name in ["", "-gate", "a/b", "a b", "gate..2", "x.lock", &"a".repeat(129)] {
     assert!(!is_measure_class(name), "{name:?}");
+  }
+}
+
+/// A group of the heavy queue (`--group`) is named as a class of measures: by the rule of a host ref name
+#[test]
+fn a_group_is_named_by_the_rule_of_a_host_ref_name() {
+  for name in ["typing-session", "orchestra.2", "Lint_1"] {
+    assert!(is_group_name(name), "{name}");
+  }
+  for name in ["", "-session", "a/b", "a b", "x.lock", &"a".repeat(129)] {
+    assert!(!is_group_name(name), "{name:?}");
   }
 }

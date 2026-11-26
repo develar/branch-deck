@@ -354,6 +354,12 @@ pub fn is_measure_class(class: &str) -> bool {
   sync_utils::host_ref_name::is_host_ref_name(class)
 }
 
+/// Whether `group` may name a group of the heavy queue (`brd-host run --group`, `RunSpec::group`): the rule of a host
+/// ref name, as of a class of measures
+pub fn is_group_name(group: &str) -> bool {
+  sync_utils::host_ref_name::is_host_ref_name(group)
+}
+
 /// The key of the measures of `command` (`lease_pool::host_cores`), a run that fetches the directories `fetch`, of the
 /// class `measure_as` (`RunSpec::measure_as`). With a class, the [`run_key`] of `<measure-as> <class>`, whatever the
 /// command and its environment: a command whose text changes every run, such as a script with the commits of the run

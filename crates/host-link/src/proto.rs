@@ -82,10 +82,13 @@ pub mod feature {
   /// `RunSpec::measure_as` and `EstimateAsk::measure_as`: the measures of a run are those of a class that the client
   /// names, not of its command
   pub const MEASURE_AS: &str = "measure_as";
+  /// `RunSpec::group`: the heavy queue takes turns between the groups that the clients name; an older agent ignores
+  /// the field and queues first come first
+  pub const GROUP: &str = "group";
 }
 
-/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats`, `estimate`
-/// and `measure_as` everywhere, `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk`, `trim`, `heavy`, `exclusive`, `stats`, `estimate`,
+/// `measure_as` and `group` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
   let mut features = vec![
     feature::DISK,
@@ -95,6 +98,7 @@ pub fn features() -> Vec<&'static str> {
     feature::STATS,
     feature::ESTIMATE,
     feature::MEASURE_AS,
+    feature::GROUP,
   ];
   if cfg!(target_os = "macos") {
     features.insert(0, feature::UPGRADE);
@@ -201,6 +205,10 @@ pub struct EstimateAsk {
   /// older agent with it)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_as: Option<String>,
+  /// The group of the run in the heavy queue, as `RunSpec::group`: the estimate places it by the turns of the groups.
+  /// An older agent ignores it and estimates the place of the end, where it queues the run
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<String>,
 }
 
 /// What the host tells of a run of `Request::Estimate`
@@ -311,6 +319,11 @@ pub struct RunSpec {
   /// older agent)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_as: Option<String>,
+  /// The group of the run in the heavy queue (`brd-host run --group`, `BRD_HOST_GROUP`): the queue takes turns between
+  /// groups, first come first inside one; `None`: its group is its affinity. A name of `heavy::is_group_name` (feature
+  /// `feature::GROUP`; the client sends it to no older agent, which queues the run first come first)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

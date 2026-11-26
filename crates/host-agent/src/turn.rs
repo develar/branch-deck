@@ -102,6 +102,8 @@ pub(crate) struct TurnRun<'a> {
   /// The class of its measures (`RunSpec::measure_as`): with one, the key of its measures is of the class, not of the
   /// command
   pub(crate) measure_as: Option<&'a str>,
+  /// Its group in the heavy queue (`RunSpec::group`); `None`: its affinity
+  pub(crate) group: Option<&'a str>,
 }
 
 impl TurnRun<'_> {
@@ -165,6 +167,7 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     exclusive: of.exclusive,
     passed_wall,
     measure_as: of.measure_as,
+    group: of.group,
   };
   let params = TurnParams {
     lock_timeout,

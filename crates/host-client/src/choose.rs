@@ -239,6 +239,7 @@ impl Client<'_> {
       fetch: request.fetch.to_vec(),
       heavy,
       measure_as: request.measure_as.map(str::to_owned),
+      group: request.group.map(str::to_owned),
     };
     Ok((ask, heavy))
   }

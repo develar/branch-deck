@@ -18,7 +18,8 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
         feature::EXCLUSIVE,
         feature::STATS,
         feature::ESTIMATE,
-        feature::MEASURE_AS
+        feature::MEASURE_AS,
+        feature::GROUP
       ]
     );
   } else {
@@ -31,7 +32,8 @@ fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_the_trim_and_the_h
         feature::EXCLUSIVE,
         feature::STATS,
         feature::ESTIMATE,
-        feature::MEASURE_AS
+        feature::MEASURE_AS,
+        feature::GROUP
       ]
     );
   }
@@ -337,9 +339,9 @@ fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
   let features = if cfg!(target_os = "macos") {
-    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate","measure_as"]"#
+    r#"["upgrade","disk","trim","heavy","exclusive","stats","estimate","measure_as","group"]"#
   } else {
-    r#"["disk","trim","heavy","exclusive","stats","estimate","measure_as"]"#
+    r#"["disk","trim","heavy","exclusive","stats","estimate","measure_as","group"]"#
   };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
@@ -437,6 +439,7 @@ fn an_estimate_and_its_reply_have_a_tagged_json_shape() {
     fetch: Vec::new(),
     heavy: true,
     measure_as: None,
+    group: None,
   });
   let json = serde_json::to_string(&ask).expect("json");
   assert_eq!(
@@ -521,5 +524,32 @@ fn the_class_of_the_measures_is_an_optional_field_of_a_start_and_an_estimate() {
   });
   let json = serde_json::to_string(&ask).expect("json");
   assert!(json.ends_with(r#""heavy":true,"measure_as":"accio-typing-gate"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
+}
+
+/// The group of a run in the heavy queue (`--group`) is an optional field of a start and of an estimate: it stays out of
+/// the JSON without a group, so an older agent reads the start as before, and one that gets it ignores it
+#[test]
+fn the_group_of_a_run_is_an_optional_field_of_a_start_and_an_estimate() {
+  assert!(features().contains(&feature::GROUP));
+  let grouped = RunSpec {
+    run: "1-2".to_owned(),
+    heavy: true,
+    group: Some("typing-session".to_owned()),
+    ..RunSpec::default()
+  };
+  let json = serde_json::to_string(&Request::Start(grouped.clone())).expect("json");
+  assert!(json.ends_with(r#","heavy":true,"group":"typing-session"}"#), "{json}");
+  assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), Request::Start(grouped));
+  let plain = serde_json::to_string(&Request::Start(RunSpec::default())).expect("json");
+  assert!(!plain.contains("group"), "{plain}");
+
+  let ask = Request::Estimate(EstimateAsk {
+    heavy: true,
+    group: Some("typing-session".to_owned()),
+    ..EstimateAsk::default()
+  });
+  let json = serde_json::to_string(&ask).expect("json");
+  assert!(json.ends_with(r#""heavy":true,"group":"typing-session"}"#), "{json}");
   assert_eq!(serde_json::from_str::<Request>(&json).expect("parsed"), ask);
 }

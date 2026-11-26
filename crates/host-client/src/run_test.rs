@@ -173,6 +173,7 @@ async fn run_by(client: &Client<'_>, setup: &Setup, fetch: &[String], options: R
     command: &command,
     fetch,
     measure_as: None,
+    group: None,
   };
   client.run(ALIAS, &request, options).await
 }
@@ -1137,6 +1138,7 @@ async fn a_refusal_of_the_agent_exits_by_how_far_the_run_came() {
     command: &command,
     fetch: &[],
     measure_as: None,
+    group: None,
   };
   let no_host = Client::new(crate::config::Config::new(dir.path().join("config")), crate::testkit::build(), &processes, &|_| {}, &calm)
     .run(ALIAS, &request, RunOptions::default())
@@ -1293,8 +1295,9 @@ fn agent_of(features: &[&str]) -> Setup {
   fetching_agent_with(repo, hello, Vec::new())
 }
 
-/// A run of `--measure-as` with the command of the tests in the checkout of `setup`, and the lines it said
-async fn run_of_class(setup: &Setup, class: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
+/// A run with the command of the tests in the checkout of `setup` of the class `measure_as` and the group `group`, and
+/// the lines it said
+async fn run_named(setup: &Setup, measure_as: Option<&str>, group: Option<&str>, options: RunOptions) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
   let said = Said::default();
   let say = |line: &str| said.push(line);
   let processes = FakeProcesses::default();
@@ -1305,10 +1308,58 @@ async fn run_of_class(setup: &Setup, class: &str) -> (Result<RunOutcome, RunFail
     affinity: AFFINITY,
     command: &command,
     fetch: &[],
-    measure_as: Some(class),
+    measure_as,
+    group,
   };
-  let ran = setup.client(&processes, &say, &calm).run(ALIAS, &request, RunOptions::default()).await;
+  let ran = setup.client(&processes, &say, &calm).run(ALIAS, &request, options).await;
   (ran, said.lines())
+}
+
+/// A run of `--measure-as` with the command of the tests in the checkout of `setup`, and the lines it said
+async fn run_of_class(setup: &Setup, class: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
+  run_named(setup, Some(class), None, RunOptions::default()).await
+}
+
+/// A run of `--group` with the command of the tests in the checkout of `setup`, heavy by `--heavy`, and the lines it said
+async fn run_of_group(setup: &Setup, group: &str) -> (Result<RunOutcome, RunFailure>, Vec<String>) {
+  let heavy = RunOptions {
+    heavy: true,
+    ..RunOptions::default()
+  };
+  run_named(setup, None, Some(group), heavy).await
+}
+
+/// `--group` starts the run with its group; an agent without the feature `group` queues every heavy run first come
+/// first, so the run goes on there without the field and its line names the upgrade, as nothing else of it changes; a
+/// group that no name may be refuses with `usage` before the agent
+#[tokio::test(start_paused = true)]
+async fn a_run_of_a_group_names_it_in_the_start_and_an_agent_before_groups_queues_it_first_come_first() {
+  let setup = agent_of(&["heavy", "exclusive", "measure_as", "group"]);
+  let (ran, said) = run_of_group(&setup, "typing-session").await;
+  ran.unwrap();
+  assert_eq!(start_spec(&setup).group.as_deref(), Some("typing-session"));
+  assert!(!said.iter().any(|line| line.contains("predates the groups")), "{said:?}");
+
+  let setup = agent_of(&["heavy", "exclusive", "measure_as"]);
+  let (ran, said) = run_of_group(&setup, "typing-session").await;
+  ran.unwrap();
+  assert_eq!(start_spec(&setup).group, None, "an older agent gets no group");
+  assert!(
+    said.contains(&format!(
+      "brd-host: the agent on {ALIAS} predates the groups of the heavy queue, so this run of the group typing-session waits first come first: `brd-host upgrade {ALIAS}` sends this build"
+    )),
+    "{said:?}"
+  );
+
+  let setup = agent_of(&["heavy", "exclusive", "measure_as", "group"]);
+  let failure = run_of_group(&setup, "a b").await.0.unwrap_err();
+  assert_eq!((failure.refusal.code, failure.exit), (Code::Usage, Exit::Usage));
+  assert!(
+    failure.refusal.message.starts_with(r#"--group "a b" (or BRD_HOST_GROUP) cannot name a group"#),
+    "{}",
+    failure.refusal.message
+  );
+  assert_eq!(kinds(&setup), Vec::<&str>::new());
 }
 
 /// `--measure-as` starts a heavy run with its class and says that the cores of the runs of the class count; an agent

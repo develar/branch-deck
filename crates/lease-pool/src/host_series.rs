@@ -307,6 +307,7 @@ pub fn minute(dir: &Path, cores: u32, now_ms: u64, drain_bar: Duration, busy: Op
       window,
       sampled: load.sampled,
       marks,
+      groups: crate::host_turn::read_groups(dir),
       head_drain: drain,
       now_ms,
     };

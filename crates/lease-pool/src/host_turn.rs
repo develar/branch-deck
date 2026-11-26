@@ -1,7 +1,7 @@
 //! The heavy turn of a host (openspec/specs/cli/host/spec.md, "serve: Heavy runs share the cores of the host by their
 //! measure"; docs/design/host-runs.md, "Heavy runs"): a run that `heavy` of `[host]` or `brd-host run --heavy` marks
-//! heavy holds the turn from before its lend to its give-back, and the other heavy runs of the host wait in a first-come
-//! queue, whatever their repository. A run that is not heavy never waits for it.
+//! heavy holds the turn from before its lend to its give-back, and the other heavy runs of the host wait in one queue,
+//! whatever their repository, by the turns of their groups (below). A run that is not heavy never waits for it.
 //!
 //! The turn holds cores, not one run: the head of the queue is admitted while the cores that the holders are expected
 //! to use, the live cores of the runs that are not heavy and its own expectation fit the cores of the host. A run
@@ -17,7 +17,25 @@
 //! run that is admitted later never takes the cores that a run before it waits for; the one exception is an exclusive
 //! run at the head whose drain ended (below).
 //!
-//! The order of the queue is first come first, but for short runs ([`place`]): a run whose command has a measure below
+//! The order of the queue takes turns between the groups of its runs ([`place`], [`turn_place`]): a run names its
+//! group (`brd-host run --group`, `RunSpec::group`), else its group is its affinity ([`group_key`]), so the runs of one
+//! checkout are one group as before and an orchestrator names one group for the checkouts of all its agents. The round
+//! of a run of the queue is the count of the runs of its group before it. A new run joins behind the last entry that it
+//! may not pass: the head, a run of its own group, a short run, a run that the turns passed [`TURN_PASS_BUDGET`] (8)
+//! times, and a run whose round is not above the count of the runs of its group that wait. So it goes ahead only of runs
+//! of groups with more runs waiting before them than its own, first come first inside a group, and a group of many
+//! runs no longer keeps a later run of another group waiting for all of them. With at most one waiting run of each
+//! group every round is 0 and the place is the end: without `--group`, where each checkout is a group, the queue is
+//! first come first exactly as before, also for a checkout whose run just took the turn. A run is passed by the turns at
+//! most 8 times, whatever the count of the groups and whether the head can start, and only by runs of groups with
+//! fewer runs waiting than are before it in its own; the first waiting run of a group is passed by none. The turns keep
+//! none of the state of the short lane: their passes and the group of each run are in `groups.json` beside the table
+//! ([`QueueGroups`]), a file that no older build reads or writes, and a run that leaves the queue without the turn (a
+//! cancel, a start of `admit_now` refused `busy`) gives its passes back. A run that `groups.json` does not name is of
+//! the group of its entry, so a rewrite of `turn.json` by an older build, which drops `group`, moves a run of `--group`
+//! to the group of its affinity at worst.
+//!
+//! Inside those turns the order is first come first, but for short runs ([`place`]): a run whose command has a measure below
 //! the whole host, is not exclusive, and whose last passed runs took at most [`SHORT_WALL`] (2 min; the 80th percentile
 //! of the walls of its last 5 passed runs, of 3 at least: `host_cores::passed_wall`) joins the queue before the first
 //! entry from which every entry to the end can be passed: one that is not short and that short runs passed fewer than
@@ -104,6 +122,12 @@ const PASSES_FILE: &str = "passes.json";
 pub const SHORT_WALL: Duration = Duration::from_mins(2);
 /// How often short runs pass a run of the queue at most ([`place`]): a run waits at most 4 short runs longer
 pub const PASS_BUDGET: u32 = 4;
+/// The groups of the runs of the queue and their passes by turns, beside the table, a file no older build knows
+const GROUPS_FILE: &str = "groups.json";
+/// How often the turns of the groups pass a run of the queue at most ([`turn_place`]), whatever the count of the groups
+/// and whether the head can start: a run waits at most 8 runs of other groups longer than first come first, about 80
+/// min of runs of 10 min, within the 2 h of a heavy wait
+pub const TURN_PASS_BUDGET: u32 = 8;
 /// How long the new runs that are not heavy wait for an exclusive run that drains the host, from the start of the drain
 pub const DRAIN_BAR: Duration = Duration::from_mins(5);
 /// How long the head of the queue waits in the queue for a quiet host, or for room beside the load of the host outside
@@ -222,6 +246,11 @@ pub struct TurnEntry {
   /// and the holder counts as in its grace until a new window spans 5 min
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recent: Option<RecentUse>,
+  /// The group of the run in the heavy queue (`brd-host run --group`, `RunSpec::group`); `None`: its group is its
+  /// affinity. The order reads the group from `groups.json` ([`QueueGroups`]): a supervisor of an older build that
+  /// rewrites the table drops this field, and only the lines lose it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<String>,
 }
 
 /// The live samples of a holder over the last [`USE_WINDOW`], the most of each half minute
@@ -506,6 +535,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   })
 }
 
@@ -534,6 +564,8 @@ pub struct TurnRequest<'a> {
   pub passed_wall: Option<Duration>,
   /// The class of the measures of the run (`brd-host run --measure-as`), of which `expected` and `passed_wall` are
   pub measure_as: Option<&'a str>,
+  /// The group of the run in the heavy queue (`brd-host run --group`); `None`: its affinity ([`group_key`])
+  pub group: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -565,12 +597,87 @@ pub struct Joined {
   pub passed: Vec<(TurnEntry, u32)>,
 }
 
-/// What the queue knows of its runs beyond `turn.json`, by the id of the run: `passes.json` beside the table, which no
-/// older build rewrites. A run that it does not name is not short and was never passed
+/// What the queue knows of its runs beyond `turn.json`, by the id of the run: `passes.json` beside the table, which a
+/// supervisor of an older build rewrites without the fields it does not know. A run that it does not name is not short
+/// and was never passed
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueMarks {
   #[serde(default)]
   pub runs: BTreeMap<String, RunMark>,
+}
+
+/// The groups of the runs of the queue and how often the turns of the groups passed each: `groups.json` beside the
+/// table, a file that no older build reads or writes. A run that it does not name is of the group of its entry
+/// ([`QueueGroups::group_of`]) and was never passed by a turn
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueGroups {
+  #[serde(default)]
+  pub runs: BTreeMap<String, GroupMark>,
+}
+
+/// The group of a run of the queue, how often runs of the turns went ahead of it, and the runs it went ahead of itself
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupMark {
+  pub group: String,
+  /// How often runs of the turns of the groups went ahead of it ([`TURN_PASS_BUDGET`] at most); a run that leaves the
+  /// queue without the turn gives its passes back
+  #[serde(default)]
+  pub passes: u32,
+  /// The runs of the queue that it went ahead of by its turn
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub passed: Vec<String>,
+}
+
+impl QueueGroups {
+  /// The group of `entry`: by its mark, else by its entry ([`group_key`]): `--group`, else its affinity
+  pub fn group_of<'a>(&'a self, entry: &'a TurnEntry) -> &'a str {
+    self.runs.get(&entry.ticket.run).map_or_else(
+      || group_key(entry.group.as_deref(), entry.affinity.as_deref().unwrap_or_default(), &entry.ticket.run),
+      |mark| mark.group.as_str(),
+    )
+  }
+
+  /// How often runs of the turns went ahead of the run `run`
+  pub fn passes(&self, run: &str) -> u32 {
+    self.runs.get(run).map_or(0, |mark| mark.passes)
+  }
+
+  /// Gives back the passes of the runs that `mark` went ahead of, as its run leaves the queue without the turn
+  fn give_back(&mut self, mark: &GroupMark) {
+    for run in &mark.passed {
+      if let Some(passed) = self.runs.get_mut(run) {
+        passed.passes = passed.passes.saturating_sub(1);
+      }
+    }
+  }
+}
+
+/// The groups of the runs of the queue in `dir`, read without the lock: a file replaced by a rename. A file that is
+/// missing or cannot be read names no group: each run is of the group of its entry, never passed
+pub fn read_groups(dir: &Path) -> QueueGroups {
+  std::fs::read(dir.join(GROUPS_FILE))
+    .ok()
+    .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    .unwrap_or_default()
+}
+
+/// Writes `groups` into `groups.json` of `dir`, under the lock of the table
+fn write_groups(dir: &Path, groups: &QueueGroups) -> Result<()> {
+  sync_utils::atomic_file::write_atomically(
+    &dir.join(GROUPS_FILE),
+    &serde_json::to_vec(groups)?,
+    sync_utils::atomic_file::AtomicWrite { private: true, durable: false },
+  )?;
+  Ok(())
+}
+
+/// The group of a run in the heavy queue: its `group` (`brd-host run --group`), else its affinity, else the run `run`
+/// alone, as a run of an older client names no affinity
+pub fn group_key<'a>(group: Option<&'a str>, affinity: &'a str, run: &'a str) -> &'a str {
+  group
+    .filter(|group| !group.is_empty())
+    .or_else(|| Some(affinity).filter(|affinity| !affinity.is_empty()))
+    .unwrap_or(run)
 }
 
 /// The class of a run of the queue and how often short runs passed it
@@ -623,17 +730,39 @@ pub fn short_wall(exclusive: bool, expected: Option<Cores>, passed_wall: Option<
 
 /// The place of a new run in `queue`, whose runs `marks` marks, with `head_drain` the drain of an exclusive head
 /// ([`head_drain`]): a `short` run goes before the first entry from which every entry to the end can be passed
-/// ([`passable`]), else it, like every run that is not short, goes to the end. The entries from the place to the end
-/// are the runs it passes. A pure function of the queue: an estimate of a start reads the same place
-pub fn place(queue: &[TurnEntry], marks: &QueueMarks, head_drain: Option<HeadDrain>, short: bool) -> usize {
-  if !short {
-    return queue.len();
+/// ([`passable`]); a run of the group `turn` of `groups` takes its turn ([`turn_place`]); a run without a turn, one
+/// that takes the place of a run it supersedes, goes to the end. The entries from the place to the end are the runs it
+/// passes. A pure function of the queue: an estimate of a start reads the same place
+pub fn place(queue: &[TurnEntry], marks: &QueueMarks, head_drain: Option<HeadDrain>, short: bool, turn: Option<(&QueueGroups, &str)>) -> usize {
+  if short {
+    let mut position = queue.len();
+    while position > 0 && passable(&queue[position - 1], position - 1, marks, head_drain) {
+      position -= 1;
+    }
+    return position;
   }
-  let mut position = queue.len();
-  while position > 0 && passable(&queue[position - 1], position - 1, marks, head_drain) {
-    position -= 1;
+  turn.map_or(queue.len(), |(groups, group)| turn_place(queue, marks, groups, group))
+}
+
+/// The place of a new run of `group` by the turns of the groups: behind the last entry that it may not pass, the head,
+/// an entry of its own group, a short run, an entry passed [`TURN_PASS_BUDGET`] times by turns, and an entry with no more
+/// runs of its group before it than the new run has of its own (its round), so the run goes ahead only of runs of
+/// groups that have more runs waiting before them. With at most one waiting run of each group, every entry is of
+/// round 0 and the place is the end: first come first
+fn turn_place(queue: &[TurnEntry], marks: &QueueMarks, groups: &QueueGroups, group: &str) -> usize {
+  let own = queue.iter().filter(|entry| groups.group_of(entry) == group).count();
+  let mut before: BTreeMap<&str, usize> = BTreeMap::new();
+  let mut from = 0;
+  for (position, entry) in queue.iter().enumerate() {
+    let of = groups.group_of(entry);
+    let round = before.entry(of).or_default();
+    let kept = position == 0 || of == group || marks.of(&entry.ticket.run).short_ms.is_some() || groups.passes(&entry.ticket.run) >= TURN_PASS_BUDGET || *round <= own;
+    *round += 1;
+    if kept {
+      from = position + 1;
+    }
   }
-  position
+  from
 }
 
 /// Whether a short run may go ahead of `entry` at `position` of the queue: an entry that is not short, passed fewer
@@ -668,6 +797,8 @@ pub struct TurnQueue {
   /// The drain of the exclusive run at the head of the queue, this run or the first ahead; `None` when the head is no
   /// exclusive run
   pub head_drain: Option<HeadDrain>,
+  /// The group of the run (`brd-host run --group`), as its entry names it; `None`: its affinity
+  pub group: Option<String>,
 }
 
 /// Where the exclusive run at the head of the queue is in its drain: what it lets pass
@@ -995,6 +1126,7 @@ impl Seen {
       light_runs: table.light.clone(),
       ahead: table.queue[..position].to_vec(),
       head_drain: self.head_drain,
+      group: table.queue[position].group.clone(),
     }
   }
 }
@@ -1025,9 +1157,10 @@ pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 
 /// Puts the run of `request`, new to the queue, in its place, and answers it: the runs of the queue of its checkout and
 /// command go to `superseded` with it as the later run (`joined.replaced`), and it takes the place of the first of
-/// them, with the most passes of them, else the end; a short run goes ahead of the runs before that place that it may
-/// pass ([`place`]), counts a pass of each in `passes.json` and takes the earliest join of them (`joined.short`,
-/// `joined.passed`); `joined.beside` gets the runs of its checkout with another command
+/// them when it is of its group, with the most passes of them, else its turn ([`turn_place`]); a short run goes ahead
+/// of the runs before that place that it may pass ([`place`]), counts a pass of each in `passes.json` and takes the
+/// earliest join of them (`joined.short`, `joined.passed`); a run of the turns counts a pass of each run it goes ahead
+/// of in `groups.json` and keeps its own join; `joined.beside` gets the runs of its checkout with another command
 fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest<'_>, joined: &mut Joined) -> Result<usize> {
   let superseded_at = table.queue.iter().position(|entry| entry.is_of(request, true));
   let (replaced, kept): (Vec<TurnEntry>, Vec<TurnEntry>) = std::mem::take(&mut table.queue).into_iter().partition(|entry| entry.is_of(request, true));
@@ -1038,31 +1171,71 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
   }));
   joined.beside = table.queue.iter().filter(|entry| entry.is_of(request, false)).cloned().collect();
   let now = now_ms();
+  let mut groups = read_groups(params.dir);
+  let groups_before = groups.clone();
+  let group = group_key(request.group, request.affinity, request.run).to_owned();
+  // a run that supersedes takes the place of the first run it replaces, of the same group; of another group it takes
+  // its own turn, and the runs that the replaced ones went ahead of get their passes back
+  let takes_place = superseded_at.is_some() && replaced.first().is_some_and(|first| groups.group_of(first) == group);
+  let replaced_marks: Vec<GroupMark> = replaced.iter().filter_map(|entry| groups.runs.remove(&entry.ticket.run)).collect();
+  let mut mark = GroupMark { group, ..GroupMark::default() };
+  for replaced_mark in replaced_marks {
+    if takes_place {
+      mark.passes = mark.passes.max(replaced_mark.passes);
+      mark.passed.extend(replaced_mark.passed);
+    } else {
+      groups.give_back(&replaced_mark);
+    }
+  }
   // the place of the first superseded run: the runs before it are before it still
-  let end = superseded_at.unwrap_or(table.queue.len()).min(table.queue.len());
+  let end = if takes_place {
+    superseded_at.unwrap_or_default().min(table.queue.len())
+  } else {
+    table.queue.len()
+  };
   let short = short_wall(request.exclusive, request.expected, request.passed_wall, params.cores);
   let mut marks = read_marks(params.dir);
   let before = marks.clone();
   let drain = head_drain(params.dir, &table.queue, now, params.drain_bar);
-  let position = place(&table.queue[..end], &marks, drain, short.is_some());
+  let turn = (!takes_place).then_some((&groups, mark.group.as_str()));
+  let position = place(&table.queue[..end], &marks, drain, short.is_some(), turn);
   let carried = replaced.iter().map(|entry| marks.of(&entry.ticket.run).passes).max().unwrap_or(0);
-  for entry in &table.queue[position..end] {
-    let mark = marks.runs.entry(entry.ticket.run.clone()).or_default();
-    mark.passes += 1;
-    joined.passed.push((entry.clone(), mark.passes));
+  // the bookkeeping of the short lane is of a short run only: a run of the turns counts its own passes, in groups.json
+  if short.is_some() {
+    for entry in &table.queue[position..end] {
+      let mark = marks.runs.entry(entry.ticket.run.clone()).or_default();
+      mark.passes += 1;
+      joined.passed.push((entry.clone(), mark.passes));
+    }
+  } else {
+    for entry in &table.queue[position..end] {
+      let of = groups.group_of(entry).to_owned();
+      let passed = groups.runs.entry(entry.ticket.run.clone()).or_insert_with(|| GroupMark {
+        group: of,
+        ..GroupMark::default()
+      });
+      passed.passes += 1;
+      mark.passed.push(entry.ticket.run.clone());
+    }
   }
-  let mark = RunMark {
+  let run_mark = RunMark {
     short_ms: short.map(millis),
     passes: carried,
     joined_ms: (!joined.passed.is_empty()).then_some(now),
   };
-  if mark != RunMark::default() {
-    marks.runs.insert(request.run.to_owned(), mark);
+  if run_mark != RunMark::default() {
+    marks.runs.insert(request.run.to_owned(), run_mark);
   }
   let queue = &table.queue;
-  marks.runs.retain(|run, _| run == request.run || queue.iter().any(|entry| entry.ticket.run == *run));
+  let in_queue = |run: &String| run == request.run || queue.iter().any(|entry| entry.ticket.run == *run);
+  marks.runs.retain(|run, _| in_queue(run));
   if marks != before {
     write_marks(params.dir, &marks)?;
+  }
+  groups.runs.insert(request.run.to_owned(), mark);
+  groups.runs.retain(|run, _| in_queue(run));
+  if groups != groups_before {
+    write_groups(params.dir, &groups)?;
   }
   joined.replaced = replaced;
   joined.short = short;
@@ -1074,7 +1247,8 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
     },
     repo: request.repo.to_owned(),
     command: one_line(request.command),
-    // the earliest join of the runs it passed: a head that it passed on a busy free turn waits no new load bound
+    // a short run: the earliest join of the runs it passed, so a head that it passed on a busy free turn waits no new
+    // load bound; a run of the turns, which never passes the head, its own join
     since_ms: joined.passed.iter().map(|(entry, _)| entry.since_ms).fold(now, u64::min),
     affinity: Some(request.affinity.to_owned()),
     command_key: Some(request.command_key.to_owned()),
@@ -1084,6 +1258,7 @@ fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest
     passed: None,
     measure_as: request.measure_as.map(str::to_owned),
     recent: None,
+    group: request.group.map(str::to_owned),
   };
   table.queue.insert(position, entry);
   Ok(position)
@@ -1156,6 +1331,15 @@ pub fn note_use(params: &TurnParams<'_>, note: &UseNote<'_>) -> Result<()> {
 pub fn leave(params: &TurnParams<'_>, run: &str) -> Result<bool> {
   params.table().update(params.lock_timeout, |table: &mut HeavyTurn| {
     let table = table.of_this_schema(params.dir)?;
+    // a run that leaves the queue without the turn gives back the passes of the runs it went ahead of by its turn
+    let queued = table.queue.iter().any(|entry| entry.ticket.run == run);
+    let mut groups = read_groups(params.dir);
+    if let Some(mark) = groups.runs.remove(run) {
+      if queued {
+        groups.give_back(&mark);
+      }
+      write_groups(params.dir, &groups)?;
+    }
     table.queue.retain(|entry| entry.ticket.run != run);
     table.superseded.retain(|entry| entry.ticket.run != run);
     table.light.retain(|entry| entry.ticket.run != run);

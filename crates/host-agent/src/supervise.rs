@@ -471,6 +471,7 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
     exclusive: spec.exclusive,
     fetch: &spec.fetch,
     measure_as: spec.measure_as.as_deref(),
+    group: spec.group.as_deref(),
   }
 }
 

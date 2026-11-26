@@ -37,6 +37,7 @@ fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
     exclusive: false,
     passed_wall: None,
     measure_as: None,
+    group: None,
   }
 }
 
@@ -263,6 +264,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   };
   write_table(dir.path(), &serde_json::json!({ "schema": 2, "queue": [joined] }));
   let before = now_ms();
@@ -1065,7 +1067,7 @@ fn a_run_without_a_measure_an_exclusive_one_or_one_without_three_passed_walls_is
     assert_eq!((joined.short, passed_runs(&joined)), (None, vec![]), "{}", request.run);
   }
   assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["long", "unmeasured", "exclusive", "unwalled"]);
-  assert_eq!(read_marks(dir.path()), QueueMarks::default(), "no run is marked");
+  assert_eq!(read_marks(dir.path()).runs, BTreeMap::new(), "no run is marked short or passed");
 }
 
 /// A short run that passed the head of the queue on a busy free turn takes the earliest join of the runs it passed: the
@@ -1122,16 +1124,21 @@ fn a_table_that_an_older_build_rewrote_keeps_the_passes() {
   for run in ["s1", "s2", "s3", "s4"] {
     join(&params, &short(run, &command, 40)).unwrap();
   }
-  let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
+  rewrite_as_an_older_build(dir.path());
+  assert_eq!(passed_runs(&join(&params, &short("s5", &command, 40)).unwrap()), []);
+  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["s1", "s2", "s3", "s4", "long", "s5"]);
+}
+
+/// Rewrites `turn.json` of `dir` as a supervisor of an older build does: without the fields it does not know
+fn rewrite_as_an_older_build(dir: &Path) {
+  let mut table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(STATE_FILE)).unwrap()).unwrap();
   for list in ["holders", "queue"] {
     for entry in table[list].as_array_mut().unwrap() {
       let entry = entry.as_object_mut().unwrap();
       entry.retain(|field, _| ["run", "pid", "process_started", "repo", "command", "since_ms", "expected", "live"].contains(&field.as_str()));
     }
   }
-  write_table(dir.path(), &table);
-  assert_eq!(passed_runs(&join(&params, &short("s5", &command, 40)).unwrap()), []);
-  assert_eq!(runs(&read_live(dir.path()).unwrap()).1, ["s1", "s2", "s3", "s4", "long", "s5"]);
+  write_table(dir, &table);
 }
 
 /// A short run never goes ahead of an exclusive head whose drain began, the one window of the host for its measurement:
@@ -1464,4 +1471,273 @@ fn the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_m
   let mut back = recent;
   back.push(last - 1_000, Cores(10));
   assert_eq!(back.since_ms, last - 1_000, "a clock set back begins the window again");
+}
+
+/// A request as `request` of the group `group` (`brd-host run --group`), from a checkout of its own
+fn grouped<'a>(run: &'a str, group: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+  TurnRequest {
+    group: Some(group),
+    ..request(run, command)
+  }
+}
+
+/// A request as `request` from the checkout `checkout`, without a group: the group of the run is its checkout
+fn of<'a>(run: &'a str, checkout: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+  TurnRequest {
+    affinity: checkout,
+    ..request(run, command)
+  }
+}
+
+/// The run `holder` of the group `session` takes the whole host of a free turn, and no run of the queue starts beside it
+fn session_holds(params: &TurnParams<'_>, command: &[String]) {
+  assert_eq!(take(params, &grouped("holder", "session", command)).unwrap(), TurnAnswer::Taken);
+}
+
+/// The run `holder` of the group `session` takes the whole host, and `runs` of the group wait behind it
+fn session_waits(params: &TurnParams<'_>, command: &[String], runs: &[&str]) {
+  session_holds(params, command);
+  join_all(params, runs, |run| grouped(run, "session", command));
+}
+
+/// The runs of the queue in `dir`
+fn queue_of(dir: &Path) -> Vec<String> {
+  runs(&read_live(dir).unwrap()).1.into_iter().map(str::to_owned).collect()
+}
+
+/// Each run of `runs` joins the queue of `params` by `request` and waits
+fn join_all<'a>(params: &TurnParams<'_>, runs: &[&'a str], request: impl Fn(&'a str) -> TurnRequest<'a>) {
+  for run in runs {
+    assert!(matches!(take(params, &request(run)).unwrap(), TurnAnswer::Queued(_)), "{run}");
+  }
+}
+
+/// How often the turns of the groups passed each of `runs` of the queue in `dir`
+fn turn_passes(dir: &Path, runs: &[&str]) -> Vec<u32> {
+  let groups = read_groups(dir);
+  runs.iter().map(|run| groups.passes(run)).collect()
+}
+
+/// The heavy queue takes turns between the groups of its runs: a group of many runs (the agents of one session in
+/// checkouts of their own, `--group`) no longer keeps a run of another group that comes later waiting for all of them.
+/// Each row joins a run behind a holder of the whole host, and the queue after it is as the row says: first come first
+/// inside a group, and a run of a group with fewer runs waiting goes ahead of the runs of a group with more. A run of
+/// the turns counts its passes in `groups.json` and touches none of the short lane: no pass of `passes.json`, no join
+/// of another run
+#[test]
+fn the_queue_takes_turns_between_groups_and_each_group_keeps_its_order() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_holds(&params, &command);
+  // (run, group, the queue after its join)
+  let rows: [(&str, &str, &[&str]); 7] = [
+    ("a1", "session", &["a1"]),
+    ("a2", "session", &["a1", "a2"]),
+    ("a3", "session", &["a1", "a2", "a3"]),
+    ("b1", "other", &["a1", "b1", "a2", "a3"]),
+    ("c1", "third", &["a1", "b1", "c1", "a2", "a3"]),
+    ("b2", "other", &["a1", "b1", "c1", "a2", "b2", "a3"]),
+    ("a4", "session", &["a1", "b1", "c1", "a2", "b2", "a3", "a4"]),
+  ];
+  for (run, group, queue) in rows {
+    assert!(matches!(take(&params, &grouped(run, group, &command)).unwrap(), TurnAnswer::Queued(_)), "{run}");
+    assert_eq!(queue_of(dir.path()), queue, "after {run}");
+  }
+  assert_eq!(turn_passes(dir.path(), &["a1", "b1", "c1", "a2", "b2", "a3", "a4"]), [0, 0, 0, 2, 0, 3, 0]);
+  assert_eq!(read_marks(dir.path()).runs, BTreeMap::new(), "no pass of the short lane, no join of another run");
+  let table = read_live(dir.path()).unwrap();
+  let since = |run: &str| table.queue.iter().find(|entry| entry.ticket.run == run).unwrap().since_ms;
+  assert!(since("b1") >= since("a3"), "a run of the turns counts its load bound from its own join");
+  assert_eq!(table.queue[1].group.as_deref(), Some("other"), "the entry names its group for the lines");
+
+  // only the head is admitted, and the turns follow the queue
+  assert!(leave(&params, "holder").unwrap());
+  for run in ["a1", "b1", "c1", "a2"] {
+    assert_eq!(take(&params, &grouped(run, "any", &command)).unwrap(), TurnAnswer::Taken, "{run}");
+    assert!(leave(&params, run).unwrap());
+  }
+  assert_eq!(queue_of(dir.path()), ["b2", "a3", "a4"]);
+}
+
+/// Without `--group` the group of a run is its checkout. With at most one waiting run of each checkout the queue is
+/// first come first exactly as before the groups, also for a checkout whose run just took the turn and that joins
+/// again, as an agent that waits for each of its runs does; a second waiting run of one checkout waits behind the first
+/// runs of the others
+#[test]
+fn without_groups_the_runs_of_checkouts_with_one_run_waiting_each_are_first_come_first() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let (nextest, e2e) = (command(), vec!["pnpm".to_owned(), "e2e".to_owned()]);
+  assert_eq!(take(&params, &of("a1", "checkout-a", &nextest)).unwrap(), TurnAnswer::Taken);
+  join_all(&params, &["b1", "c1"], |run| of(run, if run == "b1" { "checkout-b" } else { "checkout-c" }, &nextest));
+  // a's run took the turn, and a joins again, then a new checkout
+  join_all(&params, &["a2"], |run| of(run, "checkout-a", &e2e));
+  join_all(&params, &["d1"], |run| of(run, "checkout-d", &nextest));
+  assert_eq!(queue_of(dir.path()), ["b1", "c1", "a2", "d1"], "first come first");
+  assert!(leave(&params, "a1").unwrap());
+  assert_eq!(take(&params, &of("b1", "checkout-b", &nextest)).unwrap(), TurnAnswer::Taken);
+  join_all(&params, &["b2"], |run| of(run, "checkout-b", &e2e));
+  assert_eq!(queue_of(dir.path()), ["c1", "a2", "d1", "b2"], "the agent loop of one run at a time");
+  assert_eq!(turn_passes(dir.path(), &["c1", "a2", "d1", "b2"]), [0, 0, 0, 0]);
+
+  // a second waiting run of one checkout, then a later run of another one
+  join_all(&params, &["d2"], |run| of(run, "checkout-d", &e2e));
+  join_all(&params, &["e1"], |run| of(run, "checkout-e", &nextest));
+  assert_eq!(queue_of(dir.path()), ["c1", "a2", "d1", "b2", "e1", "d2"]);
+  assert_eq!(read_live(dir.path()).unwrap().queue[0].group, None, "a run without --group names none");
+  assert_eq!(group_key(None, CHECKOUT, "run-1"), CHECKOUT);
+  assert_eq!(group_key(Some("session"), CHECKOUT, "run-1"), "session");
+  assert_eq!(group_key(Some(""), "", "run-1"), "run-1", "a run of an older client without an affinity is alone");
+}
+
+/// The bound of the turns: a run is passed by runs of the turns at most `TURN_PASS_BUDGET` (8) times, whatever the
+/// count of the groups and while the head cannot start, and only by runs of groups with fewer runs waiting; the first
+/// run of a group is passed by none. Twenty new groups join behind a group of four while a holder of the whole host
+/// keeps the head waiting; a run that leaves the queue without the turn gives its passes back
+#[test]
+fn a_run_is_passed_by_the_turns_at_most_eight_times_whatever_the_count_of_groups() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_holds(&params, &command);
+  let big = ["big-1", "big-2", "big-3", "big-4"];
+  join_all(&params, &big, |run| grouped(run, "big", &command));
+  let others: Vec<String> = (0..20).map(|n| format!("other-{n:02}")).collect();
+  let names: Vec<&str> = others.iter().map(String::as_str).collect();
+  join_all(&params, &names, |run| grouped(run, run, &command));
+  assert_eq!(turn_passes(dir.path(), &big), [0, TURN_PASS_BUDGET, TURN_PASS_BUDGET, TURN_PASS_BUDGET]);
+  let queue = queue_of(dir.path());
+  let mut expected: Vec<&str> = vec!["big-1"];
+  expected.extend(&names[..8]);
+  expected.extend(&big[1..]);
+  expected.extend(&names[8..]);
+  assert_eq!(queue, expected, "the ninth new group waits behind the runs passed 8 times");
+  for run in &names {
+    assert_eq!(turn_passes(dir.path(), &[run]), [0], "a first run of a group is passed by none: {run}");
+  }
+
+  // a run of the turns that leaves without the turn, as a refused start of `admit_now`, gives its passes back
+  assert!(!leave(&params, "other-00").unwrap());
+  assert_eq!(turn_passes(dir.path(), &big[1..]), [7, 7, 7]);
+  join_all(&params, &["late"], |run| grouped(run, run, &command));
+  assert_eq!(
+    queue_of(dir.path()).last().map(String::as_str),
+    Some("late"),
+    "behind the first runs of the groups before it"
+  );
+  assert_eq!(turn_passes(dir.path(), &big[1..]), [7, 7, 7]);
+}
+
+/// The short lane keeps its rules beside the turns: the turns use none of its passes, so a short run still goes ahead
+/// of a backlog that eight other groups went ahead of; no run of the turns goes ahead of a short run or of the head,
+/// whatever their groups, and a run that supersedes one of its group takes its place
+#[test]
+fn the_short_lane_the_head_and_the_supersede_keep_their_rules_beside_the_turns() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let (nextest, e2e) = (command(), vec!["pnpm".to_owned(), "e2e".to_owned()]);
+  session_holds(&params, &nextest);
+  let session = ["s1", "s2", "s3"];
+  join_all(&params, &session, |run| grouped(run, "session", &nextest));
+  let others: Vec<String> = (0..8).map(|n| format!("o{n}")).collect();
+  let names: Vec<&str> = others.iter().map(String::as_str).collect();
+  join_all(&params, &names, |run| grouped(run, run, &nextest));
+  assert_eq!(turn_passes(dir.path(), &session), [0, 8, 8]);
+  let lint = TurnRequest {
+    group: Some("lint"),
+    ..short("lint", &nextest, 60)
+  };
+  let joined = join(&params, &lint).unwrap();
+  assert_eq!(passed_runs(&joined).len(), 11, "the short run goes ahead of every run of the queue, as before");
+  assert_eq!(queue_of(dir.path())[0], "lint");
+  assert_eq!((passes(dir.path(), "s2"), passes(dir.path(), "s3")), (1, 1), "one pass of the short lane each");
+
+  // a run of the turns goes behind the head, and behind a short run of a later round
+  let entry = |run: &str| TurnEntry {
+    ticket: Ticket {
+      run: run.to_owned(),
+      ..Ticket::default()
+    },
+    ..TurnEntry::default()
+  };
+  let queue = [entry("head"), entry("short"), entry("long")];
+  let groups = QueueGroups {
+    runs: ["head", "short", "long"]
+      .map(|run| {
+        let mark = GroupMark {
+          group: "session".to_owned(),
+          ..GroupMark::default()
+        };
+        (run.to_owned(), mark)
+      })
+      .into(),
+  };
+  let mut marks = QueueMarks::default();
+  assert_eq!(place(&queue, &marks, None, false, Some((&groups, "other"))), 1, "behind the head only");
+  marks.runs.insert(
+    "long".to_owned(),
+    RunMark {
+      short_ms: Some(50_000),
+      ..RunMark::default()
+    },
+  );
+  assert_eq!(place(&queue, &marks, None, false, Some((&groups, "other"))), 3, "behind the short run");
+  assert_eq!(place(&queue[..1], &marks, None, false, Some((&groups, "other"))), 1, "behind the head of a higher round");
+
+  // a later run of the checkout and command of b1, of its group, takes its place and its passes
+  join_all(&params, &["b1", "b2"], |run| grouped(run, "other", if run == "b1" { &nextest } else { &e2e }));
+  let later = TurnRequest {
+    affinity: "b1",
+    ..grouped("b1-later", "other", &nextest)
+  };
+  let joined = join(&params, &later).unwrap();
+  assert_eq!(joined.replaced.iter().map(|entry| entry.ticket.run.as_str()).collect::<Vec<_>>(), ["b1"]);
+  assert_eq!(queue_of(dir.path())[12..], ["b1-later", "b2"]);
+  assert_eq!(read_groups(dir.path()).runs.get("b1"), None, "the superseded run leaves the groups");
+}
+
+/// A later run of the checkout and command of a waiting run whose group differs takes its own turn, not the place of
+/// the run it supersedes: it waits behind the earlier runs of its new group, and the passes of the superseded run go
+/// back to the runs it went ahead of
+#[test]
+fn a_run_that_supersedes_a_run_of_another_group_takes_its_own_turn() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_waits(&params, &command, &["s1", "s2", "s3"]);
+  join_all(&params, &["x"], |run| of(run, "checkout-x", &command));
+  assert_eq!(queue_of(dir.path()), ["s1", "x", "s2", "s3"]);
+  assert_eq!(turn_passes(dir.path(), &["s2", "s3"]), [1, 1]);
+  let later = TurnRequest {
+    affinity: "checkout-x",
+    ..grouped("x-later", "session", &command)
+  };
+  let joined = join(&params, &later).unwrap();
+  assert_eq!(joined.replaced.iter().map(|entry| entry.ticket.run.as_str()).collect::<Vec<_>>(), ["x"]);
+  assert_eq!(queue_of(dir.path()), ["s1", "s2", "s3", "x-later"], "first come first inside its new group");
+  assert_eq!(turn_passes(dir.path(), &["s2", "s3"]), [0, 0], "the passes of x go back");
+}
+
+/// The groups and the passes of the turns are in `groups.json`, which no older build knows: a supervisor of an older
+/// build that rewrites `turn.json` without `group`, and `passes.json` as `{"runs": …}`, as builds 1.24 to 1.27 do,
+/// changes no turn. Without `groups.json` each run is of the group of its entry, by its affinity, or alone once a rewrite
+/// dropped that too: the order goes on, first come first, and no run is lost
+#[test]
+fn a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_waits(&params, &command, &["a1", "a2", "a3"]);
+  join_all(&params, &["b1"], |run| grouped(run, "other", &command));
+  rewrite_as_an_older_build(dir.path());
+  std::fs::write(dir.path().join(PASSES_FILE), r#"{"runs":{"a2":{"passes":1}}}"#).unwrap();
+  join_all(&params, &["c1"], |run| grouped(run, "third", &command));
+  assert_eq!(queue_of(dir.path()), ["a1", "b1", "c1", "a2", "a3"], "the turns outlive the rewrites");
+  assert_eq!(turn_passes(dir.path(), &["a2", "a3"]), [2, 2]);
+  assert_eq!(passes(dir.path(), "a2"), 1, "the short lane keeps its own passes");
+
+  std::fs::remove_file(dir.path().join(GROUPS_FILE)).unwrap();
+  join_all(&params, &["d1"], |run| grouped(run, "fourth", &command));
+  assert_eq!(queue_of(dir.path()), ["a1", "b1", "c1", "a2", "a3", "d1"], "each run alone: first come first");
 }

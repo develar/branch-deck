@@ -46,8 +46,8 @@ fn the_lines_of_a_heavy_turn_of_the_build_before_name_the_holder_and_each_waitin
 
 /// The lines of `brd-host runs` say the cores held of the cores of the host, each holder with what it holds, why and
 /// for how long, a holder without a measure past its grace its live use of the last 5 min, each waiting run with what
-/// it waits for, a run without a measure what gives one, a run of a class of measures without one its class, and each
-/// run that is not heavy with its live cores
+/// it waits for, a run without a measure what gives one, a run of a class of measures without one its class, a run of
+/// `--group` its group, and each run that is not heavy with its live cores
 #[test]
 fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_light_run() {
   let now = 1_000_000_000;
@@ -63,7 +63,7 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
       { "run": "1790-03", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane fast", "since_ms": now - 60_000 },
       { "run": "1790-04", "pid": 2, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --lane slow", "since_ms": now - 10_000, "expected": 20.0 },
       { "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/branch-deck", "command": "pnpm e2e", "since_ms": now - 5_000, "expected": 9.0 },
-      { "run": "1790-06", "pid": 2, "repo": "/Users/u/projects/accio", "command": "bash -c ./gate.sh 1a2b 3c4d", "since_ms": now - 2_000, "measure_as": "accio-gate" },
+      { "run": "1790-06", "pid": 2, "repo": "/Users/u/projects/accio", "command": "bash -c ./gate.sh 1a2b 3c4d", "since_ms": now - 2_000, "measure_as": "accio-gate", "group": "typing" },
     ],
     "light": [{ "run": "1791-01", "pid": 3, "repo": "/Users/u/projects/idea-1", "command": "./community/tools/bt.cmd --module x", "live": 2.0 }],
   });
@@ -77,7 +77,7 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
       "  run 1790-03 of idea-1 waits 60 s for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one): ./community/tools/bt.cmd --lane fast",
       "  run 1790-04 of idea-1 waits 10 s for the whole host (measured 20.0): ./community/tools/bt.cmd --lane slow",
       "  run 1790-05 of branch-deck waits 5 s for 9.0 (measured): pnpm e2e",
-      "  run 1790-06 of accio waits 2 s for the whole host (no measure of the class accio-gate yet): bash -c ./gate.sh 1a2b 3c4d",
+      "  run 1790-06 of accio in the group typing waits 2 s for the whole host (no measure of the class accio-gate yet): bash -c ./gate.sh 1a2b 3c4d",
       "  run 1791-01 of idea-1, not heavy, uses 2.0: ./community/tools/bt.cmd --module x",
     ]
   );
@@ -146,6 +146,7 @@ fn the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed() {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   };
   assert_eq!(took_line(Duration::from_millis(300), Some(Cores(50)), 20, None), None);
   assert_eq!(
@@ -286,6 +287,7 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
     exclusive: true,
     fetch: &[],
     measure_as: None,
+    group: None,
   };
   assert_eq!(take(&home, &exclusive, Duration::ZERO, &never, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
   let shown = lines(&live(&home).unwrap()).unwrap();
@@ -402,6 +404,7 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
     exclusive: false,
     fetch,
     measure_as: None,
+    group: None,
   };
   let never = || false;
   let mut quiet = |_: &str| {};

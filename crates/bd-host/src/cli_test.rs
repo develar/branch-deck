@@ -69,6 +69,28 @@ fn measure_as_names_the_class_of_the_measures() {
   assert!(class_of(&["brd-host", "run", "studio", "--measure-as", "--", "make"]).is_err(), "a class is a value");
 }
 
+/// `--group <group>` names the group of a run in the heavy queue, and so does `BRD_HOST_GROUP`, which an orchestrator
+/// sets once for all its agents; the flag wins over the variable, and an empty variable names none
+#[test]
+fn group_names_the_group_of_the_run_by_the_flag_or_the_environment() {
+  let group_of = |argv: &[&str]| match Cli::try_parse_from(argv).map(|cli| cli.command) {
+    Ok(Command::Run(args)) => args.group().map(str::to_owned),
+    Ok(command) => panic!("not a run: {command:?}"),
+    Err(error) => panic!("{error}"),
+  };
+  let flagged = ["brd-host", "run", "studio", "--group", "typing", "--", "make"];
+  {
+    let _unset = test_utils::env_vars::EnvVars::set_and_remove::<&str>(&[], &["BRD_HOST_GROUP".to_owned()]);
+    assert_eq!(group_of(&flagged), Some("typing".to_owned()));
+    assert_eq!(group_of(&["brd-host", "run", "studio", "--", "make"]), None, "the affinity is the group");
+  }
+  let _set = test_utils::env_vars::EnvVars::set(&[("BRD_HOST_GROUP", "session-7")]);
+  assert_eq!(group_of(&["brd-host", "run", "studio", "--", "make"]), Some("session-7".to_owned()));
+  assert_eq!(group_of(&flagged), Some("typing".to_owned()), "the flag wins");
+  let _empty = test_utils::env_vars::EnvVars::set(&[("BRD_HOST_GROUP", "")]);
+  assert_eq!(group_of(&["brd-host", "run", "studio", "--", "make"]), None, "an empty variable names no group");
+}
+
 /// The setup of the command line `argv`, or the error of clap
 fn setup_of(argv: &[&str]) -> Result<SetupArgs, clap::Error> {
   Cli::try_parse_from(argv).map(|cli| match cli.command {

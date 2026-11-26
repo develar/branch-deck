@@ -18,7 +18,7 @@ use host_link::heavy::{measure_key, run_key};
 use host_link::proto::{Estimate, EstimateAsk, Reply};
 use lease_pool::host_estimate::{Asked, Sight, StartEstimate, estimate};
 use lease_pool::host_slots::read_host_slots;
-use lease_pool::host_turn::{Bar, TurnEntry, bar};
+use lease_pool::host_turn::{Bar, TurnEntry, bar, group_key};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -37,12 +37,14 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
   let wall_of_entry = |entry: &TurnEntry| entry_wall(&runs, &dir, entry);
   let now = epoch_ms(SystemTime::now());
   let start = if ask.heavy {
+    let group = group_key(ask.group.as_deref(), &ask.affinity, "");
     let asked = Asked {
       repo: &path,
       affinity: &ask.affinity,
       command_key: &run_key(&ask.command),
       expected: expected_cores,
       passed_wall: lease_pool::host_cores::passed_wall(&dir, &path, &key).ok().flatten(),
+      group,
     };
     match Sight::of(&dir, cores, now, tuning::drain_bar()) {
       Ok(sight) => estimate(&sight, &asked, &wall_of_entry),

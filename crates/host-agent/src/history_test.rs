@@ -17,6 +17,7 @@ fn spec(run: &str) -> RunSpec {
     command: vec!["pnpm".to_owned(), "e2e".to_owned(), "--output=out/e2e".to_owned()],
     fetch: vec!["out/e2e".to_owned()],
     heavy: true,
+    group: Some("session".to_owned()),
     ..RunSpec::default()
   }
 }
@@ -125,6 +126,7 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     )
   );
   assert_eq!((line.heavy, line.exit, line.ended_ms, line.lost), (true, 1, Some(ended_ms), false));
+  assert_eq!(line.group.as_deref(), Some("session"), "the group of the run in the heavy queue");
   assert_eq!(
     line.phases,
     [LinePhase {
@@ -295,6 +297,7 @@ fn turn_run(command: &[String], exclusive: bool) -> crate::turn::TurnRun<'_> {
     exclusive,
     fetch: &[],
     measure_as: None,
+    group: None,
   }
 }
 

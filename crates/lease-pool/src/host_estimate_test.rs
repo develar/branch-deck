@@ -1,4 +1,5 @@
 use super::*;
+use crate::host_turn::GroupMark;
 use pretty_assertions::assert_eq;
 
 const NOW: u64 = 10_000_000;
@@ -24,6 +25,7 @@ fn entry(run: &str, since_ms: u64, tenths: Option<u32>) -> TurnEntry {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   }
 }
 
@@ -40,6 +42,7 @@ fn sight(holders: Vec<TurnEntry>, queue: Vec<TurnEntry>, outside: u32) -> Sight 
     window: Some(Cores(outside)),
     sampled: true,
     marks: QueueMarks::default(),
+    groups: QueueGroups::default(),
     head_drain: None,
     now_ms: NOW,
   }
@@ -53,6 +56,7 @@ fn asked<'a>(checkout: &'a str, key: &'a str, tenths: Option<u32>) -> Asked<'a> 
     command_key: key,
     expected: tenths.map(Cores),
     passed_wall: None,
+    group: checkout,
   }
 }
 
@@ -143,6 +147,28 @@ fn a_short_run_is_placed_ahead_of_the_long_runs_as_the_queue_places_it() {
   assert_eq!(minutes(&queue, &long), (15, 0), "not short: after b, which waits for a");
   let whole = Asked { expected: None, ..short };
   assert_eq!(minutes(&queue, &whole), (15, 0), "a run without a measure is never short");
+}
+
+/// A run of another group takes its place by the turns of the groups, as the queue places it: behind the first waiting
+/// run of a group of many, not behind all of them; a run of that group waits behind all of them
+#[test]
+fn a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it() {
+  let mut queue = sight(
+    vec![entry("a", NOW - MIN, None)],
+    vec![entry("b", NOW, None), entry("c", NOW, None), entry("d", NOW, None)],
+    10,
+  );
+  for run in ["b", "c", "d"] {
+    let mark = GroupMark {
+      group: "session".to_owned(),
+      ..GroupMark::default()
+    };
+    queue.groups.runs.insert(run.to_owned(), mark);
+  }
+  let other = asked("checkout-mine", "key-mine", None);
+  assert_eq!(minutes(&queue, &other), (14, 0), "after a and b, ahead of c and d");
+  let same = Asked { group: "session", ..other };
+  assert_eq!(minutes(&queue, &same), (20, 0), "after a, b, c and d");
 }
 
 /// An exclusive run before the run on a busy host cannot start: the runs behind its drain pass it, so it counts apart

@@ -28,7 +28,7 @@ pool-disk = { path = "../pool-disk" }
 git-executor = { path = "../git-executor" }
 # the renames and removals of the skill files
 sync-utils = { path = "../sync-utils" }
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 serde.workspace = true
 serde_json.workspace = true
 # the JSON schemas of the report and of the hello (`schema`)

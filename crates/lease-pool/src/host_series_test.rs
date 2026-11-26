@@ -21,6 +21,7 @@ fn request<'a>(run: &'a str, command: &'a [String], tenths: Option<u32>) -> Turn
     exclusive: false,
     passed_wall: None,
     measure_as: None,
+    group: None,
   }
 }
 

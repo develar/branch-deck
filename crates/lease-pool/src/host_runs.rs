@@ -40,7 +40,8 @@ pub fn queue_line(run: &str, queued: &Queued, waited: Duration) -> String {
 /// 1 run ahead: 1790-03 of idea-1 (./community/tools/bt.cmd --lane fast)"; without a sample of the host, the use of the runs
 /// that are not heavy instead: "runs that are not heavy use 2.0". A holder that started past an exclusive run says so,
 /// an exclusive run ahead is marked, and the end names the drain of an exclusive head of the queue ([`head_drain_text`]).
-/// `measure_as` is the class of the measures of the run (`brd-host run --measure-as`), which its need names
+/// `measure_as` is the class of the measures of the run (`brd-host run --measure-as`), which its need names; the run, a
+/// holder and a run ahead of `--group` name their group: "run 1792-81 in the group typing waits …"
 pub fn turn_line(run: &str, queue: &TurnQueue, measure_as: Option<&str>, waited: Duration, left: Duration, now_ms: u64) -> String {
   let holders = if queue.holders.is_empty() {
     "no heavy run holds cores".to_owned()
@@ -80,7 +81,8 @@ pub fn turn_line(run: &str, queue: &TurnQueue, measure_as: Option<&str>, waited:
     count => format!("{count} runs ahead: {}", ahead.join(", ")),
   };
   format!(
-    "run {run} waits {} for the heavy turn of the host, {}, {} left: {holders}{light}, {ahead}{}",
+    "run {run}{} waits {} for the heavy turn of the host, {}, {} left: {holders}{light}, {ahead}{}",
+    group_text(queue.group.as_deref()),
     span(waited),
     need_text(queue.need, queue.cores, measure_as),
     span(left),
@@ -227,9 +229,16 @@ pub fn measurement_line(run: &str, holder: &TurnEntry, waited: Duration, now_ms:
   )
 }
 
-/// `1788-12 of branch-deck`: the run and the name of its repository
+/// `1788-12 of branch-deck`: the run and the name of its repository, and `1788-12 of branch-deck in the group typing` of
+/// a run of `--group`
 pub fn run_of_repo(entry: &TurnEntry) -> String {
-  format!("{} of {}", entry.ticket.run, repo_name(&entry.repo))
+  format!("{} of {}{}", entry.ticket.run, repo_name(&entry.repo), group_text(entry.group.as_deref()))
+}
+
+/// ` in the group <group>` for a run of `brd-host run --group`, else nothing: a run without one is of the group of its
+/// checkout
+pub fn group_text(group: Option<&str>) -> String {
+  group.map_or_else(String::new, |group| format!(" in the group {group}"))
 }
 
 /// The name of the repository `repo`: its last component

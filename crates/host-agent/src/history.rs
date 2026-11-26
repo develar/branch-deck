@@ -61,6 +61,7 @@ impl History {
       command: command_line(&spec.command),
       command_key: measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()),
       measure_as: spec.measure_as,
+      group: spec.group,
       heavy: spec.heavy,
       exclusive: spec.exclusive,
       run: spec.run,

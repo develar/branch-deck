@@ -56,8 +56,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 - **Heavy runs share the cores**: a run that `heavy` of `[host]` names, or one with `--heavy`, waits until the cores
   that its command used in its last runs (the 80th percentile of the last 5, by its samples) fit beside the heavy runs
   of the Studio and the live use of the others, whatever its repository, so two full suites never slow each other into
-  timeouts. A command without a measure yet, or one that measured all 20 cores, runs alone; the queue is first come
-  first, and no run of the queue overtakes the head, which starts on a free turn after 15 min in the queue whatever the
+  timeouts. A command without a measure yet, or one that measured all 20 cores, runs alone; the queue takes turns
+  between groups (`--group` or `BRD_HOST_GROUP`, else the checkout) and is first come first inside one, and no run of
+  the queue overtakes the head, which starts on a free turn after 15 min in the queue whatever the
   load of the runs that are not heavy. A short run (its last 3 to 5 passed runs took at most 2 min, as `pnpm
   lint:backend`) joins the queue ahead of the long ones, each of which it may pass at most 4 times: `brd-host runs
   studio` says `(measured, short: ~50 s)` of it and `passed by 2 short runs (at most 4)` of a long one. The paths of the `--fetch` directories are no part of the key of the measures, so a run that

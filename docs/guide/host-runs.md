@@ -245,6 +245,19 @@ brd-host run studio --measure-as accio-typing-gate -- bash -c "$(cat gate.sh)" g
 
 One class is one kind of work of about one weight; a new kind of work gets a class of its own.
 
+The heavy queue takes turns between groups, first come first inside each. A run is of the group of its checkout, so
+one agent's runs wait as before. An orchestrator whose agents work in checkouts of their own names one group for all of
+them, once, in the environment it gives them, and the heavy runs of other sessions then wait behind the first waiting
+run of that group, not behind all of them:
+
+```sh
+export BRD_HOST_GROUP=typing-session    # or brd-host run studio --group typing-session -- …
+```
+
+`brd-host runs studio` and the line of a wait name the group (`run 01M63T… in the group typing-session waits …`), and
+`brd-host stats studio` sums the waits and the work by group. The queue needs no lock of the orchestrator around its
+runs: they start side by side while their cores fit.
+
 `brd-host runs studio` shows who holds the heavy turn and who waits, each with its time. Both ends of a run refuse a
 key of `[host]` that their build does not know, so add `heavy` only once this Mac and the host run a Branch Deck that
 knows it: `brd install` here, `brd-host upgrade studio` there.

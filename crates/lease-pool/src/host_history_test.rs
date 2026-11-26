@@ -369,7 +369,7 @@ fn a_day_is_its_utc_date() {
   assert_eq!(utc_date(19_783), "2024-03-01");
 }
 
-/// The lines of a summary say the waits, the queue, the outcomes, the cores, the commands and the bytes
+/// The lines of a summary say the waits, the queue, the outcomes, the cores, the commands, the groups and the bytes
 #[test]
 fn the_lines_of_a_summary() {
   let lines = [
@@ -395,6 +395,8 @@ fn the_lines_of_a_summary() {
       "  commands by their wait:",
       "    1 run(s), 1 failed, wait p50 90 min p90 90 min, command p50 3 min p90 3 min: pnpm e2e",
       "    1 run(s), wait p50 2 s p90 2 s, command p50 45 s p90 45 s: pnpm lint",
+      "  groups by their wait:",
+      "    2 run(s), 1 heavy, waited 90 min (90 min for the heavy turn), worked 3 min: checkout-1",
       "  bytes: packs 0 B, output 0 B, fetched 0 B, packs of bases 0 B",
     ]
   );
@@ -428,4 +430,64 @@ fn the_runs_of_a_class_are_one_command_named_by_the_class() {
     text.contains(&"    2 run(s), wait p50 0 s p90 0 s, command p50 4 min p90 4 min: --measure-as accio-gate".to_owned()),
     "{text:?}"
   );
+}
+
+/// The summary sums the waits and the work of the runs by their group of the heavy queue: the runs of `--group` of
+/// several checkouts are one group, a run without one is of the group of its affinity, the longest wait first, and the
+/// groups past the 30 that waited longest are one entry
+#[test]
+fn the_summary_sums_the_waits_and_the_work_by_group() {
+  let of_group = |run: &str, affinity: &str, group: Option<&str>, heavy_ms: u64| HistoryLine {
+    affinity: affinity.to_owned(),
+    group: group.map(str::to_owned),
+    heavy: true,
+    ..line(run, "./gate.sh", NOV_24, 0, &[("heavy", heavy_ms), ("slot", MIN), ("command", 10 * MIN)])
+  };
+  let lines = [
+    of_group("1", "checkout-a", Some("session"), 60 * MIN),
+    of_group("2", "checkout-b", Some("session"), 50 * MIN),
+    of_group("3", "checkout-c", None, 5 * MIN),
+  ];
+  let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
+  assert_eq!(
+    report.groups,
+    [
+      GroupStats {
+        group: "session".to_owned(),
+        runs: 2,
+        heavy: 2,
+        wait_ms: 112 * MIN,
+        heavy_ms: 110 * MIN,
+        work_ms: 20 * MIN,
+      },
+      GroupStats {
+        group: "checkout-c".to_owned(),
+        runs: 1,
+        heavy: 1,
+        wait_ms: 6 * MIN,
+        heavy_ms: 5 * MIN,
+        work_ms: 10 * MIN,
+      },
+    ]
+  );
+  assert_eq!(report.other_groups, None);
+  let text = report.lines("studio");
+  assert!(
+    text.contains(&"    2 run(s), 2 heavy, waited 112 min (110 min for the heavy turn), worked 20 min: session".to_owned()),
+    "{text:?}"
+  );
+
+  let many: Vec<HistoryLine> = (0..32u64).map(|n| of_group(&n.to_string(), &format!("checkout-{n}"), None, (n + 1) * MIN)).collect();
+  let report = aggregate(&many, &[], NOV_24, NOV_24 + DAY, 1);
+  assert_eq!((report.groups.len(), report.groups[0].group.as_str()), (TOP_GROUPS, "checkout-31"));
+  assert_eq!(
+    report.other_groups,
+    Some(OtherGroups {
+      groups: 2,
+      runs: 2,
+      wait_ms: 5 * MIN,
+      work_ms: 20 * MIN,
+    })
+  );
+  assert!(report.lines("studio").contains(&"    2 other group(s): 2 run(s), waited 5 min, worked 20 min".to_owned()));
 }

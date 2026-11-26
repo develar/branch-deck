@@ -148,7 +148,8 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   runs that are not heavy and its own expected cores fit the cores of the host (`branchdeck.hostCores` of the global
   git config of the host, else what the system counts). Only the head: a run of the queue never overtakes one that
   waits for more, so a host that frees cores gives them to the run at the head; the one exception is an exclusive head
-  whose drain ended (below). The place in the queue is first come first but for a short run (below). A run without a
+  whose drain ended (below). The place in the queue takes turns between groups, first come first inside one, but for a
+  short run (below). A run without a
   measure, or whose command measured the whole host, takes the whole host: it waits for every holder and for a quiet
   host, and no heavy run joins it. The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
   load of 61 to 84, `top` saying 0 % idle, while the turn counted 8.9 of its 20 cores held), so `serve` samples the busy
@@ -212,6 +213,41 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   measure of the whole host is never short either: it waits for every holder and would hold back a run behind it that
   fits beside them. The two rejected ways above stay rejected: no core is kept back for the light runs, and no command
   is guessed short without its runs.
+- **The turns of the groups** (`host_turn::place`, `host_turn::turn_place`): first come first could not tell who sent
+  a run. On one day of 2026-11 a 20-core host ran 579 runs, 297 heavy, which waited 248 h against 37 h of work; 87 of
+  them, of one class (`--measure-as`, command p50 10 min), came from the 5 to 6 agents of one orchestrating session,
+  each in a checkout of its own, and the heavy runs of the other sessions waited p50 25 to 60 min behind them. Its
+  agents took a hand-made `mkdir` lock instead, which leaked with a dead agent and kept the session to one run on an
+  idle host. So a run names its group (`brd-host run --group`, `BRD_HOST_GROUP`, `RunSpec::group`), which an
+  orchestrator sets once for all its agents; without one the group is its affinity, as one checkout is one agent. The
+  affinity could not be the group: it also picks the slot, the base of the packs and the supersede. The round of a run
+  of the queue is the count of the runs of its group before it, read from the queue at each join, never stamped: a
+  new run joins behind the last entry that it may not pass (the head, a run of its own group, a short run, a run that
+  the turns passed 8 times, a run whose round is not above the count of its own group's waiting runs), so it goes ahead
+  only of runs of groups with more runs waiting before them. With one waiting run per group every round is 0, and the
+  queue is first come first exactly as before, also for an agent that waits for each of its runs. Rounds stamped at the join, with the round each group was served
+  at, were tried and not taken: with them a checkout whose run just took the turn waited behind every new checkout,
+  and a head that could not start kept every new group ahead of every served one.
+  The order still changes only at the join, in `turn.json` itself, so a supervisor of the build before admits its
+  head right. The bound is a budget, as the short lane's: a run is passed by the turns at most 8 times
+  (`TURN_PASS_BUDGET`), whatever the count of the groups and whether the head can start, about 80 min of runs of 10
+  min, within the 2 h of a heavy wait. Rounds alone bound the passes per other group, not the groups: a stream of new
+  groups, each of round 0, would pass a backlog for as long as it came. The price: once a backlog was passed 8 times,
+  later runs of other groups wait behind those of its runs again. The passes and the group of each run are in
+  `groups.json` beside the table, a file no older build reads or writes (builds 1.24 to 1.27 rewrite `passes.json`
+  without the fields they do not know, so it could not hold them), and the turns touch none of the short lane: no pass
+  of `passes.json`, no earliest join, so a short run still passes a backlog that other groups went ahead of and a run of
+  the turns counts its load bound from its own join. A run that leaves the queue without the turn, a cancel or a start
+  of `admit_now` refused `busy`, gives the passes of the runs it went ahead of back. A run that supersedes one of its
+  group takes its place and its passes; one of another group takes its own turn, so it never waits ahead of the earlier
+  runs of its new group. A run that `groups.json` does not name is of the group of its entry, its `--group`, else its
+  affinity, else alone. No cap of holders or cores per group was taken: the admission by cores decides how many runs of
+  a group hold cores at once, as for any run, and a cap idles the host when one group alone waits, the defect of the
+  lock it replaces. An agent without the feature `group` gets no `group` and queues the run first come first, which
+  its client says for a heavy run; the estimate places a run by the same place function, and an older agent ignores
+  `group` and estimates the end of its queue, where it puts the run. `brd-host runs`, the line of a wait, the history
+  line and `brd-host stats` (`groups`: the runs, the waits, the wait for the heavy turn and the work by group, 30 at
+  most and the rest in one entry) name the group.
 - **An exclusive run** (`brd-host run --exclusive`): a measurement such as the A/B pair of a fast lane needs a quiet
   host, and a run of the whole host gives none, as the runs that are not heavy go beside it. An exclusive run is heavy,
   is admitted only without a holder, with no run that is not heavy in its command (a run is in `light` of the turn for
@@ -383,7 +419,8 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
 - **A line**: the run, the repository, the affinity, the commit, the command as the heavy turn names it (one line of
   200 characters: never the whole text, since a command can hold `env TOKEN=…`), the key of its measures
   (`measure_key`, with the repository the key of `cores.json`), the class of `--measure-as` (the summary names a
-  command of a class by it), `heavy`, `exclusive`, the start, the end (none for a
+  command of a class by it), the group of `--group` (the summary sums by it, else by the affinity), `heavy`,
+  `exclusive`, the start, the end (none for a
   lost run), the exit, the code of the refusal, `lost`, the phases, the cores (mean, peak, CPU and wall time of the
   command) and the bytes.
 - **The bytes**: nothing counted them before. A pack adds what came to `pack.json` of its run, a fetch what it sent to

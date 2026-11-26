@@ -433,6 +433,45 @@ fn runs_of_a_class_share_its_measure_whatever_their_command() {
   assert!(matches!(&refused, Reply::Refused { code, .. } if code == "bad_request"), "{refused:?}");
 }
 
+/// The heavy queue takes turns between the groups of its runs (`RunSpec::group`): runs of one group from checkouts of
+/// their own wait first come first, and a run of another checkout without a group that comes later waits behind the
+/// first of them only, not behind all of them; the line of a wait and `Request::Runs` name the group, and an agent
+/// refuses a group that no name may be
+#[test]
+fn the_heavy_queue_takes_turns_between_the_groups_of_its_runs() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20")]);
+  let (gate, marks) = gate_and_marks(&world);
+  let of_group = |run: &str, checkout: &str, group: Option<&str>| RunSpec {
+    affinity: format!("checkout-{checkout}"),
+    group: group.map(str::to_owned),
+    ..heavy(&world, run, &marks, &gate)
+  };
+  agent.start(of_group("20-1", "00000000000a", Some("session")));
+  eventually("the first heavy run holds the turn", || started(&marks) == ["20-1"]);
+  for (run, checkout) in [("20-2", "00000000000b"), ("20-3", "00000000000c")] {
+    agent.start(of_group(run, checkout, Some("session")));
+    eventually("the run of the group waits", || heavy_turn(&agent).1.contains(&run.to_owned()));
+  }
+  agent.start(of_group("20-4", "00000000000d", None));
+  eventually("the later run of another checkout waits", || heavy_turn(&agent).1.len() == 3);
+  assert_eq!(heavy_turn(&agent), (Some("20-1".to_owned()), ["20-2", "20-4", "20-3"].map(str::to_owned).to_vec()));
+  eventually("the line of the wait names the group", || {
+    events(&world, "20-3").contains("brd-host: run 20-3 in the group session waits 0 s for the heavy turn of the host, ")
+  });
+  let Reply::Runs { heavy: Some(heavy), .. } = agent.reply(&Request::Runs { run: None }) else {
+    panic!("no heavy turn");
+  };
+  assert_eq!((heavy["queue"][0]["group"].as_str(), heavy["queue"][1].get("group")), (Some("session"), None), "{heavy}");
+
+  fs::write(&gate, "").expect("the gate opens");
+  for run in ["20-1", "20-2", "20-3", "20-4"] {
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+  let refused = agent.reply(&Request::Start(of_group("20-5", "00000000000e", Some("a b"))));
+  assert!(matches!(&refused, Reply::Refused { code, .. } if code == "bad_request"), "{refused:?}");
+}
+
 /// `serve` samples the busy cores of the whole host into `host.json` of the heavy turn every 2 s, for the admissions:
 /// the samples of the runs miss what no run counts
 #[cfg(any(target_os = "macos", target_os = "linux"))]

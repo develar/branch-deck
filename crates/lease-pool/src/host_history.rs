@@ -8,7 +8,8 @@
 //! [`aggregate`] is the summary that `brd-host stats` prints, a pure function of the lines, so the host sums them and
 //! only the summary travels: the waits against the work by phase, the outcomes by exit and by refusal, the waits of the
 //! runs that never ran their command, the cores, the 30 commands that waited longest ([`TOP_COMMANDS`]) and the rest in
-//! one entry, and the bytes by day
+//! one entry, the 30 groups of the heavy queue that waited longest ([`TOP_GROUPS`]) and the rest in one entry, and the
+//! bytes by day
 
 use crate::host_turn::{HeadDrain, HeavyTurn};
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,8 @@ pub const SCHEMA: u32 = 1;
 pub const KEEP_DAYS: u32 = 90;
 /// The commands of a summary by their wait; the rest is one entry
 pub const TOP_COMMANDS: usize = 30;
+/// The groups of a summary by their wait; the rest is one entry
+pub const TOP_GROUPS: usize = 30;
 /// The phases that wait for the host: for the heavy turn, for a measurement, for the git of the host, for a slot and
 /// for the pack. Every other phase works
 pub const WAIT_PHASES: [&str; 5] = ["heavy", "exclusive", "git", "slot", "pack_wait"];
@@ -48,6 +51,10 @@ pub struct HistoryLine {
   /// an older build
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_as: Option<String>,
+  /// The group of the run in the heavy queue (`brd-host run --group`); `None` without one, when its group is its
+  /// affinity, and from an older build
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<String>,
   #[serde(default, skip_serializing_if = "is_false")]
   pub heavy: bool,
   #[serde(default, skip_serializing_if = "is_false")]
@@ -92,6 +99,12 @@ impl HistoryLine {
 
   fn work_ms(&self) -> u64 {
     self.phases.iter().filter(|phase| !is_wait(&phase.name)).map(|phase| phase.ms).sum()
+  }
+
+  /// The group of the run in the heavy queue: its `--group`, else its affinity, as the queue takes turns by it
+  /// (`host_turn::group_key`)
+  fn group_key(&self) -> &str {
+    crate::host_turn::group_key(self.group.as_deref(), &self.affinity, &self.run)
   }
 
   fn ran_command(&self) -> bool {
@@ -386,6 +399,13 @@ pub struct StatsReport {
   /// The commands past them, in one entry
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub other: Option<OtherCommands>,
+  /// The [`TOP_GROUPS`] groups of the heavy queue that waited longest (`brd-host run --group`, else the affinity of a
+  /// run): the split of the waits and of the work by who sent the runs; none from an agent of a build before groups
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub groups: Vec<GroupStats>,
+  /// The groups past them, in one entry
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub other_groups: Option<OtherGroups>,
   /// What each exclusive command cost the host, the most first; none from an agent of a build before it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub exclusive_costs: Vec<ExclusiveCost>,
@@ -485,6 +505,27 @@ pub struct CommandStats {
   pub peak: Option<Cores>,
 }
 
+/// The runs of one group of the heavy queue over a window: its `--group`, else the affinity of its runs
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupStats {
+  pub group: String,
+  pub runs: u32,
+  pub heavy: u32,
+  /// The time of the wait phases of its runs, of the phase `heavy` among them, and of the other phases
+  pub wait_ms: u64,
+  pub heavy_ms: u64,
+  pub work_ms: u64,
+}
+
+/// The groups past the [`TOP_GROUPS`] that waited longest
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OtherGroups {
+  pub groups: u32,
+  pub runs: u32,
+  pub wait_ms: u64,
+  pub work_ms: u64,
+}
+
 /// What the runs of an exclusive command cost the host over a window
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExclusiveCost {
@@ -573,6 +614,7 @@ pub fn aggregate(lines: &[HistoryLine], bases: &[BasePackLine], since_ms: u64, u
     ..StatsReport::default()
   };
   (report.commands, report.other) = commands(&lines);
+  (report.groups, report.other_groups) = groups(&lines);
   report.exclusive_costs = exclusive_costs(&lines);
   (report.bytes, report.by_day) = bytes(&lines, &bases);
   report
@@ -750,6 +792,38 @@ fn commands(lines: &[&HistoryLine]) -> (Vec<CommandStats>, Option<OtherCommands>
   (commands, Some(other))
 }
 
+/// The runs by their group of the heavy queue, the longest wait first, the groups past [`TOP_GROUPS`] in one entry
+fn groups(lines: &[&HistoryLine]) -> (Vec<GroupStats>, Option<OtherGroups>) {
+  let mut by: BTreeMap<&str, Vec<&HistoryLine>> = BTreeMap::new();
+  for line in lines {
+    by.entry(line.group_key()).or_default().push(line);
+  }
+  let mut groups: Vec<GroupStats> = by
+    .into_iter()
+    .map(|(group, runs)| GroupStats {
+      group: group.to_owned(),
+      runs: count(runs.len()),
+      heavy: count(runs.iter().filter(|line| line.heavy).count()),
+      wait_ms: runs.iter().map(|line| line.wait_ms()).sum(),
+      heavy_ms: runs.iter().map(|line| line.phase_ms("heavy")).sum(),
+      work_ms: runs.iter().map(|line| line.work_ms()).sum(),
+    })
+    .collect();
+  // the longest wait first, then by name
+  groups.sort_by_key(|group| std::cmp::Reverse(group.wait_ms));
+  if groups.len() <= TOP_GROUPS {
+    return (groups, None);
+  }
+  let past = groups.split_off(TOP_GROUPS);
+  let other = OtherGroups {
+    groups: count(past.len()),
+    runs: past.iter().map(|group| group.runs).sum(),
+    wait_ms: past.iter().map(|group| group.wait_ms).sum(),
+    work_ms: past.iter().map(|group| group.work_ms).sum(),
+  };
+  (groups, Some(other))
+}
+
 fn bytes(lines: &[&HistoryLine], bases: &[&BasePackLine]) -> (BytesTotals, Vec<DayBytes>) {
   let mut days: BTreeMap<u64, (u32, BytesTotals)> = BTreeMap::new();
   for line in lines {
@@ -879,6 +953,29 @@ impl StatsReport {
         other.runs,
         other.failed,
         hours(other.wait_ms)
+      ));
+    }
+    if !self.groups.is_empty() {
+      lines.push("  groups by their wait:".to_owned());
+    }
+    for group in &self.groups {
+      lines.push(format!(
+        "    {} run(s), {} heavy, waited {} ({} for the heavy turn), worked {}: {}",
+        group.runs,
+        group.heavy,
+        hours(group.wait_ms),
+        hours(group.heavy_ms),
+        hours(group.work_ms),
+        group.group
+      ));
+    }
+    if let Some(other) = &self.other_groups {
+      lines.push(format!(
+        "    {} other group(s): {} run(s), waited {}, worked {}",
+        other.groups,
+        other.runs,
+        hours(other.wait_ms),
+        hours(other.work_ms)
       ));
     }
     if !self.exclusive_costs.is_empty() {

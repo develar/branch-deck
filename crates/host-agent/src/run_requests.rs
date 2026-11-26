@@ -11,7 +11,7 @@
 use crate::files::append_private;
 use crate::log::log;
 use crate::run::{ExitRecord, KEPT_FORGOTTEN, KeptLog, LogCut, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events_in};
-use crate::serve::{Agent, blocking, check_affinity, check_measure_class, with_heartbeats};
+use crate::serve::{Agent, blocking, check_affinity, check_group, check_measure_class, with_heartbeats};
 use crate::watch::Watch;
 use crate::{admit, cleanup, sys, tuning};
 use git_ops::revs::is_object_id;
@@ -63,6 +63,7 @@ impl Agent {
       return Err(Refusal::new(Code::BadRequest, format!("the fetch directory {bad:?} is not a path inside the slot")));
     }
     check_measure_class(spec.measure_as.as_deref())?;
+    check_group(spec.group.as_deref())?;
     let repo = self.repo(&spec.repo)?;
     // before the run exists: a run that no slot will ever take takes no heavy turn and waits for nothing
     crate::slots::refuse_without_slots(&repo)?;

@@ -61,7 +61,7 @@ use crate::phases::{phase, phases_line};
 use crate::record::{RunEnd, RunFiles, RunLock, RunRecord};
 use crate::{Client, short};
 use git_ops::host_client::{FARTHEST, Scan};
-use host_link::heavy::{is_measure_class, script_in};
+use host_link::heavy::{is_group_name, is_measure_class, script_in};
 use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
@@ -100,19 +100,28 @@ pub struct RunRequest<'a> {
   /// The class of the measures of the run (`--measure-as`), heavy too: the host reads and keeps the measures of the
   /// class, not of the command, so a command whose text changes every run gets a measure (`RunSpec::measure_as`)
   pub measure_as: Option<&'a str>,
+  /// The group of the run in the heavy queue (`--group`, `BRD_HOST_GROUP`): the queue takes turns between groups, so
+  /// the agents of one orchestrator name one group for all their checkouts (`RunSpec::group`); `None`: its affinity
+  pub group: Option<&'a str>,
 }
 
 impl RunRequest<'_> {
-  /// Refuses with `usage` a run without a command or a class of `--measure-as` that is no name of
-  /// `host_link::heavy::is_measure_class`
+  /// Refuses with `usage` a run without a command, a class of `--measure-as` that is no name of
+  /// `host_link::heavy::is_measure_class`, or a group of `--group` that is no name of `host_link::heavy::is_group_name`
   pub(crate) fn check(&self) -> Result<(), Refusal> {
     if self.command.is_empty() {
       return Err(Refusal::new(Code::Usage, "a run needs a command"));
     }
-    match self.measure_as {
-      Some(class) if !is_measure_class(class) => Err(Refusal::new(
+    if let Some(class) = self.measure_as.filter(|class| !is_measure_class(class)) {
+      return Err(Refusal::new(
         Code::Usage,
         format!("--measure-as {class:?} cannot name a class of measures: 1 to 128 letters, digits, `.`, `_` and `-`, the first a letter or a digit"),
+      ));
+    }
+    match self.group {
+      Some(group) if !is_group_name(group) => Err(Refusal::new(
+        Code::Usage,
+        format!("--group {group:?} (or BRD_HOST_GROUP) cannot name a group of the heavy queue: 1 to 128 letters, digits, `.`, `_` and `-`, the first a letter or a digit"),
       )),
       _ => Ok(()),
     }
@@ -355,6 +364,7 @@ impl Client<'_> {
       exclusive: options.exclusive,
       admit_now: options.admit_now,
       measure_as: request.measure_as.map(str::to_owned),
+      group: request.group.map(str::to_owned),
     };
     files.write(&run, &record).map_err(|refusal| before(refusal, &facts))?;
     // the host of the run, by which a wait, a cancel or a fetch to the name of a set goes to it
@@ -662,7 +672,7 @@ impl Client<'_> {
   /// Sends `Start`, unless the agent lacks a feature of `needs`, which `[host]` of the commit needs: such an agent refuses
   /// every run of the commit, so the start refuses with `bad_config` (exit 75) and names the upgrade. A reply that does
   /// not come can still leave the run on the agent, so the client cancels it then
-  async fn start(&self, host: &mut Host, spec: RunSpec, needs: &[&str]) -> Result<(), Refusal> {
+  async fn start(&self, host: &mut Host, mut spec: RunSpec, needs: &[&str]) -> Result<(), Refusal> {
     let run = spec.run.clone();
     let (mut channel, agent) = host.connect().await?;
     if let Some(hint) = another_build_hint(host.alias(), &agent, self.build.sha256.as_deref()) {
@@ -707,6 +717,15 @@ impl Client<'_> {
     if spec.heavy && !agent.features.iter().any(|known| known == feature::HEAVY) {
       (self.say)(&format!(
         "brd-host: the agent on {alias} predates heavy runs, so this one runs beside the others: `brd-host upgrade {alias}` sends this build",
+        alias = host.alias()
+      ));
+    }
+    // an older agent queues every heavy run first come first: the run loses only its turn among the groups
+    if let Some(group) = spec.group.take_if(|_| !agent.features.iter().any(|known| known == feature::GROUP))
+      && spec.heavy
+    {
+      (self.say)(&format!(
+        "brd-host: the agent on {alias} predates the groups of the heavy queue, so this run of the group {group} waits first come first: `brd-host upgrade {alias}` sends this build",
         alias = host.alias()
       ));
     }

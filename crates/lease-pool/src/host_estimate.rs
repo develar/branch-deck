@@ -12,7 +12,9 @@
 //! too, as the runs behind its drain pass it. Read without a lock: nothing of the turn changes
 
 use crate::host_slots::Ticket;
-use crate::host_turn::{HeadDrain, HeavyTurn, LOAD_BOUND, Load, QueueMarks, TurnEntry, admits, head_drain, host_sample, host_window, outside, read_live, read_marks, short_wall};
+use crate::host_turn::{
+  HeadDrain, HeavyTurn, LOAD_BOUND, Load, QueueGroups, QueueMarks, TurnEntry, admits, head_drain, host_sample, host_window, outside, read_groups, read_live, read_marks, short_wall,
+};
 use anyhow::Result;
 use std::path::Path;
 use std::time::Duration;
@@ -34,6 +36,8 @@ pub struct Sight {
   pub sampled: bool,
   /// The classes of the runs of the queue and their passes (`passes.json`, `host_turn::read_marks`)
   pub marks: QueueMarks,
+  /// The groups of the runs of the queue and their passes by turns (`groups.json`, `host_turn::read_groups`)
+  pub groups: QueueGroups,
   /// The drain of an exclusive head of the queue (`host_turn::head_drain`)
   pub head_drain: Option<HeadDrain>,
   pub now_ms: u64,
@@ -50,6 +54,7 @@ impl Sight {
       window,
       sampled: host_sample(dir, now_ms).is_some(),
       marks: read_marks(dir),
+      groups: read_groups(dir),
       head_drain: head_drain(dir, &turn.queue, now_ms, drain_bar),
       turn,
       cores,
@@ -71,6 +76,8 @@ pub struct Asked<'a> {
   pub expected: Option<Cores>,
   /// The wall of the last passed runs of its command (`host_cores::passed_wall`): whether it is short
   pub passed_wall: Option<Duration>,
+  /// Its group in the heavy queue (`host_turn::group_key`): the turns of the groups place it
+  pub group: &'a str,
 }
 
 /// When the run would take the turn
@@ -208,9 +215,9 @@ impl<'a> Play<'a> {
 
 /// The runs of the queue of `sight` before a new run of `asked`, as the queue places it (`host_turn::enqueue`), and the
 /// join that its bound of the load counts from: every run of its checkout and command that waits leaves the queue,
-/// superseded, and the run takes its place within the runs before the first of them, else within the whole queue, by
-/// the one place function of the queue (`host_turn::place`), so the estimate and the queue agree. A short run counts
-/// the earliest join of the runs that it passes
+/// superseded, and the run takes the place of the first of them when it is of its group, else its turn in the whole
+/// queue, by the one place function of the queue (`host_turn::place`), so the estimate and the queue agree. A short run
+/// counts the earliest join of the runs that it passes, a run of the turns its own
 fn place<'q>(sight: &'q Sight, asked: &Asked<'_>) -> (Vec<&'q TurnEntry>, u64) {
   let same = |entry: &TurnEntry| {
     !asked.affinity.is_empty() && entry.repo == asked.repo && entry.affinity.as_deref() == Some(asked.affinity) && entry.command_key.as_deref() == Some(asked.command_key)
@@ -219,10 +226,16 @@ fn place<'q>(sight: &'q Sight, asked: &Asked<'_>) -> (Vec<&'q TurnEntry>, u64) {
   let superseded_at = queue.iter().position(same);
   let kept: Vec<&TurnEntry> = queue.iter().filter(|entry| !same(entry)).collect();
   let owned: Vec<TurnEntry> = kept.iter().map(|entry| (*entry).clone()).collect();
-  let end = superseded_at.unwrap_or(kept.len()).min(kept.len());
+  let takes_place = superseded_at.is_some_and(|at| sight.groups.group_of(&queue[at]) == asked.group);
+  let end = if takes_place { superseded_at.unwrap_or_default().min(kept.len()) } else { kept.len() };
   let short = short_wall(false, asked.expected, asked.passed_wall, sight.cores).is_some();
-  let position = crate::host_turn::place(&owned[..end], &sight.marks, sight.head_drain, short);
-  let since_ms = kept[position..end].iter().map(|entry| entry.since_ms).fold(sight.now_ms, u64::min);
+  let turn = (!takes_place).then_some((&sight.groups, asked.group));
+  let position = crate::host_turn::place(&owned[..end], &sight.marks, sight.head_drain, short, turn);
+  let since_ms = if short {
+    kept[position..end].iter().map(|entry| entry.since_ms).fold(sight.now_ms, u64::min)
+  } else {
+    sight.now_ms
+  };
   (kept[..position].to_vec(), since_ms)
 }
 
@@ -245,6 +258,7 @@ fn entry_of(asked: &Asked<'_>, now_ms: u64) -> TurnEntry {
     passed: None,
     measure_as: None,
     recent: None,
+    group: None,
   }
 }
 

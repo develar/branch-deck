@@ -261,6 +261,7 @@ fn request_of<'a>(checkout: &'a std::path::Path, command: &'a [String]) -> RunRe
     command,
     fetch: &[],
     measure_as: None,
+    group: None,
   }
 }
 
@@ -336,6 +337,24 @@ async fn the_members_are_asked_at_once_and_one_without_estimates_or_an_answer_ha
   let asked = first_ask(&hosts);
   assert_eq!((asked.repo.as_str(), asked.affinity.as_str(), asked.command), ("~/projects/idea-1", AFFINITY, command));
   assert_eq!(hosts.others[0].requests(), Vec::<Request>::new(), "an agent without estimates gets no request");
+}
+
+/// The estimate of a run of `--group` names its group, so a member places it by the turns of the groups; an older agent
+/// ignores the field and estimates the end of its queue, where it queues the run
+#[tokio::test(start_paused = true)]
+async fn the_estimate_of_a_run_of_a_group_names_its_group() {
+  let hosts = hosts(member(Some(estimate(12, 0, Some(4))), false), Vec::new());
+  let processes = FakeProcesses::default();
+  let client = hosts.setup.client(&processes, &|_| {}, &calm);
+  let command = command();
+  let request = RunRequest {
+    group: Some("typing-session"),
+    ..request_of(hosts.setup.repo.path(), &command)
+  };
+  let (ask, _) = client.ask_of(&request, RunOptions::default()).expect("the ask");
+  assert_eq!(ask.group.as_deref(), Some("typing-session"));
+  let (ask, _) = client.ask_of(&request_of(hosts.setup.repo.path(), &command), RunOptions::default()).expect("the ask");
+  assert_eq!(ask.group, None);
 }
 
 /// A run of `--measure-as` is heavy and asks each member by its class, whose measure there decides; a member whose
