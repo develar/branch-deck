@@ -39,7 +39,7 @@ use host_agent::teardown::settle_runs;
 use host_link::allow::AllowList;
 use host_link::channel::{Channel, ClientTls, LinkError};
 use host_link::identity::{Fingerprint, Identity};
-use host_link::proto::{FileKind, PackTarget, Phase, Reply, Request, RunSpec, Stream};
+use host_link::proto::{FileKind, PackTarget, Phase, Reply, Request, RunSlot, RunSpec, Stream};
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -507,12 +507,29 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
     Reply::Runs { runs, .. } => {
       assert_eq!(runs.len(), 1);
       assert_eq!((runs[0].run.as_str(), runs[0].affinity.as_str(), runs[0].exit), ("1-1", AFFINITY, Some(3)));
+      assert_eq!(runs[0].repo.as_deref(), Some(world.repo.path_str()));
+      // the run may wait for the keeper to fill the slot
+      let slot = runs[0].slot.as_ref().map(|slot| (slot.n, slot.choice.as_str()));
+      assert_eq!(slot, Some((1, "idle")), "no run used the slot before");
     }
     other => panic!("{other:?}"),
   }
   assert!(matches!(agent.reply(&Request::Forget { run: "1-1".to_owned() }), Reply::Done { .. }));
   assert!(!world.run_dir("1-1").join("stage").exists(), "the files of the forgotten run are gone");
   forgotten_run_answers_its_end(&agent, "1-1", 3, &["out"]);
+
+  agent.start(world.spec("1-2", "exit 0"));
+  assert_eq!(agent.follow("1-2").end, Reply::Exit { code: 0 }, "{}", agent.dump("1-2"));
+  let Reply::Runs { runs, .. } = agent.reply(&Request::Runs { run: Some("1-2".to_owned()) }) else {
+    panic!("no runs");
+  };
+  let at_once = RunSlot {
+    n: 1,
+    choice: "affinity".to_owned(),
+    waited: false,
+    cleaned: false,
+  };
+  assert_eq!(runs[0].slot, Some(at_once), "the slot of the last run of the checkout, idle again");
 }
 
 /// A forgotten run stays in the runs, finished with its end, a follow answers its output and its exit, a fetch refuses

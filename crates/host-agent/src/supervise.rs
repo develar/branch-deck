@@ -16,7 +16,8 @@
 //! 1. Lend a host slot of the repository (`slots::lend`, with the pid of this process): the slot that the affinity used
 //!    last, else the one used longest ago, else a place in the queue. While Homebrew upgrades the git of the host, the
 //!    run waits in the phase `git`. While every slot is lent, the run waits up to an hour, and the queue line goes to
-//!    the log once a minute. A git below its floor ends the run with `old_git`.
+//!    the log once a minute. A git below its floor ends the run with `old_git`. The slot and how the lend chose it go to
+//!    `slot.json` (`lease_pool::host_history::SlotRecord`).
 //! 2. Wait for the pack, up to `PACK_WAIT_SECONDS` of the protocol, and up to `PACK_STALL_SECONDS` without a chunk of
 //!    it. A start can come before the pack of its commit, so the lend goes on while the pack travels. A commit that the
 //!    repository has already needs no pack. Else the run waits for the file `packed`, which the pack writes after its
@@ -67,6 +68,7 @@ use host_link::config::{ReadError, RepoConfig, read_commit_config};
 use host_link::proto::{Phase, RunSpec, Stream};
 use host_link::refusal::{Code, Refusal};
 use lease_pool::host_git::with_first;
+use lease_pool::host_history::SlotRecord;
 use lease_pool::host_slots::{Lend, LendAnswer, SlotCheckout};
 use lease_pool::host_turn::TurnAnswer;
 use std::collections::{BTreeMap, BTreeSet};
@@ -313,6 +315,17 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   let Some(lent) = take_slot(context, &mut phases, stop)? else {
     return Ok(INTERRUPTED);
   };
+  if let Some(choice) = lent.choice {
+    let record = SlotRecord {
+      n: lent.n,
+      choice,
+      waited: lent.waited,
+      cleaned: lent.cleaned,
+    };
+    if let Err(error) = run.write_slot(record) {
+      supervisor(&format!("cannot write the slot of the run {}: {error}", spec.run));
+    }
+  }
   let slot = PathBuf::from(&lent.path);
   held.prepared = Some(Prepared::load(&context.home.slots_dir(), &lent.lease_id, lent.generation));
   if stop() {

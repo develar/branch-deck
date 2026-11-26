@@ -325,7 +325,7 @@ impl Agent {
       log(&format!("ended the run {}, which lost its supervisor", run.path().display()));
     }
     Reply::Runs {
-      runs: runs.iter().filter_map(|run| run.info().ok()).collect(),
+      runs: runs.iter().filter_map(|run| run.info(&self.home).ok()).collect(),
       heavy: crate::turn::live(&self.home)
         .inspect_err(|refusal| log(&format!("cannot answer the heavy turn: {refusal}")))
         .ok(),

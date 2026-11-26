@@ -1,5 +1,5 @@
 use super::*;
-use crate::host_slots::Ticket;
+use crate::host_slots::{SlotChoice, Ticket};
 use crate::host_turn::{HeadDrain, TurnEntry};
 use pretty_assertions::assert_eq;
 
@@ -490,4 +490,119 @@ fn the_summary_sums_the_waits_and_the_work_by_group() {
     })
   );
   assert!(report.lines("studio").contains(&"    2 other group(s): 2 run(s), waited 5 min, worked 20 min".to_owned()));
+}
+
+/// A run of `repo` whose lend gave it `slot`, and that ran its command for `command_ms`
+fn lent(run: &str, repo: &str, slot: SlotRecord, command_ms: u64) -> HistoryLine {
+  HistoryLine {
+    repo: repo.to_owned(),
+    slot: Some(slot),
+    ..line(run, "bazel build //...", NOV_24, 0, &[("slot", 10), ("command", command_ms)])
+  }
+}
+
+/// The slot `n`, lent at once by `choice` and not cleaned since its last run
+const fn slot(n: u32, choice: SlotChoice) -> SlotRecord {
+  SlotRecord {
+    n,
+    choice,
+    waited: false,
+    cleaned: false,
+  }
+}
+
+/// Per repository the summary counts the runs whose line names their slot, those that got the slot whose last lend had
+/// their affinity, after a wait or not, those of them on a slot cleaned since, and those that waited; the command p50
+/// of the warm hits, the cleaned hits and the others counts only the commands that ran to their end. A run without a
+/// slot of record counts in none, a choice of a later build as no hit, and a part of no run leaves the line
+#[test]
+fn the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinity() {
+  let later = HistoryLine {
+    slot: serde_json::from_value(serde_json::json!({"n": 2, "choice": "cold"})).unwrap(),
+    ..lent("6", "/Users/u/idea-1", slot(2, SlotChoice::Idle), 9 * MIN)
+  };
+  assert_eq!(later.slot.map(|slot| slot.choice), Some(SlotChoice::Other), "a choice of a later build reads as other");
+  let cancelled = HistoryLine {
+    exit: INTERRUPTED,
+    ..lent("7", "/Users/u/idea-1", slot(1, SlotChoice::Affinity), MIN)
+  };
+  let after_wait = |n, choice| SlotRecord { waited: true, ..slot(n, choice) };
+  let lines = [
+    lent("1", "/Users/u/idea-1", slot(1, SlotChoice::Affinity), 2 * MIN),
+    lent("2", "/Users/u/idea-1", after_wait(2, SlotChoice::Affinity), 4 * MIN),
+    lent("3", "/Users/u/idea-1", slot(3, SlotChoice::Idle), 10 * MIN),
+    lent("4", "/Users/u/idea-1", slot(4, SlotChoice::Affinity), 3 * MIN),
+    lent(
+      "5",
+      "/Users/u/idea-1",
+      SlotRecord {
+        cleaned: true,
+        ..slot(1, SlotChoice::Affinity)
+      },
+      8 * MIN,
+    ),
+    later,
+    cancelled,
+    lent("a", "/Users/u/accio", after_wait(1, SlotChoice::Affinity), MIN),
+    line("8", "bazel build //...", NOV_24, 0, &[("command", MIN)]),
+  ];
+
+  let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
+
+  assert_eq!(
+    report.slots,
+    [
+      SlotStats {
+        repo: "/Users/u/accio".to_owned(),
+        runs: 1,
+        affinity: 1,
+        cleaned: 0,
+        waited: 1,
+        warm_command_ms: Some(Spread { p50: MIN, p90: MIN }),
+        cleaned_command_ms: None,
+        other_command_ms: None,
+      },
+      SlotStats {
+        repo: "/Users/u/idea-1".to_owned(),
+        runs: 7,
+        affinity: 5,
+        cleaned: 1,
+        waited: 1,
+        warm_command_ms: Some(Spread { p50: 3 * MIN, p90: 4 * MIN }),
+        cleaned_command_ms: Some(Spread { p50: 8 * MIN, p90: 8 * MIN }),
+        other_command_ms: Some(Spread { p50: 9 * MIN, p90: 10 * MIN }),
+      },
+    ]
+  );
+  let slot_lines: Vec<String> = report.lines("studio").into_iter().filter(|line| line.starts_with("  slots of ")).collect();
+  assert_eq!(
+    slot_lines,
+    [
+      "  slots of /Users/u/accio: 1 of 1 run(s) got the slot that their checkout used last (100 %); 1 warm, command p50 60 s; 1 waited in the queue of the slots",
+      "  slots of /Users/u/idea-1: 5 of 7 run(s) got the slot that their checkout used last (71 %); 4 warm, command p50 3 min; 1 cleaned since, command p50 8 min; the other 2, command p50 9 min; 1 waited in the queue of the slots",
+    ]
+  );
+  let json = serde_json::to_value(&report).unwrap();
+  assert_eq!(
+    json["slots"][1],
+    serde_json::json!({
+      "repo": "/Users/u/idea-1",
+      "runs": 7,
+      "affinity": 5,
+      "cleaned": 1,
+      "waited": 1,
+      "warm_command_ms": {"p50": 3 * MIN, "p90": 4 * MIN},
+      "cleaned_command_ms": {"p50": 8 * MIN, "p90": 8 * MIN},
+      "other_command_ms": {"p50": 9 * MIN, "p90": 10 * MIN},
+    })
+  );
+  assert_eq!(
+    (serde_json::to_value(lines[1].slot).unwrap(), serde_json::to_value(lines[4].slot).unwrap()),
+    (
+      serde_json::json!({"n": 2, "choice": "affinity", "waited": true}),
+      serde_json::json!({"n": 1, "choice": "affinity", "cleaned": true})
+    ),
+    "the slot of a line"
+  );
+  assert!(aggregate(&lines[8..], &[], NOV_24, NOV_24 + DAY, 1).slots.is_empty(), "no line names its slot");
 }

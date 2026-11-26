@@ -1,6 +1,6 @@
 use crate::proto::{
-  DEFAULT_PORT, Estimate, EstimateAsk, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSpec, SCHEMA_VERSION, Stream, VersionLine,
-  feature, features, is_run_id,
+  DEFAULT_PORT, Estimate, EstimateAsk, FileKind, PackTarget, Phase, Piece, Reply, RepositorySlots, Request, RunInfo, RunRefusal, RunSlot, RunSpec, SCHEMA_VERSION, Stream,
+  VersionLine, feature, features, is_run_id,
 };
 use crate::refusal::Code;
 use pretty_assertions::assert_eq;
@@ -238,6 +238,24 @@ fn the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema() 
     "{json}"
   );
   assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), superseded);
+  let lent = RunInfo {
+    repo: Some("/Users/u/idea".to_owned()),
+    slot: Some(RunSlot {
+      n: 3,
+      choice: "affinity".to_owned(),
+      waited: true,
+      cleaned: true,
+    }),
+    ..superseded
+  };
+  let json = serde_json::to_string(&lent).expect("json");
+  assert!(
+    json.ends_with(r#""repo":"/Users/u/idea","slot":{"n":3,"choice":"affinity","waited":true,"cleaned":true}}"#),
+    "{json}"
+  );
+  assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), lent);
+  let at_once: RunSlot = serde_json::from_str(r#"{"n":1,"choice":"a choice of a later build"}"#).expect("a slot");
+  assert_eq!((at_once.choice.as_str(), at_once.waited, at_once.cleaned), ("a choice of a later build", false, false));
 }
 
 #[test]

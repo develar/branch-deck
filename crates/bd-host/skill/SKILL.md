@@ -210,14 +210,16 @@ the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 
 ## The statistics of a host
 
-`brd-host stats [<host>] [--days <n>] [--json]` sums the runs that ended there in the last `n` days (7 by default, 90
-at most), of every host without one: the waits against the work by phase, the heavy queue (behind holders, or at the
-head of a free turn for the load of the host), the outcomes, the runs that ended before their command, the cores, the
-30 commands that waited longest, what each exclusive command cost (the time it held and drained the host, the runs
-that waited in it, its outcomes), and the bytes. The line `heavy turn by the minute` comes from the series of the heavy
-turn that the agent keeps for 30 days: the idle cores of the host while heavy runs waited, by why no run started, and
-the runs that a backfill behind the head would have started, a dry run that starts nothing. Read it before you guess
-why heavy runs wait; an agent without the feature `stats` names `brd-host upgrade <host>`: ask the user for it.
+`brd-host stats [<host>] [--days <n>] [--json]` sums the runs that ended there in the last `n` days (7 by default, 90 at
+most), of every host without one: the waits against the work by phase, the heavy queue (behind holders, or at the head
+of a free turn for the load of the host), per repository the share of runs that got the slot that their checkout used
+last, those of them on a slot cleaned since, and the command p50 of the warm hits, of the cleaned hits and of the
+others, the outcomes, the runs that ended before their command, the cores, the 30 commands that waited longest, what
+each exclusive command cost (the time it held and drained the host, the runs that waited in it, its outcomes), and the
+bytes. The line `heavy turn by the minute` comes from the series of the heavy turn that the agent keeps for 30 days: the
+idle cores of the host while heavy runs waited, by why no run started, and the runs that a backfill behind the head
+would have started, a dry run that starts nothing. Read it before you guess why heavy runs wait; an agent without the
+feature `stats` names `brd-host upgrade <host>`: ask the user for it.
 
 ## Exit codes
 
@@ -285,8 +287,9 @@ command that follows the run.
 
 The host keeps a fixed set of warm slots per repository (`branchdeck.hostSlots` of its git config, 4 by default). Each
 run borrows one for that run only. A run gets the slot that its affinity used last, else the one used longest ago,
-else it waits in a queue with one line a minute. After an hour it refuses with `slot_timeout`. A host that keeps no
-slot for the repository (`branchdeck.hostSlots` 0, or a last `brd-host slots --local --shrink 0`) refuses the run at
+else it waits in a queue with one line a minute; `brd-host runs --json` names the `repo` of each run and its `slot`
+(`n`, `choice` `affinity` or `idle`, `waited`, `cleaned` when a clean emptied it since). After an hour it refuses
+with `slot_timeout`. A host that keeps no slot for the repository (`branchdeck.hostSlots` 0, or a last `brd-host slots --local --shrink 0`) refuses the run at
 once with `no_slots`, and a set does not choose it; the message names the command that raises the limit, which is the
 user's to run. At the end of each run
 the slot comes back: the processes of the run stop, and its changes go. The ignored files stay as the warm cache, until

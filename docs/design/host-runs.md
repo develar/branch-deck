@@ -106,7 +106,8 @@ slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` lea
 
 - A run gets the idle slot that its affinity (`checkout-<12 hex>` of the local checkout path) used last, else the idle
   slot used longest ago, else it waits in a first-come queue. A waiting run gives back a slot that a gone run left
-  itself, without waiting for the keeper.
+  itself, without waiting for the keeper. The lend says which it chose and whether the run waited
+  ([The slot of a run](#the-history-of-the-runs)).
 - The give-back at the end of each run stops the processes that the run left, keeps the Bazel servers of the slot,
   and discards the changes. The ignored files stay as the warm cache until the slot has waited idle
   `branchdeck.hostSlotIdleClean` (6 hours by default): then the keeper applies the repository's clean rules. A process
@@ -422,7 +423,7 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   command of a class by it), the group of `--group` (the summary sums by it, else by the affinity), `heavy`,
   `exclusive`, the start, the end (none for a
   lost run), the exit, the code of the refusal, `lost`, the phases, the cores (mean, peak, CPU and wall time of the
-  command) and the bytes.
+  command), the bytes, the queue and the slot.
 - **The bytes**: nothing counted them before. A pack adds what came to `pack.json` of its run, a fetch what it sent to
   `fetched.json` (each fetch of the run, as each crossed the link), and the output is `events.log` with what a forget
   cut of it. They tell whether the output and the files or the packs hold the link, before anything of the link is
@@ -441,12 +442,35 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   second, at the stop check of each look, so it holds no look back and changes nothing of the turn. The file is the
   run's own and not a field of `turn.json`: a supervisor of an older build rewrites the table without the fields that
   it does not know.
+- **The slot of a run** (`slot.json`, `SlotRecord`): per repository 14, 11 and 32 local checkouts shared the 4 host
+  slots of a host in November 2026, and whether a run finds the ignored files of its own checkout in its slot decides
+  much of its build, so `branchdeck.hostSlots` needs the share of runs that got the slot their affinity used last and
+  what a miss costs. The slot was named only by the line `running in <slot> (slot <n>)` of the log, which a forget
+  cuts. The lend knows the answer as it chooses (`host_slots::Lend`): `choice` is `affinity` for the idle slot whose
+  last lend had the affinity, else `idle`, the one used longest ago, and `waited` says that the ticket of the run was in
+  the queue of the slots before the call that lent, whatever kept it there (busy slots, runs before it, a fill, an
+  upgrade of git; the phase `slot` has the time); a lend after a wait chooses by the same rule, so a waiting run can
+  still get its own slot, and the two are kept apart.
+  A clean keeps the affinity of a slot, so the choice says nothing of its files: the clean after a run, the idle clean
+  of `branchdeck.hostSlotIdleClean` and a relief (which may drop the output bases too) empty the slot and leave
+  `affinity` as it was. So the lend also says `cleaned`: the slot has no `returned` of a give-back since its last lend
+  (a clean takes it away) and a `cleaned_at` after it, the second test for a give-back of a build before `returned`.
+  The choice stays as it was, since a cleaned slot of the affinity still has its checkout and its Bazel servers.
+  The supervisor writes it with the number of the slot after the
+  lend, the run's own file, as `queue.json` is; `RunInfo` names it as `slot`, with the repository of the run, `~/`
+  expanded as in the line and the summary, as `repo`, and the line as `slot`. The summary gives per repository the runs
+  whose line names their slot, the share that got the slot of their affinity, those of them on a cleaned slot, the runs
+  that waited, and the command p50 and p90 of the warm hits, of the cleaned hits and of the others (`SlotStats`), each
+  of the commands that ran to their end (a cancel, a refusal or a lost supervisor cuts one short). A choice of a later
+  build reads as `other` (`SlotChoice::Other`) and counts as no hit. An older agent
+  or supervisor writes none of it, and its client shows nothing for it: the fields are optional, and `RunInfo` and the
+  summary have no `deny_unknown_fields`, so an older client ignores them.
 - **The summary on the host**: `Request::Stats` (feature `stats`: an older agent closes the connection on a request
   that it does not know, so the client checks the hello first) sums the lines of its window and the ended runs that the
   agent keeps, with the pure `host_history::aggregate`, and only the summary crosses the link: the waits against the
-  work by phase, the queue, the outcomes by exit and refusal (255 is any refusal), the waits of the runs that never
-  ran their command, the cores, the 30 commands that waited longest and the rest in one entry, so the reply stays far
-  below the 1 MiB of a message, and the bytes by day.
+  work by phase, the queue, the slots by repository, the outcomes by exit and refusal (255 is any refusal), the waits
+  of the runs that never ran their command, the cores, the 30 commands that waited longest and the rest in one entry,
+  so the reply stays far below the 1 MiB of a message, and the bytes by day.
 - **The cost of the exclusive runs**: on 2026-11-25 the exclusive rules caused 47.7 % of the wait of the Studio, and the
   8 runs of `bt --lane fast --no-cache --json` of the day ended with exit 3. A rule cannot tell a needed measurement
   from a routine one, so the summary shows the cost to the person who starts them (`ExclusiveCost`): per exclusive

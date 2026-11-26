@@ -1838,6 +1838,8 @@ fn runs_reply(setup_requests: &Mutex<Vec<Request>>, phases: &[&str], exit: Optio
       forgotten: false,
       refused: None,
       cores: None,
+      repo: None,
+      slot: None,
     }],
     heavy: None,
   }

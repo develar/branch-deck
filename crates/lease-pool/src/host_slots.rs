@@ -436,6 +436,42 @@ pub struct Lend {
   /// When the same affinity used it last, in Unix milliseconds: the wait line says "last used by this checkout 12 min
   /// ago"
   pub last_used_by_affinity: Option<u64>,
+  /// How the lend chose the slot among the idle ones; `None` for a repeat of a lend that the run holds already, which
+  /// does not know how its first lend chose. A supervisor never repeats: it takes the first `Lent` of its run
+  pub choice: Option<SlotChoice>,
+  /// The ticket of the run was in the queue before this call: the lend came after a wait of any cause, every slot lent
+  /// or in quarantine, runs before it, no slot ready yet (a fill), or an upgrade of git
+  pub waited: bool,
+  /// The files of the slot were cleaned since its last run gave it back (`clean_core`: the clean after a run, the idle
+  /// clean, a relief, which may also drop its output bases): its ignored files are of no run
+  pub cleaned: bool,
+}
+
+/// How a lend chose its slot among the idle ones: the slot whose last lend had the affinity of the run, else the one
+/// used longest ago. A lend after a wait in the queue chooses by the same rule (`Lend::waited`). The choice says
+/// nothing of the files of the slot: a clean since keeps its affinity (`Lend::cleaned`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotChoice {
+  /// The idle slot whose last lend had the affinity of this one: unless a clean came since, its ignored files are of
+  /// the same checkout
+  Affinity,
+  /// Another idle slot, the one used longest ago: another affinity used it last, or no run did
+  Idle,
+  /// A choice of a later build, so its line still counts
+  #[serde(other)]
+  Other,
+}
+
+impl SlotChoice {
+  /// Its name, as `slot.json` and the history line write it
+  pub const fn name(self) -> &'static str {
+    match self {
+      Self::Affinity => "affinity",
+      Self::Idle => "idle",
+      Self::Other => "other",
+    }
+  }
 }
 
 /// No slot for the run yet: its place, and what the slots are doing, for the line of the wait
@@ -456,7 +492,9 @@ pub struct Queued {
 /// Lend a slot to the run of `request`, or put it in the queue. Under the lock of the table, without git: the tickets of
 /// gone processes leave the queue; a run that has a slot gets it again (a repeat is safe); the run's ticket joins the
 /// queue; a run gets an idle slot whose lease `leases.json` still holds as `ready` when fewer runs wait before it than
-/// there are such slots: the slot its affinity used last first, else the one used longest ago. An abandoned lend is not
+/// there are such slots: the slot its affinity used last first, else the one used longest ago, and the lend says which
+/// (`Lend::choice`), whether its ticket waited in the queue before this call (`Lend::waited`) and whether a clean came
+/// since the last run of the slot (`Lend::cleaned`). An abandoned lend is not
 /// lent again: `reclaim` or a waiting lend (`lend_waiting`) gives it back first, since its run may have left processes
 /// and changes in it. While a live
 /// process upgrades git (`ensure_host_git`) the run only queues, and while the git of the host stays below its floor a
@@ -488,9 +526,14 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         cleaned_at: slot.cleaned_at,
         generation: slot.generation,
         last_used_by_affinity: None,
+        choice: None,
+        waited: false,
+        cleaned: false,
       }));
     }
-    let position = table.queue.iter().position(|ticket| ticket.run == request.run).unwrap_or_else(|| {
+    let queued_before = table.queue.iter().position(|ticket| ticket.run == request.run);
+    let waited = queued_before.is_some();
+    let position = queued_before.unwrap_or_else(|| {
       table.queue.push(Ticket {
         run: request.run.to_string(),
         pid: request.pid,
@@ -503,14 +546,15 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
       .collect();
     if git_upgrading.is_none() && idle.len() > position {
       let affine = |index: &&usize| request.affinity.is_some() && table.slots[**index].affinity.as_deref() == request.affinity;
-      let index = idle
-        .iter()
-        .find(affine)
-        .or_else(|| idle.iter().min_by_key(|&&index| table.slots[index].used))
-        .copied()
-        .unwrap_or(idle[0]);
+      let (index, choice) = match idle.iter().find(affine) {
+        Some(&index) => (index, SlotChoice::Affinity),
+        None => (idle.iter().min_by_key(|&&index| table.slots[index].used).copied().unwrap_or(idle[0]), SlotChoice::Idle),
+      };
       let slot = &mut table.slots[index];
       let last_used_by_affinity = slot.used.filter(|_| request.affinity.is_some() && slot.affinity.as_deref() == request.affinity);
+      // a give-back sets `returned`, a clean takes it away; a give-back of a build before `returned` left none, and then
+      // only a clean after the last lend counts (`cleaned_at` is in seconds, so one in the second of the lend counts)
+      let cleaned = slot.used.is_some_and(|used| slot.returned.is_none() && slot.cleaned_at >= used / 1000);
       let since_ms = now_ms();
       slot.state = HostState::Lent(Lent {
         run: request.run.to_string(),
@@ -527,6 +571,9 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         cleaned_at: slot.cleaned_at,
         generation: slot.generation,
         last_used_by_affinity,
+        choice: Some(choice),
+        waited,
+        cleaned,
       };
       table.queue.remove(position);
       return Ok(LendAnswer::Lent(lend));

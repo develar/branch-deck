@@ -53,11 +53,11 @@ impl History {
   /// The line of the ended run `run`, from its directory; `None` while it goes on
   pub(crate) fn line_of(&self, run: &RunDir) -> io::Result<Option<HistoryLine>> {
     let spec = run.spec()?;
-    let info = run.info()?;
+    let info = run.info(&self.home)?;
     let Some(exit) = info.exit else { return Ok(None) };
     Ok(Some(HistoryLine {
       schema: SCHEMA,
-      repo: self.home.expand(&spec.repo).display().to_string(),
+      repo: info.repo.unwrap_or_default(),
       command: command_line(&spec.command),
       command_key: measure_key(&spec.command, &spec.fetch, spec.measure_as.as_deref()),
       measure_as: spec.measure_as,
@@ -86,6 +86,7 @@ impl History {
         fetch: run.fetched_bytes().bytes,
       },
       queue: run.queue(),
+      slot: run.slot(),
     }))
   }
 

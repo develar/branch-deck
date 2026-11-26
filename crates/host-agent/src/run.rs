@@ -20,6 +20,7 @@
 //! | `events.log.cut` | the cut log of a forget before its rename over `events.log` |
 //! | `forget.lock` | the flock of a forget for its whole time, so two forgets of a run (a request, the cleanup) never cut its log at once |
 //! | `queue.json` | the place and the wait of a heavy run in the queue of the heavy turn (`lease_pool::host_history::QueueRecord`), which its supervisor writes after its wait |
+//! | `slot.json` | the host slot that the lend gave the run and how it chose it (`lease_pool::host_history::SlotRecord`), which its supervisor writes after the lend |
 //! | `pack.json` | the bytes of the packs of the run that the agent took, `{"bytes", "times"}` |
 //! | `fetched.json` | the bytes of the files that the fetches of the run sent, `{"bytes", "times"}` |
 //!
@@ -44,7 +45,8 @@
 
 use crate::files::{append_private, open_private, private_dir, remove_entry, try_flock, try_flock_shared, write_private};
 use crate::history::History;
-use host_link::proto::{Phase, Piece, RunInfo, RunRefusal, RunSpec, Stream, is_run_id};
+use crate::home::Home;
+use host_link::proto::{Phase, Piece, RunInfo, RunRefusal, RunSlot, RunSpec, Stream, is_run_id};
 use host_link::refusal::{Code, Refusal};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -78,6 +80,8 @@ const CUT_LOG: &str = "events.log.cut";
 const FORGET_LOCK: &str = "forget.lock";
 /// The place and the wait of a heavy run in the queue of the heavy turn
 const QUEUE: &str = "queue.json";
+/// The host slot of the run and how its lend chose it
+const SLOT: &str = "slot.json";
 /// The bytes of the packs of the run
 const PACK_BYTES: &str = "pack.json";
 /// The bytes of the fetches of the run
@@ -321,6 +325,18 @@ impl RunDir {
     fs::read(self.path.join(QUEUE)).ok().and_then(|text| serde_json::from_slice(&text).ok())
   }
 
+  /// Writes the host slot that the lend gave the run and how it chose it to `slot.json`
+  pub(crate) fn write_slot(&self, slot: lease_pool::host_history::SlotRecord) -> io::Result<()> {
+    let json = serde_json::to_vec(&slot).map_err(io::Error::other)?;
+    write_private(&self.path.join(SLOT), &json)
+  }
+
+  /// The slot of `slot.json`: none before the lend, for a run that got no slot, from a supervisor before it, or in a file
+  /// the agent cannot read
+  pub(crate) fn slot(&self) -> Option<lease_pool::host_history::SlotRecord> {
+    fs::read(self.path.join(SLOT)).ok().and_then(|text| serde_json::from_slice(&text).ok())
+  }
+
   /// Adds `bytes` of one pack of the run to `pack.json`
   pub(crate) fn add_pack_bytes(&self, bytes: u64) -> io::Result<()> {
     self.add_counted(PACK_BYTES, bytes)
@@ -448,14 +464,22 @@ impl RunDir {
     fs::metadata(self.path.join(EXIT)).and_then(|metadata| metadata.modified()).ok()
   }
 
-  /// The run for `Reply::Runs`: the phases of `exit.json` after the end, else of `phases.json`. A run that lost its
-  /// supervisor has no time of its end: the agent saw the loss later
-  pub(crate) fn info(&self) -> io::Result<RunInfo> {
+  /// The run for `Reply::Runs`: the phases of `exit.json` after the end, else of `phases.json`, the repository with `~/`
+  /// expanded to the home of the agent `home`. A run that lost its supervisor has no time of its end: the agent saw the
+  /// loss later
+  pub(crate) fn info(&self, home: &Home) -> io::Result<RunInfo> {
     let spec = self.spec()?;
     let file = self.exit_file()?;
     let lost = file.as_ref().is_some_and(|file| file.lost);
     let ended = file.map(|file| (file.end, file.phases));
     Ok(RunInfo {
+      slot: self.slot().map(|slot| RunSlot {
+        n: slot.n,
+        choice: slot.choice.name().to_owned(),
+        waited: slot.waited,
+        cleaned: slot.cleaned,
+      }),
+      repo: Some(home.expand(&spec.repo).display().to_string()),
       run: spec.run,
       affinity: spec.affinity,
       commit: spec.commit,

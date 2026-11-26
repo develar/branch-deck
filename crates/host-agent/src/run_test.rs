@@ -6,6 +6,11 @@ use pretty_assertions::assert_eq;
 use super::*;
 use host_link::refusal::{Code, Refusal};
 
+/// The home of an agent for `RunDir::info`, which only expands `~/` by it
+fn home() -> Home {
+  Home::new(PathBuf::from("/Users/agent"))
+}
+
 fn spec(run: &str) -> RunSpec {
   RunSpec {
     run: run.to_owned(),
@@ -37,9 +42,9 @@ fn the_phases_go_to_phases_json_as_they_end_and_to_exit_json_at_the_end() {
   let dir = tempfile::tempdir().expect("a temporary directory");
   let runs = Runs::new(dir.path().join("runs"));
   let (run, _lock) = runs.create(&spec("1-1")).expect("created");
-  assert_eq!(run.info().expect("the info").phases, Vec::new());
+  assert_eq!(run.info(&home()).expect("the info").phases, Vec::new());
   run.write_phases(&[phase("lock", 3)]).expect("written");
-  assert_eq!(run.info().expect("the info").phases, vec![phase("lock", 3)]);
+  assert_eq!(run.info(&home()).expect("the info").phases, vec![phase("lock", 3)]);
   assert_eq!(fs::read_to_string(run.path().join("phases.json")).expect("the phases"), r#"[{"name":"lock","ms":3}]"#);
 
   run.write_phases(&[phase("lock", 3), phase("sweep", 0)]).expect("written");
@@ -53,7 +58,7 @@ fn the_phases_go_to_phases_json_as_they_end_and_to_exit_json_at_the_end() {
   assert_eq!(phases, vec![phase("lock", 3), phase("sweep", 0)]);
   // the end is the source after it: a later write of `phases.json` changes nothing.
   run.write_phases(&[]).expect("written");
-  assert_eq!(run.info().expect("the info").phases.len(), 2);
+  assert_eq!(run.info(&home()).expect("the info").phases.len(), 2);
 
   let (refused_run, _lock) = runs.create(&spec("1-2")).expect("created");
   refused_run.write_exit(&ExitRecord::refused(&Refusal::new(Code::PackMissing, "no pack"))).expect("written");
@@ -88,11 +93,11 @@ fn a_new_run_has_its_spec_and_an_empty_log_and_refuses_a_second_start() {
   assert_eq!(runs.get("1-3").expect_err("refused").code, Code::UnknownRun);
   assert_eq!(runs.get("a/b").expect_err("refused").code, Code::BadRunId);
 
-  let info = run.info().expect("the info");
+  let info = run.info(&home()).expect("the info");
   drop(lock);
   assert_eq!(info.exit, None);
   run.write_exit(&ExitRecord::Code { code: 4 }).expect("written");
-  assert_eq!(run.info().expect("the info").exit, Some(4));
+  assert_eq!(run.info(&home()).expect("the info").exit, Some(4));
   assert_eq!(runs.list().len(), 1);
 }
 
@@ -133,19 +138,28 @@ fn a_run_that_ended_a_day_ago_is_removed() {
   ended.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
   let _going = runs.create(&spec("going")).expect("created");
   let now = SystemTime::now();
-  let history = History::new(&crate::home::Home::new(dir.path().to_path_buf()));
+  let history = History::new(&Home::new(dir.path().to_path_buf()));
   assert_eq!(runs.remove_expired(now, &history), Vec::<String>::new());
   assert_eq!(runs.remove_expired(now + KEEP + Duration::from_secs(1), &history), vec!["ended".to_owned()]);
   assert_eq!(runs.list().len(), 1, "a run that goes on stays");
 }
 
-/// A forget keeps the run: its stage, its outputs and its changes go, its spec, its end and its log stay, and the runs
-/// list it as forgotten with its end
+/// A forget keeps the run: its stage, its outputs and its changes go, its spec, its end, its slot and its log stay, and
+/// the runs list it as forgotten with its end, its repository and its slot
 #[test]
 fn a_forgotten_run_keeps_its_end_and_its_log_and_its_files_go() {
   let dir = tempfile::tempdir().expect("a temporary directory");
   let runs = Runs::new(dir.path().join("runs"));
   let (run, lock) = runs.create(&spec("1-1")).expect("created");
+  assert_eq!((run.info(&home()).expect("the info").slot, run.slot()), (None, None), "no slot before the lend");
+  run
+    .write_slot(lease_pool::host_history::SlotRecord {
+      n: 2,
+      choice: lease_pool::host_slots::SlotChoice::Idle,
+      waited: false,
+      cleaned: false,
+    })
+    .expect("the slot");
   let log = EventLog::open(&run.events_path()).expect("opened");
   log.line(Stream::Stdout, "out");
   log.close();
@@ -156,15 +170,27 @@ fn a_forgotten_run_keeps_its_end_and_its_log_and_its_files_go() {
   fs::write(run.changes_path(), "diff").expect("the changes");
   run.write_exit(&ExitRecord::Code { code: 3 }).expect("written");
   drop(lock);
-  assert!(!run.info().expect("the info").forgotten);
+  assert!(!run.info(&home()).expect("the info").forgotten);
 
   run.forget().expect("forgotten");
   for gone in [run.stage_path(), run.outputs_path(), run.path().join("outputs.json"), run.changes_path()] {
     assert!(!gone.exists(), "{} is gone", gone.display());
   }
-  let info = run.info().expect("the info");
+  let info = run.info(&home()).expect("the info");
   assert_eq!((info.exit, info.forgotten), (Some(3), true));
   assert!(info.ended_ms.is_some_and(|ended| ended >= info.started_ms), "{info:?}");
+  assert_eq!(
+    (info.repo.as_deref(), info.slot.clone()),
+    (
+      Some("/Users/agent/repo"),
+      Some(RunSlot {
+        n: 2,
+        choice: "idle".to_owned(),
+        waited: false,
+        cleaned: false
+      })
+    )
+  );
   let events: Vec<String> = read_events(&run.events_path(), 0, 1024)
     .expect("the log")
     .into_iter()
@@ -240,7 +266,7 @@ fn a_forget_cut_short_is_finished_by_the_next_one() {
   run.write_exit(&ExitRecord::Code { code: 0 }).expect("written");
   // the intent of a forget that stopped right after it
   fs::write(run.path().join(FORGOTTEN), "{}").expect("the marker");
-  assert!(run.is_forgotten() && run.info().expect("the info").forgotten);
+  assert!(run.is_forgotten() && run.info(&home()).expect("the info").forgotten);
   assert_eq!(run.kept_log().expect("the marker"), None);
 
   // a forget that stopped after the record of its cut, before the rename
@@ -306,7 +332,7 @@ fn a_lost_run_has_no_time_of_its_end() {
   let (run, lock) = runs.create(&spec("1-1")).expect("created");
   drop(lock);
   assert!(run.end_if_lost());
-  let info = run.info().expect("the info");
+  let info = run.info(&home()).expect("the info");
   assert_eq!((info.exit, info.ended_ms), (Some(REFUSED_EXIT), None));
 }
 
@@ -329,7 +355,7 @@ fn the_forgotten_runs_past_the_latest_by_their_end_go() {
       .and_then(|file| file.set_modified(now - Duration::from_secs(ended_ago * 60)))
       .expect("the end");
   }
-  let history = History::new(&crate::home::Home::new(dir.path().to_path_buf()));
+  let history = History::new(&Home::new(dir.path().to_path_buf()));
   assert_eq!(runs.remove_forgotten_past(2, &history), ["1-2"]);
   let left: Vec<String> = runs.list().iter().map(run_id).collect();
   assert_eq!(left, ["1-1", "1-3", "1-4"]);

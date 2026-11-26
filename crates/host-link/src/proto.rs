@@ -539,6 +539,34 @@ pub struct RunInfo {
   /// and from an older agent
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cores: Option<RunCores>,
+  /// The main repository on the host, `~/` expanded, as the history line and `brd-host stats` name it; `None` from an
+  /// older agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub repo: Option<String>,
+  /// The host slot that the lend gave the run and how it chose it; `None` before the lend, for a run that got no slot,
+  /// and from an older agent or supervisor
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub slot: Option<RunSlot>,
+}
+
+/// The host slot of a run and how its lend chose it, as `slot.json` of the run keeps it
+/// (`lease_pool::host_history::SlotRecord`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunSlot {
+  /// The number of the slot
+  pub n: u32,
+  /// How the lend chose it among the idle slots, by name, so a choice of a later build reads too: `affinity`, the slot
+  /// that the affinity of the run used last; `idle`, the one used longest ago, which another affinity used last or no
+  /// run did
+  pub choice: String,
+  /// The lend came after a wait in the queue of the slots, of any cause: busy slots, runs before it, a fill, an upgrade
+  /// of git. It chose by the same rule then
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub waited: bool,
+  /// The files of the slot were cleaned since its last run gave it back: an `affinity` hit whose ignored files are of
+  /// no run
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub cleaned: bool,
 }
 
 /// The cores that the command of a run used: its CPU time over its wall time, and the most of one sample

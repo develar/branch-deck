@@ -3,14 +3,16 @@
 //! `~/.cache/brd-host/history/<YYYY-MM>.jsonl` as the run directory goes, and one [`BasePackLine`] per pack of a base
 //! into `bases-<YYYY-MM>.jsonl`, for 90 days ([`KEEP_DAYS`]). The supervisor of a heavy run writes its place and its
 //! wait in the queue of the heavy turn ([`QueueRecord`], `queue.json` of the run, beside the tables that a supervisor of
-//! an older build rewrites without the fields it does not know).
+//! an older build rewrites without the fields it does not know). The supervisor of every run writes the slot that its
+//! lend gave it and how the lend chose it ([`SlotRecord`], `slot.json` of the run).
 //!
 //! [`aggregate`] is the summary that `brd-host stats` prints, a pure function of the lines, so the host sums them and
-//! only the summary travels: the waits against the work by phase, the outcomes by exit and by refusal, the waits of the
-//! runs that never ran their command, the cores, the 30 commands that waited longest ([`TOP_COMMANDS`]) and the rest in
-//! one entry, the 30 groups of the heavy queue that waited longest ([`TOP_GROUPS`]) and the rest in one entry, and the
-//! bytes by day
+//! only the summary travels: the waits against the work by phase, the lends of the slots by repository, the outcomes by
+//! exit and by refusal, the waits of the runs that never ran their command, the cores, the 30 commands that waited
+//! longest ([`TOP_COMMANDS`]) and the rest in one entry, the 30 groups of the heavy queue that waited longest
+//! ([`TOP_GROUPS`]) and the rest in one entry, and the bytes by day
 
+use crate::host_slots::SlotChoice;
 use crate::host_turn::{HeadDrain, HeavyTurn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -80,6 +82,10 @@ pub struct HistoryLine {
   /// a supervisor of a build before it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub queue: Option<QueueRecord>,
+  /// The host slot that the lend gave the run and how it chose it (`slot.json` of the run); `None` for a run that got no
+  /// slot and from a supervisor of a build before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub slot: Option<SlotRecord>,
 }
 
 impl HistoryLine {
@@ -109,6 +115,11 @@ impl HistoryLine {
 
   fn ran_command(&self) -> bool {
     self.phases.iter().any(|phase| phase.name == "command")
+  }
+
+  /// Its command ran to its end: no cancel, no refusal and no loss of its supervisor cut it
+  fn command_ran_to_its_end(&self) -> bool {
+    self.ran_command() && !self.lost && self.refused.is_none() && self.exit != INTERRUPTED
   }
 
   /// Its command ran and exited with a code other than 0 and that of a cancel
@@ -203,6 +214,21 @@ pub struct BasePackLine {
   /// The name of the base: the affinity of its client
   pub base: String,
   pub bytes: u64,
+}
+
+/// `slot.json` of a run: the host slot that its lend gave it and how the lend chose it (`host_slots::Lend`), which its
+/// supervisor writes after the lend
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotRecord {
+  /// The number of the slot
+  pub n: u32,
+  pub choice: SlotChoice,
+  /// The lend came after a wait in the queue of the slots, of any cause (`host_slots::Lend::waited`)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub waited: bool,
+  /// The files of the slot were cleaned since its last run gave it back (`host_slots::Lend::cleaned`)
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub cleaned: bool,
 }
 
 /// What a heavy run needs of the host, as the heavy turn counts it (`host_turn::Need`)
@@ -394,6 +420,10 @@ pub struct StatsReport {
   /// The runs that ended before their command, and what they waited
   pub without_command: WithoutCommand,
   pub cores: CoresTotals,
+  /// The lends of the runs of each repository whose line names their slot, by repository; none from an agent of a
+  /// build before it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub slots: Vec<SlotStats>,
   /// The [`TOP_COMMANDS`] commands that waited longest, by repository and key
   pub commands: Vec<CommandStats>,
   /// The commands past them, in one entry
@@ -526,6 +556,59 @@ pub struct OtherGroups {
   pub work_ms: u64,
 }
 
+/// The lends of the runs of one repository over a window: how many got the slot that their affinity used last, and the
+/// command of those that did and of the others. Only the runs whose line names their slot count
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotStats {
+  pub repo: String,
+  /// The runs whose line names their slot
+  pub runs: u32,
+  /// Of them, the runs that got the slot whose last lend had their affinity (`SlotChoice::Affinity`), after a wait or not
+  pub affinity: u32,
+  /// Of those, the runs whose slot was cleaned since its last run (`SlotRecord::cleaned`): a hit of the choice, cold files
+  #[serde(default)]
+  pub cleaned: u32,
+  /// Of them, the runs whose lend came after a wait in the queue of the slots, of any cause
+  pub waited: u32,
+  /// The phase `command` of the hits on a slot that no clean emptied, whose command ran to its end
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub warm_command_ms: Option<Spread>,
+  /// The phase `command` of the hits on a cleaned slot, whose command ran to its end
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cleaned_command_ms: Option<Spread>,
+  /// The phase `command` of the other runs, whose command ran to its end: another idle slot, or a choice of a later build
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub other_command_ms: Option<Spread>,
+}
+
+impl SlotStats {
+  /// `  slots of <repo>: 70 of 100 run(s) got the slot that their checkout used last (70 %); 60 warm, command p50 4 min;
+  /// 10 cleaned since, command p50 8 min; the other 30, command p50 9 min; 12 waited in the queue of the slots`, a part
+  /// of no run left out
+  fn line(&self) -> String {
+    let p50 = |spread: Option<Spread>| spread.map_or_else(String::new, |spread| format!(", command p50 {}", hours(spread.p50)));
+    let warm = self.affinity - self.cleaned;
+    let other = self.runs - self.affinity;
+    let mut parts = vec![format!(
+      "{} of {} run(s) got the slot that their checkout used last ({} %)",
+      self.affinity,
+      self.runs,
+      u64::from(self.affinity) * 100 / u64::from(self.runs.max(1))
+    )];
+    if warm > 0 {
+      parts.push(format!("{warm} warm{}", p50(self.warm_command_ms)));
+    }
+    if self.cleaned > 0 {
+      parts.push(format!("{} cleaned since{}", self.cleaned, p50(self.cleaned_command_ms)));
+    }
+    if other > 0 {
+      parts.push(format!("the other {other}{}", p50(self.other_command_ms)));
+    }
+    parts.push(format!("{} waited in the queue of the slots", self.waited));
+    format!("  slots of {}: {}", self.repo, parts.join("; "))
+  }
+}
+
 /// What the runs of an exclusive command cost the host over a window
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExclusiveCost {
@@ -613,6 +696,7 @@ pub fn aggregate(lines: &[HistoryLine], bases: &[BasePackLine], since_ms: u64, u
     cores: cores_totals(&lines, until_ms.saturating_sub(since_ms)),
     ..StatsReport::default()
   };
+  report.slots = slot_stats(&lines);
   (report.commands, report.other) = commands(&lines);
   (report.groups, report.other_groups) = groups(&lines);
   report.exclusive_costs = exclusive_costs(&lines);
@@ -664,6 +748,40 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
     short: count(queues.iter().filter(|queue| queue.short_ms.is_some()).count()),
     passes: queues.iter().map(|queue| queue.passes).sum(),
   }
+}
+
+/// The lends of the runs of `lines` whose line names their slot, by repository
+fn slot_stats(lines: &[&HistoryLine]) -> Vec<SlotStats> {
+  let mut by: BTreeMap<&str, Vec<(&HistoryLine, SlotRecord)>> = BTreeMap::new();
+  for line in lines {
+    if let Some(slot) = line.slot {
+      by.entry(line.repo.as_str()).or_default().push((line, slot));
+    }
+  }
+  by.into_iter()
+    .map(|(repo, runs)| {
+      let hit = |slot: &SlotRecord| slot.choice == SlotChoice::Affinity;
+      let commands = |of: &dyn Fn(&SlotRecord) -> bool| {
+        Spread::of(
+          runs
+            .iter()
+            .filter(|(line, slot)| of(slot) && line.command_ran_to_its_end())
+            .map(|(line, _)| line.phase_ms("command"))
+            .collect(),
+        )
+      };
+      SlotStats {
+        repo: repo.to_owned(),
+        runs: count(runs.len()),
+        affinity: count(runs.iter().filter(|(_, slot)| hit(slot)).count()),
+        cleaned: count(runs.iter().filter(|(_, slot)| hit(slot) && slot.cleaned).count()),
+        waited: count(runs.iter().filter(|(_, slot)| slot.waited).count()),
+        warm_command_ms: commands(&|slot| hit(slot) && !slot.cleaned),
+        cleaned_command_ms: commands(&|slot| hit(slot) && slot.cleaned),
+        other_command_ms: commands(&|slot| !hit(slot)),
+      }
+    })
+    .collect()
 }
 
 /// What each exclusive command of `lines` cost the host: the hold and the drain of its runs, the other runs that waited
@@ -904,6 +1022,7 @@ impl StatsReport {
         queue.passes
       ));
     }
+    lines.extend(self.slots.iter().map(SlotStats::line));
     let outcomes: Vec<String> = self.outcomes.iter().map(Outcome::text).collect();
     lines.push(format!("  outcomes: {}", outcomes.join(", ")));
     if self.without_command.runs > 0 {

@@ -32,6 +32,8 @@ fn info(phases: &[&str], exit: Option<i32>) -> RunInfo {
     forgotten: false,
     refused: None,
     cores: None,
+    repo: None,
+    slot: None,
   }
 }
 

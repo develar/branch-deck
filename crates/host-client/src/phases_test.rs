@@ -57,6 +57,8 @@ fn run_info(exit: Option<i32>, ended_ms: Option<u64>, forgotten: bool) -> RunInf
     forgotten,
     refused: None,
     cores: None,
+    repo: None,
+    slot: None,
   }
 }
 

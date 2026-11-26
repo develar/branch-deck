@@ -16,9 +16,9 @@ use bd_cli::fixture_test::{assert_error, canonical, git, gone_process, make_leas
 use git_ops::lease_slot::STATE_DIR;
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
-  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, KeepFreeOptions, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run,
-  checkout, clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink,
-  snapshot_run,
+  Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, KeepFreeOptions, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, SlotChoice,
+  changes_run, checkout, clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit,
+  shrink, snapshot_run,
 };
 #[cfg(unix)]
 use lease_pool::lease::Ahead;
@@ -277,6 +277,76 @@ fn a_run_gets_the_slot_of_its_affinity_else_the_one_used_longest_ago_else_waits_
   };
   assert_eq!(late.n, 2);
   assert_eq!(table(fixture).queue, []);
+}
+
+/// Each lend says how it chose its slot, as it happened: the slot no run used is another idle slot, a run after a wait
+/// in the queue gets the slot of its affinity when that one comes free, a run at once the slot its affinity used last,
+/// a run of another affinity after a wait another idle slot, and a repeat of a lend does not know
+#[test_log::test]
+fn a_lend_says_whether_it_got_the_slot_of_its_affinity_and_whether_it_waited() {
+  let host = Host::filled(1);
+  let (_, context, params) = host.parts();
+  let choice = |lend: &Lend| (lend.n, lend.choice, lend.waited);
+
+  let first = lent(lend_to(&params, "run-1", Some("checkout-a")));
+  assert_eq!(choice(&first), (1, Some(SlotChoice::Idle), false), "no run used the slot");
+  assert!(matches!(lend_to(&params, "run-2", Some("checkout-a")), LendAnswer::Queued(_)));
+  give_back(&context.git, &params, 1, "run-1").unwrap();
+  let after_wait = lent(lend_to(&params, "run-2", Some("checkout-a")));
+  assert_eq!(choice(&after_wait), (1, Some(SlotChoice::Affinity), true));
+  give_back(&context.git, &params, 1, "run-2").unwrap();
+  let at_once = lent(lend_to(&params, "run-3", Some("checkout-a")));
+  assert_eq!(choice(&at_once), (1, Some(SlotChoice::Affinity), false));
+  assert!(matches!(lend_to(&params, "run-4", Some("checkout-b")), LendAnswer::Queued(_)));
+  give_back(&context.git, &params, 1, "run-3").unwrap();
+  let other = lent(lend_to(&params, "run-4", Some("checkout-b")));
+  assert_eq!(choice(&other), (1, Some(SlotChoice::Idle), true), "checkout-a used the slot last");
+  assert_eq!(choice(&lent(lend_to(&params, "run-4", Some("checkout-b")))), (1, None, false), "a repeat");
+}
+
+/// With two idle slots the lend takes the slot whose last lend had the affinity of the run, though the other one waited
+/// idle longer, and a run of a new affinity the slot idle longest, though another affinity used the other one later
+#[test_log::test]
+fn a_lend_names_the_slot_of_its_affinity_over_one_idle_longer_and_else_the_one_idle_longest() {
+  let host = Host::filled(2);
+  let (_, context, params) = host.parts();
+  let choice = |lend: &Lend| (lend.n, lend.choice, lend.waited, lend.cleaned);
+
+  assert_eq!(choice(&lent(lend_to(&params, "run-1", Some("checkout-a")))), (1, Some(SlotChoice::Idle), false, false));
+  give_back(&context.git, &params, 1, "run-1").unwrap();
+  assert_eq!(
+    choice(&lent(lend_to(&params, "run-2", Some("checkout-b")))),
+    (2, Some(SlotChoice::Idle), false, false),
+    "never used"
+  );
+  give_back(&context.git, &params, 2, "run-2").unwrap();
+  assert_eq!(
+    choice(&lent(lend_to(&params, "run-3", Some("checkout-b")))),
+    (2, Some(SlotChoice::Affinity), false, false),
+    "slot 1 waited idle longer"
+  );
+  give_back(&context.git, &params, 2, "run-3").unwrap();
+  assert_eq!(
+    choice(&lent(lend_to(&params, "run-4", Some("checkout-c")))),
+    (1, Some(SlotChoice::Idle), false, false),
+    "slot 1 waited idle longest, slot 2 is of checkout-b"
+  );
+}
+
+/// A clean of the slot since its last run keeps its affinity, so the lend still chooses it, and says that its files were
+/// cleaned; the next run of the affinity after a plain give-back finds them warm again
+#[test_log::test]
+fn a_lend_of_the_slot_of_its_affinity_says_whether_a_clean_came_since_its_last_run() {
+  let host = Host::filled(1);
+  let (_, context, params) = host.parts();
+  let choice = |lend: &Lend| (lend.choice, lend.cleaned);
+
+  lent(lend_to(&params, "run-1", Some("checkout-a")));
+  give_back(&context.git, &params, 1, "run-1").unwrap();
+  clean_slot(&context.git, &params, 1, CleanOverrides::default()).unwrap();
+  assert_eq!(choice(&lent(lend_to(&params, "run-2", Some("checkout-a")))), (Some(SlotChoice::Affinity), true));
+  give_back(&context.git, &params, 1, "run-2").unwrap();
+  assert_eq!(choice(&lent(lend_to(&params, "run-3", Some("checkout-a")))), (Some(SlotChoice::Affinity), false));
 }
 
 /// A give-back discards the changes of the run, untracked files too, and keeps the ignored ones; a lend whose process is

@@ -2,7 +2,8 @@ use super::*;
 use crate::cores::CoresFile;
 use crate::run::{ExitRecord, KEEP};
 use host_link::proto::{Phase, RunSpec};
-use lease_pool::host_slots::Ticket;
+use lease_pool::host_history::SlotRecord;
+use lease_pool::host_slots::{SlotChoice, Ticket};
 use lease_pool::host_turn::{HeavyTurn, TurnEntry};
 use pretty_assertions::assert_eq;
 use std::fs::File;
@@ -70,8 +71,8 @@ fn lines_in(path: &std::path::Path) -> Vec<HistoryLine> {
 }
 
 /// A run leaves its line in the month of its end as its directory goes: its command as the heavy turn names it, the key
-/// of its measures, its phases, its cores, the bytes of its pack, its output and every fetch, and its place in the
-/// queue
+/// of its measures, its phases, its cores, the bytes of its pack, its output and every fetch, its place in the queue,
+/// and its slot with how the lend chose it
 #[test]
 fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
   let Agent { dir, home, history, runs } = Agent::new();
@@ -107,6 +108,13 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     pending_at_ms: None,
   };
   run.write_queue(&queue).expect("the queue");
+  let slot = SlotRecord {
+    n: 3,
+    choice: SlotChoice::Affinity,
+    waited: true,
+    cleaned: false,
+  };
+  run.write_slot(slot).expect("the slot");
   let output = "{\"stream\":\"stdout\",\"text\":\"ok\"}\n";
   fs::write(run.events_path(), output).expect("the output");
   let (_goes_on, _lock) = runs.create(&spec("1-2")).expect("a run that goes on");
@@ -153,6 +161,13 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
     }
   );
   assert_eq!(line.queue, Some(queue));
+  assert_eq!(line.slot, Some(slot));
+  let json = serde_json::to_value(line).expect("JSON");
+  assert_eq!(
+    (&json["repo"], &json["slot"]),
+    (&serde_json::json!(line.repo), &serde_json::json!({"n": 3, "choice": "affinity", "waited": true})),
+    "{json}"
+  );
   assert_eq!(runs.list().len(), 1, "the run that goes on stays, and has no line");
 }
 
