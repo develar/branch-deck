@@ -7826,6 +7826,11 @@ export type Reason =
  */
 { code: "showReviewOpen"; number: number } | 
 /**
+ *  The review after landing of `branch`, which landed and left the table, can't open: nothing tells the commit that
+ *  landed it (its merged robot, its merged pull request; `domain_policy::shown::landed_head`)
+ */
+{ code: "showNothingLanded"; branch: string } | 
+/**
  *  The shown review `number` waits for the approvals of `waiting` (or holds their requested changes): it closes once
  *  every reviewer it asked approved
  */

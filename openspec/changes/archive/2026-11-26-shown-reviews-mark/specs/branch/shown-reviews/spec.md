@@ -35,6 +35,13 @@ its branches.
   [@test] crates/operations/src/shown_test.rs (`a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_and_a_landed_branch_opens_it_ready`)
   [@test] crates/domain-policy/src/actions_test.rs (`a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review_is_asked_and_closed_from_the_row`)
 
+#### Scenario: A branch that left the table, from the Landed island
+- **WHEN** a robot of the user landed feature-auth, the update took it out of the table, and the user presses Request
+  Review After Landing… of its row of the Landed island and picks alice
+- **THEN** the review opens ready on the commit the robot landed, asks alice, and the row offers it no more
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should open the review after landing of a branch that left the table from its row of the Landed island, asking the reviewers picked there`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_branch_that_landed_and_left_the_table_offers_its_review_after_landing_refused_without_what_it_opens_on`)
+
 #### Scenario: A Safe Push that lands a marked branch
 - **WHEN** a Safe Push lands auth, marked: its own, or one of login built on it
 - **THEN** it pushes the head of the review of auth to the commit it lands before the start; a Dry Run pushes none, and

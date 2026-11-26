@@ -121,6 +121,9 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
       "the Safe Push of {subject} lands {}: a review after landing reviews one branch; land the branches it is built on first",
       join_names(lands)
     ),
+    Reason::ShowNothingLanded { branch } => {
+      format!("nothing tells the commit that landed {branch}: its robot and its pull request are not listed, so its review after landing has nothing to show")
+    }
     Reason::ShowReviewOpen { number } => format!("the review after landing #{number} of {subject} is open: a fix of {subject} lands by its own Safe Push and goes into it"),
     Reason::ReviewNotApproved { number, waiting } if waiting.is_empty() => format!("the shown review #{number} of {subject} asked nobody yet"),
     Reason::ReviewNotApproved { number, waiting } => format!("{} has not approved the shown review #{number} of {subject}", join_names(waiting)),

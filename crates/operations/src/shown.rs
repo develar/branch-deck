@@ -309,11 +309,10 @@ pub struct MarkDecision<'a> {
 /// reviewers recorded as picked (nothing when they are); of an open review, refused (`show_review_open`); of a branch
 /// that landed, the review opened now on what landed (`create_plan`); else its branches pushed at the tip of the branch
 /// and its fork point and its draft opened, refused as a Safe Push with it is (`domain_policy::shown::mark_refusals`).
-/// Nobody to ask refuses it (`no_reviewer`)
-///
-/// # Errors
-/// `no_shown_review` for a branch the table lacks that nothing tells what landed it
-pub fn mark_plan(facts: &MarkFacts<'_>) -> Result<Plan, ApiError> {
+/// Nobody to ask refuses it (`no_reviewer`), a branch that nothing tells what landed it and the table lacks
+/// (`show_nothing_landed`)
+#[must_use]
+pub fn mark_plan(facts: &MarkFacts<'_>) -> Plan {
   let branch = facts.branch;
   let intent = Intent::MarkShownReview {
     branch: branch.to_owned(),
@@ -324,7 +323,7 @@ pub fn mark_plan(facts: &MarkFacts<'_>) -> Result<Plan, ApiError> {
     let pull_request = &review.pull_request;
     let number = pull_request.number;
     if !pull_request.is_draft {
-      return Ok(write_plan(intent, Vec::new(), vec![Reason::ShowReviewOpen { number }], Some(number), [pull_request], []));
+      return write_plan(intent, Vec::new(), vec![Reason::ShowReviewOpen { number }], Some(number), [pull_request], []);
     }
     let same = review.reviewers.len() == facts.reviewers.len() && review.reviewers.iter().all(|login| facts.reviewers.iter().any(|it| it.eq_ignore_ascii_case(login)));
     let effects = if same || nobody.is_some() {
@@ -337,22 +336,23 @@ pub fn mark_plan(facts: &MarkFacts<'_>) -> Result<Plan, ApiError> {
         reviewed_in: None,
       }]
     };
-    return Ok(write_plan(intent, effects, nobody.into_iter().collect(), Some(number), [pull_request], []));
+    return write_plan(intent, effects, nobody.into_iter().collect(), Some(number), [pull_request], []);
   }
+  let nothing_landed = || write_plan(intent.clone(), Vec::new(), vec![Reason::ShowNothingLanded { branch: branch.to_owned() }], None, [], []);
   if let Some(landed) = facts.landed {
-    let head = landed.head.as_deref().ok_or_else(|| {
-      ApiError::new(
-        ErrorCode::NoShownReview,
-        format!("Nothing tells the commit that landed {branch}: its review after landing opens from the row while the table has it"),
-      )
-    })?;
+    let Some(head) = landed.head.as_deref() else {
+      return nothing_landed();
+    };
     let mut plan = create_plan(branch, head, facts.reviewers);
     if let Some(nobody) = nobody {
       plan.blockers.push(nobody);
     }
-    return Ok(plan);
+    return plan;
   }
-  let decision = facts.decision.ok_or_else(|| no_shown_review(branch))?;
+  // a branch the table lacks that nothing tells what landed
+  let Some(decision) = facts.decision else {
+    return nothing_landed();
+  };
   let (mut blockers, mut waits) = mark_refusals(decision.blockers, decision.waits, decision.pull_request_open);
   blockers.extend(nobody);
   let effects = if let Some(tip) = facts.tip {
@@ -377,7 +377,7 @@ pub fn mark_plan(facts: &MarkFacts<'_>) -> Result<Plan, ApiError> {
   };
   let mut plan = write_plan(intent, effects, blockers, None, [], []);
   plan.waits = waits;
-  Ok(plan)
+  plan
 }
 
 /// The plan of the close of the shown review `review` of `branch`: its close with the comment that names who approved it
@@ -717,9 +717,15 @@ pub fn shown_refusal(plan: &Plan, branch: &str) -> Option<ApiError> {
     return (!plan.waits.is_empty()).then(|| plan_changed(&plan.intent, Some("it waits for facts nobody answered yet")));
   };
   match blocker {
-    reason @ (Reason::ShowLandsStack { .. } | Reason::ShowNeedsApprovals { .. } | Reason::ShowNeedsPatronus | Reason::NoReviewer { .. } | Reason::ShowReviewOpen { .. }) => Some(
-      ApiError::new(refusal_code(reason), format!("Nothing was marked: {}", start_refusal_text(reason, branch, &[]))),
-    ),
+    reason @ (Reason::ShowLandsStack { .. }
+    | Reason::ShowNeedsApprovals { .. }
+    | Reason::ShowNeedsPatronus
+    | Reason::NoReviewer { .. }
+    | Reason::ShowReviewOpen { .. }
+    | Reason::ShowNothingLanded { .. }) => Some(ApiError::new(
+      refusal_code(reason),
+      format!("Nothing was marked: {}", start_refusal_text(reason, branch, &[])),
+    )),
     Reason::ReviewNotApproved { number, waiting } if waiting.is_empty() => Some(ApiError::new(
       ErrorCode::ReviewNotApproved,
       format!("Nothing was closed: the shown review #{number} of {branch} asked nobody yet; --allow-unapproved closes it anyway, only when the user says so"),
@@ -816,7 +822,7 @@ pub async fn prepare_shown(sessions: &Sessions, key: &SessionKey, intent: &Inten
               pull_request_open: open,
             }),
           };
-          mark_plan(&facts).map(Some)
+          Ok(Some(mark_plan(&facts)))
         }
         Intent::OpenShownReview { branch, reviewers } => {
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;

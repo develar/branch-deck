@@ -208,6 +208,7 @@ const words = {
   showNeedsPatronus: () => "A review after landing opens with a Safe Push of Patronus: the repository lands without one",
   showLandsStack: ({ lands }) => `The Safe Push lands ${joinNames(lands)}: a review after landing reviews one branch`,
   showReviewOpen: ({ number }) => `Its review after landing #${number} is open: a fix lands by Safe Push and goes into it`,
+  showNothingLanded: ({ branch }) => `Nothing tells the commit that landed ${branch}: its robot and its pull request are not listed`,
   reviewNotApproved: ({ number, waiting }) =>
     waiting.length === 0 ? `The review after landing #${number} asked nobody yet` : `${joinNames(waiting)} has not approved the review after landing #${number}`,
 } satisfies Words as Words

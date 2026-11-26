@@ -844,6 +844,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     // a review after landing (show) refused before anything is pushed
     Reason::ShowNeedsApprovals { .. } => ErrorCode::ApprovalsRequired,
     Reason::ShowReviewOpen { .. } => ErrorCode::PullRequestOpen,
+    Reason::ShowNothingLanded { .. } => ErrorCode::NoShownReview,
     Reason::ShowNeedsPatronus => ErrorCode::ShowNeedsPatronus,
     Reason::ShowLandsStack { .. } => ErrorCode::ShowLandsStack,
     Reason::ReviewNotApproved { .. } => ErrorCode::ReviewNotApproved,

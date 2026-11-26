@@ -41,6 +41,7 @@ describe("formatReason", () => {
       "The Safe Push lands auth and login: a review after landing reviews one branch",
       "alice has not approved the review after landing #12",
       "Its review after landing #12 is open: a fix lands by Safe Push and goes into it",
+      "Nothing tells the commit that landed auth: its robot and its pull request are not listed",
       "Approvals in #7 don't count: its base is release/253",
       "Patronus checks the approvals when the robot starts and fails without them",
       "The push dismisses the approvals of #7: push first, then ask for the review again",
@@ -80,7 +81,7 @@ describe("formatReason", () => {
       "#126 was merged into jane/virtual/auth, not master: create a pull request into master to land it",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(61)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(62)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

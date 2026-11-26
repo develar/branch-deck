@@ -2419,3 +2419,34 @@ fn a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review
     assert_eq!(reason_of(facts, MarkShownReview), None, "{of}");
   }
 }
+
+/// A branch that landed and left the table (a row of the Landed island) offers Request Review After Landing…, refused
+/// without Patronus or GitHub, with its review after landing there already, and while nothing tells the commit that
+/// landed it; on a frame nobody checked it waits for the first sync
+#[test]
+fn a_branch_that_landed_and_left_the_table_offers_its_review_after_landing_refused_without_what_it_opens_on() {
+  use crate::actions::{LandedBranchFacts, landed_actions};
+  let facts = LandedBranchFacts {
+    name: "auth",
+    patronus: true,
+    repository: true,
+    shown: None,
+    landed: true,
+    cached: false,
+  };
+  assert_eq!(table(&landed_actions(&facts)), [(MarkShownReview, None)]);
+  let review = shown_review(false);
+  let rule = |reason: Reason| Some(ActionBlocker::Rule { reason });
+  for (facts, reason) in [
+    (LandedBranchFacts { patronus: false, ..facts }, Reason::ShowNeedsPatronus),
+    (LandedBranchFacts { repository: false, ..facts }, Reason::NotOnGitHub),
+    (LandedBranchFacts { shown: Some(&review), ..facts }, Reason::ShowReviewOpen { number: 12 }),
+    (LandedBranchFacts { landed: false, ..facts }, Reason::ShowNothingLanded { branch: "auth".to_owned() }),
+  ] {
+    assert_eq!(table(&landed_actions(&facts)), [(MarkShownReview, rule(reason))]);
+  }
+  assert_eq!(
+    table(&landed_actions(&LandedBranchFacts { cached: true, ..facts })),
+    [(MarkShownReview, Some(ActionBlocker::Cached))]
+  );
+}

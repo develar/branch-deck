@@ -679,7 +679,7 @@ fn mark_of<'a>(reviewers: &'a [String], blockers: &'a [Reason], waits: &'a [Fact
 #[test]
 fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_and_a_landed_branch_opens_it_ready() {
   let alice = logins(&["alice"]);
-  let plan = mark_plan(&mark_of(&alice, &[Reason::Draft { number: 7 }], &[])).unwrap();
+  let plan = mark_plan(&mark_of(&alice, &[Reason::Draft { number: 7 }], &[]));
   assert_eq!(
     (plan.blockers.clone(), plan.effects.clone()),
     (
@@ -701,26 +701,22 @@ fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_an
   // the branches of the review only: no pull request is written yet
   assert_eq!(shown_request("user", &plan.intent, Some(&plan)).resources, review_refs());
   let stack = [Reason::ShowLandsStack { lands: logins(&["util", "auth"]) }];
-  let refused = mark_plan(&mark_of(&alice, &stack, &[])).unwrap();
+  let refused = mark_plan(&mark_of(&alice, &stack, &[]));
   assert_eq!(refused.blockers, stack);
   let refusal = shown_refusal(&refused, "auth").unwrap();
   assert_eq!(refusal.code, ErrorCode::ShowLandsStack);
   assert!(refusal.message.starts_with("Nothing was marked: "), "{}", refusal.message);
   // nobody to ask, the review not known yet, the branch not built
-  assert_eq!(mark_plan(&mark_of(&[], &[], &[])).unwrap().blockers, [Reason::NoReviewer { groups: Vec::new() }]);
+  assert_eq!(mark_plan(&mark_of(&[], &[], &[])).blockers, [Reason::NoReviewer { groups: Vec::new() }]);
   let readiness = [FactWait {
     fact: LandFact::Readiness,
     failed: None,
   }];
-  assert_eq!(
-    shown_refusal(&mark_plan(&mark_of(&alice, &[], &readiness)).unwrap(), "auth").unwrap().code,
-    ErrorCode::PlanChanged
-  );
+  assert_eq!(shown_refusal(&mark_plan(&mark_of(&alice, &[], &readiness)), "auth").unwrap().code, ErrorCode::PlanChanged);
   let unbuilt = mark_plan(&MarkFacts {
     tip: None,
     ..mark_of(&alice, &[], &[])
-  })
-  .unwrap();
+  });
   assert_eq!(
     (unbuilt.effects, unbuilt.waits.iter().map(|wait| wait.fact.clone()).collect::<Vec<_>>()),
     (Vec::new(), vec![LandFact::Remote])
@@ -733,7 +729,6 @@ fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_an
       review: Some(&draft),
       ..mark_of(reviewers, &[], &[])
     })
-    .unwrap()
     .effects
   };
   assert_eq!(
@@ -752,7 +747,6 @@ fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_an
       review: Some(&open),
       ..mark_of(&alice, &[], &[])
     })
-    .unwrap()
     .blockers,
     [Reason::ShowReviewOpen { number: 12 }]
   );
@@ -767,8 +761,7 @@ fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_an
     decision: None,
     tip: None,
     ..mark_of(&alice, &[], &[])
-  })
-  .unwrap();
+  });
   assert_eq!(
     created.effects,
     [
@@ -812,8 +805,7 @@ async fn a_mark_opens_its_draft_and_its_open_says_where_the_branch_was_reviewed_
   let plan = mark_plan(&MarkFacts {
     tip: Some(&tip),
     ..mark_of(&alice, &[], &[])
-  })
-  .unwrap();
+  });
   let run = run_done(&services, &plan).await;
   assert_eq!(origin_review(&repo), (Some(tip.clone()), Some(fork)));
   let created = run.created.unwrap();

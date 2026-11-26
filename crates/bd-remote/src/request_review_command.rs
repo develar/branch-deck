@@ -526,7 +526,7 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
         pull_request_open: open,
       }),
     };
-    let plan = mark_plan(&mark).map_err(CliError::from)?;
+    let plan = mark_plan(&mark);
     if let Some(refusal) = shown_refusal(&plan, name) {
       return Err(CliError::from(refusal));
     }

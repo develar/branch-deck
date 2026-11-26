@@ -256,6 +256,45 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   checked(actions, facts.cached)
 }
 
+/// What a branch that landed and left the table offers, a row of the Landed island (`landed:<name>`)
+#[derive(Clone, Copy, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of the branch and the repository, each a blocker of its own")]
+pub struct LandedBranchFacts<'a> {
+  pub name: &'a str,
+  /// A robot of Patronus lands the repository (not off Space, nor a push into the target or a merge on GitHub)
+  pub patronus: bool,
+  /// The GitHub repository of the branches is known
+  pub repository: bool,
+  /// Its review after landing, open or a draft
+  pub shown: Option<&'a ShownReview>,
+  /// The commit that landed it is known (`domain_policy::shown::landed_head` with no review): the review opens on it
+  pub landed: bool,
+  /// Its remote actions read a frame nobody checked yet (`on_cached_frame`)
+  pub cached: bool,
+}
+
+/// The actions of a branch that landed and left the table: Request Review After Landing… (`Intent::MarkShownReview`, the
+/// review opened now on what landed), refused without Patronus (`ShowNeedsPatronus`) or GitHub (`NotOnGitHub`), with its
+/// review after landing there already (`ShowReviewOpen`), and while nothing tells the commit that landed it
+/// (`ShowNothingLanded`)
+#[must_use]
+pub fn landed_actions(facts: &LandedBranchFacts<'_>) -> Vec<ActionState> {
+  let reason = if !facts.patronus {
+    Some(Reason::ShowNeedsPatronus)
+  } else if !facts.repository {
+    Some(Reason::NotOnGitHub)
+  } else if let Some(review) = facts.shown {
+    Some(Reason::ShowReviewOpen {
+      number: review.pull_request.number,
+    })
+  } else if !facts.landed {
+    Some(Reason::ShowNothingLanded { branch: facts.name.to_owned() })
+  } else {
+    None
+  };
+  checked(vec![state(ActionId::MarkShownReview, reason.map(|reason| ActionBlocker::Rule { reason }))], facts.cached)
+}
+
 /// Why the Safe Push with a review after landing of the branch can't start, as the plan of its start refuses it
 /// (`land::show_blockers`, with the reasons of the Safe Push): what refuses a mark of it (`mark_blocker`); else what
 /// holds its Safe Push back, of a branch with an open pull request what refuses the start from its comment (a draft,

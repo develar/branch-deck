@@ -14,15 +14,16 @@ use crate::derive::{Holds, landing_route_of, live_hold, row_of_view, stack_push_
 use crate::facts::{FactStore, TableFacts, listed_robots};
 use crate::table::TableState;
 use domain_policy::actions::{
-  BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, review_blocker, robot_actions, stack_actions, start_actions,
-  with_operations,
+  BranchFacts, Children, LandedBranchFacts, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, landed_actions, on_cached_frame, review_blocker, robot_actions,
+  stack_actions, start_actions, with_operations,
 };
 use domain_policy::github_stack::stack_writes;
 use domain_policy::kept::{KeptFacts, KeptKind, kept_actions};
 use domain_policy::land::{merges_on_github, patronus_lands};
-use domain_policy::next_step::{Listing, PatronusStanding};
+use domain_policy::next_step::{Listing, PatronusAnswer, PatronusStanding};
 use domain_policy::pull_request::github_repository_known;
 use domain_policy::push_slot::{PushSlotFacts, push_slot};
+use domain_policy::shown::{ContentLanding, landed_by_content, landed_head};
 use domain_policy::stack::{QuietFacts, is_quiet};
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::branch_names::{baseline_on_remote, kept_branch_name, to_final_branch_name};
@@ -373,6 +374,31 @@ fn actions_over(state: &TableState, facts: &FactStore, sources: &ActionSources<'
       cached,
     };
     actions.insert(format!("archived:{name}"), with_operations(kept_actions(&facts), Of::Kept { name, branch }, operations));
+  }
+  // the branches that landed and left the table, a row of the Landed island each (`landed:<name>`): their review after
+  // landing opens now, on what landed
+  let robot_lands = !push_route && !merge_route && !matches!(patronus, PatronusAnswer::NotOnSpace);
+  let target = baseline_on_remote(&parts.header.baseline_branch);
+  let content = landed_by_content(&parts.sections.landed);
+  let landed = parts
+    .sections
+    .landed
+    .landed
+    .iter()
+    .filter_map(|landed| landed.name.as_deref())
+    .filter(|name| !parts.branches.contains_key(*name));
+  for name in landed {
+    let landing = content.get(name).map(|at| ContentLanding { landed_at: *at, tip: None });
+    let head = landed_head(None, name, robots.robots.values(), pull_requests.pull_requests.get(name), target, landing).and_then(|landed| landed.head);
+    let facts = LandedBranchFacts {
+      name,
+      patronus: robot_lands,
+      repository,
+      shown: pull_requests.shown_reviews.get(name),
+      landed: head.is_some(),
+      cached,
+    };
+    actions.insert(format!("landed:{name}"), landed_actions(&facts));
   }
   // a start whose answer was lost, of any process (`op:<id>`)
   for operation in operations {

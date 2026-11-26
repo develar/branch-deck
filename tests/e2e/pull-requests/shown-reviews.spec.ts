@@ -10,7 +10,7 @@ import { availableReviewRequests, getReviewRow, getYourTurnCard, openRequestRevi
 import { openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent, moveClockUntil, nextAnswer, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, nextAnswer, runAndWaitForAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { toastWith } from "../helpers/title-bar-helpers"
 import { expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
@@ -369,6 +369,44 @@ test.describe("Reviews after landing", () => {
     await opened
     expect(await gitHubRequests(repo, "POST", "pulls", number, "requested_reviewers")).toEqual([{ reviewers: ["AlexPl292"] }])
     expect((await bodyWrites(repo, number)).at(-1)).toContain("Reviewed before landing in #7.")
+  })
+
+  test("should open the review after landing of a branch that left the table from its row of the Landed island, asking the reviewers picked there", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the `landed_upstream` template: a robot of the user landed feature-auth, which the update takes out of the table
+    const repo = await setupRepo("landed_upstream", {
+      patronus: { ...availableRobots(), githubRepository: `${GITHUB_REPOSITORY.owner}/${GITHUB_REPOSITORY.name}` },
+      pullRequests: gitHub(),
+      gitHubSignIn: { signedIn: true },
+    })
+    await syncAndWaitForBranches()
+    const landed = await repo.revision("user-name/virtual/feature-auth")
+    await repo.setPatronus(availableRobots(robot("feature-auth", "landed-1", { status: "success", sourceRevision: landed, finishTime: 1704142800 })))
+    await listAgain(page, repo)
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
+    const row = page.getByTestId("landed-card").locator('[data-testid="landed-branch"][data-branch-name="feature-auth"]')
+
+    // Request Review After Landing… of its row: the review opens now on what the robot landed, ready, alice asked
+    await row.getByTestId("landed-branch-mark-review").click()
+    const form = page.getByTestId("mark-shown-review")
+    await expect(form).toContainText("Request review after landing of feature-auth")
+    await form.getByTestId("mark-shown-review-reviewer-search").fill("ali")
+    await page.getByRole("option", { name: /^alice/ }).click()
+    await runAndWaitForAnswer(page, "execute", () => form.getByRole("button", { name: "Request Review After Landing" }).click())
+    const created = (await gitHubRequests(repo, "POST", "pulls")) as { head: string; base: string; draft?: boolean }[]
+    expect(created.map(({ head, base, draft }) => ({ head, base, draft: draft === true }))).toEqual([
+      { head: "user-name/review/feature-auth/head", base: "user-name/review/feature-auth/base", draft: false },
+    ])
+    expect((await repo.getRemoteBranches())["user-name/review/feature-auth/head"]).toBe(landed)
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([{ reviewers: ["alice"] }])
+    // it has its review after landing now: refused with why
+    const button = row.getByTestId("landed-branch-mark-review")
+    await expect(button).toBeDisabled()
+    await button.hover()
+    await expect(openTooltip(page)).toHaveText("Its review after landing #1 is open: a fix lands by Safe Push and goes into it")
   })
 
   test(

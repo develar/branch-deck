@@ -188,6 +188,9 @@ pub enum Reason {
   /// A Safe Push with a review after landing (show) of a branch whose review after landing `number` is open already: a
   /// fix of the branch lands by its own Safe Push and goes into that review, and a new start would replace its commits
   ShowReviewOpen { number: u32 },
+  /// The review after landing of `branch`, which landed and left the table, can't open: nothing tells the commit that
+  /// landed it (its merged robot, its merged pull request; `domain_policy::shown::landed_head`)
+  ShowNothingLanded { branch: String },
   /// The shown review `number` waits for the approvals of `waiting` (or holds their requested changes): it closes once
   /// every reviewer it asked approved
   ReviewNotApproved { number: u32, waiting: Vec<String> },
@@ -257,6 +260,7 @@ impl Reason {
       | Self::ShowNeedsPatronus
       | Self::ShowLandsStack { .. }
       | Self::ShowReviewOpen { .. }
+      | Self::ShowNothingLanded { .. }
       | Self::ReviewNotApproved { .. } => None,
     }
   }

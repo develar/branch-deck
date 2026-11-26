@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, FileDiffIcon, PackageCheckIcon, XIcon } from "lucide-react"
+import { ChevronRightIcon, FileDiffIcon, PackageCheckIcon, UserPlusIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Kbd } from "@/components/ui/kbd"
@@ -18,10 +18,14 @@ import { landedBranchName, landedCommitter, landedCountLabel, sharedCommitter } 
 import { dismissLanded } from "@/lib/landed-run"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openCommitIdsReview } from "@/lib/review-window"
-import { getViewEpoch } from "@/model/store"
+import { getViewEpoch, useRowPart } from "@/model/store"
+import { presentAction } from "@/presenters/actions"
 import { useBaselineStatus } from "@/stores/branch-sync"
+import { openInline, useActiveInlineForRow } from "@/stores/inline-row-action"
 import { markLandedSeen, useLandedIsland } from "@/stores/landed"
 import { useSelectedProjectPath } from "@/stores/repository"
+
+const InlineMarkShownReview = lazy(() => import("@/components/branch/InlineMarkShownReview").then(it => ({ default: it.InlineMarkShownReview })))
 
 /**
  * The island of what landed in the baseline with an update (here or elsewhere), above the branches: a toast passes, the
@@ -137,8 +141,11 @@ export function LandedBranchRow({ branch, showCommitter, compact = false, render
         </button>
         {branch.name !== null && <div className="flex shrink-0 items-center gap-2">{renderLinks(branch.name)}</div>}
         {onReview !== undefined && <ReviewChangesButton label={`Review Changes of ${landedBranchName(branch)}`} testId="landed-branch-review" onClick={() => onReview(0)} />}
+        {/* the island's rows only: Activity keeps what landed before */}
+        {onReview !== undefined && branch.name !== null && <MarkShownReviewButton name={branch.name} />}
         {committer !== undefined && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{`by ${committer}`}</span>}
       </div>
+      {onReview !== undefined && branch.name !== null && <LandedInlineForm name={branch.name} />}
       {expanded && (
         <ul className={cn("flex flex-col gap-1 bg-muted/50 py-2", compact ? "pr-3 pl-9" : "pr-4 pl-12 sm:pr-6")} data-testid="landed-commits">
           {branch.commits.map((commit, index) => (
@@ -148,6 +155,57 @@ export function LandedBranchRow({ branch, showCommitter, compact = false, render
       )}
     </li>
   )
+}
+
+/** The actions Rust offers a branch that landed and left the table (`landed:<name>`) */
+function landedActionsKey(name: string): string {
+  return `landed:${name}`
+}
+
+/**
+ * Request Review After Landing… of a branch that landed and left the table, as Rust offers it (`landed:<name>`): the
+ * review after landing opened now on what landed, its reviewers picked under the row; disabled with why, its hover the
+ * words of the blocker (no Patronus or GitHub, its review there already, nothing tells what landed it)
+ */
+function MarkShownReviewButton({ name }: { name: string }) {
+  const actions = useRowPart(landedActionsKey(name), "actions")
+  const item = presentAction(actions, "mark-shown-review", { onSelect: () => openInline("mark-shown-review", name) }, { subject: name, operations: {}, named: {} })
+  if (item === null) {
+    return null
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            className="shrink-0 text-muted-foreground"
+            aria-label={`${item.label} of ${name}`}
+            data-testid="landed-branch-mark-review"
+            disabled={item.disabled === true}
+            focusableWhenDisabled
+            onClick={() => openInline("mark-shown-review", name)}
+          />
+        }
+      >
+        <UserPlusIcon />
+      </TooltipTrigger>
+      <TooltipContent description={false}>{item.description ?? item.label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The form under the row of a branch of the island: Request Review After Landing… of it */
+function LandedInlineForm({ name }: { name: string }) {
+  const active = useActiveInlineForRow(name)
+  return active?.type === "mark-shown-review" ? (
+    <div className="px-4 pb-3 sm:px-6">
+      <Suspense fallback={null}>
+        <InlineMarkShownReview key={`mark-shown-review:${name}`} branchName={name} actionsKey={landedActionsKey(name)} />
+      </Suspense>
+    </div>
+  ) : null
 }
 
 /** The chips of the branch's pull request and robot, from the stores of the main window */

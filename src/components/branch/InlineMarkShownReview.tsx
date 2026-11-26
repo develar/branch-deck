@@ -29,12 +29,13 @@ function usersOf(logins: readonly string[]): GitHubUser[] {
  * after landing asks, starting with the reviewers its draft records, else with the code owners of what the branch
  * changes (`get_show_reviewers`), as Safe Push and Request Review… starts; its submit marks the branch ahead of the
  * landing (a draft that asks nobody yet), records the reviewers of its draft again, or opens the review of a branch that
- * landed, as Rust plans it
+ * landed, as Rust plans it. Of a branch that left the table, under its row of the Landed island: the actions of
+ * `actionsKey` (`landed:<name>`)
  */
-export function InlineMarkShownReview({ branchName }: { branchName: string }) {
+export function InlineMarkShownReview({ branchName, actionsKey = branchName }: { branchName: string; actionsKey?: string }) {
   const review = useShownReview(branchName)
   const draft = review?.pullRequest.isDraft === true ? review : undefined
-  const actions = useRowPart(branchName, "actions")
+  const actions = useRowPart(actionsKey, "actions")
   const words = useOperationWords(actions, MARK_SHOWN_REVIEW)
   const blocker = actionBlocker(actions, "mark-shown-review", { ...words, subject: branchName }) ?? null
   const processing = useInlineProcessing(branchName) !== null

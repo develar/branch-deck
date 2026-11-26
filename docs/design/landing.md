@@ -327,7 +327,8 @@ Its life, one robot, no gate:
    (its virtual branch, else its remote branch). Each counts only if not older than the draft (`createdAt`): a robot or a
    pull request of an earlier branch of the name opens nothing. The merged pull request of the branch is named in its
    body ("Reviewed before landing in #7"), so what was said there before landing stays in reach. A branch that landed
-   without one gets it now, ready, on what landed (the row of a landed branch, `brd request-review --after-landing`).
+   without one gets it now, ready, on what landed (the row of a landed branch, the row of the Landed island of one that
+   left the table, `landed:<name>` of the actions, `brd request-review --after-landing`).
 3. The author's move: changes requested by a reviewer it asked are the "Returned to you" line of Your Turn, also of a
    branch that left the table; the row of the branch marks the review (`RowFact::Shown`) beside its landing, never in
    its place.

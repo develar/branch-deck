@@ -1895,6 +1895,7 @@ impl Told<'_> {
       | Reason::KeptCheckedOut { .. }
       | Reason::ShowNeedsPatronus
       | Reason::ShowLandsStack { .. }
+      | Reason::ShowNothingLanded { .. }
       | Reason::ReviewNotApproved { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       // ask, not show: the review before landing in a pull request, the user's to approve
       Reason::ShowNeedsApprovals { .. } => Refusal::new(
