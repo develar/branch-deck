@@ -56,6 +56,7 @@ const InlineUngroupConfirm = lazy(() => import("@/components/branch/InlineUngrou
 const InlineCloseStackPullRequest = lazy(() => import("@/components/branch/InlineCloseStackPullRequest").then(it => ({ default: it.InlineCloseStackPullRequest })))
 const InlineShownReviewers = lazy(() => import("@/components/branch/InlineShownReviewers").then(it => ({ default: it.InlineShownReviewers })))
 const InlineCloseShownReview = lazy(() => import("@/components/branch/InlineCloseShownReview").then(it => ({ default: it.InlineCloseShownReview })))
+const InlineMarkShownReview = lazy(() => import("@/components/branch/InlineMarkShownReview").then(it => ({ default: it.InlineMarkShownReview })))
 const InlineUnapplyConfirm = lazy(() => import("@/components/branch/InlineUnapplyConfirm").then(it => ({ default: it.InlineUnapplyConfirm })))
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
 
@@ -70,6 +71,8 @@ const inlineFormTypes: ReadonlySet<InlineActionType> = new Set([
   "close-stack-pull-request",
   "shown-reviewers",
   "close-shown-review",
+  "mark-shown-review",
+  "cancel-shown-review",
   "park",
   "need",
 ])
@@ -318,6 +321,8 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "close-stack-pull-request" && <InlineCloseStackPullRequest key={`close-stack-pull-request:${name}`} root={name} />}
               {activeInline.type === "shown-reviewers" && <InlineShownReviewers key={`shown-reviewers:${name}`} branchName={name} />}
               {activeInline.type === "close-shown-review" && <InlineCloseShownReview key={`close-shown-review:${name}`} branchName={name} />}
+              {activeInline.type === "mark-shown-review" && <InlineMarkShownReview key={`mark-shown-review:${name}`} branchName={name} />}
+              {activeInline.type === "cancel-shown-review" && <InlineCloseShownReview key={`cancel-shown-review:${name}`} branchName={name} cancel />}
               {activeInline.type === "park" && <InlineParkBranchInput key={`park:${name}`} branchName={name} />}
               {activeInline.type === "need" && <InlineNeedInput key={`need:${name}`} branchName={name} />}
             </Suspense>

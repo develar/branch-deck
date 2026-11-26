@@ -157,20 +157,27 @@ function factTexts(fact: RowFact, { branch, landedIn, robot, parked, wait }: Row
       return { text: formatRegenerate(fact.files), tooltip: describeRegenerate(fact.files, fact.fix), color: "warning" }
     // its review after landing: in master already, the review follows
     case "shown":
-      return shownTexts(fact.number, fact.state, branch.name)
+      return shownTexts(fact.number, fact.state, branch.name, fact.reviewers ?? [])
   }
 }
 
 /**
  * The review after landing of `branch` in the cell, its hover whose move it is: "review after landing" while its Safe
- * Push lands it (a draft), "in review after landing" waiting for named people, "changes requested after landing" with
+ * Push lands it (a draft), "review after landing marked" before it lands (a draft marked ahead of time, asking
+ * `reviewers` once it lands), "in review after landing" waiting for named people, "changes requested after landing" with
  * how a fix goes into it (a commit of the branch, `(auth) …`, its own Safe Push), "fix goes into review after landing"
  * while that fix lands, "approved after landing" until it closes
  */
-function shownTexts(number: number, state: ShownState, branch: string): StatusTexts {
+function shownTexts(number: number, state: ShownState, branch: string, reviewers: readonly string[]): StatusTexts {
   switch (state.kind) {
     case "draft":
-      return { text: "review after landing", tooltip: `${branch} is landing: once its Safe Push merges, #${number} opens and its reviewers are asked`, color: "neutral" }
+      return state.landing
+        ? { text: "review after landing", tooltip: `${branch} is landing: once its Safe Push merges, #${number} opens and its reviewers are asked`, color: "neutral" }
+        : {
+            text: "review after landing marked",
+            tooltip: `Review after landing marked: once ${branch} lands, #${number} opens${reviewers.length === 0 ? "" : ` and asks ${joinNames(reviewers)}`}`,
+            color: "neutral",
+          }
     case "inReview":
       return {
         text: "in review after landing",

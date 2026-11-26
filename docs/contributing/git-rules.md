@@ -159,7 +159,8 @@ written only there) in that transaction.
   pull request is open. Its build is remembered by the base and the original ids (`StackBuilds`), never by
   `CommitKey`, which an amend keeps ([Stack branch](../design/git-operations.md#stack-branch)).
 - `{prefix}/review/<branch>/{head,base}` on the remote, the branches of a shown review (`review_head.rs`, never local):
-  only `push_review` (the start of a Safe Push with `--request-review`, the open of the review after its robot merged),
+  only `push_review` (the start of a Safe Push with `--request-review` and of one that lands a branch marked for a
+  review after landing, the mark ahead of the landing, the open of the review on what landed),
   `extend_review` (a fix that landed since, replayed onto the head, which only moves forward), `delete_review` (its
   close) and `delete_review_at` (a review closed elsewhere: only the ones still at the tips of its pull request),
   effects of the engine, each in one atomic push leased on what one `ls-remote` saw (a delete only of the ones the

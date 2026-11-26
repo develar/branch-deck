@@ -86,6 +86,7 @@ fn status_of(facts: &NodeFacts<'_>, step: &NextStep) -> RowStatus {
     found.push(RowFact::Shown {
       number: review.pull_request.number,
       state: review.state.clone(),
+      reviewers: review.reviewers.clone(),
     });
   }
   let mut found = found.into_iter();

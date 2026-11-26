@@ -127,15 +127,18 @@ describe("the Status cell of a branch row", () => {
 
   it("marks the review after landing beside what landed the branch, its hover whose move it is in each state", () => {
     const auth = testBranch("auth", null, { remoteStatus: testRemoteStatus() })
-    const mark = (state: Extract<RowFact, { kind: "shown" }>["state"]) => presentRowMark(rowStatus({ kind: "landed" }, [{ kind: "shown", number: 12, state }]), context(auth))
+    const mark = (state: Extract<RowFact, { kind: "shown" }>["state"]) =>
+      presentRowMark(rowStatus({ kind: "landed" }, [{ kind: "shown", number: 12, state, reviewers: ["alice"] }]), context(auth))
     expect([
-      mark({ kind: "draft" }),
+      mark({ kind: "draft", landing: true }),
+      mark({ kind: "draft", landing: false }),
       mark({ kind: "inReview", waiting: ["alice", "bob"] }),
       mark({ kind: "changesRequested", by: ["alice"] }),
       mark({ kind: "extending", robot: "r2" }),
       mark({ kind: "approved", by: ["alice"] }),
     ]).toEqual([
       { color: "warning", lines: ["auth is landing: once its Safe Push merges, #12 opens and its reviewers are asked"] },
+      { color: "warning", lines: ["Review after landing marked: once auth lands, #12 opens and asks alice"] },
       { color: "warning", lines: ["In review after landing: waits for alice and bob in #12"] },
       { color: "error", lines: ["alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review"] },
       { color: "warning", lines: ["A fix of auth is landing: once its Safe Push merges, it goes into #12 and the reviewers are asked again"] },

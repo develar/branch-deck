@@ -79,10 +79,10 @@ import { describeEdge, describeEdgeEvidence, describeLandingRefusals, describeRe
 import { describeTogetherPrice } from "@/presenters/landing-plan"
 import { edgeActionItems, formatPerson } from "@/presenters/next-step"
 import { formatReason } from "@/presenters/reasons"
-import { describeShowCandidates, describeShowStart } from "@/presenters/shown"
+import { describeMarkedLanding, describeShowCandidates, describeShowStart } from "@/presenters/shown"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { useIndicatorClaim } from "@/stores/indicators"
-import { peekBranchRules, usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
+import { peekBranchRules, usePullRequest, useShownReview, useStackPullRequest } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover, openSafePushPopover } from "@/stores/safe-push"
@@ -293,6 +293,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         )}
         {read !== null && (byPush ? <PushLines read={read} /> : <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} show={show} />)}
         {byPush && landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
+        {mode === "rebaseAutosquash" && !show && !byPush && root === null && <MarkedLine branchName={branchName} />}
         {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
         {/* a review after landing reviews one branch: no whole stack beside it */}
         {wholeStackItem !== undefined && wholeStackRoot !== null && !show && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
@@ -962,6 +963,18 @@ function ShowReviewersField({
       )}
     </div>
   )
+}
+
+/**
+ * What the Safe Push of a branch marked for a review after landing (its draft) does of it: "#12 opens once it merges,
+ * asking alice."; none of a branch without a draft
+ */
+function MarkedLine({ branchName }: { branchName: string }) {
+  const review = useShownReview(branchName)
+  if (review?.pullRequest.isDraft !== true) {
+    return null
+  }
+  return <Line testId="safe-push-marked">{describeMarkedLanding(review)}</Line>
 }
 
 /**

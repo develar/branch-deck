@@ -209,6 +209,8 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::CreatePullRequest
       | ActionId::RequestShownReview
       | ActionId::CloseShownReview
+      | ActionId::MarkShownReview
+      | ActionId::CancelShownReview
       | ActionId::Rename
       | ActionId::MoveTo
       | ActionId::StackOn

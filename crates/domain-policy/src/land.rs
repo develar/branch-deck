@@ -34,8 +34,10 @@
 //!   dismisses, rules GitHub didn't answer, a start without approvals, a piece of a stack whose pull request is open, a
 //!   force push the user allowed; `unaccepted` names the ones an allowance of `bd` accepts;
 //! - effects, in order: the retargets of the pull requests into a virtual branch (D11), the cancel, the push (of a
-//!   branch `push::start_push`: Push Stack of it up to the nearest held ancestor, past what landed), then the start (`StartRoute`: a `/patronus` comment on the pull request it starts from, else the API with the profile) or
-//!   the pull request it opens.
+//!   branch `push::start_push`: Push Stack of it up to the nearest held ancestor, past what landed), the branches of the
+//!   review after landing it opens (`Land::request_review`) and of each branch it lands marked for one ahead of time (a
+//!   draft: its head at the commit the robot lands), then the start (`StartRoute`: a `/patronus` comment on the pull
+//!   request it starts from, else the API with the profile) or the pull request it opens.
 //!
 //! The profiles of a mode (`allows_mode`), the default one (`default_profile`: the last robot's while the target offers
 //! it) and what a start offers (`offered_profiles`: of a start without approvals the emergency ones too, and as the
@@ -190,6 +192,8 @@ pub struct LandsBranch<'a> {
   pub hold: Option<&'a HoldView>,
   /// The last sync did not build it
   pub not_built: bool,
+  /// The commit it is at, which the robot lands; none until the sync built it
+  pub tip: Option<&'a str>,
 }
 
 /// What a start of a branch is decided on besides the remote services
@@ -223,8 +227,8 @@ pub struct StackSubject<'a> {
   pub parked: Option<ParkedMember>,
   /// What landed every branch of it whole (`reasons::stack_landed`)
   pub landed: Option<Reason>,
-  /// Its branches in the order of the stack, each whether a merged Safe Push landed it whole
-  pub members: Vec<(&'a str, bool)>,
+  /// Its branches in the order of the stack, each whether a merged Safe Push landed it whole, and the commit it is at
+  pub members: Vec<(&'a str, bool, Option<&'a str>)>,
   /// What is known of the remote branch of its stack branch
   pub remote: Option<RemoteBranch<'a>>,
   /// The robot of the whole stack a Safe Push start replaces, running on an older stack branch
@@ -558,19 +562,43 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
     });
   }
   // the draft of the shown review before the start: its branches pushed at the commit the robot takes, its pull request
-  // opened, nobody asked until the robot merged
-  if let (Some(show), SubjectFacts::Branch(branch)) = (show, &facts.subject)
-    && let Some(tip) = branch.tip
-  {
+  // opened (one open of its head taken), nobody asked until the robot merged; its reviewers recorded again where the
+  // draft of a mark records others
+  let shown_draft = |name: &str| facts.pull_requests.shown_reviews.get(name).filter(|review| review.pull_request.is_draft);
+  let subject_show = match (show, &facts.subject) {
+    (Some(show), SubjectFacts::Branch(branch)) => branch.tip.map(|tip| (show, branch.start.name, tip)),
+    _ => None,
+  };
+  if let Some((show, name, tip)) = subject_show {
     decision.effects.push(PlannedEffect::PushReview {
-      branch: branch.start.name.to_string(),
+      branch: name.to_string(),
       tip: tip.to_string(),
     });
     decision.effects.push(PlannedEffect::CreateShownReview {
-      branch: branch.start.name.to_string(),
+      branch: name.to_string(),
       reviewers: show.reviewers.clone(),
       draft: true,
     });
+    if let Some(review) = shown_draft(name).filter(|review| !same_logins(&review.reviewers, &show.reviewers)) {
+      decision.effects.push(PlannedEffect::RecordShown {
+        number: review.pull_request.number,
+        reviewers: show.reviewers.clone(),
+        landed: review.landed.clone(),
+        reviewed_in: None,
+      });
+    }
+  }
+  // every branch it lands marked for a review after landing (a draft): its head goes to the commit the robot lands, so
+  // the review shows what landed
+  if safe_push {
+    for (name, tip) in lands_tips(&facts.subject, &part.lands) {
+      if subject_show.is_none_or(|(_, subject, _)| subject != name) && shown_draft(name).is_some() {
+        decision.effects.push(PlannedEffect::PushReview {
+          branch: name.to_string(),
+          tip: tip.to_string(),
+        });
+      }
+    }
   }
   let found = part.own.as_ref().filter(|(_, base)| starts_from(base)).map(|(pull_request, _)| *pull_request);
   if land.create_pull_request {
@@ -590,16 +618,34 @@ fn decide_robot(facts: &LandFacts<'_>, land: &Land, gate: Option<&RouteGate>) ->
   decision
 }
 
-/// What refuses a Safe Push with a review after landing (show, `Land::request_review`): a whole stack, or more than the
-/// branch to land (a review after landing reviews one branch, and a fix of a branch it is built on would land outside
-/// it), an open pull request of the branch (its review is there, before landing), its review after landing open already
-/// (a fix lands by its own Safe Push and goes into it), nobody to ask
+/// The branches of `lands` with the commit each is at, as `subject` has them, in their order; one without a tip is left out
+fn lands_tips<'a>(subject: &SubjectFacts<'a>, lands: &'a [String]) -> Vec<(&'a str, &'a str)> {
+  lands
+    .iter()
+    .filter_map(|name| {
+      let tip = match subject {
+        SubjectFacts::Branch(branch) => branch.chain.iter().find(|step| step.name == name).and_then(|step| step.tip),
+        SubjectFacts::WholeStack(stack) => stack.members.iter().find(|(member, _, _)| member == name).and_then(|(_, _, tip)| *tip),
+      }?;
+      Some((name.as_str(), tip))
+    })
+    .collect()
+}
+
+/// The same GitHub logins in any order and case
+fn same_logins(left: &[String], right: &[String]) -> bool {
+  left.len() == right.len() && left.iter().all(|login| right.iter().any(|it| it.eq_ignore_ascii_case(login)))
+}
+
+/// What refuses a Safe Push with a review after landing (show, `Land::request_review`), and a mark of one ahead of time
+/// (`Intent::MarkShownReview`, the same reasons): a whole stack, or more than the branch to land (a review after landing
+/// reviews one branch, and a fix of a branch it is built on would land outside it), its review after landing open
+/// already (a fix lands by its own Safe Push and goes into it), nobody to ask. An open pull request of the branch
+/// refuses nothing: the start goes through its comment (its review before landing is there, the one after landing
+/// follows), refused as any start from it is (a draft, another base)
 fn show_blockers(facts: &LandFacts<'_>, part: &SubjectPart<'_>, nobody: bool, decision: &mut LandDecision) {
   if matches!(facts.subject, SubjectFacts::WholeStack(_)) || part.lands.len() > 1 {
     decision.blockers.push(Reason::ShowLandsStack { lands: part.lands.clone() });
-  }
-  if let Some((pull_request, _)) = &part.own {
-    decision.blockers.push(Reason::ShowWithPullRequest { number: pull_request.number });
   }
   // a draft is taken again and moved (its robot failed or was canceled); an open one takes a fix of its own Safe Push
   if let SubjectFacts::Branch(branch) = &facts.subject
@@ -672,7 +718,7 @@ pub(crate) fn branch_lands(branch: &BranchSubject<'_>) -> Vec<String> {
 /// What a start of the whole stack `stack` lands: every branch of it merged Safe Pushes didn't land whole, in the order
 /// of the stack
 pub(crate) fn stack_lands(stack: &StackSubject<'_>) -> Vec<String> {
-  stack.members.iter().filter(|(_, landed)| !landed).map(|(name, _)| (*name).to_string()).collect()
+  stack.members.iter().filter(|(_, landed, _)| !landed).map(|(name, _, _)| (*name).to_string()).collect()
 }
 
 /// How many more branches than its row `lands` names: a lone branch lands 0 more

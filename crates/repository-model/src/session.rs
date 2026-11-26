@@ -93,7 +93,8 @@ pub enum SessionEventKind {
   /// The demand of all the windows of the session changed (`set_demand`)
   Demand(Demand),
   /// A sync of the session succeeded: the table is committed, with `baseline` (the merge profiles are of its target) and
-  /// its pushed branches (`BranchTable::robot_sources`), whose robots are listed whoever started them
+  /// its pushed branches and those of the drafts of reviews after landing (`BranchTable::robot_sources_with`), whose robots
+  /// are listed whoever started them
   TableCommitted { baseline: String, robot_sources: Vec<String> },
   /// A push of the app ended and pushed `heads` (the remote did not move): the pull requests are listed again, once more
   /// a little later when GitHub still shows another head of one

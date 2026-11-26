@@ -273,6 +273,7 @@ pub(crate) async fn create_pull_request_waiting(
       assignees,
       warnings,
     } => Ok(CreatedPullRequest {
+      created_at: created_at_of(&pull_request),
       pull_request: to_pull_request(*pull_request, requested),
       created: true,
       assignees,
@@ -284,7 +285,8 @@ pub(crate) async fn create_pull_request_waiting(
         .map_err(|failure| creation_error(failure, params))?
         .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not find it", params.branch_name)))?;
       Ok(CreatedPullRequest {
-        pull_request: existing,
+        created_at: existing.1,
+        pull_request: existing.0,
         created: false,
         assignees: Vec::new(),
         warnings: Vec::new(),
@@ -296,7 +298,7 @@ pub(crate) async fn create_pull_request_waiting(
 /// The open pull request of `params.head` in `repository`, from `GET pulls?head=<owner>:<head>&state=open`: the REST
 /// list reads the pull requests themselves, so one created a moment ago (a retry after a timeout, the app and `bd
 /// --create-pull-request` at once) is found while GitHub's search does not list it yet
-async fn open_pull_request_of_head(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams) -> Result<Option<PullRequest>, GitHubFailure> {
+async fn open_pull_request_of_head(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams) -> Result<Option<(PullRequest, u32)>, GitHubFailure> {
   let head = format!("{}:{}", repository.owner, params.head);
   let (owner, name, head) = (repository.owner.as_str(), repository.name.as_str(), head.as_str());
   let found = github
@@ -310,7 +312,8 @@ async fn open_pull_request_of_head(github: &GitHubService, repository: &GitHubRe
     found
       .into_iter()
       .find(|pull_request| pull_request.head.git_ref == params.head)
-      .map(|pull_request| to_pull_request(pull_request, Vec::new())),
+      .map(|pull_request| (created_at_of(&pull_request), pull_request))
+      .map(|(created_at, pull_request)| (to_pull_request(pull_request, Vec::new()), created_at)),
   )
 }
 
@@ -468,6 +471,11 @@ fn creation_error(failure: GitHubFailure, params: &CreatePullRequestParams) -> G
   GitHubWriteError::GitHub(failure)
 }
 
+/// When GitHub opened the pull request, Unix seconds; 0 where it didn't say
+fn created_at_of(gh: &GhCreatedPullRequest) -> u32 {
+  gh.created_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0)
+}
+
 fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequest {
   let requested = if requested.is_empty() {
     gh.requested_reviewers.into_iter().map(|reviewer| reviewer.login).collect()
@@ -487,6 +495,7 @@ fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequ
     head_ref_oid: gh.head.sha,
     checks: None,
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
+    closed_at: None,
     reviewers: requested
       .into_iter()
       .map(|login| Reviewer {
@@ -558,6 +567,8 @@ struct GhCreatedPullRequest {
   head: GhBranchRef,
   base: GhBranchRef,
   updated_at: Option<String>,
+  #[serde(default)]
+  created_at: Option<String>,
   #[serde(default)]
   requested_reviewers: Vec<GhUserLogin>,
   user: Option<GhUserLogin>,

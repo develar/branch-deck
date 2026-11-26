@@ -72,6 +72,7 @@ impl World {
     let robots = Robots::new(&[]);
     let profiles = Fact::<PatronusStartOptions>::default();
     let chain = ["auth", "login"].map(|name| LandsBranch {
+      tip: None,
       name,
       landed_whole: false,
       in_baseline: false,
@@ -346,7 +347,7 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
         },
         parked: None,
         landed: None,
-        members: vec![("auth", false), ("login", false)],
+        members: vec![("auth", false, Some("auth-tip")), ("login", false, Some("login-tip"))],
         remote: None,
         replaces: None,
         held_by: None,

@@ -108,6 +108,8 @@ export const ACTION_LOOKS = {
   "create-pull-request": { label: "Create Pull Request…", icon: GitPullRequestCreateIcon },
   "request-shown-review": { label: "Request Review…", icon: UserPlusIcon },
   "close-shown-review": { label: "Close Review…", icon: GitPullRequestClosedIcon },
+  "mark-shown-review": { label: "Request Review After Landing…", icon: UserPlusIcon },
+  "cancel-shown-review": { label: "Cancel Review After Landing…", icon: CircleSlashIcon },
   rename: { label: "Rename…", icon: PencilIcon },
   "move-to": { label: "Move to…", icon: FolderInputIcon, kbds: ["m"] },
   "stack-on": { label: "Stack On…", icon: LayersIcon },

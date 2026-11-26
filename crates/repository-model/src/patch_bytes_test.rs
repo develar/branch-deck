@@ -12,17 +12,18 @@ use crate::state::View;
 use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, Person, ReviewReadiness};
 use domain_types::session::ViewPatch;
 
-/// The first patch of the view of the 141 rows, every part from nothing (measured 567 334 bytes: the actions 177 KB,
+/// The first patch of the view of the 141 rows, every part from nothing (measured 576 706 bytes: the actions 186 KB,
 /// the branches 114 KB, the next steps 80 KB, the landing decisions 77 KB, the facts 71 KB, the Patronus part 23 KB,
 /// the units of the landing plan 15 KB, the rest of the plan 1 KB)
 const FIRST_PATCH_BUDGET: usize = 580_000;
 /// The patch of one robot that fails: its fact, and the next step, the landing decisions, the actions and the attention
-/// of its branch (measured 3 476 bytes, of them 1 714 the actions with the Safe Push and Request Review… of the branch,
-/// disabled with the step's reason as its Safe Push is)
-const FAILED_ROBOT_BUDGET: usize = 3_700;
+/// of its branch (measured 3 701 bytes, of them 1 922 the actions with the Safe Push and Request Review… of the branch,
+/// disabled with the step's reason as its Safe Push is, and Request Review After Landing…)
+const FAILED_ROBOT_BUDGET: usize = 3_900;
 /// The patch of the readiness one subject is answered: its fact, and the next step, the landing decisions and the
-/// actions of its row, its Safe Push and Request Review… among them (measured 2 864 bytes)
-const READINESS_ANSWER_BUDGET: usize = 3_100;
+/// actions of its row, its Safe Push and Request Review… and Request Review After Landing… among them (measured 3 027
+/// bytes)
+const READINESS_ANSWER_BUDGET: usize = 3_250;
 
 /// The bytes of the JSON a window gets of each item, as the channel of the app carries it
 pub(super) fn json_bytes<T: serde::Serialize>(items: &[T]) -> usize {

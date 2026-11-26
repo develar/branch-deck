@@ -216,6 +216,9 @@ struct Given {
   /// The fetched baseline has a commit of someone else the checked out branch lacks: the copies the sync builds are
   /// built on its fork point
   baseline_ahead: Option<bool>,
+  /// A branch of `commits` marked for a review after landing ahead of time: the draft #21 of its shown review, recording
+  /// alice, which the search of the shown reviews lists
+  marked: Option<String>,
 }
 
 /// The route a case names (`branchdeck.landing`)
@@ -264,6 +267,7 @@ impl Default for Given {
       route: None,
       permission: None,
       baseline_ahead: None,
+      marked: None,
     }
   }
 }
@@ -655,6 +659,22 @@ fn virtual_branch(name: &str) -> String {
 }
 
 /// The pull request #7 of the case's branch (or of `of`) as the GitHub search lists it
+/// The draft #21 of the review after landing of `branch`, marked ahead of time: from `{prefix}/review/<branch>/head` into
+/// its base, by `me`, its body recording alice
+fn marked_review(branch: &str) -> Value {
+  let mut review = pull_request_json(&[]);
+  review["number"] = json!(21);
+  review["url"] = json!("https://github.com/acme/monorepo/pull/21");
+  review["author"] = json!({"login": "me"});
+  review["isDraft"] = json!(true);
+  review["headRefName"] = json!(format!("{PREFIX}/review/{branch}/head"));
+  review["baseRefName"] = json!(format!("{PREFIX}/review/{branch}/base"));
+  review["body"] = json!(domain_policy::shown::reviewers_record(&["alice".to_owned()]));
+  review["createdAt"] = json!("2026-10-14T09:00:00Z");
+  review["baseRef"] = json!({"target": {"oid": "0000"}});
+  review
+}
+
 fn pull_request_of(given: &GivenPullRequest, branch: &str) -> Value {
   let branch = given.of.as_deref().unwrap_or(branch);
   let approvers: Vec<&str> = given.approvers.iter().map(String::as_str).collect();
@@ -921,6 +941,19 @@ impl Situation {
           github.answer("POST", "/graphql", FakeAnswer::status(500, json!({"message": "Server Error"})));
         }
       }
+    }
+    // the draft of the review after landing of the marked branch, which the search of the shown reviews lists
+    if let Some(marked) = given.marked.as_deref() {
+      let github = github.as_ref().expect("given.marked is a repository reviewed on GitHub");
+      assert!(
+        given.permission.is_none() && given.route.is_none(),
+        "given.marked answers the listing itself: no given.permission, no given.route"
+      );
+      github.answer(
+        "POST",
+        "/graphql",
+        FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": pull_requests}, "shown": {"nodes": [marked_review(marked)]}}})),
+      );
     }
     if let (Some(permission), Some(github)) = (given.permission, &github) {
       let permission = match permission {
@@ -1451,7 +1484,8 @@ fn step_answer(step: Option<&NextStep>) -> Value {
 /// What a case compares of the decision of a start (`expect.land`): the codes of its blockers, the kinds of its
 /// confirmations and of the facts it waits for, in order; how it starts (`api`, `api:<profile>`, `comment:<number>`,
 /// `createPullRequest`), the branches its push pushes and whether by force, the pull requests it retargets, the robot
-/// it cancels, what lands; `null` without a decision
+/// it cancels, what lands, the branches whose review after landing its push moves to what it lands (`reviews`); `null`
+/// without a decision
 fn land_answer(decision: Option<&Plan>) -> Value {
   let Some(decision) = decision else {
     return Value::Null;
@@ -1495,6 +1529,10 @@ fn land_answer(decision: Option<&Plan>) -> Value {
       _ => None,
     }).first(),
     "lands": decision.lands,
+    "reviews": effects(|effect| match effect {
+      PlannedEffect::PushReview { branch, .. } => Some(json!(branch)),
+      _ => None,
+    }),
     "into": decision.effects.iter().find_map(|effect| match effect {
       PlannedEffect::PushBaseline { target, .. } => Some(json!(target)),
       _ => None,

@@ -2207,10 +2207,18 @@ Show of ship/show/ask ([Shown Reviews](../../openspec/specs/branch/shown-reviews
 --request-review [--reviewer LOGIN]…` lands the branch and, before the robot starts, pushes `{prefix}/review/<branch>/head`
 and its fork point `/base` and opens a draft pull request between them (`shown`: `reviewers`, `groups`, `head`, `base`,
 `number`, `created`). Without `--reviewer` it asks one available member of each owner group of the changed paths, from
-the CodeOwners service with the Space token of Patronus. Once the robot merged, `brd request-review <branch>
---after-landing` moves the head onto what landed, marks it ready and asks the reviewers its body records (`shown.state`,
-`requested`); a branch a Safe Push landed without one gets one, ready; a draft whose branch the fetched baseline has
-by content while no robot of it is listed (older than the 7 days of the listing) opens on its head. A fix lands by its
+the CodeOwners service with the Space token of Patronus. A branch with an open pull request starts from its comment: the
+review after landing follows the one in the pull request. `brd request-review <branch> --after-landing` before the
+branch landed marks it ahead of time (`shown.marked`): its branches pushed at its tip and fork point, the draft opened,
+asking nobody, refused as `--request-review` is (but by nothing of the robot, and by the approvals first only without
+an open pull request); every Safe Push that lands the branch (its own, a child's, the whole stack's) moves the head of
+the review to what it lands. Once something landed the branch since the draft opened (a merged Safe Push of it, also
+a safe-merge someone started from its pull request; its pull request merged into the target once the baseline has the
+branch whole; the baseline by content), `brd request-review <branch> --after-landing` moves the head onto what landed,
+marks it ready and asks the reviewers its body records (`shown.state`, `requested`), its body naming the merged pull
+request where the branch was reviewed before; a robot or a pull request of the name older than the draft opens
+nothing. A branch that landed without one gets one, ready, on what landed (of one that left the table, its remote
+branch). A fix lands by its
 own Safe Push of the branch (`brd robot` names the review it `extends`); once merged, `brd request-review <branch>`
 (no flag needed with a shown review) replays it onto the head of the review, pushes it leased on the head the remote
 has, asks the reviewers again and records the fix in the body (`shown.extended`: `fixes`, `head`; `took_files`, a fix
@@ -2219,9 +2227,10 @@ whose commit conflicts on its commits and takes the files as master has them aft
 and its record. While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
 [--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
 its branches; of a review closed on GitHub it deletes the branches the remote still has at the tips of its pull request
-(`state: closed`, `deleted`), as the app does an hour after such a close. Refusals (exit 4): `approvals_required`, `pull_request_open`, `show_lands_stack`, `show_needs_patronus`,
-`no_reviewer` (the start); `no_shown_review` (no merged Safe Push yet, or no open review); `review_not_approved` (the
-close; `--allow-unapproved` only on the user's word, never a next step).
+(`state: closed`, `deleted`), as the app does an hour after such a close. Refusals (exit 4): `approvals_required`, `pull_request_open` (its review
+after landing is open already), `show_lands_stack`, `show_needs_patronus`, `no_reviewer` (the start and the mark);
+`no_shown_review` (nothing landed it since its draft opened, or no open review); `review_not_approved` (the close;
+`--allow-unapproved` only on the user's word, never a next step).
 
 ### `brd robot <branch> [--full] [--robot ID] [--whole-stack]`
 

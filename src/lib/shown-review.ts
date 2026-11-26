@@ -1,6 +1,7 @@
 // The reviews after landing (show of ship/show/ask) the user acts on from the row of a branch: whom Safe Push and
-// Request Review… asks by default (`get_show_reviewers`, the code owners of what the branch changes), more reviewers
-// asked of an open one (Request Review…, `Intent::OpenShownReview` with them) and its close (Close Review…,
+// Request Review… asks by default (`get_show_reviewers`, the code owners of what the branch changes), its mark ahead of
+// time (Request Review After Landing…, `Intent::MarkShownReview`), more reviewers asked of an open one (Request Review…,
+// `Intent::OpenShownReview` with them) and its close (Close Review…, Cancel Review After Landing…,
 // `Intent::CloseShownReview`). Rust plans and runs each (`operations::shown`); the page only asks and toasts.
 import type { Intent, ShowReviewers } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -36,6 +37,15 @@ export async function runShownIntent(repositoryPath: string, intent: Intent, fai
     notifyError(failure, runFailure(run, ""))
   }
   return false
+}
+
+/**
+ * Request Review After Landing… of `branch`: its review after landing marked ahead of time with `reviewers` (a draft now,
+ * which opens once anything lands the branch), of its draft those recorded again, of a branch that landed the review
+ * opened now
+ */
+export function markShownReview(repositoryPath: string, branch: string, reviewers: readonly string[]): Promise<boolean> {
+  return runShownIntent(repositoryPath, { kind: "markShownReview", branch, reviewers: [...reviewers] }, `Cannot request the review after landing of ${branch}`)
 }
 
 /** Request Review… of the open review after landing of `branch`: `reviewers` are asked and recorded in its body */

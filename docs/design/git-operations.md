@@ -5575,8 +5575,11 @@ and after the push):
    the remote-tracking ref of the target (the fork point), then one `push --porcelain --atomic` of the ones that are not
    where they go, each `--force-with-lease` on what `ls-remote` saw (empty: it must not exist), so both are created or
    moved all or nothing; nothing to move pushes nothing. The start of a Safe Push with `--request-review` pushes them at
-   the commit the robot takes, the open after the merge moves them to the commit the robot took (a restart may have
-   taken a newer one). A repeat of the same push is `[up to date]`, exit 0.
+   the commit the robot takes, and so does every Safe Push of a branch marked ahead of time (its own, a child's, the
+   whole stack's: one push per marked branch it lands, before the start); the mark itself (`Intent::MarkShownReview`)
+   pushes them at the tip of the branch; the open after the landing moves them to what landed (the commit the robot
+   took, a restart may have taken a newer one; the head of the merged pull request; the tip of the branch the baseline
+   has whole), none when the head is there already. A repeat of the same push is `[up to date]`, exit 0.
 2. Extend (`extend_review`), once the Safe Push of a fix of the branch merged: one `ls-remote` of the head (the lease and
    the commit it goes onto; none: the review was closed, an error), one `cat-file --batch-check` of the head and the
    source revisions of the fixes (a head the repository lacks is fetched by its branch, objects only:

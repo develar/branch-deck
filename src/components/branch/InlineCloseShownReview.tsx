@@ -7,25 +7,29 @@ import { closeShownReview } from "@/lib/shown-review"
 import { showToast } from "@/lib/toast-message"
 import { useRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
-import { describeCloseShownReview, formatShownClosedTitle } from "@/presenters/shown"
+import { describeCancelShownReview, describeCloseShownReview, formatShownCanceledTitle, formatShownClosedTitle } from "@/presenters/shown"
 import { closeInline, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { useShownReview } from "@/stores/pull-requests"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
-/** The action whose words the form says */
+/** The actions whose words the form says: the close of an open review, the cancel of a mark */
 const CLOSE_SHOWN_REVIEW: readonly ActionId[] = ["close-shown-review"]
+const CANCEL_SHOWN_REVIEW: readonly ActionId[] = ["cancel-shown-review"]
 
 /**
  * Close Review… under the row of a branch with a review after landing: what the review waits for (approved, or the
  * approvals and the fix it closes without), then Close Review, which closes it with its comment and deletes its branches,
- * approved or not (as `brd close-review --allow-unapproved`); as Rust offers the close (a close that runs holds it)
+ * approved or not (as `brd close-review --allow-unapproved`); as Rust offers the close (a close that runs holds it). Of a
+ * draft marked ahead of the landing (`cancel`, Cancel Review After Landing…) the same close: nothing opens once the
+ * branch lands, its comment says it was canceled
  */
-export function InlineCloseShownReview({ branchName }: { branchName: string }) {
+export function InlineCloseShownReview({ branchName, cancel = false }: { branchName: string; cancel?: boolean }) {
   const review = useShownReview(branchName)
   const actions = useRowPart(branchName, "actions")
+  const id: ActionId = cancel ? "cancel-shown-review" : "close-shown-review"
   // the operations of the session only while the close runs, waits or is busy behind one, whose words it says
-  const words = useOperationWords(actions, CLOSE_SHOWN_REVIEW)
-  const blocker = actionBlocker(actions, "close-shown-review", { ...words, subject: branchName }) ?? null
+  const words = useOperationWords(actions, cancel ? CANCEL_SHOWN_REVIEW : CLOSE_SHOWN_REVIEW)
+  const blocker = actionBlocker(actions, id, { ...words, subject: branchName }) ?? null
   const processing = useInlineProcessing(branchName) !== null
   if (review === undefined) {
     // closed meanwhile (every reviewer approved, another window): nothing is left to confirm
@@ -35,17 +39,17 @@ export function InlineCloseShownReview({ branchName }: { branchName: string }) {
       </InlineForm>
     )
   }
-  const { title, description } = describeCloseShownReview(review, branchName)
+  const { title, description } = cancel ? describeCancelShownReview(review, branchName) : describeCloseShownReview(review, branchName)
   const { pullRequest } = review
   return (
     <InlineForm
       title={title}
       description={description}
-      dataTestId="close-shown-review"
+      dataTestId={cancel ? "cancel-shown-review" : "close-shown-review"}
       canSubmit={!processing && blocker === null}
       submitDisabledReason={blocker}
       loading={processing}
-      submitText="Close Review"
+      submitText={cancel ? `Close Draft #${pullRequest.number}` : "Close Review"}
       submitIcon={<GitPullRequestClosedIcon data-icon="inline-start" />}
       submitVariant="destructive"
       focusSubmit
@@ -57,7 +61,7 @@ export function InlineCloseShownReview({ branchName }: { branchName: string }) {
           closeShownReview(repositoryPath, branchName).then(closed => {
             if (closed) {
               showToast({
-                title: formatShownClosedTitle(pullRequest.number, branchName),
+                title: cancel ? formatShownCanceledTitle(pullRequest.number, branchName) : formatShownClosedTitle(pullRequest.number, branchName),
                 description: pullRequest.title,
                 action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) },
               })

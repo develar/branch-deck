@@ -354,6 +354,7 @@ fn pull_request_node(request: &ReviewRequest, open: bool) -> Value {
 
 fn review_request_pull(request: &ReviewRequest) -> FakePull {
   FakePull {
+    created_at: 0,
     pull_request: PullRequest {
       number: request.number,
       title: request.title.clone(),
@@ -367,6 +368,7 @@ fn review_request_pull(request: &ReviewRequest) -> FakePull {
       head_ref_oid: request.head_ref_oid.clone(),
       checks: None,
       updated_at: request.updated_at,
+      closed_at: None,
       reviewers: vec![Reviewer {
         login: crate::remote_host::GITHUB_VIEWER.to_string(),
         state: ReviewerState::Requested,

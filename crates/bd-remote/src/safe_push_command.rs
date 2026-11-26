@@ -1902,11 +1902,6 @@ impl Told<'_> {
         format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
       )
       .with_next_step(format!("{} safe-push {} --create-pull-request", context.bd, shell_word(name)), true),
-      Reason::ShowWithPullRequest { .. } => Refusal::new(
-        ErrorCode::PullRequestOpen,
-        format!("Nothing was pushed or started: {}", start_refusal_text(reason, what, self.session.robots())),
-      )
-      .with_next_step(format!("{} request-review {}", context.bd, shell_word(name)), true),
       // a fix lands by the plain Safe Push, and the review takes it once it merged
       Reason::ShowReviewOpen { .. } => Refusal::new(
         ErrorCode::PullRequestOpen,

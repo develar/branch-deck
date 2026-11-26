@@ -981,8 +981,17 @@ pub enum PlannedEffect {
   /// it is, and a comment names it once (`Intent::ExtendShownReview`)
   ExtendReview { branch: String, number: u32, fixes: Vec<LandedFix> },
   /// The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
-  /// its text kept (`Intent::ExtendShownReview`, a reviewer added to an open)
-  RecordShown { number: u32, reviewers: Vec<String>, landed: Vec<String> },
+  /// its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again); at
+  /// its open by the merged pull request `reviewed_in` of the branch, its text says the branch was reviewed there
+  /// before it landed ("Reviewed before landing in #7"), once
+  RecordShown {
+    number: u32,
+    reviewers: Vec<String>,
+    landed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reviewed_in: Option<u32>,
+  },
 }
 
 /// A fix of a branch with a shown review, landed by the merged Safe Push `robot` of its source revision `source`

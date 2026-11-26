@@ -71,15 +71,14 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::ProfileOnComment { .. } => 54,
     Reason::PullRequestOpen { .. } => 55,
     Reason::ShowNeedsApprovals { .. } => 56,
-    Reason::ShowWithPullRequest { .. } => 57,
-    Reason::ShowNeedsPatronus => 58,
-    Reason::ShowLandsStack { .. } => 59,
-    Reason::ReviewNotApproved { .. } => 60,
-    Reason::ShowReviewOpen { .. } => 61,
+    Reason::ShowNeedsPatronus => 57,
+    Reason::ShowLandsStack { .. } => 58,
+    Reason::ReviewNotApproved { .. } => 59,
+    Reason::ShowReviewOpen { .. } => 60,
   }
 }
 
-const CODES: usize = 62;
+const CODES: usize = 61;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -213,7 +212,6 @@ fn examples() -> Vec<Reason> {
     Reason::ShowNeedsApprovals {
       groups: vec![s("Air Plugin Release Team")],
     },
-    Reason::ShowWithPullRequest { number: 7 },
     Reason::ShowNeedsPatronus,
     Reason::ShowLandsStack {
       lands: vec![s("auth"), s("login")],

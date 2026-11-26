@@ -479,7 +479,7 @@ export const commands = {
 /* Constants */
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"unattended":false,"zoom":1} as const;
 
-export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","safe-push-request-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","request-shown-review","close-shown-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
+export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","safe-push-request-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","request-shown-review","close-shown-review","mark-shown-review","cancel-shown-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
 
 /* Types */
 /**  An account of the app, which a sign-out removes the token of */
@@ -596,7 +596,18 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  Its review after landing closed with its branches after a confirmation (`Intent::CloseShownReview`), approved or
  *  not
  */
-"close-shown-review" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
+"close-shown-review" | 
+/**
+ *  Its review after landing marked ahead of time with the reviewers the user picks (`Intent::MarkShownReview`): a
+ *  draft before it lands, which opens once anything landed it; of a branch that landed without one, the review opened
+ *  now; of a draft, its reviewers recorded again
+ */
+"mark-shown-review" | 
+/**
+ *  Its review after landing marked ahead of time canceled after a confirmation: the draft closed with its branches
+ *  (`Intent::CloseShownReview`) before the branch landed
+ */
+"cancel-shown-review" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
 /**  What lands before the branch, typed in a form of the row (`RewriteIntent::Need`) */
 "add-need" | 
 /**  One declared need of the branch taken back (`RewriteIntent::Unneed`) */
@@ -2355,6 +2366,11 @@ export type CreatePullRequest = {
 export type CreatedPullRequest = {
 	/**  Its reviewers are the ones requested */
 	pullRequest: PullRequest,
+	/**
+	 *  When GitHub opened it, Unix seconds (`created_at`; 0 where it didn't say): of a shown review, from when what lands the
+	 *  branch opens it (`ShownReview::created_at`)
+	 */
+	createdAt?: number,
 	/**  False for a pull request that already existed: nothing of the request was applied to it */
 	created: boolean,
 	/**  The logins GitHub assigned */
@@ -4446,6 +4462,13 @@ export type Intent =
  */
 ({ kind: "closeShownReview"; branch: string; allowUnapproved: boolean }) & { body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
+ *  The review after landing of `branch` marked ahead of time (`operations::shown::mark_plan`): before the branch landed,
+ *  its head and base pushed at its tip and its fork point and the draft opened, asking nobody, its body recording
+ *  `reviewers`, whom its open asks once anything landed the branch (`domain_policy::shown::landed_head`); of a draft,
+ *  only that record; of a branch that landed without one, the review opened now on what landed, `reviewers` asked
+ */
+({ kind: "markShownReview"; branch: string; reviewers?: string[] }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+/**
  *  The branches of the shown review `number` of `branch`, closed elsewhere (on GitHub), are deleted where the remote
  *  still has them at the tips of its pull request (`operations::shown`): a branch gone or moved since stays
  */
@@ -6201,7 +6224,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "extend_shown_review" | "close_shown_review" | "delete_closed_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "extend_shown_review" | "close_shown_review" | "delete_closed_shown_review" | "mark_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -6979,9 +7002,11 @@ export type PlannedEffect =
 { kind: "extendReview"; branch: string; number: number; fixes: LandedFix[] } | 
 /**
  *  The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
- *  its text kept (`Intent::ExtendShownReview`, a reviewer added to an open)
+ *  its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again); at
+ *  its open by the merged pull request `reviewed_in` of the branch, its text says the branch was reviewed there
+ *  before it landed ("Reviewed before landing in #7"), once
  */
-{ kind: "recordShown"; number: number; reviewers: string[]; landed: string[] };
+{ kind: "recordShown"; number: number; reviewers: string[]; landed: string[]; reviewedIn?: number | null };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -7160,6 +7185,8 @@ export type PullRequest = {
 	checks: ChecksSummary | null,
 	/**  Unix seconds */
 	updatedAt: number,
+	/**  When it was merged or closed, Unix seconds (`closedAt`); `None` of an open one and where the listing didn't say */
+	closedAt?: number | null,
 	/**  The latest submitted review of each reviewer, then the requested reviewers without one */
 	reviewers: Reviewer[],
 	/**  The login of the author; null for a deleted account */
@@ -7786,8 +7813,6 @@ export type Reason =
  *  which a review after landing can't take the place of; ask for the review in a pull request first
  */
 { code: "showNeedsApprovals"; groups: string[] } | 
-/**  A Safe Push with a review after landing (show) of a branch whose open pull request `number` holds its review (ask) */
-{ code: "showWithPullRequest"; number: number } | 
 /**  A review after landing (show) is opened by a Safe Push of Patronus, which the repository doesn't land by */
 { code: "showNeedsPatronus" } | 
 /**
@@ -9693,9 +9718,12 @@ export type RowFact =
 { kind: "regenerate"; files: RegenerateFile[]; fix: LandingFix | null } | 
 /**
  *  Its shown review `number` (docs/design/landing.md, "Show: a review after landing"): it landed, and the review after
- *  it waits (`state`); beside the facts of its landing, never in their place
+ *  it waits (`state`); a draft, it is landing or marked ahead of time, its open asks `reviewers`; beside the facts of its
+ *  landing, never in their place
  */
-{ kind: "shown"; number: number; state: ShownState };
+{ kind: "shown"; number: number; state: ShownState; 
+/**  Whom the review asks, as the record of its body names them */
+reviewers?: string[] };
 
 /**  The push track of a row */
 export type RowPush = {
@@ -9990,6 +10018,11 @@ export type ShownReview = {
 	/**  What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch) */
 	state: ShownState,
 	/**
+	 *  When its pull request was opened, Unix seconds (`createdAt`; 0 where the listing didn't say): only what landed the
+	 *  branch since opens it (`domain_policy::shown::landed_head`), never an older robot or pull request of the same name
+	 */
+	createdAt?: number,
+	/**
 	 *  The remote lacks its base branch (`baseRef` null): a review reopened after a close deleted its branches, of which
 	 *  GitHub restores only the head; its open pushes the base again (`operations::shown::open_plan`)
 	 */
@@ -9998,8 +10031,11 @@ export type ShownReview = {
 
 /**  What a shown review waits for (`domain_policy::shown::review_state`) */
 export type ShownState = 
-/**  A draft: the Safe Push that lands the branch has not merged yet, nobody is asked */
-{ kind: "draft" } | 
+/**
+ *  A draft: nothing landed the branch since it opened, nobody is asked; `landing` while a Safe Push of the branch runs
+ *  (else it marks the branch for a review after landing ahead of time, `Intent::MarkShownReview`)
+ */
+{ kind: "draft"; landing: boolean } | 
 /**  Ready for review: `waiting` the reviewers it asked who have not approved yet (none: nobody asked yet) */
 { kind: "inReview"; waiting: string[] } | 
 /**  `by`, reviewers it asked, requested changes: a fix lands as a new Safe Push of the branch */

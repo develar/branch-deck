@@ -124,7 +124,7 @@ pub struct BranchFacts<'a> {
 }
 
 /// The most actions a branch offers: the vector of them is sized once (every row of every patch of a view derives them)
-const BRANCH_ACTIONS: usize = 27;
+const BRANCH_ACTIONS: usize = 29;
 
 /// The actions of a branch, in the order of the enum
 #[must_use]
@@ -156,7 +156,8 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::SafePushWithoutReview, without_review.blocker.as_ref().map(of_step));
   }
   // a review after landing opens with a Safe Push of Patronus, as a pull request of GitHub
-  if !facts.push_route && !facts.merge_route && !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && facts.repository {
+  let shows = !facts.push_route && !facts.merge_route && !matches!(facts.patronus, PatronusAnswer::NotOnSpace) && facts.repository;
+  if shows {
     offer(ActionId::SafePushRequestReview, show_blocker(facts));
   }
   offer(ActionId::Push, push_blocker(facts));
@@ -171,15 +172,27 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   if facts.pull_request.is_some() {
     offer(ActionId::OpenPullRequest, None);
   }
+  let open_shown = facts.shown.filter(|review| !review.pull_request.is_draft);
   if let Some(open) = facts.open_pull_request {
     offer(ActionId::RequestReview, review_request_blocker(open, facts.first_push));
-  } else if facts.shown.is_some() {
+  } else if open_shown.is_some() {
     // its review is the one after landing: Request Review… asks more reviewers of it, Close Review… ends it
     offer(ActionId::RequestShownReview, None);
     offer(ActionId::CloseShownReview, None);
   } else if facts.repository {
     // its place from the first view where git names the GitHub repository: the review is asked on a pull request
     offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
+  }
+  // the review after landing marked ahead of time (a draft): its reviewers picked again, or the mark canceled; of a
+  // branch without one, the mark (of a branch that landed, the review opened now)
+  match facts.shown {
+    Some(review) if review.pull_request.is_draft => {
+      offer(ActionId::MarkShownReview, None);
+      offer(ActionId::CancelShownReview, None);
+    }
+    None if shows => offer(ActionId::MarkShownReview, mark_blocker(facts)),
+    // an open one is asked and closed above; none where a review after landing never applies
+    Some(_) | None => {}
   }
   if step.retarget.is_some() {
     offer(ActionId::RetargetPullRequest, None);
@@ -244,28 +257,35 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
 }
 
 /// Why the Safe Push with a review after landing of the branch can't start, as the plan of its start refuses it
-/// (`land::show_blockers`, with the reasons of the Safe Push): its review after landing open already, an open pull
-/// request (its review is there), more than the branch to land, approvals the code owners must give before it lands;
-/// else what holds its Safe Push back. Nobody to ask is the popover's: the user picks the reviewers there
+/// (`land::show_blockers`, with the reasons of the Safe Push): what refuses a mark of it (`mark_blocker`); else what
+/// holds its Safe Push back, of a branch with an open pull request what refuses the start from its comment (a draft,
+/// another base). Nobody to ask is the popover's: the user picks the reviewers there
 fn show_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
+  mark_blocker(facts).or_else(|| facts.step.safe_push.as_ref().map(of_step))
+}
+
+/// Why a mark of the review after landing of the branch ahead of time (Request Review After Landing…,
+/// `Intent::MarkShownReview`) is refused, as its plan refuses it: its review after landing open already, more than the
+/// branch to land, approvals the code owners must give before it lands while no pull request of it can hold them (an
+/// open one holds its review before landing: the mark is what follows it)
+fn mark_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
   let rule = |reason| Some(ActionBlocker::Rule { reason });
   if let Some(review) = facts.shown.filter(|review| !review.pull_request.is_draft) {
     return rule(Reason::ShowReviewOpen {
       number: review.pull_request.number,
     });
   }
-  if let Some(open) = facts.open_pull_request {
-    return rule(Reason::ShowWithPullRequest { number: open.number });
-  }
   if facts.lands.len() > 1 {
     return rule(Reason::ShowLandsStack { lands: facts.lands.to_vec() });
   }
-  if let StepKind::CreatePullRequest { groups, .. } = &facts.step.kind {
+  if let StepKind::CreatePullRequest { groups, .. } = &facts.step.kind
+    && facts.open_pull_request.is_none()
+  {
     return rule(Reason::ShowNeedsApprovals {
       groups: groups.iter().map(|group| group.name.clone()).collect(),
     });
   }
-  facts.step.safe_push.as_ref().map(of_step)
+  None
 }
 
 /// Why Request Review… asks nobody while GitHub lists no open pull request of the subject: the listing is to come, or
@@ -296,7 +316,7 @@ pub fn on_cached_frame<'a>(table: bool, facts: impl IntoIterator<Item = &'a Fact
 /// The actions that write the remote: a push, a start (a robot's, a push into the target, a merge of the pull request
 /// and its auto-merge), a restart or a cancel of a robot, a pull request, its base and its close, a review request, a
 /// review
-const REMOTE: [ActionId; 27] = [
+const REMOTE: [ActionId; 29] = [
   ActionId::SafePush,
   ActionId::SafePushWithProfile,
   ActionId::DryRun,
@@ -312,6 +332,8 @@ const REMOTE: [ActionId; 27] = [
   ActionId::CreatePullRequest,
   ActionId::RequestShownReview,
   ActionId::CloseShownReview,
+  ActionId::MarkShownReview,
+  ActionId::CancelShownReview,
   ActionId::SafePushWholeStack,
   ActionId::DryRunWholeStack,
   ActionId::SafePushMainLine,

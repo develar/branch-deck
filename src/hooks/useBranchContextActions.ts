@@ -197,7 +197,9 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       ...pullRequestItems(branch, pullRequest),
       // the row's step when it is the one (a group nobody of it can approve says so), else the action's item
       nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItemNow(branch.name),
-      // its review after landing, once its own pull request is none: open it, ask more reviewers of it, close it
+      // its review after landing: open it once its own pull request is none, ask more reviewers of it, close it; its
+      // mark ahead of the landing, beside the review of its own pull request: request it, pick its reviewers again,
+      // cancel it
       ...getShownReviewItems(branch, pullRequest),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
@@ -398,6 +400,7 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep, rootOnly:
       nextStep.safePushBlocker,
     ),
     getSafePushRequestReviewItem(branch, nextStep),
+    getMarkShownReviewItem(branch),
     withStepReason(
       branchItem(
         branch,
@@ -629,16 +632,15 @@ export function getSafePushRequestReviewItem(
 /**
  * The review after landing of the branch (`ShownReview` of the listing) on every surface of its menu: "Open Pull Request
  * #12" of it while the branch has no pull request of its own, "Request Review…" (more reviewers asked and recorded, the
- * picker under the row) and "Close Review…" (its confirmation under the row), as Rust offers them; none without one
+ * picker under the row) and "Close Review…" (its confirmation under the row) of an open one; "Request Review After
+ * Landing…" (the mark ahead of the landing, of a draft its reviewers picked again) and "Cancel Review After Landing…"
+ * (its confirmation under the row) of a marked one, as Rust offers them
  */
 function getShownReviewItems(branch: Branch, pullRequest: PullRequest | undefined): MenuItem[] {
   const shown = getShownReview(branch.name)
-  if (shown === undefined) {
-    return []
-  }
-  const number = shown.pullRequest.number
+  const number = shown?.pullRequest.number
   return present(
-    pullRequest === undefined ? openPullRequestItemOf(shown.pullRequest) : null,
+    shown !== undefined && pullRequest === undefined ? openPullRequestItemOf(shown.pullRequest) : null,
     branchItem(branch, "request-shown-review", {
       description: `Asks more reviewers of the review after landing #${number}`,
       onSelect: () => openInline("shown-reviewers", branch.name),
@@ -647,7 +649,28 @@ function getShownReviewItems(branch: Branch, pullRequest: PullRequest | undefine
       description: `Closes the review after landing #${number} and deletes its branches`,
       onSelect: () => openInline("close-shown-review", branch.name),
     }),
+    getMarkShownReviewItem(branch),
+    branchItem(branch, "cancel-shown-review", {
+      description: `Closes the draft #${number}: nothing opens once ${branch.name} lands`,
+      onSelect: () => openInline("cancel-shown-review", branch.name),
+    }),
   )
+}
+
+/**
+ * "Request Review After Landing…": the review after landing of the branch marked ahead of the landing, its reviewers
+ * picked under its row (the code owners of what it changes first), of its draft picked again; as Rust offers it
+ * (`domain_policy::actions`, refused as the Safe Push with the review is without what refuses its robot)
+ */
+function getMarkShownReviewItem(branch: Branch): MenuItem | null {
+  const shown = getShownReview(branch.name)
+  return branchItem(branch, "mark-shown-review", {
+    description:
+      shown === undefined
+        ? `Once ${branch.name} lands, a review after landing opens and asks the reviewers you pick; it can never land itself`
+        : `Picks again whom #${shown.pullRequest.number} asks once ${branch.name} lands`,
+    onSelect: () => openInline("mark-shown-review", branch.name),
+  })
 }
 
 /**

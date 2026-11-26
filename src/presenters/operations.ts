@@ -76,6 +76,8 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return [`Adding the fix to the review after landing of ${intent.branch}`, `the fix of the review after landing of ${intent.branch}`]
     case "closeShownReview":
       return [`Closing the review after landing of ${intent.branch}`, `the close of the review after landing of ${intent.branch}`]
+    case "markShownReview":
+      return [`Requesting the review after landing of ${intent.branch}`, `the request of the review after landing of ${intent.branch}`]
     case "deleteClosedShownReview":
       return [
         `Deleting the branches of the closed review after landing #${intent.number} of ${intent.branch}`,

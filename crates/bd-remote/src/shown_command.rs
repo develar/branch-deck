@@ -17,19 +17,24 @@ use bd_core::operation_record::admit;
 use bd_core::output::SchemaVersion;
 use bd_core::services::{BdServices, github_service, patronus_service};
 use bd_core::sync_command::{SyncOutput, sync};
-use domain_policy::shown::{closed_remains, state_now};
+use domain_policy::shown::{closed_remains, mark_land, state_now};
 use domain_types::branch_names::{baseline_on_remote, review_branch_names};
 use domain_types::error::ErrorCode;
-use domain_types::landing::PlannedEffect;
+use domain_types::landing::{FactWait, PlannedEffect};
 use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStats, Outcome, Plan};
 use domain_types::patronus::PatronusRobot;
-use domain_types::pull_request::{ClosedShownReview, ShownReview, ShownState};
+use domain_types::pull_request::{ClosedShownReview, PullRequest, ShownReview, ShownState};
+use domain_types::reason::Reason;
 use domain_types::session::FactState;
 use github::service::GitHubService;
-use operations::needs::needs;
+use operations::land::{LandHost, with_one_shot_sources};
+use operations::needs::{FactNeed, needs};
 use operations::shown::{ShownRun, ShownServices, close_plan, delete_closed_plan, no_shown_review, run_shown, shown_refusal, shown_request};
+use repository_model::branch_table::BranchTable;
+use repository_model::derive::land_decision;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository_with};
 
@@ -37,7 +42,15 @@ use sync_core::github_repository::{GitHubRepository, resolve_github_repository_w
 /// it, `domain_policy::shown::state_now`), the robots, the services of its run
 pub(crate) struct ShownRead {
   pub synced: SyncOutput,
+  /// The table of the sync, as it compares the remote
+  pub table: BranchTable,
   pub review: Option<ShownReview>,
+  /// The pull requests of the branches, as the listing names them
+  pub pull_requests: BTreeMap<String, PullRequest>,
+  /// Of a mark of a branch the table has (`Intent::MarkShownReview`): the blockers and the waits of the Safe Push with its
+  /// review after landing (`domain_policy::shown::mark_land`), which refuse the mark as they refuse it
+  /// (`domain_policy::shown::mark_refusals`)
+  pub mark: Option<(Vec<Reason>, Vec<FactWait>)>,
   /// The shown reviews of the user closed in the last days, of a read that asked them (a close)
   pub closed: Vec<ClosedShownReview>,
   pub robots: Vec<PatronusRobot>,
@@ -80,10 +93,31 @@ pub(crate) fn read_shown_of(context: &RepoContext, environment: &Environment, br
     target: Some(target.clone()),
     ..BdServices::new(context, Arc::clone(&github))
   };
-  let mut facts = SessionFacts::new(context, synced.table.clone(), table, services.sources());
-  facts.read(context, &needs(intent))?;
+  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
+  // the code-owner review a mark is refused by is read only of a branch the table has without a review after landing
+  let (review_needs, first): (Vec<FactNeed>, Vec<FactNeed>) = needs(intent).into_iter().partition(|need| matches!(need, FactNeed::Readiness(_)));
+  facts.read(context, &first)?;
+  require_listing(facts.session.facts().pull_requests.view())?;
+  let marks = matches!(intent, Intent::MarkShownReview { .. }) && table.tip_of(branch).is_some() && !facts.session.facts().pull_requests.view().shown_reviews.contains_key(branch);
+  if marks {
+    facts.read(context, &review_needs)?;
+  }
   let listed = facts.session.facts().pull_requests.view();
-  require_listing(listed)?;
+  let mark = match intent {
+    Intent::MarkShownReview { reviewers, .. } if marks => {
+      let host = LandHost {
+        table: &table,
+        baseline: &synced.landed_section,
+        target: &target,
+        github: true,
+        gate: &[],
+        target_conflict: None,
+      };
+      with_one_shot_sources(&facts.session, &host, |sources| land_decision(sources, &mark_land(branch, reviewers))).map(|(decision, _)| (decision.blockers, decision.waits))
+    }
+    _ => None,
+  };
+  let pull_requests = listed.pull_requests.clone();
   let robots = facts.session.robots().to_vec();
   let robots_known = matches!(facts.session.facts().robots.view().head.state, FactState::Fresh | FactState::Stale { .. });
   let review = listed.shown_reviews.get(branch).cloned().map(|review| ShownReview {
@@ -94,7 +128,10 @@ pub(crate) fn read_shown_of(context: &RepoContext, environment: &Environment, br
   let services = shown_services(context, &synced, github, repository);
   Ok(ShownRead {
     synced,
+    table,
     review,
+    pull_requests,
+    mark,
     closed,
     robots,
     robots_known,
@@ -188,7 +225,7 @@ pub struct CloseReviewOutput {
 /// The name of `state` in the output
 pub(crate) const fn state_name(state: &ShownState) -> &'static str {
   match state {
-    ShownState::Draft => "draft",
+    ShownState::Draft { .. } => "draft",
     ShownState::InReview { .. } => "in_review",
     ShownState::ChangesRequested { .. } => "changes_requested",
     ShownState::Approved { .. } => "approved",

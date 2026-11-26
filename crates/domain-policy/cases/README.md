@@ -83,7 +83,8 @@ command without it, which must land, `landed: true`, when nothing refuses it and
   of the `Reason`s, in order), `confirmations` (the kinds), `waits` (the kinds of the facts it waits for, `<kind>:failed`
   where the read failed), `start` (`api`, `api:<profile>`, `comment:<number>`, `createPullRequest`), `pushes` (the
   branches of its push, `null` without one), `force`, `retargets` (the numbers), `cancels` (the robot), `lands`, `into`
-  (the target a push of the copy lands into, `PlannedEffect::PushBaseline`; `null` without one).
+  (the target a push of the copy lands into, `PlannedEffect::PushBaseline`; `null` without one), `reviews` (the branches
+  whose review after landing its push moves to what it lands, `PlannedEffect::PushReview`).
   `blockers` and `confirmations` are `[]` where left out, and so is `waits` of a decision no blocker refuses: one that
   appears fails every case it appears in. `null` without a decision (no subject, no Patronus view).
 - `expect.status` (optional): the Status cell of a branch subject (`domain_types::next_step::RowStatus`), the main fact
@@ -146,6 +147,7 @@ fakes; both sides read that.
 | `route` | `push` | `branchdeck.landing push`: the repository lands by a push of the copy into the target, `brd land` its side |
 | `permission` | `read` · `write` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` or `WRITE` |
 | `baselineAhead` | `true` | a commit of someone else on origin/master, fetched: HEAD lacks it, the copies are built on the fork point |
+| `marked` | a branch of `commits` | marked for a review after landing ahead of time: the search of the shown reviews lists its draft #21, recording alice (not with `permission` or `route`) |
 | `rules` | `keep` · `dismiss` · `unknown` · `statusChecks` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none, `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500, `statusChecks` the rule `required_status_checks` |
 | `parked` | `self` · `builtOn` · a branch | `brd park` of the branch, of its parent or of the branch named |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) |

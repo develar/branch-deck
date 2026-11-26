@@ -349,6 +349,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return `Cannot close the review after landing of ${intent.branch}`
     case "deleteClosedShownReview":
       return `Cannot delete the branches of the closed review after landing of ${intent.branch}`
+    case "markShownReview":
+      return `Cannot request the review after landing of ${intent.branch}`
     case "submitReview":
       return `Cannot review pull request #${intent.number}`
     case "approveStack":

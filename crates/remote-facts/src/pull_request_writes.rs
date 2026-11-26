@@ -64,8 +64,9 @@ pub async fn close_pull_request(github: &GitHubService, repository_path: &str, r
   Ok(())
 }
 
-/// The records of the body of the shown review `number` name `reviewers` and the fixes it took (`landed`), the rest of
-/// its text as GitHub has it now (`domain_policy::shown::with_record`): one `GET pulls/<n>`, then a `PATCH` of the body
+/// The records of the body of the shown review `number` name `reviewers` and the fixes it took (`landed`), with the line
+/// of the pull request `reviewed_in` where the branch was reviewed before it landed, the rest of its text as GitHub has it
+/// now (`domain_policy::shown::with_record`): one `GET pulls/<n>`, then a `PATCH` of the body
 /// only when it changes; whether it changed
 #[instrument(skip(github))]
 pub async fn record_shown_review(
@@ -75,6 +76,7 @@ pub async fn record_shown_review(
   number: u32,
   reviewers: &[String],
   landed: &[String],
+  reviewed_in: Option<u32>,
 ) -> Result<bool, GitHubWriteError> {
   let number_segment = number.to_string();
   let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "pulls", number_segment.as_str()];
@@ -83,7 +85,7 @@ pub async fn record_shown_review(
     .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
       let pull_request: GhPullRequestBody = client.get(&token, path, &[]).await?;
       let body = pull_request.body.unwrap_or_default();
-      let recorded = with_record(&body, reviewers, landed);
+      let recorded = with_record(&body, reviewers, landed, reviewed_in);
       if recorded == body {
         return Ok(false);
       }

@@ -710,7 +710,11 @@ fn a_shown_review_is_marked_beside_the_landing_never_in_its_place() {
     regenerate_fix: None,
     shown: Some(&review),
   });
-  let shown = RowFact::Shown { number: 12, state: review.state };
+  let shown = RowFact::Shown {
+    number: 12,
+    state: review.state,
+    reviewers: vec!["alice".to_owned()],
+  };
   assert_eq!(landed.main, Some(RowFact::Blocked { by: Some("core".to_owned()) }));
   assert_eq!(landed.also.last(), Some(&shown));
 }

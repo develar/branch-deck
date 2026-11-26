@@ -692,8 +692,16 @@ pub enum RowFact {
   /// generator (`domain_policy::regenerate`), each with the commit the copy lacks; `fix` gives the copy that commit
   Regenerate { files: Vec<RegenerateFile>, fix: Option<LandingFix> },
   /// Its shown review `number` (docs/design/landing.md, "Show: a review after landing"): it landed, and the review after
-  /// it waits (`state`); beside the facts of its landing, never in their place
-  Shown { number: u32, state: crate::pull_request::ShownState },
+  /// it waits (`state`); a draft, it is landing or marked ahead of time, its open asks `reviewers`; beside the facts of its
+  /// landing, never in their place
+  Shown {
+    number: u32,
+    state: crate::pull_request::ShownState,
+    /// Whom the review asks, as the record of its body names them
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reviewers: Vec<String>,
+  },
 }
 
 /// What the row of the root of a stack that forks shows of the whole stack it hosts (`NextStepView::hosted`)

@@ -204,4 +204,18 @@ fn the_robot_sources_are_the_pushed_branches_and_stack_branches_not_in_the_basel
   let mut moved = table.remote.clone();
   moved.branches.insert("local".to_string(), pushed("p"));
   assert_eq!(table.robot_sources_of(&domain_types::landing::Subject::branch("local"), &moved), ["test/virtual/local"]);
+  // a branch marked for a review after landing, whatever the baseline and the remote have of it: the safe-merge someone
+  // started of it opens its review
+  assert_eq!(
+    table.robot_sources_with(["landed", "local"]),
+    [
+      "test/stack/auth",
+      "test/virtual/auth",
+      "test/virtual/landed",
+      "test/virtual/local",
+      "test/virtual/login",
+      "test/virtual/oauth",
+      "test/virtual/other"
+    ]
+  );
 }

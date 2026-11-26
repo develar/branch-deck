@@ -1,7 +1,8 @@
 // The page's words of a review after landing (show of ship/show/ask, openspec/specs/branch/shown-reviews/spec.md) where
 // the user acts on it: the popover of Safe Push and Request Review… (what the start opens, whom it asks by default), the
-// confirmation of Close Review… by what the review waits for (`ShownState`, Rust's), and the toasts of a request and a
-// close. It decides nothing: Rust offers, plans and refuses each.
+// form of Request Review After Landing… (the mark ahead of time), the confirmation of Close Review… and of Cancel Review
+// After Landing… by what the review waits for (`ShownState`, Rust's), the line of the Safe Push of a marked branch, and
+// the toasts of a request, a mark, a cancel and a close. It decides nothing: Rust offers, plans and refuses each.
 import type { ShownReview, ShownState, ShowReviewers } from "@/lib/bindings"
 import { joinNames } from "@/lib/text"
 
@@ -61,6 +62,53 @@ function closeStateWords(state: ShownState, number: number, branch: string): str
     case "draft":
       return `#${number} is a draft that asked nobody yet; closing now ends it without a review.`
   }
+}
+
+/**
+ * The form of Request Review After Landing… of `branch` (`Intent::MarkShownReview`): of its draft (marked, or landing),
+ * whom its open asks picked again; of a branch without one, the mark ahead of time, a draft now that opens once anything
+ * lands the branch; the same words of a branch that landed already, whose review opens now
+ */
+export function describeMarkShownReview(branch: string, draft: ShownReview | undefined): { readonly title: string; readonly description: string } {
+  if (draft !== undefined) {
+    const number = draft.pullRequest.number
+    return {
+      title: `Request review after landing on #${number}`,
+      description: `Once ${branch} lands, #${number} opens and asks the reviewers you pick here; nobody is asked before.`,
+    }
+  }
+  return {
+    title: `Request review after landing of ${branch}`,
+    description: `A draft pull request opens now and asks nobody. Once ${branch} lands, by its Safe Push, a Safe Push that lands it with more, or a safe-merge from its pull request, it opens on what landed and asks these reviewers.`,
+  }
+}
+
+/** The toast of a mark: "Review after landing of auth requested", its description whom its open asks */
+export function formatShownMarkedTitle(branch: string, reviewers: readonly string[]): { readonly title: string; readonly description: string } {
+  return { title: `Review after landing of ${branch} requested`, description: `It opens once ${branch} lands and asks ${joinNames(reviewers)}.` }
+}
+
+/** The confirmation of Cancel Review After Landing… of the draft `review` of `branch`, marked ahead of time */
+export function describeCancelShownReview(review: ShownReview, branch: string): { readonly title: string; readonly description: string } {
+  const number = review.pullRequest.number
+  return {
+    title: `Cancel Review After Landing #${number}?`,
+    description: `#${number} closes on GitHub with a comment and its branches are deleted; once ${branch} lands, nothing opens and nobody is asked.`,
+  }
+}
+
+/** The toast of a cancel: "Canceled review after landing #12 of auth" */
+export function formatShownCanceledTitle(number: number, branch: string): string {
+  return `Canceled review after landing #${number} of ${branch}`
+}
+
+/**
+ * The line of the popover of the Safe Push of a branch whose review after landing is a draft (marked ahead of time): "#12
+ * opens once it merges, asking alice."
+ */
+export function describeMarkedLanding(review: ShownReview): string {
+  const asks = review.reviewers.length === 0 ? "" : `, asking ${joinNames(review.reviewers)}`
+  return `#${review.pullRequest.number} opens once it merges${asks}.`
 }
 
 /** The toast of a close: "Closed review after landing #12 of auth" */

@@ -1,19 +1,21 @@
 use crate::shown::{
-  CLOSED_ELSEWHERE_DELAY, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment, fix_taken_comment, is_shown, landed_by_content,
-  landed_record, landing_robot, pending_fixes, recorded_landed, recorded_reviewers, review_state, reviewers_record, show_candidates, shown_news, shown_review, state_now,
-  with_record,
+  CLOSED_ELSEWHERE_DELAY, ContentLanding, LandedBy, LandedHead, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment,
+  fix_taken_comment, is_shown, landed_by_content, landed_head, landed_record, landing_robot, mark_land, mark_refusals, pending_fixes, recorded_landed, recorded_reviewers,
+  review_state, reviewed_before_line, reviewers_record, show_candidates, shown_news, shown_review, state_now, with_record,
 };
 use domain_types::code_owners::{GroupMember, OwnerGroup};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landed::{LandedBranch, LandedCommit};
+use domain_types::landing::{FactWait, LandFact};
 use domain_types::patronus::PatronusRobot;
 use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
+use domain_types::pull_request::PullRequestState;
 use domain_types::pull_request::{ClosedShownReview, PullRequest, Reviewer, ReviewerState, ShownReview, ShownState};
 use domain_types::reason::Reason;
 use domain_types::session::LandedSection;
 use domain_types::session::NewsEvent;
 use pretty_assertions::assert_eq;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// The shown review #12 of auth, ready for review, with the latest reviews `reviewers`
 fn shown(reviewers: &[(&str, ReviewerState, bool)]) -> PullRequest {
@@ -31,6 +33,9 @@ fn shown(reviewers: &[(&str, ReviewerState, bool)]) -> PullRequest {
     ..pull_request("auth", 12)
   }
 }
+
+/// No pull request of any branch, into master
+const NO_PULLS: (&BTreeMap<String, PullRequest>, &str) = (&BTreeMap::new(), "master");
 
 fn logins(logins: &[&str]) -> Vec<String> {
   logins.iter().map(|login| (*login).to_owned()).collect()
@@ -86,7 +91,7 @@ fn changes_requested_by_a_reviewer_it_asked_return_it_to_the_author() {
 #[test]
 fn a_draft_waits_for_the_landing_and_one_without_a_record_never_closes() {
   let draft = PullRequest { is_draft: true, ..shown(&[]) };
-  assert_eq!(review_state(&draft, &logins(&["alice"])), ShownState::Draft);
+  assert_eq!(review_state(&draft, &logins(&["alice"])), ShownState::Draft { landing: false });
   let nobody = shown(&[("alice", ReviewerState::Approved, false)]);
   assert_eq!(review_state(&nobody, &[]), ShownState::InReview { waiting: Vec::new() });
 }
@@ -180,7 +185,7 @@ fn a_draft_opens_once_a_safe_push_of_its_branch_merged_and_an_approved_one_close
   // a robot still running opens nothing, nor does a merged Dry Run
   let dry = merged("dry", PatronusPushMode::DryRun, 4);
   assert_eq!(
-    shown_news(&reviews, &[&running, &dry], &BTreeSet::new(), &[], 0),
+    shown_news(&reviews, &[&running, &dry], NO_PULLS, &BTreeMap::new(), &[], 0),
     [NewsEvent::ShownReviewApproved {
       branch: "login".to_owned(),
       number: 13
@@ -191,7 +196,7 @@ fn a_draft_opens_once_a_safe_push_of_its_branch_merged_and_an_approved_one_close
     merged("newer", PatronusPushMode::RebaseAutosquash, 2),
   );
   assert_eq!(
-    shown_news(&reviews, &[&older, &newer, &running], &BTreeSet::new(), &[], 0),
+    shown_news(&reviews, &[&older, &newer, &running], NO_PULLS, &BTreeMap::new(), &[], 0),
     [
       NewsEvent::ShownReviewLanded {
         branch: "auth".to_owned(),
@@ -211,7 +216,7 @@ fn a_draft_opens_once_a_safe_push_of_its_branch_merged_and_an_approved_one_close
 fn the_record_of_the_fixes_it_took_goes_beside_the_reviewers_and_keeps_the_text() {
   let body = format!("Adds auth.\n\n{}", reviewers_record(&logins(&["alice"])));
   assert_eq!(recorded_landed(&body), Vec::<String>::new());
-  let recorded = with_record(&body, &logins(&["alice", "bob"]), &logins(&["s2", "s3"]));
+  let recorded = with_record(&body, &logins(&["alice", "bob"]), &logins(&["s2", "s3"]), None);
   assert_eq!(
     recorded,
     format!("Adds auth.\n\n{}\n{}", reviewers_record(&logins(&["alice", "bob"])), landed_record(&logins(&["s2", "s3"])))
@@ -221,8 +226,8 @@ fn the_record_of_the_fixes_it_took_goes_beside_the_reviewers_and_keeps_the_text(
     (logins(&["alice", "bob"]), logins(&["s2", "s3"]))
   );
   // a second record replaces the first
-  assert_eq!(with_record(&recorded, &logins(&["alice", "bob"]), &logins(&["s2", "s3"])), recorded);
-  assert_eq!(with_record("", &logins(&["alice"]), &[]), reviewers_record(&logins(&["alice"])));
+  assert_eq!(with_record(&recorded, &logins(&["alice", "bob"]), &logins(&["s2", "s3"]), None), recorded);
+  assert_eq!(with_record("", &logins(&["alice"]), &[], None), reviewers_record(&logins(&["alice"])));
   assert_eq!(
     fix_conflict_comment("0123456789abcdef", "https://patronus/robot/r2"),
     "Landed a follow-up as 0123456789; it does not apply on this review's commits: https://patronus/robot/r2"
@@ -290,7 +295,7 @@ fn a_fix_that_merged_after_the_review_opened_waits_until_the_review_took_it() {
   assert_eq!(state_now(&open, "auth", [&first, &fix, &next]), ShownState::Extending { robot: "r3".to_owned() });
   let reviews = BTreeMap::from([("auth".to_owned(), open)]);
   assert_eq!(
-    shown_news(&reviews, &[&first, &fix, &next], &BTreeSet::new(), &[], 0),
+    shown_news(&reviews, &[&first, &fix, &next], NO_PULLS, &BTreeMap::new(), &[], 0),
     [NewsEvent::ShownReviewFixLanded {
       branch: "auth".to_owned(),
       number: 12,
@@ -303,7 +308,7 @@ fn a_fix_that_merged_after_the_review_opened_waits_until_the_review_took_it() {
       head_ref_oid: "h3".to_owned(),
       ..shown(&[("alice", ReviewerState::ChangesRequested, true)])
     },
-    &with_record("", &logins(&["alice"]), &logins(&["s2", "s3"])),
+    &with_record("", &logins(&["alice"]), &logins(&["s2", "s3"]), None),
   );
   assert_eq!(pending_fixes(&extended, "auth", [&first, &fix, &next]), Vec::<&PatronusRobot>::new());
   assert_eq!(state_now(&extended, "auth", [&first, &fix, &next]), ShownState::InReview { waiting: logins(&["alice"]) });
@@ -317,7 +322,14 @@ fn a_fix_that_merged_after_the_review_opened_waits_until_the_review_took_it() {
   );
   let running = robot("r2", Some("auth"), PatronusRobotStatus::Running, 3);
   assert_eq!(
-    shown_news(&BTreeMap::from([("auth".to_owned(), approved.clone())]), &[&first, &running], &BTreeSet::new(), &[], 0),
+    shown_news(
+      &BTreeMap::from([("auth".to_owned(), approved.clone())]),
+      &[&first, &running],
+      NO_PULLS,
+      &BTreeMap::new(),
+      &[],
+      0
+    ),
     []
   );
   let extending = ShownReview {
@@ -365,10 +377,10 @@ fn a_draft_whose_branch_the_baseline_landed_opens_while_no_robot_of_it_is_listed
   };
   // only the branch all of whose commits landed
   let landed = landed_by_content(&section);
-  assert_eq!(landed, BTreeSet::from(["auth".to_owned()]));
+  assert_eq!(landed, BTreeMap::from([("auth".to_owned(), 1)]));
   let none: [&PatronusRobot; 0] = [];
   assert_eq!(
-    shown_news(&reviews, &none, &landed, &[], 0),
+    shown_news(&reviews, &none, NO_PULLS, &landed, &[], 0),
     [NewsEvent::ShownReviewLanded {
       branch: "auth".to_owned(),
       number: 12
@@ -376,7 +388,7 @@ fn a_draft_whose_branch_the_baseline_landed_opens_while_no_robot_of_it_is_listed
   );
   // its robot still runs: it opens once that one merged
   let running = robot("r1", Some("auth"), PatronusRobotStatus::Running, 1);
-  assert_eq!(shown_news(&reviews, &[&running], &landed, &[], 0), []);
+  assert_eq!(shown_news(&reviews, &[&running], NO_PULLS, &landed, &[], 0), []);
 }
 
 /// The shown review `number` of `branch` closed at 1000, its head and base at `head` and `base` as it ended, the remote's
@@ -407,7 +419,7 @@ fn a_review_closed_elsewhere_an_hour_ago_loses_the_branches_still_at_its_tips_un
   assert_eq!(closed_remains(&login), Some((None, Some("base".to_owned()))));
   assert_eq!(closed_remains(&gone), None);
   assert_eq!(
-    shown_news(&BTreeMap::new(), &[], &BTreeSet::new(), &all, after),
+    shown_news(&BTreeMap::new(), &[], NO_PULLS, &BTreeMap::new(), &all, after),
     [
       NewsEvent::ShownReviewClosedElsewhere {
         branch: "auth".to_owned(),
@@ -431,4 +443,156 @@ fn a_review_closed_elsewhere_an_hour_ago_loses_the_branches_still_at_its_tips_un
     ..auth.clone()
   };
   assert_eq!(closed_elsewhere(&[newer.clone(), auth], &BTreeMap::new(), after + 10), [&newer]);
+}
+
+/// The draft #12 of auth marked at 100 (`created_at`), recording alice
+fn mark() -> ShownReview {
+  ShownReview {
+    created_at: 100,
+    ..shown_review(PullRequest { is_draft: true, ..shown(&[]) }, &reviewers_record(&logins(&["alice"])))
+  }
+}
+
+/// A merged Safe Push `id` of auth on `source` that started at `start` and finished a minute later
+fn finished(id: &str, source: &str, start: u32) -> PatronusRobot {
+  PatronusRobot {
+    finish_time: Some(start + 60),
+    ..merged(id, source, start)
+  }
+}
+
+#[test]
+fn a_mark_opens_by_what_landed_its_branch_since_never_by_an_older_robot_or_pull_request_of_the_name() {
+  let draft = mark();
+  // an old robot of an earlier auth merged before the mark, a pull request of it merged then: nothing landed it since
+  let old = finished("r0", "s0", 10);
+  let old_pull = PullRequest {
+    state: PullRequestState::Merged,
+    closed_at: Some(70),
+    ..pull_request("auth", 7)
+  };
+  assert_eq!(landed_head(Some(&draft), "auth", [&old], Some(&old_pull), "master", None), None);
+  let reviews = BTreeMap::from([("auth".to_owned(), draft.clone())]);
+  let pulls = BTreeMap::from([("auth".to_owned(), old_pull)]);
+  assert_eq!(shown_news(&reviews, &[&old], (&pulls, "master"), &BTreeMap::new(), &[], 0), []);
+  // its own Safe Push since, or a safe-merge someone started from its pull request: the commit the robot took
+  let landing = finished("r1", "s1", 200);
+  let by_robot = landed_head(Some(&draft), "auth", [&old, &landing], None, "master", None);
+  assert_eq!(
+    by_robot,
+    Some(LandedHead {
+      by: LandedBy::Robot { robot: "r1".to_owned() },
+      head: Some("s1".to_owned()),
+      reviewed_in: None,
+    })
+  );
+  // a robot still running: the draft lands, it opens nothing yet
+  let running = robot("r2", Some("auth"), PatronusRobotStatus::Running, 300);
+  assert_eq!(state_now(&draft, "auth", [&running]), ShownState::Draft { landing: true });
+  assert_eq!(state_now(&draft, "auth", [&old]), ShownState::Draft { landing: false });
+  // the pull request merged into master since, its robot not listed: once the baseline has the branch whole, its head
+  let reviewed = PullRequest {
+    state: PullRequestState::Merged,
+    closed_at: Some(400),
+    head_ref_oid: "p1".to_owned(),
+    ..pull_request("auth", 8)
+  };
+  let content = ContentLanding { landed_at: 410, tip: Some("tip") };
+  assert_eq!(landed_head(Some(&draft), "auth", [&old], Some(&reviewed), "master", None), None);
+  assert_eq!(
+    landed_head(Some(&draft), "auth", [&old], Some(&reviewed), "master", Some(content)),
+    Some(LandedHead {
+      by: LandedBy::PullRequest { number: 8 },
+      head: Some("p1".to_owned()),
+      reviewed_in: Some(8),
+    })
+  );
+  // one into another branch lands nothing: by content only, on the tip of the branch
+  let elsewhere = PullRequest {
+    base_ref_name: "user/virtual/util".to_owned(),
+    ..reviewed.clone()
+  };
+  assert_eq!(
+    landed_head(Some(&draft), "auth", [&old], Some(&elsewhere), "master", Some(content)),
+    Some(LandedHead {
+      by: LandedBy::Content,
+      head: Some("tip".to_owned()),
+      reviewed_in: None,
+    })
+  );
+  // a landing by content found before the mark, or while a robot of the branch runs, opens nothing
+  let before = ContentLanding { landed_at: 90, tip: Some("tip") };
+  assert_eq!(landed_head(Some(&draft), "auth", [&old], None, "master", Some(before)), None);
+  assert_eq!(landed_head(Some(&draft), "auth", [&running], None, "master", Some(content)), None);
+  // the robot says what landed, the merged pull request where it was reviewed before
+  assert_eq!(
+    landed_head(Some(&draft), "auth", [&landing], Some(&reviewed), "master", None).map(|landed| (landed.head, landed.reviewed_in)),
+    Some((Some("s1".to_owned()), Some(8)))
+  );
+  // no review: any landing, the review is created after it
+  assert_eq!(
+    landed_head(None, "auth", [&old], None, "master", None).and_then(|landed| landed.head),
+    Some("s0".to_owned())
+  );
+  // the news of the session: the draft opens once something landed it since
+  assert_eq!(
+    shown_news(&reviews, &[&old, &landing], NO_PULLS, &BTreeMap::new(), &[], 0),
+    [NewsEvent::ShownReviewLanded {
+      branch: "auth".to_owned(),
+      number: 12
+    }]
+  );
+  // a robot older than the review is no fix of it
+  let opened = ShownReview {
+    pull_request: PullRequest {
+      is_draft: false,
+      head_ref_oid: "tip".to_owned(),
+      ..draft.pull_request.clone()
+    },
+    ..draft
+  };
+  assert_eq!(
+    pending_fixes(&opened, "auth", [&old, &landing]).iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>(),
+    ["r1"]
+  );
+}
+
+#[test]
+fn the_body_says_once_where_the_branch_was_reviewed_before_it_landed() {
+  let body = format!("Adds auth.\n\n{}", reviewers_record(&logins(&["alice"])));
+  let recorded = with_record(&body, &logins(&["alice"]), &[], Some(7));
+  assert_eq!(recorded, format!("Adds auth.\n\n{}\n\n{}", reviewed_before_line(7), reviewers_record(&logins(&["alice"]))));
+  assert_eq!(reviewed_before_line(7), "Reviewed before landing in #7.");
+  assert_eq!(with_record(&recorded, &logins(&["alice"]), &[], Some(7)), recorded);
+}
+
+#[test]
+fn a_mark_is_refused_as_the_safe_push_with_its_review_without_what_refuses_the_robot() {
+  let land = mark_land("auth", &logins(&["alice"]));
+  assert_eq!(land.request_review.map(|show| show.reviewers), Some(logins(&["alice"])));
+  let blockers = [
+    Reason::Draft { number: 7 },
+    Reason::ShowLandsStack { lands: logins(&["util", "auth"]) },
+    Reason::ShowNeedsApprovals { groups: logins(&["Auth Team"]) },
+    Reason::NoReviewer { groups: Vec::new() },
+  ];
+  let waits = [
+    FactWait {
+      fact: LandFact::Readiness,
+      failed: None,
+    },
+    FactWait {
+      fact: LandFact::Profiles,
+      failed: None,
+    },
+  ];
+  // nobody to ask is of the reviewers the mark is given in the end
+  let (refused, waited) = mark_refusals(&blockers, &waits, false);
+  assert_eq!(refused, blockers[1..3].to_vec());
+  assert_eq!(waited, waits[..1].to_vec());
+  // the approvals come in its open pull request, before the landing the mark follows
+  let (refused, _) = mark_refusals(&blockers, &waits, true);
+  assert_eq!(refused, [blockers[1].clone()]);
+  // its cancel says the review won't open, not that the change is in master
+  assert_eq!(close_comment(&mark(), "master"), "Canceled: this review after landing won't open.");
 }

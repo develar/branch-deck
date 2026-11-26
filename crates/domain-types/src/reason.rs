@@ -180,8 +180,6 @@ pub enum Reason {
   /// A Safe Push with a review after landing (show): the code owners of `groups` must approve the change before it lands,
   /// which a review after landing can't take the place of; ask for the review in a pull request first
   ShowNeedsApprovals { groups: Vec<String> },
-  /// A Safe Push with a review after landing (show) of a branch whose open pull request `number` holds its review (ask)
-  ShowWithPullRequest { number: u32 },
   /// A review after landing (show) is opened by a Safe Push of Patronus, which the repository doesn't land by
   ShowNeedsPatronus,
   /// A Safe Push with a review after landing (show) would land `lands` (the branches it is built on, or a whole stack),
@@ -256,7 +254,6 @@ impl Reason {
       | Self::ProfileOnComment { .. }
       | Self::PullRequestOpen { .. }
       | Self::ShowNeedsApprovals { .. }
-      | Self::ShowWithPullRequest { .. }
       | Self::ShowNeedsPatronus
       | Self::ShowLandsStack { .. }
       | Self::ShowReviewOpen { .. }

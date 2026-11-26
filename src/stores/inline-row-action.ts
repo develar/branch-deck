@@ -17,6 +17,8 @@ export type InlineActionType =
   | "close-stack-pull-request"
   | "shown-reviewers"
   | "close-shown-review"
+  | "mark-shown-review"
+  | "cancel-shown-review"
   | "park"
   | "need"
 

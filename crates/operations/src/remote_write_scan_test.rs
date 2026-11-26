@@ -108,9 +108,9 @@ const WRITES: &[Write] = &[
       (
         "crates/operations/src/land_execute.rs",
         1,
-        "the draft of a shown review before the start (`PlannedEffect::PushReview`)",
+        "the draft of a shown review before the start, the heads of the marked branches a Safe Push lands (`PlannedEffect::PushReview`)",
       ),
-      ("crates/operations/src/shown.rs", 1, "the open of a shown review (`PlannedEffect::PushReview`)"),
+      ("crates/operations/src/shown.rs", 1, "the open and the mark of a shown review (`PlannedEffect::PushReview`)"),
     ],
   },
   Write {
@@ -131,11 +131,18 @@ const WRITES: &[Write] = &[
   },
   Write {
     call: "record_shown_review(",
-    callers: &[(
-      "crates/operations/src/shown.rs",
-      1,
-      "the record of the reviewers and the fixes of a shown review (`PlannedEffect::RecordShown`)",
-    )],
+    callers: &[
+      (
+        "crates/operations/src/shown.rs",
+        1,
+        "the record of the reviewers and the fixes of a shown review (`PlannedEffect::RecordShown`)",
+      ),
+      (
+        "crates/operations/src/land_execute.rs",
+        1,
+        "the reviewers of a marked draft a Safe Push and Request Review… records again (`PlannedEffect::RecordShown`)",
+      ),
+    ],
   },
   Write {
     call: "comment_once(",

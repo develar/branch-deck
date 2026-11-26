@@ -212,10 +212,6 @@
     "groups": ["Air Plugin Release Team"]
   },
   {
-    "code": "showWithPullRequest",
-    "number": 7
-  },
-  {
     "code": "showNeedsPatronus"
   },
   {

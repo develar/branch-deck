@@ -1,8 +1,11 @@
-use crate::shown::{ShownRun, ShownServices, after_run, close_plan, delete_closed_plan, extend_plan, open_plan, run_shown, shown_body, shown_request};
-use domain_policy::shown::{fix_conflict_comment, fix_taken_comment, recorded_landed, recorded_reviewers, shown_review};
+use crate::shown::{
+  MarkDecision, MarkFacts, ShownRun, ShownServices, ShownText, after_run, close_plan, delete_closed_plan, extend_plan, mark_plan, open_plan, run_shown, shown_body, shown_refusal,
+  shown_request,
+};
+use domain_policy::shown::{LandedBy, LandedHead, fix_conflict_comment, fix_taken_comment, recorded_landed, recorded_reviewers, shown_review};
 use domain_types::error::ErrorCode;
 use domain_types::fixtures::{asked, pull_request, robot};
-use domain_types::landing::{LandedFix, PlannedEffect};
+use domain_types::landing::{FactWait, LandFact, LandedFix, PlannedEffect};
 use domain_types::operation::{EffectStatus, Intent, PullRequestField, Resource};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{ClosedShownReview, PullRequest, PullRequestState, Reviewer, ReviewerState, ShownReview, ShownState};
@@ -37,6 +40,39 @@ fn merged(revision: &str) -> PatronusRobot {
   }
 }
 
+/// The branches of the review of auth as resources of an operation
+fn review_refs() -> [Resource; 2] {
+  [
+    Resource::Ref {
+      name: "user/review/auth/head".to_owned(),
+    },
+    Resource::Ref {
+      name: "user/review/auth/base".to_owned(),
+    },
+  ]
+}
+
+/// No robot listed
+const NOBODY: [&PatronusRobot; 0] = [];
+
+/// The merged Safe Push `robot` landed the branch (`domain_policy::shown::landed_head`)
+fn by_robot(robot: &PatronusRobot) -> LandedHead {
+  LandedHead {
+    by: LandedBy::Robot { robot: robot.id.clone() },
+    head: robot.source_revision.clone(),
+    reviewed_in: None,
+  }
+}
+
+/// The baseline landed the branch by content, its tip not known: the review keeps its head
+const fn by_content() -> LandedHead {
+  LandedHead {
+    by: LandedBy::Content,
+    head: None,
+    reviewed_in: None,
+  }
+}
+
 fn reviewer(login: &str, state: ReviewerState, requested: bool) -> Reviewer {
   Reviewer {
     login: login.to_owned(),
@@ -49,9 +85,13 @@ fn reviewer(login: &str, state: ReviewerState, requested: bool) -> Reviewer {
 fn a_draft_opens_on_what_the_robot_landed_and_asks_the_reviewers_its_body_records() {
   let review = shown(true, Vec::new());
   assert_eq!(review.reviewers, logins(&["alice", "bob"]));
-  let error = open_plan(&review, "auth", None, false, &[]).unwrap_err();
-  assert_eq!(error.message, "No merged Safe Push landed auth yet: its shown review #12 opens once one did");
-  let plan = open_plan(&review, "auth", Some(&merged("abc")), false, &[]).unwrap();
+  let error = open_plan(&review, "auth", None, NOBODY, &[]).unwrap_err();
+  assert_eq!(
+    error.message,
+    "Nothing landed auth since its shown review #12 opened: it opens once a Safe Push or a merge of auth lands it"
+  );
+  let robot = merged("abc");
+  let plan = open_plan(&review, "auth", Some(&by_robot(&robot)), [&robot], &[]).unwrap();
   assert_eq!(
     plan.effects,
     [
@@ -88,7 +128,7 @@ fn a_draft_opens_on_what_the_robot_landed_and_asks_the_reviewers_its_body_record
     vec![reviewer("alice", ReviewerState::Approved, false), reviewer("bob", ReviewerState::Commented, false)],
   );
   assert_eq!(
-    open_plan(&ready, "auth", None, false, &[]).unwrap().effects,
+    open_plan(&ready, "auth", None, NOBODY, &[]).unwrap().effects,
     [PlannedEffect::RequestReviewers {
       number: 12,
       reviewers: logins(&["bob"])
@@ -101,7 +141,7 @@ fn a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is
   // landed by content, no robot of it listed: its head stays
   let draft = shown(true, Vec::new());
   assert_eq!(
-    open_plan(&draft, "auth", None, true, &[]).unwrap().effects,
+    open_plan(&draft, "auth", Some(&by_content()), NOBODY, &[]).unwrap().effects,
     [
       PlannedEffect::MarkReady { number: 12 },
       PlannedEffect::RequestReviewers {
@@ -115,7 +155,7 @@ fn a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is
     false,
     vec![reviewer("alice", ReviewerState::Approved, false), reviewer("bob", ReviewerState::Commented, false)],
   );
-  let plan = open_plan(&ready, "auth", None, false, &logins(&["carol", "Alice"])).unwrap();
+  let plan = open_plan(&ready, "auth", None, NOBODY, &logins(&["carol", "Alice"])).unwrap();
   assert_eq!(
     plan.effects,
     [
@@ -124,13 +164,14 @@ fn a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is
         reviewers: logins(&["alice", "bob", "carol"])
       },
       PlannedEffect::RecordShown {
+        reviewed_in: None,
         number: 12,
         reviewers: logins(&["alice", "bob", "carol"]),
         landed: Vec::new()
       },
     ]
   );
-  assert_eq!(plan, open_plan(&ready, "auth", None, false, &logins(&["carol", "Alice"])).unwrap());
+  assert_eq!(plan, open_plan(&ready, "auth", None, NOBODY, &logins(&["carol", "Alice"])).unwrap());
   assert_eq!(
     plan.intent,
     Intent::OpenShownReview {
@@ -140,16 +181,17 @@ fn a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is
     "the intent names whom the user adds: the engine plans it again with them"
   );
   // a draft before its Safe Push merged: carol is only recorded, its open asks her with the others; nobody new is no plan
-  let record = open_plan(&draft, "auth", None, false, &logins(&["carol"])).unwrap();
+  let record = open_plan(&draft, "auth", None, NOBODY, &logins(&["carol"])).unwrap();
   assert_eq!(
     record.effects,
     [PlannedEffect::RecordShown {
+      reviewed_in: None,
       number: 12,
       reviewers: logins(&["alice", "bob", "carol"]),
       landed: Vec::new()
     }]
   );
-  assert_eq!(open_plan(&draft, "auth", None, false, &logins(&["bob"])).unwrap_err().code, ErrorCode::NoShownReview);
+  assert_eq!(open_plan(&draft, "auth", None, NOBODY, &logins(&["bob"])).unwrap_err().code, ErrorCode::NoShownReview);
 }
 
 #[test]
@@ -183,6 +225,7 @@ fn an_extend_adds_the_fixes_asks_the_reviewers_again_and_records_them_last() {
         reviewers: logins(&["alice", "bob"])
       },
       PlannedEffect::RecordShown {
+        reviewed_in: None,
         number: 12,
         reviewers: logins(&["alice", "bob"]),
         landed: logins(&["s2"])
@@ -264,17 +307,7 @@ fn a_review_closed_elsewhere_deletes_the_branches_still_at_its_tips_and_a_reopen
       base: None
     }]
   );
-  assert_eq!(
-    shown_request("user", &plan.intent, Some(&plan)).resources,
-    [
-      Resource::Ref {
-        name: "user/review/auth/head".to_owned()
-      },
-      Resource::Ref {
-        name: "user/review/auth/base".to_owned()
-      }
-    ]
-  );
+  assert_eq!(shown_request("user", &plan.intent, Some(&plan)).resources, review_refs());
   // nothing left at its tips: nothing to do
   assert_eq!(delete_closed_plan(&closed(None, Some("newer")), None).unwrap().effects, []);
   // an open review of auth: its branches are that one's
@@ -289,7 +322,7 @@ fn a_review_closed_elsewhere_deletes_the_branches_still_at_its_tips_and_a_reopen
     base_missing: true,
     ..shown(false, vec![reviewer("alice", ReviewerState::Approved, false)])
   };
-  let plan = open_plan(&reopened, "auth", None, false, &[]).unwrap();
+  let plan = open_plan(&reopened, "auth", None, NOBODY, &[]).unwrap();
   assert_eq!(
     plan.effects,
     [
@@ -366,6 +399,18 @@ async fn the_branches_of_a_review_closed_on_github_are_deleted_where_they_are_at
   assert_eq!((origin_tip(&repo, "user/review/auth/head"), origin_tip(&repo, "user/review/auth/base")), (None, None));
 }
 
+/// The run of `plan`, every effect of it done
+async fn run_done(services: &ShownServices, plan: &domain_types::operation::Plan) -> ShownRun {
+  let run = run_shown(services, plan).await;
+  assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
+  run
+}
+
+/// The tips of the head and the base of the review of auth on the bare origin of `repo`
+fn origin_review(repo: &TestRepo) -> (Option<String>, Option<String>) {
+  (origin_tip(repo, "user/review/auth/head"), origin_tip(repo, "user/review/auth/base"))
+}
+
 /// The tip of `branch` on the bare origin of `repo`, None for one it lacks
 fn origin_tip(repo: &TestRepo, branch: &str) -> Option<String> {
   tip_in(&repo.path().join(".git/origin.git"), branch)
@@ -392,13 +437,10 @@ async fn the_open_and_the_close_of_a_shown_review_against_origin_and_github() {
   let fake_repository = github_of(&repo, &draft);
   let services = services_of(&repo, &fake_repository).await;
 
-  let plan = open_plan(&draft, "auth", Some(&merged(&landed)), false, &[]).unwrap();
-  let run = run_shown(&services, &plan).await;
-  assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
-  assert_eq!(
-    (origin_tip(&repo, "user/review/auth/head"), origin_tip(&repo, "user/review/auth/base")),
-    (Some(landed.clone()), Some(fork))
-  );
+  let robot = merged(&landed);
+  let plan = open_plan(&draft, "auth", Some(&by_robot(&robot)), [&robot], &[]).unwrap();
+  let run = run_done(&services, &plan).await;
+  assert_eq!(origin_review(&repo), (Some(landed.clone()), Some(fork)));
   let state = fake_repository.state();
   let pull = &state.pulls[0].pull_request;
   assert!(!pull.is_draft);
@@ -578,6 +620,7 @@ fn github_of(repo: &TestRepo, review: &ShownReview) -> Arc<FakeGitHubRepository>
       })
       .collect(),
     pulls: vec![FakePull {
+      created_at: 0,
       pull_request: review.pull_request.clone(),
       body: shown_body("Adds auth.", &logins(&["alice", "bob"]), "master"),
       comments: Vec::new(),
@@ -611,4 +654,191 @@ async fn services_of(repo: &TestRepo, repository: &Arc<FakeGitHubRepository>) ->
     },
     text: None,
   }
+}
+
+/// The facts of a mark of auth by alice ahead of its landing: at its tip, the Safe Push with its review refused by
+/// `blockers`
+fn mark_of<'a>(reviewers: &'a [String], blockers: &'a [Reason], waits: &'a [FactWait]) -> MarkFacts<'a> {
+  MarkFacts {
+    branch: "auth",
+    reviewers,
+    review: None,
+    landed: None,
+    tip: Some("tip"),
+    decision: Some(MarkDecision {
+      blockers,
+      waits,
+      pull_request_open: false,
+    }),
+  }
+}
+
+/// A mark ahead of the landing pushes the branches of the review at the tip of the branch and opens its draft, refused as
+/// the Safe Push with the review is without what refuses its robot; of a draft it records the reviewers picked, of an
+/// open review it is refused, of a branch that landed it opens the review now on what landed
+#[test]
+fn a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_and_a_landed_branch_opens_it_ready() {
+  let alice = logins(&["alice"]);
+  let plan = mark_plan(&mark_of(&alice, &[Reason::Draft { number: 7 }], &[])).unwrap();
+  assert_eq!(
+    (plan.blockers.clone(), plan.effects.clone()),
+    (
+      Vec::new(),
+      vec![
+        PlannedEffect::PushReview {
+          branch: "auth".to_owned(),
+          tip: "tip".to_owned()
+        },
+        PlannedEffect::CreateShownReview {
+          branch: "auth".to_owned(),
+          reviewers: alice.clone(),
+          draft: true
+        },
+      ]
+    ),
+    "what refuses its robot, a draft pull request it starts from, refuses no mark"
+  );
+  // the branches of the review only: no pull request is written yet
+  assert_eq!(shown_request("user", &plan.intent, Some(&plan)).resources, review_refs());
+  let stack = [Reason::ShowLandsStack { lands: logins(&["util", "auth"]) }];
+  let refused = mark_plan(&mark_of(&alice, &stack, &[])).unwrap();
+  assert_eq!(refused.blockers, stack);
+  let refusal = shown_refusal(&refused, "auth").unwrap();
+  assert_eq!(refusal.code, ErrorCode::ShowLandsStack);
+  assert!(refusal.message.starts_with("Nothing was marked: "), "{}", refusal.message);
+  // nobody to ask, the review not known yet, the branch not built
+  assert_eq!(mark_plan(&mark_of(&[], &[], &[])).unwrap().blockers, [Reason::NoReviewer { groups: Vec::new() }]);
+  let readiness = [FactWait {
+    fact: LandFact::Readiness,
+    failed: None,
+  }];
+  assert_eq!(
+    shown_refusal(&mark_plan(&mark_of(&alice, &[], &readiness)).unwrap(), "auth").unwrap().code,
+    ErrorCode::PlanChanged
+  );
+  let unbuilt = mark_plan(&MarkFacts {
+    tip: None,
+    ..mark_of(&alice, &[], &[])
+  })
+  .unwrap();
+  assert_eq!(
+    (unbuilt.effects, unbuilt.waits.iter().map(|wait| wait.fact.clone()).collect::<Vec<_>>()),
+    (Vec::new(), vec![LandFact::Remote])
+  );
+
+  // a draft: the reviewers picked again are recorded, the same ones are nothing to do
+  let draft = shown(true, Vec::new());
+  let again = |reviewers: &[String]| {
+    mark_plan(&MarkFacts {
+      review: Some(&draft),
+      ..mark_of(reviewers, &[], &[])
+    })
+    .unwrap()
+    .effects
+  };
+  assert_eq!(
+    again(&logins(&["carol"])),
+    [PlannedEffect::RecordShown {
+      number: 12,
+      reviewers: logins(&["carol"]),
+      landed: Vec::new(),
+      reviewed_in: None
+    }]
+  );
+  assert_eq!(again(&logins(&["Bob", "alice"])), []);
+  let open = shown(false, Vec::new());
+  assert_eq!(
+    mark_plan(&MarkFacts {
+      review: Some(&open),
+      ..mark_of(&alice, &[], &[])
+    })
+    .unwrap()
+    .blockers,
+    [Reason::ShowReviewOpen { number: 12 }]
+  );
+  // a branch that landed: the review opens ready now, on what landed
+  let landed = LandedHead {
+    by: LandedBy::PullRequest { number: 7 },
+    head: Some("p1".to_owned()),
+    reviewed_in: Some(7),
+  };
+  let created = mark_plan(&MarkFacts {
+    landed: Some(&landed),
+    decision: None,
+    tip: None,
+    ..mark_of(&alice, &[], &[])
+  })
+  .unwrap();
+  assert_eq!(
+    created.effects,
+    [
+      PlannedEffect::PushReview {
+        branch: "auth".to_owned(),
+        tip: "p1".to_owned()
+      },
+      PlannedEffect::CreateShownReview {
+        branch: "auth".to_owned(),
+        reviewers: alice,
+        draft: false
+      },
+    ]
+  );
+  assert!(matches!(created.intent, Intent::MarkShownReview { .. }));
+}
+
+/// The mark against a bare origin and the stateful fake of GitHub: its draft opens at the tip of the branch, into its fork
+/// point, asking nobody, its body recording the reviewers, opened at the clock of GitHub; once a safe-merge from its pull
+/// request #7 landed the branch, its open says it was reviewed there before
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mark_opens_its_draft_and_its_open_says_where_the_branch_was_reviewed_before() {
+  let (repo, fork) = repo_on_origin();
+  let tip = repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  let fake_repository = github_of(&repo, &shown(true, Vec::new()));
+  fake_repository.update(|state| {
+    state.pulls.clear();
+    state.next_number = 21;
+    state.clock = 1_800_000_000;
+  });
+  let services = ShownServices {
+    text: Some(ShownText {
+      title: "Add auth".to_owned(),
+      body: "Adds auth.".to_owned(),
+      assign_self: false,
+      target: "master".to_owned(),
+    }),
+    ..services_of(&repo, &fake_repository).await
+  };
+  let alice = logins(&["alice"]);
+  let plan = mark_plan(&MarkFacts {
+    tip: Some(&tip),
+    ..mark_of(&alice, &[], &[])
+  })
+  .unwrap();
+  let run = run_done(&services, &plan).await;
+  assert_eq!(origin_review(&repo), (Some(tip.clone()), Some(fork)));
+  let created = run.created.unwrap();
+  assert_eq!((created.pull_request.number, created.pull_request.is_draft, created.created_at), (21, true, 1_800_000_000));
+  let state = fake_repository.state();
+  assert_eq!(state.pulls[0].pull_request.reviewers, []);
+  assert_eq!(recorded_reviewers(&state.pulls[0].body), alice);
+
+  // landed by a safe-merge from #7: no push (the head is what landed), ready, alice asked, the body names #7
+  let marked = ShownReview {
+    created_at: created.created_at,
+    ..shown_review(created.pull_request.clone(), &state.pulls[0].body)
+  };
+  let landed = LandedHead {
+    by: LandedBy::PullRequest { number: 7 },
+    head: Some(tip),
+    reviewed_in: Some(7),
+  };
+  let plan = open_plan(&marked, "auth", Some(&landed), NOBODY, &[]).unwrap();
+  assert!(!plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::PushReview { .. })), "{:?}", plan.effects);
+  let run = run_shown(&services, &plan).await;
+  assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
+  let state = fake_repository.state();
+  assert!(!state.pulls[0].pull_request.is_draft);
+  assert_eq!(asked(&state.pulls[0].pull_request), [("alice", true)]);
+  assert!(state.pulls[0].body.contains("Reviewed before landing in #7."), "{}", state.pulls[0].body);
+  assert_eq!(recorded_reviewers(&state.pulls[0].body), logins(&["alice"]));
 }

@@ -81,6 +81,7 @@ use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_
 use domain_policy::robot_estimate::{learn, prune};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_policy::shown::{landed_by_content, shown_news};
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{BaselinePush, FoundNeeds, LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
@@ -469,7 +470,10 @@ pub struct FactStore {
   shown_failures: BTreeMap<u32, u8>,
   /// The branches the baseline landed whole by content while the robots are known (`tell_shown_of`): a draft of one
   /// of them whose robot is not listed opens
-  shown_landed: BTreeSet<String>,
+  shown_landed: BTreeMap<String, u32>,
+  /// The branch of origin the robots push into ("master"), of the table `tell_shown_of` read: the merged pull request of
+  /// a branch into it lands it (`domain_policy::shown::landed_head`)
+  shown_target: String,
   /// The latest time an answer of the listing or the robots was observed at (Unix seconds): a shown review closed
   /// elsewhere loses its branches an hour after its close (`domain_policy::shown::closed_elsewhere`)
   shown_now: u32,
@@ -522,7 +526,8 @@ impl FactStore {
       merges: BTreeSet::new(),
       told_shown: BTreeSet::new(),
       shown_failures: BTreeMap::new(),
-      shown_landed: BTreeSet::new(),
+      shown_landed: BTreeMap::new(),
+      shown_target: String::new(),
       shown_now: 0,
     }
   }
@@ -896,6 +901,7 @@ impl FactStore {
     let news = shown_news(
       &self.pull_requests.view().shown_reviews,
       &robots.iter().copied(),
+      (&self.pull_requests.view().pull_requests, &self.shown_target),
       &self.shown_landed,
       self.pull_requests.closed_shown(),
       self.shown_now,
@@ -915,19 +921,23 @@ impl FactStore {
   }
 
   /// The branches the baseline of `state` landed whole by content, while the robots are known (a draft of one whose
-  /// robot is not listed opens on its head); the news of the shown reviews when they changed (`tell_shown`)
+  /// robot is not listed opens on its head), and the target of its baseline; the news of the shown reviews when they
+  /// changed (`tell_shown`)
   pub fn tell_shown_of(&mut self, state: &TableState) {
     let known = matches!(self.robots.view().head.state, FactState::Fresh | FactState::Stale { .. });
-    let landed = if known { landed_by_content(&state.parts.sections.landed) } else { BTreeSet::new() };
-    if landed != self.shown_landed {
+    let landed = if known { landed_by_content(&state.parts.sections.landed) } else { BTreeMap::new() };
+    let target = baseline_on_remote(&state.header().baseline_branch);
+    if landed != self.shown_landed || target != self.shown_target {
       self.shown_landed = landed;
+      target.clone_into(&mut self.shown_target);
       self.tell_shown();
     }
   }
 
-  /// The branches the baseline landed whole by content while the robots are known (`tell_shown_of`)
+  /// The branches the baseline landed whole by content while the robots are known, with when Branch Deck found each there
+  /// (`tell_shown_of`)
   #[must_use]
-  pub const fn shown_landed(&self) -> &BTreeSet<String> {
+  pub const fn shown_landed(&self) -> &BTreeMap<String, u32> {
     &self.shown_landed
   }
 

@@ -133,6 +133,7 @@ async fn get(client: &GitHubClient, path: &[String], query: &[(&str, &str)]) -> 
 fn bob_pull(repository: &FakeGitHubRepository) {
   repository.update(|state| {
     state.pulls.push(crate::fake_repository::FakePull {
+      created_at: 0,
       pull_request: domain_types::pull_request::PullRequest {
         number: 7,
         title: "Add auth".to_string(),
@@ -146,6 +147,7 @@ fn bob_pull(repository: &FakeGitHubRepository) {
         head_ref_oid: String::new(),
         checks: None,
         updated_at: 0,
+        closed_at: None,
         reviewers: Vec::new(),
         author: Some("bob".to_string()),
         merge_state: None,

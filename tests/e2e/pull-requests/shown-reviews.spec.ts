@@ -144,6 +144,59 @@ async function setupOpenReview(
   return { repo, head }
 }
 
+/** The page's clock at its start, Unix seconds (`PAGE_CLOCK_START`): when GitHub opens a pull request the app creates */
+const PAGE_START = 1704189600
+
+/**
+ * Request Review After Landing… of auth from the menu of its row (`submenu`: from "Patronus ›"): its form under the row,
+ * whose picker starts with `starts`; `reviewers` in their place when given, then its submit, a draft opened
+ */
+async function markFromMenu(
+  page: Page,
+  repo: TestRepositoryBuilder,
+  { starts, reviewers, submenu = false }: { starts: string[]; reviewers?: string[]; submenu?: boolean },
+): Promise<void> {
+  await findBranchRow(page, BRANCH).click({ button: "right" })
+  const items = page.getByRole("menuitem", { name: "Request Review After Landing…" })
+  if (submenu) {
+    await openSubmenu(page, "Patronus")
+    // the item of the submenu, the menu's own beside it
+    await expect(items).toHaveCount(2)
+    await items.last().click()
+  } else {
+    await items.click()
+  }
+  const form = page.getByTestId("mark-shown-review")
+  const chips = form.getByTestId("mark-shown-review-reviewers").locator("[data-slot=combobox-chip]")
+  await expect(chips).toHaveText(starts)
+  if (reviewers !== undefined) {
+    for (const _ of starts) {
+      await chips.first().getByRole("button").click()
+    }
+    await expect(chips).toHaveCount(0)
+    await expect(form.getByRole("button", { name: "Request Review After Landing" })).toBeDisabled()
+    for (const login of reviewers) {
+      await form.getByTestId("mark-shown-review-reviewer-search").fill(login.slice(0, 3))
+      await page.getByRole("option", { name: new RegExp(`^${login}`) }).click()
+    }
+    await expect(chips).toHaveText(reviewers)
+  }
+  const created = (await gitHubRequests(repo, "POST", "pulls")).length
+  await runAndWaitForAnswer(page, "execute", () => form.getByRole("button", { name: "Request Review After Landing" }).click())
+  await expect(toastWith(page, "Review after landing of auth requested")).toBeVisible()
+  const pulls = (await gitHubRequests(repo, "POST", "pulls")) as { draft: boolean }[]
+  expect(pulls.slice(created).map(({ draft }) => draft)).toEqual([true])
+}
+
+/** The Status cell of auth marked for a review after landing, not landing yet: its text, and its hover `hover` */
+async function expectMarked(page: Page, hover: string): Promise<void> {
+  const status = findBranchRow(page, BRANCH).getByTestId("branch-status")
+  await expect(status).toHaveText("review after landing marked")
+  await status.hover()
+  await expect(openTooltip(page)).toHaveText(hover)
+  await page.mouse.move(0, 0)
+}
+
 /** A fix of auth committed and synced, and its Safe Push running beside the robot that landed `head`: the robot of the fix */
 async function startFix(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<void>, head: string): Promise<PatronusRobot> {
   await repo.commit("(auth) Keep the session", { "auth/session.js": "export const session = 1\n" }, 1704189000)
@@ -197,6 +250,127 @@ async function expectOneComment(page: Page, repo: TestRepositoryBuilder, rest: s
 }
 
 test.describe("Reviews after landing", () => {
+  test(
+    "should mark auth for a review after landing from its menu, say it in its row and its Safe Push, and open the review with its reviewers once that Safe Push merged",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupShow(page, setupRepo, syncAndWaitForBranches)
+
+      // the picker starts with the code owners of the changes, as Safe Push and Request Review… does; GitHub numbers the
+      // draft #1
+      const number = 1
+      await markFromMenu(page, repo, { starts: ["AlexPl292"] })
+      // the draft from the head into the base, at the tip of auth and its fork point, asking nobody yet
+      const [tip, forkPoint, remote] = await Promise.all([repo.revision(`user-name/virtual/${BRANCH}`), repo.revision("origin/master"), repo.getRemoteBranches()])
+      expect({ head: remote[HEAD], base: remote[BASE] }).toEqual({ head: tip, base: forkPoint })
+      const created = (await gitHubRequests(repo, "POST", "pulls")) as { head: string; base: string; body: string }[]
+      expect(created.map(({ head, base }) => ({ head, base }))).toEqual([{ head: HEAD, base: BASE }])
+      expect(created[0]!.body).toContain(reviewersRecord("AlexPl292"))
+      expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([])
+      await expectMarked(page, `Review after landing marked: once auth lands, #${number} opens and asks AlexPl292`)
+
+      // its plain Safe Push: the popover says what opens once it merges, the start lands auth
+      const popover = await openSafePushWithKey(page, BRANCH)
+      await expect(popover.getByTestId("safe-push-marked")).toHaveText(`#${number} opens once it merges, asking AlexPl292.`)
+      await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
+      await expectClosed(popover)
+      await expectPatronusStarts(repo, [startRequest(BRANCH)])
+      expect((await repo.getRemoteBranches())[HEAD]).toBe(tip)
+
+      // merged: the review opens, ready, AlexPl292 asked
+      const opened = nextAnswer(page, "execute")
+      await repo.setPatronus(availableRobots(robot(BRANCH, "started-1", { status: "success", sourceRevision: tip, startTime: PAGE_START + 60, finishTime: PAGE_START + 3600 })))
+      await listAgain(page, repo)
+      await opened
+      expect(await gitHubRequests(repo, "POST", "pulls", number, "requested_reviewers")).toEqual([{ reviewers: ["AlexPl292"] }])
+      expect(gitHubMutations(await repo.getGitHubLog()).map(([name]) => name)).toContain("markPullRequestReadyForReview")
+      await expect(statusMark(page)).toHaveAccessibleName(`In review after landing: waits for AlexPl292 in #${number}`)
+    },
+  )
+
+  test(
+    "should mark auth beside the review of its own pull request from the Patronus menu, pick its reviewers again, and cancel the mark with Cancel Review After Landing…",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupShow(page, setupRepo, syncAndWaitForBranches, {
+        pullRequests: { ...availablePullRequests(pullRequest(BRANCH, 7, { title: "Add the token" })), users: USERS },
+      })
+      // its own pull request holds the review before landing: Request Review… is of it, the mark beside it
+      await findBranchRow(page, BRANCH).click({ button: "right" })
+      await expect(page.getByRole("menuitem", { name: "Request Review…" })).toBeVisible()
+      await expect(page.getByRole("menuitem", { name: "Request Review After Landing…" })).toBeEnabled()
+      await page.keyboard.press("Escape")
+      // GitHub numbers the draft after #7
+      const number = 8
+      await markFromMenu(page, repo, { starts: ["AlexPl292"], reviewers: ["alice"], submenu: true })
+      expect(((await gitHubRequests(repo, "POST", "pulls")) as { body: string }[])[0]!.body).toContain(reviewersRecord("alice"))
+
+      // its reviewers picked again: the record of the draft names them, nobody asked
+      await findBranchRow(page, BRANCH).click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Request Review After Landing…" }).click()
+      const form = page.getByTestId("mark-shown-review")
+      await expect(form).toContainText(`Request review after landing on #${number}`)
+      const chips = form.getByTestId("mark-shown-review-reviewers").locator("[data-slot=combobox-chip]")
+      await expect(chips).toHaveText(["alice"])
+      await form.getByTestId("mark-shown-review-reviewer-search").fill("bob")
+      await page.getByRole("option", { name: /^bob/ }).click()
+      await runAndWaitForAnswer(page, "execute", () => form.getByRole("button", { name: "Request Review After Landing" }).click())
+      expect((await bodyWrites(repo, number)).at(-1)).toContain(reviewersRecord("alice", "bob"))
+      expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([])
+      await expectMarked(page, `Review after landing marked: once auth lands, #${number} opens and asks alice and bob`)
+
+      // the mark canceled: the draft closed with its own comment, its branches deleted
+      await findBranchRow(page, BRANCH).click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Cancel Review After Landing…" }).click()
+      const confirm = page.getByTestId("cancel-shown-review")
+      await expect(confirm).toContainText(`Cancel Review After Landing #${number}?`)
+      await expect(confirm).toContainText(`#${number} closes on GitHub with a comment and its branches are deleted; once auth lands, nothing opens and nobody is asked.`)
+      await runAndWaitForAnswer(page, "execute", () => confirm.getByRole("button", { name: `Close Draft #${number}` }).click())
+      await expect(toastWith(page, `Canceled review after landing #${number} of auth`)).toBeVisible()
+      expect(await gitHubRequests(repo, "POST", "issues", number, "comments")).toEqual([{ body: "Canceled: this review after landing won't open." }])
+      expect(await reviewBranches(repo)).toEqual([])
+      await expect(findBranchRow(page, BRANCH).getByTestId("branch-status")).not.toHaveText("review after landing marked")
+    },
+  )
+
+  test("should open a mark by its pull request merged by a safe-merge someone else started, never by an older robot of auth, and say where auth was reviewed before", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupShow(page, setupRepo, syncAndWaitForBranches, {
+      pullRequests: { ...availablePullRequests(pullRequest(BRANCH, 7, { title: "Add the token" })), users: USERS },
+    })
+    const number = 8
+    await markFromMenu(page, repo, { starts: ["AlexPl292"] })
+    const tip = await repo.revision(`user-name/virtual/${BRANCH}`)
+    const draft = shownReview(["AlexPl292"], [], { number, isDraft: true, headRefOid: tip })
+
+    // a robot of an earlier auth merged before the mark: the draft stays one
+    const earlier = robot(BRANCH, "earlier-1", { status: "success", sourceRevision: "1".repeat(40), startTime: 1704139200, finishTime: 1704142800 })
+    await repo.setPatronus(availableRobots(earlier))
+    await moveClockUntil(repo, 60_000, async () => (await repo.getPatronusLog()).robots["earlier-1"] !== undefined, { focus: page })
+    await listPullRequestsAgain(page, repo)
+    expect(gitHubMutations(await repo.getGitHubLog()).map(([name]) => name)).not.toContain("markPullRequestReadyForReview")
+    await expectMarked(page, `Review after landing marked: once auth lands, #${number} opens and asks AlexPl292`)
+
+    // someone's safe-merge from #7 landed auth, its robot not of the user: #7 merged into master, then master has auth
+    await repo.setPullRequests({
+      ...availablePullRequests(pullRequest(BRANCH, 7, { title: "Add the token", state: "merged", baseRefName: "master", headRefOid: tip, closedAt: PAGE_START + 600 })),
+      users: USERS,
+      shown: [{ ...draft, createdAt: PAGE_START }],
+    })
+    await listPullRequestsAgain(page, repo)
+    expect(gitHubMutations(await repo.getGitHubLog()).map(([name]) => name)).not.toContain("markPullRequestReadyForReview")
+    const opened = nextAnswer(page, "execute")
+    await repo.pushInTerminal("master", { revision: tip })
+    await repo.fetchInTerminal()
+    await syncAndWaitForBranches()
+    await opened
+    expect(await gitHubRequests(repo, "POST", "pulls", number, "requested_reviewers")).toEqual([{ reviewers: ["AlexPl292"] }])
+    expect((await bodyWrites(repo, number)).at(-1)).toContain("Reviewed before landing in #7.")
+  })
+
   test(
     "should start a Safe Push and Request Review… from the popover of S with the code owners of the changes, the draft opened into the fork point before the robot",
     { tag: "@webkit" },

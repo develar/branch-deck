@@ -710,6 +710,7 @@ pub enum OperationKind {
   ExtendShownReview,
   CloseShownReview,
   DeleteClosedShownReview,
+  MarkShownReview,
   SubmitReview,
   ApproveStack,
   SetIssueState,

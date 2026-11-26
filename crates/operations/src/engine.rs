@@ -115,9 +115,11 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     }
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::DisableAutoMerge { number } => Ok(auto_merge::prepare_disable(sessions, key, number).await),
-    Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } | Intent::DeleteClosedShownReview { .. } => {
-      shown::prepare_shown(sessions, key, &intent).await
-    }
+    Intent::OpenShownReview { .. }
+    | Intent::ExtendShownReview { .. }
+    | Intent::CloseShownReview { .. }
+    | Intent::DeleteClosedShownReview { .. }
+    | Intent::MarkShownReview { .. } => shown::prepare_shown(sessions, key, &intent).await,
     Intent::SubmitReview { .. } => review::prepare_review(sessions, key, &intent).await,
     Intent::ApproveStack { .. } => review::prepare_approve_stack(sessions, key, &intent).await,
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
@@ -154,9 +156,11 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     }
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
     Intent::DisableAutoMerge { number } => auto_merge::execute_disable(registry, key, number, accepted, services, events).await,
-    intent @ (Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } | Intent::DeleteClosedShownReview { .. }) => {
-      Box::pin(shown::execute_shown(registry, key, intent, accepted, services, events)).await
-    }
+    intent @ (Intent::OpenShownReview { .. }
+    | Intent::ExtendShownReview { .. }
+    | Intent::CloseShownReview { .. }
+    | Intent::DeleteClosedShownReview { .. }
+    | Intent::MarkShownReview { .. }) => Box::pin(shown::execute_shown(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::ApproveStack { .. } => Box::pin(review::execute_approve_stack(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
@@ -189,7 +193,8 @@ const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
     | Intent::OpenShownReview { .. }
     | Intent::ExtendShownReview { .. }
     | Intent::CloseShownReview { .. }
-    | Intent::DeleteClosedShownReview { .. } => Some(FrameReads::Landing),
+    | Intent::DeleteClosedShownReview { .. }
+    | Intent::MarkShownReview { .. } => Some(FrameReads::Landing),
     Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => Some(FrameReads::Robots),
     Intent::SubmitReview { .. } | Intent::ApproveStack { .. } => Some(FrameReads::Reviews),
     _ => None,
@@ -538,9 +543,12 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. }) => pull_request::pull_request_request(intent, Some(planned)),
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
     Intent::DisableAutoMerge { number } => auto_merge::disable_request(*number),
-    intent @ (Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } | Intent::DeleteClosedShownReview { .. }) => {
-      shown::shown_request(prefix, intent, Some(plan))
-    }
+    // the intents of a review after landing, the mark first
+    intent @ (Intent::MarkShownReview { .. }
+    | Intent::OpenShownReview { .. }
+    | Intent::ExtendShownReview { .. }
+    | Intent::CloseShownReview { .. }
+    | Intent::DeleteClosedShownReview { .. }) => shown::shown_request(prefix, intent, Some(plan)),
     intent @ (Intent::SubmitReview { .. } | Intent::ApproveStack { .. }) => review::review_request(intent),
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
     intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),

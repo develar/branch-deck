@@ -34,7 +34,7 @@ macro_rules! pull_requests_query {
       "query($q: String!, $shown: String!, $closed: String!, $withClosed: Boolean!, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { viewerPermission rebaseMergeAllowed mergeCommitAllowed squashMergeAllowed autoMergeAllowed }
   search(query: $q, type: ISSUE, first: 50) { nodes { ...ListedPull } }
-  shown: search(query: $shown, type: ISSUE, first: 50) { nodes { ...ListedPull ... on PullRequest { body baseRef { target { oid } } } } }
+  shown: search(query: $shown, type: ISSUE, first: 50) { nodes { ...ListedPull ... on PullRequest { body createdAt baseRef { target { oid } } } } }
   closed: search(query: $closed, type: ISSUE, first: 50) @include(if: $withClosed) { nodes { ... on PullRequest {
     number url headRefName headRefOid baseRefName baseRefOid closedAt isCrossRepository headRepositoryOwner { login }
     headRef { target { oid } } baseRef { target { oid } }
@@ -43,7 +43,7 @@ macro_rules! pull_requests_query {
 fragment ListedPull on PullRequest {
   number title url state isDraft reviewDecision
   author { login }
-  headRefName headRefOid baseRefName isCrossRepository updatedAt mergeStateStatus
+  headRefName headRefOid baseRefName isCrossRepository updatedAt closedAt mergeStateStatus
   autoMergeRequest { mergeMethod }",
       $stack,
       "
@@ -393,7 +393,11 @@ struct GhPullRequest {
   head_ref: Option<GhRef>,
   #[serde(default)]
   base_ref_oid: String,
+  /// Of every listed one: when it was merged or closed; null of an open one
   closed_at: Option<String>,
+  /// Of a shown review only (the `shown` search): when it was opened
+  #[serde(default)]
+  created_at: Option<String>,
 }
 
 /// A field of a node that a query may not ask: absent, null, or a value
@@ -582,6 +586,7 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
       continue;
     }
     let body = gh.body.take().unwrap_or_default();
+    let created_at = gh.created_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0);
     // asked and null: the remote lacks its base
     let base_missing = match &gh.base_ref {
       Asked::Unasked => false,
@@ -595,6 +600,7 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
         branch,
         ShownReview {
           base_missing,
+          created_at,
           ..shown_review(pull_request, &body)
         },
       );
@@ -670,6 +676,7 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
     base_ref_name: gh.base_ref_name,
     checks: summarize_checks(&checks),
     updated_at: gh.updated_at.as_deref().and_then(parse_rfc3339_timestamp).unwrap_or(0),
+    closed_at: gh.closed_at.as_deref().and_then(parse_rfc3339_timestamp),
     reviewers: collect_reviewers(Nodes::into_nodes(gh.latest_reviews), requests),
     author: gh.author.and_then(|author| author.login),
     merge_state: gh.merge_state_status.as_deref().and_then(MergeStateStatus::parse),

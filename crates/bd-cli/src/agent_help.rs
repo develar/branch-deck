@@ -670,11 +670,15 @@ from the stack branch of its top-level root (`whole_stack.source`; a straight ch
 --request-review (show of ship/show/ask) lands the branch now and asks for its review after landing: before the
 start it pushes `{prefix}/review/<branch>/head` and its fork point `/base` and opens a draft pull request between them
 (`shown`: `reviewers`, `head`, `base`, `number`); the reviewers: --reviewer, else one available member of each owner
-group of the changed paths (`shown.groups`). Its refusals: `approvals_required` (Patronus requires the code owners'
-approval first: ask with --create-pull-request), `pull_request_open` (the branch has a pull request: ask there),
-`show_lands_stack` (it would land the branches it is built on too), `show_needs_patronus`, `no_reviewer` (ask the
-user whom, then --reviewer). Once the robot merged, `brd request-review <branch> --after-landing` (or the app) marks
-it ready and asks the reviewers; `brd close-review <branch>` closes it once all of them approved. A fix of a change
+group of the changed paths (`shown.groups`). A branch with an open pull request starts from its comment, its review
+after landing following the one in the pull request. Its refusals: `approvals_required` (Patronus requires the code
+owners' approval first: ask with --create-pull-request), `pull_request_open` (its review after landing is open
+already), `show_lands_stack` (it would land the branches it is built on too), `show_needs_patronus`, `no_reviewer`
+(ask the user whom, then --reviewer). `brd request-review <branch> --after-landing` before the branch landed marks it
+ahead of time (`shown.marked`): the draft opens now, and once anything lands the branch (its Safe Push, one that lands
+it with more, a safe-merge from its pull request) it opens on what landed. Once the robot merged, `brd request-review
+<branch> --after-landing` (or the app) marks it ready and asks the reviewers; `brd close-review <branch>` closes it
+once all of them approved. A fix of a change
 they requested is a commit `(<branch>) …` (or of the same issue key) landed by its own Safe Push of the branch
 (`brd robot` names the review it `extends`); once merged, `brd request-review <branch>` (or the app) adds it to the
 same review and asks its reviewers again.

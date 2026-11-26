@@ -142,6 +142,17 @@ impl PullRequestsFact {
     settle_shown(&mut self.view.shown_reviews, robots)
   }
 
+  /// The branches whose review after landing is a draft, marked ahead of time or landing: their robots are read whoever
+  /// started them (`BranchTable::robot_sources_with`)
+  pub fn marked(&self) -> impl Iterator<Item = &str> {
+    self
+      .view
+      .shown_reviews
+      .iter()
+      .filter(|(_, review)| review.pull_request.is_draft)
+      .map(|(branch, _)| branch.as_str())
+  }
+
   /// The closed shown reviews of the last listing that asked them
   #[must_use]
   pub fn closed_shown(&self) -> &[ClosedShownReview] {

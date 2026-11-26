@@ -49,6 +49,8 @@ pub struct FakePull {
   pub assignees: Vec<String>,
   /// The reviews submitted, in order
   pub reviews: Vec<FakeReview>,
+  /// Unix seconds: when it was opened (`createdAt`, `created_at`)
+  pub created_at: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -271,6 +273,7 @@ impl FakeGitHubRepository {
         let pull = &mut state.pulls[index].pull_request;
         if body["state"].as_str() == Some("closed") && pull.state == PullRequestState::Open {
           pull.state = PullRequestState::Closed;
+          pull.closed_at = Some(state.clock);
         }
         pull.updated_at = state.clock;
         Ok(this.rest_pull(state, index))
@@ -413,6 +416,7 @@ impl FakeGitHubRepository {
         head_ref_oid: sha,
         checks: None,
         updated_at: state.clock,
+        closed_at: None,
         reviewers: Vec::new(),
         author: Some(state.viewer.clone()),
         merge_state: None,
@@ -423,6 +427,7 @@ impl FakeGitHubRepository {
       comments: Vec::new(),
       reviews: Vec::new(),
       assignees: Vec::new(),
+      created_at: state.clock,
     });
     let mut answer = self.rest_pull(state, state.pulls.len() - 1);
     answer.status = 201;
@@ -482,6 +487,7 @@ impl FakeGitHubRepository {
         json!({"id": stack.number, "number": stack.number, "base": {"ref": stack.base_ref_name, "sha": self.tip(&stack.base_ref_name, state)}, "size": stack.size, "position": stack.position})
       }),
       "updated_at": format_utc_timestamp(pull_request.updated_at),
+      "created_at": format_utc_timestamp(pull.created_at),
       "user": pull_request.author.as_ref().map(|login| json!({"login": login})),
       "requested_reviewers": requested.iter().map(|login| json!({"login": login})).collect::<Vec<_>>(),
       "assignees": logins(&pull.assignees),
@@ -501,7 +507,11 @@ impl FakeGitHubRepository {
       let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
       let mut data = search_data(&state.owner, &state.viewer, pulls);
       if query.contains("shown: search(") {
-        let shown: Vec<(PullRequest, String)> = state.pulls.iter().map(|pull| (self.resolved(&pull.pull_request, state), pull.body.clone())).collect();
+        let shown: Vec<(PullRequest, String, u32)> = state
+          .pulls
+          .iter()
+          .map(|pull| (self.resolved(&pull.pull_request, state), pull.body.clone(), pull.created_at))
+          .collect();
         data["shown"] = shown_search_data(&state.owner, &state.viewer, shown, variables["shown"].as_str().unwrap_or_default());
         // whether GitHub has the base of each, of a repository whose branches the test answers
         if self.branch_tip.lock().unwrap().is_some()
@@ -627,6 +637,7 @@ impl FakeGitHubRepository {
         return refused(&message);
       }
       pull.state = PullRequestState::Merged;
+      pull.closed_at = Some(state.clock);
       pull.auto_merge = None;
     } else {
       return refused("Unknown mutation");
@@ -800,6 +811,7 @@ impl FakeGitHubRepository {
       }
       if let Some(pull) = state.pulls.iter_mut().find(|pull| pull.pull_request.number == layer.number) {
         pull.pull_request.state = PullRequestState::Merged;
+        pull.pull_request.closed_at = Some(state.clock);
         pull.pull_request.auto_merge = None;
         pull.pull_request.updated_at = state.clock;
       }
@@ -1047,7 +1059,7 @@ pub fn closed_search_data(owner: &str, viewer: &str, mut pulls: Vec<PullRequest>
         "headRefOid": pull_request.head_ref_oid,
         "baseRefName": pull_request.base_ref_name,
         "baseRefOid": "",
-        "closedAt": format_utc_timestamp(pull_request.updated_at),
+        "closedAt": format_utc_timestamp(pull_request.closed_at.unwrap_or(pull_request.updated_at)),
         "isCrossRepository": false,
         "headRepositoryOwner": {"login": owner},
       })
@@ -1058,20 +1070,21 @@ pub fn closed_search_data(owner: &str, viewer: &str, mut pulls: Vec<PullRequest>
 
 /// The `shown` search of the listing (`is:open author:@me head:<prefix>/review/`) among `pulls` with their bodies: the open
 /// ones of `viewer` whose head starts with the `head:` of `search`, as GitHub's `head:` matches the start of the name
-pub fn shown_search_data(owner: &str, viewer: &str, mut pulls: Vec<(PullRequest, String)>, search: &str) -> Value {
+pub fn shown_search_data(owner: &str, viewer: &str, mut pulls: Vec<(PullRequest, String, u32)>, search: &str) -> Value {
   let head = search.split_whitespace().find_map(|term| term.strip_prefix("head:")).unwrap_or_default();
-  pulls.retain(|(pull_request, _)| {
+  pulls.retain(|(pull_request, _, _)| {
     pull_request.state == PullRequestState::Open
       && pull_request.author.as_deref().is_some_and(|author| author.eq_ignore_ascii_case(viewer))
       && pull_request.head_ref_name.starts_with(head)
   });
-  pulls.sort_by_key(|(pull_request, _)| std::cmp::Reverse(pull_request.updated_at));
+  pulls.sort_by_key(|(pull_request, _, _)| std::cmp::Reverse(pull_request.updated_at));
   pulls.truncate(SEARCH_LIMIT);
   let nodes: Vec<Value> = pulls
     .iter()
-    .map(|(pull_request, body)| {
+    .map(|(pull_request, body, created_at)| {
       let mut node = search_node(owner, pull_request);
       node["body"] = json!(body);
+      node["createdAt"] = json!(format_utc_timestamp(*created_at));
       node
     })
     .collect();
@@ -1103,6 +1116,7 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
     "baseRefName": pull_request.base_ref_name,
     "isCrossRepository": false,
     "updatedAt": format_utc_timestamp(pull_request.updated_at),
+    "closedAt": pull_request.closed_at.map(format_utc_timestamp),
     "headRepositoryOwner": {"login": owner},
     "mergeStateStatus": pull_request.merge_state.map(merge_state_name),
     "autoMergeRequest": pull_request.auto_merge.map(|method| json!({"mergeMethod": method.graphql()})),

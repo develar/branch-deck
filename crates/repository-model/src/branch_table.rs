@@ -233,9 +233,21 @@ impl BranchTable {
   /// branch the baseline has whole, which nothing is left to land of
   #[must_use]
   pub fn robot_sources(&self) -> Vec<String> {
+    self.robot_sources_with(std::iter::empty())
+  }
+
+  /// `robot_sources` with the virtual branches of `marked`, the branches whose review after landing is a draft (a mark
+  /// ahead of time, `domain_policy::shown::landed_head`), whatever the baseline and the remote have of them: a safe-merge
+  /// someone started of one that landed opens its review by its robot
+  #[must_use]
+  pub fn robot_sources_with<'a>(&self, marked: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let branches = self.branches.iter().map(|branch| branch.name.as_str());
     let stacks = self.stack_branches.iter().map(|stack| stack.root.as_str());
-    self.pushed_sources(&self.remote, branches, stacks)
+    let mut sources = self.pushed_sources(&self.remote, branches, stacks);
+    sources.extend(marked.into_iter().filter_map(|name| to_final_branch_name(&self.prefix, name).ok()));
+    sources.sort();
+    sources.dedup();
+    sources
   }
 
   /// Of `robot_sources` by `remote` (the session's, which a push moved since the sync), those whose robot may hold a

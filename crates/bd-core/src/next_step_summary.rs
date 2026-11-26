@@ -130,7 +130,14 @@ const fn row_fact_name(fact: &RowFact) -> &'static str {
     RowFact::Blocked { .. } => "blocked",
     RowFact::Wait => "waits",
     RowFact::Regenerate { .. } => "regenerate",
-    RowFact::Shown { state: ShownState::Draft, .. } => "shown_draft",
+    RowFact::Shown {
+      state: ShownState::Draft { landing: true },
+      ..
+    } => "shown_draft",
+    RowFact::Shown {
+      state: ShownState::Draft { landing: false },
+      ..
+    } => "shown_marked",
     RowFact::Shown {
       state: ShownState::InReview { .. },
       ..

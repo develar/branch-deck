@@ -27,22 +27,25 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::sync;
-use domain_policy::shown::{landed_by_content, landing_robot, opens_by_content, pending_fixes};
+use domain_policy::shown::{landed_by_content, pending_fixes};
 use domain_types::branch_names::{review_branch_names, to_final_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent};
+use domain_types::patronus::PatronusRobot;
 use domain_types::patronus::{PatronusReviewRequirement, ReviewReadiness, UnavailableReadinessReason};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use domain_types::session::{Fact, SubjectReadiness};
+use git_ops::revs::resolve_commit;
 use operations::land::LandHost;
 use operations::land_execute::{Accepted, Steps, refusal_of, run_planned};
 use operations::needs::needs;
 use operations::pull_request::one_shot_planned;
-use operations::shown::{ShownText, create_plan, extend_plan, open_plan};
+use operations::shown::{MarkDecision, MarkFacts, ShownLandings, ShownText, extend_plan, mark_plan, open_plan, shown_refusal};
 use remote_facts::pull_requests::SIGNED_OUT_MESSAGE;
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::github_repository::resolve_github_repository_with;
 use sync_core::patronus::no_target_message;
@@ -61,11 +64,12 @@ pub struct RequestReviewArgs {
   /// Print whom it would ask and what it would push, and ask nobody
   #[arg(long, alias = "check")]
   pub dry_run: bool,
-  /// The review after landing of a branch a Safe Push landed (show of ship/show/ask): its draft shown review opens, its
-  /// branches on what the robot landed, its reviewers asked; one open already takes the fixes of the branch that landed
-  /// since, else asks again those it asked who have not approved. A branch that landed without one gets it now, ready,
-  /// its reviewers asked (`--reviewer`, else one of each owner group of what it changed). A branch with a shown review
-  /// needs no flag
+  /// The review after landing (show of ship/show/ask). Of a branch not in master yet, marked ahead of time: its draft
+  /// opens now asking nobody, its body recording the reviewers (`--reviewer`, else one of each owner group of what it
+  /// changes), and once anything lands the branch (its Safe Push, a child's or the whole stack's, a safe-merge from its
+  /// pull request) it opens on what landed and asks them. Of a branch something landed: its draft opens, one open
+  /// already takes the fixes of the branch that landed since, else asks again those it asked who have not approved; one
+  /// that landed without a draft gets it now, ready, its reviewers asked. A branch with a shown review needs no flag
   #[arg(long, conflicts_with = "push")]
   pub after_landing: bool,
 }
@@ -109,6 +113,9 @@ pub struct RequestReviewOutput {
 pub struct ShownOpened {
   /// `draft` before, `in_review`, `changes_requested` or `approved`; `null` for one it creates
   pub state: Option<String>,
+  /// It was marked now ahead of the landing: a draft that opens once anything landed the branch
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub marked: bool,
   /// The branch it shows and the one it goes into, their fork point
   pub head: String,
   pub base: String,
@@ -414,45 +421,67 @@ fn no_pull_request(context: &RepoContext, name: &str) -> CliError {
 }
 
 /// `brd request-review <branch> --after-landing` (`RequestReviewArgs::after_landing`): the sync, then the shown review
-/// of the branch (`shown_review_request`)
+/// of the branch (`shown_review_request`), its mark ahead of time read as the Safe Push with it is refused
 fn request_after_landing(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
   let read = read_shown(
     context,
     environment,
     name,
-    &Intent::OpenShownReview {
+    &Intent::MarkShownReview {
       branch: name.to_owned(),
-      reviewers: Vec::new(),
+      reviewers: logins_of(&args.reviewers)?,
     },
   )?;
   shown_review_request(context, args, environment, read)
 }
 
 /// The request of the review after landing of the branch of `args` over what `read` read, recorded in the operations
-/// registry as the app's run holds it: its draft opens once a merged Safe Push landed it (or the baseline by content
-/// while no robot of it is listed, `operations::shown::open_plan`), the fixes that landed since it opened go onto it
-/// (`extend_plan`), else it asks again those it asked who neither approved nor are asked now; `--reviewer` adds
-/// reviewers to it. A branch that landed without one gets it now, ready on what the robot landed (`create_plan`)
+/// registry as the app's run holds it: its draft opens once something landed it since it opened
+/// (`domain_policy::shown::landed_head`, `operations::shown::open_plan`), the fixes that landed since it opened go onto
+/// it (`extend_plan`), else it asks again those it asked who neither approved nor are asked now; `--reviewer` adds
+/// reviewers to it. Without one (`operations::shown::mark_plan`), a branch that landed gets it now, ready on what landed;
+/// one the table has that did not land yet is marked ahead of time, refused as the Safe Push with its review is
 fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment, mut read: ShownRead) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
-  let robot = landing_robot(&read.robots, name).cloned();
   let asked_logins = logins_of(&args.reviewers)?;
   let (head, base) = review_branch_names(&context.prefix, name).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let robots: Vec<&PatronusRobot> = read.robots.iter().collect();
+  let content = if read.robots_known {
+    landed_by_content(&read.synced.landed_section)
+  } else {
+    BTreeMap::new()
+  };
+  let landings = ShownLandings {
+    table: Some(&read.table),
+    landed: &content,
+    pull_requests: &read.pull_requests,
+    target: &read.target,
+    robots: &robots,
+  };
   let (plan, state, created) = if let Some(review) = &read.review {
-    let fixes = pending_fixes(review, name, &read.robots);
+    let fixes = pending_fixes(review, name, robots.iter().copied());
     let plan = if fixes.is_empty() {
-      let landed = read.robots_known && opens_by_content(&read.robots, name, &landed_by_content(&read.synced.landed_section));
-      open_plan(review, name, robot.as_ref(), landed, &asked_logins)
+      open_plan(review, name, landings.landed_of(Some(review), name).as_ref(), robots.iter().copied(), &asked_logins)
     } else {
       extend_plan(review, name, &fixes, &asked_logins)
     };
     (plan.map_err(CliError::from)?, Some(state_name(&review.state).to_owned()), false)
   } else {
-    let source = robot.as_ref().and_then(|robot| robot.source_revision.clone()).ok_or_else(|| {
+    let mut landed = landings.landed_of(None, name);
+    let tip = read.table.tip_of(name).map(str::to_owned);
+    // a branch that left the table: its remote branch tells the commit that landed
+    if let Some(landed) = landed.as_mut().filter(|landed| landed.head.is_none()) {
+      let remote = format!(
+        "refs/remotes/origin/{}",
+        to_final_branch_name(&context.prefix, name).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?
+      );
+      landed.head = resolve_commit(&context.git, &context.repository, &remote)?;
+    }
+    let source = landed.as_ref().and_then(|landed| landed.head.clone()).or_else(|| tip.clone()).ok_or_else(|| {
         CliError::new(
           ErrorCode::NoShownReview,
-          format!("No merged Safe Push landed {name}: a review after landing is of a branch a Safe Push landed; a branch not in master yet is reviewed in its pull request (`{} request-review {}`)", context.bd, shell_word(name)),
+          format!("Nothing landed {name}, and the table has no such branch: a review after landing is of a branch the table has or one that landed; a branch not in master yet is reviewed in its pull request (`{} request-review {}`)", context.bd, shell_word(name)),
         )
       })?;
     let reviewers = if asked_logins.is_empty() {
@@ -484,8 +513,26 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
       assign_self: true,
       target: read.target.clone(),
     });
-    (create_plan(name, &source, &reviewers), None, true)
+    let open = read.pull_requests.get(name).is_some_and(|pull_request| pull_request.state == PullRequestState::Open);
+    let mark = MarkFacts {
+      branch: name,
+      reviewers: &reviewers,
+      review: None,
+      landed: landed.as_ref(),
+      tip: tip.as_deref(),
+      decision: read.mark.as_ref().map(|(blockers, waits)| MarkDecision {
+        blockers,
+        waits,
+        pull_request_open: open,
+      }),
+    };
+    let plan = mark_plan(&mark).map_err(CliError::from)?;
+    if let Some(refusal) = shown_refusal(&plan, name) {
+      return Err(CliError::from(refusal));
+    }
+    (plan, None, true)
   };
+  let marked = plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::CreateShownReview { draft: true, .. }));
   let asked: Vec<String> = plan
     .effects
     .iter()
@@ -530,6 +577,7 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
     groups_without_reviewer: Vec::new(),
     shown: Some(ShownOpened {
       state,
+      marked,
       head,
       base,
       landed,

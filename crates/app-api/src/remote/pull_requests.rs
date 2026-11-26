@@ -7,9 +7,12 @@ use crate::context::AppContext;
 use crate::operation::run_blocking;
 use crate::transport::Call;
 use codeowners::client::CodeOwnersError;
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::code_owners::{GetShowReviewersParams, ShowReviewers};
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{GitHubUser, NewPullRequest};
+use operations::shown::ShownLandings;
 use remote_facts::pull_request_create::{
   GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request as read_new_pull_request, read_viewer_login, search_github_users as search_users,
 };
@@ -59,10 +62,13 @@ async fn with_viewer(ctx: &AppContext, key: &SessionKey, mut pull_request: NewPu
 /// Whom the review after landing of `params.branch_name` asks by default (`remote_facts::show_reviewers`, as `brd
 /// safe-push --request-review` without `--reviewer`): the owner groups of what the branch changes against the baseline
 /// of the session, by the `OWNERSHIP` files there, then one available member of each from the `CodeOwners` service,
-/// never the user of the GitHub token. No lookup where no `OWNERSHIP` file names an owner of what it changes
+/// never the user of the GitHub token. Of a branch the table lacks, one that landed (the Landed island), what it changed
+/// is up to the commit that landed it (`operations::shown::ShownLandings::landed_of`). No lookup where no `OWNERSHIP` file
+/// names an owner of what it changes
 ///
 /// # Errors
-/// The session is not open or its table lacks the branch, no Space token, a failure of git, of the service or of GitHub
+/// The session is not open, its table lacks the branch and nothing tells what landed it, no Space token, a failure of
+/// git, of the service or of GitHub
 pub async fn get_show_reviewers(ctx: &AppContext, _call: &Call, key: SessionKey, params: GetShowReviewersParams) -> Result<ShowReviewers, ApiError> {
   let branch = params.branch_name;
   let read = {
@@ -71,12 +77,31 @@ pub async fn get_show_reviewers(ctx: &AppContext, _call: &Call, key: SessionKey,
       .sessions
       .read(&key, move |state, facts| {
         let table = facts.table_facts(state)?;
-        Some((table.table.tip_of(&branch)?.to_owned(), state.header().baseline_branch.clone()))
+        let baseline = state.header().baseline_branch.clone();
+        if let Some(tip) = table.table.tip_of(&branch) {
+          return Some((tip.to_owned(), baseline));
+        }
+        // a branch that left the table: up to what landed it
+        let target = baseline_on_remote(&baseline).to_owned();
+        let robots: Vec<&PatronusRobot> = facts.robots.view().robots.values().collect();
+        let landings = ShownLandings {
+          table: None,
+          landed: facts.shown_landed(),
+          pull_requests: &facts.pull_requests.view().pull_requests,
+          target: &target,
+          robots: &robots,
+        };
+        Some((landings.landed_of(None, &branch)?.head?, baseline))
       })
       .await
       .flatten()
   };
-  let (tip, baseline) = read.ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, format!("The table of the repository has no built branch {branch}")))?;
+  let (tip, baseline) = read.ok_or_else(|| {
+    ApiError::new(
+      ErrorCode::InvalidArguments,
+      format!("The table of the repository has no built branch {branch}, and nothing tells what landed it"),
+    )
+  })?;
   let (git, path) = (ctx.git.clone(), key.worktree.clone());
   let target_ref = format!("refs/remotes/{baseline}");
   let groups = run_blocking(move || owner_groups(&git, &path, &target_ref, &tip)).await?;

@@ -446,6 +446,11 @@ impl World {
           .chain
           .iter()
           .map(|(name, remote, landed_whole, held)| LandsBranch {
+            tip: Some(match *name {
+              "auth" => "auth-tip",
+              "login" => "login-tip",
+              _ => "tip",
+            }),
             name,
             landed_whole: *landed_whole,
             in_baseline: false,
@@ -1263,7 +1268,7 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
           },
           parked: None,
           landed: None,
-          members: vec![("auth", false), ("login", false)],
+          members: vec![("auth", false, Some("auth-tip")), ("login", false, Some("login-tip"))],
           remote: Some(remote),
           replaces: held_by.map(|robot| robot.id.as_str()),
           held_by,
@@ -1378,17 +1383,21 @@ fn a_start_whose_copy_holds_a_generated_file_the_words_merged_confirms_first() {
   );
 }
 
+/// A Safe Push of login with a review after landing that asks `reviewers`
+fn show(reviewers: &[&str]) -> Land {
+  Land {
+    request_review: Some(domain_types::landing::ShowRequest {
+      reviewers: reviewers.iter().map(|login| (*login).to_owned()).collect(),
+    }),
+    ..land(SAFE_PUSH)
+  }
+}
+
 /// A Safe Push with a review after landing (show): a lone branch pushes, pushes the branches of its shown review at its
 /// tip, opens the draft, then starts through the API; what lands more than the branch, its open pull request, approvals
 /// the change needs and nobody to ask refuse it; a Dry Run opens none
 #[test]
 fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_lands_only_the_branch() {
-  let show = |reviewers: &[&str]| Land {
-    request_review: Some(domain_types::landing::ShowRequest {
-      reviewers: reviewers.iter().map(|login| (*login).to_owned()).collect(),
-    }),
-    ..land(SAFE_PUSH)
-  };
   let lone = || World {
     chain: vec![("login", Some(UNPUSHED), false, false)],
     ..world()
@@ -1429,12 +1438,34 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
       lands: vec!["auth".to_owned(), "login".to_owned()]
     }]
   );
-  // its open pull request holds its review before landing
+  // with its open pull request (its review before landing is there) it starts from its comment, the review after
+  // landing follows; refused as any start from it is, a draft
   let open = World {
     pull_requests: listed(&[("login", pull_request("login", 7))]),
     ..lone()
   };
-  assert_eq!(codes(&open.decide(&show(&["alice"]))), ["showWithPullRequest"]);
+  let decision = open.decide(&show(&["alice"]));
+  assert_eq!(codes(&decision), Vec::<String>::new());
+  assert_eq!(
+    decision
+      .effects
+      .iter()
+      .filter(|effect| matches!(effect, PlannedEffect::PushReview { .. } | PlannedEffect::CreateShownReview { .. }))
+      .count(),
+    2
+  );
+  assert_eq!(decision.start_route(), Some(&StartRoute::Comment { number: 7 }));
+  let draft = World {
+    pull_requests: listed(&[(
+      "login",
+      PullRequest {
+        is_draft: true,
+        ..pull_request("login", 7)
+      },
+    )]),
+    ..lone()
+  };
+  assert_eq!(codes(&draft.decide(&show(&["alice"]))), ["draft"]);
   // the code owners must approve it before it lands: ask, not show
   let missing = World {
     readiness: Some(readiness(missing_approvals("Air", None))),
@@ -1456,7 +1487,8 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
           },
           reviewers: vec!["alice".to_owned()],
           landed: Vec::new(),
-          state: domain_types::pull_request::ShownState::Draft,
+          state: domain_types::pull_request::ShownState::Draft { landing: false },
+          created_at: 0,
           base_missing: false,
         },
       )]
@@ -1467,4 +1499,77 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
   };
   assert_eq!(shown(false).decide(&show(&["alice"])).blockers, [Reason::ShowReviewOpen { number: 12 }]);
   assert_eq!(codes(&shown(true).decide(&show(&["alice"]))), Vec::<String>::new());
+}
+
+/// A branch marked for a review after landing ahead of time (a draft of `branch` recording `reviewers`)
+fn marked(branch: &str, reviewers: &[&str]) -> (String, domain_types::pull_request::ShownReview) {
+  (
+    branch.to_owned(),
+    domain_types::pull_request::ShownReview {
+      pull_request: PullRequest {
+        is_draft: true,
+        ..pull_request(branch, 12)
+      },
+      reviewers: reviewers.iter().map(|login| (*login).to_owned()).collect(),
+      landed: Vec::new(),
+      state: domain_types::pull_request::ShownState::Draft { landing: false },
+      created_at: 0,
+      base_missing: false,
+    },
+  )
+}
+
+/// Every Safe Push that lands a branch marked for a review after landing moves the head of that review to the commit the
+/// robot lands, of the branch itself, of one it is built on, of a whole stack; a Dry Run moves none. A Safe Push and
+/// Request Review… of a branch marked with other reviewers records them
+#[test]
+fn a_safe_push_that_lands_a_marked_branch_moves_the_head_of_its_review_to_what_it_lands() {
+  let push_reviews = |decision: &LandDecision| -> Vec<(String, String)> {
+    decision
+      .effects
+      .iter()
+      .filter_map(|effect| match effect {
+        PlannedEffect::PushReview { branch, tip } => Some((branch.clone(), tip.clone())),
+        _ => None,
+      })
+      .collect()
+  };
+  // login is built on auth, which is marked: the Safe Push of login lands auth too
+  let stacked = World {
+    pull_requests: PullRequestsView {
+      shown_reviews: [marked("auth", &["alice"])].into(),
+      ..listed(&[])
+    },
+    ..world()
+  };
+  let decision = stacked.decide(&land(SAFE_PUSH));
+  assert_eq!(codes(&decision), Vec::<String>::new());
+  assert_eq!(push_reviews(&decision), [("auth".to_owned(), "auth-tip".to_owned())]);
+  // before the start
+  let start = decision.effects.iter().position(|effect| matches!(effect, PlannedEffect::StartRobot { .. }));
+  let push = decision.effects.iter().position(|effect| matches!(effect, PlannedEffect::PushReview { .. }));
+  assert!(push < start, "{:?}", decision.effects);
+  assert_eq!(push_reviews(&stacked.decide(&land(DRY_RUN))), []);
+
+  // its own Safe Push and Request Review… with others than the mark records: the draft is taken, its record written
+  let lone = World {
+    chain: vec![("login", Some(UNPUSHED), false, false)],
+    pull_requests: PullRequestsView {
+      shown_reviews: [marked("login", &["alice"])].into(),
+      ..listed(&[])
+    },
+    ..world()
+  };
+  let recorded = |decision: &LandDecision| {
+    decision.effects.iter().find_map(|effect| match effect {
+      PlannedEffect::RecordShown { number, reviewers, .. } => Some((*number, reviewers.clone())),
+      _ => None,
+    })
+  };
+  let decision = lone.decide(&show(&["bob"]));
+  assert_eq!(push_reviews(&decision), [("login".to_owned(), "login-tip".to_owned())]);
+  assert_eq!(recorded(&decision), Some((12, vec!["bob".to_owned()])));
+  assert_eq!(recorded(&lone.decide(&show(&["Alice"]))), None);
+  // its plain Safe Push moves the head of its mark
+  assert_eq!(push_reviews(&lone.decide(&land(SAFE_PUSH))), [("login".to_owned(), "login-tip".to_owned())]);
 }

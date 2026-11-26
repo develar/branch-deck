@@ -304,12 +304,30 @@ Its life, one robot, no gate:
    draft between them (a Space origin: after the mirror copied them), then starts the robot through the API. A draft
    asks nobody: Your Turn lists `draft:false` only. A start that failed leaves the draft, which the next start with
    `--request-review` takes (the creation finds the open pull request of its head), and `brd close-review
-   --allow-unapproved` closes. Refused: a branch with an open pull request (ask, not show), what lands more than the
-   branch (a fix of a parent would land outside the review), a whole stack, a repository without Patronus, a change
-   Patronus requires the code owners' approval of (`approvals_required`: ask), nobody to ask.
-2. Once the robot merged (`NewsEvent::ShownReviewLanded`, `brd request-review <branch> --after-landing`), the review
-   opens: its branches move to the commit the robot landed (a restart may have taken a newer one) and its fork point,
-   each leased on what the remote has, it is marked ready for review, and the reviewers its body records are asked.
+   --allow-unapproved` closes. A branch with an open pull request starts from its comment: an AI or a human reviewed it
+   there before landing, and the review after landing follows (a draft or another base refuses the start as any start
+   from the comment). Refused: what lands more than the branch (a fix of a parent would land outside the review), a
+   whole stack, a repository without Patronus, a change Patronus requires the code owners' approval of
+   (`approvals_required`: ask), nobody to ask.
+   **A mark ahead of time** (Request Review After Landing…, `brd request-review <branch> --after-landing` before it
+   landed, `Intent::MarkShownReview`) opens the draft without a start, so a branch whose landing comes later (a
+   safe-merge from its pull request, a Safe Push of a child or of the whole stack) is not lost for the review after it:
+   its branches at the tip of the branch and its fork point, its body recording the reviewers. It is refused as the
+   start with the review is, but for what refuses the robot, which starts later, and for the approvals first while its
+   pull request is open (they come there before the landing). Every Safe Push that lands a marked branch (its own, a
+   child's, the whole stack's) pushes the head of its review to the commit it lands before the start; its Safe Push and
+   Request Review… with other reviewers records them; Cancel Review After Landing… closes the draft with its branches.
+2. Once something landed the branch since the draft opened (`NewsEvent::ShownReviewLanded`, `brd request-review
+   <branch> --after-landing`; `domain_policy::shown::landed_head`), the review opens: its branches move to what landed
+   and its fork point, each leased on what the remote has, it is marked ready for review, and the reviewers its body
+   records are asked. What landed it is, in this order: a merged Safe Push of the branch (also one someone else
+   started from its pull request: the robots of a branch with a draft are read whatever the baseline has of it), the
+   commit it took (a restart may have taken a newer one); the pull request of the branch merged into the target, once
+   the baseline has the branch whole, its head; the baseline that has the branch whole by content, the tip of the branch
+   (its virtual branch, else its remote branch). Each counts only if not older than the draft (`createdAt`): a robot or a
+   pull request of an earlier branch of the name opens nothing. The merged pull request of the branch is named in its
+   body ("Reviewed before landing in #7"), so what was said there before landing stays in reach. A branch that landed
+   without one gets it now, ready, on what landed (the row of a landed branch, `brd request-review --after-landing`).
 3. The author's move: changes requested by a reviewer it asked are the "Returned to you" line of Your Turn, also of a
    branch that left the table; the row of the branch marks the review (`RowFact::Shown`) beside its landing, never in
    its place.

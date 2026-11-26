@@ -2670,11 +2670,31 @@ fn assert_after_sync(context: &RepoContext, synced: &[(String, u32)], more: &[(&
   assert_processes(context, &all.into_iter().collect::<Vec<_>>());
 }
 
+/// The mark of a review after landing ahead of the landing (`brd request-review --after-landing` before it, its reviewer
+/// named), after a warm sync: the code-owner review of the branch it is refused by (its commits, `log`, and the files
+/// they change, `diff-tree`, then Patronus over HTTP), the push of its head and base (one `ls-remote`, one `merge-base`
+/// of the fork point, one atomic push), the draft over HTTP
+#[test]
+fn a_mark_of_a_review_after_landing() {
+  let (space, _, environment) = crate::remote_fixture_test::shown_space();
+  space.publish_target();
+  let synced = warm_sync(&environment);
+  let mark = space_context(&environment);
+  let args = RequestReviewArgs {
+    branch: "auth".to_owned(),
+    after_landing: true,
+    reviewers: vec!["alice".to_owned()],
+    ..RequestReviewArgs::default()
+  };
+  let output = request_review(&mark, &args, &environment).unwrap();
+  assert!(output.shown.as_ref().is_some_and(|shown| shown.marked), "{output:?}");
+  assert_after_sync(&mark, &synced, &[("diff-tree", 1), ("log", 1), ("ls-remote", 1), ("merge-base", 1), ("push", 1)]);
+}
+
 /// A review after landing through `brd`, each command on a counting executor of its own (`shown_space`, its reviewer
 /// named): the start is the Safe Push start of the branch that also pushes the head and the base of the review (one
 /// `ls-remote`, one `merge-base` of the fork point, one atomic push) before the start through the API. After a warm
-/// sync each: the open after the merge pushes nothing more when the review is where the robot landed (its `ls-remote`
-/// and `merge-base`); the extend by a fix that landed (`brd request-review` without a flag: its read of the code-owner
+/// sync each: the open after the merge runs no git when the head of the review is what the robot landed; the extend by a fix that landed (`brd request-review` without a flag: its read of the code-owner
 /// review first, `log`, finds no pull request but the shown one) reads the head the remote has (`ls-remote`), the
 /// commits it needs (`cat-file`) and `commit.gpgsign` (`config`), replays the fix (`replay`) and pushes it; the close
 /// reads the branches the remote has (`ls-remote`) and deletes them in one push. The GitHub and Patronus reads are HTTP
@@ -2720,7 +2740,7 @@ fn a_review_after_landing() {
     ..RequestReviewArgs::default()
   };
   request_review(&open, &args, &environment).unwrap();
-  assert_after_sync(&open, &synced, &[("ls-remote", 1), ("merge-base", 1)]);
+  assert_after_sync(&open, &synced, &[]);
 
   // a fix landed: what its robot took is on the target as the repository fetched it, the target has a copy of it
   space.land_on_target("auth.txt", "auth\n", "Add auth");

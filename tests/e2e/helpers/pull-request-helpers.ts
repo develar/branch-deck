@@ -40,9 +40,10 @@ export type GitHubFixture = PullRequestsFixture & {
   missingBranches?: string[]
   /**
    * The reviews after landing of the user beside the pull requests of the branches (heads under `user-name/review/`),
-   * each with its body, whose records the listing reads (`<!-- branch-deck show reviewers: … -->`)
+   * each with its body, whose records the listing reads (`<!-- branch-deck show reviewers: … -->`), opened at
+   * `createdAt` (Unix seconds; 0 by default: what landed its branch any time opens it)
    */
-  shown?: { pullRequest: PullRequest; body: string }[]
+  shown?: { pullRequest: PullRequest; body: string; createdAt?: number }[]
 }
 
 /** A request that reached the fake GitHub: method, path and JSON body (null for none) */

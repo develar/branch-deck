@@ -2,7 +2,16 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ShowReviewersState } from "@/hooks/useShowReviewers"
 import type { PullRequest, ShownReview, ShownState } from "@/lib/bindings"
-import { describeCloseShownReview, describeShowCandidates, formatShownRequestedTitle } from "@/presenters/shown"
+import {
+  describeCancelShownReview,
+  describeCloseShownReview,
+  describeMarkedLanding,
+  describeMarkShownReview,
+  describeShowCandidates,
+  formatShownCanceledTitle,
+  formatShownMarkedTitle,
+  formatShownRequestedTitle,
+} from "@/presenters/shown"
 
 function review(state: ShownState): ShownReview {
   return { pullRequest: { number: 12, title: "Add the token", isDraft: state.kind === "draft" } as PullRequest, reviewers: ["alice"], state }
@@ -37,7 +46,7 @@ describe("the words of a review after landing", () => {
         review({ kind: "inReview", waiting: ["alice"] }),
         review({ kind: "changesRequested", by: ["alice"] }),
         review({ kind: "extending", robot: "r2" }),
-        review({ kind: "draft" }),
+        review({ kind: "draft", landing: true }),
       ].map(it => describeCloseShownReview(it, "auth").description),
     ).toEqual([
       `alice approved #12. ${closes}`,
@@ -46,7 +55,29 @@ describe("the words of a review after landing", () => {
       `A fix of auth is still landing and is not in #12 yet; closing now leaves it unreviewed. ${closes}`,
       `#12 is a draft that asked nobody yet; closing now ends it without a review. ${closes}`,
     ])
-    expect(describeCloseShownReview(review({ kind: "draft" }), "auth").title).toBe("Close Review #12?")
+    expect(describeCloseShownReview(review({ kind: "draft", landing: true }), "auth").title).toBe("Close Review #12?")
+  })
+
+  it("say what a mark ahead of the landing opens and whom, its draft picked again, its cancel and the Safe Push of it", () => {
+    const marked = review({ kind: "draft", landing: false })
+    expect([describeMarkShownReview("auth", undefined), describeMarkShownReview("auth", marked)]).toEqual([
+      {
+        title: "Request review after landing of auth",
+        description:
+          "A draft pull request opens now and asks nobody. Once auth lands, by its Safe Push, a Safe Push that lands it with more, or a safe-merge from its pull request, it opens on what landed and asks these reviewers.",
+      },
+      { title: "Request review after landing on #12", description: "Once auth lands, #12 opens and asks the reviewers you pick here; nobody is asked before." },
+    ])
+    expect(formatShownMarkedTitle("auth", ["alice", "bob"])).toEqual({
+      title: "Review after landing of auth requested",
+      description: "It opens once auth lands and asks alice and bob.",
+    })
+    expect(describeCancelShownReview(marked, "auth")).toEqual({
+      title: "Cancel Review After Landing #12?",
+      description: "#12 closes on GitHub with a comment and its branches are deleted; once auth lands, nothing opens and nobody is asked.",
+    })
+    expect(formatShownCanceledTitle(12, "auth")).toBe("Canceled review after landing #12 of auth")
+    expect(describeMarkedLanding(marked)).toBe("#12 opens once it merges, asking alice.")
   })
 
   it("toast a request as asked, of a draft as asked once its Safe Push merged", () => {

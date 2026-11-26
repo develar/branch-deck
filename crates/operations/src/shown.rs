@@ -2,13 +2,18 @@
 //! openspec/specs/branch/shown-reviews/spec.md). A Safe Push with a review after landing opens the draft before its
 //! robot starts (`PlannedEffect::PushReview`, `CreateShownReview` of `land_execute`); then:
 //!
-//! - `Intent::OpenShownReview`, once the robot merged (the news `ShownReviewLanded`, `brd request-review
-//!   --after-landing`): the branches of the review go to the commit the robot landed and its fork point (one atomic push,
-//!   leased on what the remote has; none when they are there), the draft is marked ready for review, and the reviewers
-//!   the record of its body names are asked. A review ready already only asks again those it asked who have not
-//!   approved and are asked no more. A draft whose branch landed with no robot of it listed (the baseline has it by
-//!   content, `domain_policy::shown::landed_by_content`) opens on the head it has. A reviewer the user adds is asked and
-//!   recorded in its body;
+//! - `Intent::MarkShownReview` (Request Review After Landing…, `brd request-review --after-landing` before the branch
+//!   landed): the review after landing marked ahead of time, refused as a Safe Push with it is without what refuses its
+//!   robot (`domain_policy::shown::mark_refusals`): its branches pushed at the tip of the branch and its fork point, its
+//!   draft opened asking nobody, its body recording the reviewers its open asks; of a draft, only that record; of a
+//!   branch that landed without one, the review opened now on what landed (`create_plan`);
+//! - `Intent::OpenShownReview`, once something landed the branch since the draft opened (the news `ShownReviewLanded`,
+//!   `brd request-review --after-landing`; `domain_policy::shown::landed_head`: a merged Safe Push of the branch, its
+//!   merged pull request, the baseline by content): the branches of the review go to what landed and its fork point (one
+//!   atomic push, leased on what the remote has; none when they are there), the draft is marked ready for review, and the
+//!   reviewers the record of its body names are asked; its body says where the branch was reviewed before it landed (its
+//!   merged pull request). A review ready already only asks again those it asked who have not approved and are asked no
+//!   more. A reviewer the user adds is asked and recorded in its body;
 //! - `Intent::ExtendShownReview`, once a fix of the branch landed after the review opened (the news
 //!   `ShownReviewFixLanded`, `brd request-review`): the commits of the fixes are replayed onto its head and pushed
 //!   leased on the head the remote has (`sync_core::review_head::extend_review`); a fix whose commits took the files
@@ -32,30 +37,36 @@
 
 use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;
-use crate::land_execute::Accepted;
+use crate::land_execute::{Accepted, refusal_code};
 use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
+use crate::witness::plan_changed;
 use domain_policy::shown::{
-  close_comment, close_refusal, closed_remains, fix_conflict_comment, fix_taken_comment, landing_robot, opens_by_content, pending_fixes, review_state, reviewers_record,
+  ContentLanding, LandedBy, LandedHead, close_comment, close_refusal, closed_remains, fix_conflict_comment, fix_taken_comment, landed_head, mark_land, mark_refusals,
+  pending_fixes, review_state, reviewers_record, shown_review,
 };
-use domain_types::branch_names::{baseline_on_remote, review_branch_names};
+use domain_types::branch_names::{baseline_on_remote, review_branch_names, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{LandedFix, PlannedEffect};
+use domain_types::landing::{FactWait, LandFact, LandedFix, PlannedEffect};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Plan, PullRequestField, Resource};
 use domain_types::patronus::PatronusRobot;
-use domain_types::pull_request::{ClosedShownReview, CreatedPullRequest, RequestedReviewers, Reviewer, ReviewerState, ShownReview};
+use domain_types::pull_request::{ClosedShownReview, CreatedPullRequest, PullRequest, PullRequestState, RequestedReviewers, Reviewer, ReviewerState, ShownReview};
 use domain_types::reason::Reason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::commit_signing;
 use git_ops::fix_replay::FixReplay;
 use github::service::GitHubService;
-use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch_at};
+use remote_facts::pull_request_create::{CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, create_pull_request, new_pull_request, wait_for_branch_at};
 use remote_facts::pull_request_writes::{close_pull_request, comment_once, mark_ready_for_review, record_shown_review, request_pull_request_reviewers};
 use remote_facts::pull_requests::{GitHubWriteError, failure_message};
 use remote_facts::service_sources::ServiceHost;
+use repository_model::branch_table::BranchTable;
+use repository_model::derive::{land_decision, with_land_sources};
 use repository_model::pull_request_facts::PullRequestWrite;
+use repository_model::refusal_words::start_refusal_text;
 use repository_model::session::{SessionKey, Sessions};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
@@ -93,18 +104,25 @@ fn with_added(asked: &[String], added: &[String]) -> Vec<String> {
   all
 }
 
-/// The plan of the open of the shown review `review` of `branch` (module docs) over `robot`, the merged Safe Push that
-/// landed it (`landing_robot`), or the baseline that has it by content (`landed`) while no robot of it is listed: a draft
-/// pushes its branches to the commit the robot took (by content: keeps the head it has), is marked ready and asks its
-/// reviewers; one ready asks again those it asked who neither approved nor are asked now. `added`, reviewers the user
-/// names, are asked too and recorded in its body; of a draft whose branch landed by neither yet they are only recorded,
-/// its open asks them with the others. Of a review whose base the remote lacks (reopened after its branches were
-/// deleted: GitHub restores only the head) the branches are pushed again first, the base to the fork point of its head
+/// The plan of the open of the shown review `review` of `branch` (module docs) over `landed`, what landed the branch since
+/// it opened (`domain_policy::shown::landed_head`; `robots`, the robots it may name): a draft pushes its branches to the
+/// head that names (none: keeps the head it has), is marked ready and asks its reviewers, its body naming the merged pull
+/// request where the branch was reviewed before; one ready asks again those it asked who neither approved nor are asked
+/// now. `added`, reviewers the user names, are asked too and recorded in its body; of a draft whose branch nothing landed
+/// yet they are only recorded, its open asks them with the others. Of a review whose base the remote lacks (reopened
+/// after its branches were deleted: GitHub restores only the head) the branches are pushed again first, the base to the
+/// fork point of its head
 ///
 /// # Errors
-/// `no_shown_review` for a draft whose branch landed by neither yet and that is given nobody new, or one that records no
+/// `no_shown_review` for a draft whose branch nothing landed yet and that is given nobody new, or one that records no
 /// reviewer and is given none
-pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobot>, landed: bool, added: &[String]) -> Result<Plan, ApiError> {
+pub fn open_plan<'a>(
+  review: &ShownReview,
+  branch: &str,
+  landed: Option<&LandedHead>,
+  robots: impl IntoIterator<Item = &'a PatronusRobot>,
+  added: &[String],
+) -> Result<Plan, ApiError> {
   let pull_request = &review.pull_request;
   let number = pull_request.number;
   let intent = Intent::OpenShownReview {
@@ -118,18 +136,18 @@ pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobo
       format!("The shown review #{number} of {branch} records no reviewer to ask: ask them on its page"),
     ));
   }
-  let source = robot.and_then(|robot| robot.source_revision.clone());
-  let mut effects = if pull_request.is_draft && source.is_none() && !landed && reviewers.len() > review.reviewers.len() {
+  let head = landed.and_then(|landed| landed.head.clone()).filter(|head| *head != pull_request.head_ref_oid);
+  let mut effects = if pull_request.is_draft && landed.is_none() && reviewers.len() > review.reviewers.len() {
     // not landed yet: the record names whom its open asks
     Vec::new()
   } else if pull_request.is_draft {
-    if source.is_none() && !landed {
+    if landed.is_none() {
       return Err(ApiError::new(
         ErrorCode::NoShownReview,
-        format!("No merged Safe Push landed {branch} yet: its shown review #{number} opens once one did"),
+        format!("Nothing landed {branch} since its shown review #{number} opened: it opens once a Safe Push or a merge of {branch} lands it"),
       ));
     }
-    let push = source.map(|tip| PlannedEffect::PushReview { branch: branch.to_owned(), tip });
+    let push = head.map(|tip| PlannedEffect::PushReview { branch: branch.to_owned(), tip });
     push
       .into_iter()
       .chain([
@@ -169,14 +187,22 @@ pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobo
       },
     );
   }
-  if reviewers.len() > review.reviewers.len() {
+  // at its open: where the branch was reviewed before it landed
+  let reviewed_in = landed.filter(|_| pull_request.is_draft).and_then(|landed| landed.reviewed_in);
+  if reviewers.len() > review.reviewers.len() || reviewed_in.is_some() {
     effects.push(PlannedEffect::RecordShown {
       number,
       reviewers,
       landed: review.landed.clone(),
+      reviewed_in,
     });
   }
-  Ok(write_plan(intent, effects, Vec::new(), Some(number), [pull_request], robot))
+  let robot = landed.and_then(|landed| match &landed.by {
+    LandedBy::Robot { robot } => Some(robot.as_str()),
+    LandedBy::PullRequest { .. } | LandedBy::Content => None,
+  });
+  let robots: Vec<&PatronusRobot> = robots.into_iter().filter(|it| Some(it.id.as_str()) == robot).collect();
+  Ok(write_plan(intent, effects, Vec::new(), Some(number), [pull_request], robots))
 }
 
 /// The plan of the extend of the open shown review `review` of `branch` by `fixes`, the merged Safe Pushes of the branch
@@ -222,15 +248,16 @@ pub fn extend_plan(review: &ShownReview, branch: &str, fixes: &[&PatronusRobot],
     number,
     reviewers,
     landed: recorded,
+    reviewed_in: None,
   };
   let effects = std::iter::once(extend).chain(ask).chain([record]).collect();
   let intent = Intent::ExtendShownReview { branch: branch.to_owned() };
   Ok(write_plan(intent, effects, Vec::new(), Some(number), [pull_request], fixes.iter().copied()))
 }
 
-/// The plan of the shown review of `branch`, which a Safe Push at `source` landed without one (`brd request-review
-/// --after-landing`): its branches pushed to `source` and its fork point, its pull request opened ready with `reviewers`
-/// asked
+/// The plan of the shown review of `branch`, which landed at `source` without one (`brd request-review --after-landing`,
+/// Request Review After Landing… of a branch that landed): its branches pushed to `source` and its fork point, its pull
+/// request opened ready with `reviewers` asked
 #[must_use]
 pub fn create_plan(branch: &str, source: &str, reviewers: &[String]) -> Plan {
   let effects = vec![
@@ -244,11 +271,113 @@ pub fn create_plan(branch: &str, source: &str, reviewers: &[String]) -> Plan {
       draft: false,
     },
   ];
-  let intent = Intent::OpenShownReview {
+  let intent = Intent::MarkShownReview {
     branch: branch.to_owned(),
-    reviewers: Vec::new(),
+    reviewers: reviewers.to_vec(),
   };
   write_plan(intent, effects, Vec::new(), None, [], [])
+}
+
+/// What the mark of the review after landing of a branch ahead of time is planned on (`mark_plan`)
+#[derive(Clone, Copy, Debug)]
+pub struct MarkFacts<'a> {
+  pub branch: &'a str,
+  /// Whom its open asks, as the user picked them
+  pub reviewers: &'a [String],
+  /// Its review after landing, open or a draft
+  pub review: Option<&'a ShownReview>,
+  /// What landed it, of a branch without a review (`domain_policy::shown::landed_head` with no review): the review opens
+  /// now on what landed
+  pub landed: Option<&'a LandedHead>,
+  /// The commit the branch is at; none until the sync built it
+  pub tip: Option<&'a str>,
+  /// The decision of the Safe Push with the review after landing of it (`domain_policy::shown::mark_land`); none of a
+  /// branch the table lacks
+  pub decision: Option<MarkDecision<'a>>,
+}
+
+/// What the decision of the Safe Push with the review after landing of a branch says of a mark of it (`mark_plan`)
+#[derive(Clone, Copy, Debug)]
+pub struct MarkDecision<'a> {
+  pub blockers: &'a [Reason],
+  pub waits: &'a [FactWait],
+  /// The pull request of the branch is open: the approvals the code owners give first come there
+  pub pull_request_open: bool,
+}
+
+/// The plan of the mark of the review after landing of `facts.branch` ahead of time (module docs): of a draft, its
+/// reviewers recorded as picked (nothing when they are); of an open review, refused (`show_review_open`); of a branch
+/// that landed, the review opened now on what landed (`create_plan`); else its branches pushed at the tip of the branch
+/// and its fork point and its draft opened, refused as a Safe Push with it is (`domain_policy::shown::mark_refusals`).
+/// Nobody to ask refuses it (`no_reviewer`)
+///
+/// # Errors
+/// `no_shown_review` for a branch the table lacks that nothing tells what landed it
+pub fn mark_plan(facts: &MarkFacts<'_>) -> Result<Plan, ApiError> {
+  let branch = facts.branch;
+  let intent = Intent::MarkShownReview {
+    branch: branch.to_owned(),
+    reviewers: facts.reviewers.to_vec(),
+  };
+  let nobody = facts.reviewers.is_empty().then(|| Reason::NoReviewer { groups: Vec::new() });
+  if let Some(review) = facts.review {
+    let pull_request = &review.pull_request;
+    let number = pull_request.number;
+    if !pull_request.is_draft {
+      return Ok(write_plan(intent, Vec::new(), vec![Reason::ShowReviewOpen { number }], Some(number), [pull_request], []));
+    }
+    let same = review.reviewers.len() == facts.reviewers.len() && review.reviewers.iter().all(|login| facts.reviewers.iter().any(|it| it.eq_ignore_ascii_case(login)));
+    let effects = if same || nobody.is_some() {
+      Vec::new()
+    } else {
+      vec![PlannedEffect::RecordShown {
+        number,
+        reviewers: facts.reviewers.to_vec(),
+        landed: review.landed.clone(),
+        reviewed_in: None,
+      }]
+    };
+    return Ok(write_plan(intent, effects, nobody.into_iter().collect(), Some(number), [pull_request], []));
+  }
+  if let Some(landed) = facts.landed {
+    let head = landed.head.as_deref().ok_or_else(|| {
+      ApiError::new(
+        ErrorCode::NoShownReview,
+        format!("Nothing tells the commit that landed {branch}: its review after landing opens from the row while the table has it"),
+      )
+    })?;
+    let mut plan = create_plan(branch, head, facts.reviewers);
+    if let Some(nobody) = nobody {
+      plan.blockers.push(nobody);
+    }
+    return Ok(plan);
+  }
+  let decision = facts.decision.ok_or_else(|| no_shown_review(branch))?;
+  let (mut blockers, mut waits) = mark_refusals(decision.blockers, decision.waits, decision.pull_request_open);
+  blockers.extend(nobody);
+  let effects = if let Some(tip) = facts.tip {
+    vec![
+      PlannedEffect::PushReview {
+        branch: branch.to_owned(),
+        tip: tip.to_owned(),
+      },
+      PlannedEffect::CreateShownReview {
+        branch: branch.to_owned(),
+        reviewers: facts.reviewers.to_vec(),
+        draft: true,
+      },
+    ]
+  } else {
+    // the sync did not build it yet
+    waits.push(FactWait {
+      fact: LandFact::Remote,
+      failed: None,
+    });
+    Vec::new()
+  };
+  let mut plan = write_plan(intent, effects, blockers, None, [], []);
+  plan.waits = waits;
+  Ok(plan)
 }
 
 /// The plan of the close of the shown review `review` of `branch`: its close with the comment that names who approved it
@@ -316,7 +445,7 @@ pub fn delete_closed_plan(closed: &ClosedShownReview, open: Option<&ShownReview>
 #[must_use]
 pub fn shown_request(prefix: &str, intent: &Intent, plan: Option<&Plan>) -> OperationRequest {
   let (branch, field) = match intent {
-    Intent::OpenShownReview { branch, .. } | Intent::ExtendShownReview { branch } => (branch.as_str(), PullRequestField::Reviewers),
+    Intent::OpenShownReview { branch, .. } | Intent::ExtendShownReview { branch } | Intent::MarkShownReview { branch, .. } => (branch.as_str(), PullRequestField::Reviewers),
     Intent::CloseShownReview { branch, .. } | Intent::DeleteClosedShownReview { branch, .. } => (branch.as_str(), PullRequestField::State),
     _ => ("", PullRequestField::State),
   };
@@ -548,7 +677,12 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
       run.taken = outcomes.taken;
       Ok(())
     }
-    PlannedEffect::RecordShown { number, reviewers, landed } => record_shown_review(github, path, repository, *number, reviewers, landed)
+    PlannedEffect::RecordShown {
+      number,
+      reviewers,
+      landed,
+      reviewed_in,
+    } => record_shown_review(github, path, repository, *number, reviewers, landed, *reviewed_in)
       .await
       .map(|_| ())
       .map_err(github_error(format!("Cannot record the reviewers and the fixes of pull request #{number}"))),
@@ -575,10 +709,17 @@ async fn blocking(work: impl FnOnce() -> anyhow::Result<()> + Send + 'static) ->
     .map_err(|error| ApiError::new(ErrorCode::PushRefused, format!("{error:#}")))
 }
 
-/// The refusal of a plan of a shown review by its first blocker, in the words of the engine
+/// The refusal of a plan of a shown review by its first blocker, in the words of the engine; of one that waits for a fact
+/// nobody answered yet, a changed plan
 #[must_use]
 pub fn shown_refusal(plan: &Plan, branch: &str) -> Option<ApiError> {
-  match plan.blockers.first()? {
+  let Some(blocker) = plan.blockers.first() else {
+    return (!plan.waits.is_empty()).then(|| plan_changed(&plan.intent, Some("it waits for facts nobody answered yet")));
+  };
+  match blocker {
+    reason @ (Reason::ShowLandsStack { .. } | Reason::ShowNeedsApprovals { .. } | Reason::ShowNeedsPatronus | Reason::NoReviewer { .. } | Reason::ShowReviewOpen { .. }) => Some(
+      ApiError::new(refusal_code(reason), format!("Nothing was marked: {}", start_refusal_text(reason, branch, &[]))),
+    ),
     Reason::ReviewNotApproved { number, waiting } if waiting.is_empty() => Some(ApiError::new(
       ErrorCode::ReviewNotApproved,
       format!("Nothing was closed: the shown review #{number} of {branch} asked nobody yet; --allow-unapproved closes it anyway, only when the user says so"),
@@ -594,23 +735,93 @@ pub fn shown_refusal(plan: &Plan, branch: &str) -> Option<ApiError> {
   }
 }
 
-/// The plan of `intent` (an open or a close of a shown review) in the open session of `key`, over its listing of the
-/// shown reviews and its robots; `None` for a session that is not open
+/// What tells what landed a branch of a review after landing (`landed_of`): the table of the last sync, the branches
+/// the baseline landed whole by content with when (while the robots are known), the pull requests of the branches, the
+/// target they go into, the robots
+#[derive(Clone, Copy)]
+pub struct ShownLandings<'a> {
+  pub table: Option<&'a BranchTable>,
+  pub landed: &'a BTreeMap<String, u32>,
+  pub pull_requests: &'a BTreeMap<String, PullRequest>,
+  pub target: &'a str,
+  pub robots: &'a [&'a PatronusRobot],
+}
+
+impl ShownLandings<'_> {
+  /// The tip of `branch`: its virtual branch as the table has it, else its remote branch
+  fn tip(&self, branch: &str) -> Option<&str> {
+    let table = self.table?;
+    table
+      .tip_of(branch)
+      .or_else(|| table.remote.branches.get(branch).and_then(|remote| remote.remote_tip.as_deref()))
+  }
+
+  /// What landed `branch` since its review `review` opened (`domain_policy::shown::landed_head`); with no review, of a
+  /// branch that landed: one the table has only once the baseline has it whole or a merged Safe Push took it as it is
+  /// (never a robot of an earlier branch of the name), one it lacks by whatever names it
+  #[must_use]
+  pub fn landed_of(&self, review: Option<&ShownReview>, branch: &str) -> Option<LandedHead> {
+    let tip = self.tip(branch);
+    let content = self.landed.get(branch).map(|at| ContentLanding { landed_at: *at, tip });
+    let in_table = self.table.is_some_and(|table| table.tip_of(branch).is_some());
+    if review.is_none() && in_table {
+      let took = self.robots.iter().any(|robot| {
+        robot.branch_name.as_deref() == Some(branch) && robot.source_revision.as_deref() == tip && landed_head(None, branch, [*robot], None, self.target, None).is_some()
+      });
+      if content.is_none() && !took {
+        return None;
+      }
+    }
+    landed_head(review, branch, self.robots.iter().copied(), self.pull_requests.get(branch), self.target, content)
+  }
+}
+
+/// The plan of `intent` (a mark, an open, an extend or a close of a shown review, a delete of the branches of a closed
+/// one) in the open session of `key`, over its listing of the shown reviews, its robots and its table; `None` for a
+/// session that is not open
 ///
 /// # Errors
-/// `no_shown_review`: the session lists no open shown review of the branch, or (an open) no merged Safe Push landed it
+/// `no_shown_review`: the session lists no open shown review of the branch, or (an open) nothing landed it
 pub async fn prepare_shown(sessions: &Sessions, key: &SessionKey, intent: &Intent) -> Result<Option<Plan>, ApiError> {
   let intent = intent.clone();
+  let prefix = key.prefix.clone();
   let read = sessions
     .read(key, move |state, facts| {
       let target = baseline_on_remote(&state.header().baseline_branch).to_owned();
-      let shown = &facts.pull_requests.view().shown_reviews;
+      let listed = facts.pull_requests.view();
+      let shown = &listed.shown_reviews;
+      let robots: Vec<&PatronusRobot> = facts.robots.view().robots.values().collect();
+      let landings = ShownLandings {
+        table: facts.table.value().map(AsRef::as_ref),
+        landed: facts.shown_landed(),
+        pull_requests: &listed.pull_requests,
+        target: &target,
+        robots: &robots,
+      };
       match &intent {
+        Intent::MarkShownReview { branch, reviewers } => {
+          let review = shown.get(branch);
+          let decision = with_land_sources(state, facts, &prefix, |sources| land_decision(sources, &mark_land(branch, reviewers))).flatten();
+          let open = listed.pull_requests.get(branch).is_some_and(|pull_request| pull_request.state == PullRequestState::Open);
+          let landed = review.is_none().then(|| landings.landed_of(None, branch)).flatten();
+          let facts = MarkFacts {
+            branch,
+            reviewers,
+            review,
+            landed: landed.as_ref(),
+            tip: landings.table.and_then(|table| table.tip_of(branch)),
+            decision: decision.as_ref().map(|(decision, _)| MarkDecision {
+              blockers: &decision.blockers,
+              waits: &decision.waits,
+              pull_request_open: open,
+            }),
+          };
+          mark_plan(&facts).map(Some)
+        }
         Intent::OpenShownReview { branch, reviewers } => {
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;
-          let robots = facts.robots.view().robots.values();
-          let landed = opens_by_content(robots.clone(), branch, facts.shown_landed());
-          open_plan(review, branch, landing_robot(robots, branch), landed, reviewers).map(Some)
+          let landed = landings.landed_of(Some(review), branch);
+          open_plan(review, branch, landed.as_ref(), robots.iter().copied(), reviewers).map(Some)
         }
         Intent::ExtendShownReview { branch } => {
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;
@@ -675,6 +886,12 @@ pub async fn execute_shown(registry: &Registry, key: &SessionKey, intent: Intent
     check_admitted(guard, &accepted, &plan)?;
     let (github, repository) = github_of(services, key).await?;
     let baseline = sessions.read(key, |state, _| state.header().baseline_branch.clone()).await.unwrap_or_default();
+    let creates = plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::CreateShownReview { .. }));
+    let text = if creates {
+      Some(shown_text(&services.git(), &key.worktree, &key.prefix, &branch, baseline_on_remote(&baseline)).await)
+    } else {
+      None
+    };
     let shown_services = ShownServices {
       git: services.git(),
       repository_path: key.worktree.clone(),
@@ -683,18 +900,23 @@ pub async fn execute_shown(registry: &Registry, key: &SessionKey, intent: Intent
       baseline,
       github,
       repository,
-      text: None,
+      text: text.clone(),
     };
     let done = run_shown(&shown_services, &plan).await;
     let all_done = done.records.iter().all(|record| record.status == EffectStatus::Done);
     let write = match &intent {
+      // marked, or opened on what landed: the review it created, until the listing tells it
+      Intent::MarkShownReview { .. } if all_done && done.created.is_some() => done.created.as_ref().map(|created| PullRequestWrite::Shown {
+        branch: branch.clone(),
+        review: Some(Box::new(created_review(created, &plan, text.as_ref()))),
+      }),
       // closed: no longer an open shown review
       Intent::CloseShownReview { .. } if all_done => Some(PullRequestWrite::Shown {
         branch: branch.clone(),
         review: None,
       }),
       // opened or extended: as the run left it, until the listing tells it
-      Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } if all_done => sessions
+      Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::MarkShownReview { .. } if all_done => sessions
         .read(key, {
           let branch = branch.clone();
           move |_, facts| facts.pull_requests.view().shown_reviews.get(&branch).cloned()
@@ -722,6 +944,47 @@ pub async fn execute_shown(registry: &Registry, key: &SessionKey, intent: Intent
     sessions.retell_shown(key, number).await;
   }
   answer
+}
+
+/// The text of a review after landing `branch` opens with (`CreateShownReview`): the description of its virtual branch
+/// (`brd describe`), else its commits against `target` (`remote_facts::pull_request_create::new_pull_request`), as a
+/// Safe Push with one opens it; of a branch that left the table, its name. Assigned to the user
+pub async fn shown_text(git: &GitCommandExecutor, worktree: &str, prefix: &str, branch: &str, target: &str) -> ShownText {
+  let read = if let Ok(head) = to_final_branch_name(prefix, branch) {
+    let params = GetNewPullRequestParams {
+      repository_path: worktree.to_owned(),
+      head,
+      base: target.to_owned(),
+      stack_ancestors: Vec::new(),
+    };
+    new_pull_request(git, None, "origin", &params).await.ok()
+  } else {
+    None
+  };
+  ShownText {
+    title: read.as_ref().map_or_else(|| branch.to_owned(), |text| text.title.clone()),
+    body: read.map_or_default(|text| text.body),
+    assign_self: true,
+    target: target.to_owned(),
+  }
+}
+
+/// The review after landing the run of `plan` created (`CreateShownReview`), as the listing will name it: its body as the
+/// run wrote it of `text`, when GitHub opened it
+fn created_review(created: &CreatedPullRequest, plan: &Plan, text: Option<&ShownText>) -> ShownReview {
+  let reviewers = plan
+    .effects
+    .iter()
+    .find_map(|effect| match effect {
+      PlannedEffect::CreateShownReview { reviewers, .. } => Some(reviewers.as_slice()),
+      _ => None,
+    })
+    .unwrap_or_default();
+  let body = text.map_or_else(|| reviewers_record(reviewers), |text| shown_body(&text.body, reviewers, &text.target));
+  ShownReview {
+    created_at: created.created_at,
+    ..shown_review(created.pull_request.clone(), &body)
+  }
 }
 
 /// `review` as the run `done` of `plan` left it: its head where the push or the extend took it, ready once marked, the

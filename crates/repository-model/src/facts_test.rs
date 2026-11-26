@@ -1248,6 +1248,32 @@ fn listed_shown(seq: u32, head: &str, state: domain_types::pull_request::Reviewe
   (at(seq, 0, u64::from(seq)), FactResult::PullRequests(result))
 }
 
+/// The listing of `listed_shown` with the review of auth a draft opened at `created_at`
+fn listed_draft(created_at: u32) -> (Observation, PullRequestsResult) {
+  let (observation, FactResult::PullRequests(mut listing)) = listed_shown(1, "tip", domain_types::pull_request::ReviewerState::Requested, false) else {
+    unreachable!()
+  };
+  let review = listing.shown_reviews.get_mut("auth").unwrap();
+  review.pull_request.is_draft = true;
+  review.state = domain_types::pull_request::ShownState::Draft { landing: false };
+  review.created_at = created_at;
+  (observation, listing)
+}
+
+/// auth landed whole by content, found at `landed_at`
+fn landed_auth(landed_at: u32) -> Vec<domain_types::landed::LandedBranch> {
+  vec![domain_types::landed::LandedBranch {
+    name: Some("auth".to_owned()),
+    commits: vec![domain_types::landed::LandedCommit {
+      id: "c1".to_owned(),
+      subject: "Add auth".to_owned(),
+      upstream: None,
+    }],
+    remaining: 0,
+    landed_at,
+  }]
+}
+
 fn shown_state(facts: &FactStore) -> domain_types::pull_request::ShownState {
   facts.pull_requests.view().shown_reviews["auth"].state.clone()
 }
@@ -1343,24 +1369,10 @@ fn a_fix_of_a_shown_review_is_waited_for_and_its_merge_is_told_once_and_again_af
 /// listing) opens: told once the robots are known
 #[test]
 fn a_draft_whose_branch_landed_by_content_opens_once_the_robots_are_known_and_none_of_it_is_listed() {
-  use domain_types::landed::{LandedBranch, LandedCommit};
   let mut state = TableState::with_prefix("user");
-  state.parts.sections.landed.landing = vec![LandedBranch {
-    name: Some("auth".to_owned()),
-    commits: vec![LandedCommit {
-      id: "c1".to_owned(),
-      subject: "Add auth".to_owned(),
-      upstream: None,
-    }],
-    remaining: 0,
-    landed_at: 1,
-  }];
+  state.parts.sections.landed.landing = landed_auth(1);
   let mut facts = FactStore::new();
-  let (observation, FactResult::PullRequests(mut listing)) = listed_shown(1, "tip", domain_types::pull_request::ReviewerState::Requested, false) else {
-    unreachable!()
-  };
-  listing.shown_reviews.get_mut("auth").unwrap().pull_request.is_draft = true;
-  listing.shown_reviews.get_mut("auth").unwrap().state = domain_types::pull_request::ShownState::Draft;
+  let (observation, listing) = listed_draft(0);
   facts.apply(observation, FactResult::PullRequests(listing));
   // the robots are not known yet: nothing
   facts.tell_shown_of(&state);
@@ -1381,7 +1393,55 @@ fn a_draft_whose_branch_landed_by_content_opens_once_the_robots_are_known_and_no
       number: 12
     }]
   );
-  assert_eq!(facts.shown_landed(), &std::collections::BTreeSet::from(["auth".to_owned()]));
+  assert_eq!(facts.shown_landed(), &BTreeMap::from([("auth".to_owned(), 1)]));
+}
+
+/// A review after landing marked ahead of time opens by what lands its branch since the mark, never by an older merged
+/// robot of the name (an earlier branch auth): a safe-merge someone started from its pull request, the robot not listed,
+/// opens it by the merged pull request once the baseline has the branch whole
+#[test]
+fn a_mark_opens_by_what_landed_its_branch_since_never_by_an_older_robot_of_the_name() {
+  let mut state = TableState::with_prefix("user");
+  state.parts.header.baseline_branch = "origin/master".to_owned();
+  let mut facts = FactStore::new();
+  let (observation, mut listing) = listed_draft(1_000);
+  facts.apply(observation, FactResult::PullRequests(listing.clone()));
+  // an old robot of auth merged before the mark
+  let old = PatronusRobot {
+    source_revision: Some("old".to_owned()),
+    finish_time: Some(500),
+    ..robot("old", Some("auth"), PatronusRobotStatus::Success, 400)
+  };
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![old]),
+    },
+  );
+  facts.tell_shown_of(&state);
+  assert_eq!(shown_news(&facts), [], "an older robot of the name opens nothing");
+  // its pull request merged into master since, by a safe-merge whose robot is not listed: once the baseline has it whole
+  listing.pull_requests.insert(
+    "auth".to_owned(),
+    PullRequest {
+      state: domain_types::pull_request::PullRequestState::Merged,
+      closed_at: Some(2_000),
+      ..pull_request("auth", 7)
+    },
+  );
+  facts.apply(at(3, 0, 3), FactResult::PullRequests(listing));
+  facts.tell_shown_of(&state);
+  assert_eq!(shown_news(&facts), [], "merged, the baseline has it not yet");
+  state.parts.sections.landed.landing = landed_auth(2_100);
+  facts.tell_shown_of(&state);
+  assert_eq!(
+    shown_news(&facts),
+    [NewsEvent::ShownReviewLanded {
+      branch: "auth".to_owned(),
+      number: 12
+    }]
+  );
 }
 
 /// The shown review #13 of auth closed on GitHub at `closed_at` (on the clock of `at`), the remote's branches of it

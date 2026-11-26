@@ -58,8 +58,23 @@ fn opened(space: &Space, environment: &Environment) -> String {
   tip
 }
 
+/// The draft of the review after landing of auth, the first pull request of `repository`: its head at the tip of auth,
+/// its base at the fork point on the target, nobody asked, its body recording alice, whom its open asks; the tip
+fn assert_draft_at_tip(space: &Space, repository: &FakeGitHubRepository) -> String {
+  let tip = space.local_tip(AUTH);
+  let fork = bd_cli::fixture_test::git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
+  assert_eq!((space.remote_tip(HEAD), space.remote_tip(BASE)), (tip.clone(), fork));
+  let state = repository.state();
+  let draft = &state.pulls[0];
+  assert!(draft.pull_request.is_draft);
+  assert_eq!((draft.pull_request.head_ref_name.as_str(), draft.pull_request.base_ref_name.as_str()), (HEAD, BASE));
+  assert_eq!(draft.pull_request.reviewers, []);
+  assert!(draft.body.contains("<!-- branch-deck show reviewers: alice -->"), "{}", draft.body);
+  tip
+}
+
 #[test_log::test]
-fn a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refuses_a_branch_with_a_pull_request() {
+fn a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_a_branch_with_a_pull_request_starts_from_its_comment() {
   let (space, repository, environment) = space();
   let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--request-review", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -75,9 +90,11 @@ fn a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refu
   // nothing went out
   assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip(HEAD)), (0, String::new()));
 
-  // a branch with an open pull request has its review there: ask, not show
+  // a branch with an open pull request has its review before landing there, the review after landing follows: the start
+  // goes through its comment, the draft opened before it
   repository.update(|state| {
     state.pulls.push(github::fake_repository::FakePull {
+      created_at: 0,
       pull_request: domain_types::pull_request::PullRequest {
         head_ref_name: AUTH.to_owned(),
         author: Some("me".to_owned()),
@@ -90,9 +107,13 @@ fn a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refu
     });
   });
   let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--request-review", "--reviewer", "bob"]);
-  assert_error(&output, exit_code, (4, "pull_request_open"));
-  assert_eq!(next_steps(&output["error"]).len(), 1);
-  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["started_via"].clone(), output["pull_request"]["number"].clone(), output["shown"]["number"].clone()),
+    (json!("pull_request"), json!(7), json!(21))
+  );
+  assert_eq!(space.remote_tip(HEAD), space.local_tip(AUTH));
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0, "no start through the API");
   // --reviewer needs a review mode
   let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--reviewer", "bob"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
@@ -105,18 +126,8 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["started_via"].clone(), output["robot"]["id"].clone()), (json!("api"), json!("started")));
   assert_eq!((output["shown"]["number"].clone(), output["shown"]["created"].clone()), (json!(21), json!(true)));
-  // its head is the commit the robot takes, its base the fork point on the target
-  let tip = space.local_tip(AUTH);
-  assert_eq!(space.remote_tip(HEAD), tip);
-  let fork = bd_cli::fixture_test::git(&space.repo, &["rev-parse", "refs/remotes/origin/master"]);
-  assert_eq!(space.remote_tip(BASE), fork);
-  let state = repository.state();
-  let draft = &state.pulls[0];
-  assert!(draft.pull_request.is_draft);
-  assert_eq!((draft.pull_request.head_ref_name.as_str(), draft.pull_request.base_ref_name.as_str()), (HEAD, BASE));
-  // nobody asked while the robot runs; its body records whom its open asks
-  assert_eq!(draft.pull_request.reviewers, []);
-  assert!(draft.body.contains("<!-- branch-deck show reviewers: alice -->"), "{}", draft.body);
+  // its head is the commit the robot takes; nobody asked while the robot runs
+  let tip = assert_draft_at_tip(&space, &repository);
 
   // before the robot merged, it does not open
   let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
@@ -256,4 +267,48 @@ fn a_member_away_is_not_asked_of_a_group_as_the_real_service_answers_it() {
     (output["shown"]["reviewers"].clone(), output["shown"]["groups"].clone()),
     (json!(["AlexPl292"]), json!(["Air Plugin"]))
   );
+}
+
+/// `brd request-review auth --after-landing` before auth landed marks its review after landing ahead of time: its draft
+/// opens at the tip of auth into its fork point, asking nobody, its body recording alice; a robot of an earlier auth that
+/// merged before the mark opens nothing; the plain Safe Push of auth moves its head to what it lands, and once that robot
+/// merged the review opens and asks alice
+#[test_log::test]
+fn a_mark_before_landing_opens_by_what_lands_the_branch_and_never_by_an_older_robot_of_the_name() {
+  let (space, repository, environment) = space();
+  // the mark is four hours old by the clock of GitHub; a robot of an earlier auth merged five hours ago
+  repository.update(|state| state.clock = sync_utils::timestamp::unix_now() - 4 * 3600);
+  let mut old = robot("r0", "SUCCESS", "auth", "0000000000000000000000000000000000000001");
+  old["startDateTime"] = json!(bd_cli::remote_fixture_test::minutes_ago(300));
+  space.set_robots(vec![old.clone()]);
+
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["shown"]["marked"].clone(), output["reviewers"].clone()),
+    (json!(true), json!([{"login": "alice", "full_name": null}]))
+  );
+  assert_eq!(repository.state().pulls.len(), 0, "a dry run opens nothing");
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["shown"]["marked"].clone(), output["pull_request"]["number"].clone()), (json!(true), json!(21)));
+  let tip = assert_draft_at_tip(&space, &repository);
+
+  // the older robot of the name opens nothing
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
+  assert_error(&output, exit_code, (4, "no_shown_review"));
+  assert!(repository.state().pulls[0].pull_request.is_draft);
+
+  // the plain Safe Push of auth lands the marked branch: the head of its review goes to what it lands, before the start
+  let (exit_code, output) = bd(&environment, &["safe-push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(space.remote_tip(HEAD), tip);
+  // it merged: the review opens and asks alice
+  space.set_robots(vec![old, robot("r1", "SUCCESS", "auth", &tip)]);
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["requested"], json!([{"login": "alice", "full_name": null}]));
+  let pull = repository.state().pulls[0].pull_request.clone();
+  assert!(!pull.is_draft);
+  assert_eq!(asked(&pull), [("alice", true)]);
 }

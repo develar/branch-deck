@@ -76,6 +76,8 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
     Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } => {
       vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests]
     }
+    // a mark is refused as the Safe Push with it is: by what it lands, the approvals it needs first
+    Intent::MarkShownReview { branch, .. } => vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests, FactNeed::Readiness(Subject::branch(branch))],
     // a close of a review closed on GitHub deletes its branches
     Intent::CloseShownReview { .. } => vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests, FactNeed::ClosedShownReviews],
     Intent::DeleteClosedShownReview { .. } => vec![FactNeed::PullRequests, FactNeed::ClosedShownReviews],

@@ -73,7 +73,7 @@ use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch};
 use remote_facts::pull_request_writes::{
-  MergeWhen, MergeWrite, add_to_stack, create_stack, merge_async, merge_async_status, merge_pull_request, request_pull_request_reviewers, unstack,
+  MergeWhen, MergeWrite, add_to_stack, create_stack, merge_async, merge_async_status, merge_pull_request, record_shown_review, request_pull_request_reviewers, unstack,
 };
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::pull_requests::failure_message;
@@ -843,7 +843,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::KeptCheckedOut { .. } => ErrorCode::BranchCheckedOut,
     // a review after landing (show) refused before anything is pushed
     Reason::ShowNeedsApprovals { .. } => ErrorCode::ApprovalsRequired,
-    Reason::ShowWithPullRequest { .. } | Reason::ShowReviewOpen { .. } => ErrorCode::PullRequestOpen,
+    Reason::ShowReviewOpen { .. } => ErrorCode::PullRequestOpen,
     Reason::ShowNeedsPatronus => ErrorCode::ShowNeedsPatronus,
     Reason::ShowLandsStack { .. } => ErrorCode::ShowLandsStack,
     Reason::ReviewNotApproved { .. } => ErrorCode::ReviewNotApproved,
@@ -992,6 +992,7 @@ impl<'a> Run<'a> {
           PlannedEffect::MergeStack { number, method, head, layers, .. } => self.merge_stack(*number, *method, head, layers).await,
           PlannedEffect::PushReview { branch, tip } => self.push_review(branch, tip).await,
           PlannedEffect::CreateShownReview { branch, reviewers, .. } => self.create_shown_review(branch, reviewers).await,
+          PlannedEffect::RecordShown { number, reviewers, landed, .. } => self.record_shown(*number, reviewers, landed).await,
           // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
           PlannedEffect::ClosePullRequest { .. }
           | PlannedEffect::DisableAutoMerge { .. }
@@ -1006,7 +1007,6 @@ impl<'a> Run<'a> {
           | PlannedEffect::FetchReview { .. }
           | PlannedEffect::MarkReady { .. }
           | PlannedEffect::ExtendReview { .. }
-          | PlannedEffect::RecordShown { .. }
           | PlannedEffect::DeleteReview { .. }
           | PlannedEffect::DeleteReviewAt { .. } => self.fail(ApiError::internal(
             "A start closes and reviews no pull request, sets the state of no issue, forgets no start and rewrites, fetches or updates nothing",
@@ -1863,6 +1863,19 @@ impl Run<'_> {
         self.shown = Some(created);
         EffectStatus::Done
       }
+      Err(error) => self.fail(crate::robot_start::github_failure(error)),
+    }
+  }
+
+  /// The record of the body of the draft of the shown review `number` names `reviewers` (and the fixes `landed` it had),
+  /// whom its open asks: a Safe Push and Request Review… of a branch marked with others (`domain_policy::land::decide`)
+  async fn record_shown(&mut self, number: u32, reviewers: &[String], landed: &[String]) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    match record_shown_review(&github, &self.services.repository_path, &repository, number, reviewers, landed, None).await {
+      Ok(_) => EffectStatus::Done,
       Err(error) => self.fail(crate::robot_start::github_failure(error)),
     }
   }

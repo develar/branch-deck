@@ -33,6 +33,10 @@ pub struct PullRequest {
   pub checks: Option<ChecksSummary>,
   /// Unix seconds
   pub updated_at: u32,
+  /// When it was merged or closed, Unix seconds (`closedAt`); `None` of an open one and where the listing didn't say
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub closed_at: Option<u32>,
   /// The latest submitted review of each reviewer, then the requested reviewers without one
   pub reviewers: Vec<Reviewer>,
   /// The login of the author; null for a deleted account
@@ -495,6 +499,11 @@ pub struct ShownReview {
   pub landed: Vec<String>,
   /// What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch)
   pub state: ShownState,
+  /// When its pull request was opened, Unix seconds (`createdAt`; 0 where the listing didn't say): only what landed the
+  /// branch since opens it (`domain_policy::shown::landed_head`), never an older robot or pull request of the same name
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub created_at: u32,
   /// The remote lacks its base branch (`baseRef` null): a review reopened after a close deleted its branches, of which
   /// GitHub restores only the head; its open pushes the base again (`operations::shown::open_plan`)
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -515,8 +524,9 @@ pub const SHOWN_LANDED_MARKER: &str = "<!-- branch-deck show landed:";
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ShownState {
-  /// A draft: the Safe Push that lands the branch has not merged yet, nobody is asked
-  Draft,
+  /// A draft: nothing landed the branch since it opened, nobody is asked; `landing` while a Safe Push of the branch runs
+  /// (else it marks the branch for a review after landing ahead of time, `Intent::MarkShownReview`)
+  Draft { landing: bool },
   /// Ready for review: `waiting` the reviewers it asked who have not approved yet (none: nobody asked yet)
   InReview { waiting: Vec<String> },
   /// `by`, reviewers it asked, requested changes: a fix lands as a new Safe Push of the branch
@@ -589,6 +599,11 @@ pub struct NewPullRequest {
 pub struct CreatedPullRequest {
   /// Its reviewers are the ones requested
   pub pull_request: PullRequest,
+  /// When GitHub opened it, Unix seconds (`created_at`; 0 where it didn't say): of a shown review, from when what lands the
+  /// branch opens it (`ShownReview::created_at`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub created_at: u32,
   /// False for a pull request that already existed: nothing of the request was applied to it
   pub created: bool,
   /// The logins GitHub assigned

@@ -55,6 +55,13 @@ pub enum ActionId {
   /// Its review after landing closed with its branches after a confirmation (`Intent::CloseShownReview`), approved or
   /// not
   CloseShownReview,
+  /// Its review after landing marked ahead of time with the reviewers the user picks (`Intent::MarkShownReview`): a
+  /// draft before it lands, which opens once anything landed it; of a branch that landed without one, the review opened
+  /// now; of a draft, its reviewers recorded again
+  MarkShownReview,
+  /// Its review after landing marked ahead of time canceled after a confirmation: the draft closed with its branches
+  /// (`Intent::CloseShownReview`) before the branch landed
+  CancelShownReview,
   // its shape and its commits: the rewrites
   Rename,
   MoveTo,
@@ -121,7 +128,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 59] = [
+  pub const ALL: [Self; 61] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -142,6 +149,8 @@ impl ActionId {
     Self::CreatePullRequest,
     Self::RequestShownReview,
     Self::CloseShownReview,
+    Self::MarkShownReview,
+    Self::CancelShownReview,
     Self::Rename,
     Self::MoveTo,
     Self::StackOn,
@@ -207,6 +216,8 @@ impl ActionId {
         | Self::RequestReview
         | Self::RequestShownReview
         | Self::CloseShownReview
+        | Self::MarkShownReview
+        | Self::CancelShownReview
         | Self::Rename
         | Self::MoveTo
         | Self::StackOn

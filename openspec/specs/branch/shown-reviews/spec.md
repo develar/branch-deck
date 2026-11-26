@@ -1,6 +1,6 @@
 ---
 name: Shown Reviews
-description: Requirements for a review after landing (show of ship/show/ask), a GitHub pull request from the commit a Safe Push lands into its fork point that can never land, opened as a draft before the start, ready with its reviewers asked once the robot merged, the author's move when they request changes, extended by each fix the branch lands after it, closed with its branches once every reviewer it asked approved, and its branches deleted an hour after a close on GitHub.
+description: Requirements for a review after landing (show of ship/show/ask), a GitHub pull request from the commit a Safe Push lands into its fork point that can never land, opened as a draft before the start or marked ahead of the landing, opened on whatever landed the branch since, ready with its reviewers asked once the robot merged, the author's move when they request changes, extended by each fix the branch lands after it, closed with its branches once every reviewer it asked approved, and its branches deleted an hour after a close on GitHub.
 style: plain-1
 targets:
   - crates/domain-policy/src/shown.rs
@@ -39,6 +39,9 @@ targets:
   - src/components/branch/InlineShownReviewers.tsx
   - src/components/branch/InlineCloseShownReview.tsx
   - src/components/shared/ShownBadge.tsx
+  - src/components/branch/InlineMarkShownReview.tsx
+  - src/hooks/useBranchContextActions.ts
+  - crates/repository-model/src/branch_table.rs
 ---
 
 # Shown Reviews
@@ -88,17 +91,23 @@ asks. Only a draft names `draft` in the body of its `POST pulls`; an ordinary pu
 
 ### Requirement: Start: A review after landing is refused where it can't review what lands
 
-A Safe Push with a review after landing MUST be refused for an open pull request of the branch (`pull_request_open`),
-its review after landing open already (`show_review_open`; a draft is started again), more than the branch or a whole
-stack (`show_lands_stack`), approvals the code owners give first (`approvals_required`), a repository without Patronus
-(`show_needs_patronus`), and nobody to ask (`no_reviewer`).
+A Safe Push with a review after landing MUST be refused for its review after landing open already
+(`show_review_open`; a draft is started again), more than the branch or a whole stack (`show_lands_stack`), approvals
+the code owners give first (`approvals_required`), a repository without Patronus (`show_needs_patronus`), and nobody
+to ask (`no_reviewer`). A branch with an open pull request MUST start from its comment, refused as any start from it.
 
 #### Scenario: What refuses it
-- **WHEN** the branch has an open pull request or an open review after landing, is stacked on a branch not in master,
-  or needs the approvals first
+- **WHEN** the branch has an open review after landing, is stacked on a branch not in master, or needs the approvals
+  first
 - **THEN** the start is refused before anything is pushed
   [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_lands_only_the_branch`)
-  [@test] crates/bd-remote/src/shown_review_test.rs (`a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refuses_a_branch_with_a_pull_request`)
+
+#### Scenario: A branch with an open pull request
+- **WHEN** auth has the open pull request #7 and `brd safe-push auth --request-review` starts
+- **THEN** the draft opens before the start, and the robot starts from the comment on #7; a draft #7 refuses it
+  [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_lands_only_the_branch`)
+  [@test] crates/bd-remote/src/shown_review_test.rs (`a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_a_branch_with_a_pull_request_starts_from_its_comment`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review_is_asked_and_closed_from_the_row`)
 
 ### Requirement: Reviewers: One available member of each owner group, never the author
 
@@ -111,7 +120,7 @@ chosen for a group covers every other group. The picker of the app MUST start wi
 - **WHEN** a group names reviewers and members, the author among them
 - **THEN** the first available reviewer but the author is asked, and a group of which nobody can be asked is named
   [@test] crates/domain-policy/src/shown_test.rs (`one_available_reviewer_of_each_owner_group_never_the_author`)
-  [@test] crates/bd-remote/src/shown_review_test.rs (`a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refuses_a_branch_with_a_pull_request`)
+  [@test] crates/bd-remote/src/shown_review_test.rs (`a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_a_branch_with_a_pull_request_starts_from_its_comment`)
   [@test] crates/codeowners/src/client_test.rs (`a_lookup_names_the_reviewers_and_the_members_with_their_logins_and_availability`, `a_group_the_service_lacks_has_no_members_and_a_rejected_token_is_an_error`)
 
 #### Scenario: The lookup as the real service answers it
@@ -146,12 +155,12 @@ the reviewers its body records and what it waits for.
 - **THEN** only the first is a shown review, with its recorded reviewers
   [@test] crates/remote-facts/src/pull_requests_test.rs (`the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_reviewers_their_body_records`)
 
-### Requirement: Open: Once the robot merged, the review opens and asks its reviewers
+### Requirement: Open: Once something landed the branch since the draft opened, the review opens and asks its reviewers
 
-Once a merged Safe Push landed the branch, its draft shown review MUST open: its branches go to the commit the robot
-landed and its fork point, it is marked ready for review, and the reviewers its body records are asked; a review ready
-already MUST only ask again those it asked who neither approved nor are asked now; before such a merge it MUST be
-refused (`no_shown_review`). A draft the baseline landed by content MUST open too, and a reviewer the user adds MUST be
+Once something landed the branch since its draft opened (`Open on what landed`), the draft MUST open: its branches go
+to what landed and its fork point, it is marked ready, the reviewers its body records are asked, and its body names the
+merged pull request where the branch was reviewed before. A review ready already MUST only ask again those who neither
+approved nor are asked now; before a landing it MUST be refused (`no_shown_review`). A reviewer the user adds MUST be
 asked and recorded.
 
 #### Scenario: The open after the merge
@@ -168,6 +177,72 @@ asked and recorded.
   [@test] crates/operations/src/shown_test.rs (`a_draft_the_baseline_landed_opens_on_its_head_and_a_reviewer_the_user_adds_is_recorded`)
   [@test] crates/domain-policy/src/shown_test.rs (`a_draft_whose_branch_the_baseline_landed_opens_while_no_robot_of_it_is_listed`)
   [@test] crates/repository-model/src/facts_test.rs (`a_draft_whose_branch_landed_by_content_opens_once_the_robots_are_known_and_none_of_it_is_listed`)
+
+#### Scenario: Reviewed before landing
+- **WHEN** a safe-merge from the pull request #7 of auth landed it
+- **THEN** the body of the review says "Reviewed before landing in #7.", once
+  [@test] crates/operations/src/shown_test.rs (`a_mark_opens_its_draft_and_its_open_says_where_the_branch_was_reviewed_before`)
+  [@test] crates/domain-policy/src/shown_test.rs (`the_body_says_once_where_the_branch_was_reviewed_before_it_landed`)
+
+### Requirement: Mark: A review after landing is marked ahead of time and opens once the branch lands
+
+A review after landing MUST be markable ahead of the landing (`Intent::MarkShownReview`): its branches at the tip of
+the branch and its fork point, its draft asking nobody, its body recording the reviewers. It MUST be refused as the
+Safe Push with the review is, but by nothing of its robot, and by the approvals first only without an open pull
+request. Every Safe Push that lands a marked branch MUST move its head to what it lands; a draft MUST be canceled with
+its branches.
+
+#### Scenario: Marked, then its plain Safe Push merged
+- **WHEN** the user marks auth from its menu with the code owner the picker starts with, then starts its plain Safe
+  Push, which merges
+- **THEN** the draft opens at the tip of auth into its fork point asking nobody, its row says "Review after landing
+  marked: once auth lands, #1 opens and asks AlexPl292", the popover of the Safe Push "#1 opens once it merges, asking
+  AlexPl292.", and once it merged the review opens and asks AlexPl292
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should mark auth for a review after landing from its menu, say it in its row and its Safe Push, and open the review with its reviewers once that Safe Push merged`)
+  [@test] crates/bd-remote/src/shown_review_test.rs (`a_mark_before_landing_opens_by_what_lands_the_branch_and_never_by_an_older_robot_of_the_name`)
+  [@test] crates/operations/src/shown_test.rs (`a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_and_a_landed_branch_opens_it_ready`)
+  [@test] crates/domain-policy/src/shown_test.rs (`a_mark_is_refused_as_the_safe_push_with_its_review_without_what_refuses_the_robot`)
+
+#### Scenario: Beside its own pull request, picked again, canceled
+- **WHEN** auth has the open pull request #7, the user marks it from "Patronus ›" with alice, picks alice and bob
+  again, then cancels the mark
+- **THEN** Request Review… stays the one of #7, the record names alice, then alice and bob, nobody is asked, and the
+  cancel closes the draft with its comment and deletes its branches
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should mark auth beside the review of its own pull request from the Patronus menu, pick its reviewers again, and cancel the mark with Cancel Review After Landing…`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review_is_asked_and_closed_from_the_row`)
+
+#### Scenario: Of a draft, of a branch that landed, refused
+- **WHEN** auth is marked again with bob, or it landed without a draft, or it lands with login, or it needs the
+  approvals of Auth Team without a pull request
+- **THEN** the record of its draft names bob, nobody asked; the review opens ready on what landed; the mark is refused
+  (`show_lands_stack`, `approvals_required`)
+  [@test] crates/operations/src/shown_test.rs (`a_mark_opens_the_draft_at_the_tip_refused_as_the_safe_push_with_its_review_and_a_landed_branch_opens_it_ready`)
+  [@test] crates/domain-policy/src/actions_test.rs (`a_review_after_landing_is_offered_as_its_start_refuses_it_and_its_open_review_is_asked_and_closed_from_the_row`)
+
+#### Scenario: A Safe Push that lands a marked branch
+- **WHEN** a Safe Push lands auth, marked: its own, or one of login built on it
+- **THEN** it pushes the head of the review of auth to the commit it lands before the start; a Dry Run pushes none, and
+  its Safe Push and Request Review… with bob records bob
+  [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_that_lands_a_marked_branch_moves_the_head_of_its_review_to_what_it_lands`)
+  [@test] crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
+
+### Requirement: Open on what landed: Only what landed the branch since its review opened opens it
+
+What landed the branch of a draft MUST be, in this order, each only if not older than the draft (`createdAt`): a merged
+Safe Push of the branch, on the commit it took, whoever started it; its pull request merged into the target, once the
+baseline has the branch whole, on its head; the baseline by content, no robot of it running, on its tip. A robot or a
+pull request of an earlier branch of the name MUST open nothing, nor be a fix of the review.
+
+#### Scenario: An older robot, then a safe-merge someone else started
+- **WHEN** auth is marked after a robot of an earlier auth merged, then a safe-merge someone else started from its pull
+  request #7 merged it
+- **THEN** the older robot opens nothing, and once the baseline has auth the review opens on the head of #7 and says
+  "Reviewed before landing in #7."
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should open a mark by its pull request merged by a safe-merge someone else started, never by an older robot of auth, and say where auth was reviewed before`)
+  [@test] crates/domain-policy/src/shown_test.rs (`a_mark_opens_by_what_landed_its_branch_since_never_by_an_older_robot_or_pull_request_of_the_name`)
+  [@test] crates/repository-model/src/facts_test.rs (`a_mark_opens_by_what_landed_its_branch_since_never_by_an_older_robot_of_the_name`)
+  [@test] crates/repository-model/src/branch_table_test.rs (`the_robot_sources_are_the_pushed_branches_and_stack_branches_not_in_the_baseline`)
+  [@test] crates/remote-facts/src/pull_requests_test.rs (`the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_reviewers_their_body_records`)
 
 ### Requirement: Extend: A fix that landed goes onto the same review
 
@@ -333,9 +408,10 @@ carry the badge "Shown" (`ReviewRequest.shown`), its hover that the review gates
 ### Requirement: Row: The review is marked beside the landing of the branch
 
 The Status cell of a branch with an open shown review MUST mark the review last (`RowFact::Shown` with what it waits
-for), beside the facts of its landing, never in their place; its words MUST say whose move it is in each state: the
-Safe Push that opens it, whom it waits for, who requested changes and how a fix goes into it (a commit `(<branch>) …`,
-its own Safe Push), the fix that lands, who approved it.
+for and whom it asks), beside the facts of its landing, never in their place; its words MUST say whose move it is in
+each state: the Safe Push that opens it, the mark ahead of the landing and whom it asks, whom it waits for, who
+requested changes and how a fix goes into it (a commit `(<branch>) …`, its own Safe Push), the fix that lands, who
+approved it.
 
 #### Scenario: A blocked branch with a review after landing
 - **WHEN** a blocked branch has a shown review
@@ -343,14 +419,16 @@ its own Safe Push), the fix that lands, who approved it.
   [@test] crates/domain-policy/src/row_status_test.rs (`a_shown_review_is_marked_beside_the_landing_never_in_its_place`)
 
 #### Scenario: The words of each state
-- **WHEN** the review is a draft, waits for alice and bob, has changes requested by alice, waits for a fix, or alice
-  approved it
-- **THEN** the mark says "auth is landing: once its Safe Push merges, #12 opens and its reviewers are asked", "In review
-  after landing: waits for alice and bob in #12", "alice requested changes in #12: commit a fix as (auth) …, and its
-  Safe Push adds it to the review", "A fix of auth is landing: once its Safe Push merges, it goes into #12 and the
-  reviewers are asked again", "Approved by alice: #12 closes and its branches are deleted; the change stays in master"
+- **WHEN** the review is a draft whose Safe Push runs, a draft marked ahead of time asking alice, waits for alice and
+  bob, has changes requested by alice, waits for a fix, or alice approved it
+- **THEN** the mark says "auth is landing: once its Safe Push merges, #12 opens and its reviewers are asked", "Review
+  after landing marked: once auth lands, #12 opens and asks alice", "In review after landing: waits for alice and bob in
+  #12", "alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review", "A fix of
+  auth is landing: once its Safe Push merges, it goes into #12 and the reviewers are asked again", "Approved by alice:
+  #12 closes and its branches are deleted; the change stays in master"
   [@test] src/presenters/row-status.test.ts (`marks the review after landing beside what landed the branch, its hover whose move it is in each state`)
   [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should return the review to the author on changes requested, wait while a fix lands, then put the fix onto its head and ask again`)
+  [@test] src/presenters/shown.test.ts (`say what a mark ahead of the landing opens and whom, its draft picked again, its cancel and the Safe Push of it`)
 
 ### Requirement: App: Safe Push and Request Review… picks the reviewers beside the start
 
@@ -403,18 +481,29 @@ or who approved it; its Close Review MUST close it with its comment and delete i
 ## User Experience
 
 - `brd safe-push <branch> --request-review [--reviewer <login>]`: `shown` names `reviewers`, `groups`, `head`, `base`,
-  `number`; `brd request-review <branch> [--after-landing]`, whose `shown.extended` names the fixes it added (`fixes`,
-  `head`, `not_applied`, `took_files`); `brd robot <branch>`: `extends`; `brd close-review <branch> [--allow-unapproved]`, of a review closed on GitHub
+  `number`; `brd request-review <branch> [--after-landing]`, before the landing `shown.marked`, whose `shown.extended`
+  names the fixes it added (`fixes`, `head`, `not_applied`, `took_files`); `brd robot <branch>`: `extends`; `brd close-review <branch> [--allow-unapproved]`, of a review closed on GitHub
   `state: closed` and `deleted`.
-- The Status cell: "review after landing", "in review after landing", "changes requested after landing", "fix goes into
-  review after landing", "approved after landing"; the hover what happens next: "auth is landing: once its Safe Push
-  merges, #12 opens and its reviewers are asked", "In review after landing: waits for alice in #12", "alice requested
+- The Status cell: "review after landing", "review after landing marked", "in review after landing", "changes requested
+  after landing", "fix goes into review after landing", "approved after landing"; the hover what happens next: "auth is
+  landing: once its Safe Push merges, #12 opens and its reviewers are asked", "Review after landing marked: once auth
+  lands, #12 opens and asks alice", "In review after landing: waits for alice in #12", "alice requested
   changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review", "A fix of auth is landing: once its
   Safe Push merges, it goes into #12 and the reviewers are asked again", "Approved by alice: #12 closes and its branches
   are deleted; the change stays in master".
-- The menu of the branch: "Safe Push and Request Review…" in "Patronus ›" (also "Review after landing: Safe Push and
-  Request Review…" in the popover of its Safe Push); of a branch with one, "Open Pull Request #12", "Request Review…",
-  "Close Review…". The popover: "auth lands now; the reviewers are asked once it is in master. The review closes when they
+- The menu of the branch: "Safe Push and Request Review…" and "Request Review After Landing…" in "Patronus ›" (also
+  "Review after landing: Safe Push and Request Review…" in the popover of its Safe Push); "Request Review After
+  Landing…" beside "Request Review…" (of its own pull request, when it has one); of a branch with an open one, "Open Pull
+  Request #12", "Request Review…", "Close Review…"; of a marked one, "Request Review After Landing…" (its reviewers
+  picked again) and "Cancel Review After Landing…". The form of the mark: "Request review after landing of auth", "A
+  draft pull request opens now and asks nobody. Once auth lands, by its Safe Push, a Safe Push that lands it with more,
+  or a safe-merge from its pull request, it opens on what landed and asks these reviewers.", of a draft "Request review
+  after landing on #12", "Once auth lands, #12 opens and asks the reviewers you pick here; nobody is asked before.", the
+  picker with the code owners of the changes first, its submit "Request Review After Landing", the toast "Review after
+  landing of auth requested" ("It opens once auth lands and asks alice."). The confirmation of the cancel "Cancel Review
+  After Landing #12?", "#12 closes on GitHub with a comment and its branches are deleted; once auth lands, nothing opens
+  and nobody is asked.", its submit "Close Draft #12", the toast "Canceled review after landing #12 of auth". The
+  popover of the Safe Push of a marked branch: "#12 opens once it merges, asking alice." The popover: "auth lands now; the reviewers are asked once it is in master. The review closes when they
   all approve; it can never land itself.", the picker, "One available code owner of Auth Team.", the readiness "No
   code-owner approval needed before landing.", no whole stack beside it, the start "Safe Push and Request Review";
   without a reviewer "Add a reviewer: a review after landing asks at least one". The confirmation of Close Review…
@@ -429,7 +518,8 @@ or who approved it; its Close Review MUST close it with its comment and delete i
 - The comment of a fix that doesn't apply: "Landed a follow-up as <sha>; it does not apply on this review's commits:
   <the robot page>"; of one whose commits took files as master has them: "Landed a follow-up as <sha>; `auth.rs` also
   shows what master changed in it after this review: <the robot page>" (up to four files, from five on the first three
-  and the count).
+  and the count); of a canceled mark: "Canceled: this review after landing won't open."; the body of a review whose
+  branch was reviewed in its pull request before it landed: "Reviewed before landing in #7."
 - Your Turn: a review after landing a reviewer handed back is a "Returned to you" line.
 - The review window of a reviewer: "Already in master: your review does not block landing; the review closes when every
   requested reviewer approves"; the Safe Push of it disabled: "#12 is a review after landing: its change is in master

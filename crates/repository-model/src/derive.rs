@@ -995,6 +995,7 @@ impl<'a> LandingFacts<'a> {
         remote: self.remote_of(branch),
         hold: self.holds.get(branch),
         not_built: self.table.not_built.contains_key(branch),
+        tip: self.table.tip_of(branch),
       })
       .collect();
     let whole_stack_pull_request = self
@@ -1029,7 +1030,11 @@ impl<'a> LandingFacts<'a> {
       start: self.stack_start(stack),
       parked: whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str)),
       landed: landed_reason(&self.landed_facts(baseline), &landed_subject(self.table, self.remote, of, pull_requests)),
-      members: stack.members.iter().map(|member| (member.as_str(), self.landed_whole(member).is_some())).collect(),
+      members: stack
+        .members
+        .iter()
+        .map(|member| (member.as_str(), self.landed_whole(member).is_some(), self.table.tip_of(member)))
+        .collect(),
       remote: self.remote.stacks.get(root).and_then(RemoteFact::branch),
       held_by: self.stack_holder(stack),
       regenerate: self.table.stack_regenerate.get(root).map_or(&[][..], Vec::as_slice),

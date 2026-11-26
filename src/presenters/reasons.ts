@@ -205,7 +205,6 @@ const words = {
   mergeBlocked: ({ number }) => `The rules of its base hold the merge of #${number} back`,
   mergeHeadBehind: ({ number }) => `#${number} shows an older commit, and the repository allows no auto-merge: Push Branch first`,
   showNeedsApprovals: ({ groups }) => `The code owners of ${joinNames(groups)} must approve it before it lands: ask for the review in a pull request`,
-  showWithPullRequest: ({ number }) => `Its review is in pull request #${number}, before it lands`,
   showNeedsPatronus: () => "A review after landing opens with a Safe Push of Patronus: the repository lands without one",
   showLandsStack: ({ lands }) => `The Safe Push lands ${joinNames(lands)}: a review after landing reviews one branch`,
   showReviewOpen: ({ number }) => `Its review after landing #${number} is open: a fix lands by Safe Push and goes into it`,

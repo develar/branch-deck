@@ -616,5 +616,49 @@
         "start": "api"
       }
     }
+  },
+  {
+    "id": "safe-push-of-a-branch-marked-for-a-review-after-landing",
+    "group": "landing",
+    "title": "the branch is marked for a review after landing ahead of time (its draft listed): its plain Safe Push moves the head of the review to what it lands before the start",
+    "spec": ["openspec/specs/branch/shown-reviews/spec.md#mark", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
+    "given": {
+      "marked": "auth"
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "start": "api",
+        "pushes": ["auth"],
+        "reviews": ["auth"]
+      }
+    }
+  },
+  {
+    "id": "safe-push-of-a-child-lands-a-parent-marked-for-a-review-after-landing",
+    "group": "landing",
+    "title": "the parent the branch is built on is marked for a review after landing: the Safe Push of the branch lands it too and moves the head of its review to what it lands",
+    "spec": ["openspec/specs/branch/shown-reviews/spec.md#mark", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "marked": "auth"
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "pushes": ["auth", "login"],
+        "lands": ["auth", "login"],
+        "reviews": ["auth"]
+      }
+    }
   }
 ]

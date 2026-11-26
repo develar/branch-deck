@@ -495,12 +495,15 @@ pub struct GitHubFixture {
   pub shown: Vec<ShownFixture>,
 }
 
-/// A review after landing a GitHub fixture holds (`GitHubFixture::shown`): its pull request and its body
+/// A review after landing a GitHub fixture holds (`GitHubFixture::shown`): its pull request, its body, and when it was
+/// opened (Unix seconds; 0 by default: what landed its branch any time opens it)
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShownFixture {
   pub pull_request: PullRequest,
   pub body: String,
+  #[serde(default)]
+  pub created_at: u32,
 }
 
 /// The GitHub repository a fixture names, and how GitHub answers: signed in, and the failure of every request
@@ -572,6 +575,7 @@ pub fn fixture_pulls(result: &PullRequestsResult, owner: &str, branch_prefix: &s
     pull_requests
       .into_iter()
       .map(|pull_request| FakePull {
+        created_at: 0,
         pull_request,
         body: String::new(),
         comments: Vec::new(),
@@ -615,6 +619,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
   .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
   pulls.extend(fixture.shown.into_iter().map(|shown| FakePull {
+    created_at: shown.created_at,
     pull_request: shown.pull_request,
     body: shown.body,
     comments: Vec::new(),

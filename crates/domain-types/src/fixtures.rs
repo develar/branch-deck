@@ -58,6 +58,7 @@ pub fn pull_request(branch: &str, number: u32) -> PullRequest {
     head_ref_oid: format!("{branch}-tip"),
     checks: None,
     updated_at: 1_704_139_200,
+    closed_at: None,
     reviewers: Vec::new(),
     author: Some("user".to_string()),
     merge_state: None,

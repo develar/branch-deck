@@ -80,6 +80,16 @@ pub enum Intent {
   /// The shown review of `branch` is closed with a comment that names who approved it, and its branches are deleted
   /// (`operations::shown`); refused unless every reviewer it asked approved, but with `allow_unapproved`
   CloseShownReview { branch: String, allow_unapproved: bool },
+  /// The review after landing of `branch` marked ahead of time (`operations::shown::mark_plan`): before the branch landed,
+  /// its head and base pushed at its tip and its fork point and the draft opened, asking nobody, its body recording
+  /// `reviewers`, whom its open asks once anything landed the branch (`domain_policy::shown::landed_head`); of a draft,
+  /// only that record; of a branch that landed without one, the review opened now on what landed, `reviewers` asked
+  MarkShownReview {
+    branch: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reviewers: Vec<String>,
+  },
   /// The branches of the shown review `number` of `branch`, closed elsewhere (on GitHub), are deleted where the remote
   /// still has them at the tips of its pull request (`operations::shown`): a branch gone or moved since stays
   DeleteClosedShownReview { branch: String, number: u32 },
@@ -174,6 +184,7 @@ impl Intent {
       Self::ExtendShownReview { .. } => OperationKind::ExtendShownReview,
       Self::CloseShownReview { .. } => OperationKind::CloseShownReview,
       Self::DeleteClosedShownReview { .. } => OperationKind::DeleteClosedShownReview,
+      Self::MarkShownReview { .. } => OperationKind::MarkShownReview,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::ApproveStack { .. } => OperationKind::ApproveStack,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
@@ -207,7 +218,8 @@ impl Intent {
       | Self::OpenShownReview { branch, .. }
       | Self::ExtendShownReview { branch }
       | Self::CloseShownReview { branch, .. }
-      | Self::DeleteClosedShownReview { branch, .. } => Some(branch.clone()),
+      | Self::DeleteClosedShownReview { branch, .. }
+      | Self::MarkShownReview { branch, .. } => Some(branch.clone()),
       Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }

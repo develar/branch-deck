@@ -50,6 +50,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   open_shown_review: "open of a review after landing",
   extend_shown_review: "fix of a review after landing",
   close_shown_review: "close of a review after landing",
+  mark_shown_review: "request of a review after landing",
   delete_closed_shown_review: "delete of the branches of a closed review after landing",
   submit_review: "review of a pull request",
   approve_stack: "approval of a stack of pull requests",
