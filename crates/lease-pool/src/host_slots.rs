@@ -443,24 +443,60 @@ pub struct Lend {
   /// or in quarantine, runs before it, no slot ready yet (a fill), or an upgrade of git
   pub waited: bool,
   /// The files of the slot were cleaned since its last run gave it back (`clean_core`: the clean after a run, the idle
-  /// clean, a relief, which may also drop its output bases): its ignored files are of no run
+  /// clean, a relief, which may also drop its output bases and stop its Bazel servers): its ignored files are of no run
   pub cleaned: bool,
+  /// Why a lend of `SlotChoice::Idle` found no idle slot of the affinity, as the table shows it at the lend; `None` for
+  /// a hit and a repeat
+  pub missed: Option<SlotMiss>,
+}
+
+/// Why a lend found no idle slot whose last lend had the affinity of the run. The table keeps only the last affinity of
+/// each slot, so whether the affinity ever had a slot that another checkout took since is not known at the lend: the
+/// summary tells it by the earlier lines of the affinity (`host_history::MissTotals`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotMiss {
+  /// No slot of the table had the affinity last: it never had one, another checkout took it since, or a fill or a
+  /// shrink made the slot anew; a run without an affinity too
+  NoSlot,
+  /// A slot of the affinity was lent to another run of the same checkout
+  Lent,
+  /// A slot of the affinity was not ready for a run: in its give-back, its clean, its shrink or its fill, in
+  /// quarantine, or its lease not `ready`
+  Unavailable,
+  /// A cause of a later build, so its line still counts
+  #[serde(other)]
+  Other,
 }
 
 /// How a lend chose its slot among the idle ones: the slot whose last lend had the affinity of the run, else the one
 /// used longest ago. A lend after a wait in the queue chooses by the same rule (`Lend::waited`). The choice says
-/// nothing of the files of the slot: a clean since keeps its affinity (`Lend::cleaned`)
+/// nothing of the files of the slot: a clean since keeps its affinity (`Lend::cleaned`), and so does a last run of the
+/// affinity that ended before its checkout (a refusal while it waited for its pack, a cancel), whose slot keeps the
+/// files of the checkout before it
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SlotChoice {
-  /// The idle slot whose last lend had the affinity of this one: unless a clean came since, its ignored files are of
-  /// the same checkout
+  /// The idle slot whose last lend had the affinity of this one: unless a clean came since, or that lend ended before
+  /// its checkout, its ignored files are of the same checkout
   Affinity,
   /// Another idle slot, the one used longest ago: another affinity used it last, or no run did
   Idle,
   /// A choice of a later build, so its line still counts
   #[serde(other)]
   Other,
+}
+
+impl SlotMiss {
+  /// Its name, as `slot.json` and the history line write it
+  pub const fn name(self) -> &'static str {
+    match self {
+      Self::NoSlot => "no_slot",
+      Self::Lent => "lent",
+      Self::Unavailable => "unavailable",
+      Self::Other => "other",
+    }
+  }
 }
 
 impl SlotChoice {
@@ -529,6 +565,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         choice: None,
         waited: false,
         cleaned: false,
+        missed: None,
       }));
     }
     let queued_before = table.queue.iter().position(|ticket| ticket.run == request.run);
@@ -546,9 +583,13 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
       .collect();
     if git_upgrading.is_none() && idle.len() > position {
       let affine = |index: &&usize| request.affinity.is_some() && table.slots[**index].affinity.as_deref() == request.affinity;
-      let (index, choice) = match idle.iter().find(affine) {
-        Some(&index) => (index, SlotChoice::Affinity),
-        None => (idle.iter().min_by_key(|&&index| table.slots[index].used).copied().unwrap_or(idle[0]), SlotChoice::Idle),
+      let (index, choice, missed) = match idle.iter().find(affine) {
+        Some(&index) => (index, SlotChoice::Affinity, None),
+        None => (
+          idle.iter().min_by_key(|&&index| table.slots[index].used).copied().unwrap_or(idle[0]),
+          SlotChoice::Idle,
+          Some(miss_of(&table.slots, request.affinity)),
+        ),
       };
       let slot = &mut table.slots[index];
       let last_used_by_affinity = slot.used.filter(|_| request.affinity.is_some() && slot.affinity.as_deref() == request.affinity);
@@ -574,6 +615,7 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
         choice: Some(choice),
         waited,
         cleaned,
+        missed,
       };
       table.queue.remove(position);
       return Ok(LendAnswer::Lent(lend));
@@ -600,6 +642,19 @@ pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<L
       git_upgrading,
     }))
   })
+}
+
+/// Why no idle slot of `slots` had the affinity `affinity` last: a slot of it lent to another run first, else one not
+/// ready, else none
+fn miss_of(slots: &[HostSlot], affinity: Option<&str>) -> SlotMiss {
+  let of_affinity: Vec<&HostSlot> = slots.iter().filter(|slot| affinity.is_some() && slot.affinity.as_deref() == affinity).collect();
+  if of_affinity.iter().any(|slot| matches!(slot.state, HostState::Lent(_))) {
+    SlotMiss::Lent
+  } else if of_affinity.is_empty() {
+    SlotMiss::NoSlot
+  } else {
+    SlotMiss::Unavailable
+  }
 }
 
 /// How often an upgrade of git looks whether the slots are free, and whether another upgrade ended

@@ -3,7 +3,7 @@ use crate::cores::CoresFile;
 use crate::run::{ExitRecord, KEEP};
 use host_link::proto::{Phase, RunSpec};
 use lease_pool::host_history::SlotRecord;
-use lease_pool::host_slots::{SlotChoice, Ticket};
+use lease_pool::host_slots::{SlotChoice, SlotMiss, Ticket};
 use lease_pool::host_turn::{HeavyTurn, TurnEntry};
 use pretty_assertions::assert_eq;
 use std::fs::File;
@@ -110,9 +110,10 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
   run.write_queue(&queue).expect("the queue");
   let slot = SlotRecord {
     n: 3,
-    choice: SlotChoice::Affinity,
+    choice: SlotChoice::Idle,
     waited: true,
     cleaned: false,
+    missed: Some(SlotMiss::Lent),
   };
   run.write_slot(slot).expect("the slot");
   let output = "{\"stream\":\"stdout\",\"text\":\"ok\"}\n";
@@ -163,12 +164,26 @@ fn a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes() {
   assert_eq!(line.queue, Some(queue));
   assert_eq!(line.slot, Some(slot));
   let json = serde_json::to_value(line).expect("JSON");
-  assert_eq!(
-    (&json["repo"], &json["slot"]),
-    (&serde_json::json!(line.repo), &serde_json::json!({"n": 3, "choice": "affinity", "waited": true})),
-    "{json}"
-  );
+  assert_eq!(json["slot"], serde_json::json!({"n": 3, "choice": "idle", "waited": true, "missed": "lent"}), "{json}");
+  assert_eq!((line.cancelled, json.get("cancelled")), (false, None), "no cancel came");
   assert_eq!(runs.list().len(), 1, "the run that goes on stays, and has no line");
+}
+
+/// The line of a run whose command a cancel interrupted says so, whatever its command exited with
+#[test]
+fn the_line_of_a_run_whose_command_a_cancel_interrupted_says_so_whatever_its_exit() {
+  let Agent {
+    dir: _dir,
+    home: _home,
+    history,
+    runs,
+  } = Agent::new();
+  let (run, lock) = runs.create(&spec("1-1")).expect("a run");
+  run.write_exit_of_cancelled_command(&ExitRecord::Code { code: 8 }).expect("its end");
+  drop(lock);
+  let line = history.line_of(&run).expect("a line").expect("an end");
+  assert_eq!((line.exit, line.cancelled), (8, true));
+  assert_eq!(serde_json::to_value(&line).expect("JSON")["cancelled"], serde_json::json!(true));
 }
 
 /// A forgotten run past the kept ones leaves its line too, its output with the bytes that the forget cut

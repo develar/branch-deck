@@ -34,6 +34,7 @@ fn a_cancel_interrupts_the_command_group() {
   let followed = agent.follow("1-1");
   assert_eq!(followed.end, Reply::Exit { code: 7 }, "{}", agent.dump("1-1"));
   assert!(followed.has_line("interrupted"), "{followed:?}");
+  assert_eq!(cancelled(&world, "1-1"), Some(true), "the end says the cancel, whatever the command exited with");
   assert_eq!(
     agent.reply(&Request::Cancel { run: "1-1".to_owned() }),
     Reply::Done {
@@ -76,6 +77,13 @@ fn a_command_that_ignores_sigint_gets_sigkill_after_the_grace_time() {
   let followed = agent.follow("2-1");
   assert_eq!(followed.end, Reply::Exit { code: 128 + 9 }, "{}", agent.dump("2-1"));
   assert!(followed.has_line("brd-host: the command did not end 500 ms after SIGINT; SIGKILL"), "{followed:?}");
+  assert_eq!(cancelled(&world, "2-1"), Some(true));
+}
+
+/// `cancelled` of `exit.json` of the run `run`: `None` while the file says none
+fn cancelled(world: &World, run: &str) -> Option<bool> {
+  let exit: serde_json::Value = serde_json::from_slice(&fs::read(world.run_dir(run).join("exit.json")).expect("exit.json")).expect("JSON");
+  exit["cancelled"].as_bool()
 }
 
 #[test]

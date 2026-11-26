@@ -497,6 +497,8 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
   assert_eq!(followed.of(Stream::Stderr), ["err"]);
   assert!(followed.lines.iter().any(|(_, text)| text.starts_with(START_LINE)), "{followed:?}");
   assert_eq!(followed.phase_names(), ALL_PHASES);
+  let exit = fs::read_to_string(world.run_dir("1-1").join("exit.json")).expect("exit.json");
+  assert!(!exit.contains("cancelled"), "no cancel came: {exit}");
   assert_eq!(agent.fetch("1-1"), [("out/bt-runs/a/report.txt".to_owned(), FileKind::Staged, "r\n".to_owned())]);
 
   let table = agent.slots();
@@ -509,8 +511,8 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
       assert_eq!((runs[0].run.as_str(), runs[0].affinity.as_str(), runs[0].exit), ("1-1", AFFINITY, Some(3)));
       assert_eq!(runs[0].repo.as_deref(), Some(world.repo.path_str()));
       // the run may wait for the keeper to fill the slot
-      let slot = runs[0].slot.as_ref().map(|slot| (slot.n, slot.choice.as_str()));
-      assert_eq!(slot, Some((1, "idle")), "no run used the slot before");
+      let slot = runs[0].slot.as_ref().map(|slot| (slot.n, slot.choice.as_str(), slot.missed.as_deref()));
+      assert_eq!(slot, Some((1, "idle", Some("no_slot"))), "no run used the slot before");
     }
     other => panic!("{other:?}"),
   }
@@ -528,6 +530,7 @@ fn serve_answers_a_run_on_the_loopback_with_a_real_pool() {
     choice: "affinity".to_owned(),
     waited: false,
     cleaned: false,
+    missed: None,
   };
   assert_eq!(runs[0].slot, Some(at_once), "the slot of the last run of the checkout, idle again");
 }

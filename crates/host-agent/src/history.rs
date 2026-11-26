@@ -72,6 +72,7 @@ impl History {
       exit,
       refused: info.refused.map(|refused| refused.code),
       lost: run.is_lost(),
+      cancelled: run.is_cancelled(),
       phases: info.phases.into_iter().map(|phase| LinePhase { name: phase.name, ms: phase.ms }).collect(),
       cores: run.cores().map(|cores| LineCores {
         mean: cores.mean,

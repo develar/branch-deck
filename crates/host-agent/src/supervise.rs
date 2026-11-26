@@ -31,7 +31,8 @@
 //! 5. Run the command in the slot root, in its own process group, with stdin `/dev/null`, the environment of step 4 and
 //!    the niceness of the spec, or the agent's own when that is higher: a process may not lower its niceness. The
 //!    bytes of its stdout and its stderr go to `events.log` as they are, in pieces of at most a line (`read_pieces`).
-//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later.
+//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later. When a cancel or a
+//!    stop signal came while it ran, `exit.json` says `cancelled`, whatever code the command then exited with.
 //! 6. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory, into
 //!    the run directory: nothing reads the slot after the run.
 //!
@@ -137,13 +138,19 @@ pub fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
   // read before `exit.json`: once it exists, a client can forget the run, and the run can go past the kept ones
   let spec = run.spec().ok();
   let mut repo = None;
-  let outcome = run_to_end(home, &run, &mut repo);
+  let mut held = Held::default();
+  let outcome = run_to_end(home, &run, &mut repo, &mut held);
   let exit = match outcome {
     Ok(code) => ExitRecord::Code { code },
     Err(refusal) => ExitRecord::refused(&refusal),
   };
   let id = run_dir.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-  if let Err(error) = run.write_exit(&exit) {
+  let written = if held.command_cancelled {
+    run.write_exit_of_cancelled_command(&exit)
+  } else {
+    run.write_exit(&exit)
+  };
+  if let Err(error) = written {
     supervisor_after_end(&id, &format!("cannot write the end of {}: {error}", run_dir.display()));
   }
   panics_reach_the_agent_log(&id);
@@ -215,13 +222,15 @@ fn adopt_lock(run: &RunDir, descriptor: Option<RawFd>) -> io::Result<File> {
   sys::adopt_descriptor(descriptor)
 }
 
-/// What the cleanup of a run needs from its steps: the fingerprints of the prepare steps of its slot
+/// What the cleanup and the end of a run need from its steps: the fingerprints of the prepare steps of its slot, and
+/// whether a cancel or a stop signal came while its command ran, for `exit.json`
 #[derive(Default)]
 struct Held {
   prepared: Option<Prepared>,
+  command_cancelled: bool,
 }
 
-fn run_to_end(home: &Home, run: &RunDir, repo: &mut Option<Repository>) -> Result<i32, Refusal> {
+fn run_to_end(home: &Home, run: &RunDir, repo: &mut Option<Repository>, held: &mut Held) -> Result<i32, Refusal> {
   let spec = run
     .spec()
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot read the spec of the run: {error}")))?;
@@ -234,7 +243,6 @@ fn run_to_end(home: &Home, run: &RunDir, repo: &mut Option<Repository>) -> Resul
     Ok(opened) => {
       let opened = repo.insert(opened);
       let stop = || sys::stop_signalled() || run.cancel_requested();
-      let mut held = Held::default();
       // without its own binary the agent cannot ask the login shell, and a run gets the environment of the agent
       let exe = std::env::current_exe().ok();
       let context = Context {
@@ -245,7 +253,7 @@ fn run_to_end(home: &Home, run: &RunDir, repo: &mut Option<Repository>) -> Resul
         repo: opened,
         log: &log,
       };
-      let outcome = panic::catch_unwind(AssertUnwindSafe(|| steps(&context, &stop, &mut held)))
+      let outcome = panic::catch_unwind(AssertUnwindSafe(|| steps(&context, &stop, held)))
         .unwrap_or_else(|payload| Err(Refusal::new(Code::AgentError, format!("the supervisor failed: {}", panic_text(&*payload)))));
       if let Some(prepared) = &held.prepared
         && let Err(error) = prepared.save()
@@ -321,6 +329,7 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
       choice,
       waited: lent.waited,
       cleaned: lent.cleaned,
+      missed: lent.missed,
     };
     if let Err(error) = run.write_slot(record) {
       supervisor(&format!("cannot write the slot of the run {}: {error}", spec.run));
@@ -400,6 +409,8 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     supervisor(&format!("run {}: {refusal}", spec.run));
   }
   let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
+  // the command may exit with any code after the SIGINT of a cancel (Bazel 8, 137 after the SIGKILL): the end says it
+  held.command_cancelled = stop();
   let measure_ended = Instant::now();
   // a run passed only by an exit 0 of its command that no cancel ended: the walls of the passed runs tell a short command
   measure_end(context, &of, &mut sampler, sampled_group, matches!(ran, Ok(0)) && !stop());

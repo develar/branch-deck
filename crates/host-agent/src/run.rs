@@ -5,7 +5,7 @@
 //! | `spec.json` | the [`RunSpec`]; its time of change is the start of the run |
 //! | `events.log` | one [`Event`] per line, as JSON: a piece of the stdout or the stderr of the run |
 //! | `phases.json` | the steps of the run that have ended so far, each with its duration, as a JSON array of [`Phase`] |
-//! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended; its time of change is the end of the run |
+//! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended, with `cancelled` when a cancel or a stop signal came while the command ran; its time of change is the end of the run |
 //! | `lock` | the flock of the supervisor, held for its whole life |
 //! | `cancel` | the cancel request of a client, which the supervisor polls |
 //! | `packing` | written at most once a second while the pack of the run arrives; its time of change is the last chunk |
@@ -133,6 +133,10 @@ struct ExitFile {
   /// when that was seen, not the end of the run
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   lost: bool,
+  /// A cancel or a stop signal came while the command ran ([`RunDir::write_exit_of_cancelled_command`]): whatever code
+  /// the command then exited with, it did not run to its end
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  cancelled: bool,
 }
 
 /// The content of `pack.json` and `fetched.json`: the bytes of every pack or fetch of the run, and how many there were
@@ -288,14 +292,20 @@ impl RunDir {
 
   /// Writes `exit.json` with the phases of `phases.json`
   pub(crate) fn write_exit(&self, exit: &ExitRecord) -> io::Result<()> {
-    self.write_exit_file(exit, false)
+    self.write_exit_file(exit, false, false)
   }
 
-  fn write_exit_file(&self, exit: &ExitRecord, lost: bool) -> io::Result<()> {
+  /// Writes `exit.json` of a run whose command a cancel or a stop signal interrupted, with the phases of `phases.json`
+  pub(crate) fn write_exit_of_cancelled_command(&self, exit: &ExitRecord) -> io::Result<()> {
+    self.write_exit_file(exit, false, true)
+  }
+
+  fn write_exit_file(&self, exit: &ExitRecord, lost: bool, cancelled: bool) -> io::Result<()> {
     let file = ExitFile {
       end: exit.clone(),
       phases: self.running_phases(),
       lost,
+      cancelled,
     };
     let json = serde_json::to_vec(&file).map_err(io::Error::other)?;
     write_private(&self.path.join(EXIT), &json)
@@ -382,6 +392,11 @@ impl RunDir {
     self.exit_file().ok().flatten().is_some_and(|file| file.lost)
   }
 
+  /// Whether a cancel or a stop signal interrupted the command of the ended run (`exit.json`)
+  pub(crate) fn is_cancelled(&self) -> bool {
+    self.exit_file().ok().flatten().is_some_and(|file| file.cancelled)
+  }
+
   /// Writes the steps that have ended so far to `phases.json`
   pub(crate) fn write_phases(&self, phases: &[Phase]) -> io::Result<()> {
     let json = serde_json::to_vec(phases).map_err(io::Error::other)?;
@@ -451,7 +466,7 @@ impl RunDir {
       return false;
     }
     let lost = Refusal::new(Code::AgentError, LOST_MESSAGE);
-    self.write_exit_file(&ExitRecord::refused(&lost), true).is_ok()
+    self.write_exit_file(&ExitRecord::refused(&lost), true, false).is_ok()
   }
 
   /// The start of the run, as epoch milliseconds
@@ -478,6 +493,7 @@ impl RunDir {
         choice: slot.choice.name().to_owned(),
         waited: slot.waited,
         cleaned: slot.cleaned,
+        missed: slot.missed.map(|missed| missed.name().to_owned()),
       }),
       repo: Some(home.expand(&spec.repo).display().to_string()),
       run: spec.run,

@@ -444,27 +444,44 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   it does not know.
 - **The slot of a run** (`slot.json`, `SlotRecord`): per repository 14, 11 and 32 local checkouts shared the 4 host
   slots of a host in November 2026, and whether a run finds the ignored files of its own checkout in its slot decides
-  much of its build, so `branchdeck.hostSlots` needs the share of runs that got the slot their affinity used last and
-  what a miss costs. The slot was named only by the line `running in <slot> (slot <n>)` of the log, which a forget
-  cuts. The lend knows the answer as it chooses (`host_slots::Lend`): `choice` is `affinity` for the idle slot whose
-  last lend had the affinity, else `idle`, the one used longest ago, and `waited` says that the ticket of the run was in
-  the queue of the slots before the call that lent, whatever kept it there (busy slots, runs before it, a fill, an
-  upgrade of git; the phase `slot` has the time); a lend after a wait chooses by the same rule, so a waiting run can
-  still get its own slot, and the two are kept apart.
-  A clean keeps the affinity of a slot, so the choice says nothing of its files: the clean after a run, the idle clean
-  of `branchdeck.hostSlotIdleClean` and a relief (which may drop the output bases too) empty the slot and leave
-  `affinity` as it was. So the lend also says `cleaned`: the slot has no `returned` of a give-back since its last lend
-  (a clean takes it away) and a `cleaned_at` after it, the second test for a give-back of a build before `returned`.
-  The choice stays as it was, since a cleaned slot of the affinity still has its checkout and its Bazel servers.
-  The supervisor writes it with the number of the slot after the
-  lend, the run's own file, as `queue.json` is; `RunInfo` names it as `slot`, with the repository of the run, `~/`
-  expanded as in the line and the summary, as `repo`, and the line as `slot`. The summary gives per repository the runs
-  whose line names their slot, the share that got the slot of their affinity, those of them on a cleaned slot, the runs
-  that waited, and the command p50 and p90 of the warm hits, of the cleaned hits and of the others (`SlotStats`), each
-  of the commands that ran to their end (a cancel, a refusal or a lost supervisor cuts one short). A choice of a later
-  build reads as `other` (`SlotChoice::Other`) and counts as no hit. An older agent
-  or supervisor writes none of it, and its client shows nothing for it: the fields are optional, and `RunInfo` and the
-  summary have no `deny_unknown_fields`, so an older client ignores them.
+  much of its build, so `branchdeck.hostSlots` needs, per command, the share of runs that got a warm slot of their
+  checkout, what the others took, and why they missed it. The slot was named only by the line `running in <slot> (slot
+  <n>)` of the log, which a forget cuts. The lend knows most of it as it chooses (`host_slots::Lend`): `choice` is
+  `affinity` for the idle slot whose last lend had the affinity, else `idle`, the one used longest ago, and `waited`
+  says that the ticket of the run was in the queue of the slots before the call that lent, whatever kept it there (busy
+  slots, runs before it, a fill, an upgrade of git; the phase `slot` has the time); a lend after a wait chooses by the
+  same rule, so a waiting run can still get its own slot, and the two are kept apart.
+  - **Cleaned**: a clean keeps the affinity of a slot, so the choice says nothing of its files: the clean after a run,
+    the idle clean of `branchdeck.hostSlotIdleClean` and a relief empty the slot and leave `affinity` as it was, and a
+    relief may also stop its Bazel servers and drop its output bases. So the lend also says `cleaned`: the slot has no
+    `returned` of a give-back since its last lend (a clean takes it away) and a `cleaned_at` after it, the second test
+    for a give-back of a build before `returned`. The choice stays as it was, since a cleaned slot of the affinity still
+    has the tree of its checkout. A last lend of the affinity that ended before its checkout (a refusal while it waited
+    for its pack, a cancel) left the files of the checkout before it: the table does not tell it, so such a hit reads as
+    warm.
+  - **Why a miss**: at the lend the table shows whether a slot of the affinity is lent to another run of the checkout
+    (`lent`), is not ready (`unavailable`), or whether no slot has the affinity (`no_slot`). The table keeps only the
+    last affinity of a slot, so whether the checkout had a slot that another checkout took since is not known there; the
+    summary tells it by the earlier lines of the window (`first` or `taken`). Only `taken` shrinks with more slots:
+    `first` is the cost of a checkout new to the host, and `lent` of the concurrency of one checkout.
+  - **Cancelled**: a cancel sends SIGINT to the command, and the command exits with what it chooses (Bazel 8, 137 after
+    the SIGKILL of the grace), so the supervisor writes `cancelled` into `exit.json` when a stop came while the command
+    ran, and the line carries it: such a run is no failure and is in no spread.
+  - **The summary** gives per repository the runs whose line names their slot, the warm hits, the hits on a cleaned
+    slot, the misses by cause and the runs that waited, and per command (`command_key`, the measure class of
+    `--measure-as` where a run has one; the 10 with the most runs, the rest in one entry) a bucket of the warm hits, of
+    the cleaned hits and of the misses: the runs whose command ran to its end, and the p50 and p90 of their `command`,
+    `checkout` and `prepare`, as a switch to another tree costs in all three (`SlotStats`). A command of one repository
+    compares like with like; across the commands of a repository the repeats that hit and the first heavy builds that
+    miss would make a cost of a miss that no command had. The line prints a p50 only from 5 runs (`MIN_SPREAD_RUNS`) and
+    names the runs of each bucket. Two spellings of one repository (a symlink, a trailing `/`) are two entries, as in
+    the other parts of the summary.
+  - The supervisor writes the record with the number of the slot after the lend, the run's own file, as `queue.json` is;
+    `RunInfo` names it as `slot`, with the repository of the run, `~/` expanded as in the line and the summary, as
+    `repo`, and the line as `slot`. A choice or a cause of a later build reads as `other` (`SlotChoice::Other`,
+    `SlotMiss::Other`) and counts as no hit. An older agent or supervisor writes none of it, and its client shows
+    nothing for it: the fields are optional, and `RunInfo` and the summary have no `deny_unknown_fields`, so an older
+    client ignores them.
 - **The summary on the host**: `Request::Stats` (feature `stats`: an older agent closes the connection on a request
   that it does not know, so the client checks the hello first) sums the lines of its window and the ended runs that the
   agent keeps, with the pure `host_history::aggregate`, and only the summary crosses the link: the waits against the

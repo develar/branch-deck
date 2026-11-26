@@ -158,6 +158,7 @@ fn a_forgotten_run_keeps_its_end_and_its_log_and_its_files_go() {
       choice: lease_pool::host_slots::SlotChoice::Idle,
       waited: false,
       cleaned: false,
+      missed: Some(lease_pool::host_slots::SlotMiss::NoSlot),
     })
     .expect("the slot");
   let log = EventLog::open(&run.events_path()).expect("opened");
@@ -187,7 +188,8 @@ fn a_forgotten_run_keeps_its_end_and_its_log_and_its_files_go() {
         n: 2,
         choice: "idle".to_owned(),
         waited: false,
-        cleaned: false
+        cleaned: false,
+        missed: Some("no_slot".to_owned())
       })
     )
   );

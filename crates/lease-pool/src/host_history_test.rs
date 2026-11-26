@@ -1,5 +1,5 @@
 use super::*;
-use crate::host_slots::{SlotChoice, Ticket};
+use crate::host_slots::{SlotChoice, SlotMiss, Ticket};
 use crate::host_turn::{HeadDrain, TurnEntry};
 use pretty_assertions::assert_eq;
 
@@ -492,117 +492,221 @@ fn the_summary_sums_the_waits_and_the_work_by_group() {
   assert!(report.lines("studio").contains(&"    2 other group(s): 2 run(s), waited 5 min, worked 20 min".to_owned()));
 }
 
-/// A run of `repo` whose lend gave it `slot`, and that ran its command for `command_ms`
-fn lent(run: &str, repo: &str, slot: SlotRecord, command_ms: u64) -> HistoryLine {
+/// A run `run` of `repo` and `command` whose lend gave it `slot`, and whose checkout took 1 s, its prepare 10 s and its
+/// command `command_ms`
+fn lent(run: &str, repo: &str, command: &str, slot: SlotRecord, command_ms: u64) -> HistoryLine {
   HistoryLine {
     repo: repo.to_owned(),
     slot: Some(slot),
-    ..line(run, "bazel build //...", NOV_24, 0, &[("slot", 10), ("command", command_ms)])
+    ..line(run, command, NOV_24, 0, &[("slot", 10), ("checkout", 1000), ("prepare", 10_000), ("command", command_ms)])
   }
 }
 
-/// The slot `n`, lent at once by `choice` and not cleaned since its last run
-const fn slot(n: u32, choice: SlotChoice) -> SlotRecord {
+/// The slot 1, lent at once by `choice`, not cleaned since its last run, and a miss of no slot of the affinity for
+/// `SlotChoice::Idle`
+fn slot(choice: SlotChoice) -> SlotRecord {
   SlotRecord {
-    n,
+    n: 1,
     choice,
     waited: false,
     cleaned: false,
+    missed: (choice == SlotChoice::Idle).then_some(SlotMiss::NoSlot),
   }
 }
 
-/// Per repository the summary counts the runs whose line names their slot, those that got the slot whose last lend had
-/// their affinity, after a wait or not, those of them on a slot cleaned since, and those that waited; the command p50
-/// of the warm hits, the cleaned hits and the others counts only the commands that ran to their end. A run without a
-/// slot of record counts in none, a choice of a later build as no hit, and a part of no run leaves the line
+const BUILD: &str = "bazel build //...";
+const IDEA: &str = "/Users/u/idea-1";
+
+/// Per repository the summary counts the lends: warm hits, hits on a slot cleaned since, and the misses by their cause,
+/// `first` and `taken` by the earlier lines of the affinity; per command it gives the runs, the hits and the spreads of
+/// the warm hits, the cleaned hits and the misses, each of the runs whose command ran to its end with their count: a
+/// cancel whatever its exit, a refusal and a lost supervisor leave a run out, and a cancel is no failure either. A spread
+/// below `MIN_SPREAD_RUNS` prints its runs only, and a part of no run leaves the line
 #[test]
 fn the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinity() {
-  let later = HistoryLine {
-    slot: serde_json::from_value(serde_json::json!({"n": 2, "choice": "cold"})).unwrap(),
-    ..lent("6", "/Users/u/idea-1", slot(2, SlotChoice::Idle), 9 * MIN)
+  let mut lines: Vec<HistoryLine> = [2, 3, 4, 5, 6]
+    .iter()
+    .enumerate()
+    .map(|(at, minutes)| lent(&format!("0{at}"), IDEA, BUILD, slot(SlotChoice::Affinity), minutes * MIN))
+    .collect();
+  let cut = |run: &str, edit: &dyn Fn(&mut HistoryLine)| {
+    let mut line = lent(run, IDEA, BUILD, slot(SlotChoice::Affinity), MIN);
+    edit(&mut line);
+    line
   };
-  assert_eq!(later.slot.map(|slot| slot.choice), Some(SlotChoice::Other), "a choice of a later build reads as other");
-  let cancelled = HistoryLine {
-    exit: INTERRUPTED,
-    ..lent("7", "/Users/u/idea-1", slot(1, SlotChoice::Affinity), MIN)
+  lines.push(cut("05", &|line| {
+    line.exit = 8;
+    line.cancelled = true;
+  }));
+  lines.push(cut("06", &|line| {
+    line.exit = 255;
+    line.refused = Some("agent_error".to_owned());
+  }));
+  lines.push(cut("07", &|line| {
+    line.exit = 255;
+    line.lost = true;
+    line.refused = Some("agent_error".to_owned());
+  }));
+  let cleaned = SlotRecord {
+    cleaned: true,
+    ..slot(SlotChoice::Affinity)
   };
-  let after_wait = |n, choice| SlotRecord { waited: true, ..slot(n, choice) };
-  let lines = [
-    lent("1", "/Users/u/idea-1", slot(1, SlotChoice::Affinity), 2 * MIN),
-    lent("2", "/Users/u/idea-1", after_wait(2, SlotChoice::Affinity), 4 * MIN),
-    lent("3", "/Users/u/idea-1", slot(3, SlotChoice::Idle), 10 * MIN),
-    lent("4", "/Users/u/idea-1", slot(4, SlotChoice::Affinity), 3 * MIN),
-    lent(
-      "5",
-      "/Users/u/idea-1",
-      SlotRecord {
-        cleaned: true,
-        ..slot(1, SlotChoice::Affinity)
-      },
-      8 * MIN,
-    ),
-    later,
-    cancelled,
-    lent("a", "/Users/u/accio", after_wait(1, SlotChoice::Affinity), MIN),
-    line("8", "bazel build //...", NOV_24, 0, &[("command", MIN)]),
-  ];
+  lines.push(lent("08", IDEA, BUILD, cleaned, 8 * MIN));
+  // checkout-2 has no earlier line, checkout-1 has: its slot went to another checkout since
+  lines.push(HistoryLine {
+    affinity: "checkout-2".to_owned(),
+    ..lent("09", IDEA, BUILD, slot(SlotChoice::Idle), 10 * MIN)
+  });
+  lines.push(lent("10", IDEA, BUILD, slot(SlotChoice::Idle), 9 * MIN));
+  let lent_to_another = SlotRecord {
+    missed: Some(SlotMiss::Lent),
+    waited: true,
+    ..slot(SlotChoice::Idle)
+  };
+  lines.push(lent("11", IDEA, BUILD, lent_to_another, 11 * MIN));
+  let unavailable = SlotRecord {
+    missed: Some(SlotMiss::Unavailable),
+    ..slot(SlotChoice::Idle)
+  };
+  lines.push(lent("12", IDEA, "cargo nextest run", unavailable, MIN));
+  lines.push(HistoryLine {
+    slot: serde_json::from_value(serde_json::json!({"n": 2, "choice": "cold", "missed": "gone"})).unwrap(),
+    ..lent("13", IDEA, "cargo nextest run", slot(SlotChoice::Idle), MIN)
+  });
+  let waited = SlotRecord {
+    waited: true,
+    ..slot(SlotChoice::Affinity)
+  };
+  lines.push(lent("a", "/Users/u/accio", BUILD, waited, MIN));
+  lines.push(line("b", BUILD, NOV_24, 0, &[("command", MIN)]));
+  assert_eq!(
+    lines[13].slot.map(|slot| (slot.choice, slot.missed)),
+    Some((SlotChoice::Other, Some(SlotMiss::Other))),
+    "a choice and a cause of a later build read as other"
+  );
 
   let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
 
+  let [accio, idea] = report.slots.as_slice() else {
+    panic!("two repositories: {:?}", report.slots)
+  };
   assert_eq!(
-    report.slots,
-    [
-      SlotStats {
-        repo: "/Users/u/accio".to_owned(),
-        runs: 1,
-        affinity: 1,
-        cleaned: 0,
-        waited: 1,
-        warm_command_ms: Some(Spread { p50: MIN, p90: MIN }),
-        cleaned_command_ms: None,
-        other_command_ms: None,
-      },
-      SlotStats {
-        repo: "/Users/u/idea-1".to_owned(),
-        runs: 7,
-        affinity: 5,
-        cleaned: 1,
-        waited: 1,
-        warm_command_ms: Some(Spread { p50: 3 * MIN, p90: 4 * MIN }),
-        cleaned_command_ms: Some(Spread { p50: 8 * MIN, p90: 8 * MIN }),
-        other_command_ms: Some(Spread { p50: 9 * MIN, p90: 10 * MIN }),
-      },
-    ]
+    (accio.repo.as_str(), accio.runs, accio.affinity, accio.cleaned, accio.waited, accio.misses),
+    ("/Users/u/accio", 1, 1, 0, 1, MissTotals::default())
   );
-  let slot_lines: Vec<String> = report.lines("studio").into_iter().filter(|line| line.starts_with("  slots of ")).collect();
+  assert_eq!(
+    (idea.runs, idea.affinity, idea.cleaned, idea.waited, idea.misses),
+    (
+      14,
+      9,
+      1,
+      1,
+      MissTotals {
+        first: 1,
+        taken: 1,
+        lent: 1,
+        unavailable: 1,
+        other: 1,
+      }
+    )
+  );
+  let [build, nextest] = idea.commands.as_slice() else {
+    panic!("two commands: {:?}", idea.commands)
+  };
+  let bucket = |runs: u32, p50: u64, p90: u64| SlotBucket {
+    runs,
+    command_ms: Spread { p50, p90 },
+    checkout_ms: Some(Spread { p50: 1000, p90: 1000 }),
+    prepare_ms: Some(Spread { p50: 10_000, p90: 10_000 }),
+  };
+  assert_eq!(
+    build,
+    &SlotCommandStats {
+      command_key: BUILD.to_owned(),
+      command: BUILD.to_owned(),
+      measure_as: None,
+      runs: 12,
+      affinity: 9,
+      cleaned: 1,
+      warm: Some(bucket(5, 4 * MIN, 6 * MIN)),
+      after_clean: Some(bucket(1, 8 * MIN, 8 * MIN)),
+      missed: Some(bucket(3, 10 * MIN, 11 * MIN)),
+    }
+  );
+  assert_eq!(
+    (nextest.runs, nextest.affinity, nextest.warm, nextest.missed.map(|bucket| bucket.runs)),
+    (2, 0, None, Some(2))
+  );
+  assert_eq!(idea.other_commands, None);
+  let failed = |report: &StatsReport| {
+    report
+      .commands
+      .iter()
+      .find(|command| command.command_key == BUILD && command.repo == IDEA)
+      .map(|command| command.failed)
+  };
+  assert_eq!(failed(&report), Some(0), "the cancel that exited 8 is no failure, nor a refusal");
+  let not_cancelled = HistoryLine {
+    cancelled: false,
+    ..lines[5].clone()
+  };
+  assert_eq!(
+    failed(&aggregate(&[not_cancelled], &[], NOV_24, NOV_24 + DAY, 1)),
+    Some(1),
+    "the exit 8 of a command that no cancel cut"
+  );
+
+  let slot_lines: Vec<String> = report
+    .lines("studio")
+    .into_iter()
+    .filter(|line| line.starts_with("  slots of ") || line.contains(" on the slot of their checkout"))
+    .collect();
   assert_eq!(
     slot_lines,
     [
-      "  slots of /Users/u/accio: 1 of 1 run(s) got the slot that their checkout used last (100 %); 1 warm, command p50 60 s; 1 waited in the queue of the slots",
-      "  slots of /Users/u/idea-1: 5 of 7 run(s) got the slot that their checkout used last (71 %); 4 warm, command p50 3 min; 1 cleaned since, command p50 8 min; the other 2, command p50 9 min; 1 waited in the queue of the slots",
+      "  slots of /Users/u/accio: 1 run(s) with a slot: 1 warm on the slot of their checkout (100 %); 1 waited in the queue of the slots",
+      "    1 run(s), 1 on the slot of their checkout; warm 1 run(s), too few for a p50: bazel build //...",
+      "  slots of /Users/u/idea-1: 14 run(s) with a slot: 8 warm on the slot of their checkout (57 %), 1 on it cleaned since, 5 on another slot (1 first of their checkout in the window, 1 whose slot another checkout took since, 1 whose slot another run of their checkout had, 1 whose slot was not ready, 1 of another cause); 1 waited in the queue of the slots",
+      "    12 run(s), 9 on the slot of their checkout; warm 5 run(s), command p50 4 min p90 6 min, checkout p50 1 s, prepare p50 10 s; after a clean 1 run(s), too few for a p50; missed 3 run(s), too few for a p50: bazel build //...",
+      "    2 run(s), 0 on the slot of their checkout; missed 2 run(s), too few for a p50: cargo nextest run",
     ]
   );
   let json = serde_json::to_value(&report).unwrap();
   assert_eq!(
-    json["slots"][1],
+    json["slots"][1]["commands"][0]["warm"],
     serde_json::json!({
-      "repo": "/Users/u/idea-1",
-      "runs": 7,
-      "affinity": 5,
-      "cleaned": 1,
-      "waited": 1,
-      "warm_command_ms": {"p50": 3 * MIN, "p90": 4 * MIN},
-      "cleaned_command_ms": {"p50": 8 * MIN, "p90": 8 * MIN},
-      "other_command_ms": {"p50": 9 * MIN, "p90": 10 * MIN},
+      "runs": 5,
+      "command_ms": {"p50": 4 * MIN, "p90": 6 * MIN},
+      "checkout_ms": {"p50": 1000, "p90": 1000},
+      "prepare_ms": {"p50": 10_000, "p90": 10_000},
     })
   );
   assert_eq!(
-    (serde_json::to_value(lines[1].slot).unwrap(), serde_json::to_value(lines[4].slot).unwrap()),
+    json["slots"][1]["misses"],
+    serde_json::json!({"first": 1, "taken": 1, "lent": 1, "unavailable": 1, "other": 1})
+  );
+  assert_eq!(
+    (serde_json::to_value(lines[11].slot).unwrap(), serde_json::to_value(lines[8].slot).unwrap()),
     (
-      serde_json::json!({"n": 2, "choice": "affinity", "waited": true}),
+      serde_json::json!({"n": 1, "choice": "idle", "waited": true, "missed": "lent"}),
       serde_json::json!({"n": 1, "choice": "affinity", "cleaned": true})
     ),
     "the slot of a line"
   );
-  assert!(aggregate(&lines[8..], &[], NOV_24, NOV_24 + DAY, 1).slots.is_empty(), "no line names its slot");
+  assert!(aggregate(&lines[15..], &[], NOV_24, NOV_24 + DAY, 1).slots.is_empty(), "no line names its slot");
+}
+
+/// The lends of a repository name its `TOP_SLOT_COMMANDS` commands with the most runs, and the rest in one entry
+#[test]
+fn the_lends_of_a_repository_name_the_commands_with_the_most_runs_and_the_rest_in_one_entry() {
+  let mut lines: Vec<HistoryLine> = (0..12)
+    .map(|n| lent(&format!("{n:02}"), IDEA, &format!("command {n:02}"), slot(SlotChoice::Affinity), MIN))
+    .collect();
+  lines.push(lent("12", IDEA, "command 11", slot(SlotChoice::Affinity), MIN));
+  let report = aggregate(&lines, &[], NOV_24, NOV_24 + DAY, 1);
+  let [idea] = report.slots.as_slice() else { panic!("one repository") };
+  assert_eq!(idea.commands.len(), TOP_SLOT_COMMANDS);
+  assert_eq!((idea.commands[0].command.as_str(), idea.commands[0].runs), ("command 11", 2), "the most runs first");
+  assert_eq!(idea.other_commands, Some(OtherSlotCommands { commands: 2, runs: 2 }));
+  assert!(report.lines("studio").contains(&"    2 other command(s): 2 run(s)".to_owned()));
 }

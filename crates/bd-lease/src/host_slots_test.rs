@@ -17,8 +17,8 @@ use git_ops::lease_slot::STATE_DIR;
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, KeepFreeOptions, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, SlotChoice,
-  changes_run, checkout, clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit,
-  shrink, snapshot_run,
+  SlotMiss, changes_run, checkout, clean_idle_slots, clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots,
+  set_limit, shrink, snapshot_run,
 };
 #[cfg(unix)]
 use lease_pool::lease::Ahead;
@@ -334,19 +334,84 @@ fn a_lend_names_the_slot_of_its_affinity_over_one_idle_longer_and_else_the_one_i
 }
 
 /// A clean of the slot since its last run keeps its affinity, so the lend still chooses it, and says that its files were
-/// cleaned; the next run of the affinity after a plain give-back finds them warm again
+/// cleaned, whichever clean it was: one by hand, the clean after a run once one is due, the idle clean; the next run of
+/// the affinity after a plain give-back finds them warm again. A table whose give-back wrote no `returned` (a build
+/// before it) tells it by the time of the clean against the last lend
 #[test_log::test]
 fn a_lend_of_the_slot_of_its_affinity_says_whether_a_clean_came_since_its_last_run() {
   let host = Host::filled(1);
-  let (_, context, params) = host.parts();
+  let (fixture, context, params) = host.parts();
+  // no minimum free space of the host's own config makes a give-back clean the slot
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "0"]);
   let choice = |lend: &Lend| (lend.choice, lend.cleaned);
+  let run = |name: &str| {
+    let lend = lent(lend_to(&params, name, Some("checkout-a")));
+    give_back(&context.git, &params, 1, name).unwrap();
+    choice(&lend)
+  };
+  let next = |name: &str| choice(&lent(lend_to(&params, name, Some("checkout-a"))));
 
-  lent(lend_to(&params, "run-1", Some("checkout-a")));
-  give_back(&context.git, &params, 1, "run-1").unwrap();
+  run("run-1");
   clean_slot(&context.git, &params, 1, CleanOverrides::default()).unwrap();
-  assert_eq!(choice(&lent(lend_to(&params, "run-2", Some("checkout-a")))), (Some(SlotChoice::Affinity), true));
-  give_back(&context.git, &params, 1, "run-2").unwrap();
-  assert_eq!(choice(&lent(lend_to(&params, "run-3", Some("checkout-a")))), (Some(SlotChoice::Affinity), false));
+  assert_eq!(run("run-2"), (Some(SlotChoice::Affinity), true), "a clean by hand");
+  assert_eq!(run("run-3"), (Some(SlotChoice::Affinity), false), "a plain give-back");
+
+  edit_table(fixture, |table| table["slots"][0]["runs_since_clean"] = Value::from(49));
+  run("run-4");
+  assert_eq!(table(fixture).slots[0].runs_since_clean, 0, "the give-back of the 50th run cleaned the slot");
+  assert_eq!(run("run-5"), (Some(SlotChoice::Affinity), true), "the clean after a run");
+
+  let returned = table(fixture).slots[0].returned.expect("a give-back records when");
+  assert_eq!(clean_idle_slots(&context.git, &params, returned + 7 * 3_600_000).unwrap().len(), 1);
+  assert_eq!(run("run-6"), (Some(SlotChoice::Affinity), true), "the idle clean");
+
+  // a give-back of a build before `returned`: the clean of the second of the last lend counts, an earlier one does not
+  let used = table(fixture).slots[0].used.expect("a lend");
+  edit_table(fixture, |table| {
+    table["slots"][0].as_object_mut().unwrap().remove("returned");
+    table["slots"][0]["cleaned_at"] = Value::from(used / 1000);
+  });
+  assert_eq!(run("run-7"), (Some(SlotChoice::Affinity), true), "no `returned`, a clean after the last lend");
+  let used = table(fixture).slots[0].used.expect("a lend");
+  edit_table(fixture, |table| {
+    table["slots"][0].as_object_mut().unwrap().remove("returned");
+    table["slots"][0]["cleaned_at"] = Value::from(used / 1000 - 1);
+  });
+  assert_eq!(next("run-8"), (Some(SlotChoice::Affinity), false), "no `returned`, the clean before the last lend");
+}
+
+/// A lend that finds no idle slot of its affinity says why, as the table shows it: no slot had the affinity last, a slot
+/// of it is lent to another run of the same checkout, or a slot of it is not ready (here in quarantine)
+#[test_log::test]
+fn a_lend_that_misses_the_slot_of_its_affinity_says_why() {
+  let host = Host::filled(2);
+  let (fixture, context, params) = host.parts();
+  let missed = |lend: Lend| (lend.n, lend.choice, lend.missed);
+
+  assert_eq!(
+    missed(lent(lend_to(&params, "run-1", Some("checkout-a")))),
+    (1, Some(SlotChoice::Idle), Some(SlotMiss::NoSlot))
+  );
+  assert_eq!(
+    missed(lent(lend_to(&params, "run-2", Some("checkout-a")))),
+    (2, Some(SlotChoice::Idle), Some(SlotMiss::Lent))
+  );
+  give_back(&context.git, &params, 1, "run-1").unwrap();
+  give_back(&context.git, &params, 2, "run-2").unwrap();
+  edit_table(fixture, |table| {
+    table["slots"][1]["affinity"] = Value::from("checkout-c");
+    table["slots"][1]["state"] = json!({"kind": "quarantined", "processes": []});
+  });
+  assert_eq!(
+    missed(lent(lend_to(&params, "run-3", Some("checkout-c")))),
+    (1, Some(SlotChoice::Idle), Some(SlotMiss::Unavailable))
+  );
+  give_back(&context.git, &params, 1, "run-3").unwrap();
+  assert_eq!(
+    missed(lent(lend_to(&params, "run-4", Some("checkout-b")))),
+    (1, Some(SlotChoice::Idle), Some(SlotMiss::NoSlot))
+  );
+  assert_eq!(lent(lend_to(&params, "run-4", Some("checkout-b"))).missed, None, "a repeat");
 }
 
 /// A give-back discards the changes of the run, untracked files too, and keeps the ignored ones; a lend whose process is

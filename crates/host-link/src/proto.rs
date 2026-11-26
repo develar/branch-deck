@@ -567,6 +567,10 @@ pub struct RunSlot {
   /// no run
   #[serde(default, skip_serializing_if = "is_false")]
   pub cleaned: bool,
+  /// Why a lend of `idle` found no idle slot of the affinity, by name: `no_slot`, no slot had the affinity last;
+  /// `lent`, its slot was lent to another run of the same checkout; `unavailable`, its slot was not ready for a run
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub missed: Option<String>,
 }
 
 /// The cores that the command of a run used: its CPU time over its wall time, and the most of one sample

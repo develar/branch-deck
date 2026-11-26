@@ -12,7 +12,7 @@
 //! longest ([`TOP_COMMANDS`]) and the rest in one entry, the 30 groups of the heavy queue that waited longest
 //! ([`TOP_GROUPS`]) and the rest in one entry, and the bytes by day
 
-use crate::host_slots::SlotChoice;
+use crate::host_slots::{SlotChoice, SlotMiss};
 use crate::host_turn::{HeadDrain, HeavyTurn};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -27,6 +27,11 @@ pub const KEEP_DAYS: u32 = 90;
 pub const TOP_COMMANDS: usize = 30;
 /// The groups of a summary by their wait; the rest is one entry
 pub const TOP_GROUPS: usize = 30;
+/// The commands of each repository in the lends of a summary, by their runs; the rest is one entry
+pub const TOP_SLOT_COMMANDS: usize = 10;
+/// The fewest runs of a spread of the lends whose p50 and p90 the line of a summary prints: below it the line names the
+/// runs only, too few to read, and the JSON keeps the spread with its runs
+pub const MIN_SPREAD_RUNS: u32 = 5;
 /// The phases that wait for the host: for the heavy turn, for a measurement, for the git of the host, for a slot and
 /// for the pack. Every other phase works
 pub const WAIT_PHASES: [&str; 5] = ["heavy", "exclusive", "git", "slot", "pack_wait"];
@@ -36,6 +41,10 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// One ended run of the host, as the agent keeps it after the run directory went
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[expect(
+  clippy::struct_excessive_bools,
+  reason = "a line of the history: `heavy`, `exclusive`, `lost` and `cancelled` are independent fields that the lines of every build keep by name"
+)]
 pub struct HistoryLine {
   #[serde(default)]
   pub schema: u32,
@@ -72,6 +81,10 @@ pub struct HistoryLine {
   pub refused: Option<String>,
   #[serde(default, skip_serializing_if = "is_false")]
   pub lost: bool,
+  /// A cancel or a stop signal of the supervisor came while the command ran, whatever the command then exited with
+  /// (`exit.json` of the run); `false` from a supervisor of a build before it, whose cancels tell only by the exit 130
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub cancelled: bool,
   #[serde(default)]
   pub phases: Vec<LinePhase>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,12 +132,12 @@ impl HistoryLine {
 
   /// Its command ran to its end: no cancel, no refusal and no loss of its supervisor cut it
   fn command_ran_to_its_end(&self) -> bool {
-    self.ran_command() && !self.lost && self.refused.is_none() && self.exit != INTERRUPTED
+    self.ran_command() && !self.lost && !self.cancelled && self.refused.is_none() && self.exit != INTERRUPTED
   }
 
   /// Its command ran and exited with a code other than 0 and that of a cancel
   fn failed(&self) -> bool {
-    self.ran_command() && self.refused.is_none() && self.exit != 0 && self.exit != INTERRUPTED
+    self.ran_command() && !self.cancelled && self.refused.is_none() && self.exit != 0 && self.exit != INTERRUPTED
   }
 
   /// The span of its first phase `name` in Unix milliseconds, by its start and the phases before it in their order
@@ -229,6 +242,9 @@ pub struct SlotRecord {
   /// The files of the slot were cleaned since its last run gave it back (`host_slots::Lend::cleaned`)
   #[serde(default, skip_serializing_if = "is_false")]
   pub cleaned: bool,
+  /// Why the lend of `SlotChoice::Idle` found no idle slot of the affinity (`host_slots::Lend::missed`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub missed: Option<SlotMiss>,
 }
 
 /// What a heavy run needs of the host, as the heavy turn counts it (`host_turn::Need`)
@@ -556,8 +572,9 @@ pub struct OtherGroups {
   pub work_ms: u64,
 }
 
-/// The lends of the runs of one repository over a window: how many got the slot that their affinity used last, and the
-/// command of those that did and of the others. Only the runs whose line names their slot count
+/// The lends of the runs of one repository over a window: how many got a warm slot of their affinity, how many got it
+/// cleaned since, and why the others missed it; and per command what its runs took in each case. Only the runs whose
+/// line names their slot count
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotStats {
   pub repo: String,
@@ -570,42 +587,170 @@ pub struct SlotStats {
   pub cleaned: u32,
   /// Of them, the runs whose lend came after a wait in the queue of the slots, of any cause
   pub waited: u32,
-  /// The phase `command` of the hits on a slot that no clean emptied, whose command ran to its end
+  /// The others by why they missed the slot of their affinity
+  #[serde(default)]
+  pub misses: MissTotals,
+  /// The [`TOP_SLOT_COMMANDS`] commands of the repository with the most runs, by their key
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub commands: Vec<SlotCommandStats>,
+  /// The commands past them, in one entry
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub warm_command_ms: Option<Spread>,
-  /// The phase `command` of the hits on a cleaned slot, whose command ran to its end
+  pub other_commands: Option<OtherSlotCommands>,
+}
+
+/// The runs that missed the slot of their affinity, by why. At the lend no slot of the table had the affinity last
+/// (`SlotMiss::NoSlot`): `first` when no earlier line of the window names a slot of the affinity, else `taken`, as a
+/// slot that it had went to another checkout or was made anew since
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissTotals {
+  /// The first run of its checkout in the window that got a slot: a checkout whose last run came before the window
+  /// counts here too
+  pub first: u32,
+  pub taken: u32,
+  /// A slot of the affinity was lent to another run of the same checkout (`SlotMiss::Lent`)
+  pub lent: u32,
+  /// A slot of the affinity was not ready for a run (`SlotMiss::Unavailable`)
+  pub unavailable: u32,
+  /// A cause of a later build, or a line without one
+  pub other: u32,
+}
+
+/// The lends of the runs of one command of a repository (`HistoryLine::command_key`: its measure class, else its command
+/// line and fetches) and what its runs took on a warm slot of their affinity, on one cleaned since, and on another slot
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotCommandStats {
+  pub command_key: String,
+  /// The command line of its last run
+  pub command: String,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub cleaned_command_ms: Option<Spread>,
-  /// The phase `command` of the other runs, whose command ran to its end: another idle slot, or a choice of a later build
+  pub measure_as: Option<String>,
+  /// Its runs whose line names their slot, those that got the slot of their affinity, and those of them cleaned since
+  pub runs: u32,
+  pub affinity: u32,
+  pub cleaned: u32,
+  /// The warm hits whose command ran to its end
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub other_command_ms: Option<Spread>,
+  pub warm: Option<SlotBucket>,
+  /// The hits on a slot cleaned since, whose command ran to its end
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub after_clean: Option<SlotBucket>,
+  /// The runs on another slot whose command ran to its end
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub missed: Option<SlotBucket>,
+}
+
+/// The runs of one case of a command whose command ran to its end (no cancel, refusal or lost supervisor), and the p50
+/// and p90 of their phases `command`, `checkout` and `prepare`: a switch of the slot to another tree costs in all three
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotBucket {
+  pub runs: u32,
+  pub command_ms: Spread,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub checkout_ms: Option<Spread>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prepare_ms: Option<Spread>,
+}
+
+/// The commands of a repository past the [`TOP_SLOT_COMMANDS`] with the most runs
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OtherSlotCommands {
+  pub commands: u32,
+  pub runs: u32,
+}
+
+impl SlotBucket {
+  /// The bucket of the runs of `lines` whose command ran to its end; `None` without one
+  fn of(lines: &[&HistoryLine]) -> Option<Self> {
+    let ran: Vec<&&HistoryLine> = lines.iter().filter(|line| line.command_ran_to_its_end()).collect();
+    let phase = |name: &str| {
+      Spread::of(
+        ran
+          .iter()
+          .filter(|line| line.phases.iter().any(|phase| phase.name == name))
+          .map(|line| line.phase_ms(name))
+          .collect(),
+      )
+    };
+    Some(Self {
+      runs: count(ran.len()),
+      command_ms: phase("command")?,
+      checkout_ms: phase("checkout"),
+      prepare_ms: phase("prepare"),
+    })
+  }
+
+  /// `warm 6 run(s), command p50 4 min p90 6 min, checkout p50 2 s, prepare p50 40 s`; below [`MIN_SPREAD_RUNS`]
+  /// `warm 2 run(s), too few for a p50`
+  fn text(&self, label: &str) -> String {
+    if self.runs < MIN_SPREAD_RUNS {
+      return format!("{label} {} run(s), too few for a p50", self.runs);
+    }
+    let mut text = format!(
+      "{label} {} run(s), command p50 {} p90 {}",
+      self.runs,
+      hours(self.command_ms.p50),
+      hours(self.command_ms.p90)
+    );
+    for (name, spread) in [("checkout", self.checkout_ms), ("prepare", self.prepare_ms)] {
+      if let Some(spread) = spread {
+        let _ = write!(text, ", {name} p50 {}", hours(spread.p50));
+      }
+    }
+    text
+  }
 }
 
 impl SlotStats {
-  /// `  slots of <repo>: 70 of 100 run(s) got the slot that their checkout used last (70 %); 60 warm, command p50 4 min;
-  /// 10 cleaned since, command p50 8 min; the other 30, command p50 9 min; 12 waited in the queue of the slots`, a part
-  /// of no run left out
-  fn line(&self) -> String {
-    let p50 = |spread: Option<Spread>| spread.map_or_else(String::new, |spread| format!(", command p50 {}", hours(spread.p50)));
-    let warm = self.affinity - self.cleaned;
-    let other = self.runs - self.affinity;
+  /// `  slots of <repo>: 100 run(s) with a slot: 60 warm on the slot of their checkout (60 %), 10 on it cleaned since,
+  /// 30 on another slot (12 first of their checkout in the window, …); 12 waited in the queue of the slots`, then a line
+  /// per command, a part of no run left out
+  fn lines(&self) -> Vec<String> {
+    let warm = self.affinity.saturating_sub(self.cleaned);
+    let other = self.runs.saturating_sub(self.affinity);
     let mut parts = vec![format!(
-      "{} of {} run(s) got the slot that their checkout used last ({} %)",
-      self.affinity,
-      self.runs,
-      u64::from(self.affinity) * 100 / u64::from(self.runs.max(1))
+      "{warm} warm on the slot of their checkout ({} %)",
+      u64::from(warm) * 100 / u64::from(self.runs.max(1))
     )];
-    if warm > 0 {
-      parts.push(format!("{warm} warm{}", p50(self.warm_command_ms)));
-    }
     if self.cleaned > 0 {
-      parts.push(format!("{} cleaned since{}", self.cleaned, p50(self.cleaned_command_ms)));
+      parts.push(format!("{} on it cleaned since", self.cleaned));
     }
     if other > 0 {
-      parts.push(format!("the other {other}{}", p50(self.other_command_ms)));
+      let misses = &self.misses;
+      let causes: Vec<String> = [
+        (misses.first, "first of their checkout in the window"),
+        (misses.taken, "whose slot another checkout took since"),
+        (misses.lent, "whose slot another run of their checkout had"),
+        (misses.unavailable, "whose slot was not ready"),
+        (misses.other, "of another cause"),
+      ]
+      .into_iter()
+      .filter(|(runs, _)| *runs > 0)
+      .map(|(runs, cause)| format!("{runs} {cause}"))
+      .collect();
+      parts.push(format!("{other} on another slot ({})", causes.join(", ")));
     }
-    parts.push(format!("{} waited in the queue of the slots", self.waited));
-    format!("  slots of {}: {}", self.repo, parts.join("; "))
+    let mut line = format!("  slots of {}: {} run(s) with a slot: {}", self.repo, self.runs, parts.join(", "));
+    if self.waited > 0 {
+      let _ = write!(line, "; {} waited in the queue of the slots", self.waited);
+    }
+    let mut lines = vec![line];
+    for command in &self.commands {
+      let buckets: Vec<String> = [(command.warm, "warm"), (command.after_clean, "after a clean"), (command.missed, "missed")]
+        .into_iter()
+        .filter_map(|(bucket, label)| bucket.map(|bucket| bucket.text(label)))
+        .collect();
+      let named = command.measure_as.as_ref().map_or_else(|| command.command.clone(), |class| format!("--measure-as {class}"));
+      let mut line = format!("    {} run(s), {} on the slot of their checkout", command.runs, command.affinity);
+      if !buckets.is_empty() {
+        let _ = write!(line, "; {}", buckets.join("; "));
+      }
+      let _ = write!(line, ": {named}");
+      lines.push(line);
+    }
+    if let Some(other) = &self.other_commands {
+      lines.push(format!("    {} other command(s): {} run(s)", other.commands, other.runs));
+    }
+    lines
   }
 }
 
@@ -750,7 +895,7 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
   }
 }
 
-/// The lends of the runs of `lines` whose line names their slot, by repository
+/// The lends of the runs of `lines` whose line names their slot, by repository, `lines` in the order of their start
 fn slot_stats(lines: &[&HistoryLine]) -> Vec<SlotStats> {
   let mut by: BTreeMap<&str, Vec<(&HistoryLine, SlotRecord)>> = BTreeMap::new();
   for line in lines {
@@ -761,27 +906,76 @@ fn slot_stats(lines: &[&HistoryLine]) -> Vec<SlotStats> {
   by.into_iter()
     .map(|(repo, runs)| {
       let hit = |slot: &SlotRecord| slot.choice == SlotChoice::Affinity;
-      let commands = |of: &dyn Fn(&SlotRecord) -> bool| {
-        Spread::of(
-          runs
-            .iter()
-            .filter(|(line, slot)| of(slot) && line.command_ran_to_its_end())
-            .map(|(line, _)| line.phase_ms("command"))
-            .collect(),
-        )
-      };
+      let mut misses = MissTotals::default();
+      let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+      for (line, slot) in &runs {
+        if !hit(slot) {
+          match slot.missed {
+            Some(SlotMiss::NoSlot) if seen.contains(line.affinity.as_str()) => misses.taken += 1,
+            Some(SlotMiss::NoSlot) => misses.first += 1,
+            Some(SlotMiss::Lent) => misses.lent += 1,
+            Some(SlotMiss::Unavailable) => misses.unavailable += 1,
+            Some(SlotMiss::Other) | None => misses.other += 1,
+          }
+        }
+        seen.insert(line.affinity.as_str());
+      }
+      let (commands, other_commands) = slot_commands(&runs);
       SlotStats {
         repo: repo.to_owned(),
         runs: count(runs.len()),
         affinity: count(runs.iter().filter(|(_, slot)| hit(slot)).count()),
         cleaned: count(runs.iter().filter(|(_, slot)| hit(slot) && slot.cleaned).count()),
         waited: count(runs.iter().filter(|(_, slot)| slot.waited).count()),
-        warm_command_ms: commands(&|slot| hit(slot) && !slot.cleaned),
-        cleaned_command_ms: commands(&|slot| hit(slot) && slot.cleaned),
-        other_command_ms: commands(&|slot| !hit(slot)),
+        misses,
+        commands,
+        other_commands,
       }
     })
     .collect()
+}
+
+/// The lends of the runs of one repository by command: the [`TOP_SLOT_COMMANDS`] with the most runs, then by key, and
+/// the rest in one entry
+fn slot_commands(runs: &[(&HistoryLine, SlotRecord)]) -> (Vec<SlotCommandStats>, Option<OtherSlotCommands>) {
+  let mut by: BTreeMap<&str, Vec<(&HistoryLine, SlotRecord)>> = BTreeMap::new();
+  for &(line, slot) in runs {
+    by.entry(line.command_key.as_str()).or_default().push((line, slot));
+  }
+  let mut commands: Vec<SlotCommandStats> = by
+    .into_iter()
+    .map(|(command_key, runs)| {
+      let of = |case: &dyn Fn(&SlotRecord) -> bool| {
+        let lines: Vec<&HistoryLine> = runs.iter().filter(|(_, slot)| case(slot)).map(|(line, _)| *line).collect();
+        SlotBucket::of(&lines)
+      };
+      let hit = |slot: &SlotRecord| slot.choice == SlotChoice::Affinity;
+      let lines: Vec<&HistoryLine> = runs.iter().map(|(line, _)| *line).collect();
+      let (command, measure_as) = last_named(&lines);
+      SlotCommandStats {
+        command_key: command_key.to_owned(),
+        command,
+        measure_as,
+        runs: count(runs.len()),
+        affinity: count(runs.iter().filter(|(_, slot)| hit(slot)).count()),
+        cleaned: count(runs.iter().filter(|(_, slot)| hit(slot) && slot.cleaned).count()),
+        warm: of(&|slot| hit(slot) && !slot.cleaned),
+        after_clean: of(&|slot| hit(slot) && slot.cleaned),
+        missed: of(&|slot| !hit(slot)),
+      }
+    })
+    .collect();
+  // the most runs first; the sort is stable, so ties stay by key
+  commands.sort_by_key(|command| std::cmp::Reverse(command.runs));
+  if commands.len() <= TOP_SLOT_COMMANDS {
+    return (commands, None);
+  }
+  let past = commands.split_off(TOP_SLOT_COMMANDS);
+  let other = OtherSlotCommands {
+    commands: count(past.len()),
+    runs: past.iter().map(|command| command.runs).sum(),
+  };
+  (commands, Some(other))
 }
 
 /// What each exclusive command of `lines` cost the host: the hold and the drain of its runs, the other runs that waited
@@ -1022,7 +1216,7 @@ impl StatsReport {
         queue.passes
       ));
     }
-    lines.extend(self.slots.iter().map(SlotStats::line));
+    lines.extend(self.slots.iter().flat_map(SlotStats::lines));
     let outcomes: Vec<String> = self.outcomes.iter().map(Outcome::text).collect();
     lines.push(format!("  outcomes: {}", outcomes.join(", ")));
     if self.without_command.runs > 0 {

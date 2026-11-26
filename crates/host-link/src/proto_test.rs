@@ -245,6 +245,7 @@ fn the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema() 
       choice: "affinity".to_owned(),
       waited: true,
       cleaned: true,
+      missed: None,
     }),
     ..superseded
   };
@@ -254,8 +255,13 @@ fn the_end_and_the_forget_of_a_run_info_are_optional_fields_within_the_schema() 
     "{json}"
   );
   assert_eq!(serde_json::from_str::<RunInfo>(&json).expect("parsed"), lent);
+  let missed: RunSlot = serde_json::from_str(r#"{"n":1,"choice":"idle","missed":"lent"}"#).expect("a slot");
+  assert_eq!(missed.missed.as_deref(), Some("lent"));
   let at_once: RunSlot = serde_json::from_str(r#"{"n":1,"choice":"a choice of a later build"}"#).expect("a slot");
-  assert_eq!((at_once.choice.as_str(), at_once.waited, at_once.cleaned), ("a choice of a later build", false, false));
+  assert_eq!(
+    (at_once.choice.as_str(), at_once.waited, at_once.cleaned, at_once.missed),
+    ("a choice of a later build", false, false, None)
+  );
 }
 
 #[test]
