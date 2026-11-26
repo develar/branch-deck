@@ -217,7 +217,9 @@ missing. `[host]` installs no tool: the host has its own. Every key is in the sp
 
 Two runs that use every core at once, such as two full test suites, both run several times slower, and their tests
 fail on timeouts. So the heavy runs of a host share its cores, whatever their repository: a heavy run starts while
-what its command used in its last runs fits beside the others, and a command without a measure yet runs alone. A run
+what its command used in its last runs fits beside the others. A command without a measure yet takes the measure of
+its program (`cargo nextest`, `scripts/bench gate`, the command of a `zsh -c` script), else half of the host until its
+first run is measured. A run
 that has waited 15 min starts on a free turn even while the other runs keep the host busy. The measures of a command
 count for its runs that write their outputs to another directory that they fetch (`--fetch`). The other runs go as
 before. `heavy` of `[host]` names the heavy commands of a repository, `*` matching any characters:
@@ -235,9 +237,9 @@ brd-host: a heavy run by `pnpm e2e*` of [host]: on studio it waits until the cor
 brd-host: run 01M63T… waits 0 s for the heavy turn of the host, 9.5 of its 20 cores, 120 min left: run 01M63R… of idea-1 holds the whole host for 4 min (./community/tools/bt.cmd --lane fast, measured 20.0), no run ahead; a wait, not a hang: …
 ```
 
-A command whose text changes every run, such as a script with the commits of the run in it, never gets a measure: each
-run is a new command and waits for the whole host. Name what it does with `--measure-as`, and its runs share one
-measure, after the first that takes the whole host:
+A command whose text changes every run, such as a script with the commits of the run in it, takes the measure of its
+program, so it needs no flag. When one program does works of other weights, name each with `--measure-as`, and its
+runs share the measure of the class:
 
 ```sh
 brd-host run studio --measure-as accio-typing-gate -- bash -c "$(cat gate.sh)" gate "$BASE" "$TIP"

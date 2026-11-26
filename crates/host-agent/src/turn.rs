@@ -29,14 +29,14 @@ use crate::run::epoch_ms;
 use crate::slots::{self, Look};
 use crate::tuning;
 use history_rewrite::repository_lock::RepositoryLocked;
-use host_link::heavy::{measure_key, run_key};
+use host_link::heavy::{measure_key, program_key, run_key};
 use host_link::proto::{Reply, RunSpec};
 use host_link::refusal::{Code, Refusal};
-use lease_pool::host_cores::Measure;
+use lease_pool::host_cores::{Measure, MeasureKeys, MeasureOf};
 use lease_pool::host_runs::{NEVER_MEASURED, holds_text, passed_text, passes_text, run_of_repo, span, span_since, turn_line};
 use lease_pool::host_turn::{
-  Bar, GroupMark, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, Prioritized, Priority, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue, TurnRequest,
-  UseNote, join, read_live, take_waiting, watch,
+  Bar, Expectation, GroupMark, HeadDrain, Joined, LOAD_BOUND, LightEntry, Need, PASS_BUDGET, Prioritized, Priority, RECHECK, RunMark, TurnAnswer, TurnEntry, TurnParams, TurnQueue,
+  TurnRequest, UseNote, join, read_live, take_waiting, watch,
 };
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
@@ -109,12 +109,42 @@ pub(crate) struct TurnRun<'a> {
   /// The commit that it runs (`RunSpec::commit`): a later run of its checkout with another commit and the same key of
   /// its measures supersedes it
   pub(crate) commit: &'a str,
+  /// The cores the heavy turn assumes of a run without a measure of its command or its program
+  /// (`supervise::host_shares`); none (0): such a run takes the whole host
+  pub(crate) assumed: Cores,
 }
 
 impl TurnRun<'_> {
   /// The key of the measures of the run (`host_link::heavy::measure_key`)
   pub(crate) fn measure_key(&self) -> String {
     measure_key(self.command, self.fetch, self.measure_as)
+  }
+
+  /// The key of the measures of the program of the run (`host_link::heavy::program_key`), `None` with a class
+  pub(crate) fn program_key(&self) -> Option<String> {
+    program_key(self.command, self.measure_as)
+  }
+
+  /// The cores that the run is expected to use, and where they come from: the measure of its command, else of its
+  /// program (`Expectation::Program`), else the cores the host assumes of a run without one (`Expectation::Assumed`); an
+  /// exclusive run none, as it takes the whole host. `measure_key` is its key of [`Self::measure_key`]. Measures that
+  /// cannot be read are none, and the run takes the cores of one without a measure
+  pub(crate) fn expectation(&self, dir: &Path, measure_key: &str) -> Result<(Option<Cores>, Option<Expectation>), anyhow::Error> {
+    if self.exclusive {
+      return Ok((None, None));
+    }
+    let program = self.program_key();
+    // no cores assumed (a test of the whole host): a run without a measure takes the whole host, as before
+    let assumed = (self.assumed.0 > 0).then_some((Some(self.assumed), Some(Expectation::Assumed)));
+    let keys = MeasureKeys {
+      command: measure_key,
+      program: program.as_deref(),
+    };
+    Ok(match lease_pool::host_cores::expected_of(dir, self.repo, keys)? {
+      Some((cores, MeasureOf::Command)) => (Some(cores), None),
+      Some((cores, MeasureOf::Program)) => (Some(cores), Some(Expectation::Program)),
+      None => assumed.unwrap_or((None, None)),
+    })
   }
 }
 
@@ -144,13 +174,17 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
   let cores_key = of.measure_key();
   let dir = heavy_dir(home);
   let unread = Cell::new(false);
-  // a measure that cannot be read is none: the run takes the whole host, as before any measure
+  // a measure that cannot be read is none: the run takes the cores of a run without one
   let expected = || {
-    lease_pool::host_cores::expected(&dir, of.repo, &cores_key).unwrap_or_else(|error| {
+    of.expectation(&dir, &cores_key).unwrap_or_else(|error| {
       if !unread.replace(true) {
         crate::log::supervisor(&format!("cannot read the cores of the commands: {error:#}"));
       }
-      None
+      if of.exclusive || of.assumed.0 == 0 {
+        (None, None)
+      } else {
+        (Some(of.assumed), Some(Expectation::Assumed))
+      }
     })
   };
   // whether the run is short is decided once, as it joins the queue: a wall that cannot be read is none, and the run
@@ -160,7 +194,8 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     None
   });
   let process_started = process_started(pid);
-  let request = |expected| TurnRequest {
+  let request = |(expected, expectation)| TurnRequest {
+    expectation,
     run: of.run,
     pid,
     process_started,
@@ -437,7 +472,12 @@ pub(crate) fn record(home: &Home, of: &TurnRun<'_>, file: &crate::cores::CoresFi
     wall_ms: file.wall_ms,
     at_ms: now_ms(),
   };
-  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, &of.measure_key(), measure, passed)
+  let (command, program) = (of.measure_key(), of.program_key());
+  let keys = MeasureKeys {
+    command: &command,
+    program: program.as_deref(),
+  };
+  lease_pool::host_cores::record(&heavy_dir(home), LOCK_TIMEOUT, tuning::min_wall(), of.repo, keys, measure, passed)
     .map_err(|error| Refusal::new(Code::AgentError, format!("cannot keep the cores of the command: {error:#}")))
 }
 
@@ -613,9 +653,11 @@ fn lines_at(table: &serde_json::Value, now_ms: u64) -> Result<Vec<String>, Refus
     let mark = table.marks.get(&waiting.ticket.run).copied().unwrap_or_default();
     let need = match waiting.need(cores, now_ms) {
       // an entry of the queue has no window of its use, and a measure decides
-      Need::Cores { cores, .. } | Need::Recent { cores, .. } => match mark.short_ms {
-        Some(wall) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
-        None => format!("{cores} (measured)"),
+      Need::Assumed { cores } => format!("{cores} (no measure yet: the cores the host assumes of a run without one)"),
+      Need::Cores { cores, .. } | Need::Recent { cores, .. } => match (mark.short_ms, waiting.expectation) {
+        (Some(wall), _) => format!("{cores} (measured, short: ~{})", span(Duration::from_millis(wall))),
+        (None, Some(Expectation::Program)) => format!("{cores} (measured by the runs of its program)"),
+        (None, _) => format!("{cores} (measured)"),
       },
       Need::Unmeasured => match &waiting.measure_as {
         Some(class) => format!("the whole host (no measure of the class {class} yet)"),

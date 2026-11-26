@@ -1,6 +1,6 @@
 use super::*;
 use crate::host_slots::now_ms;
-use crate::host_turn::host_turn_test::{command, note_live, params};
+use crate::host_turn::host_turn_test::{command, note_live, params, request as turn_request};
 use crate::host_turn::{DRAIN_BAR, HostWindow, QueueMarks, RunMark, TurnAnswer, TurnRequest, leave, note_host, note_host_window, take};
 use pretty_assertions::assert_eq;
 
@@ -8,23 +8,10 @@ const MIN: u64 = 60_000;
 
 /// A request of this process from a checkout of its own, whose command measured `tenths` (`None`: no measure)
 fn request<'a>(run: &'a str, command: &'a [String], tenths: Option<u32>) -> TurnRequest<'a> {
-  let pid = std::process::id();
   TurnRequest {
-    run,
-    pid,
-    process_started: sync_utils::process_scan::process_started(pid),
-    repo: "/Users/u/projects/branch-deck",
-    command,
-    affinity: run,
     command_key: run,
     expected: tenths.map(Cores),
-    exclusive: false,
-    passed_wall: None,
-    measure_as: None,
-    group: None,
-    priority: None,
-    commit: "",
-    measure_key: "",
+    ..turn_request(run, command)
   }
 }
 

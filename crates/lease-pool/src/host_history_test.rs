@@ -207,16 +207,19 @@ fn the_commands_past_the_thirty_that_waited_longest_are_one_entry() {
   );
 }
 
-/// The need of a heavy run follows the measure of its command, as the heavy turn counts it
+/// The need of a heavy run follows the measure of its command, as the heavy turn counts it: the cores the host assumed
+/// of a run without one are no whole host
 #[test]
 fn the_need_of_a_heavy_run_follows_its_measure() {
-  for (expected, exclusive, need) in [
-    (None, false, NeedKind::Unmeasured),
-    (Some(Cores(90)), false, NeedKind::Cores),
-    (Some(Cores(200)), false, NeedKind::Measured),
-    (Some(Cores(90)), true, NeedKind::Exclusive),
+  for (expected, assumed, exclusive, need) in [
+    (None, false, false, NeedKind::Unmeasured),
+    (Some(Cores(90)), false, false, NeedKind::Cores),
+    (Some(Cores(100)), true, false, NeedKind::Assumed),
+    (Some(Cores(200)), false, false, NeedKind::Measured),
+    (Some(Cores(90)), false, true, NeedKind::Exclusive),
   ] {
-    assert_eq!(NeedKind::of(expected, exclusive, 20), need, "{expected:?} {exclusive}");
+    assert_eq!(NeedKind::of(expected, assumed, exclusive, 20), need, "{expected:?} {assumed} {exclusive}");
+    assert_eq!(need.is_whole_host(), !matches!(need, NeedKind::Cores | NeedKind::Assumed), "{need:?}");
   }
 }
 

@@ -319,6 +319,7 @@ fn finished(home: &Home, watch: QueueWatch) -> QueueRecord {
 /// The heavy run 1-9 of `command` on a host of 20 cores, `exclusive` or not
 fn turn_run(command: &[String], exclusive: bool) -> crate::turn::TurnRun<'_> {
   crate::turn::TurnRun {
+    assumed: Cores::default(),
     run: "1-9",
     repo: "/r",
     affinity: "checkout-1",

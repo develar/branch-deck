@@ -171,12 +171,19 @@ fn exclusive_wait_text(queue: &TurnQueue) -> String {
 /// new key of its measures each time
 pub const NEVER_MEASURED: &str = "a command whose text changes every run never gets one: `--measure-as <class>` gives it one";
 
+/// What the host does with a run without a measure, after `no measure yet`: it reserves the cores it assumes of one
+pub const ASSUMED: &str = "the host reserves the cores it assumes of a run without one until a run of it, or of its program, measures it";
+
 /// What a run of the class `measure_as` (`brd-host run --measure-as`), or of none, waits for: `7.5 of its 20 cores`,
 /// `all its 20 cores, as the command has no measure yet (a command whose text changes every run never gets one: …)`,
 /// `all its 20 cores, as the class accio-gate has no measure yet`
 pub fn need_text(need: Need, cores: u32, measure_as: Option<&str>) -> String {
   match need {
     Need::Cores { cores: need, .. } | Need::Recent { cores: need, .. } => format!("{need} of its {cores} cores"),
+    Need::Assumed { cores: need } => match measure_as {
+      Some(class) => format!("{need} of its {cores} cores, as the class {class} has no measure yet ({ASSUMED})"),
+      None => format!("{need} of its {cores} cores, as the command has no measure yet ({ASSUMED})"),
+    },
     Need::Unmeasured => match measure_as {
       Some(class) => format!("all its {cores} cores, as the class {class} has no measure yet"),
       None => format!("all its {cores} cores, as the command has no measure yet ({NEVER_MEASURED})"),
@@ -187,18 +194,19 @@ pub fn need_text(need: Need, cores: u32, measure_as: Option<&str>) -> String {
 }
 
 /// What a holder holds and why: (`holds 12.0`, `measured`), (`holds 14.0`, `live, above its measure`), (`holds the
-/// whole host`, `no measure`), (`holds 1.2`, `no measure: it held the whole host for its first 10 min, now its live use
+/// whole host`, `no measure`), (`holds 1.2`, `no measure: it held the whole host, or the cores of a run without one, for its first 10 min, now its live use
 /// of the last 5 min`), (`holds 1.2`, `measured 16.0: it held that for its first 10 min, now its live use of the last 5
 /// min`), (`holds the whole host for a measurement`, `exclusive`)
 pub fn holds_text(need: Need) -> (String, String) {
   match need {
     Need::Cores { cores, live: false } => (format!("holds {cores}"), "measured".to_owned()),
     Need::Cores { cores, live: true } => (format!("holds {cores}"), "live, above its measure".to_owned()),
+    Need::Assumed { cores } => (format!("holds {cores}"), format!("no measure: {ASSUMED}, or the most it used since its start")),
     Need::Unmeasured => ("holds the whole host".to_owned(), "no measure".to_owned()),
     Need::Recent { cores, measured: None } => (
       format!("holds {cores}"),
       format!(
-        "no measure: it held the whole host for its first {}, now its live use of the last {}",
+        "no measure: it held the whole host, or the cores of a run without one, for its first {}, now its live use of the last {}",
         span(HOLD_GRACE),
         span(USE_WINDOW)
       ),

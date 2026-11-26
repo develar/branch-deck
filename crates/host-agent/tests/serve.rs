@@ -132,6 +132,8 @@ impl World {
       .open(self.home.path().join("serve.log"))
       .expect("the serve log");
     command.env("HOME", self.home.path());
+    // a run without a measure takes the whole host, unless a test names the cores the host assumes of one
+    command.env("BD_HOST_TEST_UNMEASURED_CORES", "0");
     command.envs(env.iter().copied());
     let (child, listening) = spawn_on_loopback(command, port, args, log).unwrap_or_else(|error| panic!("serve listens: {error}; {}", self.serve_log()));
     let agent = Agent {

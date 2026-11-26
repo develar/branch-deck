@@ -40,6 +40,7 @@ fn the_queue_line_names_the_wait_the_runs_ahead_the_lent_slots_the_quarantine_an
 #[test]
 fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
   let entry = |run: &str, repo: &str, command: &str, since_ms: u64, expected: Option<u32>| TurnEntry {
+    expectation: None,
     ticket: Ticket {
       run: run.to_owned(),
       pid: 1,
@@ -62,7 +63,7 @@ fn the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead() {
     holds_text(Need::Recent { cores: Cores(12), measured: None }),
     (
       "holds 1.2".to_owned(),
-      "no measure: it held the whole host for its first 10 min, now its live use of the last 5 min".to_owned()
+      "no measure: it held the whole host, or the cores of a run without one, for its first 10 min, now its live use of the last 5 min".to_owned()
     ),
     "a holder without a measure past its grace"
   );
@@ -167,6 +168,7 @@ fn the_lines_of_an_exclusive_run_and_of_a_run_that_waits_for_it() {
   assert_eq!(holds_text(Need::Exclusive), ("holds the whole host for a measurement".to_owned(), "exclusive".to_owned()));
   let now_ms = 1_000_000_000;
   let holder = TurnEntry {
+    expectation: None,
     ticket: Ticket {
       run: "1788-12".to_owned(),
       pid: 1,
@@ -245,6 +247,7 @@ fn the_wait_of_an_exclusive_run_names_the_runs_in_their_command_and_the_window()
 fn the_turn_line_names_the_drain_of_an_exclusive_head_and_the_run_that_passed_it() {
   let now_ms = 1_000_000_000;
   let entry = |run: &str, command: &str, exclusive: bool| TurnEntry {
+    expectation: None,
     ticket: Ticket {
       run: run.to_owned(),
       pid: 1,

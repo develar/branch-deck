@@ -258,8 +258,10 @@ pub struct SlotRecord {
 pub enum NeedKind {
   /// The cores of the measure of its command
   Cores,
-  /// The whole host: no measure of its command yet
+  /// The whole host: no measure of its command yet, by a build before the assumed cores, or the holder of a build before
   Unmeasured,
+  /// The cores the host assumes of a run without a measure of its command or its program
+  Assumed,
   /// The whole host: its command measured the cores of the host or more
   Measured,
   /// A quiet host, for a measurement
@@ -270,14 +272,22 @@ pub enum NeedKind {
 }
 
 impl NeedKind {
-  /// The need of a run that `expected` cores of its measure lead to expect, `exclusive` or not, on a host of `cores`
-  pub fn of(expected: Option<Cores>, exclusive: bool, cores: u32) -> Self {
+  /// The need of a run that `expected` cores lead to expect, which the host assumed of a run without a measure when
+  /// `assumed`, `exclusive` or not, on a host of `cores`
+  pub fn of(expected: Option<Cores>, assumed: bool, exclusive: bool, cores: u32) -> Self {
     match expected {
       _ if exclusive => Self::Exclusive,
       None => Self::Unmeasured,
       Some(expected) if expected >= Cores::whole(cores) => Self::Measured,
+      Some(_) if assumed => Self::Assumed,
       Some(_) => Self::Cores,
     }
+  }
+
+  /// Whether the run needed the whole host: an exclusive run, a run without a measure of a build before the assumed
+  /// cores, a command that measured the whole host
+  pub const fn is_whole_host(self) -> bool {
+    matches!(self, Self::Unmeasured | Self::Measured | Self::Exclusive)
   }
 }
 
@@ -904,7 +914,7 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
     behind_ms: queues.iter().map(|queue| queue.behind_ms).sum(),
     load_ms: queues.iter().map(|queue| queue.load_ms).sum(),
     place: Spread::of(queues.iter().map(|queue| u64::from(queue.place)).collect()),
-    whole_host: count(queues.iter().filter(|queue| queue.need != NeedKind::Cores).count()),
+    whole_host: count(queues.iter().filter(|queue| queue.need.is_whole_host()).count()),
     short: count(queues.iter().filter(|queue| queue.short_ms.is_some()).count()),
     passes: queues.iter().map(|queue| queue.passes).sum(),
   }

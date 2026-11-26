@@ -87,6 +87,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use sync_utils::child_process::{child_niceness, own_niceness, set_niceness, windowless_command};
+use sync_utils::cores::Cores;
 use sync_utils::fs_retry;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, StartClock, interrupt, start_clock};
 use sync_utils::span::in_current_span;
@@ -405,7 +406,7 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
   // a run that is not heavy is in `light` of the turn for the time of its command, from its start, not its first sample:
   // an exclusive run waits until no run is in its command
   if !spec.heavy
-    && let Err(refusal) = turn::note_use(context.home, &of, sync_utils::cores::Cores(0))
+    && let Err(refusal) = turn::note_use(context.home, &of, Cores(0))
   {
     supervisor(&format!("run {}: {refusal}", spec.run));
   }
@@ -488,12 +489,14 @@ fn wait_for_measurement(context: &Context<'_>, phases: &mut Phases<'_>, stop: &d
 /// The run of `context` as the heavy turn knows it, of the main repository `repo`
 fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
   let spec = context.spec;
+  let (cores, assumed) = host_shares(context.repo);
   turn::TurnRun {
     run: &spec.run,
     repo,
     affinity: &spec.affinity,
     command: &spec.command,
-    cores: host_cores(context.repo),
+    cores,
+    assumed,
     exclusive: spec.exclusive,
     fetch: &spec.fetch,
     measure_as: spec.measure_as.as_deref(),
@@ -503,18 +506,42 @@ fn turn_run<'a>(context: &'a Context<'_>, repo: &'a str) -> turn::TurnRun<'a> {
   }
 }
 
-/// The cores of the host that the heavy runs share: `BD_HOST_TEST_CORES`, else `branchdeck.hostCores` of the config of
-/// the repository (its global config, as a host is one machine), else the cores that the system counts
-pub(crate) fn host_cores(repo: &Repository) -> u32 {
-  if let Some(cores) = tuning::cores() {
-    return cores;
+/// The cores of the host that the heavy runs share, `BD_HOST_TEST_CORES`, else `branchdeck.hostCores` of the config of
+/// the repository (its global config, as a host is one machine), else the cores that the system counts, and the cores
+/// the heavy turn assumes of a run without a measure (`lease_pool::host_turn::Expectation::Assumed`): `branchdeck.hostUnmeasuredCores` of the config of the
+/// repository, a number of cores such as `8` or `7.5`, below the cores of the host, else half of them. One read of the
+/// config for both
+pub(crate) fn host_shares(repo: &Repository) -> (u32, Cores) {
+  let config = git_ops::lease_slot::lease_config(&repo.git, &repo.dirs.top_level).ok();
+  let cores = tuning::cores().unwrap_or_else(|| {
+    config
+      .as_ref()
+      .and_then(|config| config.host_cores.as_deref())
+      .and_then(|cores| cores.trim().parse::<u32>().ok())
+      .filter(|cores| *cores > 0)
+      .unwrap_or_else(|| thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)))
+  });
+  if let Some(assumed) = tuning::unmeasured_cores() {
+    return (cores, tenths(assumed).filter(|assumed| *assumed < Cores::whole(cores)).unwrap_or_default());
   }
-  let configured = git_ops::lease_slot::lease_config(&repo.git, &repo.dirs.top_level)
-    .ok()
-    .and_then(|config| config.host_cores)
-    .and_then(|cores| cores.trim().parse::<u32>().ok())
-    .filter(|cores| *cores > 0);
-  configured.unwrap_or_else(|| thread::available_parallelism().map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX)))
+  let assumed = config
+    .as_ref()
+    .and_then(|config| config.host_unmeasured_cores.as_deref())
+    .and_then(|assumed| assumed.trim().parse::<f64>().ok())
+    .and_then(tenths)
+    .filter(|assumed| assumed.0 > 0 && *assumed < Cores::whole(cores))
+    .unwrap_or_else(|| Cores(Cores::whole(cores).0 / 2));
+  (cores, assumed)
+}
+
+/// The tenths of cores of a number of cores, `None` for one out of range
+fn tenths(cores: f64) -> Option<Cores> {
+  let tenths = (cores * 10.0).round();
+  (tenths.is_finite() && tenths >= 0.0 && tenths <= f64::from(u32::MAX)).then(|| {
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a finite number of tenths in the range of u32, as checked")]
+    let tenths = tenths as u32;
+    Cores(tenths)
+  })
 }
 
 /// The jobs of each command of the host: `branchdeck.hostJobs` of the config of the repository (its global config, as a

@@ -63,6 +63,8 @@ impl World {
       .current_dir(self.repo.path())
       .env("HOME", self.home.path())
       .envs(PROCESS_TEST_ENV)
+      // a run without a measure takes the whole host, as the lines of these tests show
+      .env("BD_HOST_TEST_UNMEASURED_CORES", "0")
       .stdin(Stdio::null());
     command
   }

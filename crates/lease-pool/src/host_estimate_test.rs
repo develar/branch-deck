@@ -10,6 +10,7 @@ const REPO: &str = "/Users/u/projects/idea-1";
 /// An entry of the turn of the run `run`, since `since_ms`, expecting `tenths` of cores (`None`: no measure)
 fn entry(run: &str, since_ms: u64, tenths: Option<u32>) -> TurnEntry {
   TurnEntry {
+    expectation: None,
     ticket: Ticket {
       run: run.to_owned(),
       pid: 1,
@@ -52,6 +53,7 @@ fn sight(holders: Vec<TurnEntry>, queue: Vec<TurnEntry>, outside: u32) -> Sight 
 /// The asked run of the checkout `checkout` and the command `key`, expecting `tenths` of cores
 fn asked<'a>(checkout: &'a str, key: &'a str, tenths: Option<u32>) -> Asked<'a> {
   Asked {
+    expectation: None,
     repo: REPO,
     affinity: checkout,
     command_key: key,
@@ -235,6 +237,7 @@ fn estimate_then_join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> (Ve
         .is_some_and(|mark| mark.passed.iter().any(|passed| passes.get(passed).copied() == Some(TURN_PASS_BUDGET)))
   });
   let asked = Asked {
+    expectation: None,
     commit: "",
     measure_key: "",
     priority: None,
@@ -285,6 +288,7 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
     let command = usize::try_from(draw.below(2)).unwrap();
     let short = draw.below(5) == 0;
     TurnRequest {
+      expectation: None,
       commit: "",
       measure_key: "",
       priority: None,
@@ -308,6 +312,7 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
     }
   };
   let holder = TurnRequest {
+    expectation: None,
     commit: "",
     measure_key: "",
     priority: None,

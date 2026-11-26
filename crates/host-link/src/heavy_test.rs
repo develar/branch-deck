@@ -1,5 +1,5 @@
 use crate::config::RepoConfig;
-use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, is_group_name, is_measure_class, measure_key, run_key, run_words, script_commands, script_in};
+use crate::heavy::{MAX_READS, MAX_SCRIPT_BYTES, Ran, commands_of, is_group_name, is_measure_class, measure_key, program_key, run_key, run_words, script_commands, script_in};
 use pretty_assertions::assert_eq;
 
 /// The patterns of `heavy` of this repository that the cases name
@@ -531,4 +531,27 @@ fn a_group_is_named_by_the_rule_of_a_host_ref_name() {
   for name in ["", "-session", "a/b", "a b", "x.lock", &"a".repeat(129)] {
     assert!(!is_group_name(name), "{name:?}");
   }
+}
+
+/// The key of the program of a command is of its first word and subcommand, of the command of a script of a shell past
+/// its setup, of a script file of a shell; the commits and paths of a run change it not, a class of `--measure-as`
+/// names no program, and the key of a program is never the key of a command
+#[test]
+fn the_program_of_a_command_is_its_first_word_and_subcommand_or_the_work_of_its_script() {
+  let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+  let of = |text: &str| program_key(&words(text), None);
+  assert_eq!(of("scripts/bench gate --base 593e5c6e --out a"), of("scripts/bench gate --base 4ca6601b --out b"));
+  assert_eq!(of("cargo nextest run --workspace"), of("nice -n 10 cargo nextest run -p accio"));
+  assert_ne!(of("cargo nextest run"), of("cargo build"));
+  assert_eq!(
+    of("./tools/bt.cmd //plugins/a:t --no-cache"),
+    of("./tools/bt.cmd --lane fast"),
+    "a path or an option is no subcommand"
+  );
+  let script = |script: &str| program_key(&["zsh".to_owned(), "-lc".to_owned(), script.to_owned()], None);
+  assert_eq!(script("T=$1; mkdir -p out && ./tools/bt.cmd //x:$T"), of("./tools/bt.cmd"));
+  assert_eq!(program_key(&words("bash ./gate.sh --base x"), None), of("./gate.sh"));
+  assert_eq!(program_key(&words("scripts/bench gate"), Some("accio-gate")), None, "a class names its measures");
+  assert_eq!(program_key(&words("zsh"), None), None, "a shell that runs nothing a run gives it");
+  assert_ne!(of("cargo nextest"), Some(run_key(&words("cargo nextest"))));
 }

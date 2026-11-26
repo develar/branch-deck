@@ -357,8 +357,15 @@ fn heavy_runs_of_a_measure_share_the_cores_and_a_run_without_one_waits_for_the_w
   let mut holders = turn_holders(&agent);
   holders.sort();
   assert_eq!(holders, ["13-2", "13-3"]);
-  // a command without a measure waits for the whole host
-  agent.start(heavy(&world, "13-4", &marks, &gate));
+  // a command without a measure, nor of its program (`wc`, not the shell script of the runs before), waits for the whole
+  // host of a test that assumes no cores
+  agent.start(RunSpec {
+    heavy: true,
+    ..world.spec(
+      "13-4",
+      &format!("wc -l < /dev/null > /dev/null; : > '{}'; {}", marks.join("13-4").display(), wait_for(&gate)),
+    )
+  });
   eventually("the run without a measure waits", || heavy_turn(&agent).1 == ["13-4"]);
   // the ticket goes into the queue before the line of the wait goes into the events of the run
   eventually("the run without a measure says its wait", || {
@@ -730,6 +737,33 @@ fn a_short_heavy_run_goes_ahead_of_a_run_that_waits_for_the_whole_host() {
   assert_eq!(turn_holders(&agent), ["18-4"], "the join leaves the holder");
   fs::write(&gate, "").expect("the gate opens");
   for run in ["18-4", "18-6", "18-5"] {
+    assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
+  }
+}
+
+/// A heavy run without a measure of its command or its program takes the cores the host assumes of one, not the whole
+/// host: two of 8 run at once on 20 cores, and a third waits and says why
+#[test]
+fn heavy_runs_without_a_measure_take_the_cores_the_host_assumes_of_one() {
+  let world = World::new(3, &[]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_CORES", "20"), ("BD_HOST_TEST_UNMEASURED_CORES", "8")]);
+  let (gate, marks) = gate_and_marks(&world);
+  agent.start(heavy(&world, "14-1", &marks, &gate));
+  agent.start(RunSpec {
+    affinity: "checkout-ba9876543210".to_owned(),
+    ..heavy(&world, "14-2", &marks, &gate)
+  });
+  eventually("two heavy runs without a measure run at once", || started(&marks) == ["14-1", "14-2"]);
+  agent.start(RunSpec {
+    affinity: "checkout-a98765432101".to_owned(),
+    ..heavy(&world, "14-3", &marks, &gate)
+  });
+  eventually("a third one waits", || heavy_turn(&agent).1 == ["14-3"]);
+  eventually("the third one says why", || {
+    events(&world, "14-3").contains("brd-host: run 14-3 waits 0 s for the heavy turn of the host, 8.0 of its 20 cores, as the command has no measure yet (the host reserves the cores it assumes of a run without one until a run of it, or of its program, measures it), ")
+  });
+  fs::write(&gate, "").expect("the gate opens");
+  for run in ["14-1", "14-2", "14-3"] {
     assert_eq!(agent.follow(run).end, Reply::Exit { code: 0 }, "{}", agent.dump(run));
   }
 }

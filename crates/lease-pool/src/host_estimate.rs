@@ -13,7 +13,8 @@
 
 use crate::host_slots::Ticket;
 use crate::host_turn::{
-  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, Priority, QueueFiles, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
+  Expectation, HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, Priority, QueueFiles, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside,
+  read_live,
 };
 use anyhow::Result;
 use std::path::Path;
@@ -84,6 +85,8 @@ pub struct Asked<'a> {
   /// (`host_turn::LaterRun::supersedes`); empty: none
   pub commit: &'a str,
   pub measure_key: &'a str,
+  /// Where `expected` comes from when its command has no measure of its own (`TurnEntry::expectation`)
+  pub expectation: Option<Expectation>,
 }
 
 /// When the run would take the turn
@@ -226,6 +229,7 @@ pub(crate) fn place(sight: &Sight, asked: &Asked<'_>) -> (Vec<TurnEntry>, u64) {
   let mut turn = sight.turn.clone();
   let mut files = sight.files.clone();
   let request = TurnRequest {
+    expectation: asked.expectation,
     run: "",
     pid: 0,
     process_started: None,
@@ -269,6 +273,7 @@ fn entry_of(asked: &Asked<'_>, now_ms: u64) -> TurnEntry {
     measure_as: None,
     recent: None,
     group: None,
+    expectation: asked.expectation,
   }
 }
 

@@ -136,9 +136,12 @@ fn key(repo: &str, command_key: &str) -> String {
 }
 
 /// Adds `measure` of a run of `command_key` in `repo`, keeping the last `KEPT` of them, and forgets the commands without
-/// a measure since `FORGET_AFTER`; a run whose command `passed` adds its wall to the walls of the command the same way.
-/// A measure of a command shorter than `min_wall` (`MIN_WALL` but in a process test) is no measure, and its wall none
-pub fn record(dir: &Path, lock_timeout: Duration, min_wall: Duration, repo: &str, command_key: &str, measure: Measure, passed: bool) -> Result<()> {
+/// a measure since `FORGET_AFTER`; the measure goes under the key of its program too (`program_key`,
+/// `host_link::heavy::program_key`), which [`expected_of`] reads for a command without a measure of its own. A run whose
+/// command `passed` adds its wall to the walls of the command the same way, never of its program: a short wall is of a
+/// command. A measure of a command shorter than `min_wall` (`MIN_WALL` but in a process test) is no measure, and its
+/// wall none
+pub fn record(dir: &Path, lock_timeout: Duration, min_wall: Duration, repo: &str, keys: MeasureKeys<'_>, measure: Measure, passed: bool) -> Result<()> {
   if Duration::from_millis(measure.wall_ms) < min_wall {
     return Ok(());
   }
@@ -147,6 +150,10 @@ pub fn record(dir: &Path, lock_timeout: Duration, min_wall: Duration, repo: &str
     wall_ms: measure.wall_ms,
     at_ms: measure.at_ms,
   };
+  let command_key = keys.command;
+  if let Some(program) = keys.program {
+    add(dir, &table(dir), STATE_FILE, lock_timeout, key(repo, program), measure.clone())?;
+  }
   add(dir, &table(dir), STATE_FILE, lock_timeout, key(repo, command_key), measure)?;
   if passed {
     add(dir, &walls(dir), WALLS_FILE, lock_timeout, key(repo, command_key), wall)?;
@@ -197,6 +204,39 @@ pub fn starved(outside: Option<Cores>, mean: Cores, cores: u32) -> Option<String
       "this run adds no measure of its command: the rest of the host used {outside} cores on average beside its {mean}, past the {cores} of the host, so its time tells the load and not the command"
     )
   })
+}
+
+/// The keys of the measures of a run: of its command (`host_link::heavy::measure_key`) and of its program
+/// (`host_link::heavy::program_key`), `None` with a class of `--measure-as`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MeasureKeys<'a> {
+  pub command: &'a str,
+  pub program: Option<&'a str>,
+}
+
+/// Which key gave the measure of a run ([`expected_of`])
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasureOf {
+  /// Its command, or its class of `--measure-as`
+  Command,
+  /// The runs of its program, as its command has none of its own
+  Program,
+}
+
+/// The cores that the last runs of the command of `keys` in `repo` lead to expect ([`expected`]), else the last runs of
+/// its program, and which of the two gave them; `None` without a measure of either. The chain of the measures of a run
+/// without a measure of its own, as a build service sizes an action that it never ran by its kin
+pub fn expected_of(dir: &Path, repo: &str, keys: MeasureKeys<'_>) -> Result<Option<(Cores, MeasureOf)>> {
+  let table: CommandCores = table(dir).read()?;
+  of_this_schema(dir, STATE_FILE, table.schema)?;
+  let level = |measure: &Measure| measure.level.map_or(measure.mean, |level| level.max(measure.mean));
+  let of = |command_key: &str| table.commands.get(&key(repo, command_key)).and_then(|measures| percentile_80(measures.iter().map(level)));
+  Ok(
+    of(keys.command)
+      .map(|cores| (cores, MeasureOf::Command))
+      .or_else(|| keys.program.and_then(of).map(|cores| (cores, MeasureOf::Program))),
+  )
 }
 
 /// The cores that the last runs of `command_key` in `repo` lead to expect: the 80th percentile of their levels of work,

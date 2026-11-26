@@ -1506,11 +1506,15 @@ exit and how long it took, or the refusal that ended it, then the heavy turn of 
   a holder; `heavy turn: <n> run(s) hold the whole host; no run of this build counted its cores yet` while only the
   holder of the build before holds it), then `  run <id> of <repository> holds <cores> for <time> (measured): <command>` for each holder, with
   `(live, above its measure)` when it uses more, `holds the whole host for <time> (no measure)` or `(measured
-  <cores>)` for one that takes the whole host, and `holds <cores> for <time> (no measure: it held the whole host for its
-  first 10 min, now its live use of the last 5 min)` for one without a measure past its grace, `(measured <cores>: it
+  <cores>)` for one that takes the whole host, and `holds <cores> for <time> (no measure: it held the whole host, or the
+  cores of a run without one, for its first 10 min, now its live use of the last 5 min)` for one without a measure
+  past its grace, `holds <cores> for <time> (no measure: the host reserves the cores it assumes of a run without one
+  until a run of it, or of its program, measures it, or the most it used since its start)` for one of the assumed
+  cores in its grace, `(measured <cores>: it
   held that for its first 10 min, now its live use of the last 5 min)` for one of a measure; `  run <id> of <repository> waits <time> for <cores> (measured):
-  <command>` or `for the whole host (no measure; a command whose text changes every run never gets one:
-  `--measure-as <class>` gives it one)`, of a run of a class `for the whole host (no measure of the class <class>
+  <command>`, `for <cores> (measured by the runs of its program)`, `for <cores> (no measure yet: the cores the host
+  assumes of a run without one)`, or `for the whole host (no measure; a command whose text changes every run never
+  gets one: `--measure-as <class>` gives it one)` of an entry of a build before, of a run of a class `for the whole host (no measure of the class <class>
   yet)`, for each run that waits; and `  run <id> of <repository>, not heavy,
   uses <cores>: <command>` for each run that is not heavy whose command runs; a holder or a waiting run of `--group`
   is `run <id> of <repository> in the group <group> …`
@@ -2740,7 +2744,7 @@ keeps no run going, and a lost heavy run holds no cores of the heavy turn.
 Before its lend, a heavy run MUST take its cores of the heavy turn in the phase `heavy`, up to 2 h, and free them
 after its give-back. Only the head of the queue MUST be admitted, or a run past an exclusive head: while it
 fits beside the holders and the load of the host, or on a free turn of a quiet host or after 15 min. A new run MUST
-join by its group's turn, a short one ahead of those it may pass. A holder MUST count its measure, else the whole host, for 10 min;
+join by its group's turn, a short one ahead of those it may pass. A holder MUST count its measure or assumed cores for 10 min;
 a held lock MUST cost a look.
 
 #### Scenario: Two heavy runs and one that is not heavy
@@ -2776,20 +2780,22 @@ a held lock MUST cost a look.
   its measure counts that peak
 - **AND** a supervisor of an older build that rewrites `turn.json` drops `recent`: the holder counts as before until a
   new window spans 5 min
-- **AND** a run of the queue without a measure still waits for every holder, and the measure at the end of the run is
-  as before
+- **AND** a run of the queue without a measure takes the cores the host assumes of one (below), and the measure at the
+  end of the run is as before
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_holder_without_a_measure_holds_the_whole_host_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_of_a_measure_counts_its_measure_in_its_grace_and_then_its_use_of_the_last_5_min`, `a_holder_without_a_measure_holds_the_whole_host_still_without_a_window_that_leaves_room`, `a_holder_of_a_measure_past_its_grace_counts_at_least_the_most_of_its_last_5_min`, `the_window_of_the_live_use_keeps_the_most_of_each_half_minute_of_the_last_5_min`)
 
 #### Scenario: Runs of a class
 - **WHEN** a run of `--measure-as <class>` ended with a measure, and later runs of the class with other commands wait
 - **THEN** they are admitted by the measure of the class, beside each other while they fit
-- **AND** a run of a class without a measure takes the whole host, says `all its <cores of the host> cores, as the class
-  <class> has no measure yet` in the line of its wait, and its entry of the turn names its class (`measure_as`)
+- **AND** a run of a class without a measure takes the cores the host assumes of one, says `<cores> of its <cores of
+  the host> cores, as the class <class> has no measure yet (…)` in the line of its wait, and its entry of the turn
+  names its class (`measure_as`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`runs_of_a_class_share_its_measure_whatever_their_command`)
   [@test] crates/lease-pool/src/host_runs_test.rs (`the_turn_line_names_the_wait_the_cores_of_each_holder_and_the_runs_ahead`)
 
 #### Scenario: A run that takes the whole host
-- **WHEN** a heavy run whose command has no measure, or measured `<cores>` or more, comes to the head of the queue
+- **WHEN** a heavy run whose command measured `<cores>` or more, or an entry of a build before the assumed cores without
+  a measure, comes to the head of the queue
 - **THEN** it waits until no heavy run holds cores, and no heavy run is admitted beside it
 - **AND** the runs after it wait behind it, even one that would fit: no run of the queue overtakes its head; only a short
   run new to the queue goes ahead of it, at most 4 times, so none waits forever
@@ -2986,6 +2992,46 @@ per group. The turns MUST keep none of the short lane's state.
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_high_run_goes_ahead_of_the_normal_runs_of_its_group_never_of_another_group_nor_the_head`, `the_priority_never_moves_a_long_run_into_the_place_of_a_short_one`)
   [@test] crates/lease-pool/src/host_estimate_test.rs (`an_estimate_places_a_run_by_its_priority_and_its_commit_as_the_queue_places_it`)
   [@test] crates/host-agent/src/turn_test.rs (`the_lines_name_a_priority_and_prioritize_says_where_the_run_moved`)
+
+### Requirement: serve: A heavy run without a measure takes the measure of its program or the cores the host assumes
+
+A heavy run whose command has no measure MUST take the measure of its program, under which each measure MUST go too;
+without one, the cores the host assumes of one (half of its cores by default), not the whole host. A holder of them
+MUST hold the most it used of the last 5 min when that is more.
+
+#### Scenario: The measure of its program
+- **WHEN** a heavy run starts whose command has no measure, such as `scripts/bench gate --base <commit>` on a new
+  commit, and runs of its program (`scripts/bench gate`) ended with a measure
+- **THEN** it is admitted by the measure of its program, as by a measure of its own, and `brd-host runs` says `for
+  <cores> (measured by the runs of its program)` while it waits
+- **AND** its own measure wins once a run of its command has one; a run of a class of `--measure-as` names no program;
+  a wall is of its command alone, so its program makes no run short
+  [@test] crates/host-link/src/heavy_test.rs (`the_program_of_a_command_is_its_first_word_and_subcommand_or_the_work_of_its_script`)
+  [@test] crates/lease-pool/src/host_cores_test.rs (`a_command_without_a_measure_takes_the_measure_of_its_program`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_run_is_expected_by_its_command_its_program_or_the_cores_the_host_assumes`)
+
+#### Scenario: No measure at all
+- **WHEN** a heavy run starts whose command and program have no measure, on a host of `<cores>` cores
+- **THEN** it takes the cores the host assumes of one: `branchdeck.hostUnmeasuredCores` of the global git config of the
+  host, a number of cores below `<cores>`, else half of `<cores>`; it is admitted beside the holders while they fit,
+  and on a free turn without waiting for a quiet host
+- **AND** its entry of the turn has `expected` of those cores and `expectation: assumed`, and the line of its wait
+  says `<cores> of its <cores> cores, as the command has no measure yet (the host reserves the cores it assumes of a
+  run without one until a run of it, or of its program, measures it)`
+- **AND** as a holder it holds the most it used of the last 5 min when that is more, in its grace too, so a run that
+  the default misjudged keeps the next runs out from its next sample; past its grace it counts as any holder
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_cores_the_host_assumes_of_one`)
+  [@test] crates/host-agent/tests/serve/heavy.rs (`heavy_runs_without_a_measure_take_the_cores_the_host_assumes_of_one`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_run_is_expected_by_its_command_its_program_or_the_cores_the_host_assumes`)
+
+#### Scenario: Older builds, an exclusive run and the history
+- **WHEN** a supervisor of an older build rewrites the turn, the holder of the build before holds it, or a run is
+  exclusive
+- **THEN** a rewrite drops `expectation` and counts `expected` as a measure; the holder of the build before, without a
+  measure, still holds the whole host; an exclusive run still waits for a quiet host
+- **AND** the history names the need `assumed`, which `brd-host stats` does not count as one for the whole host
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_without_a_measure_takes_the_cores_the_host_assumes_of_one`, `the_holder_of_the_build_before_holds_the_whole_host`)
+  [@test] crates/lease-pool/src/host_history_test.rs (`the_need_of_a_heavy_run_follows_its_measure`)
 
 ### Requirement: serve: An exclusive run holds a quiet host alone
 

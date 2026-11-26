@@ -14,11 +14,12 @@ use crate::repo::Repository;
 use crate::run::{Runs, epoch_ms};
 use crate::tuning;
 use git_ops::revs::is_object_id;
-use host_link::heavy::{measure_key, run_key};
+use host_link::heavy::{measure_key, program_key, run_key};
 use host_link::proto::{Estimate, EstimateAsk, Reply};
+use lease_pool::host_cores::{MeasureKeys, MeasureOf};
 use lease_pool::host_estimate::{Asked, Sight, StartEstimate, estimate};
 use lease_pool::host_slots::read_host_slots;
-use lease_pool::host_turn::{Bar, TurnEntry, bar, group_key};
+use lease_pool::host_turn::{Bar, Expectation, TurnEntry, bar, group_key};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -26,23 +27,36 @@ use std::time::SystemTime;
 pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply {
   let dir = home.heavy_dir();
   let path = repo.path.display().to_string();
-  let cores = crate::supervise::host_cores(repo);
+  let (cores, assumed) = crate::supervise::host_shares(repo);
   let key = measure_key(&ask.command, &ask.fetch, ask.measure_as.as_deref());
-  // a table of the measures that cannot be read has none: the run takes the whole host, as before any measure
-  let expected_cores = lease_pool::host_cores::expected(&dir, &path, &key).unwrap_or_else(|error| {
+  let program = program_key(&ask.command, ask.measure_as.as_deref());
+  let keys = MeasureKeys {
+    command: &key,
+    program: program.as_deref(),
+  };
+  // a table of the measures that cannot be read has none: the run takes the cores of a run without one
+  let measured = lease_pool::host_cores::expected_of(&dir, &path, keys).unwrap_or_else(|error| {
     log(&format!("cannot read the cores of the commands for an estimate: {error:#}"));
     None
   });
+  // the reply names a measure of the command or its program only, as a set of hosts sends a heavy run only where one is
+  let expected_cores = measured.map(|(cores, _)| cores);
+  let (expected, expectation) = match measured {
+    Some((cores, MeasureOf::Command)) => (Some(cores), None),
+    Some((cores, MeasureOf::Program)) => (Some(cores), Some(Expectation::Program)),
+    None => (Some(assumed), Some(Expectation::Assumed)),
+  };
   let runs = Runs::new(home.runs_dir());
   let wall_of_entry = |entry: &TurnEntry| entry_wall(&runs, &dir, entry);
   let now = epoch_ms(SystemTime::now());
   let start = if ask.heavy {
     let group = group_key(ask.group.as_deref(), &ask.affinity, "");
     let asked = Asked {
+      expectation,
       repo: &path,
       affinity: &ask.affinity,
       command_key: &run_key(&ask.command),
-      expected: expected_cores,
+      expected,
       passed_wall: lease_pool::host_cores::passed_wall(&dir, &path, &key).ok().flatten(),
       group,
       priority: ask.priority.map(crate::turn::priority_of),

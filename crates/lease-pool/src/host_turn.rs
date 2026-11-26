@@ -263,6 +263,22 @@ pub struct TurnEntry {
   /// rewrites the table drops this field, and only the lines lose it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub group: Option<String>,
+  /// Where `expected` comes from when its command has no measure of its own: the runs of its program, or the default
+  /// of a run without a measure ([`Expectation`]); `None`: the measure of its command. A supervisor of an older build
+  /// that rewrites the table drops it, and counts `expected` as a measure, which it is about
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expectation: Option<Expectation>,
+}
+
+/// Where the expectation of a run comes from when its command has no measure of its own (`TurnEntry::expectation`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Expectation {
+  /// The measure of the runs of its program (`host_cores::expected_of`, `host_link::heavy::program_key`)
+  Program,
+  /// No measure at all: the cores that the host assumes of a run without one (`branchdeck.hostUnmeasuredCores`, half
+  /// of its cores by default), which it holds at least while it runs ([`Need::Assumed`])
+  Assumed,
 }
 
 /// The live samples of a holder over the last [`USE_WINDOW`], the most of each half minute
@@ -325,6 +341,9 @@ const fn is_false(value: &bool) -> bool {
 pub enum Need {
   /// These cores, by the measure of its command, or its live use when that is more
   Cores { cores: Cores, live: bool },
+  /// These cores of a run without a measure: the cores the host assumes of one, or the most of its live use since its
+  /// admission when that is more, so a run that the default misjudged holds what it showed
+  Assumed { cores: Cores },
   /// The whole host: its command has no measure yet
   Unmeasured,
   /// These cores, the most of its live use of the last 5 min: a holder past its grace ([`HOLD_GRACE`]), with the
@@ -340,13 +359,13 @@ impl Need {
   /// The cores of the need on a host of `cores`
   pub const fn cores(self, cores: u32) -> Cores {
     match self {
-      Self::Cores { cores, .. } | Self::Recent { cores, .. } => cores,
+      Self::Cores { cores, .. } | Self::Assumed { cores } | Self::Recent { cores, .. } => cores,
       Self::Unmeasured | Self::Measured(_) | Self::Exclusive => Cores::whole(cores),
     }
   }
 
   pub const fn is_whole_host(self) -> bool {
-    !matches!(self, Self::Cores { .. } | Self::Recent { .. })
+    !matches!(self, Self::Cores { .. } | Self::Assumed { .. } | Self::Recent { .. })
   }
 }
 
@@ -406,24 +425,37 @@ impl TurnEntry {
     if let Some(used) = self.recent_use(cores, now_ms) {
       return Need::Recent {
         cores: used,
-        measured: self.expected,
+        measured: self.measure(),
       };
     }
     let before = match self.expected {
       None => Need::Unmeasured,
       Some(expected) if expected >= Cores::whole(cores) => Need::Measured(expected),
+      // its most since its admission: the window of its live use (5 min) in its grace, which is all of its life then
+      Some(expected) if self.expectation == Some(Expectation::Assumed) => Need::Assumed {
+        cores: [self.live, self.recent.as_ref().and_then(|recent| recent.most(now_ms))]
+          .into_iter()
+          .flatten()
+          .fold(expected, Cores::max),
+      },
       Some(expected) => match self.live {
         Some(live) if live > expected => Need::Cores { cores: live, live: true },
         _ => Need::Cores { cores: expected, live: false },
       },
     };
     match (before, self.past_grace_most(now_ms)) {
-      (Need::Cores { cores: counted, .. }, Some(most)) if most > counted => Need::Recent {
+      (Need::Cores { cores: counted, .. } | Need::Assumed { cores: counted }, Some(most)) if most > counted => Need::Recent {
         cores: most,
-        measured: self.expected,
+        measured: self.measure(),
       },
       (before, _) => before,
     }
+  }
+
+  /// The measure of its command or its program, which `expected` is; `None` for a run without one, whose `expected` the
+  /// host assumed
+  fn measure(&self) -> Option<Cores> {
+    self.expected.filter(|_| self.expectation != Some(Expectation::Assumed))
   }
 
   /// The most of the live use of a holder past its grace over the last 5 min, its last sample too, as its window holds
@@ -539,6 +571,7 @@ fn legacy_holder(dir: &Path) -> Option<TurnEntry> {
     measure_as: None,
     recent: None,
     group: None,
+    expectation: None,
   })
 }
 
@@ -567,6 +600,8 @@ pub struct TurnRequest<'a> {
   pub passed_wall: Option<Duration>,
   /// The class of the measures of the run (`brd-host run --measure-as`), of which `expected` and `passed_wall` are
   pub measure_as: Option<&'a str>,
+  /// Where `expected` comes from when the command has no measure of its own (`TurnEntry::expectation`)
+  pub expectation: Option<Expectation>,
   /// The group of the run in the heavy queue (`brd-host run --group`); `None`: its affinity ([`group_key`])
   pub group: Option<&'a str>,
   /// Its priority inside its group (`brd-host run --priority`); `None`: the priority of the run of its group that it
@@ -673,6 +708,7 @@ impl Joined {
       beside: Vec::new(),
       short: None,
       passed: Vec::new(),
+      prioritized: Vec::new(),
       notes: Vec::new(),
     }
   }
@@ -722,8 +758,9 @@ pub struct GroupMark {
   #[serde(default, skip_serializing_if = "is_false")]
   pub took: bool,
   /// Its priority inside its group (`brd-host run --priority`, `brd-host prioritize`); `None`: normal. An optional field
-  /// of the schema: a build before the priorities reads the file and drops it at its next write
-  #[serde(default, skip_serializing_if = "Option::is_none")]
+  /// of the schema: a build before the priorities reads the file and drops it at its next write, and a value this build
+  /// does not read is none, so it never makes the file start anew ([`lenient`])
+  #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
   pub priority: Option<Priority>,
   /// The commit that it runs and the key of its measures (`host_link::heavy::measure_key`): a later run of its
   /// checkout of another commit with the same key supersedes it ([`LaterRun::supersedes`]); `None` from a run that
@@ -732,6 +769,12 @@ pub struct GroupMark {
   pub commit: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub measure_key: Option<String>,
+}
+
+/// A value of a mark that this build does not read, as a later build of the schema may write, is none: one field never
+/// makes `groups.json` start anew
+fn lenient<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(deserializer: D) -> Result<Option<T>, D::Error> {
+  Ok(Option::<serde_json::Value>::deserialize(deserializer)?.and_then(|value| serde_json::from_value(value).ok()))
 }
 
 impl QueueGroups {
@@ -1247,6 +1290,7 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     };
     // the expectation of a run that waits follows the measures that came while it waited
     table.queue[position].expected = request.expected;
+    table.queue[position].expectation = request.expectation;
     table.queue[position].exclusive |= request.exclusive;
     let mut seen = Seen::of(params, table, legacy.as_ref());
     let waited_out = seen.now.saturating_sub(table.queue[position].since_ms) >= millis(params.load_bound);
@@ -1350,7 +1394,7 @@ pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
   table.prune();
   let behind = table.queue.iter().position(|entry| entry.ticket.run == request.run).filter(|&position| {
     let entry = &table.queue[position];
-    position > 0 && entry.expected == request.expected && (entry.exclusive || !request.exclusive)
+    position > 0 && entry.expected == request.expected && entry.expectation == request.expectation && (entry.exclusive || !request.exclusive)
   });
   // a superseded run, a holder and a run new to the queue are in no place of the queue
   let Some(position) = behind else {
@@ -1472,6 +1516,7 @@ pub fn join_queue(table: &mut HeavyTurn, files: &mut QueueFiles, (cores, drain_b
     affinity: Some(request.affinity.to_owned()),
     command_key: Some(request.command_key.to_owned()),
     expected: request.expected,
+    expectation: request.expectation,
     live: None,
     exclusive: request.exclusive,
     passed: None,

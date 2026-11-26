@@ -29,6 +29,7 @@ pub(crate) fn request<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a
     commit: "",
     measure_key: "",
     priority: None,
+    expectation: None,
     run,
     pid,
     process_started: sync_utils::process_scan::process_started(pid),
@@ -251,6 +252,7 @@ fn a_holder_holds_the_turn_from_the_moment_it_took_it() {
   let command = command();
   let waited_long = request("run-1", &command);
   let joined = TurnEntry {
+    expectation: None,
     ticket: Ticket {
       run: "run-1".to_owned(),
       pid: waited_long.pid,
@@ -1931,7 +1933,8 @@ fn a_run_of_the_turns_that_is_gone_or_whose_table_write_failed_counts_no_pass() 
 }
 
 /// A mark of `groups.json` of this schema with a field that this build does not know, as a later build of the same
-/// schema adds one, is read with its marks kept: no field of a mark makes the file refuse or start anew
+/// schema adds one, or a value of a field it knows that it does not read, is read with its marks kept: no field of a mark
+/// makes the file refuse or start anew
 #[test]
 fn a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept() {
   let dir = tempfile::tempdir().unwrap();
@@ -1944,6 +1947,8 @@ fn a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept()
   assert_eq!(note, None);
   assert_eq!(groups.runs["s2"].group, "session");
   assert_eq!(groups.runs["o1"].passed, ["s2"]);
+  // a field this build knows with a value it does not read is none, and the rest of the mark stays
+  assert_eq!((groups.runs["s2"].priority, groups.runs["s2"].commit.as_deref()), (None, Some("1a2b")));
 }
 
 /// The runs `s1` and `s2` of the group `session` wait behind its holder, and the run `x` of a checkout of its own joins
@@ -1982,10 +1987,8 @@ fn a_high_run_goes_ahead_of_the_normal_runs_of_its_group_never_of_another_group_
 /// of its group, which went ahead in the short lane
 #[test]
 fn the_priority_never_moves_a_long_run_into_the_place_of_a_short_one() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&[]);
   let params = params(dir.path());
-  let command = command();
-  session_holds(&params, &command);
   join_all(&params, &["long-1", "long-2"], |run| grouped(run, "a", &command));
   join_all(&params, &["lint", "fmt"], |run| TurnRequest {
     group: Some("a"),
@@ -2083,4 +2086,63 @@ fn a_run_of_another_commit_supersedes_a_waiting_run_of_its_measures_and_keeps_it
   };
   assert_eq!(ids(&join(&params, &low).unwrap().replaced), ["amended"]);
   assert_eq!(read_groups(dir.path()).0.priority("again"), Priority::Low, "a named priority wins");
+}
+
+/// A request as `request` of a run without a measure, which the host assumes `tenths` of cores of
+fn assumed<'a>(run: &'a str, command: &'a [String], tenths: u32) -> TurnRequest<'a> {
+  TurnRequest {
+    expected: Some(Cores(tenths)),
+    expectation: Some(Expectation::Assumed),
+    ..request(run, command)
+  }
+}
+
+/// A run without a measure takes the cores the host assumes of one, not the whole host: it starts beside a measured
+/// holder when they fit, and on a free turn without a quiet host. As a holder it holds the most it used since its start
+/// when that is more, so a run that the default misjudged keeps the next runs out while it runs; the holder of a build
+/// before the assumed cores, without a measure, still holds the whole host
+#[test]
+fn a_run_without_a_measure_takes_the_cores_the_host_assumes_of_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  assert_eq!(take(&params, &measured("gate", &command, 80)).unwrap(), TurnAnswer::Taken);
+  let new = assumed("new", &command, 100);
+  assert_eq!(take(&params, &new).unwrap(), TurnAnswer::Taken, "8 and the assumed 10 fit 20");
+  let table = read_live(dir.path()).unwrap();
+  let holder = table.holders.iter().find(|holder| holder.ticket.run == "new").unwrap();
+  assert_eq!(holder.need(20, now_ms()), Need::Assumed { cores: Cores(100) });
+  assert_eq!(holder.expectation, Some(Expectation::Assumed));
+
+  let pid = std::process::id();
+  note_use(
+    &params,
+    &UseNote {
+      run: "new",
+      pid,
+      process_started: sync_utils::process_scan::process_started(pid),
+      repo: "/Users/u/projects/branch-deck",
+      command: &command,
+      live: Cores(170),
+    },
+  )
+  .unwrap();
+  assert!(leave(&params, "gate").unwrap());
+  let TurnAnswer::Queued(queue) = take(&params, &measured("next", &command, 40)).unwrap() else {
+    panic!("the 17 that the new run showed and 4 do not fit 20");
+  };
+  assert_eq!(queue.holders[0].need(20, now_ms()), Need::Assumed { cores: Cores(170) });
+
+  assert!(leave(&params, "new").unwrap());
+  let before = TurnEntry::default();
+  assert_eq!(before.need(20, now_ms()), Need::Unmeasured, "an entry of a build before the assumed cores, no expectation");
+  let rewritten = TurnEntry {
+    expected: Some(Cores(100)),
+    ..TurnEntry::default()
+  };
+  assert_eq!(
+    rewritten.need(20, now_ms()),
+    Need::Cores { cores: Cores(100), live: false },
+    "an older build that dropped the expectation counts the assumed cores as a measure"
+  );
 }

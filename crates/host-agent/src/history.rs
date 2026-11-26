@@ -252,7 +252,7 @@ impl QueueWatch {
   /// The watch of the heavy run `of`, before it joins the queue
   pub(crate) fn start(home: &Home, of: &crate::turn::TurnRun<'_>) -> Self {
     let dir = home.heavy_dir();
-    let expected = lease_pool::host_cores::expected(&dir, of.repo, &of.measure_key()).ok().flatten();
+    let (expected, expectation) = of.expectation(&dir, &of.measure_key()).unwrap_or((None, None));
     let table = lease_pool::host_turn::read_live(&dir).ok();
     Self {
       run: of.run.to_owned(),
@@ -265,7 +265,7 @@ impl QueueWatch {
       holders: table.as_ref().map_or(0, |table| count(table.holders.len())),
       cores: of.cores,
       expected,
-      need: NeedKind::of(expected, of.exclusive, of.cores),
+      need: NeedKind::of(expected, expectation == Some(lease_pool::host_turn::Expectation::Assumed), of.exclusive, of.cores),
       drain_at: None,
       pending_at: None,
       dir,

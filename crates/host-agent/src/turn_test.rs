@@ -73,7 +73,7 @@ fn the_lines_of_the_heavy_turn_name_the_cores_of_each_holder_waiting_run_and_lig
       "heavy turn: 15.2 of 20 cores held",
       "  run 1788-12 of branch-deck holds 6.5 for 4 min (measured): pnpm lint:backend",
       "  run 1789-40 of accio holds 7.5 for 30 s (live, above its measure): scripts/check.sh --smoke",
-      "  run 1789-41 of accio holds 1.2 for 133 min (no measure: it held the whole host for its first 10 min, now its live use of the last 5 min): bash -c ./typing-gate.sh",
+      "  run 1789-41 of accio holds 1.2 for 133 min (no measure: it held the whole host, or the cores of a run without one, for its first 10 min, now its live use of the last 5 min): bash -c ./typing-gate.sh",
       "  run 1790-03 of idea-1 waits 60 s for the whole host (no measure; a command whose text changes every run never gets one: `--measure-as <class>` gives it one): ./community/tools/bt.cmd --lane fast",
       "  run 1790-04 of idea-1 waits 10 s for the whole host (measured 20.0): ./community/tools/bt.cmd --lane slow",
       "  run 1790-05 of branch-deck waits 5 s for 9.0 (measured): pnpm e2e",
@@ -130,6 +130,7 @@ fn the_lines_of_the_heavy_turn_name_the_drain_of_an_exclusive_head_and_who_passe
 #[test]
 fn the_line_after_the_wait_names_the_exclusive_run_that_the_run_passed() {
   let exclusive = TurnEntry {
+    expectation: None,
     ticket: lease_pool::host_slots::Ticket {
       run: "1788-12".to_owned(),
       pid: 1,
@@ -279,6 +280,7 @@ fn a_run_that_is_not_heavy_waits_for_the_end_of_an_exclusive_run() {
   let never = || false;
   let mut quiet = |_: &str| {};
   let exclusive = TurnRun {
+    assumed: Cores::default(),
     run: "ab",
     repo: "/r/idea-1",
     affinity: "checkout-0123456789ab",
@@ -398,6 +400,7 @@ fn a_measure_that_comes_while_a_run_waits_counts_at_its_next_look() {
   let (light1, light5) = (lane("out/air/light1"), lane("out/air/light5"));
   let (fetch1, fetch5) = (vec!["out/air/light1".to_owned()], vec!["out/air/light5".to_owned()]);
   let run = |run, command, fetch| TurnRun {
+    assumed: Cores::default(),
     run,
     repo: "/r/idea-1",
     affinity: run,
@@ -612,4 +615,68 @@ fn the_lines_name_a_priority_and_prioritize_says_where_the_run_moved() {
     }
   );
   assert_eq!(prioritize(&home, "nobody", host_link::proto::Priority::Low).unwrap_err().code, Code::UnknownRun);
+}
+
+/// The expectation of a run is the measure of its command, else of its program, else the cores the host assumes of a
+/// run without one; an exclusive run and a host that assumes none take the whole host. The line of a waiting run says
+/// which
+#[test]
+fn a_run_is_expected_by_its_command_its_program_or_the_cores_the_host_assumes() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let heavy = heavy_dir(&home);
+  std::fs::create_dir_all(&heavy).unwrap();
+  let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+  let (first, second) = (words("scripts/bench gate --base 593e5c6e"), words("scripts/bench gate --base 4ca6601b"));
+  let run = |command| TurnRun {
+    run: "1-1",
+    repo: "/r/accio",
+    command,
+    cores: 20,
+    assumed: Cores(100),
+    ..TurnRun::default()
+  };
+  let expectation = |of: &TurnRun<'_>| of.expectation(&heavy, &of.measure_key()).unwrap();
+  assert_eq!(expectation(&run(&first)), (Some(Cores(100)), Some(Expectation::Assumed)));
+  let measure = Measure {
+    run: "0-1".to_owned(),
+    mean: Cores(60),
+    peak: Cores(140),
+    level: Some(Cores(120)),
+    wall_ms: 600_000,
+    at_ms: 1_000,
+  };
+  let (key, program) = (run(&first).measure_key(), run(&first).program_key());
+  let keys = MeasureKeys {
+    command: &key,
+    program: program.as_deref(),
+  };
+  lease_pool::host_cores::record(&heavy, Duration::from_secs(5), Duration::ZERO, "/r/accio", keys, measure, true).unwrap();
+  assert_eq!(expectation(&run(&first)), (Some(Cores(120)), None), "its own measure");
+  assert_eq!(expectation(&run(&second)), (Some(Cores(120)), Some(Expectation::Program)), "the measure of its program");
+  let exclusive = TurnRun { exclusive: true, ..run(&second) };
+  assert_eq!(expectation(&exclusive), (None, None));
+  let none = TurnRun {
+    assumed: Cores::default(),
+    command: &words("cargo nextest run"),
+    ..run(&second)
+  };
+  assert_eq!(expectation(&none), (None, None), "a host that assumes no cores: the whole host");
+
+  let now = 1_000_000_000;
+  let table = serde_json::json!({
+    "schema": 2,
+    "cores": 20,
+    "queue": [
+      { "run": "1790-05", "pid": 2, "repo": "/Users/u/projects/accio", "command": "scripts/bench gate --base 4ca6601b", "since_ms": now - 60_000, "expected": 12.0, "expectation": "program" },
+      { "run": "1790-06", "pid": 2, "repo": "/Users/u/projects/accio", "command": "zsh -c ./x.sh", "since_ms": now - 60_000, "expected": 10.0, "expectation": "assumed" },
+    ],
+  });
+  assert_eq!(
+    lines_at(&table, now).unwrap()[1..],
+    [
+      "  run 1790-05 of accio waits 60 s for 12.0 (measured by the runs of its program): scripts/bench gate --base 4ca6601b",
+      "  run 1790-06 of accio waits 60 s for 10.0 (no measure yet: the cores the host assumes of a run without one): zsh -c ./x.sh",
+    ]
+  );
 }

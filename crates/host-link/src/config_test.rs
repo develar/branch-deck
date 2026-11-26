@@ -293,6 +293,7 @@ fn the_host_table_of_this_repository_parses() {
     "perf:bd-rebuild",
     "perf:monorepo",
     "perf:test-processes",
+    "perf:host-admission",
     "perf:diff",
     "perf:eager-js",
     "perf:table",

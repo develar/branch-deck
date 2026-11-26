@@ -380,6 +380,49 @@ pub fn measure_key(command: &[String], fetch: &[String], measure_as: Option<&str
   run_key(&words)
 }
 
+/// The word before the program of a command in [`program_key`]: no command has this name, so the key of a program is
+/// never the key of a command or of a class
+const PROGRAM_WORD: &str = "<program>";
+
+/// The commands that set a script up rather than do its work, which [`program_key`] passes over in a script of a shell
+/// (`mkdir -p out && ./tools/vm.cmd run x` is of `./tools/vm.cmd`)
+const SETUP_COMMANDS: &[&str] = &[
+  "cd", "mkdir", "rm", "cp", "mv", "echo", "printf", "export", "set", "true", ":", "test", "[", "ls", "cat", "df", "tail", "head", "date", "uptime", "sleep",
+];
+
+/// The key of the measures of the program of `command` (`lease_pool::host_cores::expected_of`): the [`run_key`] of
+/// `<program>`, its first word and a subcommand (`cargo nextest`, `pnpm e2e`, `scripts/bench gate`), the command of a
+/// script of a shell (`zsh -c "T=$1; ./tools/bt.cmd //x:$T"` is of `./tools/bt.cmd`) past its setup, a script file of a
+/// shell (`bash ./gate.sh`). A run without a measure of its own command takes the measure of its program, so a command
+/// whose text changes every run, as a script with the commits of the run in it, gets one from the runs before it.
+/// `None` with a class of `--measure-as`, which names its measures itself, and for a shell that runs nothing a run
+/// gives it
+pub fn program_key(command: &[String], measure_as: Option<&str>) -> Option<String> {
+  if measure_as.is_some() {
+    return None;
+  }
+  let words = without_prefixes(command.to_vec());
+  let words = match shell_input(&words) {
+    Some(ShellInput::Script(script, _)) => script_commands(&script)
+      .into_iter()
+      .map(without_prefixes)
+      .find(|words| words.first().is_some_and(|first| !SETUP_COMMANDS.contains(&first.as_str())))?,
+    Some(ShellInput::File(file)) => vec![file],
+    Some(ShellInput::Nothing) => return None,
+    None => words,
+  };
+  let first = words.first()?;
+  let mut program = vec![PROGRAM_WORD.to_owned(), first.clone()];
+  program.extend(words.get(1).filter(|word| is_subcommand(word)).cloned());
+  Some(run_key(&program))
+}
+
+/// Whether `word` after a program names its subcommand (`nextest`, `e2e`, `lint:backend`, `gate`), not an option, a
+/// path or an argument of a script
+fn is_subcommand(word: &str) -> bool {
+  word.chars().next().is_some_and(|char| char.is_ascii_alphabetic()) && word.chars().all(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_' | ':' | '.'))
+}
+
 /// A fetched directory as a run names it, without `./` before it and `/` after it
 fn trimmed_dir(dir: &str) -> &str {
   inner_script_path(dir).trim_end_matches('/')

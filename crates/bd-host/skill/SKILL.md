@@ -63,7 +63,7 @@ a run"). Never a `timeout` wrapper, a run in the background with a poll of a mar
 - `--exclusive` makes a measurement that needs a quiet host, an A/B or a benchmark (see "Exclusive runs"). Never for
   an ordinary check: it stops every other run of the host while it runs.
 - `--measure-as <class>` makes a heavy run whose measures are those of the class, not of its command (see "Heavy
-  runs"). Pass it to every heavy command whose text changes from run to run.
+  runs"). Not needed for an ordinary run: a command without a measure takes the measure of its program.
 - `--group <group>`, or `BRD_HOST_GROUP` in the environment, names the group of the run in the heavy queue, by
   default the session that holds the lease of the checkout, else the checkout (see "Heavy runs"). Never one per agent
   or per run, and never a lock of its own around `brd-host run`.
@@ -102,12 +102,11 @@ each run of the group, and a place that grows is no reason to cancel; a run of t
 same measures replaces the waiting one, so a re-gate after an amend needs no cancel; a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
-each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with
-the commits or paths of the run in it (`bash -c "$(cat gate.sh)" … <base> <tip>`) never gets a measure and waits for
-the whole host each time, which its line of the wait says (`a command whose text changes every run never gets one`).
-Give such a command `--measure-as <class>`, one class per kind of work of about one weight (`accio-typing-gate`, of
-letters, digits, `.`, `_` and `-`): its first run takes the whole host and is measured, and the next ones share the
-cores by the measure of the class. Never put two works of other weights into one class. A line `the heavy turn of the host is locked by …; this run
+each run an output directory of its own and fetch it. A command without a measure of its own, such as a script with
+the commits of the run in it, takes the measure of its program (`scripts/bench gate`, the command of a `zsh -c`
+script), else half of the host until a run of it is measured; `brd-host runs` says which. `--measure-as <class>` names
+the measures only of a command that is another kind of work under the same program, one class per kind of work of
+about one weight; never two works of other weights in one class. A line `the heavy turn of the host is locked by …; this run
 keeps its place in the queue and looks again` is a wait too, never a reason to cancel. A run is heavy when a pattern of `heavy` of `[host]` of the
 commit matches its command, or with `--heavy`. `bt --host` passes no flag: a bt run is heavy only once its repository
 names `./community/tools/bt.cmd …` in `heavy`, and the IntelliJ monorepo decides that on its own. A heavy run says

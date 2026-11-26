@@ -150,14 +150,13 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   git config of the host, else what the system counts). Only the head: a run of the queue never overtakes one that
   waits for more, so a host that frees cores gives them to the run at the head; the one exception is an exclusive head
   whose drain ended (below). The place in the queue takes turns between groups, first come first inside one, but for a
-  short run (below). A run without a
-  measure, or whose command measured the whole host, takes the whole host: it waits for every holder and for a quiet
-  host, and no heavy run joins it. The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
+  short run (below). A run whose command measured the whole host takes the whole host: it waits for every holder and
+  for a quiet host, and no heavy run joins it. A run whose command has no measure takes the measure of its program,
+  else the cores the host assumes of a run without one (below). The samples of the runs miss what no run counts (on 2026-11-19 the Studio ran at a
   load of 61 to 84, `top` saying 0 % idle, while the turn counted 8.9 of its 20 cores held), so `serve` samples the busy
   cores of the whole host every 2 s (`sync_utils::host_cpu`, `host.json` beside the turn), and an admission counts the
   larger of the live cores of the runs that are not heavy and the busy cores of the host less the live use of the
-  holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A new command, a first `bt --lane fast` among them, so runs alone until its runs say otherwise, which is
-  the behaviour of the turn before. A run that is not heavy waits for nothing; its live cores only keep a heavy run
+  holders. A quiet host is busy with at most a fifth of its cores outside the heavy runs. A run that is not heavy waits for nothing; its live cores only keep a heavy run
   from joining a host they already load.
 - **A holder past its grace**: a holder counts its expectation only until its use is known. On 2026-11-24 the first
   run of the class `accio-typing-gate` held the whole Studio for over 2 h at 0.6 of its 20 cores on average (18.3 at
@@ -191,9 +190,27 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   counts from the join, not from the free turn: the field is one that a supervisor of the build before keeps, and a
   run that waited long behind holders has waited its share. A reservation that also holds the runs that are not heavy
   back, as the drain of an exclusive run does, was not taken: it stops every agent of the host, and the processes of
-  no run never drain. A default measure was not taken either: a first `bt --lane fast` uses every core, and a guess
-  below that runs it beside another heavy run. The bound costs the head a slower run on a loaded host, never a wait of
-  hours, and an exclusive run, a measurement, still waits for its quiet host.
+  no run never drain. The bound costs the head a slower run on a loaded host, never a wait of hours, and an exclusive
+  run, a measurement, still waits for its quiet host.
+- **A run without a measure** (`host_cores::expected_of`, `host_link::heavy::program_key`, `Expectation`): the runs
+  without a measure of their command took the whole host, and an agent was told to give a command whose text changes
+  `--measure-as`, which agents do not do by default. So a run without a measure of its own command takes the measure of
+  its program: its first word and subcommand (`cargo nextest`, `scripts/bench gate`), the command of a script of a
+  shell past its setup (`zsh -c "T=$1; ./tools/bt.cmd //x:$T"` is of `./tools/bt.cmd`). Each measure goes under the
+  key of its program too, the last 5 of them, and walls never: a short wall is of a command. A run of no measure of
+  either takes the cores the host assumes of one, half of its cores by default (`branchdeck.hostUnmeasuredCores`): as a
+  build service runs an action it never ran on its smallest size and learns, and HTCondor gives a job that names no
+  cores one. The assumed cores are the `expected` of its entry, marked `assumed`, so every reader of the turn counts
+  them alike, and an older build that drops the mark counts them as a measure. A holder of them holds the most of its
+  live use of the last 5 min when that is more, also in its grace, so a run that the default misjudged keeps the next
+  runs out within a sample; past its grace it counts its use as any holder. The holder of a build before the assumed
+  cores, without a measure, still holds the whole host. A replay of the 492 heavy runs of 66 h of the Studio before
+  2026-11-26 (`pnpm perf:host-admission`, its model of the turn before within 15 % of the real wait) waits 328 h with
+  the turn before, 291 h with the program alone, 263 h with both, at the same stretch; of the 112 runs without a measure
+  of their command, the program gave 51 % one, a key without the commits of a run 5 %, so no such key was taken.
+  Overcommit of the measures was not taken here: the runs of the history that ran beside others ran up to 3 times
+  slower than the cores they shared tell (a lint 0.6 min alone, 1.8 min beside 11 cores of others, at 3.4 of its own),
+  and two E2E suites ran 3.6 times slower, so the measures stay the bound.
 - **A short run** (`host_turn::place`): first come first ran one heavy run at a time on the Studio, as nextest and
   E2E take about 12 of its 20 cores and a lint about 9. In 22.6 h before 2026-11-24 the heavy runs waited 3189
   min and ran 346, and `pnpm lint:backend` (30 to 58 s) waited 50 to 70 min behind runs of 10 min. So a run that is
@@ -912,6 +929,14 @@ the `brd lease host …` and `brd host …` commands of brd were removed.
     **Rationale**: A default that an agent must set is lost after a few rounds, so the group comes from what the lease
     already records. A priority across groups would undo the turns; one that admits rather than orders would break the
     supervisors of the build before, which admit the head. The re-gates after amends were the manual work of a night.
+
+16. **Decision**: A heavy run without a measure of its command takes the measure of its program, else the cores the
+    host assumes of one, half of its cores, not the whole host (2026-11-26).
+    **Rationale**: It reverses "a default measure was not taken": that guess ran a first `bt --lane fast` beside
+    another heavy run, while now a holder of assumed cores holds the most it used of the last 5 min within a sample of
+    a burst, and the program gives most such runs a measure of their kin first. An agent cannot be asked for
+    `--measure-as` by default. The replay of the Studio's history ranks it below the turn before and at the same
+    stretch; overcommit stays out, as the history shows runs side by side slowing beyond their cores.
 
 ## Alternatives Considered
 

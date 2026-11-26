@@ -51,6 +51,12 @@ pub(crate) fn cores() -> Option<u32> {
   std::env::var("BD_HOST_TEST_CORES").ok()?.parse().ok().filter(|cores| *cores > 0)
 }
 
+/// The cores the heavy turn assumes of a run without a measure that a process test gives in place of the setting:
+/// `BD_HOST_TEST_UNMEASURED_CORES`, 0 for none, so such a run takes the whole host as before
+pub(crate) fn unmeasured_cores() -> Option<f64> {
+  std::env::var("BD_HOST_TEST_UNMEASURED_CORES").ok()?.parse().ok()
+}
+
 /// How often `serve` samples the busy cores of the host for the heavy turn: `BD_HOST_TEST_HOST_SAMPLE_MS`, else 2 s;
 /// `None` for 0, as the process tests of `serve` run on a host that their own suite keeps busy
 pub(crate) fn host_sample_every() -> Option<Duration> {

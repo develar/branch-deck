@@ -53,7 +53,7 @@ fn the_expectation_of_a_command_is_of_the_levels_of_its_runs_and_of_the_mean_wit
       level: level.map(Cores),
       ..measure(run, mean, 600_000, 1_000)
     };
-    record(dir.path(), timeout, MIN_WALL, REPO, "gate", measure, true).unwrap();
+    record(dir.path(), timeout, MIN_WALL, REPO, only("gate"), measure, true).unwrap();
   };
   add("old", 10, None);
   assert_eq!(expected(dir.path(), REPO, "gate").unwrap(), Some(Cores(10)), "the mean of a measure without a level");
@@ -71,7 +71,7 @@ fn the_expectation_of_a_command_is_of_the_levels_of_its_runs_and_of_the_mean_wit
       level: work_level(phase(0, 5, mean)),
       ..measure(run, mean, 300_000, 1_000)
     };
-    record(steady.path(), timeout, MIN_WALL, REPO, "nextest", measure, true).unwrap();
+    record(steady.path(), timeout, MIN_WALL, REPO, only("nextest"), measure, true).unwrap();
   }
   assert_eq!(expected(steady.path(), REPO, "nextest").unwrap(), Some(Cores(120)), "a steady command as by its mean");
 }
@@ -83,7 +83,7 @@ fn the_expectation_of_a_command_is_of_the_levels_of_its_runs_and_of_the_mean_wit
 fn the_expectation_of_a_command_follows_its_last_runs() {
   let dir = tempfile::tempdir().unwrap();
   let timeout = Duration::from_secs(10);
-  let add = |run: &str, key: &str, mean: u32, wall_ms: u64| record(dir.path(), timeout, MIN_WALL, REPO, key, measure(run, mean, wall_ms, 1_000), true).unwrap();
+  let add = |run: &str, key: &str, mean: u32, wall_ms: u64| record(dir.path(), timeout, MIN_WALL, REPO, only(key), measure(run, mean, wall_ms, 1_000), true).unwrap();
   assert_eq!(expected(dir.path(), REPO, "e2e").unwrap(), None, "no measure");
   add("r1", "e2e", 60, 600_000);
   assert_eq!(expected(dir.path(), REPO, "e2e").unwrap(), Some(Cores(60)));
@@ -114,8 +114,8 @@ fn a_command_without_a_measure_for_30_days_is_forgotten() {
   let dir = tempfile::tempdir().unwrap();
   let timeout = Duration::from_secs(10);
   let day = 86_400_000;
-  record(dir.path(), timeout, MIN_WALL, REPO, "old", measure("r1", 50, 600_000, day), true).unwrap();
-  record(dir.path(), timeout, MIN_WALL, REPO, "new", measure("r2", 50, 600_000, 31 * day + day), true).unwrap();
+  record(dir.path(), timeout, MIN_WALL, REPO, only("old"), measure("r1", 50, 600_000, day), true).unwrap();
+  record(dir.path(), timeout, MIN_WALL, REPO, only("new"), measure("r2", 50, 600_000, 31 * day + day), true).unwrap();
   assert_eq!(expected(dir.path(), REPO, "old").unwrap(), None);
   assert_eq!(expected(dir.path(), REPO, "new").unwrap(), Some(Cores(50)));
 }
@@ -127,7 +127,7 @@ fn a_command_without_a_measure_for_30_days_is_forgotten() {
 fn the_wall_of_a_command_is_of_its_last_passed_runs_over_three_at_least() {
   let dir = tempfile::tempdir().unwrap();
   let timeout = Duration::from_secs(10);
-  let add = |run: &str, wall_ms: u64, passed: bool| record(dir.path(), timeout, MIN_WALL, REPO, "lint", measure(run, 60, wall_ms, 1_000), passed).unwrap();
+  let add = |run: &str, wall_ms: u64, passed: bool| record(dir.path(), timeout, MIN_WALL, REPO, only("lint"), measure(run, 60, wall_ms, 1_000), passed).unwrap();
   add("p1", 40_000, true);
   add("p2", 50_000, true);
   assert_eq!(passed_wall(dir.path(), REPO, "lint").unwrap(), None, "2 passed runs tell no wall");
@@ -175,4 +175,25 @@ fn a_run_beside_more_load_than_the_host_leaves_room_for_is_starved() {
   assert_eq!(starved(Some(Cores(60)), Cores(60), 12), None, "the host had room for it");
   assert!(starved(Some(Cores(60)), Cores(61), 12).is_some(), "a tenth past the room");
   assert_eq!(starved(None, Cores(5), 12), None, "no sample of the host");
+}
+
+/// The keys of the measures of a command of its own, without a program
+const fn only(command: &str) -> MeasureKeys<'_> {
+  MeasureKeys { command, program: None }
+}
+
+/// A measure goes under the key of its program too, and a command without a measure of its own takes the measure of its
+/// program; its own measure wins once it has one, and a wall is of the command alone
+#[test]
+fn a_command_without_a_measure_takes_the_measure_of_its_program() {
+  let dir = tempfile::tempdir().unwrap();
+  let timeout = Duration::from_secs(5);
+  let keys = |command| MeasureKeys { command, program: Some("bench") };
+  for (run, mean) in [("r1", 60), ("r2", 80)] {
+    record(dir.path(), timeout, MIN_WALL, REPO, keys(run), measure(run, mean, 600_000, 1_000), true).unwrap();
+  }
+  assert_eq!(expected_of(dir.path(), REPO, keys("r3")).unwrap(), Some((Cores(80), MeasureOf::Program)));
+  assert_eq!(expected_of(dir.path(), REPO, keys("r1")).unwrap(), Some((Cores(60), MeasureOf::Command)));
+  assert_eq!(expected_of(dir.path(), REPO, only("r3")).unwrap(), None, "no program, no measure");
+  assert_eq!(passed_wall(dir.path(), REPO, "bench").unwrap(), None, "no wall of a program");
 }
