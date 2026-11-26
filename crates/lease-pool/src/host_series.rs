@@ -310,6 +310,7 @@ pub fn minute(dir: &Path, cores: u32, now_ms: u64, drain_bar: Duration, busy: Op
         marks,
         groups: crate::host_turn::QueueGroups::default(),
         drain: crate::host_turn::DrainFile::default(),
+        notes: Vec::new(),
       },
       head_drain: drain,
       drain_bar,

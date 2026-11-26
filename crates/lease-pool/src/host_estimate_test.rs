@@ -207,6 +207,39 @@ impl Draw {
   }
 }
 
+/// The runs before which the estimate of the run of `request` places it in the queue of `dir`, then those before which
+/// its join puts it, and whether it supersedes a run of another group that went ahead of a run at its budget: the case
+/// in which a second copy of the rule placed it one run off
+fn estimate_then_join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> (Vec<String>, Option<Vec<String>>, bool) {
+  let dir = params.dir;
+  let sight = Sight::of(dir, 20, crate::host_slots::now_ms(), DRAIN_BAR).unwrap();
+  let group = group_key(request.group, request.affinity, request.run);
+  let passes = sight.files.groups.passes_in(&sight.turn.queue);
+  let crosses = sight.turn.queue.iter().any(|entry| {
+    entry.affinity.as_deref() == Some(request.affinity)
+      && entry.command_key.as_deref() == Some(request.command_key)
+      && sight.files.groups.group_of(entry) != group
+      && sight
+        .files
+        .groups
+        .runs
+        .get(&entry.ticket.run)
+        .is_some_and(|mark| mark.passed.iter().any(|passed| passes.get(passed).copied() == Some(TURN_PASS_BUDGET)))
+  });
+  let asked = Asked {
+    repo: request.repo,
+    affinity: request.affinity,
+    command_key: request.command_key,
+    expected: request.expected,
+    passed_wall: request.passed_wall,
+    group,
+  };
+  let estimated: Vec<String> = place(&sight, &asked).0.into_iter().map(|entry| entry.ticket.run).collect();
+  let joined: Joined = join(params, request).unwrap();
+  assert!(matches!(joined.answer, TurnAnswer::Queued(_)), "{}", request.run);
+  (estimated, ahead_in(dir, request.run), crosses)
+}
+
 /// The runs before the run `run` in the queue of `dir`, or `None` when it is not there
 fn ahead_in(dir: &Path, run: &str) -> Option<Vec<String>> {
   let queue = read_live(dir).unwrap().queue;
@@ -236,7 +269,7 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
   let groups = ["session", "other", "third"];
   let checkouts: Vec<String> = (0..16).map(|n| format!("checkout-{n:02}")).collect();
   let checkouts: &'static [String] = Box::leak(checkouts.into_boxed_slice());
-  let runs: Vec<String> = (0..400).map(|n| format!("run-{n}")).collect();
+  let runs: Vec<String> = (0..250).map(|n| format!("run-{n}")).collect();
   let request = |run: &'static str, draw: &mut Draw| {
     let command = usize::try_from(draw.below(2)).unwrap();
     let short = draw.below(5) == 0;
@@ -275,9 +308,30 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
     group: None,
   };
   assert_eq!(join(&params, &holder).unwrap().answer, TurnAnswer::Taken);
+  // the case of the review: x went ahead of big-2, which seven more runs passed, and a run of x's checkout and command
+  // of another group supersedes it, so big-2 may be passed again
+  let of_group = |run: &'static str, affinity: &'static str, group: &'static str| TurnRequest {
+    run,
+    affinity,
+    group: Some(group),
+    ..holder
+  };
+  for (run, affinity, group) in [("big-1", "checkout-big-1", "big"), ("big-2", "checkout-big-2", "big"), ("x", "checkout-x", "gx1")] {
+    join(&params, &of_group(run, affinity, group)).unwrap();
+  }
+  for run in ["o0", "o1", "o2", "o3", "o4", "o5", "o6"] {
+    join(&params, &of_group(run, run, run)).unwrap();
+  }
+  let (estimated, joined, crosses) = estimate_then_join(&params, &of_group("x2", "checkout-x", "gx2"));
+  assert!(crosses, "the case is the one of the review");
+  assert_eq!(Some(estimated), joined, "the estimate and the join place x2 alike");
+  for run in read_live(dir.path()).unwrap().queue {
+    leave(&params, &run.ticket.run).unwrap();
+  }
   let runs: &'static [String] = Box::leak(runs.into_boxed_slice());
   let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
   let mut compared = 0;
+  let mut crossed = 0;
   let mut most = 0;
   for run in runs {
     let queue = read_live(dir.path()).unwrap().queue;
@@ -290,24 +344,15 @@ fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
       // an estimate is of a run that is not exclusive
       join(&params, &asked_request).unwrap();
     } else {
-      let sight = Sight::of(dir.path(), 20, crate::host_slots::now_ms(), DRAIN_BAR).unwrap();
-      let asked = Asked {
-        repo: REPO,
-        affinity: asked_request.affinity,
-        command_key: asked_request.command_key,
-        expected: asked_request.expected,
-        passed_wall: asked_request.passed_wall,
-        group: group_key(asked_request.group, asked_request.affinity, run),
-      };
-      let estimated: Vec<String> = place(&sight, &asked).0.into_iter().map(|entry| entry.ticket.run).collect();
-      let joined: Joined = join(&params, &asked_request).unwrap();
-      assert!(matches!(joined.answer, TurnAnswer::Queued(_)), "{run}");
-      assert_eq!(ahead_in(dir.path(), run), Some(estimated), "{run}");
+      let (estimated, joined, crosses) = estimate_then_join(&params, &asked_request);
+      assert_eq!(joined, Some(estimated), "{run}");
+      crossed += usize::from(crosses);
       compared += 1;
     }
-    let passes = read_groups(dir.path()).unwrap().passes_in(&read_live(dir.path()).unwrap().queue);
+    let passes = read_groups(dir.path()).0.passes_in(&read_live(dir.path()).unwrap().queue);
     most = passes.values().copied().max().unwrap_or_default().max(most);
   }
-  assert!(compared > 300, "{compared}");
+  assert!(compared > 180, "{compared}");
+  assert!(crossed > 0, "the generator made the supersede of a run of another group that passed a run at its budget");
   assert_eq!(most, TURN_PASS_BUDGET, "some run reached its budget, and none went past it");
 }

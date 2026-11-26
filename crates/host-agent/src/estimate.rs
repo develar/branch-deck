@@ -47,7 +47,12 @@ pub(crate) fn of_run(home: &Home, repo: &Repository, ask: &EstimateAsk) -> Reply
       group,
     };
     match Sight::of(&dir, cores, now, tuning::drain_bar()) {
-      Ok(sight) => estimate(&sight, &asked, &wall_of_entry),
+      Ok(sight) => {
+        for note in &sight.files.notes {
+          log(note);
+        }
+        estimate(&sight, &asked, &wall_of_entry)
+      }
       Err(error) => {
         log(&format!("cannot read the heavy turn for an estimate: {error:#}"));
         StartEstimate::default()

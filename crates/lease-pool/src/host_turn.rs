@@ -30,14 +30,17 @@
 //! ones that wait ahead of it and the ones that took the turn ahead of it, whatever the count of the groups and whether
 //! the head can start; with the short lane's 4 a run so waits at most 12 runs longer than first come first, which
 //! behind long runs can be past its 2 h and end with `heavy_timeout`. The turns keep none of the state of the short
-//! lane: `groups.json` beside the table ([`QueueGroups`], a file that no older build reads or writes, of a schema of its
-//! own) names the group of each run, the runs it went ahead of, and whether it took the turn, and the count of the
+//! lane: `groups.json` beside the table ([`QueueGroups`], a file that no build before the groups reads or writes, of a
+//! schema of its own, and that no file of any build makes refuse, [`read_groups`]) names the group of each run, the
+//! runs it went ahead of, and whether it took the turn, and the count of the
 //! passes of a run is derived from it and the queue ([`QueueGroups::passes_in`]), never kept as a number. So a run that
 //! leaves without the turn, by a cancel, a start of `admit_now` refused `busy`, the end of its process or a write of the
 //! table that failed, counts no pass, and no order of the writes of the two files can count a pass for a run that is not
 //! in the queue. A run that `groups.json` does not name is of the group of its entry, so a rewrite of `turn.json` by an
-//! older build, which drops `group`, moves a run of `--group` to the group of its affinity at worst. The estimate of a
-//! start applies the same [`join_queue`] to a copy of the table and of its files, so it places a run as the join does.
+//! older build, which drops `group`, moves a run of `--group` to the group of its affinity at worst. A run that
+//! supersedes a run of its group takes its place with the passes made of it, so a run that an agent starts again is
+//! not passed 8 more times. The estimate of a start applies the same [`join_queue`] to a copy of the table and of its
+//! files, so it places a run as the join does.
 //!
 //! Inside those turns the order is first come first, but for short runs ([`place`]): a run whose command has a measure below
 //! the whole host, is not exclusive, and whose last passed runs took at most [`SHORT_WALL`] (2 min; the 80th percentile
@@ -604,6 +607,8 @@ pub struct Joined {
   pub short: Option<Duration>,
   /// The runs of the queue that this short run went ahead of, with the passes counted so far, its own among them
   pub passed: Vec<(TurnEntry, u32)>,
+  /// What a person should know of the files of the queue that its first ask read ([`QueueFiles::notes`])
+  pub notes: Vec<String>,
 }
 
 /// What the queue knows of its runs beyond `turn.json`, by the id of the run: `passes.json` beside the table, which a
@@ -660,6 +665,16 @@ impl QueueGroups {
     )
   }
 
+  /// The passes that runs of the turns made of the run `from` become passes of the run `to`, which takes its place
+  fn pass_on(&mut self, from: &str, to: &str) {
+    for passer in self.runs.values_mut() {
+      if passer.passed.iter().any(|passed| passed == from) {
+        passer.passed.retain(|passed| passed != from && passed != to);
+        passer.passed.push(to.to_owned());
+      }
+    }
+  }
+
   /// How often runs of the turns went ahead of each run, by the runs that went ahead of it and wait in `queue` or took
   /// the turn
   pub fn passes_in(&self, queue: &[TurnEntry]) -> BTreeMap<String, u32> {
@@ -675,26 +690,47 @@ impl QueueGroups {
   }
 }
 
-/// The groups of the runs of the queue in `dir`, read without the lock: a file replaced by a rename. A missing file names
-/// no group: each run is of the group of its entry, never passed. A file of another schema refuses, as the table does;
-/// a file that does not parse, as a power loss can leave it, says so in the log and names none: the runs of the queue
-/// get their whole budget of passes again, and the next join writes the file anew
-pub fn read_groups(dir: &Path) -> Result<QueueGroups> {
+/// The groups of the runs of the queue in `dir`, read without the lock: a file replaced by a rename, and what a person
+/// should know of it. No file of any build makes the turn refuse, as nothing but a join rewrites it, and a field of a
+/// mark that this build does not know, as a later build of the same schema adds one, is ignored:
+/// - a missing file names no group: each run is of the group of its entry, never passed;
+/// - a file of the first build of the groups, without `schema` and with a number of `passes` per run, keeps its groups
+///   and the runs each went ahead of, which mean the same here; the turns taken before are unknown, so the passes of the
+///   runs that took them count no more, and the waiting runs may be passed that many times again. A supervisor of that
+///   build that rewrites the file after an upgrade writes the same shape, which reads so again;
+/// - a file of a later schema, after a downgrade, and a file that does not parse, as a power loss can leave it, name no
+///   group and no pass: every waiting run gets its whole budget again, the note says so, and the next join writes the
+///   file of this schema
+pub fn read_groups(dir: &Path) -> (QueueGroups, Option<String>) {
   let path = dir.join(GROUPS_FILE);
   let Ok(bytes) = std::fs::read(&path) else {
-    return Ok(QueueGroups::default());
+    return (QueueGroups::default(), None);
   };
   match serde_json::from_slice::<QueueGroups>(&bytes) {
-    Ok(groups) if groups.schema == GROUPS_SCHEMA => Ok(groups),
-    Ok(groups) => bail!(
-      "{} has the schema {} of another build of brd-host, and this one reads {GROUPS_SCHEMA}",
-      path.display(),
-      groups.schema
+    Ok(groups) if groups.schema == GROUPS_SCHEMA => (groups, None),
+    // the first build of the groups wrote no schema
+    Ok(groups) if groups.schema == 0 => (
+      QueueGroups {
+        schema: GROUPS_SCHEMA,
+        runs: groups.runs,
+      },
+      None,
     ),
-    Err(error) => {
-      tracing::warn!(path = %path.display(), error = %error, "the groups of the heavy queue do not parse: every run of the queue is of the group of its entry and gets its whole budget of passes again");
-      Ok(QueueGroups::default())
-    }
+    Ok(groups) => (
+      QueueGroups::default(),
+      Some(format!(
+        "{} has the schema {} of a later build of brd-host, and this one reads {GROUPS_SCHEMA}: the heavy queue takes its groups from the runs anew, and every waiting run may be passed 8 times again",
+        path.display(),
+        groups.schema
+      )),
+    ),
+    Err(error) => (
+      QueueGroups::default(),
+      Some(format!(
+        "{} does not parse ({error}): the heavy queue takes its groups from the runs anew, and every waiting run may be passed 8 times again",
+        path.display()
+      )),
+    ),
   }
 }
 
@@ -716,16 +752,21 @@ pub struct QueueFiles {
   pub marks: QueueMarks,
   pub groups: QueueGroups,
   pub drain: DrainFile,
+  /// What a person should know of the files as they were read ([`read_groups`]), for the log of the agent and the line of
+  /// the run that read them
+  pub notes: Vec<String>,
 }
 
 impl QueueFiles {
   /// The files of the heavy turn in `dir`
-  pub fn read(dir: &Path) -> Result<Self> {
-    Ok(Self {
+  pub fn read(dir: &Path) -> Self {
+    let (groups, note) = read_groups(dir);
+    Self {
       marks: read_marks(dir),
-      groups: read_groups(dir)?,
+      groups,
       drain: DrainFile::read(dir),
-    })
+      notes: note.into_iter().collect(),
+    }
   }
 }
 
@@ -1080,6 +1121,7 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
       beside: Vec::new(),
       short: None,
       passed: Vec::new(),
+      notes: Vec::new(),
     };
     if let Some(at) = table.superseded.iter().position(|entry| entry.ticket.run == request.run) {
       joined.answer = TurnAnswer::Superseded {
@@ -1222,7 +1264,8 @@ pub fn look(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<TurnAn
 /// Puts the run of `request`, new to the queue, in its place in `table` ([`join_queue`]), with the files beside it
 /// read before and written after, under the lock of the table
 fn enqueue(table: &mut HeavyTurn, params: &TurnParams<'_>, request: &TurnRequest<'_>, joined: &mut Joined) -> Result<usize> {
-  let mut files = QueueFiles::read(params.dir)?;
+  let mut files = QueueFiles::read(params.dir);
+  joined.notes.append(&mut files.notes);
   let before = files.clone();
   let position = join_queue(table, &mut files, (params.cores, params.drain_bar), now_ms(), request, joined);
   if files.marks != before.marks {
@@ -1252,17 +1295,18 @@ pub fn join_queue(table: &mut HeavyTurn, files: &mut QueueFiles, (cores, drain_b
     by: request.run.to_owned(),
   }));
   joined.beside = table.queue.iter().filter(|entry| entry.is_of(request, false)).cloned().collect();
-  let QueueFiles { marks, groups, drain } = files;
+  let QueueFiles { marks, groups, drain, .. } = files;
   let group = group_key(request.group, request.affinity, request.run).to_owned();
-  // a run that supersedes takes the place of the first run it replaces, of the same group, and the runs they went
-  // ahead of; of another group it takes its own turn, and their passes end with them, as they left the queue
+  // a run that supersedes takes the place of the first run it replaces, of the same group: the runs they went ahead
+  // of, and the passes of the turns that went ahead of them, which now name it, so a run that an agent starts again is
+  // not passed 8 more times; of another group it takes its own turn, and those passes end with them, as they left
   let takes_place = superseded_at.is_some() && replaced.first().is_some_and(|first| groups.group_of(first) == group);
   let mut mark = GroupMark { group, ..GroupMark::default() };
   for entry in &replaced {
-    if let Some(replaced_mark) = groups.runs.remove(&entry.ticket.run)
-      && takes_place
-    {
-      mark.passed.extend(replaced_mark.passed);
+    let replaced_mark = groups.runs.remove(&entry.ticket.run);
+    if takes_place {
+      mark.passed.extend(replaced_mark.into_iter().flat_map(|replaced_mark| replaced_mark.passed));
+      groups.pass_on(&entry.ticket.run, request.run);
     }
   }
   // the place of the first superseded run: the runs before it are before it still
@@ -1331,7 +1375,7 @@ pub fn join_queue(table: &mut HeavyTurn, files: &mut QueueFiles, (cores, drain_b
 /// the table: the runs it went ahead of count its pass from now on, after it left the queue too. A run without a mark,
 /// of the build before, notes nothing
 fn note_took(dir: &Path, run: &str) -> Result<()> {
-  let mut groups = read_groups(dir)?;
+  let (mut groups, _) = read_groups(dir);
   match groups.runs.get_mut(run) {
     Some(mark) if !mark.took => {
       mark.took = true;

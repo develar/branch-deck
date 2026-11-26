@@ -53,7 +53,7 @@ impl Sight {
       outside: outside(&turn.holders, turn.light_cores(), window),
       window,
       sampled: host_sample(dir, now_ms).is_some(),
-      files: QueueFiles::read(dir)?,
+      files: QueueFiles::read(dir),
       head_drain: head_drain(dir, &turn.queue, now_ms, drain_bar),
       drain_bar,
       turn,
@@ -239,6 +239,7 @@ pub(crate) fn place(sight: &Sight, asked: &Asked<'_>) -> (Vec<TurnEntry>, u64) {
     beside: Vec::new(),
     short: None,
     passed: Vec::new(),
+    notes: Vec::new(),
   };
   let position = join_queue(&mut turn, &mut files, (sight.cores, sight.drain_bar), sight.now_ms, &request, &mut joined);
   let since_ms = turn.queue[position].since_ms;

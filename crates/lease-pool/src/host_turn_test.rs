@@ -1514,7 +1514,7 @@ fn join_all<'a>(params: &TurnParams<'_>, runs: &[&'a str], request: impl Fn(&'a 
 
 /// How often the turns of the groups passed each of `runs` of the queue in `dir`
 fn turn_passes(dir: &Path, runs: &[&str]) -> Vec<u32> {
-  let passes = read_groups(dir).unwrap().passes_in(&read_live(dir).unwrap().queue);
+  let passes = read_groups(dir).0.passes_in(&read_live(dir).unwrap().queue);
   runs.iter().map(|run| passes.get(*run).copied().unwrap_or_default()).collect()
 }
 
@@ -1732,7 +1732,7 @@ fn the_short_lane_the_head_and_the_supersede_keep_their_rules_beside_the_turns()
   let joined = join(&params, &later).unwrap();
   assert_eq!(joined.replaced.iter().map(|entry| entry.ticket.run.as_str()).collect::<Vec<_>>(), ["b1"]);
   assert_eq!(queue_of(dir.path())[12..], ["b1-later", "b2"]);
-  assert_eq!(read_groups(dir.path()).unwrap().runs.get("b1"), None, "the superseded run leaves the groups");
+  assert_eq!(read_groups(dir.path()).0.runs.get("b1"), None, "the superseded run leaves the groups");
 }
 
 /// A later run of the checkout and command of a waiting run whose group differs takes its own turn, not the place of
@@ -1780,27 +1780,167 @@ fn a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_o
   assert_eq!(queue_of(dir.path()), ["a1", "b1", "c1", "a2", "a3", "d1"], "each run alone: first come first");
 }
 
-/// `groups.json` names its schema: a file of another schema refuses the join, as a table of another schema does; a file
-/// that does not parse, as a power loss can leave it, names no group and no pass, so every waiting run gets its whole
-/// budget again, and the next join writes it anew
+/// `groups.json` names its schema, and no file of any build makes the turn refuse: a file of a later schema, after a
+/// downgrade, and one that does not parse, as a power loss can leave it, name no group and no pass, say so in the notes
+/// of the join, and the join writes the file of this schema; every waiting run gets its whole budget again
 #[test]
-fn the_groups_of_the_queue_name_their_schema_and_a_file_that_does_not_parse_resets_the_budgets() {
+fn the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that_does_not_parse_starts_anew() {
   let dir = tempfile::tempdir().unwrap();
   let params = params(dir.path());
   let command = command();
   session_waits(&params, &command, &["s1", "s2"]);
   join_all(&params, &["o1"], |run| grouped(run, run, &command));
-  let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(GROUPS_FILE)).unwrap()).unwrap();
-  assert_eq!(written["schema"], 1, "{written}");
+  let written = || -> serde_json::Value { serde_json::from_str(&std::fs::read_to_string(dir.path().join(GROUPS_FILE)).unwrap()).unwrap() };
+  assert_eq!(written()["schema"], 1, "{}", written());
   assert_eq!(turn_passes(dir.path(), &["s2"]), [1]);
 
-  std::fs::write(dir.path().join(GROUPS_FILE), r#"{"schema":2,"runs":{}}"#).unwrap();
-  let refused = join(&params, &grouped("o2", "o2", &command)).unwrap_err();
-  assert!(format!("{refused:#}").contains("has the schema 2 of another build of brd-host"), "{refused:#}");
+  std::fs::write(dir.path().join(GROUPS_FILE), r#"{"schema":2,"runs":{"s2":{"group":"later"}}}"#).unwrap();
+  let joined = join(&params, &grouped("o2", "o2", &command)).unwrap();
+  assert!(matches!(joined.answer, TurnAnswer::Queued(_)), "a later build takes no turn down");
+  assert!(
+    joined.notes[0].contains("has the schema 2 of a later build of brd-host, and this one reads 1"),
+    "{:?}",
+    joined.notes
+  );
+  assert_eq!(written()["schema"], 1, "the join writes the file of this schema");
+  assert_eq!(queue_of(dir.path()), ["s1", "o1", "o2", "s2"], "the groups of the entries");
 
   std::fs::write(dir.path().join(GROUPS_FILE), "").unwrap();
   assert_eq!(turn_passes(dir.path(), &["s2"]), [0], "a file that does not parse names no pass");
-  join_all(&params, &["o3"], |run| grouped(run, run, &command));
-  assert_eq!(queue_of(dir.path()), ["s1", "o1", "o3", "s2"], "the groups of the entries, and s2 passed again");
-  assert_eq!(turn_passes(dir.path(), &["s2"]), [1]);
+  let joined = join(&params, &grouped("o3", "o3", &command)).unwrap();
+  assert!(joined.notes[0].contains("does not parse"), "{:?}", joined.notes);
+  assert_eq!(queue_of(dir.path()), ["s1", "o1", "o2", "o3", "s2"]);
+  assert_eq!(turn_passes(dir.path(), &["s2"]), [1], "s2 may be passed 8 times again");
+  assert_eq!(
+    join(&params, &grouped("o4", "o4", &command)).unwrap().notes,
+    Vec::<String>::new(),
+    "a file of this schema says nothing"
+  );
+}
+
+/// The `groups.json` of the first build of the groups, which a host that ran it has and whose supervisors write it
+/// again after an upgrade (no `schema`, a number of `passes` per run), takes no turn down: it keeps its groups and the
+/// runs each went ahead of, and the passes of the runs that took the turn before the upgrade count no more
+#[test]
+fn the_groups_of_the_first_build_of_the_groups_keep_their_turns_after_an_upgrade() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_waits(&params, &command, &["s1", "s2", "s3"]);
+  join_all(&params, &["o1"], |run| grouped(run, run, &command));
+  // the shape that 68569e7e5 writes, as on the Studio: the group, a number of passes, the runs it went ahead of
+  let first_build = r#"{"runs":{"holder":{"group":"session","passes":0},"s1":{"group":"session","passes":0},"s2":{"group":"session","passes":1},"s3":{"group":"session","passes":1},"o1":{"group":"o1","passes":0,"passed":["s2","s3"]},"gone":{"group":"gone","passes":0,"passed":["s3"]}}}"#;
+  std::fs::write(dir.path().join(GROUPS_FILE), first_build).unwrap();
+  let (groups, note) = read_groups(dir.path());
+  assert_eq!((groups.schema, note), (1, None));
+  assert_eq!(turn_passes(dir.path(), &["s2", "s3"]), [1, 1], "the passes of runs that wait count, of gone ones not");
+  let sight = crate::host_estimate::Sight::of(dir.path(), 20, now_ms(), DRAIN_BAR);
+  assert!(sight.is_ok(), "the estimate reads it");
+  let joined = join(&params, &grouped("o2", "o2", &command)).unwrap();
+  assert!(matches!(joined.answer, TurnAnswer::Queued(_)));
+  assert_eq!(joined.notes, Vec::<String>::new());
+  assert_eq!(queue_of(dir.path()), ["s1", "o1", "o2", "s2", "s3"], "the groups of the first build order the queue");
+  assert_eq!(turn_passes(dir.path(), &["s2", "s3"]), [2, 2]);
+  let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(GROUPS_FILE)).unwrap()).unwrap();
+  assert_eq!(written["schema"], 1, "the join writes the file of this schema");
+  std::fs::write(dir.path().join(GROUPS_FILE), first_build).unwrap();
+  assert!(leave(&params, "o2").is_ok(), "a supervisor of the first build may write it again, and it reads so again");
+  assert_eq!(read_groups(dir.path()).1, None);
+}
+
+/// A run that takes the place of a run of its group that it supersedes takes the passes that runs of the turns made of
+/// that place too: an agent that starts its gate again on each new commit does not move back by the budget each time
+#[test]
+fn a_run_that_supersedes_a_run_of_its_group_keeps_the_passes_of_its_place() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_holds(&params, &command);
+  join_all(&params, &["s1"], |run| grouped(run, "session", &command));
+  fn again<'a>(run: &'a str, command: &'a [String]) -> TurnRequest<'a> {
+    TurnRequest {
+      affinity: "checkout-s2",
+      ..grouped(run, "session", command)
+    }
+  }
+  join_all(&params, &["s2"], |run| again(run, &command));
+  let others: Vec<String> = (0..40).map(|n| format!("o{n:02}")).collect();
+  let names: Vec<&str> = others.iter().map(String::as_str).collect();
+  join_all(&params, &names[..8], |run| grouped(run, run, &command));
+  assert_eq!(queue_of(dir.path())[9], "s2");
+  for (round, run) in ["s2-a", "s2-b", "s2-c"].into_iter().enumerate() {
+    let joined = join(&params, &again(run, &command)).unwrap();
+    assert_eq!(joined.replaced.len(), 1, "{run}");
+    assert_eq!(turn_passes(dir.path(), &[run]), [TURN_PASS_BUDGET], "{run} keeps the passes of its place");
+    join_all(&params, &names[8 * (round + 1)..8 * (round + 2)], |run| grouped(run, run, &command));
+    assert_eq!(queue_of(dir.path())[9], run, "{run} keeps its place: no run of the turns passes it");
+  }
+}
+
+/// A run passes every run from its place to the end, whatever their rounds: a first waiting run of a group (round 0)
+/// behind a run of a later round is passed too, within its budget; a first waiting run with no run of a later round
+/// ahead of it is passed by none
+#[test]
+fn a_first_waiting_run_behind_a_run_of_a_later_round_is_passed_within_its_budget() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_waits(&params, &command, &["s1", "s2", "s3"]);
+  join_all(&params, &["o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8"], |run| grouped(run, run, &command));
+  join_all(&params, &["f1"], |run| grouped(run, "f", &command));
+  assert_eq!(queue_of(dir.path()).last().map(String::as_str), Some("f1"), "s2 and s3 are spent");
+  assert!(!leave(&params, "o1").unwrap());
+  join_all(&params, &["p1"], |run| grouped(run, "p", &command));
+  let queue = queue_of(dir.path());
+  assert_eq!(queue[8..], ["p1", "s2", "s3", "f1"]);
+  assert_eq!(turn_passes(dir.path(), &["f1", "o2"]), [1, 0], "f1 of round 0 behind s2 of round 1 is passed; o2 not");
+}
+
+/// The passes of a run are counted from `groups.json` and the queue: a run of the turns whose process is gone, and one
+/// whose join wrote its mark while the write of the table after it failed, count no pass
+#[test]
+fn a_run_of_the_turns_that_is_gone_or_whose_table_write_failed_counts_no_pass() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = params(dir.path());
+  let command = command();
+  session_waits(&params, &command, &["s1", "s2"]);
+  // the pid of this process with another start: the process of the run is gone
+  let gone = TurnRequest {
+    process_started: Some(1),
+    ..grouped("gone", "gone", &command)
+  };
+  join(&params, &gone).unwrap();
+  assert_eq!(read_groups(dir.path()).0.runs["gone"].passed, ["s2"], "it went ahead of s2");
+  assert_eq!(turn_passes(dir.path(), &["s2"]), [0], "a gone run counts no pass");
+  // a mark of a run that is not in the table, as a failed write of the table after the write of groups.json leaves it
+  let mut groups = read_groups(dir.path()).0;
+  groups.runs.insert(
+    "ghost".to_owned(),
+    GroupMark {
+      group: "ghost".to_owned(),
+      passed: vec!["s2".to_owned()],
+      took: false,
+    },
+  );
+  write_groups(dir.path(), &groups).unwrap();
+  assert_eq!(turn_passes(dir.path(), &["s2"]), [0], "a run not in the table counts no pass");
+  join_all(&params, &["x"], |run| grouped(run, "x", &command));
+  assert_eq!(turn_passes(dir.path(), &["s2"]), [1], "only x, which waits");
+  assert_eq!(read_groups(dir.path()).0.runs.get("ghost"), None, "the next join drops the marks that count nothing");
+}
+
+/// A mark of `groups.json` of this schema with a field that this build does not know, as a later build of the same
+/// schema adds one, is read with its marks kept: no field of a mark makes the file refuse or start anew
+#[test]
+fn a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept() {
+  let dir = tempfile::tempdir().unwrap();
+  std::fs::write(
+    dir.path().join(GROUPS_FILE),
+    r#"{"schema":1,"runs":{"s2":{"group":"session","priority":3,"commit":"1a2b"},"o1":{"group":"o1","passed":["s2"],"measure_key":"k"}}}"#,
+  )
+  .unwrap();
+  let (groups, note) = read_groups(dir.path());
+  assert_eq!(note, None);
+  assert_eq!(groups.runs["s2"].group, "session");
+  assert_eq!(groups.runs["o1"].passed, ["s2"]);
 }

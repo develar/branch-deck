@@ -23,8 +23,8 @@ pub(crate) fn supervisor(message: &str) {
   write_line(&mut std::io::stderr(), &format!("brd-host supervise: {message}"));
 }
 
-/// A line of the supervisor of `run` after the end of the run: into `supervisor.log`, and with the id of the run into
-/// the log of the agent, where it stays after the client forgot the run
+/// A line of the supervisor of `run` into `supervisor.log`, and with the id of the run into the log of the agent, where it
+/// stays after the client forgot the run: a line after the end of the run, and a note of the files of the heavy queue
 pub(crate) fn supervisor_after_end(run: &str, message: &str) {
   supervisor(message);
   agent_log_line(&mut std::io::stdout(), run, message);

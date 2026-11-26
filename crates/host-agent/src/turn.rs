@@ -196,6 +196,10 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     }
   };
   lock_line.ended();
+  // the log of the agent, `~/Library/Logs/brd-host.log`, which outlives the run
+  for note in &joined.notes {
+    crate::log::supervisor_after_end(of.run, note);
+  }
   for said in joined_lines(&joined, now_ms()) {
     say(&said);
   }
@@ -306,7 +310,9 @@ pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop:
 const MEASUREMENT_LOOK: Duration = Duration::from_millis(500);
 
 /// The lines of what the first ask of a run did to the queue at `now_ms`: each run of the same checkout and command that
-/// it superseded, each run of the checkout that waits with another command, and the runs that a short run went ahead of
+/// it superseded, each run of the checkout that waits with another command, the runs that a short run went ahead of,
+/// and what a person should know of the files of the queue (`Joined::notes`: a `groups.json` of a later build or one
+/// that does not parse), which [`take`] writes into the log of the agent too
 pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
   let replaced = joined.replaced.iter().map(|entry| {
     format!(
@@ -337,7 +343,8 @@ pub(crate) fn joined_lines(joined: &Joined, now_ms: u64) -> Vec<String> {
       passed.join(", ")
     )
   });
-  replaced.chain(beside).chain(ahead).collect()
+  let notes = joined.notes.iter().cloned();
+  replaced.chain(beside).chain(ahead).chain(notes).collect()
 }
 
 /// The message of the refusal `superseded` of the run `run`, which the later run `by` superseded: what happened, that

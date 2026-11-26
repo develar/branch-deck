@@ -241,14 +241,20 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   come first, which behind runs of an hour is past its 2 h, so it can end with `heavy_timeout` where first come first
   would have started it. `groups.json` beside the table, a file no older build reads or writes (builds 1.24 to 1.27
   rewrite `passes.json` without the fields they do not know, so it could not hold the turns), names the group of each
-  run, the runs it went ahead of and whether it took the turn, with a schema of its own: a file of another schema
-  refuses as the table does, one that does not parse says so in the log and gives every waiting run its whole budget
-  again. The count of the passes of a run is derived from it and the queue, never kept as a number: a run that leaves
+  run, the runs it went ahead of and whether it took the turn, with a schema of its own. No file of any build makes
+  the turn refuse, as only a join rewrites the file and a refusal would keep the heavy turn of the host down: the file
+  of the first build of the groups (no `schema`, a number of `passes` per run), which the Studio had and the
+  supervisors of that build write again after an upgrade, keeps its groups and the runs each went ahead of, which mean
+  the same, and only the passes of the runs that took the turn before are lost; a file of a later schema, after a
+  downgrade, and one that does not parse name no group and no pass and give every waiting run its whole budget again,
+  which the log of the agent and the line of the run say. The count of the passes of a run is derived from it and the queue, never kept as a number: a run that leaves
   without the turn, by a cancel, a start of `admit_now` refused `busy`, the end of its process or a failed write of the
   table, counts no pass, and the file is written before the table under its lock, so no failure counts a pass for a
   run that is not in the queue. The turns touch none of the short lane: no pass of `passes.json`, no earliest join, so
   a short run still passes a backlog that other groups went ahead of and a run of the turns counts its load bound from
-  its own join. A run that supersedes one of its group takes its place and the runs it went ahead of; one of another
+  its own join. A run that supersedes one of its group takes its place, the runs it went ahead of and
+  the passes made of it, as a run of the short lane takes its passes, so a gate that an agent starts again on each
+  commit does not move back by the budget each time; one of another
   group takes its own turn, so it never waits ahead of the earlier runs of its new group. The join is one function
   (`host_turn::join_queue`) of the table and its files in memory: the join writes what it changed, and the estimate of a
   start applies it to a copy, so the two place a run alike by construction, which a test over generated queues checks.
