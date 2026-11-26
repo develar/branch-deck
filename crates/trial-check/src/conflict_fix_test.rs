@@ -41,6 +41,11 @@ fn find_fix(repo: &TestRepo, budget: FixBudget) -> ConflictFix {
   session(repo).find_conflict_fix(None, None, &run(budget)).unwrap()
 }
 
+/// The fix of a search with the default budget on top of the user's `plan`
+fn find_fix_on_plan(repo: &TestRepo, plan: &RegroupPlan) -> ConflictFix {
+  session(repo).find_conflict_fix(Some(plan), None, &run(FixBudget::default())).unwrap()
+}
+
 /// The fix of a search that ran to its end and fixed every branch
 fn find_complete_fix(repo: &TestRepo) -> ConflictFix {
   let fix = find_fix(repo, FixBudget::default());
@@ -392,7 +397,7 @@ fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
     ..RegroupPlan::default()
   };
 
-  let fix = session(&repo).find_conflict_fix(Some(&plan), None, &run(FixBudget::default())).unwrap();
+  let fix = find_fix_on_plan(&repo, &plan);
 
   assert_eq!(fix.trials, 1, "{fix:?}");
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &["root"], "a", "p")]);
@@ -413,7 +418,7 @@ fn a_restack_on_top_of_a_plan_that_unstacks_the_branch_replaces_the_unstack() {
     ..RegroupPlan::default()
   };
 
-  let fix = session(&repo).find_conflict_fix(Some(&plan), None, &run(FixBudget::default())).unwrap();
+  let fix = find_fix_on_plan(&repo, &plan);
 
   assert_eq!(fix.unresolved, Vec::<String>::new(), "{fix:?}");
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "base", "feature")]);

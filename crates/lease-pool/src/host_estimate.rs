@@ -13,7 +13,7 @@
 
 use crate::host_slots::Ticket;
 use crate::host_turn::{
-  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, QueueFiles, TurnAnswer, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
+  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, QueueFiles, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
 };
 use anyhow::Result;
 use std::path::Path;
@@ -233,14 +233,7 @@ pub(crate) fn place(sight: &Sight, asked: &Asked<'_>) -> (Vec<TurnEntry>, u64) {
     measure_as: None,
     group: Some(asked.group),
   };
-  let mut joined = Joined {
-    answer: TurnAnswer::Taken,
-    replaced: Vec::new(),
-    beside: Vec::new(),
-    short: None,
-    passed: Vec::new(),
-    notes: Vec::new(),
-  };
+  let mut joined = Joined::taken();
   let position = join_queue(&mut turn, &mut files, (sight.cores, sight.drain_bar), sight.now_ms, &request, &mut joined);
   let since_ms = turn.queue[position].since_ms;
   turn.queue.truncate(position);

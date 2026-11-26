@@ -611,6 +611,20 @@ pub struct Joined {
   pub notes: Vec<String>,
 }
 
+impl Joined {
+  /// The answer of a run that takes the turn, before its join did anything to the queue
+  pub(crate) const fn taken() -> Self {
+    Self {
+      answer: TurnAnswer::Taken,
+      replaced: Vec::new(),
+      beside: Vec::new(),
+      short: None,
+      passed: Vec::new(),
+      notes: Vec::new(),
+    }
+  }
+}
+
 /// What the queue knows of its runs beyond `turn.json`, by the id of the run: `passes.json` beside the table, which a
 /// supervisor of an older build rewrites without the fields it does not know. A run that it does not name is not short
 /// and was never passed
@@ -1115,14 +1129,7 @@ pub fn join(params: &TurnParams<'_>, request: &TurnRequest<'_>) -> Result<Joined
     let table = table.of_this_schema(params.dir)?;
     table.prune();
     table.cores = params.cores;
-    let mut joined = Joined {
-      answer: TurnAnswer::Taken,
-      replaced: Vec::new(),
-      beside: Vec::new(),
-      short: None,
-      passed: Vec::new(),
-      notes: Vec::new(),
-    };
+    let mut joined = Joined::taken();
     if let Some(at) = table.superseded.iter().position(|entry| entry.ticket.run == request.run) {
       joined.answer = TurnAnswer::Superseded {
         by: table.superseded.remove(at).by,

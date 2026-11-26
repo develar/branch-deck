@@ -1500,6 +1500,15 @@ fn session_waits(params: &TurnParams<'_>, command: &[String], runs: &[&str]) {
   join_all(params, runs, |run| grouped(run, "session", command));
 }
 
+/// A table of the turn in a directory of its own where `runs` of the group `session` wait behind its `holder`, and the
+/// command of the runs
+fn waiting_session(runs: &[&str]) -> (tempfile::TempDir, Vec<String>) {
+  let dir = tempfile::tempdir().unwrap();
+  let command = command();
+  session_waits(&params(dir.path()), &command, runs);
+  (dir, command)
+}
+
 /// The runs of the queue in `dir`
 fn queue_of(dir: &Path) -> Vec<String> {
   runs(&read_live(dir).unwrap()).1.into_iter().map(str::to_owned).collect()
@@ -1612,10 +1621,8 @@ fn without_groups_the_runs_of_checkouts_with_one_run_waiting_each_are_first_come
 /// the short run too, which counts it in its own budget of the turns
 #[test]
 fn a_short_run_at_the_end_of_the_queue_keeps_the_turns_of_the_groups() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2", "s3", "s4"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2", "s3", "s4"]);
   let mut marks = read_marks(dir.path());
   for run in ["s1", "s2", "s3", "s4"] {
     marks.runs.entry(run.to_owned()).or_default().passes = PASS_BUDGET;
@@ -1740,10 +1747,8 @@ fn the_short_lane_the_head_and_the_supersede_keep_their_rules_beside_the_turns()
 /// back to the runs it went ahead of
 #[test]
 fn a_run_that_supersedes_a_run_of_another_group_takes_its_own_turn() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2", "s3"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2", "s3"]);
   join_all(&params, &["x"], |run| of(run, "checkout-x", &command));
   assert_eq!(queue_of(dir.path()), ["s1", "x", "s2", "s3"]);
   assert_eq!(turn_passes(dir.path(), &["s2", "s3"]), [1, 1]);
@@ -1763,10 +1768,8 @@ fn a_run_that_supersedes_a_run_of_another_group_takes_its_own_turn() {
 /// dropped that too: the order goes on, first come first, and no run is lost
 #[test]
 fn a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["a1", "a2", "a3"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["a1", "a2", "a3"]);
   join_all(&params, &["b1"], |run| grouped(run, "other", &command));
   rewrite_as_an_older_build(dir.path());
   std::fs::write(dir.path().join(PASSES_FILE), r#"{"runs":{"a2":{"passes":1}}}"#).unwrap();
@@ -1785,10 +1788,8 @@ fn a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_o
 /// of the join, and the join writes the file of this schema; every waiting run gets its whole budget again
 #[test]
 fn the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that_does_not_parse_starts_anew() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2"]);
   join_all(&params, &["o1"], |run| grouped(run, run, &command));
   let written = || -> serde_json::Value { serde_json::from_str(&std::fs::read_to_string(dir.path().join(GROUPS_FILE)).unwrap()).unwrap() };
   assert_eq!(written()["schema"], 1, "{}", written());
@@ -1823,10 +1824,8 @@ fn the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that
 /// runs each went ahead of, and the passes of the runs that took the turn before the upgrade count no more
 #[test]
 fn the_groups_of_the_first_build_of_the_groups_keep_their_turns_after_an_upgrade() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2", "s3"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2", "s3"]);
   join_all(&params, &["o1"], |run| grouped(run, run, &command));
   // the shape that 68569e7e5 writes, as on the Studio: the group, a number of passes, the runs it went ahead of
   let first_build = r#"{"runs":{"holder":{"group":"session","passes":0},"s1":{"group":"session","passes":0},"s2":{"group":"session","passes":1},"s3":{"group":"session","passes":1},"o1":{"group":"o1","passes":0,"passed":["s2","s3"]},"gone":{"group":"gone","passes":0,"passed":["s3"]}}}"#;
@@ -1882,10 +1881,8 @@ fn a_run_that_supersedes_a_run_of_its_group_keeps_the_passes_of_its_place() {
 /// ahead of it is passed by none
 #[test]
 fn a_first_waiting_run_behind_a_run_of_a_later_round_is_passed_within_its_budget() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2", "s3"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2", "s3"]);
   join_all(&params, &["o1", "o2", "o3", "o4", "o5", "o6", "o7", "o8"], |run| grouped(run, run, &command));
   join_all(&params, &["f1"], |run| grouped(run, "f", &command));
   assert_eq!(queue_of(dir.path()).last().map(String::as_str), Some("f1"), "s2 and s3 are spent");
@@ -1900,10 +1897,8 @@ fn a_first_waiting_run_behind_a_run_of_a_later_round_is_passed_within_its_budget
 /// whose join wrote its mark while the write of the table after it failed, count no pass
 #[test]
 fn a_run_of_the_turns_that_is_gone_or_whose_table_write_failed_counts_no_pass() {
-  let dir = tempfile::tempdir().unwrap();
+  let (dir, command) = waiting_session(&["s1", "s2"]);
   let params = params(dir.path());
-  let command = command();
-  session_waits(&params, &command, &["s1", "s2"]);
   // the pid of this process with another start: the process of the run is gone
   let gone = TurnRequest {
     process_started: Some(1),
