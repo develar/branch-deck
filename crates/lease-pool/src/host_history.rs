@@ -43,7 +43,7 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[expect(
   clippy::struct_excessive_bools,
-  reason = "a line of the history: `heavy`, `exclusive`, `lost` and `cancelled` are independent fields that the lines of every build keep by name"
+  reason = "a persisted line that every build reads by name: `lost` and `cancelled` both tell how the run ended, but they stay flags beside `exit` and `refused`, since an enum of the end would change the format of the lines that older builds wrote and read"
 )]
 pub struct HistoryLine {
   #[serde(default)]
@@ -81,7 +81,7 @@ pub struct HistoryLine {
   pub refused: Option<String>,
   #[serde(default, skip_serializing_if = "is_false")]
   pub lost: bool,
-  /// A cancel or a stop signal of the supervisor came while the command ran, whatever the command then exited with
+  /// The supervisor sent the command group the SIGINT of a cancel or a stop signal, whatever the command then exited with
   /// (`exit.json` of the run); `false` from a supervisor of a build before it, whose cancels tell only by the exit 130
   #[serde(default, skip_serializing_if = "is_false")]
   pub cancelled: bool,
@@ -150,6 +150,11 @@ impl HistoryLine {
       at = at.saturating_add(phase.ms);
     }
     None
+  }
+
+  /// When its lend gave it its slot, in Unix milliseconds: the end of its phase `slot`, else its start
+  fn lent_at_ms(&self) -> u64 {
+    self.phase_span("slot").map_or(self.started_ms, |(_, lent)| lent)
   }
 
   /// The time that it held the heavy turn: its phases after the phase `heavy`, which the turn holds to its give-back
@@ -496,15 +501,20 @@ pub struct Outcome {
   pub exit: i32,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub refused: Option<String>,
+  /// A cancel or a stop signal interrupted the command (`HistoryLine::cancelled`): an outcome apart from the same exit
+  /// that no cancel caused
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub cancelled: bool,
   pub runs: u32,
 }
 
 impl Outcome {
-  /// `exit 3 8`, `heavy_timeout 2`: the exit or the refusal and its runs
+  /// `exit 3 8`, `heavy_timeout 2`, `cancelled at exit 8 1`: the exit or the refusal and its runs
   fn text(&self) -> String {
-    match &self.refused {
-      Some(code) => format!("{code} {}", self.runs),
-      None => format!("exit {} {}", self.exit, self.runs),
+    match (&self.refused, self.cancelled) {
+      (Some(code), _) => format!("{code} {}", self.runs),
+      (None, true) => format!("cancelled at exit {} {}", self.exit, self.runs),
+      (None, false) => format!("exit {} {}", self.exit, self.runs),
     }
   }
 }
@@ -599,8 +609,8 @@ pub struct SlotStats {
 }
 
 /// The runs that missed the slot of their affinity, by why. At the lend no slot of the table had the affinity last
-/// (`SlotMiss::NoSlot`): `first` when no earlier line of the window names a slot of the affinity, else `taken`, as a
-/// slot that it had went to another checkout or was made anew since
+/// (`SlotMiss::NoSlot`): `first` when no line of the window whose lend came earlier names a slot of the affinity, else
+/// `taken`, as a slot that it had went to another checkout or was made anew since. A lend is the end of the phase `slot`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MissTotals {
   /// The first run of its checkout in the window that got a slot: a checkout whose last run came before the window
@@ -727,7 +737,12 @@ impl SlotStats {
       .filter(|(runs, _)| *runs > 0)
       .map(|(runs, cause)| format!("{runs} {cause}"))
       .collect();
-      parts.push(format!("{other} on another slot ({})", causes.join(", ")));
+      // a report of an agent before the causes has none
+      parts.push(if causes.is_empty() {
+        format!("{other} on another slot")
+      } else {
+        format!("{other} on another slot ({})", causes.join(", "))
+      });
     }
     let mut line = format!("  slots of {}: {} run(s) with a slot: {}", self.repo, self.runs, parts.join(", "));
     if self.waited > 0 {
@@ -895,7 +910,7 @@ fn queue_totals(lines: &[&HistoryLine]) -> QueueTotals {
   }
 }
 
-/// The lends of the runs of `lines` whose line names their slot, by repository, `lines` in the order of their start
+/// The lends of the runs of `lines` whose line names their slot, by repository
 fn slot_stats(lines: &[&HistoryLine]) -> Vec<SlotStats> {
   let mut by: BTreeMap<&str, Vec<(&HistoryLine, SlotRecord)>> = BTreeMap::new();
   for line in lines {
@@ -904,10 +919,12 @@ fn slot_stats(lines: &[&HistoryLine]) -> Vec<SlotStats> {
     }
   }
   by.into_iter()
-    .map(|(repo, runs)| {
+    .map(|(repo, mut runs)| {
       let hit = |slot: &SlotRecord| slot.choice == SlotChoice::Affinity;
       let mut misses = MissTotals::default();
       let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+      // by their lends: a heavy run that started first can get its slot after a later run that is not heavy
+      runs.sort_by_key(|(line, _)| (line.lent_at_ms(), line.run.clone()));
       for (line, slot) in &runs {
         if !hit(slot) {
           match slot.missed {
@@ -1040,11 +1057,14 @@ fn last_named(runs: &[&HistoryLine]) -> (String, Option<String>) {
 }
 
 fn outcomes(lines: &[&HistoryLine]) -> Vec<Outcome> {
-  let mut by: BTreeMap<(i32, Option<String>), u32> = BTreeMap::new();
+  let mut by: BTreeMap<(i32, Option<String>, bool), u32> = BTreeMap::new();
   for line in lines {
-    *by.entry((line.exit, line.refused.clone())).or_default() += 1;
+    *by.entry((line.exit, line.refused.clone(), line.cancelled)).or_default() += 1;
   }
-  let mut outcomes: Vec<Outcome> = by.into_iter().map(|((exit, refused), runs)| Outcome { exit, refused, runs }).collect();
+  let mut outcomes: Vec<Outcome> = by
+    .into_iter()
+    .map(|((exit, refused, cancelled), runs)| Outcome { exit, refused, cancelled, runs })
+    .collect();
   outcomes.sort_by_key(|outcome| std::cmp::Reverse(outcome.runs));
   outcomes
 }

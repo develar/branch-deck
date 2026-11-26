@@ -2131,7 +2131,7 @@ the lend, and the line of the run MUST carry it as `slot`.
 
 #### Scenario: A clean since the last run of the slot
 - **WHEN** the slot of an affinity is cleaned after the give-back of its run, by hand, by the clean after a run once
-  one is due, or by the idle clean, and the next run of that affinity gets it
+  one is due, by the idle clean, or by a relief, and the next run of that affinity gets it
 - **THEN** its lend says `affinity` and `cleaned`, and the line has `"cleaned": true`; the run after a give-back with
   no clean says no `cleaned`; a table whose give-back wrote no `returned` (a build before it) counts the clean of the
   second of the last lend or later
@@ -2264,19 +2264,26 @@ entry, the same split by group of the heavy queue, and the bytes by day.
 
 ### Requirement: stats: The end of a run says whether a cancel interrupted its command
 
-When a cancel or a stop signal of the supervisor came while the command ran, the supervisor MUST write `"cancelled":
-true` into `exit.json`, whatever code the command then exited with, and the line of the run MUST carry it; such a run
-MUST count as no failure of its command and in no spread of the lends.
+When the supervisor sent the command group the SIGINT of a cancel or a stop signal, it MUST write `"cancelled": true`
+into `exit.json`, whatever code the command then exited with, and the line MUST carry it; a cancel after the command
+exited MUST leave the run complete. Such a run MUST count as no failure, as an outcome of its own, and in no spread.
 
 #### Scenario: A cancel of a command that traps SIGINT
 - **WHEN** a cancel interrupts a command that exits 7 in its trap, or one that ignores SIGINT and gets SIGKILL (137)
 - **THEN** `exit.json` has `"cancelled": true` beside the exit code of the command, and the line `"cancelled": true`
 - **AND** a run that no cancel interrupted has no `cancelled`; a line of a build before it tells a cancel only by the
   exit 130
+- **AND** in the outcomes of the summary it is `cancelled at exit <code> <runs>`, apart from the same exit that no
+  cancel caused
   [@test] crates/host-agent/tests/serve/signals.rs (`a_cancel_interrupts_the_command_group`, `a_command_that_ignores_sigint_gets_sigkill_after_the_grace_time`)
   [@test] crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
   [@test] crates/host-agent/src/history_test.rs (`the_line_of_a_run_whose_command_a_cancel_interrupted_says_so_whatever_its_exit`, `a_run_leaves_its_line_in_the_month_of_its_end_as_its_directory_goes`)
   [@test] crates/lease-pool/src/host_history_test.rs (`the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinity`)
+
+#### Scenario: A cancel after the command exited
+- **WHEN** a cancel comes after the command exited, while the supervisor ends the processes that it left in its group
+- **THEN** the run ends with the exit of the command and no `cancelled`
+  [@test] crates/host-agent/tests/serve/signals.rs (`a_cancel_after_the_command_exited_leaves_its_run_complete`)
 
 ### Requirement: stats: The summary counts the runs that got the slot of their affinity
 
@@ -2294,9 +2301,10 @@ command ran to its end with the p50 and p90 of their `command`, `checkout` and `
   (`{"runs", "command_ms", "checkout_ms", "prepare_ms"}`, the spreads `{"p50", "p90"}`, none without a run whose
   command ran to its end: a cancel whatever its exit, a refusal or a lost supervisor leaves a run out), and
   `other_commands` (`{"commands", "runs"}`) past the 10
-- **AND** a miss of `no_slot` is `first` when no earlier line of the window names a slot of its affinity in the
-  repository, so a checkout whose last run came before the window counts as first, else `taken`; a cause or a choice
-  of a later build is `other`
+- **AND** a miss of `no_slot` is `first` when no line of the window whose lend came earlier (the end of its phase
+  `slot`, not its start: a heavy run waits before its lend) names a slot of its affinity in the repository, so a
+  checkout whose last run came before the window counts as first, else `taken`; a cause or a choice of a later build
+  is `other`, and a report of an agent before the causes names the runs on another slot without them
 - **AND** its lines, after the heavy queue, are `slots of <repo>: <runs> run(s) with a slot: <n> warm on the slot of
   their checkout (<percent> %), <n> on it cleaned since, <n> on another slot (<n> first of their checkout in the
   window, <n> whose slot another checkout took since, <n> whose slot another run of their checkout had, <n> whose slot
@@ -2308,7 +2316,7 @@ command ran to its end with the p50 and p90 of their `command`, `checkout` and `
 - **AND** the buckets compare the runs of one command, not of one size of change: a miss of a small change can take
   less than a hit of a large one
 - **AND** a window without a slot of record, and an agent of an older build, give no `slots`
-  [@test] crates/lease-pool/src/host_history_test.rs (`the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinity`, `the_lends_of_a_repository_name_the_commands_with_the_most_runs_and_the_rest_in_one_entry`)
+  [@test] crates/lease-pool/src/host_history_test.rs (`the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinity`, `the_lends_of_a_repository_name_the_commands_with_the_most_runs_and_the_rest_in_one_entry`, `the_first_run_of_a_checkout_is_the_first_lend_not_the_first_start`, `the_slots_of_a_report_without_the_causes_of_its_misses_read_without_them`)
 
 ### Requirement: stats: An agent without the feature gets no request
 

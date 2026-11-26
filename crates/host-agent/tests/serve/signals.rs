@@ -86,6 +86,22 @@ fn cancelled(world: &World, run: &str) -> Option<bool> {
   exit["cancelled"].as_bool()
 }
 
+/// A cancel that comes after the command exited, while the supervisor ends the processes that it left in its group,
+/// interrupts no command: the end keeps the exit of the command and says no `cancelled`
+#[test]
+fn a_cancel_after_the_command_exited_leaves_its_run_complete() {
+  let world = World::new(1, &[]);
+  // the left process ignores SIGTERM, so the end of the group waits the whole 3 s for it
+  let agent = world.serve_with(&[("BD_HOST_TEST_GROUP_SETTLE_MS", "50"), ("BD_HOST_TEST_GROUP_TERM_MS", "3000")]);
+  let trapped = world.home.path().join("trapped");
+  agent.start(world.spec("5-1", &format!("(trap '' TERM; : > '{}'; {LOOP}) & {}; exit 0", trapped.display(), wait_for(&trapped))));
+  agent.follow_until("5-1", "brd-host: the command left processes in its group; SIGTERM");
+  assert!(matches!(agent.reply(&Request::Cancel { run: "5-1".to_owned() }), Reply::Done { .. }));
+  let followed = agent.follow("5-1");
+  assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("5-1"));
+  assert_eq!(cancelled(&world, "5-1"), None, "the cancel came after the command");
+}
+
 #[test]
 fn a_process_that_the_command_leaves_in_its_group_gets_sigterm_and_sigkill_before_the_exit() {
   let world = World::new(1, &[]);

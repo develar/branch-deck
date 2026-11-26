@@ -462,11 +462,14 @@ agent keeps a line of each ended run, and `brd-host stats` sums them on the host
   - **Why a miss**: at the lend the table shows whether a slot of the affinity is lent to another run of the checkout
     (`lent`), is not ready (`unavailable`), or whether no slot has the affinity (`no_slot`). The table keeps only the
     last affinity of a slot, so whether the checkout had a slot that another checkout took since is not known there; the
-    summary tells it by the earlier lines of the window (`first` or `taken`). Only `taken` shrinks with more slots:
-    `first` is the cost of a checkout new to the host, and `lent` of the concurrency of one checkout.
+    summary tells it by the earlier lends of the window (`first` or `taken`), in the order of the end of their phase
+    `slot`, not of their starts, as a heavy run waits for its turn before its lend. Only `taken` shrinks with more
+    slots: `first` is the cost of a checkout new to the host, and `lent` of the concurrency of one checkout.
   - **Cancelled**: a cancel sends SIGINT to the command, and the command exits with what it chooses (Bazel 8, 137 after
-    the SIGKILL of the grace), so the supervisor writes `cancelled` into `exit.json` when a stop came while the command
-    ran, and the line carries it: such a run is no failure and is in no spread.
+    the SIGKILL of the grace), so the supervisor writes `cancelled` into `exit.json` when it sent the command group the
+    SIGINT of a stop (`GroupEnd::interrupted`), and the line carries it: such a run is no failure, an outcome of its
+    own, and in no spread. A cancel that comes after the command exited, while the supervisor ends what the command left
+    in its group, interrupted nothing and leaves the run complete.
   - **The summary** gives per repository the runs whose line names their slot, the warm hits, the hits on a cleaned
     slot, the misses by cause and the runs that waited, and per command (`command_key`, the measure class of
     `--measure-as` where a run has one; the 10 with the most runs, the rest in one entry) a bucket of the warm hits, of

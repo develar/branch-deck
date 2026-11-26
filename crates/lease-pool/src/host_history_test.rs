@@ -349,7 +349,12 @@ fn the_summary_gives_the_cost_of_each_exclusive_command() {
       pending_ms: 6 * MIN,
       pending_waiters: 2,
       pending_waited_ms: 5 * MIN,
-      outcomes: vec![Outcome { exit: 3, refused: None, runs: 2 }],
+      outcomes: vec![Outcome {
+        exit: 3,
+        refused: None,
+        cancelled: false,
+        runs: 2,
+      }],
     }]
   );
   assert!(
@@ -638,6 +643,11 @@ fn the_summary_counts_per_repository_the_runs_that_got_the_slot_of_their_affinit
     (2, 0, None, Some(2))
   );
   assert_eq!(idea.other_commands, None);
+  let outcomes: Vec<String> = report.outcomes.iter().map(Outcome::text).collect();
+  assert!(
+    outcomes.contains(&"cancelled at exit 8 1".to_owned()) && !outcomes.iter().any(|outcome| outcome.starts_with("exit 8")),
+    "a cancel is an outcome of its own: {outcomes:?}"
+  );
   let failed = |report: &StatsReport| {
     report
       .commands
@@ -709,4 +719,42 @@ fn the_lends_of_a_repository_name_the_commands_with_the_most_runs_and_the_rest_i
   assert_eq!((idea.commands[0].command.as_str(), idea.commands[0].runs), ("command 11", 2), "the most runs first");
   assert_eq!(idea.other_commands, Some(OtherSlotCommands { commands: 2, runs: 2 }));
   assert!(report.lines("studio").contains(&"    2 other command(s): 2 run(s)".to_owned()));
+}
+
+/// `first` and `taken` follow the lends, not the starts: a heavy run of a checkout that started first and got the slot
+/// of its checkout after a later run that is not heavy leaves that later run the first of its checkout
+#[test]
+fn the_first_run_of_a_checkout_is_the_first_lend_not_the_first_start() {
+  let heavy = HistoryLine {
+    affinity: "checkout-3".to_owned(),
+    phases: phases(&[("heavy", 30 * MIN), ("slot", 10), ("command", MIN)]),
+    ..lent("1", IDEA, BUILD, slot(SlotChoice::Affinity), MIN)
+  };
+  let later = HistoryLine {
+    affinity: "checkout-3".to_owned(),
+    started_ms: NOV_24 + MIN,
+    ..lent("2", IDEA, BUILD, slot(SlotChoice::Idle), MIN)
+  };
+  let report = aggregate(&[heavy, later], &[], NOV_24, NOV_24 + DAY, 1);
+  let [idea] = report.slots.as_slice() else { panic!("one repository") };
+  assert_eq!((idea.misses.first, idea.misses.taken), (1, 0));
+}
+
+/// A report of an agent before the causes of a miss has no `misses`: its line names the runs on another slot without
+/// empty parentheses
+#[test]
+fn the_slots_of_a_report_without_the_causes_of_its_misses_read_without_them() {
+  let report: StatsReport = serde_json::from_value(serde_json::json!({
+    "schema": 1, "since_ms": 0, "until_ms": 0, "days": 1, "runs": 3, "heavy": 0, "exclusive": 0, "wait_ms": 0, "work_ms": 0,
+    "phases": [], "queue": {"runs": 0, "behind_ms": 0, "load_ms": 0, "whole_host": 0}, "outcomes": [{"exit": 0, "runs": 3}],
+    "without_command": {"runs": 0, "wait_ms": 0}, "cores": {"cpu_ms": 0, "command_ms": 0, "mean_over_window": 0, "peak": 0},
+    "commands": [], "bytes": {"pack": 0, "output": 0, "fetch": 0, "base": 0}, "by_day": [],
+    "slots": [{"repo": "/Users/u/idea-1", "runs": 3, "affinity": 1, "waited": 0}],
+  }))
+  .expect("a report of an agent at 50e855e99");
+  let lines = report.lines("studio");
+  assert!(
+    lines.contains(&"  slots of /Users/u/idea-1: 3 run(s) with a slot: 1 warm on the slot of their checkout (33 %), 2 on another slot".to_owned()),
+    "{lines:?}"
+  );
 }

@@ -334,8 +334,8 @@ fn a_lend_names_the_slot_of_its_affinity_over_one_idle_longer_and_else_the_one_i
 }
 
 /// A clean of the slot since its last run keeps its affinity, so the lend still chooses it, and says that its files were
-/// cleaned, whichever clean it was: one by hand, the clean after a run once one is due, the idle clean; the next run of
-/// the affinity after a plain give-back finds them warm again. A table whose give-back wrote no `returned` (a build
+/// cleaned, whichever clean it was: one by hand, the clean after a run once one is due, the idle clean, a relief; the
+/// next run of the affinity after a plain give-back finds them warm again. A table whose give-back wrote no `returned` (a build
 /// before it) tells it by the time of the clean against the last lend
 #[test_log::test]
 fn a_lend_of_the_slot_of_its_affinity_says_whether_a_clean_came_since_its_last_run() {
@@ -364,6 +364,13 @@ fn a_lend_of_the_slot_of_its_affinity_says_whether_a_clean_came_since_its_last_r
   let returned = table(fixture).slots[0].returned.expect("a give-back records when");
   assert_eq!(clean_idle_slots(&context.git, &params, returned + 7 * 3_600_000).unwrap().len(), 1);
   assert_eq!(run("run-6"), (Some(SlotChoice::Affinity), true), "the idle clean");
+
+  // below a minimum free space that no relief reaches, the keeper relieves every idle slot
+  let relieved = relieve_host_slots(&context.git, &params, (None, &ReliefRound::default()), 1000, &|_| Some(0))
+    .unwrap()
+    .expect("a relief below the minimum");
+  assert_eq!(relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>(), [1]);
+  assert_eq!(run("run-relieved"), (Some(SlotChoice::Affinity), true), "the relief");
 
   // a give-back of a build before `returned`: the clean of the second of the last lend counts, an earlier one does not
   let used = table(fixture).slots[0].used.expect("a lend");

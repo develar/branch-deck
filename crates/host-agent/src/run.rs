@@ -5,7 +5,7 @@
 //! | `spec.json` | the [`RunSpec`]; its time of change is the start of the run |
 //! | `events.log` | one [`Event`] per line, as JSON: a piece of the stdout or the stderr of the run |
 //! | `phases.json` | the steps of the run that have ended so far, each with its duration, as a JSON array of [`Phase`] |
-//! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended, with `cancelled` when a cancel or a stop signal came while the command ran; its time of change is the end of the run |
+//! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended, with `cancelled` when the supervisor sent the command group the SIGINT of a cancel or a stop signal; its time of change is the end of the run |
 //! | `lock` | the flock of the supervisor, held for its whole life |
 //! | `cancel` | the cancel request of a client, which the supervisor polls |
 //! | `packing` | written at most once a second while the pack of the run arrives; its time of change is the last chunk |
@@ -133,8 +133,8 @@ struct ExitFile {
   /// when that was seen, not the end of the run
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   lost: bool,
-  /// A cancel or a stop signal came while the command ran ([`RunDir::write_exit_of_cancelled_command`]): whatever code
-  /// the command then exited with, it did not run to its end
+  /// The supervisor sent the command group the SIGINT of a cancel or a stop signal
+  /// ([`RunDir::write_exit_of_cancelled_command`]): whatever code the command then exited with, it did not run to its end
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   cancelled: bool,
 }

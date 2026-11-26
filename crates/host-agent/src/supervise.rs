@@ -31,8 +31,9 @@
 //! 5. Run the command in the slot root, in its own process group, with stdin `/dev/null`, the environment of step 4 and
 //!    the niceness of the spec, or the agent's own when that is higher: a process may not lower its niceness. The
 //!    bytes of its stdout and its stderr go to `events.log` as they are, in pieces of at most a line (`read_pieces`).
-//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later. When a cancel or a
-//!    stop signal came while it ran, `exit.json` says `cancelled`, whatever code the command then exited with.
+//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later. When the supervisor
+//!    sent the group the SIGINT of a cancel or a stop signal, `exit.json` says `cancelled`, whatever code the command
+//!    then exited with; a cancel after the command exited interrupts nothing.
 //! 6. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory, into
 //!    the run directory: nothing reads the slot after the run.
 //!
@@ -223,7 +224,7 @@ fn adopt_lock(run: &RunDir, descriptor: Option<RawFd>) -> io::Result<File> {
 }
 
 /// What the cleanup and the end of a run need from its steps: the fingerprints of the prepare steps of its slot, and
-/// whether a cancel or a stop signal came while its command ran, for `exit.json`
+/// whether the supervisor sent its command group the SIGINT of a cancel or a stop signal, for `exit.json`
 #[derive(Default)]
 struct Held {
   prepared: Option<Prepared>,
@@ -409,18 +410,19 @@ fn steps(context: &Context<'_>, stop: &dyn Fn() -> bool, held: &mut Held) -> Res
     supervisor(&format!("run {}: {refusal}", spec.run));
   }
   let ran = phases.time("command", || run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout, &mut on_poll));
-  // the command may exit with any code after the SIGINT of a cancel (Bazel 8, 137 after the SIGKILL): the end says it
-  held.command_cancelled = stop();
+  // the command may exit with any code after the SIGINT of a cancel (Bazel 8, 137 after the SIGKILL): the end says it,
+  // and a cancel that came after the command exited, while its group ended, interrupted nothing
+  held.command_cancelled = matches!(&ran, Ok(end) if end.interrupted);
   let measure_ended = Instant::now();
   // a run passed only by an exit 0 of its command that no cancel ended: the walls of the passed runs tell a short command
-  measure_end(context, &of, &mut sampler, sampled_group, matches!(ran, Ok(0)) && !stop());
+  measure_end(context, &of, &mut sampler, sampled_group, matches!(ran, Ok(GroupEnd { code: 0, .. })) && !stop());
   if !spec.heavy
     && let Err(refusal) = turn::leave(context.home, &spec.run)
   {
     supervisor(&format!("run {}: {refusal}", spec.run));
   }
   phases.record("measure", measured_before + measure_ended.elapsed());
-  let code = ran?;
+  let code = ran?.code;
   for error in phases.time("stage", || stage_run(context, &slot, &launch, &before)) {
     context.say(&error);
   }
@@ -711,7 +713,7 @@ fn prepare_slot(context: &Context<'_>, slot: &Path, stop: &dyn Fn() -> bool, hel
       continue;
     };
     context.say(&format!("prepare: {} ({why})", step.name));
-    let code = run_group(&step.run, slot, &launch, context.log, stop, Stream::Stderr, &mut |_| {})?;
+    let code = run_group(&step.run, slot, &launch, context.log, stop, Stream::Stderr, &mut |_| {})?.code;
     if stop() {
       return Ok(None);
     }
@@ -892,9 +894,18 @@ pub(crate) fn wait_for_pack(
 }
 
 /// Runs `argv` in the slot root, in its own process group, with the environment and the niceness of `launch`, and
-/// answers its exit code. The bytes of its stdout go to `events.log` as events of `stdout`, and of its stderr as stderr
-/// events, each pipe a source of its own. The other processes of the group end before the answer
-fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>, stop: &dyn Fn() -> bool, stdout: Stream, on_poll: &mut dyn FnMut(u32)) -> Result<i32, Refusal> {
+/// answers its exit code and whether a stop interrupted it. The bytes of its stdout go to `events.log` as events of
+/// `stdout`, and of its stderr as stderr events, each pipe a source of its own. The other processes of the group end
+/// before the answer
+fn run_group(
+  argv: &[String],
+  slot: &Path,
+  launch: &Launch,
+  log: &Arc<EventLog>,
+  stop: &dyn Fn() -> bool,
+  stdout: Stream,
+  on_poll: &mut dyn FnMut(u32),
+) -> Result<GroupEnd, Refusal> {
   let Some((program, arguments)) = argv.split_first() else {
     return Err(Refusal::new(Code::SpawnFailed, "the run has no command"));
   };
@@ -978,7 +989,17 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
       break;
     }
   }
-  Ok(status.map_or(128 + libc::SIGKILL, exit_code))
+  Ok(GroupEnd {
+    code: status.map_or(128 + libc::SIGKILL, exit_code),
+    interrupted: interrupted.is_some(),
+  })
+}
+
+/// How a command of [`run_group`] ended: its exit code, and whether the supervisor sent its group the SIGINT of a stop
+/// while it ran
+struct GroupEnd {
+  code: i32,
+  interrupted: bool,
 }
 
 /// The status of `child` within `deadline`, or `None`
