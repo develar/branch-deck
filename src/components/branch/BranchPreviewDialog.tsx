@@ -41,7 +41,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import { pushFromButton } from "@/lib/push-run"
 import { sameJson } from "@/lib/record"
 import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/review-window"
-import { stackProblemOf } from "@/lib/stack"
+import { baselineOnRemote, stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -49,7 +49,7 @@ import { useRowPart } from "@/model/store"
 import { isActionEnabled } from "@/presenters/actions"
 import { presentPreviewStatus } from "@/presenters/row-status"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing, useParkedState } from "@/stores/branch-sync"
+import { useBranch, useBranchSyncField, useIsBranchPushing, useParkedState } from "@/stores/branch-sync"
 import { useBranchRobot, useLandedBy, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -261,7 +261,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   // the state its next step waits in, which the status words: "Awaiting review"
   const wait = useRowStepWait(branch.name)
   const rowStatus = useRowPart(branch.name, "landing", step => step?.status, sameJson)
-  const status = presentPreviewStatus(rowStatus, { branch, landedIn, robot, parked, wait })
+  // the baseline on the remote, which the words of a remote on an older baseline name
+  const target = useBranchSyncField("baselineBranch", baseline => (baseline === null ? undefined : baselineOnRemote(baseline)))
+  const status = presentPreviewStatus(rowStatus, { branch, landedIn, robot, parked, wait, ...(target !== undefined && { target }) })
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = []
   items.push(<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>)

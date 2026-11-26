@@ -52,6 +52,7 @@ fn a_robot_on_the_last_commit_is_one_that_runs_on_the_branch_as_it_is() {
   let remote = RemoteBranch {
     tip: Some("tip"),
     up_to_date: true,
+    older_base: false,
     drops: 0,
     others: 0,
   };
@@ -299,13 +300,14 @@ struct World {
   regenerate: Vec<RegenerateFile>,
 }
 
-const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
+pub(crate) const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
   tip: None,
   up_to_date: false,
+  older_base: false,
   drops: 0,
   others: 0,
 };
-const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
+pub(crate) const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
   tip: Some("tip"),
   up_to_date: true,
   ..UNPUSHED
@@ -1274,6 +1276,26 @@ fn the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced()
     (codes(&other), other.effects.iter().any(|effect| matches!(effect, PlannedEffect::Retarget { .. }))),
     (vec!["otherBase".to_string()], false)
   );
+
+  // a stack branch only rebuilt on a newer baseline: the start pushes it first, the robot tests the current baseline; a
+  // Dry Run its own robot holds goes without that push, unrefused
+  let older = RemoteBranch { older_base: true, ..ON_REMOTE };
+  let pushes = |decision: &LandDecision| {
+    decision
+      .effects
+      .iter()
+      .find_map(|effect| match effect {
+        PlannedEffect::Push { branches, .. } => Some(branches.clone()),
+        _ => None,
+      })
+      .unwrap_or_default()
+  };
+  for mode in [SAFE_PUSH, DRY_RUN] {
+    let rebuilt = decide_stack(&built, older, None, None, mode, &listed(&[]));
+    assert_eq!((codes(&rebuilt), pushes(&rebuilt)), (Vec::<String>::new(), vec!["auth".to_string()]));
+  }
+  let held = decide_stack(&built, older, None, Some(&own), DRY_RUN, &listed(&[]));
+  assert_eq!((codes(&held), pushes(&held)), (Vec::<String>::new(), Vec::<String>::new()));
 }
 
 /// A start of a copy that holds a generated file the words merged, its own or one of a branch it is built on, asks first

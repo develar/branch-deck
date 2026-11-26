@@ -79,7 +79,7 @@ use domain_policy::next_step::{Listing, Needs, PatronusStanding, StackUnit, Step
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::{github_repository_known, layer_base_of};
 use domain_policy::push::{
-  HeadedStack, Kept, PushState, StartAncestor, StartPush, UpToStop, Verdict, action_push, branch_push, kept, stack_branch_along, start_push, up_to_push, verdict,
+  HeadedStack, Kept, PushState, StartAncestor, StartPush, UpToStop, Verdict, action_push, branch_push, kept, rebased_push, stack_branch_along, start_push, up_to_push, verdict,
 };
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
@@ -198,6 +198,7 @@ fn push_view_of(parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_
   let pull_requests = facts.pull_requests.view();
   let holds = push_facts.holds;
   let held = |name: &str| push_facts.state(name);
+  let rebased = |name: &str| push_facts.rebased_state(name);
   let holds = || holds;
   repo
     .order()
@@ -213,8 +214,15 @@ fn push_view_of(parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_
       });
       let push = branch_push(repo, held, stack, name);
       let up_to = up_to_of(repo, parts, facts, push_facts, &holds, name).and_then(|up_to| up_to.unless_common(parts, repo, &push, name));
-      let action_blocker = action_push_over(repo, parts, facts, push_facts, name).blocker;
-      let push = BranchPush { up_to, action_blocker, ..push };
+      // the view's push of an action: never the push of a rebuilt branch, so its blocker is of the work of the branch
+      let action_blocker = action_push_over(repo, parts, facts, push_facts, name, false).blocker;
+      let rebased = rebased_push(repo, held, rebased, name).map(|order| order.into_iter().map(str::to_string).collect());
+      let push = BranchPush {
+        up_to,
+        action_blocker,
+        rebased,
+        ..push
+      };
       (push != BranchPush::default()).then(|| (name.to_string(), push))
     })
     .collect()
@@ -278,17 +286,22 @@ pub struct ActionPushView {
 /// The push an action that needs `name` on the remote makes first, over the table of `state` and the holds of the
 /// Patronus view of `facts` as they stand (none known before a view: nothing holds it), as `push_view` orders the pushes;
 /// a branch with work for the remote that it can't push (its push drops remote commits, it stays local, a Safe Push holds
-/// it) has the blocker and no branch to send
+/// it) has the blocker and no branch to send. With `rebased` (Create Pull Request…) the branches whose remote has them on
+/// an older baseline go too (`PushState::rebased`), so the builds of the pull request test the current baseline; only
+/// while they go: one of them alone never has a blocker
 #[must_use]
-pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str) -> ActionPushView {
+pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str, rebased: bool) -> ActionPushView {
   let parts = &state.parts;
-  with_session_push_facts(parts, facts, |push_facts| action_push_over(&parts_repository(parts), parts, facts, push_facts, name))
+  with_session_push_facts(parts, facts, |push_facts| {
+    action_push_over(&parts_repository(parts), parts, facts, push_facts, name, rebased)
+  })
 }
 
 /// `action_push_of` over `push_facts`, `repo` the rules' input of `parts`
-fn action_push_over(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, name: &str) -> ActionPushView {
+fn action_push_over(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, name: &str, rebased: bool) -> ActionPushView {
   let holds = push_facts.holds;
-  let Some(push) = action_push(repo, |branch| push_facts.state(branch), name) else {
+  let state = |branch: &str| if rebased { push_facts.rebased_state(branch) } else { push_facts.state(branch) };
+  let Some(push) = action_push(repo, state, name) else {
     return ActionPushView::default();
   };
   let mut branches: Vec<String> = push.ancestors.iter().map(|branch| (*branch).to_string()).collect();
@@ -482,14 +495,16 @@ pub struct AlonePushView {
 
 /// The push of `name` alone (`AlonePushView`) over the table of `state`, the facts of `facts` and the holds of `holds`;
 /// the hold of the robot `replaces` (the Safe Push the push cancels first and restarts) keeps nothing out. A branch the
-/// fetched baseline has whole still goes: only the update archives it. `None` for a branch the table lacks
+/// fetched baseline has whole still goes: only the update archives it. With `rebased` (Push Rebased Branch) a branch
+/// whose remote has it on an older baseline goes too (`PushState::rebased`). `None` for a branch the table lacks
 #[must_use]
-pub fn alone_push_of(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, replaces: Option<&str>) -> Option<AlonePushView> {
+pub fn alone_push_of(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, replaces: Option<&str>, rebased: bool) -> Option<AlonePushView> {
   let branch = state.parts.branches.get(name)?;
   let hold = holds.hold(name, Some(&branch.commits)).map(|(hold, _)| hold);
   let status = branch.remote.status.as_ref();
   let push_state = PushState {
     action: status.map(|status| status.action),
+    rebased: rebased && status.is_some_and(|status| status.older_base),
     kept: kept(
       branch.structure.parked.is_some(),
       false,
@@ -650,6 +665,12 @@ impl PushRules<'_> {
     self.push_facts.state(name)
   }
 
+  /// What `name` is to Push Rebased Branch (`PushFacts::rebased_state`)
+  #[must_use]
+  pub fn rebased_state(&self, name: &str) -> PushState {
+    self.push_facts.rebased_state(name)
+  }
+
   /// Why `verdict` keeps `name` out of a push; `None` for one that lets it go
   #[must_use]
   pub fn refusal(&self, name: &str, verdict: Verdict) -> Option<Reason> {
@@ -720,6 +741,22 @@ impl PushFacts<'_> {
         None,
         branch.sync.status == BranchStatus::Blocked || branch.sync.has_error,
       ),
+      rebased: false,
+    }
+  }
+
+  /// The state of `name` for Push Rebased Branch: as `state`, the push sending it also while its remote has it on an
+  /// older baseline (`PushState::rebased`), which only a push the user asks for does
+  fn rebased_state(&self, name: &str) -> PushState {
+    let older_base = self
+      .parts
+      .branches
+      .get(name)
+      .and_then(|branch| branch.remote.status.as_ref())
+      .is_some_and(|status| status.older_base);
+    PushState {
+      rebased: older_base,
+      ..self.state(name)
     }
   }
 }
@@ -834,6 +871,7 @@ impl<'a> LandingFacts<'a> {
     start_push(
       name,
       self.remote_of(name),
+      kept(false, false, self.holds.get(name), replaces, false) == Some(Kept::Held),
       self.ancestors_nearest_first(name).into_iter().map(|ancestor| StartAncestor {
         name: ancestor,
         kept: self.kept_from_start(ancestor, replaces),

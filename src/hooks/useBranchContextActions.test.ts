@@ -340,6 +340,29 @@ describe("the push of the branch menu", () => {
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "Pushing branch login…" })])
   })
 
+  it("is Push Rebased Branch of a branch only rebuilt on a newer baseline, saying what it moves onto the current master", () => {
+    const rebuilt = testRemoteStatus({ remoteTip: "tip", fastForward: false, olderBase: true })
+    setBranches(synced("auth", null, rebuilt), synced("login", "auth", rebuilt))
+    branchSyncStore.setState({ baselineBranch: "origin/master" })
+    setPushes({ auth: { rebased: ["auth"] }, login: { rebased: ["auth", "login"] } })
+    expect(pushItems("auth")).toEqual([
+      expect.objectContaining({
+        id: "push",
+        label: "Push Rebased Branch",
+        description: "The remote has these commits on an older master: the push replaces them with their copies on the current one. Nothing is dropped.",
+      }),
+    ])
+    expect(pushItems("auth")[0]?.disabled).toBeUndefined()
+    expect(pushItems("login")).toEqual([
+      expect.objectContaining({ id: "push", label: "Push Rebased Branch", description: "Pushes auth and login, parents first: the remote has their commits on an older master." }),
+    ])
+    // pushed: up to date on the current baseline, as Rust says it
+    setPushes({})
+    setBranchActions("auth", disabled("push", { code: "upToDate" }))
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Push Branch", disabled: true, description: "The remote branch is up to date" })])
+    branchSyncStore.setState({ baselineBranch: null })
+  })
+
   it("is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date", () => {
     setBranches({ ...synced("auth", null, unpushed), status: "MergeConflict", hasError: true, statusText: "merge conflict" })
     setBranchActions("auth", disabled("push", { code: "syncFailed", problem: null }))

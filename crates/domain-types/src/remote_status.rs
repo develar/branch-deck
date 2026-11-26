@@ -14,6 +14,9 @@
 //! - `drops_remote_commits`: the push drops remote commits the branch lacks, someone's work: it asks first
 //! - `pushes_again`: a push refused because the remote branch moved since its status goes again, once, over what the
 //!   remote has now, only when nothing of it is lost
+//! - `older_base_of`: the remote has the branch by content on an older baseline, the branch only rebuilt on the baseline
+//!   tip since its push (`RemoteStatusUpdate::older_base`): up to date, but a push the user asks for moves the remote
+//!   onto the current baseline (docs/design/remote-status.md, Decision 11)
 
 use crate::{PushAction, RemoteStatusUpdate};
 
@@ -68,6 +71,15 @@ impl RemoteStatusUpdate {
   #[must_use]
   pub const fn pushes_again(&self) -> bool {
     !self.drops_remote_commits() && self.needs_push()
+  }
+
+  /// Whether the remote has the branch by content on an older baseline, by the counts of this status and `other_base`
+  /// of its walk: the oldest commits of the remote branch and of the branch have different parents, the branch's the
+  /// baseline tip (`sync_core::remote_status`). Only an up-to-date status that is no fast-forward: a remote at the tip
+  /// or below it has the branch's commits as they are, and one with anything to push says so by its other counts
+  #[must_use]
+  pub const fn older_base_of(&self, other_base: bool) -> bool {
+    self.remote_exists && !self.needs_push() && !self.fast_forward && other_base
   }
 }
 

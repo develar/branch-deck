@@ -93,6 +93,12 @@ export interface RemoteStatus {
   myCommitsAhead: number
   /** The remote branch is an ancestor of the local one; a rebased branch is not, its push is a force push */
   fastForward: boolean
+  /**
+   * The remote has the branch by content, on an older baseline: the branch was only rebuilt on the current one since its
+   * push (Update Project). Up to date, its row quiet; Push Rebased Branch moves the remote onto the current baseline
+   * (`RemoteStatusUpdate::older_base`)
+   */
+  olderBase: boolean
   /** Unix timestamp, 0 = never pushed */
   lastPushTime: number
   /** The remote commit the status was computed against, null without a remote branch; a push replaces only it */
@@ -951,6 +957,11 @@ export interface PushOrders {
   readonly action: readonly string[]
   /** What the push button pushes when it pushes the stack (`action`); empty: the branch alone */
   readonly button: readonly string[]
+  /**
+   * Push Rebased Branch, the push of the button of a branch only rebuilt on a newer baseline (`BranchPush.rebased`): the
+   * branches it is built on that are too or have work, root first, then the branch; empty for any other branch
+   */
+  readonly rebased: readonly string[]
   /** Push with Children; null for a branch nothing but parked branches is stacked on */
   readonly children: ChildrenPushOrder | null
   /**
@@ -990,6 +1001,7 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
     stack,
     action,
     button: push.button === true ? action : [],
+    rebased: push.rebased ?? [],
     children:
       children == null
         ? null

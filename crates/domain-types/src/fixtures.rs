@@ -301,6 +301,7 @@ pub fn remote_status(branch: &str) -> crate::RemoteStatusUpdate {
     ancestor_commits_ahead: 0,
     my_unpushed_count: 0,
     fast_forward: true,
+    older_base: false,
     last_push_time: 0,
     action: crate::PushAction::UpToDate,
   }
@@ -322,6 +323,9 @@ pub struct RemoteCounts {
   pub ancestors_ahead: u32,
   /// The branch was rebased: no fast-forward of its remote
   pub rebased: bool,
+  /// The oldest commits of the remote branch and of the branch have different parents, the branch's the baseline tip:
+  /// the walk's answer `RemoteStatusUpdate::older_base_of` takes
+  pub other_base: bool,
 }
 
 /// The remote status of `auth` with `counts`, its action the one they give (`RemoteStatusUpdate::push_action`)
@@ -350,10 +354,12 @@ pub fn remote_status_with(counts: RemoteCounts) -> crate::RemoteStatusUpdate {
     ancestor_commits_ahead: counts.ancestors_ahead,
     my_unpushed_count: 0,
     fast_forward: !counts.rebased && counts.behind == 0,
+    older_base: false,
     last_push_time: 0,
     action: crate::PushAction::UpToDate,
   };
   status.action = status.push_action();
+  status.older_base = status.older_base_of(counts.other_base);
   status
 }
 
@@ -365,6 +371,7 @@ pub fn push_intent(branch: &str) -> crate::operation::Intent {
     expect_remote: None,
     force: false,
     restart_running: false,
+    rebased: false,
   })
 }
 

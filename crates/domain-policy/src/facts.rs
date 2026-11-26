@@ -121,6 +121,10 @@ pub struct RemoteBranch<'a> {
   pub tip: Option<&'a str>,
   /// The remote has what the subject has by content: nothing to push (a remote rebuilt on an older baseline included)
   pub up_to_date: bool,
+  /// Up to date, but on an older baseline: the subject was only rebuilt on the baseline tip since its push
+  /// (`RemoteStatusUpdate::older_base`). Only a push the user asks for and the start of a Safe Push of the subject
+  /// itself send it (`push::start_push`)
+  pub older_base: bool,
   /// The commits of the remote the subject lacks that a push drops, someone's work (`commits_behind`)
   pub drops: u32,
   /// Of `drops`, the ones another author made (`others_behind`): work to take in before a push

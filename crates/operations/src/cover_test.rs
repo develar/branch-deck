@@ -210,6 +210,7 @@ fn the_admission_of_every_family_holds_what_its_effects_on_the_remote_hold() {
     expect_remote: None,
     force: false,
     restart_running: true,
+    rebased: false,
   };
   let of_push = planned(Intent::Push(push.clone()), auth.clone(), &[], effects.clone(), &[("core", 4), ("auth", 6), ("other", 9)]);
   assert_eq!(remote_holds(&of_push), [&held[..4], &[base(4), base(6)]].concat());
@@ -270,6 +271,7 @@ fn with_ancestors(subject: &str) -> Push {
     expect_remote: None,
     force: false,
     restart_running: false,
+    rebased: false,
   }
 }
 

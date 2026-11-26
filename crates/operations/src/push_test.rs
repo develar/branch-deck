@@ -360,6 +360,7 @@ pub(crate) fn alone(name: &str, expect_remote: Option<String>) -> Push {
     expect_remote,
     force: false,
     restart_running: false,
+    rebased: false,
   }
 }
 
@@ -646,6 +647,63 @@ async fn a_push_of_a_stack_is_one_push_of_the_branches_it_covers() {
   assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/alpha\nrefs/heads/test/virtual/beta");
   assert_eq!(fixture.plan(&push).await.effects, Vec::new(), "nothing left to push");
   assert_eq!(fixture.plan(&scoped("alpha", PushScope::WithChildren)).await.effects, Vec::new());
+}
+
+impl Fixture {
+  /// Someone's commit on `master` of the bare origin, fetched, and the branch rebased onto it as Update Project does,
+  /// then the session synced: the virtual branches are rebuilt on the newer baseline, their remote branches have the
+  /// same commits on the older one
+  async fn rebuild_on_a_newer_baseline(&self) {
+    let origin = ["--git-dir", ".git/origin.git"];
+    let master = self.repo.git(&[&origin[..], &["rev-parse", "refs/heads/master"]].concat());
+    let tree = format!("{master}^{{tree}}");
+    let upstream = self.repo.git(&[&origin[..], &["commit-tree", &tree, "-p", &master, "-m", "Upstream change"]].concat());
+    self.repo.git(&[&origin[..], &["update-ref", "refs/heads/master", &upstream]].concat());
+    self.repo.git(&["fetch", "-q", "origin"]);
+    self.repo.git(&["rebase", "-q", "origin/master"]);
+    self.registry.sessions().sync(&self.key, SyncReason::Manual).wait().await.unwrap();
+  }
+}
+
+/// Push Rebased Branch: alpha and beta pushed, then rebuilt on a newer baseline. The push of the button has nothing to
+/// send, they are up to date by content; with the user's consent (`Push::rebased`) Push Stack of beta sends both, root
+/// first, each leased on its remote head, asking nothing and forcing no drop, and then nothing is left to push
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rebased_push_sends_the_branches_only_rebuilt_on_a_newer_baseline_with_a_lease_and_without_a_question() {
+  let fixture = fixture(true).await;
+  let stack = scoped("beta", PushScope::WithAncestors);
+  fixture.execute(&stack, Vec::new()).await.unwrap();
+  let pushed = [fixture.remote_tip("alpha"), fixture.remote_tip("beta")];
+  fixture.rebuild_on_a_newer_baseline().await;
+  assert_eq!(fixture.plan(&stack).await.effects, Vec::new(), "up to date by content: nothing without the consent");
+  assert_eq!(fixture.plan(&alone("beta", Some(pushed[1].clone()))).await.effects, Vec::new());
+
+  // leased on the remote head the row showed, as the page's push sends it
+  let rebased = Push {
+    rebased: true,
+    expect_remote: Some(pushed[1].clone()),
+    ..stack.clone()
+  };
+  let plan = fixture.plan(&rebased).await;
+  assert_eq!(
+    (pushed_by(&plan), plan.confirmations.as_slice(), plan.blockers.as_slice()),
+    (Some((names(&["alpha", "beta"]), false)), &[][..], &[][..])
+  );
+  assert!(!plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::Retarget { .. })));
+  let outcome = fixture.execute(&rebased, Vec::new()).await.unwrap();
+  assert_eq!((outcome.effects.len(), &outcome.effects[0].status), (1, &EffectStatus::Done), "{outcome:?}");
+  for (branch, before) in ["alpha", "beta"].into_iter().zip(&pushed) {
+    let tip = fixture.repo.rev_parse(&format!("test/virtual/{branch}")).unwrap();
+    assert_eq!((branch, fixture.remote_tip(branch)), (branch, tip.clone()), "the copy on the current baseline");
+    assert_ne!(&tip, before);
+  }
+  assert_eq!(fixture.plan(&rebased).await.effects, Vec::new(), "on the current baseline: nothing left");
+  let tip = fixture.repo.rev_parse("test/virtual/beta").unwrap();
+  let alone_rebased = Push {
+    rebased: true,
+    ..alone("beta", Some(tip))
+  };
+  assert_eq!(fixture.plan(&alone_rebased).await.effects, Vec::new());
 }
 
 /// An ancestor whose push drops remote commits is left to its own row by the push button, which pushes above it; Push

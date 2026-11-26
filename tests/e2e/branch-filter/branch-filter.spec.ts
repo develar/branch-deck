@@ -2,12 +2,12 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusProfile, PatronusRobot } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, robot, startRequest } from "../helpers/patronus-helpers"
-import { expectPushedToast, holdRemotePushes, remotePushes } from "../helpers/push-helpers"
+import { expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { runAndWaitForAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { waitForStepFacts, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -60,6 +60,15 @@ async function focusRow(page: Page, name: string) {
     await page.keyboard.press("ArrowDown")
   }
   await expect(findBranchRow(page, name)).toBeFocused()
+}
+
+/** The branch menu of `row` offers its push disabled, and its hover says the remote branch is up to date */
+async function expectUpToDateInMenu(page: Page, row: Locator): Promise<void> {
+  await row.click({ button: "right" })
+  const push = page.getByRole("menuitem", { name: /^Push Branch ?P?$/ })
+  await expect(push).toHaveAttribute("aria-disabled", "true")
+  await push.hover()
+  await expect(openTooltip(page).filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")
 }
 
 test.describe("Branch filter", () => {
@@ -198,11 +207,42 @@ test.describe("Branch filter", () => {
     await expectPushedToast(page, "docs")
     expect(await remotePushes(repo)).toEqual([["docs"]])
 
-    await row.click({ button: "right" })
-    const push = page.getByRole("menuitem", { name: /^Push Branch ?P?$/ })
-    await expect(push).toHaveAttribute("aria-disabled", "true")
-    await push.hover()
-    await expect(openTooltip(page).filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")
+    await expectUpToDateInMenu(page, row)
+  })
+
+  test("should push a branch rebuilt on a newer baseline from the branch menu and with P, its row staying quiet", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    const pushed = await pushedBefore(page, repo, ["docs", "ci"])
+    // someone landed a change into master; Update Project rebuilds both branches onto it: the remote has their commits
+    // by content, on the older master
+    await repo.commitOnRemote("master", { subject: "Fix the build", author: "Ann <ann@example.com>", timestamp: 1704200000, files: { "build.txt": "fixed\n" } })
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
+    const docs = findBranchRow(page, "docs")
+    const ci = findBranchRow(page, "ci")
+    expect(await repo.revision(virtualBranch("docs"))).not.toEqual(pushed.docs)
+    // the row stays quiet: no push chip, not the user's move
+    await expectNothingToPush(docs)
+    await expectNothingToPush(ci)
+    expect(await remotePushes(repo)).toEqual([])
+
+    // the branch menu offers the push of the rebuilt branch, named as its push button
+    await docs.click({ button: "right" })
+    const rebased = page.getByRole("menuitem", { name: /^Push Rebased Branch ?P?$/ })
+    await expect(rebased).not.toHaveAttribute("aria-disabled", "true")
+    await runAndWaitForAnswer(page, "execute", () => rebased.click())
+    await expectPushedToast(page, "docs", "Moved onto the current master")
+    expect(await remotePushes(repo)).toEqual([["docs"]])
+    await expectPushedToRemote(repo, ["docs"])
+
+    // P on the focused row pushes the other one
+    await focusRow(page, "ci")
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("p"))
+    await expectPushedToast(page, "ci")
+    expect(await remotePushes(repo)).toEqual([["docs"], ["ci"]])
+    await expectPushedToRemote(repo, ["ci"])
+
+    // on the current master now: nothing left to push, as Rust says it
+    await expectUpToDateInMenu(page, docs)
   })
 
   test("should walk the branch rows with the arrows and preview the focused one with Space", async ({ page, setupRepo, syncAndWaitForBranches }) => {

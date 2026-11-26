@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Confirmation, EffectRecord, EffectStatus, ErrorCode, Intent, Outcome, PatronusRobot, Plan, PlannedEffect, PullRequest, Reason } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
-import { pushBranch, pushForAction, pushWithChildren } from "@/lib/push-run"
+import { pushBranch, pushForAction, pushFromButton, pushWithChildren } from "@/lib/push-run"
 import type { Branch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -37,6 +37,8 @@ const { engine, stores } = vi.hoisted(() => ({
     pullRequests: {} as Record<string, PullRequest>,
     /** Why Rust refuses the push an action needs of each branch, of the table as it is (`BranchPush.actionBlocker`) */
     actionBlockers: {} as Record<string, Reason>,
+    /** Push Rebased Branch of each branch only rebuilt on a newer baseline (`BranchPush.rebased`) */
+    rebased: {} as Record<string, string[]>,
     selected: "/repo",
   },
 }))
@@ -96,7 +98,14 @@ vi.mock("@/stores/branch-sync", async () => {
   return {
     branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
     getBranch: (name: string) => stores.branches[name],
-    getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], children: null, actionBlocker: stores.actionBlockers[name] ?? null }),
+    getPushOrders: (name: string) => ({
+      stack: [name],
+      action: [name],
+      button: [],
+      rebased: stores.rebased[name] ?? [],
+      children: null,
+      actionBlocker: stores.actionBlockers[name] ?? null,
+    }),
     getOpenPullRequest: (name: string) => openPullRequestOf(stores.pullRequests[name]),
     setOperationPushProgress: () => {},
   }
@@ -148,6 +157,7 @@ beforeEach(() => {
   stores.branches = {}
   stores.pullRequests = {}
   stores.actionBlockers = {}
+  stores.rebased = {}
   stores.selected = "/repo"
   pushConfirmStore.setState({ request: null })
   resetEventToasts()
@@ -167,6 +177,53 @@ describe("the push an action needs", () => {
     delete stores.actionBlockers.login
     expect(await pushForAction("login")).toBe(true)
     expect(engine.calls).toEqual(["prepare login", "execute login"])
+  })
+})
+
+describe("Push Rebased Branch", () => {
+  /** `name` only rebuilt on a newer baseline since its push: up to date by content, its remote on the older baseline */
+  function rebuilt(name: string, parent: string | null): void {
+    const remoteStatus = testRemoteStatus({ remoteTip: `${name}-remote`, fastForward: false, olderBase: true })
+    stores.branches[name] = testBranch(name, parent, { remoteStatus })
+  }
+
+  it("pushes a branch only rebuilt on a newer baseline from its push button, leased on the head its row shows, and says it moved it", async () => {
+    rebuilt("auth", null)
+    stores.rebased.auth = ["auth"]
+    pushFromButton("auth")
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare auth", "execute auth"]))
+    expect(engine.intents).toEqual([
+      { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, expectRemote: "auth-remote", force: false, restartRunning: false, rebased: true },
+    ])
+    await vi.waitFor(() => expect(toasts).toHaveLength(1))
+    expect(toasts[0]!.title).toBe("Force pushed branch auth")
+    expect(text(toasts[0]!.description)).toBe("Moved onto the current master")
+  })
+
+  it("pushes the branches it is built on that are only rebuilt too in one push of the stack, parents first", async () => {
+    rebuilt("auth", null)
+    rebuilt("login", "auth")
+    stores.rebased.login = ["auth", "login"]
+    pushFromButton("login")
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare login", "execute login"]))
+    expect(engine.intents).toEqual([
+      {
+        kind: "push",
+        subject: { kind: "branch", name: "login" },
+        scope: { kind: "withAncestors" },
+        expectRemote: "login-remote",
+        force: false,
+        restartRunning: false,
+        rebased: true,
+      },
+    ])
+  })
+
+  it("is no push of a branch the view orders none of: its button pushes as before", async () => {
+    addBranch("login", "auth")
+    pushFromButton("login")
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare login", "execute login"]))
+    expect(engine.intents[0]).not.toHaveProperty("rebased")
   })
 })
 

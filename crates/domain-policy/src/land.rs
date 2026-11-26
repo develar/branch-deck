@@ -49,7 +49,7 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::holds::is_active;
 use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, starts_from};
-use crate::push::{StartAncestor, kept, start_push};
+use crate::push::{Kept, StartAncestor, kept, start_push};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
 use crate::regenerate;
 use crate::review::{ReviewState, review_state, skips_approvals};
@@ -688,6 +688,7 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
   let started = start_push(
     name,
     own.and_then(|own| own.remote),
+    kept(false, false, branch.start.hold, replaces, false) == Some(Kept::Held),
     ancestors.iter().rev().map(|step| StartAncestor {
       name: step.name,
       kept: kept(false, step.landed_whole || step.in_baseline, step.hold, replaces, step.not_built),
@@ -764,6 +765,8 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
   let not_built = matches!(robot, Some(Reason::StackNotBuilt { .. }));
   let (not_built_refusal, robot) = if not_built { (robot, None) } else { (None, robot) };
   decision.blockers.extend(not_built_refusal);
+  // its own robot holds the stack branch, unless the start replaces it (a Dry Run replaces none)
+  let held_by = stack.held_by.filter(|_| !safe_push || stack.replaces.is_none());
   let pushes = match stack.remote {
     None => {
       decision.waits.push(FactWait {
@@ -772,7 +775,9 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
       });
       false
     }
-    Some(remote) => !remote.up_to_date,
+    // a stack branch only rebuilt on a newer baseline goes too, so the robot tests it on the current one, unless its own
+    // robot holds it: that push would fail the robot, and the start goes without it as it did (`push::start_push`)
+    Some(remote) => !remote.up_to_date || (remote.older_base && held_by.is_none()),
   };
   let forced = if pushes {
     drops(std::iter::once((root, stack.remote)), land, decision)
@@ -785,7 +790,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
     && !not_built
     && stack.landed.is_none()
     && pushes
-    && let Some(robot) = stack.held_by.filter(|_| !safe_push || stack.replaces.is_none())
+    && let Some(robot) = held_by
   {
     decision.blockers.push(Reason::StackHeld {
       root: root.to_string(),

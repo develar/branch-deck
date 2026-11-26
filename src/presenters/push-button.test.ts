@@ -128,6 +128,26 @@ describe("getPushButtonState", () => {
     expect(state({ lastPushTime: 1704139200 }).tooltip).toMatch(/^Everything is pushed\.\n\nPushed /)
   })
 
+  it("pushes a branch only rebuilt on a newer baseline as Push Rebased Branch, at once, and says what it moves", () => {
+    const rebuilt = { fastForward: false, olderBase: true }
+    // Rust lets its push run: the remote is on an older baseline
+    const alone = state(rebuilt, { blocker: null, rebased: { names: ["login"], target: "master" } })
+    expect(alone).toMatchObject({
+      text: "Push Rebased Branch",
+      count: 0,
+      color: "primary",
+      tooltip: "The remote has these commits on an older master: the push replaces them with their copies on the current one. Nothing is dropped.",
+      disabled: false,
+      confirm: false,
+      pushesStack: false,
+      action: null,
+    })
+    const withParents = state(rebuilt, { blocker: null, rebased: { names: ["auth", "login"], target: "master" } })
+    expect(withParents.tooltip).toBe("Pushes auth and login, parents first: the remote has their commits on an older master.")
+    // without the order of Rust the branch is up to date, as before
+    expect(state(rebuilt)).toMatchObject({ text: "Push Branch", disabled: true })
+  })
+
   it("asks first only for a push that drops remote commits", () => {
     expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false, droppedCommits: commits(2), action: forcePush({ drops: true }) }).confirm).toBe(true)
     expect(state({ commitsBehind: 1, fastForward: false, droppedCommits: commits(1), action: forcePush({ drops: true }) }).confirm).toBe(true)

@@ -180,10 +180,11 @@ fn every_member_landed_by_the_robot_of_the_whole_stack_is_its_own_landing() {
   assert!(matches!(stack_branch_hold(&facts), Some(Reason::StackLanded { own: true, .. })));
 }
 
-fn remote(tip: &str, up_to_date: bool) -> RemoteBranch<'_> {
+fn remote(tip: &str, up_to_date: bool, older_base: bool) -> RemoteBranch<'_> {
   RemoteBranch {
     tip: Some(tip),
     up_to_date,
+    older_base,
     drops: 0,
     others: 0,
   }
@@ -197,14 +198,17 @@ fn remote(tip: &str, up_to_date: bool) -> RemoteBranch<'_> {
 #[test]
 fn a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has() {
   let failed = with_status("f", "auth", PatronusRobotStatus::Failure);
-  assert_eq!(restart_action(&failed, Some("tip"), Some(remote("tip", true)), false, false), Some(RestartAction::Restart));
   assert_eq!(
-    restart_action(&failed, Some("new"), Some(remote("tip", false)), false, false),
+    restart_action(&failed, Some("tip"), Some(remote("tip", true, false)), false, false),
+    Some(RestartAction::Restart)
+  );
+  assert_eq!(
+    restart_action(&failed, Some("new"), Some(remote("tip", false, false)), false, false),
     Some(RestartAction::PushAndRestart)
   );
   // rebuilt on a newer baseline, the remote has the same commits: a plain restart
   assert_eq!(
-    restart_action(&failed, Some("rebuilt"), Some(remote("tip", true)), false, false),
+    restart_action(&failed, Some("rebuilt"), Some(remote("tip", true, false)), false, false),
     Some(RestartAction::Restart)
   );
   // the remote status is not known yet: the robot took the branch as Patronus has it
@@ -214,26 +218,29 @@ fn a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has() {
 
   let running = with_status("r", "auth", PatronusRobotStatus::Running);
   assert_eq!(
-    restart_action(&running, Some("new"), Some(remote("tip", false)), false, false),
+    restart_action(&running, Some("new"), Some(remote("tip", false, false)), false, false),
     Some(RestartAction::PushAndRestart)
   );
-  assert_eq!(restart_action(&running, Some("tip"), Some(remote("tip", true)), false, false), None);
+  assert_eq!(restart_action(&running, Some("tip"), Some(remote("tip", true, false)), false, false), None);
   // a required check failed: the restart cancels it and Patronus restarts it on the remote, for the same commits rebuilt
   // and a commit the remote moved past alike; work the remote lacks is still pushed first
-  assert_eq!(restart_action(&running, Some("tip"), Some(remote("tip", true)), false, true), Some(RestartAction::Restart));
   assert_eq!(
-    restart_action(&running, Some("rebuilt"), Some(remote("tip", true)), false, true),
+    restart_action(&running, Some("tip"), Some(remote("tip", true, false)), false, true),
     Some(RestartAction::Restart)
   );
   assert_eq!(
-    restart_action(&running, Some("newer"), Some(remote("newer", true)), false, true),
+    restart_action(&running, Some("rebuilt"), Some(remote("tip", true, false)), false, true),
     Some(RestartAction::Restart)
   );
   assert_eq!(
-    restart_action(&running, Some("new"), Some(remote("tip", false)), false, true),
+    restart_action(&running, Some("newer"), Some(remote("newer", true, false)), false, true),
+    Some(RestartAction::Restart)
+  );
+  assert_eq!(
+    restart_action(&running, Some("new"), Some(remote("tip", false, false)), false, true),
     Some(RestartAction::PushAndRestart)
   );
-  assert_eq!(restart_action(&running, Some("new"), Some(remote("tip", false)), true, false), None);
+  assert_eq!(restart_action(&running, Some("new"), Some(remote("tip", false, false)), true, false), None);
   let of_pull_request = PatronusRobot {
     pull_request: Some(PatronusPullRequestLink {
       number: 7,
@@ -242,7 +249,7 @@ fn a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has() {
     ..running
   };
   assert_eq!(
-    restart_action(&of_pull_request, Some("new"), Some(remote("tip", false)), true, false),
+    restart_action(&of_pull_request, Some("new"), Some(remote("tip", false, false)), true, false),
     Some(RestartAction::PushAndRestart)
   );
 
@@ -251,22 +258,57 @@ fn a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has() {
     ..with_status("d", "auth", PatronusRobotStatus::Success)
   };
   assert_eq!(
-    restart_action(&passed, Some("tip"), Some(remote("newer", true)), false, false),
+    restart_action(&passed, Some("tip"), Some(remote("newer", true, false)), false, false),
     Some(RestartAction::Restart)
   );
-  assert_eq!(restart_action(&passed, Some("tip"), Some(remote("tip", true)), false, false), None);
+  assert_eq!(restart_action(&passed, Some("tip"), Some(remote("tip", true, false)), false, false), None);
   let merged = with_status("m", "auth", PatronusRobotStatus::Success);
-  assert_eq!(restart_action(&merged, Some("tip"), Some(remote("newer", true)), false, false), None);
+  assert_eq!(restart_action(&merged, Some("tip"), Some(remote("newer", true, false)), false, false), None);
   let temporary = robot("tmp", None, PatronusRobotStatus::Failure, 1);
-  assert_eq!(restart_action(&temporary, Some("tip"), Some(remote("tip", true)), false, false), None);
+  assert_eq!(restart_action(&temporary, Some("tip"), Some(remote("tip", true, false)), false, false), None);
 
   let whole_stack = stack_robot("w", "auth", PatronusRobotStatus::Failure, "stack-tip");
   assert_eq!(
-    restart_action(&whole_stack, Some("new-stack-tip"), Some(remote("stack-tip", false)), false, false),
+    restart_action(&whole_stack, Some("new-stack-tip"), Some(remote("stack-tip", false, false)), false, false),
     Some(RestartAction::PushAndRestart)
   );
   assert_eq!(
-    restart_action(&whole_stack, Some("stack-tip"), Some(remote("stack-tip", true)), false, false),
+    restart_action(&whole_stack, Some("stack-tip"), Some(remote("stack-tip", true, false)), false, false),
+    Some(RestartAction::Restart)
+  );
+}
+
+/// A robot that took the remote branch of a branch only rebuilt on a newer baseline since (the remote has the same
+/// commits on the older baseline): its restart pushes the branch first, so it tests the current baseline, but only when it
+/// restarts at all. A failed, canceled or failing robot pushes and restarts; a healthy running one, and a dry run that
+/// passed on the remote's commit, offer nothing new
+#[test]
+fn a_restart_of_a_robot_on_an_older_baseline_pushes_first_and_a_healthy_one_stays() {
+  let older = remote("tip", true, true);
+  for status in [PatronusRobotStatus::Failure, PatronusRobotStatus::Canceled] {
+    let robot = with_status("f", "auth", status);
+    assert_eq!(restart_action(&robot, Some("rebuilt"), Some(older), false, false), Some(RestartAction::PushAndRestart));
+  }
+  let running = with_status("r", "auth", PatronusRobotStatus::Running);
+  assert_eq!(restart_action(&running, Some("rebuilt"), Some(older), false, false), None, "a healthy robot stays");
+  assert_eq!(
+    restart_action(&running, Some("rebuilt"), Some(older), false, true),
+    Some(RestartAction::PushAndRestart),
+    "a failed required check"
+  );
+  let passed = PatronusRobot {
+    push_mode: PatronusPushMode::DryRun,
+    ..with_status("d", "auth", PatronusRobotStatus::Success)
+  };
+  assert_eq!(
+    restart_action(&passed, Some("rebuilt"), Some(older), false, false),
+    None,
+    "no Restart Dry Run of the same commits"
+  );
+  // the same commits on the same baseline: a plain restart, as before
+  let failed = with_status("f", "auth", PatronusRobotStatus::Failure);
+  assert_eq!(
+    restart_action(&failed, Some("rebuilt"), Some(remote("tip", true, false)), false, false),
     Some(RestartAction::Restart)
   );
 }

@@ -253,3 +253,30 @@ fn pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost() {
   let expected: Vec<(&str, bool)> = cases.iter().map(|(case, _, expected)| (*case, *expected)).collect();
   assert_eq!(answers, expected);
 }
+
+/// A branch only rebuilt on another base since its push is on an older base: up to date, no fast-forward, its oldest
+/// commit on another parent than the remote's. One with work for the remote, a fast-forward, a remote at the tip or the
+/// same base under other hashes is not
+#[test]
+fn a_branch_only_rebuilt_on_another_base_is_on_an_older_base_and_one_with_work_or_at_the_tip_is_not() {
+  let rebuilt = RemoteCounts {
+    rebased: true,
+    other_base: true,
+    ..RemoteCounts::default()
+  };
+  let cases = [
+    ("only rebuilt on the baseline tip", rebuilt, true),
+    ("the same base under other hashes", RemoteCounts { other_base: false, ..rebuilt }, false),
+    ("rebuilt with a new commit", RemoteCounts { ahead: 1, ..rebuilt }, false),
+    ("rebuilt with someone's commit on the remote", RemoteCounts { behind: 1, ..rebuilt }, false),
+    ("rebuilt with a reworded commit", RemoteCounts { reworded: 1, ..rebuilt }, false),
+    ("a fast-forward", RemoteCounts { rebased: false, ..rebuilt }, false),
+    ("no remote branch", RemoteCounts { absent: true, ..rebuilt }, false),
+  ];
+  let older: Vec<(&str, bool)> = cases.iter().map(|(case, counts, _)| (*case, remote_status_with(*counts).older_base)).collect();
+  let expected: Vec<(&str, bool)> = cases.iter().map(|(case, _, expected)| (*case, *expected)).collect();
+  assert_eq!(older, expected);
+  let only_rebuilt = remote_status_with(rebuilt);
+  assert_eq!(only_rebuilt.action, PushAction::UpToDate, "the row stays quiet");
+  assert!(!only_rebuilt.needs_push());
+}

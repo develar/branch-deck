@@ -54,6 +54,7 @@ fn fact(remote_tip: Option<&str>, up_to_date: bool) -> RemoteFact {
   RemoteFact {
     remote_tip: remote_tip.map(str::to_string),
     up_to_date,
+    older_base: false,
     known: true,
     drops: 0,
     others: 0,

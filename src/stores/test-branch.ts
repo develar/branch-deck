@@ -36,6 +36,7 @@ export function testRemoteStatus(overrides: Partial<RemoteStatus> = {}): RemoteS
     ancestorCommitsAhead: 0,
     myCommitsAhead: 0,
     fastForward: true,
+    olderBase: false,
     lastPushTime: 0,
     remoteTip: null,
     droppedCommits: [],

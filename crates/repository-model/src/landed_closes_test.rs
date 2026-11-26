@@ -51,6 +51,7 @@ fn lagging(tip: &str) -> RemoteFact {
   RemoteFact {
     remote_tip: Some(tip.to_owned()),
     up_to_date: false,
+    older_base: false,
     known: true,
     drops: 0,
     others: 0,

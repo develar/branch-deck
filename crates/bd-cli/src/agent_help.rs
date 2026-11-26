@@ -30,8 +30,8 @@ Branch Deck groups commits ahead of the baseline by `(name)`, else issue group, 
 in `(parent/leaf)` or `refs/branch-deck/stack-parents` with `(leaf)`; the leaf names the branch.
 
 Rules
-- Ask the user first, and run only what the user approved: a push (`brd push`, also --force and --restart-running), a
-  Safe Push or a Patronus Dry Run (`brd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
+- Ask the user first, and run only what the user approved: a push (`brd push`, also --force, --rebased,
+  --restart-running), a Safe Push or a Dry Run (`brd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
   --allow-missing and --create-pull-request), `brd request-review`, a `gh pr create` that brd prints, `brd park`,
   `brd unpark`, `brd unapply`, `brd reapply`, and any change of a commit that another session made, a `brd reword` of its
   message too. Show what brd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask. `pull_request.on`
@@ -591,7 +591,10 @@ pub const PUSH_HELP: &str = "\
 lands a branch there. Show the result to the user; once approved, `brd push <branch>...` (or --all --yes; --with-children adds the
 branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
 branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
-of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
+of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed; with `older_base: true`
+its remote branch has the same commits on an older baseline, after Update Project rebuilt the branch: the builds of
+its pull request test that one, so once approved `brd push <branch> --rebased` moves it onto the current baseline,
+leased, nothing dropped, the branches it is built on first). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
 its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
 `retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused;
 `merged_elsewhere` names a branch whose pull request GitHub merged into another branch (a parent's): tell the user
@@ -655,7 +658,7 @@ pub const SAFE_PUSH_HELP: &str = "\
   into it). Landing what it is built on is right: name `lands` to the user, and offer the branch alone only as a
   second way.
 Once approved, `brd safe-push <branch>` pushes first when `push_needed` (the parents with commits for the remote,
-by content), then starts the robot: `robot.url` is its page; a branch with an open pull request into the target
+by content; a branch on an older baseline is pushed first too, so the robot tests the current one), then starts the robot: `robot.url` is its page; a branch with an open pull request into the target
 starts from a `/patronus` comment there, where its approvals count (`started_via`); one into a virtual branch is
 retargeted first (`retargeted`). --patronus-dry-run starts a Dry Run instead: the checks without the push into the
 target and without the review, but it pushes and starts a robot like a Safe Push. The whole stack, its side

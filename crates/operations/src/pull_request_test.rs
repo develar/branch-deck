@@ -57,7 +57,19 @@ pub(crate) fn created(sources: &Sources, push: ActionPushView, create: &CreatePu
 
 /// `created` of a subject that landed all of it, as its next step says, or not (`landed`)
 fn created_landed(sources: &Sources, push: ActionPushView, create: &CreatePullRequest, landed: bool) -> Planned {
-  sources.with(|sources| create_planned(&PullRequestFacts { sources, push, landed }, create)).unwrap()
+  sources
+    .with(|sources| {
+      create_planned(
+        &PullRequestFacts {
+          sources,
+          push,
+          rebased: false,
+          landed,
+        },
+        create,
+      )
+    })
+    .unwrap()
 }
 
 /// The creation of the pull request of a layer of a stack of GitHub (docs/design/github-stacks.md) opens the pull
@@ -289,6 +301,85 @@ fn the_pull_request_of_a_whole_stack_pushes_its_stack_branch_by_the_table_as_it_
   );
 }
 
+/// Create Pull Request… pushes a subject only rebuilt on a newer baseline first, so the builds of the new pull request
+/// test the current baseline: its branch by the push the rules order with the consent (`action_push_of` with
+/// `rebased`, which only the creation passes, never a review request), a stack branch of a whole stack by its remote fact;
+/// with "Continue on GitHub" the push is waited for on GitHub (`WaitForMirror`)
+#[test]
+fn a_creation_pushes_a_subject_only_rebuilt_on_a_newer_baseline_first_and_a_review_request_does_not() {
+  let mut asked = Vec::new();
+  let mut plan_of = |intent: &Intent| {
+    sources(true).with(|sources| {
+      crate::pull_request::planned_of(
+        sources,
+        |name, rebased| {
+          asked.push((name.to_owned(), rebased));
+          if rebased { pushes(&["auth"], None) } else { pushes(&[], None) }
+        },
+        |_| false,
+        intent,
+      )
+    })
+  };
+  let planned = plan_of(&Intent::CreatePullRequest(create(true))).unwrap();
+  assert!(
+    matches!(&planned.plan.effects[..], [PlannedEffect::Push { branches, .. }, PlannedEffect::WaitForMirror { .. }] if branches == &["auth"]),
+    "{:?}",
+    planned.plan.effects
+  );
+  let review = Intent::RequestReview {
+    subject: Subject::branch("auth"),
+    reviewers: vec!["bob".to_owned()],
+    push_first: false,
+  };
+  let _ = plan_of(&review);
+  assert_eq!(asked, [("auth".to_owned(), true), ("auth".to_owned(), false)]);
+
+  let mut stack = stack_sources(stack_view(false, None), Vec::new(), false, false);
+  stack.table.remote.stacks.insert(
+    "auth".to_owned(),
+    RemoteFact {
+      remote_tip: Some("older-stack".to_owned()),
+      known: true,
+      up_to_date: true,
+      older_base: true,
+      ..RemoteFact::default()
+    },
+  );
+  let create_stack = CreatePullRequest {
+    subject: Subject::whole_stack("auth"),
+    ..create(true)
+  };
+  let planned = stack.with(|sources| {
+    create_planned(
+      &PullRequestFacts {
+        sources,
+        push: ActionPushView::default(),
+        rebased: true,
+        landed: false,
+      },
+      &create_stack,
+    )
+  });
+  let effects = planned.unwrap().plan.effects;
+  assert!(
+    matches!(&effects[..], [PlannedEffect::Push { branches, .. }, PlannedEffect::WaitForMirror { .. }] if branches == &["auth"]),
+    "{effects:?}"
+  );
+  let without = stack.with(|sources| {
+    create_planned(
+      &PullRequestFacts {
+        sources,
+        push: ActionPushView::default(),
+        rebased: false,
+        landed: false,
+      },
+      &create_stack,
+    )
+  });
+  assert_eq!(without.unwrap().plan.effects, [] as [PlannedEffect; 0], "nothing to push or wait for");
+}
+
 /// The creation of the pull request of a whole stack follows the one rule of a new pull request (`creation_blocker`) on
 /// the pull request of the stack: refused beside an open one and beside a merged one that landed the stack, before its
 /// push; a merged one that did not land it and a closed one let a new one repeat it
@@ -350,7 +441,19 @@ fn reviewed(up_to_date: bool, readiness: Option<Fact<SubjectReadiness>>) -> Sour
 
 fn requested(sources: &Sources, push: ActionPushView, reviewers: &[&str], push_first: bool) -> Option<Planned> {
   let reviewers: Vec<String> = reviewers.iter().map(|login| (*login).to_owned()).collect();
-  sources.with(|sources| review_planned(&PullRequestFacts { sources, push, landed: false }, &Subject::branch("auth"), &reviewers, push_first))
+  sources.with(|sources| {
+    review_planned(
+      &PullRequestFacts {
+        sources,
+        push,
+        rebased: false,
+        landed: false,
+      },
+      &Subject::branch("auth"),
+      &reviewers,
+      push_first,
+    )
+  })
 }
 
 fn ask(reviewers: &[&str]) -> PlannedEffect {
@@ -761,6 +864,7 @@ fn link_github_stack_joins_an_old_pull_request_and_has_nothing_to_link_in_line()
         &PullRequestFacts {
           sources,
           push: pushes(&[], None),
+          rebased: false,
           landed: false,
         },
         "auth",

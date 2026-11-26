@@ -1352,6 +1352,13 @@ export type BranchPush = {
 	action?: string[] | null,
 	/**  The push button pushes the stack, `action` and then the branch: the branch has work for the remote and asks nothing */
 	button?: boolean,
+	/**
+	 *  Push Rebased Branch, the push of the push button of a branch only rebuilt on a newer baseline since its push (its
+	 *  remote has it on an older one, `RemoteStatusUpdate::older_base`): the branches it is built on that have work or
+	 *  are on an older baseline too, root first, then the branch (`domain_policy::push::rebased_push`); absent for any
+	 *  other branch
+	 */
+	rebased?: string[] | null,
 	/**  Push with Children; absent for a branch nothing but parked branches is stacked on */
 	children?: ChildrenPush | null,
 	/**
@@ -7317,6 +7324,13 @@ export type Push = {
 	 *  the push of the toast of a remote that moved under a restart)
 	 */
 	restartRunning: boolean,
+	/**
+	 *  Push Rebased Branch (`brd push --rebased`, the push button of a branch only rebuilt on a newer baseline): a branch
+	 *  whose remote has it on an older baseline (`RemoteStatusUpdate::older_base`) goes too, with a lease and without a
+	 *  question, though its remote has it by content (`domain_policy::push::PushState::rebased`); without it such a branch
+	 *  is up to date. Absent in the records written before it
+	 */
+	rebased?: boolean,
 };
 
 /**
@@ -7972,6 +7986,13 @@ export type RemoteStatusUpdate = {
 	myUnpushedCount: number,
 	/**  The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites */
 	fastForward: boolean,
+	/**
+	 *  The remote has the branch by content, but on an older baseline: the branch was only rebuilt on the baseline tip
+	 *  since its push, as after Update Project (`older_base_of`). Its status stays up to date (the row is quiet), and only
+	 *  a push the user asks for (Push Rebased Branch, `brd push --rebased`) or the start of a Safe Push of it sends it.
+	 *  False for a fast-forward, a remote at the tip and the same base under other hashes (an unapply and reapply)
+	 */
+	olderBase?: boolean,
 	/**  Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed) */
 	lastPushTime: number,
 	/**

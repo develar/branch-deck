@@ -685,6 +685,7 @@ fn a_merge_closes_no_pull_request_of_a_branch_the_view_does_not_know() {
     RemoteFact {
       remote_tip: Some("va1".to_owned()),
       up_to_date: false,
+      older_base: false,
       known: true,
       drops: 0,
       others: 0,
@@ -783,6 +784,7 @@ fn the_session_knows_the_remote_branches_a_push_moved_without_a_sync() {
     Some(&RemoteFact {
       remote_tip: Some("pushed-tip".to_string()),
       up_to_date: true,
+      older_base: false,
       known: true,
       drops: 0,
       others: 0,

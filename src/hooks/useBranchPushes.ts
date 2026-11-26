@@ -14,8 +14,8 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
-import type { PushButtonRuns, PushButtonState, PushedBranch, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
-import { childrenPushEnabled, getPushButtonState, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
+import type { PushButtonRuns, PushButtonState, PushedBranch, PushRetarget, RebasedPush, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
+import { childrenPushEnabled, getPushButtonState, parentOf, pushBlockerOf, rebasedPushIn, retargetCandidates } from "@/presenters/push-button"
 import type { ChildrenPushOrder } from "@/stores/branch-sync"
 import { pushOperationIn, pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing, useOperationPushProgress } from "@/stores/branch-sync"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -52,6 +52,7 @@ export function usePushButton(branch: PushedBranch, isPushing: boolean): PushBut
   const unpushedParent = useUnpushedParent(branch.name)
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
+  const rebased = useRebasedPush(branch.name)
   // the two pushes of the actions alone: the actions of every branch change while its Safe Push waits for the landing
   // needs of a sync, its push not
   const blocker = useRowPart(branch.name, "actions", pushBlockerOf, sameJson)
@@ -68,12 +69,20 @@ export function usePushButton(branch: PushedBranch, isPushing: boolean): PushBut
       unpushedParent,
       unpushedChildren,
       landedIn,
+      rebased,
       retargets,
       runs,
       operations,
       named,
     })
-  }, [branch, isPushing, blocker, childrenEnabled, unpushedParent, unpushedChildren, landedIn, retargets, operations, named])
+  }, [branch, isPushing, blocker, childrenEnabled, unpushedParent, unpushedChildren, landedIn, rebased, retargets, operations, named])
+}
+
+/** Push Rebased Branch of `name` as Rust orders it (`rebasedPushIn`); null for a branch not on an older baseline */
+export function useRebasedPush(name: string): RebasedPush | null {
+  // a string, so the store notifies only when the push changes
+  const key = useBranchSync(state => JSON.stringify(rebasedPushIn(state, pushOrdersIn(state, name))))
+  return useMemo(() => JSON.parse(key) as RebasedPush | null, [key])
 }
 
 /** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */

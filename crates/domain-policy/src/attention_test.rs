@@ -16,6 +16,7 @@ const fn remote(tip: &str, up_to_date: bool) -> RemoteBranch<'_> {
   RemoteBranch {
     tip: Some(tip),
     up_to_date,
+    older_base: false,
     drops: 0,
     others: 0,
   }

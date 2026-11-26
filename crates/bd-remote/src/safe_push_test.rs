@@ -223,7 +223,8 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
 }
 
 /// Pushes auth (`brd push`), then moves the baseline on and the user's branch onto it, so the next sync rebuilds auth on
-/// it: the remote branch has its commits by content, under other hashes. Returns the pushed commit.
+/// it: the remote branch has its commits by content, under other hashes, on the older baseline. The start pushes it
+/// first (`push_needed`), so the robot tests the current baseline. Returns the pushed commit.
 fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment) -> String {
   let (exit_code, output) = run_json(environment, &["--prefix", PREFIX, "push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -232,7 +233,7 @@ fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment
 
   let (exit_code, output) = safe_push(environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["push_needed"], json!(false));
+  assert_eq!(output["push_needed"], json!(true), "{output}");
   assert_ne!(space.local_tip(AUTH), pushed, "the sync rebuilt auth on the newer baseline");
   pushed
 }
@@ -246,17 +247,23 @@ fn start_auth_after_a_failed_robot(space: &Space, pushed: &str) -> Value {
   output
 }
 
+/// A branch only rebuilt on a newer baseline since its push (Update Project) has its commits on the remote by content,
+/// on the older baseline. A robot on that remote branch runs on the same commits: a start would repeat it. Any other
+/// start pushes the branch first, leased and without --force, so the robot and the builds of its pull request test the
+/// current baseline; once pushed, a later start pushes nothing
 #[test_log::test]
-fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push() {
+fn a_branch_only_rebuilt_on_a_newer_baseline_is_pushed_before_its_start() {
   let space = Space::new(&["(auth) Add auth"]);
   let pushed = push_and_rebuild_on_a_newer_baseline(&space, &space.environment());
 
   // a robot on the remote branch runs on the same commits: a start would repeat it
   assert_refused_for_a_robot_on(&space, &pushed);
+  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 
   let output = start_auth_after_a_failed_robot(&space, &pushed);
-  assert_eq!((output["push_needed"].clone(), output.get("pushed")), (json!(false), None));
-  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
+  assert_eq!((output["push_needed"].clone(), output["pushed"][0]["name"].clone()), (json!(true), json!("auth")));
+  assert_eq!(output["pushed"][0]["state"], json!("forced"), "{output}");
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH), "the copies on the current baseline are on the remote");
   assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{AUTH}")));
 
   // a Safe Push of an older commit runs: the start replaces it, as the form does, once told to cancel it
@@ -270,10 +277,9 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   let (exit_code, output) = space.run(&["auth", "--cancel-running"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!((output["canceled"]["id"].clone(), output.get("pushed")), (json!("running"), None));
+  assert_eq!((output["canceled"]["id"].clone(), output.get("pushed")), (json!("running"), None), "pushed before");
   assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
   assert_eq!(output["robot"]["id"], json!("started"));
-  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 }
 
 /// `brd safe-push auth --dry-run` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
@@ -878,13 +884,19 @@ fn a_pull_request_that_already_exists_is_found_instead() {
   );
 }
 
+/// Create Pull Request of a branch only rebuilt on a newer baseline since its push pushes it first, so the builds of the
+/// new pull request test the current baseline
 #[test_log::test]
-fn the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push() {
+fn the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_after_its_push() {
   let (space, github, environment) = needs_review_on_github();
   let pushed = push_and_rebuild_on_a_newer_baseline(&space, &environment);
   let output = create_pull_request(&environment);
-  assert_eq!((output["pull_request"]["created"].clone(), output.get("pushed")), (json!(true), None));
-  assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
+  assert_eq!(
+    (output["pull_request"]["created"].clone(), output["pushed"][0]["name"].clone()),
+    (json!(true), json!("auth"))
+  );
+  assert_ne!(space.remote_tip(AUTH), pushed);
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH), "the copies on the current baseline are on the remote");
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
     json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})

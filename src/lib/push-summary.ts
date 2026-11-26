@@ -50,10 +50,15 @@ export interface PushNews {
 
 /**
  * What a push of `pushed` (`formatPushedBranch`) did, from the remote status it was made against (`null`: not loaded,
- * nothing to say but the push)
+ * nothing to say but the push); `target` the baseline on the remote ("master"), which a push of a branch only rebuilt on
+ * a newer baseline (Push Rebased Branch) moved the remote onto: "Force pushed branch docs" / "moved onto the current
+ * master"
  */
-export function describePush(pushed: string, before: RemoteStatus | null): PushNews {
+export function describePush(pushed: string, before: RemoteStatus | null, target = "baseline"): PushNews {
   const action = before?.action.kind
+  if (before !== null && action === "upToDate" && before.olderBase) {
+    return { title: `Force pushed ${pushed}`, description: `moved onto the current ${target}` }
+  }
   if (before === null || action === undefined || action === "upToDate") {
     return { title: `Pushed ${pushed}` }
   }
@@ -123,6 +128,11 @@ export function describeStackPush(pushes: readonly BranchPush[], withStackBranch
   const forced: string[] = []
   for (const { name, before } of pushes) {
     const action = before?.action.kind
+    if (before !== null && action === "upToDate" && before.olderBase) {
+      // Push Rebased Branch: the copies on the current baseline replace the remote commits
+      forced.push(name)
+      continue
+    }
     if (before === null || action === undefined || action === "upToDate") {
       continue
     }

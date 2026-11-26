@@ -1,5 +1,6 @@
 // The push button of a branch (its row, its preview, its review window) and the items that push it, in words: what the
-// push sends to the remote branch of the branch ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)"),
+// push sends to the remote branch of the branch ("Push Branch (2)", "Force Push Branch (1)", "Push Stack (3 branches)",
+// "Push Rebased Branch" of a branch only rebuilt on a newer baseline),
 // what it replaces and drops, the other pushes its description offers, and why it can't push. Rust decides whether it
 // can (the `push` and `push-with-children` actions of the row, `domain_policy::actions`), what each push sends
 // (`RepositoryView.pushes`, `domain_policy::push`) and what a press does (`prepare` of the intent `Push`,
@@ -9,8 +10,8 @@ import type { ActionBlocker, ActionState, DroppedCommit, FirstPush, PushShape, P
 import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import { formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
-import { cutList } from "@/lib/text"
+import { baselineOnRemote, formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
+import { cutList, joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { ACTION_LOOKS, findAction, formatActionBlocker } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
@@ -89,6 +90,14 @@ export interface DroppedCommits {
  */
 export type PushedBranch = Pick<Branch, "name" | "statusText" | "remoteStatus" | "stack">
 
+/** Push Rebased Branch as the button says it: what it sends, and the baseline on the remote its words name */
+export interface RebasedPush {
+  /** The branches it sends, root first, the branch last (`PushOrders.rebased`) */
+  readonly names: readonly string[]
+  /** "master" of "origin/master" */
+  readonly target: string
+}
+
 /** The nearest branch a stacked branch is built on that has work for the remote */
 export interface UnpushedParent {
   name: string
@@ -128,6 +137,11 @@ export interface PushButtonContext {
   unpushedChildren?: UnpushedChildren | null
   /** The baseline that has every commit of the branch ("origin/master"): the update archives it, nothing is left to push */
   landedIn?: string | null
+  /**
+   * Push Rebased Branch of a branch only rebuilt on a newer baseline since its push, as Rust orders it
+   * (`PushOrders.rebased`); null for any other branch
+   */
+  rebased?: RebasedPush | null
   /** The pull requests into a virtual branch the push retargets first: of the branch, or of each branch of its stack push */
   retargets?: readonly PushRetarget[]
   /** What the actions of the description run */
@@ -145,6 +159,11 @@ export interface PushButtonContext {
 export const PUSH_BRANCH = ACTION_LOOKS.push.label
 /** The push of the branch that replaces commits of its remote branch */
 export const FORCE_PUSH_BRANCH = "Force Push Branch"
+/**
+ * The push of a branch only rebuilt on a newer baseline since its push: the remote has its commits by content on the
+ * older one, which the builds of its pull request test; a force push with a lease that drops nothing
+ */
+export const PUSH_REBASED_BRANCH = "Push Rebased Branch"
 
 const NO_RUNS: PushButtonRuns = { alone: () => {}, stack: () => {}, children: () => {} }
 
@@ -180,6 +199,17 @@ function describeUnpushedParent(branchName: string, parent: UnpushedParent): str
   return parent.onRemote
     ? `${parent.name} has commits the remote lacks. ${alone} them either way, and the remote branch of ${parent.name} stays as it is.`
     : `${parent.name} isn't on the remote yet. ${alone} ${parent.name}'s commits either way.`
+}
+
+/**
+ * What Push Rebased Branch does: "The remote has these commits on an older master: the push replaces them with their
+ * copies on the current one. Nothing is dropped." of the branch alone, "Pushes auth and login, parents first: the remote
+ * has their commits on an older master." with the branches it is built on
+ */
+function describeRebasedPush({ names, target }: RebasedPush): string {
+  return names.length > 1
+    ? `Pushes ${joinNames(names)}, parents first: the remote has their commits on an older ${target}.`
+    : `The remote has these commits on an older ${target}: the push replaces them with their copies on the current one. Nothing is dropped.`
 }
 
 /** One line per branch a stack push sends, root first, in the words of a push (`formatStackPushLine`) */
@@ -225,6 +255,7 @@ export function getPushButtonState(
     unpushedParent = null,
     unpushedChildren = null,
     landedIn = null,
+    rebased = null,
     retargets = [],
     runs = NO_RUNS,
     operations = NO_OPERATIONS,
@@ -240,7 +271,7 @@ export function getPushButtonState(
   }
   const remoteStatus = branch.remoteStatus
   const parent = branch.stack?.effectiveBase ?? null
-  const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus, parent) : null
+  const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus, parent, rebased === null ? {} : { target: rebased.target }) : null
   const remoteAction = remoteStatus?.action ?? null
   const pushAction = remoteAction?.kind ?? null
 
@@ -279,6 +310,11 @@ export function getPushButtonState(
     // the update archives the branch: a push is still possible, but there is nothing of the user's left to send
     tooltip = landedBranchDescription(landedIn)
     color = "neutral"
+  } else if (pushAction === "upToDate" && remoteStatus?.olderBase === true && rebased !== null && rebased.names.length > 0) {
+    // the remote has the commits on an older baseline: the push moves them onto the current one, asking nothing
+    text = PUSH_REBASED_BRANCH
+    tooltip = describeRebasedPush(rebased)
+    color = "primary"
   } else if (pushAction !== "upToDate") {
     const stack = unpushedParent?.buttonStack ?? []
     if (unpushedParent !== null && stack.length > 1) {
@@ -410,6 +446,17 @@ export function unpushedParentIn(state: BranchSyncState, orders: PushOrders): Un
     stackSize: orders.stack.length,
     buttonStack: orders.button.flatMap(it => state.branches[it] ?? []),
   }
+}
+
+/**
+ * Push Rebased Branch of the branch of `orders` (`pushOrdersIn` of `state`, `PushOrders.rebased`), with the baseline of
+ * `state` on the remote; null for a branch whose remote is not on an older baseline
+ */
+export function rebasedPushIn(state: BranchSyncState, orders: PushOrders): RebasedPush | null {
+  if (orders.rebased.length === 0) {
+    return null
+  }
+  return { names: orders.rebased, target: state.baselineBranch === null ? "baseline" : baselineOnRemote(state.baselineBranch) }
 }
 
 /** The nearest ancestor of a Push Stack: the one before the branch */

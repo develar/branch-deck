@@ -369,7 +369,8 @@ fn landed_whole(landed: Option<&Landed>) -> Option<ActionBlocker> {
 }
 
 /// Why the push of the branch can't run: parked, blocked, failed to sync, no commits, held, rebuilt by a sync, up to
-/// date. A sync that only runs is no reason: the push waits for it
+/// date. A sync that only runs is no reason: the push waits for it. A branch whose remote has it on an older baseline
+/// is up to date by content, but its push goes (Push Rebased Branch, `push::rebased_push`)
 fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
   let row = &facts.row;
   if let Some(aside) = set_aside(row) {
@@ -388,7 +389,10 @@ fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
   if row.syncing {
     return Some(ActionBlocker::Syncing);
   }
-  facts.remote.is_some_and(|remote| remote.action == PushAction::UpToDate).then_some(ActionBlocker::UpToDate)
+  facts
+    .remote
+    .is_some_and(|remote| remote.action == PushAction::UpToDate && !remote.older_base)
+    .then_some(ActionBlocker::UpToDate)
 }
 
 /// Why the commits of the remote branch can't come into the branch: parked, blocked, held by a running Safe Push; a sync

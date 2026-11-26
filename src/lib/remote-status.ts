@@ -93,14 +93,41 @@ export interface RemoteStatusTextOptions {
    * versions it names there are not repeated below
    */
   forcePush?: boolean
+  /** The branch of the remote the baseline is ("master" of "origin/master"), which the words of an older baseline name */
+  target?: string
+}
+
+/**
+ * "The remote has these commits on an older master: Push Rebased Branch moves them onto the current one.": a branch only
+ * rebuilt on a newer baseline since its push (`RemoteStatus.olderBase`), `target` the baseline on the remote
+ */
+export function formatOlderBase(target: string): string {
+  return `The remote has these commits on an older ${target}: Push Rebased Branch moves them onto the current one.`
 }
 
 /**
  * The texts of a remote status. `parent`: the branch a stacked branch is built on (`effectiveBase`), which the remote
  * has older versions of commits of when the branch is restacked
  */
-export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null, { forcePush = false }: RemoteStatusTextOptions = {}): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, ancestorCommitsAhead, lastPushTime, fastForward, action } = remote
+export function buildRemoteStatusTexts(
+  remote: RemoteStatus,
+  parent: string | null = null,
+  { forcePush = false, target = "baseline" }: RemoteStatusTextOptions = {},
+): RemoteStatusTexts {
+  const {
+    exists,
+    commitsAhead,
+    commitsBehind,
+    commitsAmended,
+    commitsRestacked,
+    commitsLanded,
+    commitsReworded,
+    ancestorCommitsAhead,
+    lastPushTime,
+    fastForward,
+    olderBase,
+    action,
+  } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
   const withPushTime = (lines: readonly string[]): string => {
@@ -110,7 +137,8 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
 
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
   if (action.kind === "upToDate") {
-    return { text: "up to date", tooltip: withPushTime(fastForward ? [upToDateText] : [upToDateText, onlyRebasedText]) }
+    const rebuilt = olderBase ? formatOlderBase(target) : onlyRebasedText
+    return { text: "up to date", tooltip: withPushTime(fastForward ? [upToDateText] : [upToDateText, rebuilt]) }
   }
 
   // not pushed / first push
@@ -273,6 +301,7 @@ type RemoteStatusFields = Pick<
   | "ancestorCommitsAhead"
   | "myUnpushedCount"
   | "fastForward"
+  | "olderBase"
   | "lastPushTime"
   | "remoteTip"
   | "droppedCommits"
@@ -294,6 +323,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     ancestorCommitsAhead: update.ancestorCommitsAhead,
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
+    olderBase: update.olderBase === true,
     lastPushTime: update.lastPushTime ?? 0,
     remoteTip: update.remoteTip,
     droppedCommits: update.droppedCommits,

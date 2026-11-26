@@ -245,6 +245,7 @@ fn a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is() {
     RemoteFact {
       remote_tip: Some("pushed".to_string()),
       up_to_date: true,
+      older_base: false,
       known: true,
       drops: 0,
       others: 0,
@@ -456,6 +457,7 @@ fn remote_of(names: &[(&str, bool)]) -> RemoteFacts {
       RemoteFact {
         remote_tip: Some(format!("remote-{name}")),
         up_to_date: *up_to_date,
+        older_base: false,
         known: true,
         drops: 0,
         others: 0,

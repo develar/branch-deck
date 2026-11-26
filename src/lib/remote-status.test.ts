@@ -88,6 +88,14 @@ describe("buildRemoteStatusTexts", () => {
     expect(buildRemoteStatusTexts(testRemoteStatus({ lastPushTime: 1704139200 })).tooltip).toMatch(/^Everything is pushed\.\n\nPushed \S/)
   })
 
+  it("says that the remote has the commits of a branch only rebuilt on a newer baseline on an older one, which Push Rebased Branch moves", () => {
+    const rebuilt = testRemoteStatus({ fastForward: false, olderBase: true })
+    expect(buildRemoteStatusTexts(rebuilt, null, { target: "master" })).toEqual({
+      text: "up to date",
+      tooltip: "Everything is pushed.\nThe remote has these commits on an older master: Push Rebased Branch moves them onto the current one.",
+    })
+  })
+
   it("says that the push creates a branch not on the remote", () => {
     expect(buildRemoteStatusTexts(testRemoteStatus({ exists: false, commitsAhead: 2, myCommitsAhead: 2, action: CREATE }))).toEqual({
       text: "not pushed",

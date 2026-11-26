@@ -253,6 +253,9 @@ struct CoveredStep {
   /// Its push drops remote commits it lacks (`Verdict::AsksFirst`): `drops` of them
   asks: bool,
   drops: u32,
+  /// It goes only as a branch rebuilt on a newer baseline (`Push::rebased`): its remote has its commits by content, so
+  /// its pull request shows the same changes and is not retargeted
+  rebased_only: bool,
 }
 
 /// What a push of a stack covers by its scope (`covered`)
@@ -284,9 +287,11 @@ fn covered(rules: &PushRules<'_>, state: &TableState, facts: &FactStore, holds: 
     name: name.to_string(),
     asks: verdict == Verdict::AsksFirst,
     drops: rules.drops(name),
+    rebased_only: push.rebased && verdict == Verdict::Goes && domain_policy::push::verdict(&rules.state(name)) == Verdict::UpToDate,
   };
   let goes = |verdict: Verdict| matches!(verdict, Verdict::Goes | Verdict::AsksFirst);
-  let state_of = |branch: &str| rules.state(branch);
+  // Push Rebased Branch: the branches whose remote has them on an older baseline go too
+  let state_of = |branch: &str| if push.rebased { rules.rebased_state(branch) } else { rules.state(branch) };
   match &push.scope {
     PushScope::WithAncestors => {
       let plan = push_plan(&rules.repo, state_of, name, PlanScope::WithAncestors);
@@ -364,7 +369,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
   let sends: &[CoveredStep] = if goes { &covered.sends } else { &[] };
   let mut effects = Vec::new();
   let mut retargeted = Vec::new();
-  for sent in sends {
+  for sent in sends.iter().filter(|sent| !sent.rebased_only) {
     if let Some(pull_request) = virtual_pull_request(sources, &sent.name) {
       effects.push(PlannedEffect::Retarget {
         branch: sent.name.clone(),
@@ -456,7 +461,11 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
   };
   let status = state.stack(root).and_then(|stack| stack.remote.as_ref());
   let action = status.map_or(PushAction::Create, |status| status.action);
-  let verdict = verdict(&PushState { action: Some(action), kept: None });
+  let verdict = verdict(&PushState {
+    action: Some(action),
+    kept: None,
+    rebased: false,
+  });
   let source_ref = format!("refs/heads/{}", stack.branch_name);
   if !matches!(verdict, Verdict::Goes | Verdict::AsksFirst) {
     return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), source_ref));
@@ -643,11 +652,13 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
   };
   // one canceling already (the cancel of a restart whose push the remote refused) is canceled once
   let running = robot.filter(|robot| robot.status == PatronusRobotStatus::Running);
-  let alone = alone_push_of(state, facts, holds, name, running.map(|robot| robot.id.as_str()))?;
+  let alone = alone_push_of(state, facts, holds, name, running.map(|robot| robot.id.as_str()), push.rebased)?;
   let goes = matches!(alone.verdict, Verdict::Goes | Verdict::AsksFirst);
+  // a branch only rebuilt on a newer baseline (Push Rebased Branch): its pull request shows the same changes
+  let rebased_only = push.rebased && sources.remote.branches.get(name).is_some_and(|remote| remote.up_to_date);
   let mut effects = Vec::new();
   // its pull request goes into the target first, where every pull request of a virtual branch goes (D3a)
-  let retarget = virtual_pull_request(sources, name).filter(|_| goes);
+  let retarget = virtual_pull_request(sources, name).filter(|_| goes && !rebased_only);
   if let Some(pull_request) = retarget {
     effects.push(PlannedEffect::Retarget {
       branch: name.to_string(),
@@ -697,7 +708,11 @@ fn unapplied_planned(state: &TableState, name: &str, push: &Push, expect: Expect
   let branch = state.sections().unapplied.iter().find(|branch| branch.branch == name)?;
   // no remote status: the remote has no such branch, the push creates it
   let action = branch.remote.as_ref().map_or(PushAction::Create, |status| status.action);
-  let verdict = verdict(&PushState { action: Some(action), kept: None });
+  let verdict = verdict(&PushState {
+    action: Some(action),
+    kept: None,
+    rebased: false,
+  });
   let goes = matches!(verdict, Verdict::Goes | Verdict::AsksFirst);
   let pushed = goes
     .then(|| PushedRef {

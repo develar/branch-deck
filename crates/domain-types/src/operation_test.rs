@@ -26,7 +26,9 @@ fn an_intent_serializes_as_its_kind_with_the_fields_of_its_family() {
     expect_remote: None,
     force: false,
     restart_running: true,
+    rebased: false,
   });
+  // a push that is no Push Rebased Branch writes no `rebased`, as the records written before it, which read the same
   assert_eq!(
     serde_json::to_value(&push).unwrap(),
     json!({
@@ -38,6 +40,7 @@ fn an_intent_serializes_as_its_kind_with_the_fields_of_its_family() {
       "restartRunning": true,
     })
   );
+  assert_eq!(serde_json::from_value::<Intent>(serde_json::to_value(&push).unwrap()).unwrap(), push);
   assert_eq!(
     serde_json::to_value(Intent::RestartRobot { robot_id: "r1".to_string() }).unwrap(),
     json!({ "kind": "restartRobot", "robotId": "r1" })

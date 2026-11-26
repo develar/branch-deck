@@ -420,6 +420,7 @@ fn a_push() {
     dry_run: true,
     restart_running: false,
     unapplied: false,
+    rebased: false,
     allow_generated_merged_by_words: false,
   };
   push(&context, &args, &environment(repo.path())).unwrap();
@@ -521,6 +522,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
     dry_run: true,
     restart_running: false,
     unapplied: false,
+    rebased: false,
     allow_generated_merged_by_words: false,
   };
   push(&context, &args, &environment).unwrap();

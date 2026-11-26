@@ -5209,6 +5209,16 @@ restarted) names the event of the pushes of the branch (`NewsKey::Push`), whose 
 `operations/src/push_test.rs` (`a_push_of_a_branch_alone_is_planned_and_run_by_the_engine` and the next three) and the
 test server's `remote_git_fixtures_test.rs`, `github_host_test.rs` and `remote_fixtures_test.rs` pin it.
 
+Push Rebased Branch is the same intent with `Push::rebased` (the push button, the menu and P of a branch only rebuilt on
+a newer baseline since its push, `BranchPush::rebased`; `brd push --rebased`): a branch whose remote has it by content
+on an older baseline (`RemoteStatusUpdate::older_base`, [Remote Status](remote-status.md), Decision 11) goes though it is
+up to date (`PushState::rebased`, `PushFacts::rebased_state`), alone or with the branches it is built on that are too,
+root first, each leased, asking nothing, its pull request not retargeted (`CoveredStep::rebased_only`). The start of a
+Safe Push or a Dry Run pushes such a subject first (`domain_policy::push::start_push`, the stack branch of a whole stack
+in `land::stack_part`), never a branch it is built on and never while a running Safe Push holds it; so do the restart of
+a robot that restarts anyway (`holds::restart_action`) and Create Pull Request… (`derive::action_push_of` with
+`rebased`), not Request Review…. No process more: the fact comes from the walk the status runs anyway.
+
 The pushes of a stack in the app are the same intent, the order and the verdict of each branch
 `domain_policy::push::push_plan` over the same holds ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md)):
 `WithAncestors` is the push button that pushes the stack and the push an action needs (the ancestors with work above
@@ -5356,8 +5366,8 @@ on Space when `branchdeck.githubRepository` names none, the sync's one `cat-file
    along too, `--alone` the way out), a named parked branch (`parked`). A branch merged Safe Pushes landed whole and,
    with `--all` or `--with-children`, a parked one are left out (`skipped`), the push refused as `landed` or `parked`
    only when nothing else is left; an ancestor taken along that is held, landed or on the remote as it is stays as it
-   is. A branch the remote has as it is (a branch only rebuilt on a newer baseline too) is listed `up_to_date`, nothing
-   of it pushed. The stack branch of a named root goes with `--with-children` once it is on the remote or the pull
+   is. A branch the remote has as it is (a branch only rebuilt on a newer baseline too, then with `older_base: true`) is
+   listed `up_to_date`, nothing of it pushed; `--rebased` pushes such a branch, as Push Rebased Branch does. The stack branch of a named root goes with `--with-children` once it is on the remote or the pull
    request of the whole stack is open, only when the sync built it and the remote lacks it, and only to `origin`, which
    its remote status compares with ("Stack branch"); one that drops remote commits only with `--force`, as its push
    alone; one left out is a `stack_warnings` line.

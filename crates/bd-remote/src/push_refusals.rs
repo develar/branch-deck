@@ -129,6 +129,7 @@ pub(crate) fn decide(run: &PushRun<'_>, session: &OneShot, intents: &[Push]) -> 
           expect_remote: None,
           force: true,
           restart_running: false,
+          rebased: false,
         };
         plans.push(plan(&whole_stack)?);
         goes = true;
@@ -189,7 +190,7 @@ fn steps_of(session: &OneShot, holds: Holds<'_>, push: &Push, planned: &Planned)
         .branch_robot(name)
         .filter(|robot| push.restart_running && robot.status == PatronusRobotStatus::Running)
         .map(|robot| robot.id.as_str());
-      let alone = alone_push_of(state, facts, holds, name, replaces);
+      let alone = alone_push_of(state, facts, holds, name, replaces, push.rebased);
       (alone.map(|alone| step(alone.verdict, alone.blocker)).into_iter().collect(), None)
     }
     PushScope::WithAncestors | PushScope::WithChildren => with_push_states(state, facts, holds, |rules| {
@@ -198,7 +199,9 @@ fn steps_of(session: &OneShot, holds: Holds<'_>, push: &Push, planned: &Planned)
       } else {
         (PlanScope::WithChildren, Role::Child)
       };
-      let steps = push_plan(&rules.repo, |branch| rules.state(branch), name, scope)
+      // `--rebased`: the branches on an older baseline go too, as the plan of the push sends them
+      let state = |branch: &str| if push.rebased { rules.rebased_state(branch) } else { rules.state(branch) };
+      let steps = push_plan(&rules.repo, state, name, scope)
         .steps
         .iter()
         .map(|&(branch, verdict)| Step {

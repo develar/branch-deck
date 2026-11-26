@@ -228,8 +228,31 @@ fn the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_i
     ..row("auth")
   };
   let own = held(HoldKind::Own);
+  // only rebuilt on a newer baseline: up to date by content, but Push Rebased Branch goes
+  let older_base = RemoteStatusUpdate {
+    older_base: true,
+    fast_forward: false,
+    ..up_to_date.clone()
+  };
   let cases: Vec<(&str, BranchFacts<'_>, Option<ActionBlocker>)> = vec![
     ("up to date", base(), Some(ActionBlocker::UpToDate)),
+    (
+      "up to date on an older baseline",
+      BranchFacts {
+        remote: Some(&older_base),
+        ..base()
+      },
+      None,
+    ),
+    (
+      "held on an older baseline",
+      BranchFacts {
+        remote: Some(&older_base),
+        hold: Some(&own),
+        ..base()
+      },
+      Some(ActionBlocker::Rule { reason: own.clone() }),
+    ),
     (
       "the sync rebuilds it",
       BranchFacts {

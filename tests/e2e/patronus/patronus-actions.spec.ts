@@ -981,6 +981,24 @@ test.describe("Patronus actions", () => {
     expect(await remoteTipOfJira(repo)).toBe(earlier)
   })
 
+  test("should push a branch rebuilt on a newer baseline before its Safe Push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const { "JIRA-456": pushed } = await pushedBefore(page, repo, ["JIRA-456"])
+    // someone landed a change into master; Update Project rebuilds JIRA-456 onto it: the remote has its commits by
+    // content, on the older master, which the builds of its pull request would test
+    await landIntoMaster(repo)
+    await runAndWaitForUpdate(page, () => page.getByTestId("update-project-button").click())
+    expect(await repo.revision(virtualBranch("JIRA-456"))).not.toEqual(pushed)
+    await expectNothingToPush(findBranchRow(page, "JIRA-456"))
+    expect(await remotePushes(repo)).toEqual([])
+
+    // the start pushes the rebuilt branch first, so the robot tests the current master, then starts it
+    await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "JIRA-456").click())
+    await expectJiraStarted(page, repo)
+    expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
+    await expectPushedToRemote(repo, ["JIRA-456"])
+  })
+
   test('should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible', async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupStarts(page, setupRepo, syncAndWaitForBranches, RUNNING)
 

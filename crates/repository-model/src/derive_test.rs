@@ -261,6 +261,56 @@ fn the_view_orders_the_pushes_of_each_branch() {
   );
 }
 
+/// Push Rebased Branch in the view: a branch only rebuilt on a newer baseline since its push has its rebased push, the
+/// branches it is built on that are too first (`BranchPush::rebased`), while its button, Push Stack and the push of an
+/// action stay as they are and name no blocker; the push of Create Pull Request… (`action_push_of` with `rebased`) sends
+/// them too. A branch with work of its own pushes as before, without them
+#[test]
+fn the_view_sends_the_rebased_push_of_a_branch_only_rebuilt_on_a_newer_baseline() {
+  use crate::derive::{ActionPushView, action_push_of};
+
+  let mut table = TableState::with_prefix("user");
+  table.begin_sync();
+  table.apply(grouping(tree(), &[], &[]));
+  for branch in ["auth", "login"] {
+    let rebuilt = RemoteStatusUpdate {
+      fast_forward: false,
+      older_base: true,
+      ..remote_status(branch, &[])
+    };
+    table.apply(SyncEvent::RemoteStatusUpdate(rebuilt));
+  }
+  for (branch, unpushed) in [("oauth", &["o"][..]), ("session", &[]), ("docs", &[])] {
+    table.apply(SyncEvent::RemoteStatusUpdate(remote_status(branch, unpushed)));
+  }
+  table.finish_sync(Ok(()));
+  let pushes = View::new(1).diff(&table, &FactStore::new()).unwrap().changes.pushes;
+  let rebased = |name: &str| pushes.get(name).and_then(|push| push.rebased.clone());
+  assert_eq!(
+    (rebased("auth"), rebased("login")),
+    (Some(names(&["auth"])), Some(names(&["auth", "login"]))),
+    "parents first"
+  );
+  assert_eq!((rebased("session"), rebased("oauth")), (None, None), "on the current baseline, or with work of its own");
+  let login = &pushes["login"];
+  assert_eq!((login.button, login.action_blocker.clone()), (false, None));
+  assert_eq!(
+    pushes["oauth"],
+    BranchPush {
+      button: false,
+      stack: Some(Vec::new()),
+      ..pushes["oauth"].clone()
+    },
+    "its push leaves the rebuilt branches it is built on"
+  );
+
+  let facts = FactStore::new();
+  assert_eq!(action_push_of(&table, &facts, "login", true).branches, names(&["auth", "login"]));
+  assert_eq!(action_push_of(&table, &facts, "login", false), ActionPushView::default(), "a review request");
+  assert_eq!(action_push_of(&table, &facts, "oauth", true).branches, names(&["auth", "login", "oauth"]));
+  assert_eq!(action_push_of(&table, &facts, "oauth", false).branches, names(&["oauth"]));
+}
+
 /// Push Up to Here of the commits a branch has for the remote is sent only where it differs from the common answer
 /// (every commit the remote lacks, after the branches of Push Stack, nothing stopping it): a branch whose remote has an
 /// older version of it pushes whole, and one stacked on an ancestor whose push drops remote commits stops at it
@@ -408,6 +458,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
   let unpushed = RemoteFact {
     remote_tip: None,
     up_to_date: false,
+    older_base: false,
     known: true,
     drops: 0,
     others: 0,
@@ -1020,6 +1071,7 @@ fn the_view_offers_the_actions_of_the_kept_branches_with_their_operations() {
       expect_remote: None,
       force: false,
       restart_running: false,
+      rebased: false,
     }),
     resources: vec![Resource::Ref {
       name: "user/unapplied/docs".to_string(),
@@ -1792,7 +1844,7 @@ fn the_push_of_an_action_is_refused_by_its_chain_as_the_table_is() {
     answer_patronus(&mut facts, 3, view, &table);
     let pushes = View::new(1).diff(&state, &facts).unwrap().changes.pushes;
     let blocker = pushes.get("oauth").and_then(|push| push.action_blocker.clone());
-    assert_eq!(blocker, action_push_of(&state, &facts, "oauth").blocker, "the view sends what an action plans by");
+    assert_eq!(blocker, action_push_of(&state, &facts, "oauth", false).blocker, "the view sends what an action plans by");
     blocker
   };
   let not_built = Some(Reason::CantPush {
@@ -1872,9 +1924,9 @@ fn a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed() {
   let unpushed: [(&str, &[&str]); 2] = [("grown", &["copy-grown-2"]), ("notes", &["copy-notes-1"])];
   let (state, facts) = merged_robot_session_with(&[("grown", None), ("notes", None)], &[("grown", "rebuilt"), ("notes", "rebuilt")], view, &unpushed);
   with_session_holds(&facts, |holds| {
-    let grown = alone_push_of(&state, &facts, holds, "grown", None).unwrap();
+    let grown = alone_push_of(&state, &facts, holds, "grown", None, false).unwrap();
     assert_eq!((grown.verdict, grown.blocker), (Verdict::Goes, None), "a commit since the view");
-    let notes = alone_push_of(&state, &facts, holds, "notes", None).unwrap();
+    let notes = alone_push_of(&state, &facts, holds, "notes", None, false).unwrap();
     assert_eq!(notes.verdict, Verdict::Landed);
     assert!(matches!(notes.blocker, Some(Reason::Held { .. })), "{:?}", notes.blocker);
     // why a push keeps it out as landed (the fetched baseline has it whole, say): no hold of that view names it
@@ -1882,8 +1934,8 @@ fn a_push_reads_no_hold_of_what_a_view_of_another_table_says_landed() {
     assert_eq!(refusal("grown"), None);
     assert!(matches!(refusal("notes"), Some(Reason::Held { .. })));
   });
-  assert_eq!(action_push_of(&state, &facts, "grown").branches, names(&["grown"]));
-  assert_eq!(action_push_of(&state, &facts, "notes").branches, Vec::<String>::new());
+  assert_eq!(action_push_of(&state, &facts, "grown", false).branches, names(&["grown"]));
+  assert_eq!(action_push_of(&state, &facts, "notes", false).branches, Vec::<String>::new());
   let steps = merged_robot_steps_of(&state, &facts);
   assert_eq!(steps["grown"].hold, None);
   assert_eq!(steps["notes"].hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Landed));
@@ -2150,7 +2202,7 @@ fn a_robot_started_since_the_view_holds_its_branch_and_the_stack_branch_before_a
   use domain_policy::push::Verdict;
 
   let (state, mut facts) = air_stack_session(PatronusView::default(), Vec::new(), &[], false);
-  let verdict = |facts: &FactStore| with_session_holds(facts, |holds| alone_push_of(&state, facts, holds, "air-side", None).map(|push| push.verdict));
+  let verdict = |facts: &FactStore| with_session_holds(facts, |holds| alone_push_of(&state, facts, holds, "air-side", None, false).map(|push| push.verdict));
   let _ = published(&state, &mut facts);
   assert_eq!(verdict(&facts), Some(Verdict::UpToDate), "nothing runs");
   assert_eq!(air_stack_branch_along(&state, &facts).1, Some(StackBranchAlong::Along));

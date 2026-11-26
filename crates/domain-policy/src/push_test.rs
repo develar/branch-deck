@@ -1,7 +1,8 @@
 use crate::facts::RemoteBranch;
+use crate::land_test::{ON_REMOTE, UNPUSHED};
 use crate::push::{
-  ActionPush, HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, UpToPush, UpToStop, Verdict, action_push, branch_push, kept as kept_by, push_plan,
-  stack_branch_along, start_push, up_to_push,
+  ActionPush, HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, UpToPush, UpToStop, Verdict, action_push, branch_push, kept as kept_by, push_plan, rebased_push,
+  stack_branch_along, start_push, up_to_push, verdict,
 };
 use crate::stack_test::{Spec, repository, stacks_of};
 use domain_types::fixtures::{RemoteCounts, remote_status_with, robot_of};
@@ -26,7 +27,11 @@ const fn on(name: &'static str, parent: Option<&'static str>) -> Spec {
 const STACK: [Spec; 4] = [on("oauth", Some("login")), on("session", Some("auth")), on("login", Some("auth")), on("auth", None)];
 
 const fn with(action: PushAction) -> PushState {
-  PushState { action: Some(action), kept: None }
+  PushState {
+    action: Some(action),
+    kept: None,
+    rebased: false,
+  }
 }
 
 const fn kept(kept: Kept) -> PushState {
@@ -89,18 +94,6 @@ fn a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_bu
   assert_eq!(kept_by(false, false, None, None, false), None);
 }
 
-const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
-  tip: None,
-  up_to_date: false,
-  drops: 0,
-  others: 0,
-};
-const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
-  tip: Some("tip"),
-  up_to_date: true,
-  ..UNPUSHED
-};
-
 const fn ancestor(name: &'static str, kept: Option<Kept>, remote: Option<RemoteBranch<'static>>) -> StartAncestor<'static> {
   StartAncestor { name, kept, remote }
 }
@@ -115,6 +108,7 @@ fn a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_l
   let pushed = start_push(
     "oauth",
     Some(UNPUSHED),
+    false,
     [
       ancestor("login", Some(Kept::Landed), Some(behind)),
       ancestor("auth", None, Some(behind)),
@@ -131,6 +125,7 @@ fn a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_l
   let pushed = start_push(
     "oauth",
     Some(ON_REMOTE),
+    false,
     [
       ancestor("login", None, Some(UNPUSHED)),
       ancestor("auth", Some(Kept::Held), None),
@@ -144,12 +139,76 @@ fn a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_l
       unknown: false
     }
   );
-  assert!(start_push("oauth", Some(ON_REMOTE), [ancestor("login", None, None)]).unknown);
-  assert!(start_push("oauth", None, []).unknown);
+  assert!(start_push("oauth", Some(ON_REMOTE), false, [ancestor("login", None, None)]).unknown);
+  assert!(start_push("oauth", None, false, []).unknown);
   assert_eq!(
-    start_push("oauth", Some(ON_REMOTE), [ancestor("login", Some(Kept::NotBuilt), None)]).branches,
+    start_push("oauth", Some(ON_REMOTE), false, [ancestor("login", Some(Kept::NotBuilt), None)]).branches,
     Vec::<&str>::new()
   );
+}
+
+/// A start pushes a branch whose remote has it on an older baseline, so its robot tests the current one: only the
+/// subject itself (an ancestor only on an older baseline stays as it is), and never while a running Safe Push holds the
+/// branch or a branch it is built on: the start goes without that push
+#[test]
+fn a_start_pushes_its_branch_rebuilt_on_a_newer_baseline_unless_held() {
+  let older = RemoteBranch { older_base: true, ..ON_REMOTE };
+  assert_eq!(start_push("oauth", Some(older), false, []).branches, vec!["oauth"]);
+  assert_eq!(
+    start_push("oauth", Some(older), false, [ancestor("login", None, Some(older)), ancestor("auth", None, Some(UNPUSHED))]).branches,
+    vec!["auth", "oauth"],
+    "the ancestor only on an older baseline stays"
+  );
+  assert_eq!(start_push("oauth", Some(older), true, []).branches, Vec::<&str>::new(), "held itself");
+  assert_eq!(
+    start_push("oauth", Some(older), false, [ancestor("login", Some(Kept::Held), None)]).branches,
+    Vec::<&str>::new(),
+    "a held ancestor"
+  );
+  assert_eq!(start_push("oauth", Some(ON_REMOTE), false, []).branches, Vec::<&str>::new(), "on the current baseline");
+}
+
+/// Push Rebased Branch: a branch only rebuilt on a newer baseline since its push goes only with the user's consent
+/// (`PushState::rebased`), with the ancestors that have work or are on an older baseline too, root first. Without it
+/// the branch is up to date: its row, Push Stack and the push button stay as they are
+#[test]
+fn a_rebased_push_sends_the_branch_and_its_rebuilt_ancestors_root_first_only_with_consent() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let rebuilt = PushState { rebased: true, ..UP_TO_DATE };
+  assert_eq!(verdict(&UP_TO_DATE), Verdict::UpToDate);
+  assert_eq!(verdict(&rebuilt), Verdict::Goes);
+  assert_eq!(
+    verdict(&PushState {
+      rebased: true,
+      ..kept(Kept::Held)
+    }),
+    Verdict::Held,
+    "a hold keeps it out"
+  );
+
+  // the view: nothing of the rebuilt branches is pushed
+  let view = states(&[]);
+  let consented = [("auth", rebuilt), ("oauth", rebuilt)];
+  let consent = states(&consented);
+  assert_eq!(push_plan(&repo, &view, "oauth", PushScope::WithAncestors).order(false), Vec::<&str>::new());
+  assert_eq!(branch_push(&repo, &view, None, "oauth").button, false);
+  assert_eq!(rebased_push(&repo, &view, &consent, "oauth"), Some(vec!["auth", "oauth"]), "parents first");
+  // a branch on the current baseline, or one with work of its own, has no rebased push
+  assert_eq!(rebased_push(&repo, &view, &consent, "login"), None);
+  let own_work = [("oauth", PUSH)];
+  let with_work = states(&own_work);
+  assert_eq!(rebased_push(&repo, &with_work, &consent, "oauth"), None);
+  // a held branch stays out
+  let held_entries = [(
+    "oauth",
+    PushState {
+      rebased: true,
+      ..kept(Kept::Held)
+    },
+  )];
+  let held = states(&held_entries);
+  assert_eq!(rebased_push(&repo, &held, &held, "oauth"), None);
 }
 
 /// Push with Children covers the branch and every branch stacked on it by declared parent, each after its parent
@@ -237,7 +296,11 @@ fn the_push_of_an_action_is_stopped_by_the_nearest_branch_of_its_chain_not_built
     Some(("auth", Verdict::NotBuilt))
   );
   assert_eq!(stop(&[("auth", kept(Kept::NotBuilt)), ("login", kept(Kept::Held)), ("oauth", PUSH)]), None);
-  let unknown = PushState { action: None, kept: None };
+  let unknown = PushState {
+    action: None,
+    kept: None,
+    rebased: false,
+  };
   assert_eq!(stop(&[("auth", unknown), ("login", UP_TO_DATE), ("oauth", PUSH)]), None);
 }
 

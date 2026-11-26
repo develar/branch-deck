@@ -244,6 +244,10 @@ fn retarget_outcome(op: OperationId, effects: Vec<EffectRecord>, version: Option
 pub struct PullRequestFacts<'s, 'a> {
   pub sources: &'s LandSources<'a>,
   pub push: ActionPushView,
+  /// The push sends a subject whose remote has it on an older baseline too (`RemoteStatusUpdate::older_base`), so the
+  /// builds of the pull request test the current one: Create Pull Request… (`push` is decided so,
+  /// `derive::action_push_of`); a review request leaves it, its reviewers see the same changes
+  pub rebased: bool,
   /// All of the subject landed, as its next step says it (`repository_model::state::landed_now`): a merged pull request
   /// of it refuses a new one
   pub landed: bool,
@@ -341,7 +345,9 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
       });
       let mut effects = Vec::new();
       let mut pushes = Vec::new();
-      if stack_pushes(remote) {
+      // a stack branch only rebuilt on a newer baseline goes with the creation of its pull request, while nothing holds it
+      let rebased = facts.rebased && blocker.is_none() && remote.is_some_and(|remote| remote.older_base);
+      if stack_pushes(remote) || rebased {
         lease(&stack.branch_name, stack.tip.clone(), remote.and_then(|remote| remote.remote_tip.clone()));
         pushes.push(PushedRef::stack_branch(stack, PushLease::Frozen));
         effects.push(PlannedEffect::Push {
@@ -553,7 +559,12 @@ pub async fn prepare_planned(sessions: &Sessions, key: &SessionKey, intent: &Int
         if sources.target.is_empty() {
           return None;
         }
-        planned_of(sources, |name| action_push_of(state, facts, name), |key| landed_now(state, facts, key), &intent)
+        planned_of(
+          sources,
+          |name, rebased| action_push_of(state, facts, name, rebased),
+          |key| landed_now(state, facts, key),
+          &intent,
+        )
       })
       .flatten()
     })
@@ -561,9 +572,10 @@ pub async fn prepare_planned(sessions: &Sessions, key: &SessionKey, intent: &Int
     .flatten()
 }
 
-/// The plan of `intent` over `sources`, `push` the push the branch of its subject needs first, `landed` whether all of
-/// a subject landed by its key, as its next step says it; `None` for another intent
-pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPushView, landed: impl FnOnce(&str) -> bool, intent: &Intent) -> Option<Planned> {
+/// The plan of `intent` over `sources`, `push` the push the branch of its subject needs first (with the branches on an
+/// older baseline for Create Pull Request…, its second argument), `landed` whether all of a subject landed by its key, as
+/// its next step says it; `None` for another intent
+pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str, bool) -> ActionPushView, landed: impl FnOnce(&str) -> bool, intent: &Intent) -> Option<Planned> {
   let link;
   let subject = match intent {
     Intent::CreatePullRequest(create) => &create.subject,
@@ -574,12 +586,15 @@ pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPu
     }
     _ => return None,
   };
+  // the builds of a new pull request test the current baseline: a subject only rebuilt on it is pushed first
+  let rebased = matches!(intent, Intent::CreatePullRequest(_));
   let facts = PullRequestFacts {
     sources,
     push: match subject {
-      Subject::Branch { name } => push(name),
+      Subject::Branch { name } => push(name, rebased),
       Subject::WholeStack { .. } => ActionPushView::default(),
     },
+    rebased,
     landed: landed(&subject.key()),
   };
   match intent {
@@ -634,7 +649,7 @@ pub fn one_shot_planned(session: &OneShot, host: &LandHost<'_>, intent: &Intent)
   with_one_shot_sources(session, host, |sources| {
     planned_of(
       sources,
-      |name| action_push_of(session.state(), session.facts(), name),
+      |name, rebased| action_push_of(session.state(), session.facts(), name, rebased),
       |key| landed_now(session.state(), session.facts(), key),
       intent,
     )

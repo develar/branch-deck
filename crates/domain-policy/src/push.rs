@@ -13,7 +13,12 @@
 //!   adapters say each verdict (the page leaves a branch out and its row says why, `bd` refuses where the user must act)
 //! - `start_push`: what a Safe Push or a Dry Run start of a branch pushes, the `Push` effect of `land::decide` that the
 //!   app's start and `brd safe-push` send: Push Stack of it over the holds of every robot but the one the start
-//!   replaces, the ancestors that ask first included (a push that drops remote commits refuses the start unless allowed)
+//!   replaces, the ancestors that ask first included (a push that drops remote commits refuses the start unless allowed);
+//!   the branch itself also when its remote has it on an older baseline (`RemoteBranch::older_base`), unless a running
+//!   Safe Push holds it or a branch it is built on
+//! - `rebased_push`: Push Rebased Branch, the push of a branch only rebuilt on a newer baseline since its push, which the
+//!   user asks for (its push button, `P`, `brd push --rebased`): the branches it is built on that have work or are on an
+//!   older baseline too, root first, then the branch (`PushState::rebased`)
 //! - `branch_push`: the pushes of a branch the view sends (`BranchPush`): Push Stack, the push of the push button and
 //!   of an action (it starts above the nearest branch that asks first), and Push with Children with the stack branch of
 //!   the whole stack of a root (`stack_branch_along`: once it is on the remote or its pull request is open, built, not
@@ -41,6 +46,10 @@ pub struct PushState {
   pub action: Option<PushAction>,
   /// What keeps it out of a push whatever its remote has
   pub kept: Option<Kept>,
+  /// The push sends it although its remote has it by content: the remote has it on an older baseline
+  /// (`RemoteStatusUpdate::older_base`) and the user asked for the push of a rebuilt branch (Push Rebased Branch). The
+  /// view's state never has it: the rows, Push Stack and Push with Children stay as they are
+  pub rebased: bool,
 }
 
 /// What keeps a branch out of a push whatever its remote has; the first that applies counts
@@ -163,13 +172,15 @@ const fn kept_verdict(kept: Kept) -> Verdict {
   }
 }
 
-/// What a branch does in a push, by its state
+/// What a branch does in a push, by its state: one up to date goes only as a rebuilt branch the user asked to push
+/// (`PushState::rebased`)
 #[must_use]
 pub const fn verdict(state: &PushState) -> Verdict {
   if let Some(kept) = state.kept {
     return kept_verdict(kept);
   }
   match state.action {
+    Some(PushAction::UpToDate) if state.rebased => Verdict::Goes,
     None | Some(PushAction::UpToDate) => Verdict::UpToDate,
     Some(PushAction::Force { drops: true, .. }) => Verdict::AsksFirst,
     Some(_) => Verdict::Goes,
@@ -214,19 +225,29 @@ pub struct StartPush<'a> {
 /// safe-push` send (and whether it pushes, `BranchStart::pushes`): Push Stack of it (`PushPlan::with_ancestors`) over
 /// `ancestors`, the nearest first, the branches that go or ask first (the push of one that drops remote commits refuses
 /// the start unless the user allowed it, D12), root first; the branch itself by its remote branch `own` alone: its own
-/// hold and its landing refuse the start, they don't keep it out of the push
+/// hold and its landing refuse the start, they don't keep it out of the push. A branch whose remote has it on an older
+/// baseline (`RemoteBranch::older_base`) goes too, so its robot and the builds of its pull request test it on the
+/// current one, but only the subject itself (an ancestor's push would touch the approvals of another pull request) and
+/// only while no running Safe Push holds it (`own_held`, one the start does not replace) or a branch it is built on:
+/// such a push would fail that robot, and the start goes without it as it did
 #[must_use]
-pub fn start_push<'a>(name: &'a str, own: Option<RemoteBranch<'a>>, ancestors: impl IntoIterator<Item = StartAncestor<'a>>) -> StartPush<'a> {
+pub fn start_push<'a>(name: &'a str, own: Option<RemoteBranch<'a>>, own_held: bool, ancestors: impl IntoIterator<Item = StartAncestor<'a>>) -> StartPush<'a> {
   let mut unknown = own.is_none();
+  let mut held = own_held;
   let mut covered = Vec::new();
   for ancestor in ancestors {
     unknown |= ancestor.kept.is_none() && ancestor.remote.is_none();
     covered.push((ancestor.name, remote_verdict(ancestor.kept, ancestor.remote)));
     if ancestor.kept == Some(Kept::Held) {
+      held = true;
       break;
     }
   }
-  let plan = PushPlan::with_ancestors(covered, (name, remote_verdict(None, own)));
+  let own_verdict = match remote_verdict(None, own) {
+    Verdict::UpToDate if !held && own.is_some_and(|own| own.older_base) => Verdict::Goes,
+    verdict => verdict,
+  };
+  let plan = PushPlan::with_ancestors(covered, (name, own_verdict));
   StartPush {
     branches: plan.order(true),
     unknown,
@@ -317,12 +338,31 @@ pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, sta
     stack: (stack_order != build_ancestors(repo, name)).then(|| owned(&stack_order)),
     button: own == Verdict::Goes && !action.is_empty(),
     action: (action != stack_order).then(|| owned(&action)),
+    // the view's, over the consent to push a rebuilt branch (`rebased_push`)
+    rebased: None,
     children,
     // the view's: which commits offer it, and the reasons the push of an action can't be made, are not rules of the
     // push plan
     up_to: None,
     action_blocker: None,
   }
+}
+
+/// Push Rebased Branch of `name` (`BranchPush::rebased`): Push Stack of it over `rebased`, the state of each branch with
+/// the user's consent to push a rebuilt one (`PushState::rebased`), root first, above the nearest branch whose push asks
+/// first, then the branch; `None` unless `state`, the state of the view, has the branch up to date and `rebased` lets it
+/// go: its remote has it on an older baseline and nothing keeps it out
+#[must_use]
+pub fn rebased_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState, rebased: impl Fn(&str) -> PushState, name: &str) -> Option<Vec<&'a str>> {
+  let branch = repo.branch(name)?.name;
+  if verdict(&state(branch)) != Verdict::UpToDate || verdict(&rebased(branch)) != Verdict::Goes {
+    return None;
+  }
+  let plan = push_plan(repo, rebased, branch, PushScope::WithAncestors);
+  let (_, before) = plan.steps.split_last()?;
+  let mut order = above_ask_first(before);
+  order.push(branch);
+  Some(order)
 }
 
 /// What the push of an action that needs a branch on the remote makes first (`action_push`)

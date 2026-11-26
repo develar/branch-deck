@@ -111,6 +111,12 @@ pub struct PushArgs {
   /// copy. It lands nothing, and no pull request is drafted
   #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "remote", "dry_run", "restart_running"])]
   pub unapplied: bool,
+  /// Push the branches only rebuilt on a newer baseline since their push too (`older_base` of `brd status`): their
+  /// remote branches have the same commits on an older baseline, which the builds of their pull requests test. The push
+  /// replaces them with their copies on the current baseline, leased, nothing dropped; the branches they are built on
+  /// go first. Without it such a branch is `up_to_date`
+  #[arg(long, conflicts_with = "unapplied")]
+  pub rebased: bool,
   /// Push a copy that holds a generated file the words merged in a conflict of the sync, not its generator
   /// (`generated_merged_by_words`: `regenerate` of `brd sync` names it), once the user agreed. Without it such a push is
   /// refused, --force included
@@ -227,6 +233,10 @@ pub struct PushedBranch {
   /// when the first push went
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub pushed_over: bool,
+  /// Of an `up_to_date` branch: its remote branch has the same commits on an older baseline, the branch was only
+  /// rebuilt on the current one (Update Project). `brd push --rebased` pushes it; omitted otherwise
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub older_base: bool,
   /// Omitted for an unapplied branch (`--unapplied`), which lands nothing
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestDraft>,
@@ -569,6 +579,7 @@ impl PushRun<'_> {
           expect_remote: expect_remote.map(str::to_string),
           force: self.args.force,
           restart_running: false,
+          rebased: self.args.rebased,
         })
       })
       .collect()
@@ -784,6 +795,7 @@ impl PushRun<'_> {
         lease_source: if head.is_some() { "expected" } else { "absent" }.to_string(),
         replaced_landed: Vec::new(),
         pushed_over: false,
+        older_base: self.remotes.get(name).is_some_and(|remote| remote.older_base),
         pull_request: draft(name, &full_name),
         remote_branch: full_name,
       });
@@ -875,6 +887,7 @@ pub(crate) fn pushed_branch(
     lease_source: pushed.source.as_str().to_string(),
     replaced_landed,
     pushed_over: false,
+    older_base: false,
     pull_request,
   }
 }
@@ -1024,8 +1037,9 @@ pub(crate) fn pull_request_issues(context: &RepoContext, report: &SyncReport, yo
   Ok(context.runtime()?.block_on(issue_texts(&keys, links.as_ref(), youtrack)))
 }
 
-/// The pull request draft of a branch whose remote branch is up to date by content, which `brd safe-push` doesn't push:
-/// what `push_locked` returns for a pushed one
+/// The pull request draft of a branch whose remote branch is up to date by content (a branch only rebuilt on a newer
+/// baseline is not: `brd safe-push` pushes it first), which `brd safe-push` doesn't push: what `push_locked` returns for
+/// a pushed one
 pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str, youtrack: Option<&YouTrackService>) -> Result<PullRequestDraft, CliError> {
   let mut drafts = pull_request_drafts(context, synced, &[name], youtrack)?;
   drafts.pop().ok_or_else(|| CliError::new(ErrorCode::Internal, format!("No pull request draft of {name}")))

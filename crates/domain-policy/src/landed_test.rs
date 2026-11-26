@@ -81,6 +81,7 @@ fn remote(tip: &str, up_to_date: bool, drops: u32) -> RemoteBranch<'_> {
   RemoteBranch {
     tip: Some(tip),
     up_to_date,
+    older_base: false,
     drops,
     others: 0,
   }

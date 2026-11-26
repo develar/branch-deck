@@ -332,6 +332,9 @@ pub struct RemoteFact {
   /// The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
   /// included)
   pub up_to_date: bool,
+  /// Up to date, on an older baseline (`RemoteStatusUpdate::older_base`)
+  #[serde(default)]
+  pub older_base: bool,
   /// A remote status said it: without one only the tip the sync read is known
   pub known: bool,
   /// The commits of the remote the branch lacks that a push drops (`commits_behind`)
@@ -347,6 +350,7 @@ impl RemoteFact {
     self.known.then_some(RemoteBranch {
       tip: self.remote_tip.as_deref(),
       up_to_date: self.up_to_date,
+      older_base: self.older_base,
       drops: self.drops,
       others: self.others,
     })
@@ -403,6 +407,7 @@ pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
   RemoteFact {
     remote_tip: remote.remote_tip.clone(),
     up_to_date: !remote.needs_push(),
+    older_base: remote.older_base,
     known: true,
     drops: remote.commits_behind,
     others: remote.others_behind,

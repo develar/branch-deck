@@ -54,6 +54,10 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
 - **"My commits"** are the commits ahead authored by the user.
 - **Fast-forward** says whether the remote branch is an ancestor of the local one. A rebased branch is not, so its push
   is a force push; it follows the refs, not the result of the last sync, and stays the same across restarts.
+- **Older base** (`older_base`) says that the remote has an up-to-date branch, no fast-forward, on an older baseline:
+  the branch was only rebuilt on the baseline tip since its push (Update Project), so the builds of its pull request
+  test the older master (Decision 11). The row stays quiet; only Push Rebased Branch, `brd push --rebased` and the
+  start of a Safe Push of the branch push it.
 - **UI display** shows the user's share only when it differs: `n↑` when all n commits are the user's, `mine (n)↑`
   otherwise (`0 (n)↑`: none is theirs).
 
@@ -172,6 +176,27 @@ flowchart TD
     listed.
     **Risk**: none for a remote commit reachable from a newer baseline than the branch is built on (a fetch after the
     sync): the walk of the commits ahead excludes it, so it is not counted.
+
+11. **Decision**: An up-to-date branch whose remote has it on another base, its own the baseline tip, is on an older
+    base (`RemoteStatusUpdate::older_base`), still up to date
+    **Rationale**: By content (Decisions 9 and 10) a branch only rebuilt on a newer baseline has nothing to push, and a
+    Safe Push started without a push relied on Patronus to rebase the remote branch; the head of its pull request and
+    the builds of the pull request stayed on the older master, which may not compile, and nothing in the app moved
+    them. A new `PushAction` would light up every surface that tests `upToDate`, so the status keeps its action and
+    carries the fact beside it: `older_base_of(other_base)` is `remote_exists && !needs_push() && !fast_forward &&
+    other_base`. `other_base` comes from the walk of the commits ahead with `--boundary`: its excluded parents of the
+    walked commits, marked `-` (filtered before the sides are told apart), are the bases of the two sides; two of them,
+    the baseline commit among them, are a branch on the baseline tip with its remote on another base. The set of the
+    boundary does not depend on the order of the walk, as `%P` of commits of one second would. No process more.
+    The same base under other hashes (an unapply and a reapply, a new signature) is one boundary: no older base. A
+    remote on a newer baseline than the branch (pushed from another clone while this one is behind) has the baseline
+    commits between them on its side, which a push drops: not up to date. A branch behind the fetched baseline (a
+    fetch without Update Project) has no boundary at the baseline commit: no older base, so its push never moves a
+    remote branch back. A status against a baseline by name (the refetch after a refused push) tells none: the
+    baseline commit is unknown there. The cache version of a status went from 6 to 7.
+    **Tradeoff**: the row stays quiet, the push of the branch is the user's (Push Rebased Branch: a force push with a
+    lease, without a question); only the start of a Safe Push, a Dry Run, the restart of a robot that restarts anyway
+    and Create Pull Request… push it for the user, its subject only, never while a running Safe Push holds it.
 
 ### Implementation Details
 
@@ -366,7 +391,7 @@ push of a rebased, amended or restacked branch too, pushes on the click: asking 
 without reading.
 
 ### Handling Rebased Branches
-When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped). A remote commit whose copy is only in the baseline, not among the commits of the branch or its ancestors, makes it no rebased branch: it is landed, and the push replaces it (Decision 10).
+When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped). A remote commit whose copy is only in the baseline, not among the commits of the branch or its ancestors, makes it no rebased branch: it is landed, and the push replaces it (Decision 10). A branch without new commits whose remote has them on an older baseline is on an older base (Decision 11): its row stays quiet, its push button is Push Rebased Branch ("The remote has these commits on an older master: the push replaces them with their copies on the current one. Nothing is dropped."), and a Safe Push start pushes it first.
 
 ### Review Status
 The commit a review took, the source revision of a Patronus robot or the head of a pull request, is compared with the

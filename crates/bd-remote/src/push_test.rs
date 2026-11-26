@@ -915,7 +915,44 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_is_not_pushed_again() {
   let local = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_ne!(local, pushed, "the sync rebuilt auth on the newer baseline");
   assert_eq!(branch(&output, "auth")["commit"], json!(short_id(&local)));
+  assert_eq!(branch(&output, "auth")["older_base"], json!(true), "--rebased pushes it: {output}");
   assert_eq!(remote_tip(&remote, AUTH), pushed, "nothing was pushed");
+}
+
+/// `brd push --rebased` sends a branch only rebuilt on a newer baseline since its push, with the branch it is built on
+/// that is too, parents first, each leased on the remote head the sync saw and without --force: nothing is dropped.
+/// Pushed, the branches are on the current baseline: up to date, not on an older one
+#[test_log::test]
+fn rebased_pushes_a_branch_only_rebuilt_on_a_newer_baseline_parents_first_without_force() {
+  let login = "test-user/virtual/login";
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed = [remote_tip(&remote, AUTH), remote_tip(&remote, login)];
+  rebuild_on_a_newer_baseline(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--rebased"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("auth"), &json!("login")], "parents first: {output}");
+  for (name, lease) in [("auth", &pushed[0]), ("login", &pushed[1])] {
+    let pushed = branch(&output, name);
+    assert_eq!(
+      (&pushed["state"], &pushed["lease"], &pushed["lease_source"]),
+      (&json!("forced"), &json!(short_id(lease)), &json!("expected")),
+      "{output}"
+    );
+  }
+  for full_name in [AUTH, login] {
+    assert_eq!(remote_tip(&remote, full_name), git(&repo, &["rev-parse", &format!("refs/heads/{full_name}")]));
+  }
+
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--rebased"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&branch(&output, "login")["state"], branch(&output, "login").get("older_base")),
+    (&json!("up_to_date"), None)
+  );
 }
 
 /// The push of an unapplied branch asks first, as the app's does: a remote branch with commits it lacks (someone's work)

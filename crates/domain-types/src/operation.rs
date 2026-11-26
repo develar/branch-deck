@@ -232,6 +232,13 @@ pub struct Push {
   /// The Safe Push of the branch is restarted on the pushed commit, canceled first while it runs (`--restart-running`,
   /// the push of the toast of a remote that moved under a restart)
   pub restart_running: bool,
+  /// Push Rebased Branch (`brd push --rebased`, the push button of a branch only rebuilt on a newer baseline): a branch
+  /// whose remote has it on an older baseline (`RemoteStatusUpdate::older_base`) goes too, with a lease and without a
+  /// question, though its remote has it by content (`domain_policy::push::PushState::rebased`); without it such a branch
+  /// is up to date. Absent in the records written before it
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub rebased: bool,
 }
 
 /// What a push takes along with its subject (`domain_policy::push::push_plan` orders it)

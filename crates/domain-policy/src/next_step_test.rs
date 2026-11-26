@@ -160,6 +160,7 @@ impl Fixture {
       landed: self.landed.as_ref(),
       tip: self.tip.as_deref(),
       remote: self.remote.as_ref().map(|(tip, up_to_date)| RemoteBranch {
+        older_base: false,
         tip: tip.as_deref(),
         up_to_date: *up_to_date,
         drops: self.others,

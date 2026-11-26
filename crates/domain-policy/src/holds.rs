@@ -12,7 +12,8 @@
 //!   whether waiting fixes the conflict instead: a running Safe Push that lands it (`Lands`), one that will fail
 //!   (`Failing`: waiting lands nothing), a merged one that landed it all (`Landed`: Update Project brings it)
 //! - `restart_action`: Patronus restarts a robot on the newest commit of its remote branch; a branch with work the
-//!   remote lacks is pushed first ("Push and Restart", also for a running robot, which the push cancels first)
+//!   remote lacks is pushed first ("Push and Restart", also for a running robot, which the push cancels first), and so is
+//!   one whose remote has it on an older baseline, when the robot is to restart at all
 //!
 //! The robots are those of the user; `is_active`, `is_pushing` and `holds_pushes` say what a robot does to what it
 //! lands.
@@ -170,16 +171,26 @@ fn restarts(robot: &PatronusRobot, newer: Option<&str>, failing: bool) -> bool {
 /// (`needs_review` without a pull request: a new Safe Push with one is the way). `tip` and `remote` are of its subject
 /// as it is now. A subject with work its remote lacks is pushed first (`PushAndRestart`, also for a running robot,
 /// which the push cancels first), so the robot tests it as it is; else Patronus restarts it on the remote (`Restart`),
-/// a running robot whose required check failed (`failing`) once its restart canceled it
+/// a running robot whose required check failed (`failing`) once its restart canceled it. A subject only rebuilt on a
+/// newer baseline since the robot took its remote branch, which has it on the older one (`RemoteBranch::older_base`), is
+/// pushed first too, so the restart tests the current baseline, but only when the robot restarts at all: a healthy
+/// running robot, or a passed dry run of the remote's commit, stays as it is
 #[must_use]
 pub fn restart_action(robot: &PatronusRobot, tip: Option<&str>, remote: Option<RemoteBranch<'_>>, needs_review: bool, failing: bool) -> Option<RestartAction> {
   if (robot.branch_name.is_none() && robot.stack_root.is_none()) || (needs_review && robot.pull_request.is_none()) {
     return None;
   }
   let tip = tip.filter(|tip| !tip.is_empty());
-  if taken_commit(robot.source_revision.as_deref(), tip, remote) == TakenCommit::ChangedLocally {
-    let restartable = restarts(robot, tip, failing) || robot.status == PatronusRobotStatus::Running;
-    return (tip.is_some() && restartable).then_some(RestartAction::PushAndRestart);
+  let remote_tip = remote.and_then(|remote| remote.tip);
+  match taken_commit(robot.source_revision.as_deref(), tip, remote) {
+    TakenCommit::ChangedLocally => {
+      let restartable = restarts(robot, tip, failing) || robot.status == PatronusRobotStatus::Running;
+      return (tip.is_some() && restartable).then_some(RestartAction::PushAndRestart);
+    }
+    TakenCommit::Rebased if remote.is_some_and(|remote| remote.older_base) => {
+      return restarts(robot, remote_tip, failing).then_some(RestartAction::PushAndRestart);
+    }
+    TakenCommit::Current | TakenCommit::ChangedOnRemote | TakenCommit::Rebased => {}
   }
-  restarts(robot, remote.and_then(|remote| remote.tip), failing).then_some(RestartAction::Restart)
+  restarts(robot, remote_tip, failing).then_some(RestartAction::Restart)
 }

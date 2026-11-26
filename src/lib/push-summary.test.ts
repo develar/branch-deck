@@ -104,6 +104,18 @@ describe("describeStackPush", () => {
     expect(describeStackPush(pushed, true)).toEqual({ title: "Pushed branches auth, login, oauth and 2 more", description: "5 commits · pushed the whole stack branch" })
     expect(describeStackPush(pushed.slice(0, 1), true)).toMatchObject({ title: "Pushed branch auth" })
   })
+
+  it("says a push of branches only rebuilt on a newer baseline force pushed them, alone and together", () => {
+    const rebuilt = testRemoteStatus({ fastForward: false, olderBase: true })
+    expect(describePush("branch docs", rebuilt, "master")).toEqual({ title: "Force pushed branch docs", description: "moved onto the current master" })
+    expect(describePush("branch docs", testRemoteStatus({ fastForward: false }))).toEqual({ title: "Pushed branch docs" })
+    expect(
+      describeStackPush([
+        { name: "auth", before: rebuilt },
+        { name: "login", before: rebuilt },
+      ]),
+    ).toEqual({ title: "Pushed branches auth and login", description: "force pushed auth and login" })
+  })
 })
 
 /** A branch with the remote status `remote`, not loaded for null */

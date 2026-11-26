@@ -1195,6 +1195,13 @@ pub struct BranchPush {
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub button: bool,
+  /// Push Rebased Branch, the push of the push button of a branch only rebuilt on a newer baseline since its push (its
+  /// remote has it on an older one, `RemoteStatusUpdate::older_base`): the branches it is built on that have work or
+  /// are on an older baseline too, root first, then the branch (`domain_policy::push::rebased_push`); absent for any
+  /// other branch
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub rebased: Option<Vec<String>>,
   /// Push with Children; absent for a branch nothing but parked branches is stacked on
   #[serde(default, skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]

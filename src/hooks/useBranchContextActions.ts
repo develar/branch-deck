@@ -34,7 +34,7 @@ import { ACTION_LOOKS, findAction, presentAction } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
 import type { PushButtonState } from "@/presenters/push-button"
-import { formatFirstPush, getPushButtonState, pushBlockerOf, retargetCandidates, unpushedParentIn } from "@/presenters/push-button"
+import { formatFirstPush, getPushButtonState, PUSH_REBASED_BRANCH, pushBlockerOf, rebasedPushIn, retargetCandidates, unpushedParentIn } from "@/presenters/push-button"
 import { getRequestReviewItem } from "@/presenters/review"
 import { authStore } from "@/stores/auth"
 import type { Branch } from "@/stores/branch-sync"
@@ -91,10 +91,13 @@ export function getRequestReviewItemNow(key: string): MenuItem | null {
  * Stack (3 branches)") and what a click pushes, as the button renders it
  */
 function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
-  const unpushedParent = unpushedParentIn(branchSyncStore.getState(), getPushOrders(branch.name))
+  const state = branchSyncStore.getState()
+  const orders = getPushOrders(branch.name)
+  const unpushedParent = unpushedParentIn(state, orders)
   const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
   const blocker = pushBlockerOf(actionsOf(branch.name))
-  return getPushButtonState(branch, { isPushing, blocker, unpushedParent, retargets, runs: pushRunsOf(branch.name), ...getOperationWords() })
+  const rebased = rebasedPushIn(state, orders)
+  return getPushButtonState(branch, { isPushing, blocker, unpushedParent, rebased, retargets, runs: pushRunsOf(branch.name), ...getOperationWords() })
 }
 
 /** What the words of a blocker of the branch read of its row, and the operations of the session now */
@@ -309,7 +312,8 @@ function getParkMenuItems(branch: Branch): MenuItem[] {
  * (`domain_policy::actions`): running while its push runs in the session, disabled with the reason, a push of a stack
  * that sends the branch among them ("Pushing login…"). One item for the push of the branch and of its stack: the menu
  * never pushes past the confirmation the button asks for. After it, while the button pushes the stack, the second way
- * its description offers: "Push oauth Only".
+ * its description offers: "Push oauth Only". A branch only rebuilt on a newer baseline: "Push Rebased Branch", with what
+ * it moves onto the current baseline.
  */
 function getPushMenuItems(branch: Branch): MenuItem[] {
   const isPushing = isBranchPushing(branch.name) || isStackPushing(branch.name)
@@ -319,7 +323,13 @@ function getPushMenuItems(branch: Branch): MenuItem[] {
     return []
   }
   const enabled = push.disabled !== true
-  const item = enabled && button.pushesStack ? { ...push, description: `Pushes ${joinNames(getPushOrders(branch.name).button)}, parents first` } : push
+  let item = push
+  if (enabled && button.pushesStack) {
+    item = { ...push, description: `Pushes ${joinNames(getPushOrders(branch.name).button)}, parents first` }
+  } else if (enabled && button.text === PUSH_REBASED_BRANCH) {
+    // what moves onto the current baseline, as the description of the button says it
+    item = { ...push, description: button.tooltip }
+  }
   // the second way the description of the button offers while it pushes the stack: the branch alone. Its Push Stack
   // while the button pushes the branch alone stays in the description, beside the confirmation an ancestor asks for
   const other = button.action

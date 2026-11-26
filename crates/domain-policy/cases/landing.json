@@ -30,9 +30,9 @@
     }
   },
   {
-    "id": "rebuilt-on-a-newer-baseline-starts-without-a-push",
+    "id": "rebuilt-on-a-newer-baseline-pushes-before-the-start",
     "group": "landing",
-    "title": "the remote branch has the commits of the branch by content, only rebuilt since on a newer baseline: the start pushes nothing",
+    "title": "the remote branch has the commits of the branch by content, only rebuilt since on a newer baseline: the start pushes it first, so the robot tests the current baseline",
     "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "remote": "rebuiltOnNewerBaseline"
@@ -44,7 +44,89 @@
       },
       "land": {
         "start": "api",
+        "pushes": ["auth"],
+        "force": false
+      }
+    }
+  },
+  {
+    "id": "rebuilt-on-a-newer-baseline-held-by-a-child-dry-runs-without-a-push",
+    "group": "landing",
+    "title": "a Dry Run of login, only rebuilt on a newer baseline, while the Safe Push of session, built on it, runs: the push of the rebuilt branch would fail that Safe Push, so the start goes without it, as before",
+    "spec": [
+      "openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run",
+      "openspec/specs/branch/patronus/spec.md#pushing-into-a-branch-whose-safe-push-runs",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
+    "given": {
+      "mode": "dryRun",
+      "branch": "login",
+      "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
+      "remote": "rebuiltOnNewerBaseline",
+      "robot": {
+        "state": "running",
+        "on": "child:session"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "1",
+        "kind": "settled",
+        "safePush": "descendant"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login"],
         "pushes": null
+      }
+    }
+  },
+  {
+    "id": "rebuilt-on-a-newer-baseline-pushes-the-branch-not-its-parent",
+    "group": "landing",
+    "title": "login and auth, built on each other, were only rebuilt on a newer baseline: the start of login pushes login alone, the remote branch of auth stays (its pull request and its approvals are another's)",
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
+    "given": {
+      "branch": "login",
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "remote": "rebuiltOnNewerBaseline"
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login"],
+        "pushes": ["login"],
+        "force": false
+      }
+    }
+  },
+  {
+    "id": "rebuilt-on-a-newer-baseline-into-an-approved-pull-request-dismissing-reviews",
+    "group": "landing",
+    "title": "the branch of #7, which someone approved and whose approvals Patronus counts, was only rebuilt on a newer baseline while the rules dismiss stale reviews: its push before the start would dismiss them, so both refuse it, as any push into it",
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
+    "given": {
+      "readiness": "approved",
+      "remote": "rebuiltOnNewerBaseline",
+      "rules": "dismiss",
+      "pullRequest": {
+        "approvers": ["ikorennoy"]
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "11",
+        "kind": "safePush"
+      },
+      "land": {
+        "blockers": ["dismissesApprovals"],
+        "start": "comment:7"
       }
     }
   },

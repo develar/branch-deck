@@ -22,6 +22,7 @@ import { describePush, formatPushFailure, formatPushedBranch } from "@/lib/push-
 import { sameJson } from "@/lib/record"
 import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { showRobotToast } from "@/lib/robot-toast"
+import { baselineOnRemote } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatReadinessSubject, formatWholeStackBranch, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
@@ -50,6 +51,11 @@ export interface PushBranchOptions {
   readonly acceptRegenerate?: boolean
   /** The Safe Push of the branch restarts on the pushed commit, canceled first while it runs (the toast of a remote that moved under a restart) */
   readonly restartRunning?: boolean
+  /**
+   * Push Rebased Branch: the branch goes though its remote has it by content, on an older baseline
+   * (`RemoteStatus.olderBase`, `Push.rebased`); leased, nothing dropped, no question
+   */
+  readonly rebased?: boolean
   /**
    * Whether a toast says the push went; false when the push is a step of an action that says how it went. Activity
    * records the push either way, and a failure is an error toast either way
@@ -127,6 +133,7 @@ export async function runBranchPush(branchName: string, options: PushBranchOptio
     expectRemote,
     force: options.force === true,
     restartRunning: options.restartRunning === true,
+    ...(options.rebased === true && { rebased: true }),
   }
   return runPush(repositoryPath, branchName, intent, { ...options, expectRemote }, branch.remoteStatus)
 }
@@ -208,7 +215,13 @@ function announcePush(branchName: string, repositoryPath: string, run: Extract<P
     }
     return
   }
-  showPushToast(branchName, repositoryPath, describePush(formatPushedBranch(branchName), run.before), restarted, retargetedOf(outcome))
+  showPushToast(branchName, repositoryPath, describePush(formatPushedBranch(branchName), run.before, targetOnRemote()), restarted, retargetedOf(outcome))
+}
+
+/** The baseline of the table on the remote ("master" of "origin/master"), which the words of a push name */
+function targetOnRemote(): string {
+  const baseline = branchSyncStore.getState().baselineBranch
+  return baseline === null ? "baseline" : baselineOnRemote(baseline)
 }
 
 /** The Safe Push the push restarted on the pushed commit; undefined for none */
@@ -331,11 +344,18 @@ export interface StackPushOptions {
 
 /**
  * What a click on the push button of the branch pushes (`confirmAt` the button, which asks first when the push drops
- * remote commits): the stack while the view says the button pushes it (`PushOrders.button`: an ancestor has work and
- * the branch asks nothing), else the branch alone (`pushBranch`). The same push runs from the branch menu and P
+ * remote commits): Push Rebased Branch while the view orders it (`PushOrders.rebased`: the remote has the branch only on
+ * an older baseline), alone or with the branches it is built on that are too; the stack while the view says the button
+ * pushes it (`PushOrders.button`: an ancestor has work and the branch asks nothing), else the branch alone
+ * (`pushBranch`). The same push runs from the branch menu and P
  */
 export function pushFromButton(branchName: string, confirmAt: PushConfirmTarget = "row"): void {
-  if (getPushOrders(branchName).button.length > 0) {
+  const orders = getPushOrders(branchName)
+  if (orders.rebased.length > 1) {
+    void runStackPush(branchName, stackIntent(branchName, { kind: "withAncestors" }, false, true), {})
+  } else if (orders.rebased.length === 1) {
+    void pushBranch(branchName, { confirmAt, rebased: true })
+  } else if (orders.button.length > 0) {
     void runStackPush(branchName, stackIntent(branchName, { kind: "withAncestors" }, false), {})
   } else {
     void pushBranch(branchName, { confirmAt })
@@ -399,8 +419,11 @@ export async function pushForAction(branchName: string): Promise<boolean> {
     : pushBranch(branchName, { announce: false })
 }
 
-/** The intent of a push of a stack from `branchName` of `scope`, over the remote head its row shows */
-function stackIntent(branchName: string, scope: PushScope, force: boolean): Intent {
+/**
+ * The intent of a push of a stack from `branchName` of `scope`, over the remote head its row shows; `rebased` sends the
+ * branches only rebuilt on a newer baseline too (Push Rebased Branch)
+ */
+function stackIntent(branchName: string, scope: PushScope, force: boolean, rebased = false): Intent {
   return {
     kind: "push",
     subject: { kind: "branch", name: branchName },
@@ -408,6 +431,7 @@ function stackIntent(branchName: string, scope: PushScope, force: boolean): Inte
     expectRemote: getBranch(branchName)?.remoteStatus?.remoteTip ?? null,
     force,
     restartRunning: false,
+    ...(rebased && { rebased: true }),
   }
 }
 

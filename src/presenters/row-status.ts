@@ -43,6 +43,11 @@ export interface RowContext {
   readonly robot: PatronusRobot | undefined
   readonly parked: ParkedState | null
   readonly wait: StepWait | null
+  /**
+   * The baseline on the remote ("master" of "origin/master"), which the words of a remote on an older baseline name
+   * (`RemoteStatus.olderBase`); "baseline" without it
+   */
+  readonly target?: string
 }
 
 /** The first column of the Status cell of a branch row */
@@ -86,7 +91,7 @@ export function presentPreviewStatus(status: RowStatus | undefined, context: Row
   }
   const facts = status === undefined ? [] : [...(status.main === null ? [] : [status.main]), ...status.also]
   const shown = facts.find(fact => fact.kind !== "robot")
-  const texts = shown === undefined ? pushTexts(branch) : factTexts(shown, context)
+  const texts = shown === undefined ? pushTexts(branch, context.target) : factTexts(shown, context)
   return { ...texts, quiet: undefined }
 }
 
@@ -100,9 +105,10 @@ function syncTexts(branch: Branch): StatusTexts {
  * The push state, in the colour of the push button; up to date needs no action: quiet. Without a remote status, what
  * the sync did
  */
-function pushTexts(branch: Branch): StatusTexts {
+function pushTexts(branch: Branch, target?: string): StatusTexts {
   if (branch.remoteStatus != null) {
-    const texts = { ...buildRemoteStatusTexts(branch.remoteStatus, branch.stack?.effectiveBase ?? null), color: getPushColor(branch) ?? "neutral" }
+    const options = target === undefined ? {} : { target }
+    const texts = { ...buildRemoteStatusTexts(branch.remoteStatus, branch.stack?.effectiveBase ?? null, options), color: getPushColor(branch) ?? "neutral" }
     return branch.remoteStatus.action.kind === "upToDate" ? { ...texts, quiet: true } : texts
   }
   switch (branch.status) {

@@ -319,6 +319,7 @@ fn push_of(branch: &str) -> Intent {
     expect_remote: None,
     force: false,
     restart_running: false,
+    rebased: false,
   })
 }
 

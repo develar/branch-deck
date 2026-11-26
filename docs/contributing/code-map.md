@@ -92,7 +92,7 @@ landing of a session](../design/git-operations.md#the-landing-of-a-session)), wh
 |---|---|---|
 | The table as the rules read it, borrowed from the view or a grouping | `facts.rs` (`Repository`) | `derive::repository`; `brd`: `derive::grouped_rows` |
 | The robot of a branch and of a whole stack | `robot_match.rs` | `robotId` (`facts::derive_patronus`); `brd`: the same of its one-shot session (`one_shot::OneShot`) |
-| What keeps a branch out of a push, the push orders and their verdicts (Push Stack, the button, Push with Children and its stack branch, Push Up to Here) and what a start pushes (`start_push`) | `push.rs` | `RepositoryView.pushes` (`derive::push_view`), the `Push` effect of `land::decide`, the plan of the intent `Push` (`operations::push`); `brd push`, `brd safe-push` |
+| What keeps a branch out of a push, the push orders and their verdicts (Push Stack, the button, Push with Children and its stack branch, Push Up to Here, Push Rebased Branch `rebased_push`) and what a start pushes (`start_push`, a subject on an older baseline too) | `push.rs` | `RepositoryView.pushes` (`derive::push_view`), the `Push` effect of `land::decide`, the plan of the intent `Push` (`operations::push`); `brd push`, `brd safe-push` |
 | The declared parent (`(parent/child)`, the stack parents), children, descendants, ancestors by effective base, main line, the whole stack and what is left of it | `stack.rs` | `BranchView.structure` (`derive::place`), `NextStepView.rest` (`derive::stack_rest`); `brd status`, `brd safe-push --whole-stack`, `brd push --with-children` |
 | Parked: the branch and what is built on it stay local | `parked.rs` | `BranchStructure.parked`; `brd push`, `brd safe-push` |
 | The actions of a branch kept outside HEAD (unapplied, archived): its review, reapply, push, a Safe Push refused, its delete | `kept.rs` | `RepositoryView.actions` (`unapplied:<full name>`, `archived:<full name>`, `action_view::actions_of`); `brd push`, `brd safe-push` (the code `unapplied` of its reason) |
@@ -135,7 +135,7 @@ Outside `domain-policy`: the grouping of the commits (`crates/history-rewrite/sr
 landed and spans by content (`crates/sync-core/src/robot_landing.rs`, a fact of git), the Safe Push statistics
 (`crates/remote-facts/src/robot_stats_aggregate.rs`), and what a push of one branch does by its remote status alone
 (`crates/domain-types/src/remote_status.rs`: `RemoteStatusUpdate::push_action`, stored as `RemoteStatusUpdate::action`,
-`needs_push`, `drops_remote_commits`, `pushes_again`; the sync sets it, and the crates of git reach no rule). The plan and its stages: [Rust as the Domain
+`needs_push`, `drops_remote_commits`, `pushes_again`, `older_base_of`; the sync sets it, and the crates of git reach no rule). The plan and its stages: [Rust as the Domain
 Authority](../design/rust-domain-authority.md#индекс-правил).
 
 ## File Structure

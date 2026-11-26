@@ -205,6 +205,11 @@ pub struct RemoteSummary {
   /// it was pushed): a Safe Push of the remote branch would land an older piece, so a push replaces it
   #[serde(default, skip_serializing_if = "is_zero")]
   pub ancestors_ahead: u32,
+  /// The remote has the branch by content, on an older baseline: the branch was only rebuilt on the baseline tip since
+  /// its push (Update Project). Nothing is unpushed, `brd push` says it is `up_to_date`; `brd push --rebased` moves the
+  /// remote branch, and the builds of its pull request, onto the current baseline. Omitted when false
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub older_base: bool,
   /// The remote-tracking commit the counts compare with; `null` without a remote branch. `brd push --force` leases on
   /// it, as `--expect-remote` does
   pub head: Option<String>,
@@ -257,6 +262,7 @@ impl RemoteSummary {
       landed: remote.commits_landed,
       reworded: remote.commits_reworded,
       ancestors_ahead: remote.ancestor_commits_ahead,
+      older_base: remote.older_base,
       head: remote.remote_tip.as_deref().map(|head| short.get(head).to_string()),
       dropped_commits: remote
         .dropped_commits

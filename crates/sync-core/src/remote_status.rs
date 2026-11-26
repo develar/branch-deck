@@ -527,7 +527,7 @@ const STATUS_CACHE_LIMIT: usize = 4096;
 /// the limit, `list_cut::kept`). Bump the high half when the status of the same commits changes: its fields, the options
 /// of its walks, `CommitKey`, `same_changes`
 fn cached_status_version() -> u32 {
-  (6 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
+  (7 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
 }
 
 /// A dropped commit in the object cache (`DroppedCommit`)
@@ -578,6 +578,8 @@ struct CachedStatus {
   commits_reworded: u32,
   ancestor_commits_ahead: u32,
   fast_forward: bool,
+  /// The bases of the two sides of the walk differ, the branch's the baseline tip (`RemoteStatusUpdate::older_base_of`)
+  other_base: bool,
 }
 
 impl CachedStatus {
@@ -606,10 +608,12 @@ impl CachedStatus {
       ancestor_commits_ahead: self.ancestor_commits_ahead,
       my_unpushed_count: self.my_unpushed_count,
       fast_forward: self.fast_forward,
+      older_base: false,
       last_push_time,
       action: PushAction::UpToDate,
     };
     status.action = status.push_action();
+    status.older_base = status.older_base_of(self.other_base);
     status
   }
 }
@@ -832,6 +836,7 @@ fn compute_listing(
       commits_reworded: 0,
       ancestor_commits_ahead: 0,
       fast_forward: true,
+      other_base: false,
     });
   };
 
@@ -853,9 +858,10 @@ fn compute_listing(
     reworded,
     ancestor_commits_ahead,
     fast_forward,
+    other_base,
   ) = if remote_tip == local {
     // the remote branch is at the branch's tip, as after its push: nothing to push and nothing behind, without a walk
-    (WalkedCommits::default(), ClassifiedBehind::default(), 0, 0, true)
+    (WalkedCommits::default(), ClassifiedBehind::default(), 0, 0, true, false)
   } else {
     // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out.
     // The ancestors' commits are in the walk too: a Safe Push of the remote branch lands them, so the ones the remote
@@ -867,13 +873,21 @@ fn compute_listing(
     // rebase merge, a cherry-pick, the parent of a stack that landed). The remote branch is no state of the branch
     // then: a pull request from it shows the landed changes again, so it is landed (`landed_copies`). `%m` marks a copy
     // `=` on either side; the remote side's are told by the ids of the walk of the remote commits, the same commits
+    //
+    // `--boundary` lists the excluded parents of the walked commits too, marked `-`: the bases of the two sides. Two of
+    // them, the baseline tip among them, are a branch rebuilt on the baseline tip with the remote on another base
+    // (`other_base`, docs/design/remote-status.md, Decision 11); the set does not depend on the order of the walk
     let range = format!("{remote_tip}...{local}");
     let walked = walk_commits_with_messages(
       git_executor,
       repository_path,
-      &["--reverse", "--cherry-mark", "--left-right"],
+      &["--reverse", "--cherry-mark", "--left-right", "--boundary"],
       &[baseline_exclusion.as_str(), &range],
     )?;
+    let (boundary, walked): (Vec<_>, Vec<_>) = walked.into_iter().partition(|(commit, _)| commit.mark == '-');
+    let bases: HashSet<&str> = boundary.iter().map(|(commit, _)| commit.id.as_str()).collect();
+    // the baseline by its commit only: a status against a baseline by name (the refetch after a refused push) tells none
+    let other_base = bases.len() > 1 && is_object_id(baseline_branch) && bases.contains(baseline_branch);
     // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
     // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
     let RemoteCommits {
@@ -919,9 +933,10 @@ fn compute_listing(
       reworded,
       ancestor_commits_ahead,
       fast_forward,
+      other_base,
       "commits behind"
     );
-    (unpushed, classified, reworded, ancestor_commits_ahead, fast_forward)
+    (unpushed, classified, reworded, ancestor_commits_ahead, fast_forward, other_base)
   };
 
   let dropped_count = dropped.len();
@@ -967,6 +982,7 @@ fn compute_listing(
     commits_reworded: reworded,
     ancestor_commits_ahead,
     fast_forward,
+    other_base,
   })
 }
 

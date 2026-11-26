@@ -1277,3 +1277,135 @@ fn the_statuses_of_an_operation_read_the_push_times_of_existing_remote_branches_
   let reflogs = git_executor.process_stats().unwrap().by_command().get("reflog").map(|stats| stats.count);
   assert_eq!(reflogs, Some(1), "one read of both, not a failed one and one per branch");
 }
+
+/// The branch `feature` of one commit of the user, synced and pushed; HEAD is `development`
+async fn synced_and_pushed_feature() -> TestScenario {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  scenario.commit_on("development", [HistoryCommit::new("(feature) First", &[("first.txt", "first")]).at(1_700_000_000)]);
+  scenario.run_sync("user").await;
+  scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
+  scenario
+}
+
+/// Someone's commit on `master` of the remote, the baseline of the sync (`origin/master`), fetched; HEAD is `development`
+fn push_baseline_commit(scenario: &TestScenario) {
+  configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
+  scenario
+    .upstream_repo
+    .create_commit_with_timestamp("Baseline change", "baseline.txt", "baseline", Some(1_700_000_300));
+  scenario.local_repo.checkout("development").unwrap();
+  scenario.local_repo.fetch_prune("origin").unwrap();
+}
+
+/// Update Project: `development` rebased onto the newer `origin/master`
+fn update_development(scenario: &TestScenario) {
+  scenario.local_repo.checkout("development").unwrap();
+  scenario.local_repo.rebase("origin/master").unwrap();
+}
+
+/// Replaces the remote `user/virtual/feature` with a copy of its tip commit on `base`, committed at another time, so a
+/// copy on the same base has another id (same-second copies are the same commit), and fetches it; HEAD is `development`
+fn push_feature_copy_on(scenario: &TestScenario, base: &str) -> String {
+  let repo = &scenario.local_repo;
+  let tip = repo.rev_parse("user/virtual/feature").unwrap();
+  repo.git(&["checkout", "--detach", base]);
+  repo.git(&["cherry-pick", "--no-commit", &tip]);
+  let copy = repo.commit_with(&["-C", &tip], &[("GIT_COMMITTER_DATE", "1700000500 +0000")]);
+  repo.git(&["push", "origin", &format!("+{copy}:refs/heads/user/virtual/feature")]);
+  repo.checkout("development").unwrap();
+  repo.fetch_prune("origin").unwrap();
+  copy
+}
+
+/// `synced_and_pushed_feature`, then a commit on the baseline, Update Project and a sync: the events of that sync
+async fn rebuilt_on_a_newer_baseline() -> (TestScenario, Vec<SyncEvent>) {
+  let scenario = synced_and_pushed_feature().await;
+  push_baseline_commit(&scenario);
+  update_development(&scenario);
+  let events = scenario.run_sync("user").await.get_events();
+  (scenario, events)
+}
+
+/// The user pushed a branch, then Update Project rebuilt it on the newer baseline: the remote has its commits by content,
+/// on the older baseline. Up to date, the row stays quiet, but on an older base, which an asked push moves onto the
+/// current one. Pushed, it is on the current base: neither up to date by content alone nor on an older base
+#[test(tokio::test)]
+async fn a_branch_rebuilt_on_a_newer_baseline_after_its_push_is_up_to_date_on_an_older_base() {
+  let (scenario, events) = rebuilt_on_a_newer_baseline().await;
+
+  let status = synced_status(&events, "feature");
+  assert_eq!(status.action, PushAction::UpToDate, "the remote has the commits by content");
+  assert!(!status.fast_forward);
+  assert!(status.older_base, "the remote has them on the older baseline");
+
+  scenario.local_repo.push("origin", "+user/virtual/feature").unwrap();
+  scenario.local_repo.fetch_prune("origin").unwrap();
+  let events = scenario.run_sync("user").await.get_events();
+  let status = synced_status(&events, "feature");
+  assert_eq!((status.action, status.older_base), (PushAction::UpToDate, false), "pushed: the remote is at the tip");
+}
+
+/// The remote has the branch's commits under other hashes on the same baseline, as after an unapply and a reapply or a
+/// new signature: not on an older base, the push would only replace the copies
+#[test(tokio::test)]
+async fn a_branch_rebuilt_under_other_hashes_on_the_same_baseline_is_not_on_an_older_base() {
+  let scenario = synced_and_pushed_feature().await;
+  let base = scenario.local_repo.rev_parse("origin/master").unwrap();
+  let copy = push_feature_copy_on(&scenario, &base);
+  let events = scenario.run_sync("user").await.get_events();
+
+  let status = synced_status(&events, "feature");
+  assert_eq!(status.remote_tip.as_deref(), Some(copy.as_str()));
+  assert_ne!(scenario.local_repo.rev_parse("user/virtual/feature").unwrap(), copy, "another copy of the commit");
+  assert_eq!(status.action, PushAction::UpToDate);
+  assert!(!status.fast_forward);
+  assert!(!status.older_base, "the same base");
+}
+
+/// A stack rebuilt with its parent on the newer baseline: both remote branches have their commits on the older one
+#[test(tokio::test)]
+async fn a_stacked_branch_rebuilt_with_its_parent_on_a_newer_baseline_is_on_an_older_base() {
+  let scenario = pushed_stack().await;
+  push_baseline_commit(&scenario);
+  update_development(&scenario);
+  let events = scenario.run_sync("user").await.get_events();
+
+  for branch in ["auth", "login"] {
+    let status = synced_status(&events, branch);
+    assert_eq!((branch, status.action, status.older_base), (branch, PushAction::UpToDate, true));
+  }
+}
+
+/// The branch is still on the older baseline (fetched, not updated), its remote branch was pushed from another clone on
+/// the newer one: a push would move the remote back, so it is not on an older base
+#[test(tokio::test)]
+async fn a_remote_branch_on_a_newer_baseline_than_the_branch_is_not_on_an_older_base() {
+  let scenario = synced_and_pushed_feature().await;
+  push_baseline_commit(&scenario);
+  let newer = scenario.local_repo.rev_parse("origin/master").unwrap();
+  push_feature_copy_on(&scenario, &newer);
+  let events = scenario.run_sync("user").await.get_events();
+
+  let status = synced_status(&events, "feature");
+  assert!(status.needs_push(), "the remote has baseline commits the branch lacks");
+  assert!(!status.older_base, "the branch is on the older baseline");
+}
+
+/// The branch was rebuilt on a newer baseline than its remote branch, then a newer one still was fetched without an
+/// update: the branch is not on the baseline tip, so it is not told on an older base, whatever its remote has
+#[test(tokio::test)]
+async fn a_branch_behind_the_fetched_baseline_is_not_on_an_older_base() {
+  let (scenario, events) = rebuilt_on_a_newer_baseline().await;
+  assert!(synced_status(&events, "feature").older_base, "on the baseline tip");
+
+  scenario
+    .upstream_repo
+    .create_commit_with_timestamp("Newer baseline change", "newer.txt", "newer", Some(1_700_000_400));
+  scenario.local_repo.fetch_prune("origin").unwrap();
+  let events = scenario.run_sync("user").await.get_events();
+
+  let status = synced_status(&events, "feature");
+  assert_eq!(status.action, PushAction::UpToDate, "the remote has the commits by content");
+  assert!(!status.older_base, "the branch is behind the fetched baseline");
+}

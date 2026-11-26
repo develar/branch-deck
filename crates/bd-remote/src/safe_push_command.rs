@@ -211,9 +211,10 @@ pub struct SafePushOutput {
   /// Safe Push that pushes new commits into a pull request someone approved, else absent
   #[serde(skip_serializing_if = "Option::is_none")]
   pub rules: Option<RulesSummary>,
-  /// The remote lacks commits of the branch or of the branches it is built on, by content: the start pushes them
-  /// first. False for a remote branch with the same commits, only rebuilt on an older baseline: the robot takes it as it
-  /// is (Patronus rebases it), nothing is pushed
+  /// The remote lacks commits of the branch or of the branches it is built on, by content, or has the branch itself
+  /// only on an older baseline (rebuilt on the newer one since its push, `older_base`): the start pushes them first, so
+  /// the robot and the builds of the pull request test the current baseline. A branch it is built on that is only on an
+  /// older baseline stays as it is, and so does the branch while a running Safe Push holds it or a branch it is built on
   pub push_needed: bool,
   /// The remote branches the start pushes that exist: what the push replaces of each (`remote.amended`, `restacked`,
   /// `landed` with `landed_commits`: older versions, no --force needed) and drops (`remote.behind` with

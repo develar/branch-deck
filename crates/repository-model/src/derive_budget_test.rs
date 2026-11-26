@@ -184,6 +184,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     .map(|branch| (format!("user/virtual/{}", branch.name), format!("copy-{}", branch.commits[0].id)))
     .collect();
   let up_to_date = |tip: &str| RemoteFact {
+    older_base: false,
     remote_tip: Some(tip.to_owned()),
     up_to_date: true,
     known: true,

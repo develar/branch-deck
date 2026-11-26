@@ -212,6 +212,12 @@ pub struct RemoteStatusUpdate {
   pub my_unpushed_count: u32,
   /// The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites
   pub fast_forward: bool,
+  /// The remote has the branch by content, but on an older baseline: the branch was only rebuilt on the baseline tip
+  /// since its push, as after Update Project (`older_base_of`). Its status stays up to date (the row is quiet), and only
+  /// a push the user asks for (Push Rebased Branch, `brd push --rebased`) or the start of a Safe Push of it sends it.
+  /// False for a fast-forward, a remote at the tip and the same base under other hashes (an unapply and reapply)
+  #[serde(default)]
+  pub older_base: bool,
   /// Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
   pub last_push_time: u32,
   /// What a push of the branch does over this status: `push_action` of the counts above (`remote_status`), set where
