@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.27.0](https://github.com/develar/branch-deck/compare/v1.26.0...v1.27.0) (2026-11-26)
+
+
+### Features
+
+* **air:** Start in Air is a local app of local AHP: the IDE starts the default of its New Session button without an agent, and the toast follows the row of the local session id ([9e2984e](https://github.com/develar/branch-deck/commit/9e2984ecffe5528dddc120648268a5ec45b7601a))
+* **git-ops:** the local changes of a lease slot become patches that their trees prove, no file and no index entry of the slot changed ([cec32c2](https://github.com/develar/branch-deck/commit/cec32c24f84aacec9d37b6e0027c8f5d3272835f))
+* **lease:** a get and brd lease reclaim preserve the quiet local changes of an idle lease in its notes and take its slot ([8044dfd](https://github.com/develar/branch-deck/commit/8044dfd9753af826f6b4b717779fa98bb482eb87))
+* **lease:** a lease whose holder is gone is busy in brd lease status and brd workspace while a process of another session works in its slot ([811190e](https://github.com/develar/branch-deck/commit/811190e43e3f8e0454cf8afe9deea8e094bebd71))
+* **lease:** a session that runs brd workspace or a command that writes in its slot becomes the holder of a lease whose holder is gone ([40222ae](https://github.com/develar/branch-deck/commit/40222aec8669d85056a61ab1b6ec45d81c9692ec))
+* **lease:** the gets that wait for a slot take the clones lock and a freed slot in the order they asked ([0f59e7d](https://github.com/develar/branch-deck/commit/0f59e7d0be3c1c10055231c6501b2b7adc5b580a))
+
+
+### Bug Fixes
+
+* **lease:** a get that adds a slot by a clone runs one `status` of the slot, and every `status` of a clean or a discard may write its index ([62bf2e0](https://github.com/develar/branch-deck/commit/62bf2e0ae51bd7dc005035105facc7429adb2b9f))
+
 ## [1.26.0](https://github.com/develar/branch-deck/compare/v1.25.0...v1.26.0) (2026-11-25)
 
 
