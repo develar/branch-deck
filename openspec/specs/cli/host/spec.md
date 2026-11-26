@@ -2750,8 +2750,8 @@ a held lock MUST cost a look.
 - **THEN** it joins before the first entry from which every entry to the end may be passed: a run that is not short,
   that short runs passed fewer than 4 times, and no exclusive head whose drain began; else at the end; and it is
   admitted as the head of the queue is, beside the holders while it fits
-- **AND** each run that it went ahead of counts a pass in `passes.json` of the heavy turn, which an older build does
-  not rewrite; a run that supersedes a waiting one takes its passes; the short runs keep their order among themselves,
+- **AND** each run that it went ahead of counts a pass in `passes.json` of the heavy turn, which builds 1.24 to 1.27
+  rewrite without the fields they do not know, keeping these; a run that supersedes a waiting one takes its passes; the short runs keep their order among themselves,
   and so do the others; the join leaves the holders as they are
 - **AND** it counts the earliest join of the runs it went ahead of for its 15 min in the queue, so a head that it
   passed on a busy free turn waits no new bound
@@ -2854,43 +2854,50 @@ a held lock MUST cost a look.
 
 ### Requirement: serve: The heavy queue takes turns between the groups of its runs
 
-A new heavy run MUST join behind the last entry it may not pass: the head, a run of its group, a short run, a run
-that the turns passed 8 times, and a run with no more runs of its group before it than its own group has waiting; so
-first come first inside a group and exactly first come first with one waiting run per group. The turns MUST keep
-none of the short lane's state.
+A new heavy run MUST NOT pass the head, a run of its own group, or a run that 8 runs of the turns are ahead of; behind
+the last of those it MUST join before the first run with more runs of its group ahead than its own group has
+waiting, else last. So the order is first come first inside a group, and exactly first come first with one waiting run
+per group. The turns MUST keep none of the short lane's state.
 
 #### Scenario: A group of many runs and a later run of another group
-- **GIVEN** a group of many heavy runs from checkouts of their own, such as the agents of one orchestrating session
+- **GIVEN** a group of many waiting heavy runs from checkouts of their own, such as the agents of one orchestrating
+  session, none of them with 8 runs of the turns ahead of it
 - **WHEN** a heavy run of another group, or of a checkout without a group, joins the queue later
-- **THEN** it waits behind the first waiting run of each group before it, not behind all of them, and the runs of each
-  group keep their order
-- **AND** the head of the queue alone is admitted, as before
-  [@test] crates/lease-pool/src/host_turn_test.rs (`the_queue_takes_turns_between_groups_and_each_group_keeps_its_order`)
+- **THEN** it waits behind the first waiting run of that group, not behind all of them, also when a short run waits at
+  the end of the queue, and the runs of each group keep their order
+- **AND** it passes every run from its place to the end, a short run there too, and the head of the queue alone is
+  admitted, as before
+  [@test] crates/lease-pool/src/host_turn_test.rs (`the_queue_takes_turns_between_groups_and_each_group_keeps_its_order`, `a_short_run_at_the_end_of_the_queue_keeps_the_turns_of_the_groups`)
   [@test] crates/host-agent/tests/serve/heavy.rs (`the_heavy_queue_takes_turns_between_the_groups_of_its_runs`)
 
 #### Scenario: Runs without a group
 - **WHEN** heavy runs of other checkouts join without `--group`, each checkout with at most one run waiting, also a
-  checkout whose run just took the turn and that joins again
+  checkout whose run took the turn from the head of the queue and that joins again
 - **THEN** each is of the group of its checkout, and they wait first come first exactly as before the groups
 - **AND** a second waiting run of one checkout waits behind the first waiting runs of the other checkouts
   [@test] crates/lease-pool/src/host_turn_test.rs (`without_groups_the_runs_of_checkouts_with_one_run_waiting_each_are_first_come_first`)
 
 #### Scenario: How often a run is passed
 - **WHEN** runs of other groups join while a run waits, any count of groups, while the head can start or not
-- **THEN** a run is passed by the turns at most 8 times, and only by a run of a group with fewer runs waiting than are
-  before it in its own group; the first waiting run of a group is passed by none
-- **AND** the count is in `groups.json` of the heavy turn, and a run that leaves the queue without the turn, a cancel
-  or a start of `admit_now` refused `busy`, gives its passes back
+- **THEN** at most 8 runs of the turns get ahead of it, counting those that wait ahead of it and those that took the
+  turn ahead of it, and only runs of groups with fewer waiting runs than it has ahead in its own group; the first
+  waiting run of a group is passed by none
+- **AND** a run of the turns that leaves the queue without the turn (a cancel, a start of `admit_now` refused `busy`,
+  the end of its process, a write of the table that failed) counts none: the count is derived from `groups.json`,
+  which names the runs that each run went ahead of and whether it took the turn
+- **AND** with the 4 passes of the short lane a run waits at most 12 runs longer than first come first; behind long
+  runs that can pass its 2 h of a heavy wait, and it ends with `heavy_timeout` then
   [@test] crates/lease-pool/src/host_turn_test.rs (`a_run_is_passed_by_the_turns_at_most_eight_times_whatever_the_count_of_groups`)
+  [@test] crates/lease-pool/src/host_estimate_test.rs (`the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues`)
 
 #### Scenario: The short lane, the head, the supersede and the starts at once
 - **WHEN** a short run, an exclusive head, a run that supersedes or a start of `admit_now` meets the turns of the groups
 - **THEN** a run of the turns adds no pass of the short lane (`passes.json`), sets no join of its own from another run
   and counts its load bound from its own join; a short run still joins ahead of the runs it may pass, a backlog that
-  the turns passed too, and no run of the turns goes ahead of a short run or of the head
-- **AND** a run that supersedes a run of its group takes its place and its passes; one of another group takes its own
-  turn, and the passes of the run it replaces go back; an exclusive run, its drain and its pass, and a start of
-  `admit_now` keep their rules
+  the turns passed too, and no run of the turns goes ahead of the head (index 0 of the queue)
+- **AND** a run that supersedes a run of its group takes its place and the runs it went ahead of; one of another group
+  takes its own turn, and the passes of the run it replaces end with it; an exclusive run, its drain and its pass, and
+  a start of `admit_now` keep their rules
   [@test] crates/lease-pool/src/host_turn_test.rs (`the_short_lane_the_head_and_the_supersede_keep_their_rules_beside_the_turns`, `a_run_that_supersedes_a_run_of_another_group_takes_its_own_turn`, `a_short_run_goes_ahead_of_the_runs_that_wait_for_more_and_runs_beside_the_holder`, `a_heavy_run_that_fits_starts_past_an_exclusive_run_whose_drain_ended`)
   [@test] crates/host-agent/tests/serve/admit.rs (`of_two_starts_that_admit_at_once_on_a_free_host_one_runs_and_the_other_is_busy`)
 
@@ -2901,7 +2908,9 @@ none of the short lane's state.
   and only the lines lose the group
 - **AND** a run that `groups.json` does not name is of the group of its entry, its `--group`, else its affinity, else
   alone: the queue goes on and no run is lost
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`)
+- **AND** a `groups.json` of another schema refuses the join, as `turn.json` does; one that does not parse says so in
+  the log, and every waiting run gets its whole budget of 8 again
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`, `the_groups_of_the_queue_name_their_schema_and_a_file_that_does_not_parse_resets_the_budgets`)
 
 ### Requirement: serve: An exclusive run holds a quiet host alone
 
@@ -3402,9 +3411,10 @@ turn, the load outside the heavy runs the most of the last 30 s.
 
 #### Scenario: A run of a group in the estimate
 - **WHEN** the run is of a group, its `group` else its affinity
-- **THEN** the estimate places it by the turns of the groups, by the round and the place functions of the queue: behind
-  the first waiting run of a group of many, not behind all of them
-  [@test] crates/lease-pool/src/host_estimate_test.rs (`a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it`)
+- **THEN** the estimate places it as the join does, by the one function of the join applied to a copy of the table and
+  of its files (`host_turn::join_queue`): behind the first waiting run of a group of many, not behind all of them, and
+  of a run it supersedes as the join does too
+  [@test] crates/lease-pool/src/host_estimate_test.rs (`a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it`, `the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues`)
 
 ### Requirement: serve: A start that admits at once or refuses with busy
 
@@ -3812,9 +3822,10 @@ Each code MUST be one variant of the refusal type of `host-link`, with its name 
   (`lease_failed`) needs a fact of the last fill in the lend table.
 - A cancel during the checkout or the scan of a slot waits for that step to end, because the pool runs that git in
   process.
-- The budget of 8 passes of the turns trades fairness for a bound: once a deep backlog of a group was passed 8 times,
-  the runs of other groups wait behind those of its runs again, as behind the short lane's budget of 4. No cap of
-  holders or cores per group: the admission by cores decides.
+- The budget of 8 runs of the turns trades fairness for a bound: once 8 runs of other groups got ahead of the runs of
+  a deep backlog, the next runs of other groups wait behind those again, as behind the short lane's budget of 4. A
+  passed run waits up to 12 runs longer than first come first, and behind long runs it can reach `heavy_timeout`. No
+  cap of holders or cores per group: the admission by cores decides.
 
 ## References
 

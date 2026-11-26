@@ -248,7 +248,8 @@ One class is one kind of work of about one weight; a new kind of work gets a cla
 The heavy queue takes turns between groups, first come first inside each. A run is of the group of its checkout, so
 one agent's runs wait as before. An orchestrator whose agents work in checkouts of their own names one group for all of
 them, once, in the environment it gives them, and the heavy runs of other sessions then wait behind the first waiting
-run of that group, not behind all of them:
+run of that group, not behind all of them. A run of the group gives way to at most 8 runs of other groups this way,
+and to 4 short runs: a run of a big backlog can wait longer than first come first, up to its 2 h:
 
 ```sh
 export BRD_HOST_GROUP=typing-session    # or brd-host run studio --group typing-session -- …

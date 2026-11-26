@@ -306,9 +306,13 @@ pub fn minute(dir: &Path, cores: u32, now_ms: u64, drain_bar: Duration, busy: Op
       outside: outside(&turn.holders, light, window),
       window,
       sampled: load.sampled,
-      marks,
-      groups: crate::host_turn::read_groups(dir),
+      files: crate::host_turn::QueueFiles {
+        marks,
+        groups: crate::host_turn::QueueGroups::default(),
+        drain: crate::host_turn::DrainFile::default(),
+      },
       head_drain: drain,
+      drain_bar,
       now_ms,
     };
     dry_backfills(&sight, position, &load, walls, dry)
@@ -438,7 +442,7 @@ fn judge(queue: &[TurnEntry], holders: &[TurnEntry], drain: Option<HeadDrain>, l
 fn dry_backfills(sight: &Sight, head: usize, load: &Load<'_>, walls: &Walls<'_>, dry: &mut DryState) -> Vec<DryBackfill> {
   let queue = &sight.turn.queue;
   let head_run = queue[head].ticket.run.clone();
-  let mut passes = sight.marks.of(&head_run).passes + dry.passes.get(&head_run).copied().unwrap_or(0);
+  let mut passes = sight.files.marks.of(&head_run).passes + dry.passes.get(&head_run).copied().unwrap_or(0);
   let mut played = sight.clone();
   played.turn.holders.extend(dry.holders(sight.now_ms).cloned());
   let mut started = Vec::new();

@@ -1,6 +1,7 @@
 use super::*;
-use crate::host_turn::GroupMark;
+use crate::host_turn::{DRAIN_BAR, GroupMark, Joined, TURN_PASS_BUDGET, TurnAnswer, TurnParams, TurnRequest, group_key, join, leave, read_groups, read_live};
 use pretty_assertions::assert_eq;
+use std::path::Path;
 
 const NOW: u64 = 10_000_000;
 const MIN: u64 = 60_000;
@@ -41,9 +42,9 @@ fn sight(holders: Vec<TurnEntry>, queue: Vec<TurnEntry>, outside: u32) -> Sight 
     outside: Some(Cores(outside)),
     window: Some(Cores(outside)),
     sampled: true,
-    marks: QueueMarks::default(),
-    groups: QueueGroups::default(),
+    files: QueueFiles::default(),
     head_drain: None,
+    drain_bar: DRAIN_BAR,
     now_ms: NOW,
   }
 }
@@ -163,7 +164,7 @@ fn a_run_of_another_group_is_placed_by_the_turns_as_the_queue_places_it() {
       group: "session".to_owned(),
       ..GroupMark::default()
     };
-    queue.groups.runs.insert(run.to_owned(), mark);
+    queue.files.groups.runs.insert(run.to_owned(), mark);
   }
   let other = asked("checkout-mine", "key-mine", None);
   assert_eq!(minutes(&queue, &other), (14, 0), "after a and b, ahead of c and d");
@@ -192,4 +193,121 @@ fn of_mine(entry: TurnEntry) -> TurnEntry {
     command_key: Some("key-mine".to_owned()),
     ..entry
   }
+}
+
+/// A generator of numbers for the generated queues: xorshift of a fixed seed, so a failure repeats
+struct Draw(u64);
+
+impl Draw {
+  fn below(&mut self, n: u64) -> u64 {
+    self.0 ^= self.0 << 13;
+    self.0 ^= self.0 >> 7;
+    self.0 ^= self.0 << 17;
+    self.0 % n
+  }
+}
+
+/// The runs before the run `run` in the queue of `dir`, or `None` when it is not there
+fn ahead_in(dir: &Path, run: &str) -> Option<Vec<String>> {
+  let queue = read_live(dir).unwrap().queue;
+  let at = queue.iter().position(|entry| entry.ticket.run == run)?;
+  Some(queue[..at].iter().map(|entry| entry.ticket.run.clone()).collect())
+}
+
+/// The estimate places a run where the join puts it, over generated queues: runs of groups and of checkouts without
+/// one, short runs, exclusive runs at the head, supersedes of a run of the same and of another group, runs that leave,
+/// and runs at their budget of passes, behind a holder of the whole host. Both read one rule (`host_turn::join_queue`),
+/// so no third copy of it can drift unnoticed
+#[test]
+fn the_estimate_places_a_run_where_the_join_puts_it_over_generated_queues() {
+  let dir = tempfile::tempdir().unwrap();
+  let params = TurnParams {
+    dir: dir.path(),
+    lock_timeout: Duration::from_secs(10),
+    recheck: crate::host_turn::RECHECK,
+    cores: 20,
+    load_bound: LOAD_BOUND,
+    drain_bar: DRAIN_BAR,
+  };
+  let pid = std::process::id();
+  let started = sync_utils::process_scan::process_started(pid);
+  let commands = [vec!["cargo".to_owned(), "nextest".to_owned()], vec!["pnpm".to_owned(), "e2e".to_owned()]];
+  let keys = ["key-of-nextest", "key-of-e2e"];
+  let groups = ["session", "other", "third"];
+  let checkouts: Vec<String> = (0..16).map(|n| format!("checkout-{n:02}")).collect();
+  let checkouts: &'static [String] = Box::leak(checkouts.into_boxed_slice());
+  let runs: Vec<String> = (0..400).map(|n| format!("run-{n}")).collect();
+  let request = |run: &'static str, draw: &mut Draw| {
+    let command = usize::try_from(draw.below(2)).unwrap();
+    let short = draw.below(5) == 0;
+    TurnRequest {
+      run,
+      pid,
+      process_started: started,
+      repo: REPO,
+      command: &commands[command],
+      affinity: checkouts[usize::try_from(draw.below(16)).unwrap()].as_str(),
+      command_key: keys[command],
+      expected: short.then_some(Cores(40)),
+      exclusive: draw.below(20) == 0,
+      passed_wall: short.then_some(Duration::from_secs(50)),
+      measure_as: None,
+      group: match draw.below(6) {
+        0..=2 => Some(groups[0]),
+        3 => Some(groups[1]),
+        4 => Some(groups[2]),
+        _ => None,
+      },
+    }
+  };
+  let holder = TurnRequest {
+    run: "holder",
+    pid,
+    process_started: started,
+    repo: REPO,
+    command: &commands[0],
+    affinity: "checkout-holder",
+    command_key: "key-of-holder",
+    expected: None,
+    exclusive: false,
+    passed_wall: None,
+    measure_as: None,
+    group: None,
+  };
+  assert_eq!(join(&params, &holder).unwrap().answer, TurnAnswer::Taken);
+  let runs: &'static [String] = Box::leak(runs.into_boxed_slice());
+  let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
+  let mut compared = 0;
+  let mut most = 0;
+  for run in runs {
+    let queue = read_live(dir.path()).unwrap().queue;
+    if !queue.is_empty() && draw.below(12) == 0 {
+      let gone = &queue[usize::try_from(draw.below(queue.len() as u64)).unwrap()].ticket.run;
+      leave(&params, gone).unwrap();
+    }
+    let asked_request = request(run.as_str(), &mut draw);
+    if asked_request.exclusive {
+      // an estimate is of a run that is not exclusive
+      join(&params, &asked_request).unwrap();
+    } else {
+      let sight = Sight::of(dir.path(), 20, crate::host_slots::now_ms(), DRAIN_BAR).unwrap();
+      let asked = Asked {
+        repo: REPO,
+        affinity: asked_request.affinity,
+        command_key: asked_request.command_key,
+        expected: asked_request.expected,
+        passed_wall: asked_request.passed_wall,
+        group: group_key(asked_request.group, asked_request.affinity, run),
+      };
+      let estimated: Vec<String> = place(&sight, &asked).0.into_iter().map(|entry| entry.ticket.run).collect();
+      let joined: Joined = join(&params, &asked_request).unwrap();
+      assert!(matches!(joined.answer, TurnAnswer::Queued(_)), "{run}");
+      assert_eq!(ahead_in(dir.path(), run), Some(estimated), "{run}");
+      compared += 1;
+    }
+    let passes = read_groups(dir.path()).unwrap().passes_in(&read_live(dir.path()).unwrap().queue);
+    most = passes.values().copied().max().unwrap_or_default().max(most);
+  }
+  assert!(compared > 300, "{compared}");
+  assert_eq!(most, TURN_PASS_BUDGET, "some run reached its budget, and none went past it");
 }

@@ -222,27 +222,37 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   idle host. So a run names its group (`brd-host run --group`, `BRD_HOST_GROUP`, `RunSpec::group`), which an
   orchestrator sets once for all its agents; without one the group is its affinity, as one checkout is one agent. The
   affinity could not be the group: it also picks the slot, the base of the packs and the supersede. The round of a run
-  of the queue is the count of the runs of its group before it, read from the queue at each join, never stamped: a
-  new run joins behind the last entry that it may not pass (the head, a run of its own group, a short run, a run that
-  the turns passed 8 times, a run whose round is not above the count of its own group's waiting runs), so it goes ahead
-  only of runs of groups with more runs waiting before them. With one waiting run per group every round is 0, and the
-  queue is first come first exactly as before, also for an agent that waits for each of its runs. Rounds stamped at the join, with the round each group was served
-  at, were tried and not taken: with them a checkout whose run just took the turn waited behind every new checkout,
-  and a head that could not start kept every new group ahead of every served one.
-  The order still changes only at the join, in `turn.json` itself, so a supervisor of the build before admits its
-  head right. The bound is a budget, as the short lane's: a run is passed by the turns at most 8 times
-  (`TURN_PASS_BUDGET`), whatever the count of the groups and whether the head can start, about 80 min of runs of 10
-  min, within the 2 h of a heavy wait. Rounds alone bound the passes per other group, not the groups: a stream of new
-  groups, each of round 0, would pass a backlog for as long as it came. The price: once a backlog was passed 8 times,
-  later runs of other groups wait behind those of its runs again. The passes and the group of each run are in
-  `groups.json` beside the table, a file no older build reads or writes (builds 1.24 to 1.27 rewrite `passes.json`
-  without the fields they do not know, so it could not hold them), and the turns touch none of the short lane: no pass
-  of `passes.json`, no earliest join, so a short run still passes a backlog that other groups went ahead of and a run of
-  the turns counts its load bound from its own join. A run that leaves the queue without the turn, a cancel or a start
-  of `admit_now` refused `busy`, gives the passes of the runs it went ahead of back. A run that supersedes one of its
-  group takes its place and its passes; one of another group takes its own turn, so it never waits ahead of the earlier
-  runs of its new group. A run that `groups.json` does not name is of the group of its entry, its `--group`, else its
-  affinity, else alone. No cap of holders or cores per group was taken: the admission by cores decides how many runs of
+  of the queue is the count of the runs of its group before it, read from the queue at each join, never stamped. A new
+  run may not pass the head (index 0), a run of its own group, or a run that 8 runs of the turns got ahead of; behind
+  the last of those it joins before the first run whose round is above the count of its own group's waiting runs, else
+  at the end, and passes every run from there to the end. So it goes ahead of the later runs of a group with more runs
+  waiting, also when a short run waits at the end: a first rule kept every round-0 run, a short one included, and a
+  short run that waited at the end, as one whose backlog had used up its short passes, then put every later run of
+  another group behind the whole backlog. With one waiting run per group every round is 0, and the queue is first
+  come first exactly as before, also for an agent that waits for each of its runs. Rounds stamped at the join, with the
+  round each group was served at, were tried and not taken: with them a checkout whose run just took the turn waited
+  behind every new checkout, and a head that could not start kept every new group ahead of every served one. The order
+  still changes only at the join, in `turn.json` itself, so a supervisor of the build before admits its head right.
+  The bound is a budget, as the short lane's: at most 8 runs of the turns get ahead of a run (`TURN_PASS_BUDGET`),
+  counting those that wait ahead of it and those that took the turn ahead of it, whatever the count of the groups and
+  whether the head can start. Rounds alone bound the passes per other group, not the groups: a stream of new groups,
+  each of round 0, would pass a backlog for as long as it came. The price: once 8 runs of other groups got ahead of a
+  backlog, the next ones wait behind it again; and with the short lane's 4 a run waits up to 12 runs longer than first
+  come first, which behind runs of an hour is past its 2 h, so it can end with `heavy_timeout` where first come first
+  would have started it. `groups.json` beside the table, a file no older build reads or writes (builds 1.24 to 1.27
+  rewrite `passes.json` without the fields they do not know, so it could not hold the turns), names the group of each
+  run, the runs it went ahead of and whether it took the turn, with a schema of its own: a file of another schema
+  refuses as the table does, one that does not parse says so in the log and gives every waiting run its whole budget
+  again. The count of the passes of a run is derived from it and the queue, never kept as a number: a run that leaves
+  without the turn, by a cancel, a start of `admit_now` refused `busy`, the end of its process or a failed write of the
+  table, counts no pass, and the file is written before the table under its lock, so no failure counts a pass for a
+  run that is not in the queue. The turns touch none of the short lane: no pass of `passes.json`, no earliest join, so
+  a short run still passes a backlog that other groups went ahead of and a run of the turns counts its load bound from
+  its own join. A run that supersedes one of its group takes its place and the runs it went ahead of; one of another
+  group takes its own turn, so it never waits ahead of the earlier runs of its new group. The join is one function
+  (`host_turn::join_queue`) of the table and its files in memory: the join writes what it changed, and the estimate of a
+  start applies it to a copy, so the two place a run alike by construction, which a test over generated queues checks.
+  A run that `groups.json` does not name is of the group of its entry, its `--group`, else its affinity, else alone. No cap of holders or cores per group was taken: the admission by cores decides how many runs of
   a group hold cores at once, as for any run, and a cap idles the host when one group alone waits, the defect of the
   lock it replaces. An agent without the feature `group` gets no `group` and queues the run first come first, which
   its client says for a heavy run; the estimate places a run by the same place function, and an older agent ignores

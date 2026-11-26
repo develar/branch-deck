@@ -3,8 +3,8 @@
 //! each member before it chooses one, never an admission. The admission of the turn decides (`host_turn::join`); the
 //! estimate only plays the queue forward.
 //!
-//! The run takes its place in the queue as a new run would, by the place function of the queue (`host_turn::place`,
-//! which puts a short run ahead of the runs that it may pass); then the holders end, each after the wall that
+//! The run takes its place in the queue as a new run would, by the join itself (`host_turn::join_queue`) applied to a
+//! copy of the table and of its files, short runs, supersedes and the turns of the groups alike; then the holders end, each after the wall that
 //! its command took in its last runs, and the queue before the run is admitted in its order by the rule of the turn
 //! (`host_turn::admits`), until the run is admitted. The load of the host outside the heavy runs is the most of its last
 //! 30 s ([`Sight::of`]): one sample of 2 s misled a choice before. A run of the queue or a holder whose command has no
@@ -13,7 +13,7 @@
 
 use crate::host_slots::Ticket;
 use crate::host_turn::{
-  HeadDrain, HeavyTurn, LOAD_BOUND, Load, QueueGroups, QueueMarks, TurnEntry, admits, head_drain, host_sample, host_window, outside, read_groups, read_live, read_marks, short_wall,
+  HeadDrain, HeavyTurn, Joined, LOAD_BOUND, Load, QueueFiles, TurnAnswer, TurnEntry, TurnRequest, admits, head_drain, host_sample, host_window, join_queue, outside, read_live,
 };
 use anyhow::Result;
 use std::path::Path;
@@ -34,12 +34,12 @@ pub struct Sight {
   pub window: Option<Cores>,
   /// The agent sampled the host at all
   pub sampled: bool,
-  /// The classes of the runs of the queue and their passes (`passes.json`, `host_turn::read_marks`)
-  pub marks: QueueMarks,
-  /// The groups of the runs of the queue and their passes by turns (`groups.json`, `host_turn::read_groups`)
-  pub groups: QueueGroups,
-  /// The drain of an exclusive head of the queue (`host_turn::head_drain`)
+  /// The files beside the table that a join reads: the marks of the short lane, the groups of the turns and the drain
+  /// (`host_turn::QueueFiles`)
+  pub files: QueueFiles,
+  /// The drain of an exclusive head of the queue (`host_turn::head_drain`), and how long a drain bars the host
   pub head_drain: Option<HeadDrain>,
+  pub drain_bar: Duration,
   pub now_ms: u64,
 }
 
@@ -53,9 +53,9 @@ impl Sight {
       outside: outside(&turn.holders, turn.light_cores(), window),
       window,
       sampled: host_sample(dir, now_ms).is_some(),
-      marks: read_marks(dir),
-      groups: read_groups(dir),
+      files: QueueFiles::read(dir)?,
       head_drain: head_drain(dir, &turn.queue, now_ms, drain_bar),
+      drain_bar,
       turn,
       cores,
       now_ms,
@@ -95,7 +95,7 @@ pub fn estimate(sight: &Sight, asked: &Asked<'_>, wall: &dyn Fn(&TurnEntry) -> O
   let mut play = Play::of(sight, wall);
   let (ahead, since_ms) = place(sight, asked);
   let run = entry_of(asked, since_ms);
-  for (index, entry) in ahead.iter().copied().chain(std::iter::once(&run)).enumerate() {
+  for (index, entry) in ahead.iter().chain(std::iter::once(&run)).enumerate() {
     let last = index == ahead.len();
     if play.until_admitted(entry) {
       if !last {
@@ -213,30 +213,37 @@ impl<'a> Play<'a> {
   }
 }
 
-/// The runs of the queue of `sight` before a new run of `asked`, as the queue places it (`host_turn::enqueue`), and the
-/// join that its bound of the load counts from: every run of its checkout and command that waits leaves the queue,
-/// superseded, and the run takes the place of the first of them when it is of its group, else its turn in the whole
-/// queue, by the one place function of the queue (`host_turn::place`), so the estimate and the queue agree. A short run
-/// counts the earliest join of the runs that it passes, a run of the turns its own
-fn place<'q>(sight: &'q Sight, asked: &Asked<'_>) -> (Vec<&'q TurnEntry>, u64) {
-  let same = |entry: &TurnEntry| {
-    !asked.affinity.is_empty() && entry.repo == asked.repo && entry.affinity.as_deref() == Some(asked.affinity) && entry.command_key.as_deref() == Some(asked.command_key)
+/// The runs of the queue of `sight` before a new run of `asked`, and the join that its bound of the load counts from:
+/// the join itself (`host_turn::join_queue`) on a copy of the table and of its files, so the estimate places a run as
+/// the queue does by construction, the runs it supersedes, short runs and the turns of the groups alike
+pub(crate) fn place(sight: &Sight, asked: &Asked<'_>) -> (Vec<TurnEntry>, u64) {
+  let mut turn = sight.turn.clone();
+  let mut files = sight.files.clone();
+  let request = TurnRequest {
+    run: "",
+    pid: 0,
+    process_started: None,
+    repo: asked.repo,
+    command: &[],
+    affinity: asked.affinity,
+    command_key: asked.command_key,
+    expected: asked.expected,
+    exclusive: false,
+    passed_wall: asked.passed_wall,
+    measure_as: None,
+    group: Some(asked.group),
   };
-  let queue = &sight.turn.queue;
-  let superseded_at = queue.iter().position(same);
-  let kept: Vec<&TurnEntry> = queue.iter().filter(|entry| !same(entry)).collect();
-  let owned: Vec<TurnEntry> = kept.iter().map(|entry| (*entry).clone()).collect();
-  let takes_place = superseded_at.is_some_and(|at| sight.groups.group_of(&queue[at]) == asked.group);
-  let end = if takes_place { superseded_at.unwrap_or_default().min(kept.len()) } else { kept.len() };
-  let short = short_wall(false, asked.expected, asked.passed_wall, sight.cores).is_some();
-  let turn = (!takes_place).then_some((&sight.groups, asked.group));
-  let position = crate::host_turn::place(&owned[..end], &sight.marks, sight.head_drain, short, turn);
-  let since_ms = if short {
-    kept[position..end].iter().map(|entry| entry.since_ms).fold(sight.now_ms, u64::min)
-  } else {
-    sight.now_ms
+  let mut joined = Joined {
+    answer: TurnAnswer::Taken,
+    replaced: Vec::new(),
+    beside: Vec::new(),
+    short: None,
+    passed: Vec::new(),
   };
-  (kept[..position].to_vec(), since_ms)
+  let position = join_queue(&mut turn, &mut files, (sight.cores, sight.drain_bar), sight.now_ms, &request, &mut joined);
+  let since_ms = turn.queue[position].since_ms;
+  turn.queue.truncate(position);
+  (turn.queue, since_ms)
 }
 
 /// The entry of `asked` as it would join the queue at `now_ms`

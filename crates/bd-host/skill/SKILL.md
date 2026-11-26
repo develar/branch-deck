@@ -94,7 +94,7 @@ of their work ran), not their mean, so a gate that builds on 16 cores for minute
 16. From 10 min after its start every heavy run counts its live use of the last 5 min instead, never less than its
 peak of those 5 min, so the queue starts beside its quiet tail. The queue takes turns between groups (`--group`, else
 the checkout of a run) and is first come first inside one, so the runs of an orchestrator's agents wait as one group
-and the runs of others go between them; a head of the queue that waited 15 min starts on a free
+and the runs of others go between them, at most 8 ahead of each run of the group; a head of the queue that waited 15 min starts on a free
 turn whatever the load; a short run (its last passed runs took at most 2 min, a lint) joins ahead of the long runs,
 each of which it passes at most 4 times, so do not cancel a long run that a short one passed. The measures of a command do not depend on the paths of its `--fetch` directories, so give
 each run an output directory of its own and fetch it. Any other word that changes makes a new command: a script with
