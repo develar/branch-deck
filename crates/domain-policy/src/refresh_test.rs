@@ -1,8 +1,9 @@
 use crate::refresh::{
-  ActiveRobots, DetailsRead, FactTiming, ListWindow, MOVED_REMOTE_RETRIES, MovedRemoteFetch, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks, ReadinessPriority,
-  ReadinessRead, RefreshReason, ServiceState, auth_due, auth_follows_up, branch_rules_due, moved_remote_fetch_due, profiles_due, pull_requests_due, pull_requests_follows_up,
-  pull_requests_push_recheck_at, readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due,
-  robot_details_due, robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
+  ActiveRobots, CLOSED_SHOWN_INTERVAL, DetailsRead, FactTiming, ListWindow, MOVED_REMOTE_RETRIES, MovedRemoteFetch, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks,
+  ReadinessPriority, ReadinessRead, RefreshReason, ServiceState, auth_due, auth_follows_up, branch_rules_due, closed_shown_due, moved_remote_fetch_due, profiles_due,
+  pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at, readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up,
+  review_requests_poll_delay, reviews_shown_due, robot_details_due, robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window,
+  robots_poll_at, robots_poll_due,
 };
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
@@ -211,6 +212,14 @@ fn the_pull_requests_off_github_and_before_the_retry_of_a_rate_limit_are_asked_o
 fn a_pull_request_that_shows_an_old_head_after_a_push_is_asked_once_more_five_seconds_later() {
   assert_eq!(pull_requests_push_recheck_at(NOW, false), Some(NOW + secs(5)));
   assert_eq!(pull_requests_push_recheck_at(NOW, true), None);
+}
+
+#[test]
+fn the_closed_shown_reviews_are_asked_by_the_first_list_of_the_session_then_once_an_hour() {
+  assert_eq!(CLOSED_SHOWN_INTERVAL, secs(3600));
+  assert!(closed_shown_due(NOW, None));
+  assert!(!closed_shown_due(NOW, Some(secs(1))));
+  assert!(closed_shown_due(NOW, Some(secs(0))));
 }
 
 #[test]

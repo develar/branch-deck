@@ -9,8 +9,8 @@ use anyhow::Result;
 use domain_policy::shown::shown_review;
 use domain_types::branch_names::{BranchKind, reviewed_branch, strip_branch_namespace};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult,
-  ReviewDecision, Reviewer, ReviewerState, ShownReview, ViewerPermission,
+  ChecksState, ChecksSummary, ClosedShownReview, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState,
+  PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, ShownReview, ViewerPermission,
 };
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -19,20 +19,26 @@ use std::collections::BTreeMap;
 use sync_core::github_repository::GitHubRepository;
 use sync_utils::issue_pattern::issue_lead;
 use sync_utils::list_cut::kept;
-use sync_utils::timestamp::parse_rfc3339_timestamp;
+use sync_utils::timestamp::{format_utc_date, parse_rfc3339_timestamp, unix_now};
 use tracing::{instrument, warn};
 
 /// The search of the user's pull requests, newest first: the virtual branches under review are among the 50 most
-/// recently updated. `repository` tells "no pull requests" from "the token can't see the repository". The fields are
-/// those `gh pr list --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`), the stack
-/// of GitHub a schema that has stacks (`PULL_REQUESTS_QUERY_WITHOUT_STACKS`, docs/design/github-stacks.md).
+/// recently updated. The user's open shown reviews are a search of their own (`shown`), the closed ones another
+/// (`closed`, a slim fragment), asked only when `$withClosed` (`domain_policy::refresh::closed_shown_due`).
+/// `repository` tells "no pull requests" from "the token can't see the repository". The fields are those `gh pr list
+/// --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`), the stack of GitHub a schema
+/// that has stacks (`PULL_REQUESTS_QUERY_WITHOUT_STACKS`, docs/design/github-stacks.md).
 macro_rules! pull_requests_query {
   ($team:literal, $stack:literal) => {
     concat!(
-      "query($q: String!, $shown: String!, $owner: String!, $name: String!) {
+      "query($q: String!, $shown: String!, $closed: String!, $withClosed: Boolean!, $owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) { viewerPermission rebaseMergeAllowed mergeCommitAllowed squashMergeAllowed autoMergeAllowed }
   search(query: $q, type: ISSUE, first: 50) { nodes { ...ListedPull } }
-  shown: search(query: $shown, type: ISSUE, first: 50) { nodes { ...ListedPull ... on PullRequest { body } } }
+  shown: search(query: $shown, type: ISSUE, first: 50) { nodes { ...ListedPull ... on PullRequest { body baseRef { target { oid } } } } }
+  closed: search(query: $closed, type: ISSUE, first: 50) @include(if: $withClosed) { nodes { ... on PullRequest {
+    number url headRefName headRefOid baseRefName baseRefOid closedAt isCrossRepository headRepositoryOwner { login }
+    headRef { target { oid } } baseRef { target { oid } }
+  } } }
 }
 fragment ListedPull on PullRequest {
   number title url state isDraft reviewDecision
@@ -102,6 +108,20 @@ pub fn shown_reviews_search(repository: &GitHubRepository, branch_prefix: &str) 
   )
 }
 
+/// The search of the user's shown reviews in `repository` closed since `since` (Unix seconds, by the day of its last
+/// update): a close on GitHub leaves their branches, which go an hour after it (`domain_policy::shown::closed_elsewhere`)
+pub fn closed_shown_search(repository: &GitHubRepository, branch_prefix: &str, since: u32) -> String {
+  format!(
+    "repo:{} is:pr is:closed author:@me head:{}/review/ updated:>={} sort:updated-desc",
+    repository.full_name(),
+    branch_prefix.trim_end_matches('/'),
+    format_utc_date(i64::from(since))
+  )
+}
+
+/// How far back the search of the closed shown reviews looks: a session of the last week deletes what it closed
+pub const CLOSED_SHOWN_DAYS: u32 = 7;
+
 /// The label Patronus puts on a pull request it merged: it rebases, so GitHub closes the pull request instead of
 /// marking it merged
 pub const MERGED_LABEL: &str = "merged";
@@ -116,13 +136,16 @@ pub const NOT_ON_GITHUB_MESSAGE: &str = "The pull requests of the branches are n
 pub const SIGNED_OUT_MESSAGE: &str = "No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git";
 
 /// The pull requests of the user's virtual branches in `repository`, the GitHub repository of the branches
-/// (`resolve_github_repository`); `repository_path` is where git reads the credential config
+/// (`resolve_github_repository`), with the open shown reviews and, with `closed`, the shown reviews closed in the last
+/// `CLOSED_SHOWN_DAYS`; `repository_path` is where git reads the credential config
 #[instrument(skip(github))]
-pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch_prefix: &str) -> PullRequestsResult {
+pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch_prefix: &str, closed: bool) -> PullRequestsResult {
   let full_name = repository.full_name();
   let variables = serde_json::json!({
     "q": pull_requests_search(repository),
     "shown": shown_reviews_search(repository, branch_prefix),
+    "closed": closed_shown_search(repository, branch_prefix, unix_now().saturating_sub(CLOSED_SHOWN_DAYS * 24 * 3600)),
+    "withClosed": closed,
     "owner": repository.owner,
     "name": repository.name,
   });
@@ -155,6 +178,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         .and_then(|permission| ViewerPermission::parse(&permission));
       let (pull_requests, stack_pull_requests) = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
       let shown_reviews = to_shown_reviews(data.shown.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
+      let closed_shown_reviews = closed.then(|| to_closed_shown_reviews(data.closed.map_or_default(|search| search.nodes), branch_prefix, &repository.owner));
       PullRequestsResult {
         availability: PullRequestAvailability::Available {
           owner: repository.owner.clone(),
@@ -166,6 +190,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         stack_pull_requests,
         github_stacks,
         shown_reviews,
+        closed_shown_reviews,
       }
     }
     Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
@@ -263,6 +288,9 @@ pub struct PullRequestsData {
   /// The user's open shown reviews (`shown_reviews_search`); absent of an answer without them
   #[serde(default)]
   shown: Option<GhSearch>,
+  /// The user's closed shown reviews (`closed_shown_search`); absent of an answer that didn't ask them
+  #[serde(default)]
+  closed: Option<GhSearch>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -356,6 +384,57 @@ struct GhPullRequest {
   /// Of a shown review only (the `shown` search): the record of the reviewers it asks
   #[serde(default)]
   body: Option<String>,
+  /// Of a shown review: the branch its base names, null when the remote lacks it; `Unasked` of an answer that doesn't
+  /// ask it
+  #[serde(default, deserialize_with = "asked")]
+  base_ref: Asked<GhRef>,
+  /// Of a closed shown review only (the `closed` search): its head branch, null when the remote lacks it
+  #[serde(default)]
+  head_ref: Option<GhRef>,
+  #[serde(default)]
+  base_ref_oid: String,
+  closed_at: Option<String>,
+}
+
+/// A field of a node that a query may not ask: absent, null, or a value
+#[derive(Debug, Default)]
+enum Asked<T> {
+  #[default]
+  Unasked,
+  Null,
+  Value(T),
+}
+
+impl<T> Asked<T> {
+  const fn value(&self) -> Option<&T> {
+    match self {
+      Self::Value(value) => Some(value),
+      Self::Unasked | Self::Null => None,
+    }
+  }
+}
+
+/// A field the answer names, null or not (an absent one is `Asked::Unasked`, its default)
+fn asked<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Asked<T>, D::Error> {
+  Ok(Option::<T>::deserialize(deserializer)?.map_or(Asked::Null, Asked::Value))
+}
+
+/// A branch of GitHub (`Ref`) with the commit it points to
+#[derive(Debug, Deserialize)]
+struct GhRef {
+  target: Option<GhTarget>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhTarget {
+  oid: Option<String>,
+}
+
+impl GhRef {
+  /// The tip of a branch the answer names, `None` of one the remote lacks
+  fn tip(reference: Option<&Self>) -> Option<String> {
+    reference.and_then(|reference| reference.target.as_ref()?.oid.clone())
+  }
 }
 
 #[derive(Debug, Deserialize)]
@@ -503,14 +582,54 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
       continue;
     }
     let body = gh.body.take().unwrap_or_default();
+    // asked and null: the remote lacks its base
+    let base_missing = match &gh.base_ref {
+      Asked::Unasked => false,
+      Asked::Null | Asked::Value(_) => GhRef::tip(gh.base_ref.value()).is_none(),
+    };
     let Some(pull_request) = to_pull_request(gh).filter(|pull_request| pull_request.state == PullRequestState::Open) else {
       continue;
     };
     if reviews.get(&branch).is_none_or(|existing| pull_request.updated_at > existing.pull_request.updated_at) {
-      reviews.insert(branch, shown_review(pull_request, &body));
+      reviews.insert(
+        branch,
+        ShownReview {
+          base_missing,
+          ..shown_review(pull_request, &body)
+        },
+      );
     }
   }
   reviews
+}
+
+/// The closed shown reviews among `nodes` (the `closed` search), newest first as GitHub answers them: a head of exactly
+/// `{prefix}/review/<branch>/head` in `owner`'s repository, with the tips its pull request ended at and what the remote
+/// has of its branches now
+fn to_closed_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> Vec<ClosedShownReview> {
+  nodes
+    .into_iter()
+    .filter(|gh| {
+      let same_owner = gh
+        .head_repository_owner
+        .as_ref()
+        .and_then(|it| it.login.as_deref())
+        .is_some_and(|login| login.eq_ignore_ascii_case(owner));
+      same_owner && !gh.is_cross_repository
+    })
+    .filter_map(|gh| {
+      Some(ClosedShownReview {
+        branch: reviewed_branch(&gh.head_ref_name, branch_prefix)?.to_owned(),
+        number: gh.number?,
+        head_tip: GhRef::tip(gh.head_ref.as_ref()),
+        base_tip: GhRef::tip(gh.base_ref.value()),
+        closed_at: gh.closed_at.as_deref().and_then(parse_rfc3339_timestamp)?,
+        url: gh.url,
+        head_ref_oid: gh.head_ref_oid,
+        base_ref_oid: gh.base_ref_oid,
+      })
+    })
+    .collect()
 }
 
 const fn preference(pull_request: &PullRequest) -> (u8, u32) {

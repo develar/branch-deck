@@ -32,9 +32,10 @@ pub async fn fill(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &G
   let key = session.key().clone();
   let table = session.facts().table.value();
   let baseline = table.map_or_default(|table| table.baseline.clone());
+  let closed = needs.contains(&FactNeed::ClosedShownReviews);
   let first: Vec<Pending> = unique(needs.iter().filter(|need| need.is_first()))
     .into_iter()
-    .filter_map(|need| first_read(sources, &key, &baseline, table, need))
+    .filter_map(|need| first_read(sources, &key, &baseline, table, need, closed))
     .collect();
   apply_all(session, first).await;
   // the robot of a subject is the view's: what matches it costs git, so only a need of one derives it here
@@ -58,7 +59,7 @@ pub async fn fill(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &G
         robots.extend(failed.map(|robot| (robot.id.clone(), false)));
       }
       FactNeed::Readiness(subject) => readiness.push(subject.key()),
-      FactNeed::Robots(_) | FactNeed::PullRequests | FactNeed::Profiles | FactNeed::Rules { .. } => {}
+      FactNeed::Robots(_) | FactNeed::PullRequests | FactNeed::ClosedShownReviews | FactNeed::Profiles | FactNeed::Rules { .. } => {}
     }
   }
   for (id, details) in unique(robots.iter()) {
@@ -83,8 +84,8 @@ fn unique<'a, T: PartialEq>(items: impl Iterator<Item = &'a T>) -> Vec<&'a T> {
 }
 
 /// The read of a fact of the first round; none of the others. The robots of the pushed branches are of `table`; none
-/// without one
-fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, table: Option<&Arc<BranchTable>>, need: &FactNeed) -> Option<Pending> {
+/// without one; the pull requests with the closed shown reviews too when `closed`
+fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, table: Option<&Arc<BranchTable>>, need: &FactNeed, closed: bool) -> Option<Pending> {
   let (sources, key) = (Arc::clone(sources), key.clone());
   let read: Pending = match need {
     FactNeed::Robots(of) => {
@@ -101,7 +102,7 @@ fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, 
         }
       })
     }
-    FactNeed::PullRequests => Box::pin(async move { FactResult::PullRequests(sources.pull_requests(&key).await) }),
+    FactNeed::PullRequests => Box::pin(async move { FactResult::PullRequests(sources.pull_requests(&key, closed).await) }),
     FactNeed::Profiles => {
       let baseline = baseline.to_owned();
       Box::pin(async move {
@@ -116,7 +117,7 @@ fn first_read(sources: &Arc<dyn FactSources>, key: &SessionKey, baseline: &str, 
         FactResult::Rules { branch, result }
       })
     }
-    FactNeed::LastProfile(_) | FactNeed::FailedRobot(_) | FactNeed::Readiness(_) => return None,
+    FactNeed::ClosedShownReviews | FactNeed::LastProfile(_) | FactNeed::FailedRobot(_) | FactNeed::Readiness(_) => return None,
   };
   Some(read)
 }

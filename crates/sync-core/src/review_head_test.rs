@@ -1,4 +1,4 @@
-use crate::review_head::{Fixes, RemoteReview, ReviewExtension, delete_review, extend_review, push_review, read_remote_review};
+use crate::review_head::{Fixes, RemoteReview, ReviewExtension, delete_review, delete_review_at, extend_review, push_review, read_remote_review};
 use git_ops::commit_signing::Signing;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -65,6 +65,42 @@ fn a_delete_takes_only_the_branches_the_remote_has() {
   assert_eq!(on_origin(&repo), RemoteReview::default());
   // none left: done
   assert_eq!(delete_review(git, path, "origin", "test", "auth").unwrap(), Vec::<String>::new());
+}
+
+#[test]
+fn a_delete_of_a_review_closed_elsewhere_takes_only_the_branches_still_at_its_tips() {
+  let (repo, fork, tip) = repo_with_auth();
+  let path = repo.path().to_str().unwrap();
+  let git = repo.git_executor();
+  push_review(git, path, "origin", "test", "auth", &tip, "refs/remotes/origin/master").unwrap();
+  let closed = RemoteReview {
+    head: Some(tip),
+    base: Some(fork.clone()),
+  };
+  // a newer review of auth took the head since: it stays, the base of the closed one goes
+  let newer = repo.create_commit("(auth) Fix auth", "auth.txt", "auth 2\n");
+  push_review(git, path, "origin", "test", "auth", &newer, "refs/remotes/origin/master").unwrap();
+
+  assert_eq!(delete_review_at(git, path, "origin", "test", "auth", &closed).unwrap(), [BASE]);
+  assert_eq!(
+    on_origin(&repo),
+    RemoteReview {
+      head: Some(newer.clone()),
+      base: None
+    }
+  );
+  // nothing left at its tips: done, the newer head kept
+  assert_eq!(delete_review_at(git, path, "origin", "test", "auth", &closed).unwrap(), Vec::<String>::new());
+  assert_eq!(on_origin(&repo).head, Some(newer.clone()));
+
+  // both still at its tips: both go in one push
+  let both = RemoteReview {
+    head: Some(newer),
+    base: Some(fork),
+  };
+  push_review(git, path, "origin", "test", "auth", both.head.as_deref().unwrap(), "refs/remotes/origin/master").unwrap();
+  assert_eq!(delete_review_at(git, path, "origin", "test", "auth", &both).unwrap(), [HEAD, BASE]);
+  assert_eq!(on_origin(&repo), RemoteReview::default());
 }
 
 /// The target of the bare `origin` changes auth to `content` by a commit of someone else, which the repository fetches

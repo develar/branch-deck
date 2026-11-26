@@ -1418,6 +1418,7 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
           reviewers: vec!["alice".to_owned()],
           landed: Vec::new(),
           state: domain_types::pull_request::ShownState::Draft,
+          base_missing: false,
         },
       )]
       .into(),

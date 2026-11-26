@@ -118,6 +118,14 @@ const WRITES: &[Write] = &[
     callers: &[("crates/operations/src/shown.rs", 1, "the close of a shown review (`PlannedEffect::DeleteReview`)")],
   },
   Write {
+    call: "delete_review_at(",
+    callers: &[(
+      "crates/operations/src/shown.rs",
+      1,
+      "the delete of the branches of a shown review closed elsewhere (`PlannedEffect::DeleteReviewAt`)",
+    )],
+  },
+  Write {
     call: "extend_review(",
     callers: &[("crates/operations/src/shown.rs", 1, "the extend of a shown review by a fix (`PlannedEffect::ExtendReview`)")],
   },

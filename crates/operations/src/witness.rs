@@ -183,6 +183,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::OpenShownReview { branch, .. } => (format!("the open of the shown review of {branch}"), "open it again"),
     Intent::ExtendShownReview { branch } => (format!("the extend of the shown review of {branch}"), "extend it again"),
     Intent::CloseShownReview { branch, .. } => (format!("the close of the shown review of {branch}"), "close it again"),
+    Intent::DeleteClosedShownReview { branch, number } => (format!("the delete of the branches of the closed shown review #{number} of {branch}"), "delete them again"),
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
     Intent::ApproveStack { top, .. } => (format!("the approval of the stack of pull request #{top}"), "approve it again"),
     Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),

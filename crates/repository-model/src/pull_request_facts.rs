@@ -20,7 +20,9 @@ use domain_policy::shown::state_now;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
-use domain_types::pull_request::{MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, ShownReview};
+use domain_types::pull_request::{
+  ClosedShownReview, MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, ShownReview,
+};
 use domain_types::session::{FactState, PullRequestsView};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -109,6 +111,9 @@ pub struct PullRequestsFact {
   created: HashMap<PullRequestSubject, (PullRequest, Duration)>,
   /// A listing stands: a failure GitHub recovers from keeps it
   listed: bool,
+  /// The closed shown reviews of the last listing that asked them (`PullRequestsResult::closed_shown_reviews`), which
+  /// the view leaves out: the session deletes their branches (`domain_policy::shown::closed_elsewhere`)
+  closed_shown: Vec<ClosedShownReview>,
 }
 
 /// The shown reviews `shown` (by branch) as the robots `robots` leave them (`domain_policy::shown::state_now`): a fix of
@@ -137,6 +142,12 @@ impl PullRequestsFact {
     settle_shown(&mut self.view.shown_reviews, robots)
   }
 
+  /// The closed shown reviews of the last listing that asked them
+  #[must_use]
+  pub fn closed_shown(&self) -> &[ClosedShownReview] {
+    &self.closed_shown
+  }
+
   /// The answer of a listing that answered at `observation.at`; whether it changed the part. An answer not newer than
   /// the last one changes nothing
   pub fn answer(&mut self, observation: Observation, result: PullRequestsResult) -> bool {
@@ -152,6 +163,7 @@ impl PullRequestsFact {
       stack_pull_requests,
       github_stacks,
       shown_reviews,
+      closed_shown_reviews,
     } = result;
     let recovers = matches!(availability, PullRequestAvailability::Error { .. } | PullRequestAvailability::RateLimited { .. });
     let mut changed = false;
@@ -181,6 +193,9 @@ impl PullRequestsFact {
       self.view.merge_methods = merge_methods;
       self.view.github_stacks = github_stacks;
       self.view.shown_reviews = shown_reviews;
+      if let Some(closed) = closed_shown_reviews {
+        self.closed_shown = closed;
+      }
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);

@@ -934,6 +934,10 @@ pub enum NewsEvent {
     #[serde(rename = "robotId")]
     robot_id: String,
   },
+  /// The shown review `number` of `branch` was closed elsewhere (on GitHub) an hour ago or more, and the remote still has
+  /// a branch of it at the tip of its pull request, while no open shown review of the branch is listed
+  /// (`domain_policy::shown::closed_elsewhere`): the app deletes them (`Intent::DeleteClosedShownReview`)
+  ShownReviewClosedElsewhere { branch: String, number: u32 },
 }
 
 /// What the last answer of Patronus said of the repository

@@ -60,6 +60,8 @@ struct ScriptedSources {
   /// The pushed branches of each list: whose robots it asks whoever started them, and of them those of the whole window
   list_sources: Mutex<Vec<(Vec<String>, Vec<String>)>>,
   github_calls: Mutex<Vec<GitHubCall>>,
+  /// Whether each list of the pull requests asked the closed shown reviews too
+  closed_asks: Mutex<Vec<bool>>,
   answer: Mutex<Option<PatronusRobotsResult>>,
   pull_requests: Mutex<Option<PullRequestsResult>>,
   /// The reads of the rules and of the profiles fail
@@ -174,8 +176,9 @@ impl FactSources for ScriptedSources {
     })
   }
 
-  fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+  fn pull_requests<'a>(&'a self, _key: &'a SessionKey, closed: bool) -> Read<'a, PullRequestsResult> {
     lock(&self.github_calls).push(GitHubCall::PullRequests);
+    lock(&self.closed_asks).push(closed);
     let held = self.held(&self.hold_pull_requests);
     Box::pin(async move {
       if let Some(released) = held {
@@ -406,6 +409,11 @@ impl Harness {
   /// The reads of GitHub and of the merge profiles asked since the last call
   fn github_calls(&self) -> Vec<GitHubCall> {
     std::mem::take(&mut *lock(&self.sources.github_calls))
+  }
+
+  /// Whether each list of the pull requests since the last call asked the closed shown reviews
+  fn closed_asks(&self) -> Vec<bool> {
+    std::mem::take(&mut *lock(&self.sources.closed_asks))
   }
 
   fn answer(&self, result: PatronusRobotsResult) {
@@ -1070,6 +1078,29 @@ async fn the_pull_requests_are_listed_by_a_sync_a_focus_a_push_and_the_refresh_b
   assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
   session.advance(3600).await;
   assert_eq!(session.github_calls(), vec![], "no timer");
+}
+
+/// The closed shown reviews: the first list of the session asks them, the next ones not until an hour after the last
+/// list that answered them
+#[tokio::test]
+async fn the_closed_shown_reviews_are_asked_by_the_first_list_then_once_an_hour() {
+  let session = Harness::watched().await;
+  assert_eq!(session.closed_asks(), [true]);
+  session.send(pushed("auth", "auth-tip")).await;
+  session.advance(61).await;
+  session.send(committed()).await;
+  assert_eq!(session.closed_asks(), [false, false], "within the hour");
+  session.advance(3600).await;
+  session.send(committed()).await;
+  assert_eq!(session.closed_asks(), [true]);
+  // a failed list answers none: the next one asks them again
+  session.answer_pull_requests(PullRequestsResult::unavailable(PullRequestAvailability::Error { message: "offline".to_owned() }));
+  session.advance(3600).await;
+  session.send(committed()).await;
+  session.answer_pull_requests(PullRequestsResult::unavailable(available_on_github()));
+  session.advance(61).await;
+  session.send(committed()).await;
+  assert_eq!(session.closed_asks(), [true, true]);
 }
 
 /// A retarget, the reviewers asked or a pull request created list them again, once more after a list in flight, which

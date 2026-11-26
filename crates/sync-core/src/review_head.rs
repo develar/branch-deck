@@ -16,6 +16,9 @@
 //!   `rev-list`, `cat-file` and `fast-import` of `sign_range`.
 //! - `delete_review`: the ones the remote has are deleted in one push, each leased on what it has: a leased delete of a
 //!   ref that is gone is `[rejected] (stale info)`, which would fail the atomic push whole. None left is done.
+//! - `delete_review_at`: of a review closed elsewhere (on GitHub), only the ones the remote still has at the tips of its
+//!   pull request are deleted, in one push leased on them: a branch gone or moved since (a newer review of the branch
+//!   took the names) stays. One `ls-remote` and one push; none when nothing is left at those tips.
 
 use crate::push_lease::{LeaseSource, PushOptions, PushRef, push_refs};
 use anyhow::{Context, Result, anyhow, bail};
@@ -214,20 +217,50 @@ fn fetch_head(git: &GitCommandExecutor, repository_path: &str, remote: &str, hea
 /// A branch name no ref takes, the failure of a git process, a delete the remote refused
 #[instrument(skip(git))]
 pub fn delete_review(git: &GitCommandExecutor, repository_path: &str, remote: &str, prefix: &str, branch: &str) -> Result<Vec<String>> {
-  let (head, base) = review_branch_names(prefix, branch)?;
+  delete_remote_review(git, repository_path, remote, prefix, branch, |_| true, |_| true)
+}
+
+/// Deletes the branches of the shown review of `branch` under `prefix` that `remote` still has at `at`, the tips of its
+/// pull request closed elsewhere (`None`: that branch stays), each leased on that tip (module docs); the names of those
+/// it deleted
+///
+/// # Errors
+/// A branch name no ref takes, the failure of a git process, a delete the remote refused (a branch moved since the
+/// `ls-remote`)
+#[instrument(skip(git))]
+pub fn delete_review_at(git: &GitCommandExecutor, repository_path: &str, remote: &str, prefix: &str, branch: &str, at: &RemoteReview) -> Result<Vec<String>> {
+  let (head, base) = (at.head.as_deref(), at.base.as_deref());
+  delete_remote_review(git, repository_path, remote, prefix, branch, |tip| head == Some(tip), |tip| base == Some(tip))
+}
+
+/// Deletes the branches of the shown review of `branch` that `remote` has where `head` and `base` take their tips, in
+/// one atomic push leased on them
+fn delete_remote_review(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  remote: &str,
+  prefix: &str,
+  branch: &str,
+  head: impl Fn(&str) -> bool,
+  base: impl Fn(&str) -> bool,
+) -> Result<Vec<String>> {
+  let (head_name, base_name) = review_branch_names(prefix, branch)?;
   let remote_review = read_remote_review(git, repository_path, remote, prefix, branch)?;
-  let refs: Vec<PushRef> = [(head, remote_review.head), (base, remote_review.base)]
-    .into_iter()
-    .filter_map(|(name, tip)| {
-      // an empty tip: `:refs/heads/<name>`, the delete
-      tip.map(|tip| PushRef {
-        full_name: name,
-        tip: String::new(),
-        lease: Some(tip),
-        source: LeaseSource::Expected,
-      })
+  let refs: Vec<PushRef> = [
+    (head_name, remote_review.head.filter(|tip| head(tip))),
+    (base_name, remote_review.base.filter(|tip| base(tip))),
+  ]
+  .into_iter()
+  .filter_map(|(name, tip)| {
+    // an empty tip: `:refs/heads/<name>`, the delete
+    tip.map(|tip| PushRef {
+      full_name: name,
+      tip: String::new(),
+      lease: Some(tip),
+      source: LeaseSource::Expected,
     })
-    .collect();
+  })
+  .collect();
   if refs.is_empty() {
     return Ok(Vec::new());
   }

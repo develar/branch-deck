@@ -12,7 +12,7 @@ const { runIntent, notifyError } = vi.hoisted(() => ({
       effects:
         intent.kind === "closeShownReview"
           ? [{ effect: { kind: "deleteReview", branch: "login" }, status: { kind: "failed", error: { code: "pushRefused", message: "refused" } } }]
-          : intent.kind === "extendShownReview"
+          : intent.kind === "extendShownReview" || intent.kind === "deleteClosedShownReview"
             ? [
                 {
                   effect: { kind: "extendReview", branch: "api", number: 14, fixes: [] },
@@ -46,6 +46,12 @@ describe("tellShownNews", () => {
       ["/repo", { kind: "openShownReview", branch: "auth" }],
       ["/repo", { kind: "closeShownReview", branch: "login", allowUnapproved: false }],
     ])
+  })
+
+  it("deletes the branches of a review after landing closed on GitHub and toasts a failure of it", async () => {
+    tellShownNews("/repo", [{ id: 5, event: { kind: "shownReviewClosedElsewhere", branch: "ui", number: 15 } }])
+    await vi.waitFor(() => expect(notifyError.mock.calls.map(([title]) => title)).toEqual(["Cannot delete the branches of the closed review after landing of ui"]))
+    expect(runIntent.mock.calls).toEqual([["/repo", { kind: "deleteClosedShownReview", branch: "ui", number: 15 }]])
   })
 
   it("adds the fix that landed to its review after landing and toasts a failure of it", async () => {

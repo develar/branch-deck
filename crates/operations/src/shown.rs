@@ -17,7 +17,11 @@
 //!   nothing twice;
 //! - `Intent::CloseShownReview`, once every reviewer it asked approved (the news `ShownReviewApproved`, `brd
 //!   close-review`): the pull request is closed with a comment that names who approved it, and its branches are deleted,
-//!   those the remote has, each leased on what it has. One not approved is refused unless the user says so.
+//!   those the remote has, each leased on what it has. One not approved is refused unless the user says so;
+//! - `Intent::DeleteClosedShownReview`, an hour after a review was closed elsewhere (on GitHub, the news
+//!   `ShownReviewClosedElsewhere`; `brd close-review` of one closed there): its branches are deleted where the remote
+//!   still has them at the tips of its pull request, leased on them (`sync_core::review_head::delete_review_at`); a
+//!   branch gone or moved since, a newer review of the branch, stays.
 //!
 //! Each holds the fields of the pull request it writes and the branches of the review (`shown_request`); its effects
 //! run in their order (`run_shown`), the first that fails skips the rest. The app runs them in the session of the
@@ -31,13 +35,13 @@ use crate::land_execute::Accepted;
 use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
-use domain_policy::shown::{close_comment, close_refusal, fix_conflict_comment, landing_robot, opens_by_content, pending_fixes, review_state, reviewers_record};
+use domain_policy::shown::{close_comment, close_refusal, closed_remains, fix_conflict_comment, landing_robot, opens_by_content, pending_fixes, review_state, reviewers_record};
 use domain_types::branch_names::{baseline_on_remote, review_branch_names};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandedFix, PlannedEffect};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Plan, PullRequestField, Resource};
 use domain_types::patronus::PatronusRobot;
-use domain_types::pull_request::{CreatedPullRequest, RequestedReviewers, Reviewer, ReviewerState, ShownReview};
+use domain_types::pull_request::{ClosedShownReview, CreatedPullRequest, RequestedReviewers, Reviewer, ReviewerState, ShownReview};
 use domain_types::reason::Reason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::commit_signing;
@@ -51,7 +55,7 @@ use repository_model::session::{SessionKey, Sessions};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::review_head::{Fixes, ReviewExtension, delete_review, extend_review, push_review};
+use sync_core::review_head::{Fixes, RemoteReview, ReviewExtension, delete_review, delete_review_at, extend_review, push_review};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 
@@ -90,7 +94,8 @@ fn with_added(asked: &[String], added: &[String]) -> Vec<String> {
 /// pushes its branches to the commit the robot took (by content: keeps the head it has), is marked ready and asks its
 /// reviewers; one ready asks again those it asked who neither approved nor are asked now. `added`, reviewers the user
 /// names, are asked too and recorded in its body; of a draft whose branch landed by neither yet they are only recorded,
-/// its open asks them with the others
+/// its open asks them with the others. Of a review whose base the remote lacks (reopened after its branches were
+/// deleted: GitHub restores only the head) the branches are pushed again first, the base to the fork point of its head
 ///
 /// # Errors
 /// `no_shown_review` for a draft whose branch landed by neither yet and that is given nobody new, or one that records no
@@ -150,6 +155,16 @@ pub fn open_plan(review: &ShownReview, branch: &str, robot: Option<&PatronusRobo
       vec![PlannedEffect::RequestReviewers { number, reviewers: again }]
     }
   };
+  let pushes = effects.iter().any(|effect| matches!(effect, PlannedEffect::PushReview { .. }));
+  if review.base_missing && !pushes && !pull_request.head_ref_oid.is_empty() {
+    effects.insert(
+      0,
+      PlannedEffect::PushReview {
+        branch: branch.to_owned(),
+        tip: pull_request.head_ref_oid.clone(),
+      },
+    );
+  }
   if reviewers.len() > review.reviewers.len() {
     effects.push(PlannedEffect::RecordShown {
       number,
@@ -260,13 +275,45 @@ pub fn close_plan(review: &ShownReview, branch: &str, allow_unapproved: bool, ta
   )
 }
 
+/// The plan of the delete of the branches of the shown review `closed` of `branch`, closed elsewhere: those the remote
+/// still has at the tips of its pull request (`domain_policy::shown::closed_remains`), leased on them; nothing when none
+/// is left
+///
+/// # Errors
+/// `no_shown_review` while an open shown review of the branch is listed (`open`): its branches are that review's
+pub fn delete_closed_plan(closed: &ClosedShownReview, open: Option<&ShownReview>) -> Result<Plan, ApiError> {
+  let (branch, number) = (closed.branch.as_str(), closed.number);
+  if let Some(open) = open {
+    return Err(ApiError::new(
+      ErrorCode::NoShownReview,
+      format!(
+        "{branch} has the open shown review #{}: the branches of #{number}, closed, are its branches now",
+        open.pull_request.number
+      ),
+    ));
+  }
+  let effects = closed_remains(closed)
+    .map(|(head, base)| PlannedEffect::DeleteReviewAt {
+      branch: branch.to_owned(),
+      head,
+      base,
+    })
+    .into_iter()
+    .collect();
+  let intent = Intent::DeleteClosedShownReview {
+    branch: branch.to_owned(),
+    number,
+  };
+  Ok(write_plan(intent, effects, Vec::new(), None, [], []))
+}
+
 /// What an open or a close of the shown review of a branch under `prefix` asks the registry for: the reviewers (an open)
 /// or the state (a close) of its pull request, and its branches, which it pushes or deletes
 #[must_use]
 pub fn shown_request(prefix: &str, intent: &Intent, plan: Option<&Plan>) -> OperationRequest {
   let (branch, field) = match intent {
     Intent::OpenShownReview { branch, .. } | Intent::ExtendShownReview { branch } => (branch.as_str(), PullRequestField::Reviewers),
-    Intent::CloseShownReview { branch, .. } => (branch.as_str(), PullRequestField::State),
+    Intent::CloseShownReview { branch, .. } | Intent::DeleteClosedShownReview { branch, .. } => (branch.as_str(), PullRequestField::State),
     _ => ("", PullRequestField::State),
   };
   let mut resources: Vec<Resource> =
@@ -459,6 +506,14 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
       let (git, path, remote, prefix, branch) = (services.git.clone(), path.to_owned(), services.remote.clone(), services.prefix.clone(), branch.clone());
       blocking(move || delete_review(&git, &path, &remote, &prefix, &branch).map(|_| ())).await
     }
+    PlannedEffect::DeleteReviewAt { branch, head, base } => {
+      let (git, path, remote, prefix, branch) = (services.git.clone(), path.to_owned(), services.remote.clone(), services.prefix.clone(), branch.clone());
+      let at = RemoteReview {
+        head: head.clone(),
+        base: base.clone(),
+      };
+      blocking(move || delete_review_at(&git, &path, &remote, &prefix, &branch, &at).map(|_| ())).await
+    }
     other => Err(ApiError::internal(format!("A shown review makes no {other:?}"))),
   }
 }
@@ -515,11 +570,26 @@ pub async fn prepare_shown(sessions: &Sessions, key: &SessionKey, intent: &Inten
           let review = shown.get(branch).ok_or_else(|| no_shown_review(branch))?;
           Ok(Some(close_plan(review, branch, *allow_unapproved, &target)))
         }
+        Intent::DeleteClosedShownReview { branch, number } => {
+          let closed = closed_shown_of(facts.pull_requests.closed_shown(), branch, *number)?;
+          delete_closed_plan(closed, shown.get(branch)).map(Some)
+        }
         _ => Ok(None),
       }
     })
     .await;
   read.unwrap_or(Ok(None))
+}
+
+/// The closed shown review `number` of `branch` among `closed`, the last listing of them
+///
+/// # Errors
+/// `no_shown_review` when the listing names none
+pub fn closed_shown_of<'a>(closed: &'a [ClosedShownReview], branch: &str, number: u32) -> Result<&'a ClosedShownReview, ApiError> {
+  closed
+    .iter()
+    .find(|review| review.branch == branch && review.number == number)
+    .ok_or_else(|| ApiError::new(ErrorCode::NoShownReview, format!("{branch} has no shown review #{number} closed in the last days")))
 }
 
 /// "auth has no open shown review"
@@ -528,7 +598,7 @@ pub fn no_shown_review(branch: &str) -> ApiError {
   ApiError::new(ErrorCode::NoShownReview, format!("{branch} has no open shown review"))
 }
 
-/// Runs the open, the extend or the close of a shown review (`intent`) in the session of `key` on the plan its caller
+/// Runs the open, the extend, the close or the delete of the branches of a shown review (`intent`) in the session of `key` on the plan its caller
 /// accepted: admitted (`shown_request`), planned again, refused by its first blocker, then its effects (`run_shown`) with
 /// the GitHub service and repository `services` resolves; what it changed of the shown review goes into the session at
 /// once. One that failed is told again at the next answer of the listing or the robots (`Sessions::retell_shown`)
@@ -540,7 +610,11 @@ pub fn no_shown_review(branch: &str) -> ApiError {
 pub async fn execute_shown(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
   let first = prepare_shown(sessions, key, &intent).await?;
-  let number = first.as_ref().and_then(|plan| plan.pull_request);
+  let number = match &intent {
+    // its pull request is closed: the plan writes none
+    Intent::DeleteClosedShownReview { number, .. } => Some(*number),
+    _ => first.as_ref().and_then(|plan| plan.pull_request),
+  };
   let request = shown_request(&key.prefix, &intent, first.as_ref());
   let answer = run(registry, key, request, events, async |guard| {
     let branch = intent.subject().unwrap_or_default();
@@ -610,7 +684,10 @@ pub fn after_run(mut review: ShownReview, plan: &Plan, done: &ShownRun) -> Shown
       break;
     }
     match effect {
-      PlannedEffect::PushReview { tip, .. } => tip.clone_into(&mut review.pull_request.head_ref_oid),
+      PlannedEffect::PushReview { tip, .. } => {
+        tip.clone_into(&mut review.pull_request.head_ref_oid);
+        review.base_missing = false;
+      }
       PlannedEffect::MarkReady { .. } => review.pull_request.is_draft = false,
       PlannedEffect::RequestReviewers { reviewers, .. } => {
         for login in reviewers {

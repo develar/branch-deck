@@ -1510,6 +1510,25 @@ fn a_push_and_a_delete_of_a_shown_review() {
   assert_processes(&git, &[("ls-remote", 1), ("push", 1)]);
 }
 
+/// The delete of the branches of a shown review closed elsewhere at the tips of its pull request: one `ls-remote` and
+/// one push; none when nothing is left at those tips
+#[test]
+fn a_delete_of_a_shown_review_closed_elsewhere() {
+  use crate::review_head::{RemoteReview, delete_review_at, push_review};
+  let (repo, tip) = auth_on_origin();
+  let pushed = push_review(&counting(), repo.path_str(), "origin", "test", "auth", &tip, "refs/remotes/origin/master").unwrap();
+  let at = RemoteReview {
+    head: Some(tip),
+    base: Some(pushed.fork_point),
+  };
+  let git = counting();
+  delete_review_at(&git, repo.path_str(), "origin", "test", "auth", &at).unwrap();
+  assert_processes(&git, &[("ls-remote", 1), ("push", 1)]);
+  let git = counting();
+  delete_review_at(&git, repo.path_str(), "origin", "test", "auth", &at).unwrap();
+  assert_processes(&git, &[("ls-remote", 1)]);
+}
+
 /// The extend of a shown review by a fix that landed: one `ls-remote` of its head, one `cat-file --batch-check` of the
 /// head and the commit the robot landed, one `replay` of the fix, one push of the head; with `commit.gpgsign` off no
 /// signing process, and a repeat (its change is on the head) pushes nothing

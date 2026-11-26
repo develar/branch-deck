@@ -332,6 +332,11 @@ Its life, one robot, no gate:
    (`NewsEvent::ShownReviewApproved`, `brd close-review`) with a comment that names who approved it, and its branches
    are deleted: the ones the remote has, each leased on what it has (a leased delete of a gone ref is
    `[rejected] (stale info)`, which fails an atomic push whole).
+6. One closed on GitHub, not by Branch Deck, leaves its branches: the listing asks the closed shown reviews of the last
+   7 days too, at the open of the session and once an hour, and an hour after the close, while no open shown review of
+   the branch is listed, the branches the remote still has at the tips of its pull request are deleted
+   (`NewsEvent::ShownReviewClosedElsewhere`, `Intent::DeleteClosedShownReview`, `brd close-review`); a branch a newer
+   review of the branch took since stays. A review open again without its base gets its branches pushed by its open.
 
 The session tells each of these once; a run of one that failed is told again at the next answer of the listing or the
 robots, three times per session at most, never at once. A draft whose robot is older than the 7 days of the listing

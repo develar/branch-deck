@@ -297,14 +297,14 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
     }))
   }
 
-  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey, closed: bool) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
       let github = match self.host.github(key) {
         Ok(github) => github,
         Err(error) => return PullRequestsResult::unavailable(github_unavailable(error)),
       };
       match self.host.github_repository(key).await {
-        Ok(Some(repository)) => list_pull_requests(&github, &key.worktree, &repository, &key.prefix).await,
+        Ok(Some(repository)) => list_pull_requests(&github, &key.worktree, &repository, &key.prefix, closed).await,
         Ok(None) => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
         Err(error) => PullRequestsResult::unavailable(github_unavailable(error)),
       }

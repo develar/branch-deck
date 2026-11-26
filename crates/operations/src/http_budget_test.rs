@@ -121,7 +121,7 @@ impl FactSources for Counted {
     self.answer("closed_reviews", ClosedReviewsResult::unavailable(PullRequestAvailability::NotGitHub))
   }
 
-  fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+  fn pull_requests<'a>(&'a self, _key: &'a SessionKey, _closed: bool) -> Read<'a, PullRequestsResult> {
     let listed = PullRequestsResult::unavailable(PullRequestAvailability::Available {
       owner: "acme".to_owned(),
       name: "monorepo".to_owned(),

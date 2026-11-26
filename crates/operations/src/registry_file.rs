@@ -723,6 +723,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::OpenShownReview => "open of a shown review",
     OperationKind::ExtendShownReview => "extend of a shown review",
     OperationKind::CloseShownReview => "close of a shown review",
+    OperationKind::DeleteClosedShownReview => "delete of the branches of a closed shown review",
     OperationKind::SubmitReview => "review of a pull request",
     OperationKind::ApproveStack => "approval of a stack of pull requests",
     OperationKind::SetIssueState => "change of the state of an issue",

@@ -971,6 +971,10 @@ pub enum PlannedEffect {
   /// The branches of the shown review of `branch` are deleted, those the remote has, each leased on what it has
   /// (`Intent::CloseShownReview`)
   DeleteReview { branch: String },
+  /// The branches of the shown review of `branch` closed elsewhere are deleted where the remote still has them at `head`
+  /// and `base`, the tips of its pull request (`None`: that branch stays), each leased on that tip
+  /// (`sync_core::review_head::delete_review_at`, `Intent::DeleteClosedShownReview`)
+  DeleteReviewAt { branch: String, head: Option<String>, base: Option<String> },
   /// The fixes of `branch` that landed after its shown review `number` opened, by the source revisions of their merged
   /// Safe Pushes (`fixes`, oldest first), are replayed onto the head of the review and pushed, leased on the head the
   /// remote has (`sync_core::review_head::extend_review`); a fix that doesn't apply on its commits leaves the head as

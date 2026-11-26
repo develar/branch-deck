@@ -1,7 +1,9 @@
-use crate::pull_requests::{PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_STACKS, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, list_pull_requests, parse_pull_requests};
+use crate::pull_requests::{
+  CLOSED_SHOWN_DAYS, PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_STACKS, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, closed_shown_search, list_pull_requests, parse_pull_requests,
+};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, TokenSource,
-  ViewerPermission,
+  ChecksState, ChecksSummary, ClosedShownReview, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState,
+  TokenSource, ViewerPermission,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
@@ -9,6 +11,7 @@ use github::service::GitHubService;
 use github::token::{TokenChain, TokenSources};
 use pretty_assertions::assert_eq;
 use sync_core::github_repository::{GitHubRepository, resolve_github_repository};
+use sync_utils::timestamp::unix_now;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -291,7 +294,7 @@ fn rejects_output_that_is_not_a_pull_request_list() {
 async fn list(answer: FakeAnswer, repository: &GitHubRepository) -> (PullRequestsResult, Vec<FakeRequest>) {
   let (fake, github) = start_fake_service("t0ken").await;
   fake.answer("POST", "/graphql", answer);
-  let result = list_pull_requests(&github, ".", repository, "develar").await;
+  let result = list_pull_requests(&github, ".", repository, "develar", false).await;
   (result, fake.requests_to("POST", "/graphql"))
 }
 
@@ -327,6 +330,8 @@ async fn lists_pull_requests_of_the_push_remote_repository() {
     serde_json::json!({
       "q": "repo:JetBrains/ultimate-push is:pr author:@me sort:updated-desc",
       "shown": "repo:JetBrains/ultimate-push is:pr is:open author:@me head:develar/review/ sort:updated-desc",
+      "closed": closed_shown_search(&repository, "develar", unix_now() - CLOSED_SHOWN_DAYS * 24 * 3600),
+      "withClosed": false,
       "owner": "JetBrains",
       "name": "ultimate-push"
     })
@@ -356,6 +361,54 @@ async fn the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_review
   let review = &result.shown_reviews["auth"];
   assert_eq!((review.pull_request.number, review.reviewers.as_slice()), (12, &["alice".to_owned()][..]));
   assert_eq!(review.state, domain_types::pull_request::ShownState::Approved { by: vec!["alice".to_owned()] });
+}
+
+/// The closed shown reviews come from a search of their own in the same query, asked only with `closed`: a head of
+/// exactly `{prefix}/review/<branch>/head` of the repository, with the tips its pull request ended at and what the
+/// remote still has of its branches; an open one whose base the remote lacks is told so
+#[test(tokio::test)]
+async fn the_closed_shown_reviews_are_a_search_of_their_own_with_what_the_remote_has_of_their_branches() {
+  let closed = |number: u32, head: &str, owner: &str, head_ref: serde_json::Value| {
+    serde_json::json!({"number": number, "url": format!("https://github.com/o/r/pull/{number}"), "headRefName": head, "headRefOid": "1111",
+      "baseRefName": "develar/review/auth/base", "baseRefOid": "2222", "closedAt": "2026-10-14T09:30:00Z", "isCrossRepository": false,
+      "headRepositoryOwner": {"login": owner}, "headRef": head_ref, "baseRef": null})
+  };
+  let open = serde_json::json!({"number": 20, "title": "Add login", "url": "https://github.com/o/r/pull/20", "state": "OPEN", "isDraft": false,
+    "headRefName": "develar/review/login/head", "headRefOid": "3333", "baseRefName": "develar/review/login/base", "headRepositoryOwner": {"login": "o"},
+    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "author": {"login": "me"}, "body": "", "baseRef": null});
+  let data = serde_json::json!({"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": []}, "shown": {"nodes": [open]}, "closed": {"nodes": [
+    closed(12, "develar/review/auth/head", "o", serde_json::json!({"target": {"oid": "1111"}})),
+    closed(13, "develar/review/auth/headless", "o", serde_json::Value::Null),
+    closed(14, "develar/review/ui/head", "someone", serde_json::Value::Null),
+  ]}});
+  let (fake, github) = start_fake_service("t0ken").await;
+  fake.answer("POST", "/graphql", FakeAnswer::ok(serde_json::json!({ "data": data })));
+  let result = list_pull_requests(&github, ".", &repository("o", "r"), "develar", true).await;
+  assert_eq!(
+    result.closed_shown_reviews,
+    Some(vec![ClosedShownReview {
+      branch: "auth".to_owned(),
+      number: 12,
+      url: "https://github.com/o/r/pull/12".to_owned(),
+      head_ref_oid: "1111".to_owned(),
+      base_ref_oid: "2222".to_owned(),
+      closed_at: 1_791_970_200,
+      head_tip: Some("1111".to_owned()),
+      base_tip: None,
+    }])
+  );
+  assert!(result.shown_reviews["login"].base_missing);
+  let request = &fake.requests_to("POST", "/graphql")[0];
+  assert_eq!(request.json()["variables"]["withClosed"], true);
+  assert!(
+    request.json()["variables"]["closed"]
+      .as_str()
+      .unwrap()
+      .starts_with("repo:o/r is:pr is:closed author:@me head:develar/review/ updated:>=")
+  );
+  // a listing that doesn't ask them answers none
+  let (result, _) = list(FakeAnswer::ok(serde_json::json!({ "data": data })), &repository("o", "r")).await;
+  assert_eq!(result.closed_shown_reviews, None);
 }
 
 /// A pull request of a node of the search: `head` on the remote, `state`, updated at `updated_at`
@@ -392,7 +445,7 @@ async fn the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root() {
 async fn without_a_token_github_is_not_asked() {
   let (fake, client) = github::fake_github::start_fake().await;
   let github = GitHubService::new(client, TokenChain::new(TokenSources::default(), GitCommandExecutor::new()));
-  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar", false).await;
   assert_eq!(result, PullRequestsResult::unavailable(PullRequestAvailability::SignedOut));
   assert!(fake.requests().is_empty());
 }
@@ -435,7 +488,7 @@ async fn a_token_without_read_org_is_asked_again_without_teams() {
       FakeAnswer::ok(serde_json::json!({"data": {"repository": {"viewerPermission": "READ"}, "search": {"nodes": []}}})),
     ],
   );
-  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar", false).await;
   assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
   assert_eq!(result.viewer_permission, Some(ViewerPermission::Read));
   let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
@@ -443,7 +496,7 @@ async fn a_token_without_read_org_is_asked_again_without_teams() {
   assert!(PULL_REQUESTS_QUERY.contains("... on Team { slug }") && !PULL_REQUESTS_QUERY_WITHOUT_TEAMS.contains("Team"));
 
   // the missing scope is remembered for the token: the next refresh asks once, without teams (3 searches, not 4)
-  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar", false).await;
   assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
   let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
   assert_eq!(
@@ -569,10 +622,10 @@ async fn a_schema_without_stacks_is_asked_again_without_them() {
     "extensions": {"code": "undefinedField", "typeName": "PullRequest", "fieldName": "stack"}}]});
   let listed = serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": []}}});
   fake.answer_in_turn("POST", "/graphql", vec![FakeAnswer::ok(refused), FakeAnswer::ok(listed.clone()), FakeAnswer::ok(listed)]);
-  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar", false).await;
   assert!(matches!(result.availability, PullRequestAvailability::Available { .. }), "{result:?}");
   assert!(!result.github_stacks);
-  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar").await;
+  let result = list_pull_requests(&github, ".", &repository("acme", "monorepo"), "develar", false).await;
   assert!(!result.github_stacks);
   let queries: Vec<serde_json::Value> = fake.requests_to("POST", "/graphql").iter().map(|request| request.json()["query"].clone()).collect();
   assert_eq!(

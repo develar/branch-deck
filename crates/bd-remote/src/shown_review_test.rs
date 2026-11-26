@@ -49,6 +49,15 @@ fn open_after_landing(space: &Space, environment: &Environment, tip: &str) -> Va
   output
 }
 
+/// The review after landing of auth started by its Safe Push and opened once its robot merged: the tip of auth
+fn opened(space: &Space, environment: &Environment) -> String {
+  let (exit_code, output) = bd(environment, &["safe-push", "auth", "--request-review"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let tip = space.local_tip(AUTH);
+  open_after_landing(space, environment, &tip);
+  tip
+}
+
 #[test_log::test]
 fn a_check_names_whom_the_review_after_landing_asks_of_the_owner_groups_and_refuses_a_branch_with_a_pull_request() {
   let (space, repository, environment) = space();
@@ -147,6 +156,34 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
   assert_error(&output, exit_code, (4, "no_shown_review"));
 }
 
+/// A review after landing closed on GitHub keeps its branches: `brd close-review` deletes those the remote still has at
+/// the tips of its pull request, `--dry-run` names them
+#[test_log::test]
+fn a_close_of_a_review_closed_on_github_deletes_its_branches_still_at_its_tips() {
+  let (space, repository, environment) = space();
+  let tip = opened(&space, &environment);
+  repository.update(|state| {
+    let pull = &mut state.pulls[0].pull_request;
+    pull.state = domain_types::pull_request::PullRequestState::Closed;
+    pull.head_ref_oid.clone_from(&tip);
+  });
+
+  let (exit_code, output) = bd(&environment, &["close-review", "auth", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["state"].clone(), output["deleted"].clone(), output["closed"].clone(), output["number"].clone()),
+    (json!("closed"), json!([HEAD, BASE]), json!(false), json!(21))
+  );
+  assert_eq!(space.remote_tip(HEAD), tip);
+  let (exit_code, output) = bd(&environment, &["close-review", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["closed"], json!(true));
+  assert_eq!((space.remote_tip(HEAD), space.remote_tip(BASE)), (String::new(), String::new()));
+  // nothing left of it
+  let (exit_code, output) = bd(&environment, &["close-review", "auth"]);
+  assert_error(&output, exit_code, (4, "no_shown_review"));
+}
+
 /// A fix of auth landed after its shown review opened: `brd robot` tells which review a running Safe Push of the branch
 /// extends, `brd request-review auth` puts the fix on the head of the review, asks alice again and records the fix in
 /// its body; a second one finds nothing more to add
@@ -154,10 +191,7 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
 fn a_fix_that_landed_goes_onto_the_shown_review_and_its_reviewers_are_asked_again() {
   let (space, repository, environment) = space();
   space.publish_target();
-  let (exit_code, output) = bd(&environment, &["safe-push", "auth", "--request-review"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let tip = space.local_tip(AUTH);
-  open_after_landing(&space, &environment, &tip);
+  let tip = opened(&space, &environment);
   // alice requests changes; the robots land auth into master as a copy of their own
   repository.update(|state| {
     let reviewers = &mut state.pulls[0].pull_request.reviewers;

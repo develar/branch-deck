@@ -566,6 +566,7 @@ fn listed_at_tips(pull_requests: &[(&str, u32, &str)]) -> FactResult {
     stack_pull_requests: BTreeMap::new(),
     github_stacks: false,
     shown_reviews: BTreeMap::new(),
+    closed_shown_reviews: None,
   })
 }
 
@@ -1241,6 +1242,7 @@ fn listed_shown(seq: u32, head: &str, state: domain_types::pull_request::Reviewe
   let FactResult::PullRequests(result) = listed_at_tips(&[]) else { unreachable!() };
   let result = PullRequestsResult {
     shown_reviews: BTreeMap::from([("auth".to_owned(), domain_policy::shown::shown_review(pull_request, &body))]),
+    closed_shown_reviews: None,
     ..result
   };
   (at(seq, 0, u64::from(seq)), FactResult::PullRequests(result))
@@ -1258,7 +1260,7 @@ fn shown_news(facts: &FactStore) -> Vec<NewsEvent> {
     .filter(|event| {
       matches!(
         event,
-        NewsEvent::ShownReviewLanded { .. } | NewsEvent::ShownReviewFixLanded { .. } | NewsEvent::ShownReviewApproved { .. }
+        NewsEvent::ShownReviewLanded { .. } | NewsEvent::ShownReviewFixLanded { .. } | NewsEvent::ShownReviewApproved { .. } | NewsEvent::ShownReviewClosedElsewhere { .. }
       )
     })
     .collect()
@@ -1380,4 +1382,63 @@ fn a_draft_whose_branch_landed_by_content_opens_once_the_robots_are_known_and_no
     }]
   );
   assert_eq!(facts.shown_landed(), &std::collections::BTreeSet::from(["auth".to_owned()]));
+}
+
+/// The shown review #13 of auth closed on GitHub at `closed_at` (on the clock of `at`), the remote's branches of it
+/// still at the tips of its pull request; the listing of `seq` asks the closed ones only when `asked`, with `open`
+/// open beside it
+fn listed_closed(seq: u32, closed_at: u32, asked: bool, open: bool) -> (Observation, FactResult) {
+  let (observation, FactResult::PullRequests(listing)) = listed_shown(seq, "newer", domain_types::pull_request::ReviewerState::Requested, false) else {
+    unreachable!()
+  };
+  let closed = domain_types::pull_request::ClosedShownReview {
+    branch: "auth".to_owned(),
+    number: 13,
+    url: String::new(),
+    head_ref_oid: "head".to_owned(),
+    base_ref_oid: "base".to_owned(),
+    closed_at,
+    head_tip: Some("head".to_owned()),
+    base_tip: Some("base".to_owned()),
+  };
+  let result = PullRequestsResult {
+    shown_reviews: if open { listing.shown_reviews } else { BTreeMap::new() },
+    closed_shown_reviews: asked.then(|| vec![closed]),
+    ..listing
+  };
+  (observation, FactResult::PullRequests(result))
+}
+
+/// A shown review closed on GitHub: its branches go (the news, once) an hour after its close, by the latest answer of
+/// the listing or the robots; a listing that didn't ask the closed ones keeps the last that did; an open review of the
+/// branch listed keeps them; a run that failed is told again
+#[test]
+fn a_shown_review_closed_elsewhere_is_told_an_hour_after_its_close_once_while_no_open_review_of_its_branch_is_listed() {
+  let closed_elsewhere = NewsEvent::ShownReviewClosedElsewhere {
+    branch: "auth".to_owned(),
+    number: 13,
+  };
+  // observed at 1_700_000_000 + seq
+  let closed_at = 1_700_000_000 - 3600 + 5;
+  let mut facts = FactStore::new();
+  // an open review of auth beside it: nothing
+  let (observation, result) = listed_closed(1, closed_at - 100, true, true);
+  facts.apply(observation, result);
+  assert_eq!(shown_news(&facts), []);
+  let mut facts = FactStore::new();
+  // within the hour after the close: nothing
+  let (observation, result) = listed_closed(2, closed_at, true, false);
+  facts.apply(observation, result);
+  assert_eq!(shown_news(&facts), []);
+  // a listing that asked no closed ones keeps them, and its time passes the hour: told once
+  for seq in [5, 6] {
+    let (observation, result) = listed_closed(seq, closed_at, false, false);
+    facts.apply(observation, result);
+  }
+  assert_eq!(shown_news(&facts), std::slice::from_ref(&closed_elsewhere));
+  // its run failed: told again at the next answer
+  facts.retell_shown(13);
+  let (observation, result) = listed_closed(7, closed_at, false, false);
+  facts.apply(observation, result);
+  assert_eq!(shown_news(&facts), [closed_elsewhere.clone(), closed_elsewhere]);
 }

@@ -1,6 +1,6 @@
 ---
 name: Shown Reviews
-description: Requirements for a review after landing (show of ship/show/ask), a GitHub pull request from the commit a Safe Push lands into its fork point that can never land, opened as a draft before the start, ready with its reviewers asked once the robot merged, the author's move when they request changes, extended by each fix the branch lands after it, and closed with its branches once every reviewer it asked approved.
+description: Requirements for a review after landing (show of ship/show/ask), a GitHub pull request from the commit a Safe Push lands into its fork point that can never land, opened as a draft before the start, ready with its reviewers asked once the robot merged, the author's move when they request changes, extended by each fix the branch lands after it, closed with its branches once every reviewer it asked approved, and its branches deleted an hour after a close on GitHub.
 style: plain-1
 targets:
   - crates/domain-policy/src/shown.rs
@@ -12,6 +12,8 @@ targets:
   - crates/domain-types/src/branch_names.rs
   - crates/codeowners/src/client.rs
   - crates/sync-core/src/review_head.rs
+  - crates/domain-policy/src/refresh.rs
+  - crates/remote-facts/src/scheduler_github.rs
   - crates/sync-core/src/sync_inputs.rs
   - crates/remote-facts/src/pull_requests.rs
   - crates/remote-facts/src/pull_request_writes.rs
@@ -238,6 +240,40 @@ deleted; a close of one not approved MUST be refused (`review_not_approved`) unl
   [@test] crates/bd-remote/src/shown_review_test.rs (`the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_it_closes_once_they_approved`)
   [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should close a review after landing every reviewer it asked approved, with its comment, and delete its branches`)
 
+### Requirement: Close: A review closed elsewhere loses its branches
+
+The listing MUST ask the user's shown reviews closed in the last 7 days, at the open of the session and then once an
+hour, with the tips each ended at. An hour after its close, while no open
+shown review of the branch is listed, the branches the remote still has at those tips MUST be deleted in one atomic
+push leased on them (`Intent::DeleteClosedShownReview`); a branch gone or moved since stays. An open of a review whose
+base the remote lacks MUST push its branches again.
+
+#### Scenario: Closed on GitHub, a newer review of the branch open
+- **WHEN** the review #12 of auth is closed on GitHub while #13 of auth is open on the same branches, then #13 is closed
+  too
+- **THEN** the branches stay while #13 is open, and once both are closed, an hour after the search of the closed ones
+  deletes them, writing nothing to the pull requests
+  [@test] tests/e2e/pull-requests/shown-reviews.spec.ts (`should delete the branches of a review after landing closed on GitHub an hour after, and keep them while a newer review of the branch is open`)
+  [@test] crates/domain-policy/src/shown_test.rs (`a_review_closed_elsewhere_an_hour_ago_loses_the_branches_still_at_its_tips_unless_the_branch_has_an_open_one`)
+  [@test] crates/repository-model/src/facts_test.rs (`a_shown_review_closed_elsewhere_is_told_an_hour_after_its_close_once_while_no_open_review_of_its_branch_is_listed`)
+  [@test] src/lib/shown-news.test.ts (`deletes the branches of a review after landing closed on GitHub and toasts a failure of it`)
+
+#### Scenario: The search of the closed ones
+- **WHEN** the listing asks the closed shown reviews, at the open of the session and an hour after
+- **THEN** a head of exactly `{prefix}/review/<branch>/head` of the repository is one, with the tips it ended at and the
+  tips of its branches the remote has; a list within the hour asks none
+  [@test] crates/remote-facts/src/pull_requests_test.rs (`the_closed_shown_reviews_are_a_search_of_their_own_with_what_the_remote_has_of_their_branches`)
+  [@test] crates/remote-facts/src/scheduler_test.rs (`the_closed_shown_reviews_are_asked_by_the_first_list_then_once_an_hour`)
+  [@test] crates/domain-policy/src/refresh_test.rs (`the_closed_shown_reviews_are_asked_by_the_first_list_of_the_session_then_once_an_hour`)
+
+#### Scenario: Only the branches at its tips
+- **WHEN** a newer review of auth took the head since #12 closed, and later both branches are at the tips of #12
+- **THEN** the first delete takes only the base, the second both in one push, a repeat nothing; a review open again
+  without its base pushes its branches first
+  [@test] crates/sync-core/src/review_head_test.rs (`a_delete_of_a_review_closed_elsewhere_takes_only_the_branches_still_at_its_tips`)
+  [@test] crates/sync-core/src/process_budget_test.rs (`a_delete_of_a_shown_review_closed_elsewhere`)
+  [@test] crates/operations/src/shown_test.rs (`a_review_closed_elsewhere_deletes_the_branches_still_at_its_tips_and_a_reopened_one_without_its_base_pushes_it_again`, `the_branches_of_a_review_closed_on_github_are_deleted_where_they_are_at_its_tips`)
+
 ### Requirement: News: The app opens and closes them by the news of the session
 
 The session of a repository MUST tell once a draft whose branch landed (`ShownReviewLanded`), once each fix that landed
@@ -352,7 +388,8 @@ or who approved it; its Close Review MUST close it with its comment and delete i
 
 - `brd safe-push <branch> --request-review [--reviewer <login>]`: `shown` names `reviewers`, `groups`, `head`, `base`,
   `number`; `brd request-review <branch> [--after-landing]`, whose `shown.extended` names the fixes it added (`fixes`,
-  `head`, `not_applied`); `brd robot <branch>`: `extends`; `brd close-review <branch> [--allow-unapproved]`.
+  `head`, `not_applied`); `brd robot <branch>`: `extends`; `brd close-review <branch> [--allow-unapproved]`, of a review closed on GitHub
+  `state: closed` and `deleted`.
 - The Status cell: "review after landing", "in review after landing", "changes requested after landing", "fix goes into
   review after landing", "approved after landing"; the hover what happens next: "auth is landing: once its Safe Push
   merges, #12 opens and its reviewers are asked", "In review after landing: waits for alice in #12", "alice requested
@@ -380,7 +417,8 @@ or who approved it; its Close Review MUST close it with its comment and delete i
   requested reviewer approves"; the Safe Push of it disabled: "#12 is a review after landing: its change is in master
   already, so there is nothing to Safe Push".
 - The toasts of a failure: "Cannot open the review after landing of auth", "Cannot add the fix to the review after
-  landing of auth", "Cannot close the review after landing of auth", "Cannot request the review after landing of auth".
+  landing of auth", "Cannot close the review after landing of auth", "Cannot request the review after landing of auth",
+  "Cannot delete the branches of the closed review after landing of auth".
 
 ## References
 

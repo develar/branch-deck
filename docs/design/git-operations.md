@@ -5534,7 +5534,8 @@ remote only: `{prefix}/review/<branch>/head`, the commit a Safe Push lands, and 
 fork point on the target, which its pull request goes into, so it never lands (`BranchKind::Review`). No sync reads or
 writes them: the listing of the branches of a sync and its inputs leave `refs/remotes/<remote>/<prefix>/review/` out
 (`--exclude`), and no local branch exists. One core writes them, `sync_core::review_head`, from the effects of the engine
-(`PlannedEffect::PushReview`, `ExtendReview`, `DeleteReview`, of `operations::land_execute` and `operations::shown`); no
+(`PlannedEffect::PushReview`, `ExtendReview`, `DeleteReview`, `DeleteReviewAt`, of `operations::land_execute` and
+`operations::shown`); no
 repository lock, as they are no ref of the repository and every write is leased on the remote (the extend writes
 objects and, with signing, the temporary ref of `fast-import`, deleted after the push):
 
@@ -5559,10 +5560,22 @@ objects and, with signing, the temporary ref of `fast-import`, deleted after the
 3. Delete (`delete_review`): one `ls-remote` of both, then one atomic push of a leased delete (`:refs/heads/<name>`) of
    each the remote has, on its tip: a leased delete of a ref that is gone is `[rejected] (stale info)`, which fails the
    whole atomic push. None left is done, without a push.
+4. Delete of a review closed elsewhere (`delete_review_at`), once a review was closed on GitHub, not by Branch Deck: the
+   listing of the pull requests asks the user's shown reviews closed in the last 7 days too, a search of its own in the
+   same query (`closed`, `@include(if: $withClosed)`: at the open of the session, then once an hour,
+   `domain_policy::refresh::closed_shown_due`), with the tips their pull requests ended at (`headRefOid`,
+   `baseRefOid`) and what GitHub has of their branches (`headRef`, `baseRef`). An hour after the close, while no open
+   shown review of the branch is listed, the session tells it (`domain_policy::shown::closed_elsewhere`) and the page
+   asks `Intent::DeleteClosedShownReview`: one `ls-remote` of both, then one atomic push of a delete of each the remote
+   still has at the tip of the closed pull request, leased on it; a branch gone or moved since (a newer review of the
+   branch took the names) stays, and none left is done without a push. `brd close-review` of a review closed on
+   GitHub runs the same plan. An open of a review whose base GitHub lacks (`baseRef` null: reopened after its branches
+   were deleted, of which GitHub restores only the head) pushes both again first (`push_review` at its head).
 
 A Space origin mirrors both to GitHub; the creation of the pull request asks again while GitHub lacks them
 (`wait_for_mirror`). Process budgets: push one `ls-remote`, one `merge-base`, one `push`; delete one `ls-remote`, one
-`push` (`a_push_and_a_delete_of_a_shown_review`); extend one `ls-remote`, one `cat-file`, one `replay` per fix, one
+`push` (`a_push_and_a_delete_of_a_shown_review`), the delete of one closed elsewhere the same, no `push` when nothing
+is left at its tips (`a_delete_of_a_shown_review_closed_elsewhere`); extend one `ls-remote`, one `cat-file`, one `replay` per fix, one
 `push`, a repeat no `push` (`an_extend_of_a_shown_review_by_a_fix_that_landed`). At the level of `brd`, after its sync:
 the start adds the push of the review to the Safe Push start, the open its `ls-remote` and `merge-base`, the extend its
 processes and `config` (`commit.gpgsign`), the close its `ls-remote` and push (`a_review_after_landing` of

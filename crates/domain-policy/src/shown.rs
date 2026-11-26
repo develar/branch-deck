@@ -15,14 +15,19 @@
 //!   its robot merged the review takes its commits on its head (`Intent::ExtendShownReview`), and the record of its body
 //!   names its source revision (`recorded_landed`). While that robot runs, and until the review took it, the review
 //!   waits for the fix (`ShownState::Extending`): neither the author's move nor approved;
+//! - `closed_elsewhere`: a review closed outside Branch Deck (on GitHub, by anyone) leaves its branches, which its close
+//!   would delete: an hour after its close, while no open shown review of the branch is listed, those the remote still
+//!   has at the tips of its pull request are deleted (`Intent::DeleteClosedShownReview`); a branch gone or moved since
+//!   stays (a newer review of the branch took the names);
 //! - `shown_news`: what the app does of them, each told once by the session: a draft whose branch landed opens (by a
-//!   merged Safe Push, or by content when no robot of it is listed), a fix that landed extends, an approved one closes.
+//!   merged Safe Push, or by content when no robot of it is listed), a fix that landed extends, an approved one closes,
+//!   one closed elsewhere loses its branches.
 
 use crate::readiness::is_bot;
 use domain_types::branch_names::is_review_base;
 use domain_types::code_owners::OwnerGroup;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, ReviewerState, SHOWN_LANDED_MARKER, SHOWN_REVIEWERS_MARKER, ShownReview, ShownState};
+use domain_types::pull_request::{ClosedShownReview, PullRequest, ReviewerState, SHOWN_LANDED_MARKER, SHOWN_REVIEWERS_MARKER, ShownReview, ShownState};
 use domain_types::reason::Reason;
 use domain_types::session::{LandedSection, NewsEvent};
 use std::collections::{BTreeMap, BTreeSet};
@@ -129,6 +134,7 @@ pub fn shown_review(pull_request: PullRequest, body: &str) -> ShownReview {
     reviewers,
     landed: recorded_landed(body),
     state,
+    base_missing: false,
   }
 }
 
@@ -287,30 +293,72 @@ pub fn opens_by_content<'a>(robots: impl IntoIterator<Item = &'a PatronusRobot> 
   landed.contains(branch) && landing_robot(robots.clone(), branch).is_none() && running_fix(robots, branch).is_none()
 }
 
+/// A close elsewhere waits this long (Unix seconds) before its branches go: a review closed by mistake is reopened
+/// first, and Branch Deck's own close deletes them itself
+pub const CLOSED_ELSEWHERE_DELAY: u32 = 3600;
+
+/// The tips of the branches of the closed shown review `closed` the remote still has at the tips of its pull request,
+/// head and base, which its delete takes (`None`: gone or moved, that branch stays); `None` when neither is left
+#[must_use]
+pub fn closed_remains(closed: &ClosedShownReview) -> Option<(Option<String>, Option<String>)> {
+  let at = |tip: &Option<String>, oid: &str| tip.as_deref().filter(|tip| !oid.is_empty() && *tip == oid).map(str::to_owned);
+  let (head, base) = (at(&closed.head_tip, &closed.head_ref_oid), at(&closed.base_tip, &closed.base_ref_oid));
+  (head.is_some() || base.is_some()).then_some((head, base))
+}
+
+/// The closed shown reviews of `closed` whose branches go at `now` (Unix seconds; module docs): closed at least
+/// `CLOSED_ELSEWHERE_DELAY` ago, a branch of it still at the tip of its pull request (`closed_remains`), and no open shown
+/// review of the branch listed in `open`; of several of one branch (their branches have the same names) the newest
+/// close, in the order of the branches
+#[must_use]
+pub fn closed_elsewhere<'a>(closed: &'a [ClosedShownReview], open: &BTreeMap<String, ShownReview>, now: u32) -> Vec<&'a ClosedShownReview> {
+  let mut newest: BTreeMap<&str, &ClosedShownReview> = BTreeMap::new();
+  let due = closed
+    .iter()
+    .filter(|review| now >= review.closed_at.saturating_add(CLOSED_ELSEWHERE_DELAY))
+    .filter(|review| !open.contains_key(&review.branch) && closed_remains(review).is_some());
+  for review in due {
+    let kept = newest.entry(&review.branch).or_insert(review);
+    if (review.closed_at, review.number) > (kept.closed_at, kept.number) {
+      *kept = review;
+    }
+  }
+  newest.into_values().collect()
+}
+
 /// What the app does of the shown reviews `shown` (by branch) over `robots`, the user's robots, and `landed`, the
 /// branches the baseline landed whole by content while the robots are known (`landed_by_content`): a draft whose branch
 /// a merged Safe Push landed, or the baseline while no robot of it is listed, opens (`ShownReviewLanded`); one a fix
 /// landed after it opened extends (`ShownReviewFixLanded`, the newest such robot); one every reviewer it asked approved
-/// and no fix lands for closes (`ShownReviewApproved`). The session tells each once
+/// and no fix lands for closes (`ShownReviewApproved`); one of `closed` closed elsewhere loses its branches at `now`
+/// (`ShownReviewClosedElsewhere`, `closed_elsewhere`). The session tells each once
 #[must_use]
-pub fn shown_news<'a>(shown: &BTreeMap<String, ShownReview>, robots: &(impl IntoIterator<Item = &'a PatronusRobot> + Clone), landed: &BTreeSet<String>) -> Vec<NewsEvent> {
-  shown
-    .iter()
-    .filter_map(|(branch, review)| {
-      let (branch, number) = (branch.clone(), review.pull_request.number);
-      match state_now(review, &branch, robots.clone()) {
-        ShownState::Draft => {
-          (landing_robot(robots.clone(), &branch).is_some() || opens_by_content(robots.clone(), &branch, landed)).then_some(NewsEvent::ShownReviewLanded { branch, number })
-        }
-        ShownState::Extending { .. } => {
-          let fix = pending_fixes(review, &branch, robots.clone()).last().map(|robot| robot.id.clone())?;
-          Some(NewsEvent::ShownReviewFixLanded { branch, number, robot_id: fix })
-        }
-        ShownState::Approved { .. } => Some(NewsEvent::ShownReviewApproved { branch, number }),
-        ShownState::InReview { .. } | ShownState::ChangesRequested { .. } => None,
+pub fn shown_news<'a>(
+  shown: &BTreeMap<String, ShownReview>,
+  robots: &(impl IntoIterator<Item = &'a PatronusRobot> + Clone),
+  landed: &BTreeSet<String>,
+  closed: &[ClosedShownReview],
+  now: u32,
+) -> Vec<NewsEvent> {
+  let open = shown.iter().filter_map(|(branch, review)| {
+    let (branch, number) = (branch.clone(), review.pull_request.number);
+    match state_now(review, &branch, robots.clone()) {
+      ShownState::Draft => {
+        (landing_robot(robots.clone(), &branch).is_some() || opens_by_content(robots.clone(), &branch, landed)).then_some(NewsEvent::ShownReviewLanded { branch, number })
       }
-    })
-    .collect()
+      ShownState::Extending { .. } => {
+        let fix = pending_fixes(review, &branch, robots.clone()).last().map(|robot| robot.id.clone())?;
+        Some(NewsEvent::ShownReviewFixLanded { branch, number, robot_id: fix })
+      }
+      ShownState::Approved { .. } => Some(NewsEvent::ShownReviewApproved { branch, number }),
+      ShownState::InReview { .. } | ShownState::ChangesRequested { .. } => None,
+    }
+  });
+  let closed = closed_elsewhere(closed, shown, now).into_iter().map(|review| NewsEvent::ShownReviewClosedElsewhere {
+    branch: review.branch.clone(),
+    number: review.number,
+  });
+  open.chain(closed).collect()
 }
 
 /// The comment of a fix that doesn't apply on the commits of a shown review: "Landed a follow-up as 1a2b3c4d5e; it does

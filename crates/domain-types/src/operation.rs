@@ -80,6 +80,9 @@ pub enum Intent {
   /// The shown review of `branch` is closed with a comment that names who approved it, and its branches are deleted
   /// (`operations::shown`); refused unless every reviewer it asked approved, but with `allow_unapproved`
   CloseShownReview { branch: String, allow_unapproved: bool },
+  /// The branches of the shown review `number` of `branch`, closed elsewhere (on GitHub), are deleted where the remote
+  /// still has them at the tips of its pull request (`operations::shown`): a branch gone or moved since stays
+  DeleteClosedShownReview { branch: String, number: u32 },
   /// The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
   /// robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
   /// (`domain_policy::landed::pull_requests_to_close`)
@@ -170,6 +173,7 @@ impl Intent {
       Self::OpenShownReview { .. } => OperationKind::OpenShownReview,
       Self::ExtendShownReview { .. } => OperationKind::ExtendShownReview,
       Self::CloseShownReview { .. } => OperationKind::CloseShownReview,
+      Self::DeleteClosedShownReview { .. } => OperationKind::DeleteClosedShownReview,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::ApproveStack { .. } => OperationKind::ApproveStack,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
@@ -199,7 +203,11 @@ impl Intent {
       Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
         Some(subject.key())
       }
-      Self::LinkStack { branch } | Self::OpenShownReview { branch, .. } | Self::ExtendShownReview { branch } | Self::CloseShownReview { branch, .. } => Some(branch.clone()),
+      Self::LinkStack { branch }
+      | Self::OpenShownReview { branch, .. }
+      | Self::ExtendShownReview { branch }
+      | Self::CloseShownReview { branch, .. }
+      | Self::DeleteClosedShownReview { branch, .. } => Some(branch.clone()),
       Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }

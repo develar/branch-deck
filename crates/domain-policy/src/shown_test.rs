@@ -1,13 +1,13 @@
 use crate::shown::{
-  ShowCandidates, close_comment, close_refusal, fix_conflict_comment, is_shown, landed_by_content, landed_record, landing_robot, pending_fixes, recorded_landed,
-  recorded_reviewers, review_state, reviewers_record, show_candidates, shown_news, shown_review, state_now, with_record,
+  CLOSED_ELSEWHERE_DELAY, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment, is_shown, landed_by_content, landed_record,
+  landing_robot, pending_fixes, recorded_landed, recorded_reviewers, review_state, reviewers_record, show_candidates, shown_news, shown_review, state_now, with_record,
 };
 use domain_types::code_owners::{GroupMember, OwnerGroup};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landed::{LandedBranch, LandedCommit};
 use domain_types::patronus::PatronusRobot;
 use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, Reviewer, ReviewerState, ShownReview, ShownState};
+use domain_types::pull_request::{ClosedShownReview, PullRequest, Reviewer, ReviewerState, ShownReview, ShownState};
 use domain_types::reason::Reason;
 use domain_types::session::LandedSection;
 use domain_types::session::NewsEvent;
@@ -179,7 +179,7 @@ fn a_draft_opens_once_a_safe_push_of_its_branch_merged_and_an_approved_one_close
   // a robot still running opens nothing, nor does a merged Dry Run
   let dry = merged("dry", PatronusPushMode::DryRun, 4);
   assert_eq!(
-    shown_news(&reviews, &[&running, &dry], &BTreeSet::new()),
+    shown_news(&reviews, &[&running, &dry], &BTreeSet::new(), &[], 0),
     [NewsEvent::ShownReviewApproved {
       branch: "login".to_owned(),
       number: 13
@@ -190,7 +190,7 @@ fn a_draft_opens_once_a_safe_push_of_its_branch_merged_and_an_approved_one_close
     merged("newer", PatronusPushMode::RebaseAutosquash, 2),
   );
   assert_eq!(
-    shown_news(&reviews, &[&older, &newer, &running], &BTreeSet::new()),
+    shown_news(&reviews, &[&older, &newer, &running], &BTreeSet::new(), &[], 0),
     [
       NewsEvent::ShownReviewLanded {
         branch: "auth".to_owned(),
@@ -271,7 +271,7 @@ fn a_fix_that_merged_after_the_review_opened_waits_until_the_review_took_it() {
   assert_eq!(state_now(&open, "auth", [&first, &fix, &next]), ShownState::Extending { robot: "r3".to_owned() });
   let reviews = BTreeMap::from([("auth".to_owned(), open)]);
   assert_eq!(
-    shown_news(&reviews, &[&first, &fix, &next], &BTreeSet::new()),
+    shown_news(&reviews, &[&first, &fix, &next], &BTreeSet::new(), &[], 0),
     [NewsEvent::ShownReviewFixLanded {
       branch: "auth".to_owned(),
       number: 12,
@@ -298,7 +298,7 @@ fn a_fix_that_merged_after_the_review_opened_waits_until_the_review_took_it() {
   );
   let running = robot("r2", Some("auth"), PatronusRobotStatus::Running, 3);
   assert_eq!(
-    shown_news(&BTreeMap::from([("auth".to_owned(), approved.clone())]), &[&first, &running], &BTreeSet::new()),
+    shown_news(&BTreeMap::from([("auth".to_owned(), approved.clone())]), &[&first, &running], &BTreeSet::new(), &[], 0),
     []
   );
   let extending = ShownReview {
@@ -349,7 +349,7 @@ fn a_draft_whose_branch_the_baseline_landed_opens_while_no_robot_of_it_is_listed
   assert_eq!(landed, BTreeSet::from(["auth".to_owned()]));
   let none: [&PatronusRobot; 0] = [];
   assert_eq!(
-    shown_news(&reviews, &none, &landed),
+    shown_news(&reviews, &none, &landed, &[], 0),
     [NewsEvent::ShownReviewLanded {
       branch: "auth".to_owned(),
       number: 12
@@ -357,5 +357,59 @@ fn a_draft_whose_branch_the_baseline_landed_opens_while_no_robot_of_it_is_listed
   );
   // its robot still runs: it opens once that one merged
   let running = robot("r1", Some("auth"), PatronusRobotStatus::Running, 1);
-  assert_eq!(shown_news(&reviews, &[&running], &landed), []);
+  assert_eq!(shown_news(&reviews, &[&running], &landed, &[], 0), []);
+}
+
+/// The shown review `number` of `branch` closed at 1000, its head and base at `head` and `base` as it ended, the remote's
+/// branches of it at `head_tip` and `base_tip`
+fn closed(branch: &str, number: u32, head_tip: Option<&str>, base_tip: Option<&str>) -> ClosedShownReview {
+  ClosedShownReview {
+    branch: branch.to_owned(),
+    number,
+    url: format!("https://github.com/o/r/pull/{number}"),
+    head_ref_oid: "head".to_owned(),
+    base_ref_oid: "base".to_owned(),
+    closed_at: 1000,
+    head_tip: head_tip.map(str::to_owned),
+    base_tip: base_tip.map(str::to_owned),
+  }
+}
+
+#[test]
+fn a_review_closed_elsewhere_an_hour_ago_loses_the_branches_still_at_its_tips_unless_the_branch_has_an_open_one() {
+  let after = 1000 + CLOSED_ELSEWHERE_DELAY;
+  let auth = closed("auth", 12, Some("head"), Some("base"));
+  // its head moved (a newer review took the name), its base still at its tip: only the base goes
+  let login = closed("login", 13, Some("newer"), Some("base"));
+  // both gone or moved: nothing to delete
+  let gone = closed("gone", 14, None, Some("other"));
+  let all = [auth.clone(), login.clone(), gone.clone()];
+  assert_eq!(closed_remains(&auth), Some((Some("head".to_owned()), Some("base".to_owned()))));
+  assert_eq!(closed_remains(&login), Some((None, Some("base".to_owned()))));
+  assert_eq!(closed_remains(&gone), None);
+  assert_eq!(
+    shown_news(&BTreeMap::new(), &[], &BTreeSet::new(), &all, after),
+    [
+      NewsEvent::ShownReviewClosedElsewhere {
+        branch: "auth".to_owned(),
+        number: 12
+      },
+      NewsEvent::ShownReviewClosedElsewhere {
+        branch: "login".to_owned(),
+        number: 13
+      }
+    ]
+  );
+  // within the hour after its close: nothing yet
+  assert_eq!(closed_elsewhere(&all, &BTreeMap::new(), after - 1), Vec::<&ClosedShownReview>::new());
+  // an open review of auth is listed: its branches stay
+  let open = BTreeMap::from([("auth".to_owned(), shown_review(shown(&[]), &reviewers_record(&logins(&["alice"]))))]);
+  assert_eq!(closed_elsewhere(&all, &open, after), [&login]);
+  // two closed of auth, on the same branches: the newest close deletes them, once
+  let newer = ClosedShownReview {
+    number: 15,
+    closed_at: 1010,
+    ..auth.clone()
+  };
+  assert_eq!(closed_elsewhere(&[newer.clone(), auth], &BTreeMap::new(), after + 10), [&newer]);
 }

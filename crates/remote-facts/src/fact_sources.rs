@@ -54,8 +54,9 @@ pub trait FactSources: Send + Sync + 'static {
   fn closed_reviews<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>, words: String) -> Read<'a, ClosedReviewsResult>;
 
   /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
-  /// search), in the GitHub repository of its worktree; `NotGitHub` without one
-  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult>;
+  /// query), in the GitHub repository of its worktree, with its open shown reviews and, with `closed`, the closed ones
+  /// (`PullRequestsResult::closed_shown_reviews`); `NotGitHub` without one
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey, closed: bool) -> Read<'a, PullRequestsResult>;
 
   /// What the rules of the base `branch` do to the pull requests into it (`branch_rules::read_branch_rules`)
   fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>>;

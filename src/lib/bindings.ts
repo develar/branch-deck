@@ -4446,6 +4446,11 @@ export type Intent =
  */
 ({ kind: "closeShownReview"; branch: string; allowUnapproved: boolean }) & { body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
 /**
+ *  The branches of the shown review `number` of `branch`, closed elsewhere (on GitHub), are deleted where the remote
+ *  still has them at the tips of its pull request (`operations::shown`): a branch gone or moved since stays
+ */
+({ kind: "deleteClosedShownReview"; branch: string; number: number }) & { allowUnapproved?: never; body?: never; bottom?: never; comment?: never; commit?: never; epoch?: never; expected?: never; fetch?: never; keep?: never; key?: never; landing?: never; layers?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; top?: never; verdict?: never } | 
+/**
  *  The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
  *  robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
  *  (`domain_policy::landed::pull_requests_to_close`)
@@ -5945,7 +5950,13 @@ landed: string[] } |
  *  The Safe Push `robot_id` of a fix of `branch` merged after its shown review `number` opened: the app extends the
  *  review (`Intent::ExtendShownReview`), the fix on its head, its reviewers asked again
  */
-{ kind: "shownReviewFixLanded"; branch: string; number: number; robotId: string };
+{ kind: "shownReviewFixLanded"; branch: string; number: number; robotId: string } | 
+/**
+ *  The shown review `number` of `branch` was closed elsewhere (on GitHub) an hour ago or more, and the remote still has
+ *  a branch of it at the tip of its pull request, while no open shown review of the branch is listed
+ *  (`domain_policy::shown::closed_elsewhere`): the app deletes them (`Intent::DeleteClosedShownReview`)
+ */
+{ kind: "shownReviewClosedElsewhere"; branch: string; number: number };
 
 /**
  *  The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which
@@ -6184,7 +6195,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "extend_shown_review" | "close_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "open_shown_review" | "extend_shown_review" | "close_shown_review" | "delete_closed_shown_review" | "submit_review" | "approve_stack" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -6947,6 +6958,12 @@ export type PlannedEffect =
  *  (`Intent::CloseShownReview`)
  */
 { kind: "deleteReview"; branch: string } | 
+/**
+ *  The branches of the shown review of `branch` closed elsewhere are deleted where the remote still has them at `head`
+ *  and `base`, the tips of its pull request (`None`: that branch stays), each leased on that tip
+ *  (`sync_core::review_head::delete_review_at`, `Intent::DeleteClosedShownReview`)
+ */
+{ kind: "deleteReviewAt"; branch: string; head: string | null; base: string | null } | 
 /**
  *  The fixes of `branch` that landed after its shown review `number` opened, by the source revisions of their merged
  *  Safe Pushes (`fixes`, oldest first), are replayed onto the head of the review and pushed, leased on the head the
@@ -9966,6 +9983,11 @@ export type ShownReview = {
 	landed?: string[],
 	/**  What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch) */
 	state: ShownState,
+	/**
+	 *  The remote lacks its base branch (`baseRef` null): a review reopened after a close deleted its branches, of which
+	 *  GitHub restores only the head; its open pushes the base again (`operations::shown::open_plan`)
+	 */
+	baseMissing?: boolean,
 };
 
 /**  What a shown review waits for (`domain_policy::shown::review_state`) */

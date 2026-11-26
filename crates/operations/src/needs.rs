@@ -13,6 +13,8 @@ pub enum FactNeed {
   Robots(RobotsOf),
   /// The open pull requests of the branches and of the whole stacks, one search
   PullRequests,
+  /// The user's closed shown reviews too, in the same query as `PullRequests` (which a need of them reads)
+  ClosedShownReviews,
   /// The merge profiles of the target of the baseline
   Profiles,
   /// The rules of the base `branch`: whether a push dismisses the approvals of a pull request into it
@@ -71,9 +73,12 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
     Intent::Push(push) => vec![FactNeed::Robots(RobotsOf::Subject(push.subject.clone())), FactNeed::PullRequests],
-    Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } | Intent::CloseShownReview { .. } => {
+    Intent::CloseLandedPullRequests { .. } | Intent::OpenShownReview { .. } | Intent::ExtendShownReview { .. } => {
       vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests]
     }
+    // a close of a review closed on GitHub deletes its branches
+    Intent::CloseShownReview { .. } => vec![FactNeed::Robots(RobotsOf::Table), FactNeed::PullRequests, FactNeed::ClosedShownReviews],
+    Intent::DeleteClosedShownReview { .. } => vec![FactNeed::PullRequests, FactNeed::ClosedShownReviews],
     Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::LinkStack { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
       vec![FactNeed::PullRequests]
     }

@@ -34,10 +34,10 @@ function reviewersRecord(...reviewers: string[]): string {
   return `<!-- branch-deck show reviewers: ${reviewers.join(" ")} -->`
 }
 
-/** The open review after landing #12 of auth, ready, its body recording `asked`, its latest reviews `reviewers` */
-function shownReview(asked: string[], reviewers: PullRequest["reviewers"]): NonNullable<GitHubFixture["shown"]>[number] {
+/** The open review after landing #12 of auth (or `patch` of it), ready, its body recording `asked`, its latest reviews `reviewers` */
+function shownReview(asked: string[], reviewers: PullRequest["reviewers"], patch: Partial<PullRequest> = {}): NonNullable<GitHubFixture["shown"]>[number] {
   return {
-    pullRequest: pullRequest(BRANCH, 12, { title: "Add the token", headRefName: HEAD, baseRefName: BASE, reviewers, reviewDecision: "reviewRequired" }),
+    pullRequest: pullRequest(BRANCH, 12, { title: "Add the token", headRefName: HEAD, baseRefName: BASE, reviewers, reviewDecision: "reviewRequired", ...patch }),
     body: `The token of auth.\n\n${reviewersRecord(...asked)}`,
   }
 }
@@ -95,6 +95,22 @@ async function listAgain(page: Page, repo: TestRepositoryBuilder): Promise<void>
 async function listPullRequestsAgain(page: Page, repo: TestRepositoryBuilder): Promise<void> {
   const calls = await repo.getPullRequestCalls()
   await moveClockUntil(repo, 60_000, async () => (await repo.getPullRequestCalls()) > calls, { focus: page, asked: () => repo.getPullRequestCalls() })
+}
+
+/** How many lists of the pull requests asked the closed reviews after landing too (`withClosed`) */
+async function closedListings(repo: TestRepositoryBuilder): Promise<number> {
+  return (await repo.getGitHubLog()).requests.filter(it => (it.body as { variables?: { withClosed?: boolean } } | null)?.variables?.withClosed === true).length
+}
+
+/** The session lists the closed reviews after landing again: its clock moves an hour, the interval of that search */
+async function listClosedAgain(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  const listed = await closedListings(repo)
+  await moveClockUntil(repo, 3_600_000, async () => (await closedListings(repo)) > listed, { focus: page, asked: () => repo.getPullRequestCalls() })
+}
+
+/** The branches of the reviews after landing the remote has */
+async function reviewBranches(repo: TestRepositoryBuilder): Promise<string[]> {
+  return Object.keys(await repo.getRemoteBranches()).filter(name => name.includes("/review/"))
 }
 
 /** The bodies of the writes of the fake GitHub to the pull request `number` (`PATCH pulls/<n>`), in order */
@@ -282,6 +298,32 @@ test.describe("Reviews after landing", () => {
     expect(await gitHubRequests(repo, "POST", "issues", 12, "comments")).toEqual([{ body: "Reviewed after landing: approved by alice. The change is in master." }])
     expect(Object.keys(await repo.getRemoteBranches()).filter(name => name.includes("/review/"))).toEqual([])
     expect(await gitHubRequests(repo, "PATCH", "pulls", 12)).toContainEqual({ state: "closed" })
+  })
+
+  test("should delete the branches of a review after landing closed on GitHub an hour after, and keep them while a newer review of the branch is open", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { repo, head } = await setupOpenReview(page, setupRepo, syncAndWaitForBranches, "requested")
+    expect((await reviewBranches(repo)).sort()).toEqual([BASE, HEAD])
+    const closed = shownReview(["alice"], [reviewer("alice", "requested")], { state: "closed", headRefOid: head })
+
+    // #12 closed on GitHub while the newer #13 of auth is open on the same branches: they are #13's
+    await repo.setPullRequests(gitHub(closed, shownReview(["alice"], [reviewer("alice", "requested")], { number: 13, headRefOid: head })))
+    await listClosedAgain(page, repo)
+    await expect(statusMark(page)).toHaveAccessibleName("In review after landing: waits for alice in #13")
+    expect((await reviewBranches(repo)).sort()).toEqual([BASE, HEAD])
+
+    // #13 closed too: an hour after, the next search of the closed ones deletes what is still at their tips
+    const deleted = nextAnswer(page, "execute")
+    await repo.setPullRequests(gitHub(closed, shownReview(["alice"], [reviewer("alice", "requested")], { number: 13, state: "closed", headRefOid: head })))
+    await listClosedAgain(page, repo)
+    await deleted
+    await expect.poll(() => reviewBranches(repo)).toEqual([])
+    // the pull requests are as GitHub closed them: nothing more is written to them
+    expect(await gitHubRequests(repo, "PATCH", "pulls", "*")).toEqual([])
+    expect(await gitHubRequests(repo, "POST", "issues", "*", "comments")).toEqual([])
   })
 
   test(

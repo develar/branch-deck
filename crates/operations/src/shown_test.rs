@@ -1,11 +1,11 @@
-use crate::shown::{ShownRun, ShownServices, after_run, close_plan, extend_plan, open_plan, run_shown, shown_body, shown_request};
+use crate::shown::{ShownRun, ShownServices, after_run, close_plan, delete_closed_plan, extend_plan, open_plan, run_shown, shown_body, shown_request};
 use domain_policy::shown::{fix_conflict_comment, recorded_landed, recorded_reviewers, shown_review};
 use domain_types::error::ErrorCode;
 use domain_types::fixtures::{asked, pull_request, robot};
 use domain_types::landing::{LandedFix, PlannedEffect};
 use domain_types::operation::{EffectStatus, Intent, PullRequestField, Resource};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState, ShownState};
+use domain_types::pull_request::{ClosedShownReview, PullRequest, PullRequestState, Reviewer, ReviewerState, ShownReview, ShownState};
 use domain_types::reason::Reason;
 use github::fake_github::FakeGitHub;
 use github::fake_repository::{FakeGitHubRepository, FakePull, RepositoryState};
@@ -19,7 +19,7 @@ fn logins(logins: &[&str]) -> Vec<String> {
 }
 
 /// The shown review #12 of auth, its body recording alice and bob
-fn shown(draft: bool, reviewers: Vec<Reviewer>) -> domain_types::pull_request::ShownReview {
+fn shown(draft: bool, reviewers: Vec<Reviewer>) -> ShownReview {
   let pull_request = PullRequest {
     head_ref_name: "user/review/auth/head".to_owned(),
     base_ref_name: "user/review/auth/base".to_owned(),
@@ -239,6 +239,133 @@ fn a_close_waits_for_every_approval_and_deletes_the_branches_of_the_review() {
   );
 }
 
+/// The closed shown review #12 of auth, ended at `head` and `base`, the remote's branches of it at `head_tip`, `base_tip`
+fn closed(head_tip: Option<&str>, base_tip: Option<&str>) -> ClosedShownReview {
+  ClosedShownReview {
+    branch: "auth".to_owned(),
+    number: 12,
+    url: String::new(),
+    head_ref_oid: "head".to_owned(),
+    base_ref_oid: "base".to_owned(),
+    closed_at: 1,
+    head_tip: head_tip.map(str::to_owned),
+    base_tip: base_tip.map(str::to_owned),
+  }
+}
+
+#[test]
+fn a_review_closed_elsewhere_deletes_the_branches_still_at_its_tips_and_a_reopened_one_without_its_base_pushes_it_again() {
+  let plan = delete_closed_plan(&closed(Some("head"), Some("newer")), None).unwrap();
+  assert_eq!(
+    plan.effects,
+    [PlannedEffect::DeleteReviewAt {
+      branch: "auth".to_owned(),
+      head: Some("head".to_owned()),
+      base: None
+    }]
+  );
+  assert_eq!(
+    shown_request("user", &plan.intent, Some(&plan)).resources,
+    [
+      Resource::Ref {
+        name: "user/review/auth/head".to_owned()
+      },
+      Resource::Ref {
+        name: "user/review/auth/base".to_owned()
+      }
+    ]
+  );
+  // nothing left at its tips: nothing to do
+  assert_eq!(delete_closed_plan(&closed(None, Some("newer")), None).unwrap().effects, []);
+  // an open review of auth: its branches are that one's
+  let open = shown(false, vec![reviewer("alice", ReviewerState::Requested, true)]);
+  assert_eq!(
+    delete_closed_plan(&closed(Some("head"), Some("base")), Some(&open)).unwrap_err().code,
+    ErrorCode::NoShownReview
+  );
+
+  // reopened, its base deleted: GitHub restored only the head, so the open pushes the branches first
+  let reopened = ShownReview {
+    base_missing: true,
+    ..shown(false, vec![reviewer("alice", ReviewerState::Approved, false)])
+  };
+  let plan = open_plan(&reopened, "auth", None, false, &[]).unwrap();
+  assert_eq!(
+    plan.effects,
+    [
+      PlannedEffect::PushReview {
+        branch: "auth".to_owned(),
+        tip: reopened.pull_request.head_ref_oid
+      },
+      PlannedEffect::RequestReviewers {
+        number: 12,
+        reviewers: logins(&["bob"])
+      }
+    ]
+  );
+}
+
+/// A review closed on GitHub, listed by the search of the closed ones with what the remote has of its branches: its
+/// delete takes the branches still at the tips of its pull request; once a newer review of auth took the head, the head
+/// stays
+#[tokio::test(flavor = "multi_thread")]
+async fn the_branches_of_a_review_closed_on_github_are_deleted_where_they_are_at_its_tips() {
+  let (repo, fork) = repo_on_origin();
+  let landed = repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  let review = shown(false, Vec::new());
+  let fake_repository = github_of(&repo, &review);
+  let services = services_of(&repo, &fake_repository).await;
+  sync_core::review_head::push_review(&services.git, &services.repository_path, "origin", "user", "auth", &landed, "refs/remotes/origin/master").unwrap();
+  fake_repository.update(|state| {
+    let pull = &mut state.pulls[0].pull_request;
+    pull.state = PullRequestState::Closed;
+    pull.head_ref_oid.clone_from(&landed);
+    pull.author = Some("user".to_owned());
+  });
+  let listed = |services: &ShownServices| {
+    let services = services.clone();
+    async move {
+      remote_facts::pull_requests::list_pull_requests(&services.github, &services.repository_path, &services.repository, "user", true)
+        .await
+        .closed_shown_reviews
+        .unwrap()
+    }
+  };
+  let closed = listed(&services).await;
+  assert_eq!(
+    closed,
+    [ClosedShownReview {
+      branch: "auth".to_owned(),
+      number: 12,
+      url: review.pull_request.url.clone(),
+      head_ref_oid: landed.clone(),
+      base_ref_oid: fork.clone(),
+      closed_at: review.pull_request.updated_at,
+      head_tip: Some(landed.clone()),
+      base_tip: Some(fork.clone()),
+    }]
+  );
+
+  // a newer review of auth took the head since: the base of the closed one goes, the head stays
+  let newer = repo.create_commit("(auth) Rework auth", "auth.txt", "auth 2\n");
+  sync_core::review_head::push_review(&services.git, &services.repository_path, "origin", "user", "auth", &newer, "refs/remotes/origin/master").unwrap();
+  let moved = ClosedShownReview {
+    head_tip: Some(newer.clone()),
+    ..closed[0].clone()
+  };
+  let run = run_shown(&services, &delete_closed_plan(&moved, None).unwrap()).await;
+  assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
+  assert_eq!(
+    (origin_tip(&repo, "user/review/auth/head"), origin_tip(&repo, "user/review/auth/base")),
+    (Some(newer), None)
+  );
+  // both at its tips: both go
+  sync_core::review_head::push_review(&services.git, &services.repository_path, "origin", "user", "auth", &landed, "refs/remotes/origin/master").unwrap();
+  let run = run_shown(&services, &delete_closed_plan(&listed(&services).await[0], None).unwrap()).await;
+  assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
+  assert_eq!((origin_tip(&repo, "user/review/auth/head"), origin_tip(&repo, "user/review/auth/base")), (None, None));
+}
+
 /// The tip of `branch` on the bare origin of `repo`, None for one it lacks
 fn origin_tip(repo: &TestRepo, branch: &str) -> Option<String> {
   tip_in(&repo.path().join(".git/origin.git"), branch)
@@ -401,7 +528,7 @@ fn repo_on_origin() -> (TestRepo, String) {
 
 /// The stateful fake of GitHub of `acme/monorepo` (its user `user`, alice and bob can be asked) with the pull request of
 /// `review`, its body recording alice and bob, whose branches are the ones of the bare origin of `repo`
-fn github_of(repo: &TestRepo, review: &domain_types::pull_request::ShownReview) -> Arc<FakeGitHubRepository> {
+fn github_of(repo: &TestRepo, review: &ShownReview) -> Arc<FakeGitHubRepository> {
   let fake_repository = Arc::new(FakeGitHubRepository::default());
   let origin = repo.path().join(".git/origin.git");
   fake_repository.set_branch_tip(Box::new(move |branch| tip_in(&origin, branch)));

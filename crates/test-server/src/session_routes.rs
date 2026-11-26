@@ -397,7 +397,7 @@ impl FactSources for TestFactSources {
   /// Counted; the listing holds the repository as a command does: its deletion waits for it (the fake reads the heads
   /// from its files). Of branches on no repository of GitHub it answers with no request: the gate of the fake GitHub
   /// holds that answer, as its route holds the listing of one
-  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey, closed: bool) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
       let unasked = matches!(self.services.host().github_repository(key).await, Ok(None));
       if unasked && let Err(error) = self.gate(key, HeldAnswer::PullRequests, "list the pull requests").await {
@@ -408,7 +408,7 @@ impl FactSources for TestFactSources {
         Err(error) => Err(error),
       };
       match held {
-        Ok(_command) => self.services.pull_requests(key).await,
+        Ok(_command) => self.services.pull_requests(key, closed).await,
         Err(error) => PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
       }
     })

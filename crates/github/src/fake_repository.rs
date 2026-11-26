@@ -503,6 +503,33 @@ impl FakeGitHubRepository {
       if query.contains("shown: search(") {
         let shown: Vec<(PullRequest, String)> = state.pulls.iter().map(|pull| (self.resolved(&pull.pull_request, state), pull.body.clone())).collect();
         data["shown"] = shown_search_data(&state.owner, &state.viewer, shown, variables["shown"].as_str().unwrap_or_default());
+        // whether GitHub has the base of each, of a repository whose branches the test answers
+        if self.branch_tip.lock().unwrap().is_some()
+          && let Some(nodes) = data["shown"]["nodes"].as_array_mut()
+        {
+          for node in nodes {
+            let base = node["baseRefName"].as_str().unwrap_or_default().to_owned();
+            node["baseRef"] = self.tip(&base, state).map_or(Value::Null, |oid| json!({"target": {"oid": oid}}));
+          }
+        }
+      }
+      // the closed shown reviews, of a listing that asks them (`@include(if: $withClosed)`)
+      if query.contains("closed: search(") && variables["withClosed"].as_bool() == Some(true) {
+        let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
+        let mut closed = closed_search_data(&state.owner, &state.viewer, pulls, variables["closed"].as_str().unwrap_or_default());
+        if let Some(nodes) = closed["nodes"].as_array_mut() {
+          for node in nodes {
+            for (name, field, oid) in [("headRefName", "headRef", "headRefOid"), ("baseRefName", "baseRef", "baseRefOid")] {
+              let branch = node[name].as_str().unwrap_or_default().to_owned();
+              let tip = self.tip(&branch, state);
+              if node[oid].as_str().is_none_or(str::is_empty) {
+                node[oid] = json!(tip.clone().unwrap_or_default());
+              }
+              node[field] = tip.map_or(Value::Null, |oid| json!({"target": {"oid": oid}}));
+            }
+          }
+        }
+        data["closed"] = closed;
       }
       if let Some(permission) = &state.viewer_permission {
         data["repository"]["viewerPermission"] = json!(permission);
@@ -995,6 +1022,38 @@ pub fn search_data(owner: &str, viewer: &str, mut pull_requests: Vec<PullRequest
   pull_requests.truncate(SEARCH_LIMIT);
   let nodes: Vec<Value> = pull_requests.iter().map(|pull_request| search_node(owner, pull_request)).collect();
   json!({"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}})
+}
+
+/// The `closed` search of the listing (`is:closed author:@me head:<prefix>/review/`): the user's pull requests GitHub
+/// closed or merged whose head starts with the `head:` of `search`, newest first, with what the slim fragment of the
+/// listing reads (the close at the last update); `headRefOid` empty of one that names none, which the caller answers
+/// from the branch of the test, with whether GitHub has the head and the base (`headRef`, `baseRef`)
+pub fn closed_search_data(owner: &str, viewer: &str, mut pulls: Vec<PullRequest>, search: &str) -> Value {
+  let head = search.split_whitespace().find_map(|term| term.strip_prefix("head:")).unwrap_or_default();
+  pulls.retain(|pull_request| {
+    pull_request.state != PullRequestState::Open
+      && pull_request.author.as_deref().is_some_and(|author| author.eq_ignore_ascii_case(viewer))
+      && pull_request.head_ref_name.starts_with(head)
+  });
+  pulls.sort_by_key(|pull_request| std::cmp::Reverse(pull_request.updated_at));
+  pulls.truncate(SEARCH_LIMIT);
+  let nodes: Vec<Value> = pulls
+    .iter()
+    .map(|pull_request| {
+      json!({
+        "number": pull_request.number,
+        "url": pull_request.url,
+        "headRefName": pull_request.head_ref_name,
+        "headRefOid": pull_request.head_ref_oid,
+        "baseRefName": pull_request.base_ref_name,
+        "baseRefOid": "",
+        "closedAt": format_utc_timestamp(pull_request.updated_at),
+        "isCrossRepository": false,
+        "headRepositoryOwner": {"login": owner},
+      })
+    })
+    .collect();
+  json!({"nodes": nodes})
 }
 
 /// The `shown` search of the listing (`is:open author:@me head:<prefix>/review/`) among `pulls` with their bodies: the open

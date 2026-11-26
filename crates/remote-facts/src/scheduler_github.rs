@@ -3,8 +3,8 @@
 
 use super::{InFlight, Input, Reply, SessionFacts};
 use domain_policy::refresh::{
-  FactTiming, ProfilesRead, ReadState, RefreshReason, ServiceState, branch_rules_due, merge_state_computing, profiles_due, pull_requests_due, pull_requests_follows_up,
-  pull_requests_push_recheck_at,
+  FactTiming, ProfilesRead, ReadState, RefreshReason, ServiceState, branch_rules_due, closed_shown_due, merge_state_computing, profiles_due, pull_requests_due,
+  pull_requests_follows_up, pull_requests_push_recheck_at,
 };
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::session::{FactRefreshReason, Version};
@@ -38,6 +38,8 @@ struct PullRequestsSchedule {
   pushed: Vec<PushedHead>,
   /// When the list that looks again after a push starts
   recheck_at: Option<Duration>,
+  /// When the last list that answered the closed shown reviews started (`closed_shown_due`)
+  closed_asked_at: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -75,6 +77,8 @@ pub(super) struct PullRequestsListed {
   /// The version after its patch and the bases whose rules are read
   pub version: Option<Version>,
   pub rule_bases: Vec<String>,
+  /// It asked the closed shown reviews, at the start time of the session clock
+  pub closed_asked_at: Option<Duration>,
 }
 
 impl GitHubSchedule {
@@ -159,12 +163,13 @@ impl SessionFacts {
     schedule.in_flight.start(waiters);
     schedule.list.started_at = Some(now);
     let pushed = std::mem::take(&mut schedule.pushed);
+    let closed = closed_shown_due(now, schedule.closed_asked_at);
     let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
     tokio::spawn(
       async move {
         let listed = match scheduler.port.begin(&key).await {
           Some(ticket) => {
-            let result = scheduler.sources.pull_requests(&key).await;
+            let result = scheduler.sources.pull_requests(&key, closed).await;
             // GitHub shows an old head of a pushed branch, or has not computed whether it can merge a pull request
             let shows_old_head = !recheck && (pushed.iter().any(|head| head.shows_old_head(&result)) || merge_state_computing(&result));
             let availability = Some(result.availability.clone());
@@ -180,6 +185,7 @@ impl SessionFacts {
               shows_old_head,
               version: applied.as_ref().map(|applied| applied.version),
               rule_bases: applied.map_or_default(|applied| applied.rule_bases),
+              closed_asked_at: closed.then_some(now),
             }
           }
           None => PullRequestsListed {
@@ -187,6 +193,7 @@ impl SessionFacts {
             shows_old_head: false,
             version: None,
             rule_bases: Vec::new(),
+            closed_asked_at: None,
           },
         };
         let _ = inbox.send(Input::PullRequests(listed));
@@ -204,6 +211,10 @@ impl SessionFacts {
       Some(PullRequestAvailability::Available { owner, name }) => {
         schedule.off_service = false;
         schedule.retry_at = None;
+        // it answered the closed shown reviews: the next lists ask them an hour after
+        if listed.closed_asked_at.is_some() {
+          schedule.closed_asked_at = listed.closed_asked_at;
+        }
         // the review requests are of the same repository: it need not be resolved again
         self.review_requests.github_repository = Some(format!("{owner}/{name}"));
       }

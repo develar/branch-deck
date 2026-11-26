@@ -856,7 +856,9 @@ names who approved it, and deletes its branches `{prefix}/review/<branch>/head` 
 closes one by itself once every reviewer it asked approved. `brd close-review <branch>` prints `number`, `url`,
 `state`, `approved_by`, `comment`, `closed`; --dry-run closes nothing. Refusals, nothing closed:
 `review_not_approved` (exit 4): a reviewer it asked has not approved (the message names who); --allow-unapproved
-closes it anyway, only when the user says so. `no_shown_review` (exit 4): the branch has no open shown review.
+closes it anyway, only when the user says so. Of a review closed on GitHub it deletes the branches the remote still
+has at the tips of its pull request (`state: closed`, `deleted`). `no_shown_review` (exit 4): the branch has no open
+shown review, nor a closed one whose branches are left.
 ";
 
 /// `brd robot --help`: the robot of a branch and why it failed

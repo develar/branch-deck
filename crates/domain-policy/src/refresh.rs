@@ -44,6 +44,9 @@ pub const START_OPTIONS_TTL: Duration = MINUTE;
 pub const PULL_REQUESTS_MIN_REFRESH_GAP: Duration = MINUTE;
 /// GitHub may show the old head for a moment after a push: one more look after this
 pub const PUSH_RECHECK_DELAY: Duration = Duration::from_secs(5);
+/// A list of the pull requests asks the user's closed shown reviews too at the open of the session and then at most
+/// this often (`closed_shown_due`): their branches are deleted an hour after a close elsewhere, never in a hurry
+pub const CLOSED_SHOWN_INTERVAL: Duration = Duration::from_hours(1);
 /// At most this many subjects are asked for their review readiness at once (Patronus checks each in a request)
 pub const READINESS_PARALLEL: usize = 4;
 /// A readiness Patronus didn't give (unavailable) is asked again after this
@@ -283,6 +286,13 @@ pub fn merge_state_computing(result: &PullRequestsResult) -> bool {
     .values()
     .chain(result.stack_pull_requests.values())
     .any(|pull_request| pull_request.state == PullRequestState::Open && pull_request.merge_state == Some(MergeStateStatus::Unknown))
+}
+
+/// A list of the pull requests that starts at `now` asks the closed shown reviews too: the first of the session, then
+/// one `CLOSED_SHOWN_INTERVAL` after the last list that answered them (`asked_at`, when it started)
+#[must_use]
+pub fn closed_shown_due(now: Duration, asked_at: Option<Duration>) -> bool {
+  elapsed(now, asked_at) >= CLOSED_SHOWN_INTERVAL
 }
 
 /// After the list a push asked: when GitHub still shows an old head for a pushed branch, one more list (a push) at

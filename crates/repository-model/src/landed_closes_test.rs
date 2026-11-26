@@ -41,6 +41,7 @@ fn facts_of(table: BranchTable, pull_requests: Vec<PullRequest>) -> FactStore {
       stack_pull_requests: BTreeMap::new(),
       github_stacks: false,
       shown_reviews: BTreeMap::new(),
+      closed_shown_reviews: None,
     }),
   );
   facts

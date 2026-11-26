@@ -127,7 +127,7 @@ async fn the_reads_without_a_service_answer_why() {
   );
   assert_eq!(sources.problems(&key, "1".to_string()).await.unwrap_err().code, ErrorCode::NotLoggedIn);
   assert_eq!(
-    sources.pull_requests(&key).await.availability,
+    sources.pull_requests(&key, false).await.availability,
     PullRequestAvailability::Error {
       message: "No GitHub service".to_string()
     }

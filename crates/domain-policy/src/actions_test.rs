@@ -2271,6 +2271,7 @@ fn shown_review(draft: bool) -> ShownReview {
         waiting: vec!["alice".to_string()],
       }
     },
+    base_missing: false,
   }
 }
 

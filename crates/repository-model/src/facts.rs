@@ -470,21 +470,25 @@ pub struct FactStore {
   /// The branches the baseline landed whole by content while the robots are known (`tell_shown_of`): a draft of one
   /// of them whose robot is not listed opens
   shown_landed: BTreeSet<String>,
+  /// The latest time an answer of the listing or the robots was observed at (Unix seconds): a shown review closed
+  /// elsewhere loses its branches an hour after its close (`domain_policy::shown::closed_elsewhere`)
+  shown_now: u32,
 }
 
 /// A news of a shown review the session told, by the number of the review: its open, its extend by the fix of a robot,
-/// its close
+/// its close, the delete of the branches of one closed elsewhere
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ShownTold {
   Landed(u32),
   Fix(u32, String),
   Approved(u32),
+  ClosedElsewhere(u32),
 }
 
 impl ShownTold {
   const fn number(&self) -> u32 {
     match self {
-      Self::Landed(number) | Self::Fix(number, _) | Self::Approved(number) => *number,
+      Self::Landed(number) | Self::Fix(number, _) | Self::Approved(number) | Self::ClosedElsewhere(number) => *number,
     }
   }
 }
@@ -519,6 +523,7 @@ impl FactStore {
       told_shown: BTreeSet::new(),
       shown_failures: BTreeMap::new(),
       shown_landed: BTreeSet::new(),
+      shown_now: 0,
     }
   }
 
@@ -636,6 +641,7 @@ impl FactStore {
   pub fn apply(&mut self, observation: Observation, result: FactResult) -> bool {
     match result {
       FactResult::Robots { read, result } => {
+        self.shown_now = self.shown_now.max(observation.observed_at);
         let mut finished = Vec::new();
         let changed = self.robots.answer(observation, read, result, &mut finished);
         self.finished(finished);
@@ -653,6 +659,7 @@ impl FactStore {
         changed
       }
       FactResult::PullRequests(mut result) => {
+        self.shown_now = self.shown_now.max(observation.observed_at);
         // settled as the session keeps them, so an unchanged listing changes nothing
         let robots: Vec<&PatronusRobot> = self.robots.view().robots.values().collect();
         settle_shown(&mut result.shown_reviews, &robots);
@@ -882,16 +889,23 @@ impl FactStore {
   /// The shown reviews as the robots of their branches leave them (`domain_policy::shown::state_now`): a fix that lands
   /// is waited for. Then the news of the shown reviews the listing, the robots and the landings by content tell now
   /// (`domain_policy::shown::shown_news`), each once: a draft whose branch landed opens, one a fix landed after it
-  /// opened extends, an approved one closes
+  /// opened extends, an approved one closes, one closed elsewhere an hour ago loses its branches
   pub(crate) fn tell_shown(&mut self) {
     let robots: Vec<&PatronusRobot> = self.robots.view().robots.values().collect();
     self.pull_requests.settle_shown(&robots);
-    let news = shown_news(&self.pull_requests.view().shown_reviews, &robots.iter().copied(), &self.shown_landed);
+    let news = shown_news(
+      &self.pull_requests.view().shown_reviews,
+      &robots.iter().copied(),
+      &self.shown_landed,
+      self.pull_requests.closed_shown(),
+      self.shown_now,
+    );
     for event in news {
       let key = match &event {
         NewsEvent::ShownReviewLanded { number, .. } => ShownTold::Landed(*number),
         NewsEvent::ShownReviewFixLanded { number, robot_id, .. } => ShownTold::Fix(*number, robot_id.clone()),
         NewsEvent::ShownReviewApproved { number, .. } => ShownTold::Approved(*number),
+        NewsEvent::ShownReviewClosedElsewhere { number, .. } => ShownTold::ClosedElsewhere(*number),
         _ => continue,
       };
       if self.told_shown.insert(key) {

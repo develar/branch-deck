@@ -427,6 +427,37 @@ pub struct PullRequestsResult {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub shown_reviews: BTreeMap<String, ShownReview>,
+  /// The shown reviews of the user closed in the last days (`is:closed`, by GitHub or anyone), each with what the remote
+  /// still has of its branches, of a listing that asked them (the session asks them at its open and about once an hour,
+  /// `domain_policy::refresh::closed_shown_due`); `None` of one that didn't
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub closed_shown_reviews: Option<Vec<ClosedShownReview>>,
+}
+
+/// A shown review of the user closed (on GitHub, by anyone), as the listing names it: whose branches the remote still
+/// has at the tips of its pull request are deleted (`domain_policy::shown::closed_elsewhere`,
+/// `Intent::DeleteClosedShownReview`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ClosedShownReview {
+  /// The virtual branch it reviewed
+  pub branch: String,
+  pub number: u32,
+  pub url: String,
+  /// The tips of its head and its base as the pull request ended (`headRefOid`, `baseRefOid`)
+  pub head_ref_oid: String,
+  pub base_ref_oid: String,
+  /// Unix seconds
+  pub closed_at: u32,
+  /// The tips the remote has of its head and its base branch now (`headRef`, `baseRef`); `None` for a branch it lacks
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub head_tip: Option<String>,
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub base_tip: Option<String>,
 }
 
 impl PullRequestsResult {
@@ -439,6 +470,7 @@ impl PullRequestsResult {
       stack_pull_requests: BTreeMap::new(),
       github_stacks: false,
       shown_reviews: BTreeMap::new(),
+      closed_shown_reviews: None,
     }
   }
 }
@@ -463,6 +495,11 @@ pub struct ShownReview {
   pub landed: Vec<String>,
   /// What it waits for (`domain_policy::shown::review_state`, then `state_now` with the robots of the branch)
   pub state: ShownState,
+  /// The remote lacks its base branch (`baseRef` null): a review reopened after a close deleted its branches, of which
+  /// GitHub restores only the head; its open pushes the base again (`operations::shown::open_plan`)
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub base_missing: bool,
 }
 
 /// The line of the body of a shown review that records whom it asks, an HTML comment GitHub doesn't show and that

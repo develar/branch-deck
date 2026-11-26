@@ -2208,7 +2208,8 @@ has, asks the reviewers again and records the fix in the body (`shown.extended`:
 fix that doesn't apply on its commits and is named in a comment instead); `--reviewer` adds reviewers to the review
 and its record. While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
 [--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
-its branches. Refusals (exit 4): `approvals_required`, `pull_request_open`, `show_lands_stack`, `show_needs_patronus`,
+its branches; of a review closed on GitHub it deletes the branches the remote still has at the tips of its pull request
+(`state: closed`, `deleted`), as the app does an hour after such a close. Refusals (exit 4): `approvals_required`, `pull_request_open`, `show_lands_stack`, `show_needs_patronus`,
 `no_reviewer` (the start); `no_shown_review` (no merged Safe Push yet, or no open review); `review_not_approved` (the
 close; `--allow-unapproved` only on the user's word, never a next step).
 

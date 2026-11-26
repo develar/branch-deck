@@ -47,6 +47,7 @@ fn available(pull_requests: BTreeMap<String, PullRequest>, stack_pull_requests: 
     stack_pull_requests,
     github_stacks: false,
     shown_reviews: BTreeMap::new(),
+    closed_shown_reviews: None,
   }
 }
 
@@ -528,7 +529,7 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
   };
   let listing = tokio::spawn({
     let (state, key) = (std::sync::Arc::clone(&state), key.clone());
-    async move { TestFactSources::new(&state).pull_requests(&key).await }
+    async move { TestFactSources::new(&state).pull_requests(&key, false).await }
   });
   until_arrived(&client, addr, &id, "pullRequests").await;
   let requests = tokio::spawn(async move { review_requests_of(&state, &key, false).await });

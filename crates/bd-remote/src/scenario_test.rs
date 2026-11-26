@@ -1187,7 +1187,7 @@ impl<'c> AppSession<'c> {
     let baseline = self.state.header().baseline_branch.clone();
     let github = self.github.clone();
     let listed = match &github {
-      Some(repository) => runtime.block_on(list_open_pull_requests(&github_service, &context.repository, repository, &context.prefix)),
+      Some(repository) => runtime.block_on(list_open_pull_requests(&github_service, &context.repository, repository, &context.prefix, false)),
       None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
     };
     self.apply(FactResult::PullRequests(listed));
