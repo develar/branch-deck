@@ -1,4 +1,4 @@
-use super::{panics_reach, stamped};
+use super::{log_to, panics_reach, stamped, supervisor_after_end_to};
 use pretty_assertions::assert_eq;
 use std::io::{self, Write};
 use std::sync::{Mutex, PoisonError};
@@ -60,4 +60,25 @@ fn a_line_of_the_log_starts_with_the_local_time_to_the_millisecond() {
     .to_zoned_datetime(jiff::tz::TimeZone::UTC)
     .unwrap();
   assert_eq!(stamped(&now, "brd-host: started the run 1-1"), "2026-11-19 07:10:02.123 brd-host: started the run 1-1\n");
+}
+
+/// A note of the files of the heavy queue reaches the log of the agent: a line of `serve` (an estimate) and a line of a
+/// supervisor, into `supervisor.log` and with the id of the run into the log of the agent
+#[test]
+fn a_note_of_the_heavy_queue_reaches_the_log_of_the_agent() {
+  let note = "/h/.cache/brd-host/heavy/groups.json does not parse (EOF while parsing a value at line 1 column 0): the heavy queue takes its groups from the runs anew, and every waiting run may be passed 8 times again";
+  let lines = |bytes: Vec<u8>| {
+    String::from_utf8(bytes)
+      .unwrap()
+      .lines()
+      .map(|line| line.split_once(' ').unwrap().1.split_once(' ').unwrap().1.to_owned())
+      .collect::<Vec<_>>()
+  };
+  let mut serve = Vec::new();
+  log_to(&mut serve, note);
+  assert_eq!(lines(serve), [format!("brd-host: {note}")]);
+  let (mut supervisor, mut agent) = (Vec::new(), Vec::new());
+  supervisor_after_end_to(&mut supervisor, &mut agent, "1-2", note);
+  assert_eq!(lines(supervisor), [format!("brd-host supervise: {note}")]);
+  assert_eq!(lines(agent), [format!("brd-host supervise 1-2: {note}")]);
 }

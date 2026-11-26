@@ -266,7 +266,9 @@ while it ran, and `bt --lane fast` alone held a load of 77 to 122, as Bazel coun
   the turn refuse, as only a join rewrites the file and a refusal would keep the heavy turn of the host down: the file
   of the first build of the groups (no `schema`, a number of `passes` per run), which the Studio had and the
   supervisors of that build write again after an upgrade, keeps its groups and the runs each went ahead of, which mean
-  the same, and only the passes of the runs that took the turn before are lost; a file of a later schema, after a
+  the same, and only the passes of the runs that took the turn are lost: each live supervisor of that build rewrites
+  the file in its shape at its leave, so the loss repeats through the window of the upgrade, until the last of them
+  ends; a file of a later schema, after a
   downgrade, and one that does not parse name no group and no pass and give every waiting run its whole budget again,
   which the log of the agent and the line of the run say. The count of the passes of a run is derived from it and the queue, never kept as a number: a run that leaves
   without the turn, by a cancel, a start of `admit_now` refused `busy`, the end of its process or a failed write of the

@@ -2971,13 +2971,17 @@ per group. The turns MUST keep none of the short lane's state.
   alone: the queue goes on and no run is lost
 - **AND** no `groups.json` of any build makes the turn refuse: the file of the first build of the groups (no `schema`,
   a number of `passes` per run), which a host that ran it has and its supervisors write again after an upgrade, keeps
-  its groups and the runs each went ahead of, and the passes of the runs that took the turn before count no more; a
+  its groups and the runs each went ahead of, and the passes of the runs that took the turn count no more: as each
+  live supervisor of that build rewrites the file in its shape at its leave, the loss repeats through the window of
+  the upgrade, until the last of them ends; a
   file of a later schema, after a downgrade, and one that does not parse name no group and no pass, and every waiting
   run gets its whole budget of 8 again; the next join writes the file of this schema; a field of a mark that the build
   does not know is ignored
 - **AND** of those two the log of the agent (`~/Library/Logs/brd-host.log`) and the log of the run that read it say
   `<path> has the schema <n> of a later build of brd-host, and this one reads 1: …` or `<path> does not parse (…): …`
-  [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`, `the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that_does_not_parse_starts_anew`, `the_groups_of_the_first_build_of_the_groups_keep_their_turns_after_an_upgrade`, `a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept`)
+  [@test] crates/lease-pool/src/host_turn_test.rs (`a_rewrite_by_an_older_build_changes_no_turn_and_without_the_groups_a_run_is_of_its_checkout`, `the_groups_of_the_queue_name_their_schema_and_a_file_of_a_later_build_or_that_does_not_parse_starts_anew`, `the_groups_of_the_first_build_of_the_groups_keep_their_turns_after_an_upgrade`, `a_mark_of_the_groups_with_a_field_or_a_value_this_build_does_not_read_keeps_its_group_and_passes`)
+  [@test] crates/host-agent/src/turn_test.rs (`a_note_of_the_groups_of_the_queue_reaches_the_line_of_the_run_and_the_log_of_the_agent`)
+  [@test] crates/host-agent/src/log_test.rs (`a_note_of_the_heavy_queue_reaches_the_log_of_the_agent`)
 
 #### Scenario: A priority inside a group
 - **WHEN** a run of `--priority high` joins after runs of its group that wait with `normal`, or `brd-host prioritize`

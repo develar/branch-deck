@@ -239,10 +239,7 @@ fn take_with(home: &Home, of: &TurnRun<'_>, wait: Duration, lock_timeout: Durati
     }
   };
   lock_line.ended();
-  // the log of the agent, `~/Library/Logs/brd-host.log`, which outlives the run
-  for note in &joined.notes {
-    crate::log::supervisor_after_end(of.run, note);
-  }
+  log_notes(of.run, &joined, &mut crate::log::supervisor_after_end);
   for said in joined_lines(&joined, now_ms()) {
     say(&said);
   }
@@ -351,6 +348,14 @@ pub(crate) fn wait_for_measurement(home: &Home, run: &str, wait: Duration, stop:
 
 /// How often a run that waits for a measurement looks at the turn: the end of the holder makes no event it would see
 const MEASUREMENT_LOOK: Duration = Duration::from_millis(500);
+
+/// Writes each note of the files of the queue that the first ask of the run `run` read (`Joined::notes`) through `log`:
+/// the log of the agent, `~/Library/Logs/brd-host.log`, which outlives the run (`log::supervisor_after_end`)
+pub(crate) fn log_notes(run: &str, joined: &Joined, log: &mut dyn FnMut(&str, &str)) {
+  for note in &joined.notes {
+    log(run, note);
+  }
+}
 
 /// The lines of what the first ask of a run did to the queue at `now_ms`: each run of its checkout that it superseded
 /// (of the same command, or of another commit with the same measures), each other run of the checkout that waits, the

@@ -15,7 +15,12 @@ use std::panic;
 
 /// A line of the log of `serve`
 pub(crate) fn log(message: &str) {
-  write_line(&mut std::io::stderr(), &format!("brd-host: {message}"));
+  log_to(&mut std::io::stderr(), message);
+}
+
+/// The line of `message` of the log of `serve` into `out`
+fn log_to(out: &mut impl Write, message: &str) {
+  write_line(out, &format!("brd-host: {message}"));
 }
 
 /// A line of the log of a supervisor
@@ -26,8 +31,13 @@ pub(crate) fn supervisor(message: &str) {
 /// A line of the supervisor of `run` into `supervisor.log`, and with the id of the run into the log of the agent, where it
 /// stays after the client forgot the run: a line after the end of the run, and a note of the files of the heavy queue
 pub(crate) fn supervisor_after_end(run: &str, message: &str) {
-  supervisor(message);
-  agent_log_line(&mut std::io::stdout(), run, message);
+  supervisor_after_end_to(&mut std::io::stderr(), &mut std::io::stdout(), run, message);
+}
+
+/// `supervisor_after_end` into `supervisor`, `supervisor.log`, and `agent`, the log of the agent
+fn supervisor_after_end_to(supervisor: &mut impl Write, agent: &mut impl Write, run: &str, message: &str) {
+  write_line(supervisor, &format!("brd-host supervise: {message}"));
+  agent_log_line(agent, run, message);
 }
 
 /// The line of the supervisor of `run` in the log of the agent, `out`

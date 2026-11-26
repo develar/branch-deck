@@ -680,3 +680,47 @@ fn a_run_is_expected_by_its_command_its_program_or_the_cores_the_host_assumes() 
     ]
   );
 }
+
+/// A note of the files of the heavy queue that the first ask of a run read, a `groups.json` that does not parse, reaches
+/// the line of the run (`joined_lines`, said at once) and the log of the agent (`log_notes`, through
+/// `log::supervisor_after_end` with the id of the run)
+#[test]
+fn a_note_of_the_groups_of_the_queue_reaches_the_line_of_the_run_and_the_log_of_the_agent() {
+  let dir = tempfile::tempdir().unwrap();
+  let home = Home::new(dir.path().to_path_buf());
+  let command = vec!["pnpm".to_owned(), "e2e".to_owned()];
+  let at_once = || true;
+  let mut quiet = |_: &str| {};
+  let run = |run| TurnRun {
+    run,
+    repo: "/r/branch-deck",
+    affinity: run,
+    command: &command,
+    cores: 20,
+    ..TurnRun::default()
+  };
+  assert_eq!(take(&home, &run("run-1"), Duration::from_mins(1), &at_once, &mut quiet).unwrap(), Some(TurnAnswer::Taken));
+  std::fs::write(home.heavy_dir().join("groups.json"), "{").unwrap();
+  let mut said = Vec::new();
+  take(&home, &run("run-2"), Duration::from_mins(1), &at_once, &mut |line| said.push(line.to_owned())).unwrap();
+  assert!(
+    said
+      .iter()
+      .any(|line| line.contains("groups.json does not parse") && line.ends_with("every waiting run may be passed 8 times again")),
+    "{said:?}"
+  );
+
+  let joined = Joined {
+    answer: TurnAnswer::Taken,
+    replaced: Vec::new(),
+    beside: Vec::new(),
+    short: None,
+    passed: Vec::new(),
+    notes: vec!["groups.json has the schema 2 of a later build of brd-host".to_owned()],
+    prioritized: Vec::new(),
+  };
+  assert_eq!(joined_lines(&joined, 0), joined.notes, "the line of the run");
+  let mut logged = Vec::new();
+  log_notes("run-3", &joined, &mut |run, note| logged.push((run.to_owned(), note.to_owned())));
+  assert_eq!(logged, [("run-3".to_owned(), joined.notes[0].clone())], "the log of the agent, by the id of the run");
+}

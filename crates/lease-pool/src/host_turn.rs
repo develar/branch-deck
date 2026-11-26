@@ -821,9 +821,10 @@ impl QueueGroups {
 /// mark that this build does not know, as a later build of the same schema adds one, is ignored:
 /// - a missing file names no group: each run is of the group of its entry, never passed;
 /// - a file of the first build of the groups, without `schema` and with a number of `passes` per run, keeps its groups
-///   and the runs each went ahead of, which mean the same here; the turns taken before are unknown, so the passes of the
-///   runs that took them count no more, and the waiting runs may be passed that many times again. A supervisor of that
-///   build that rewrites the file after an upgrade writes the same shape, which reads so again;
+///   and the runs each went ahead of, which mean the same here; the turns taken are unknown, so the passes of the runs
+///   that took them count no more, and the waiting runs may be passed that many times again. A supervisor of that build
+///   that still lives after an upgrade rewrites the file in its shape at its leave, which reads so again, so that loss
+///   repeats through the window of the upgrade, until the last of them ends;
 /// - a file of a later schema, after a downgrade, and a file that does not parse, as a power loss can leave it, name no
 ///   group and no pass: every waiting run gets its whole budget again, the note says so, and the next join writes the
 ///   file of this schema

@@ -1933,14 +1933,14 @@ fn a_run_of_the_turns_that_is_gone_or_whose_table_write_failed_counts_no_pass() 
 }
 
 /// A mark of `groups.json` of this schema with a field that this build does not know, as a later build of the same
-/// schema adds one, or a value of a field it knows that it does not read, is read with its marks kept: no field of a mark
-/// makes the file refuse or start anew
+/// schema adds one, or a value of a field it knows that it does not read, keeps its group and the runs it passed: the
+/// field is ignored, the value is none, and neither makes the file refuse or start anew
 #[test]
-fn a_mark_of_the_groups_with_a_field_this_build_does_not_know_is_read_and_kept() {
+fn a_mark_of_the_groups_with_a_field_or_a_value_this_build_does_not_read_keeps_its_group_and_passes() {
   let dir = tempfile::tempdir().unwrap();
   std::fs::write(
     dir.path().join(GROUPS_FILE),
-    r#"{"schema":1,"runs":{"s2":{"group":"session","priority":3,"commit":"1a2b"},"o1":{"group":"o1","passed":["s2"],"measure_key":"k"}}}"#,
+    r#"{"schema":1,"runs":{"s2":{"group":"session","priority":3,"commit":"1a2b","later":{"of":"a later build"}},"o1":{"group":"o1","passed":["s2"],"measure_key":"k"}}}"#,
   )
   .unwrap();
   let (groups, note) = read_groups(dir.path());
